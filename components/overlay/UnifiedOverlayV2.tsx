@@ -2070,7 +2070,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Open unified schedule modal with current habit state
   const openScheduleModal = useCallback(() => {
-    const currentFreq = jsonToFrequency(state.habit.frequency_json);
+    const currentFreq = jsonToFrequency(
+      localScheduleSnapshot.current?.frequency_json ?? state.habit.frequency_json,
+    );
     setScheduleModalState({
       frequencyTab: currentFreq.mode,
       frequencyJson: state.habit.frequency_json,
@@ -2108,7 +2110,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // Dispatch all updates
     console.log('[Schedule] Applying:', JSON.stringify(newFrequencyJson));
     hasLocalScheduleChanges.current = true;
+
+    // Derive schedule string from frequency_json
+    let derivedSchedule: HabitState['schedule'] = 'custom';
+    if (newFrequencyJson?.type === 'simple') {
+      const val = newFrequencyJson.value;
+      if (val === 'daily') derivedSchedule = 'daily';
+      else if (val === 'weekly') derivedSchedule = 'weekly';
+      else derivedSchedule = 'custom';
+    } else if (newFrequencyJson?.type === 'custom') {
+      const unit = newFrequencyJson.value?.unit;
+      if (unit === 'day') derivedSchedule = 'daily';
+      else if (unit === 'week') derivedSchedule = 'weekly';
+      else derivedSchedule = 'custom';
+    }
+
     localScheduleSnapshot.current = {
+      schedule: derivedSchedule,
       frequency_json: newFrequencyJson,
       start_date: scheduleModalState.startDate,
       end_date: scheduleModalState.endDate,
@@ -4205,13 +4223,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         if (__DEV__ && s.spaceId === null) {
           console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
         }
-        const daysActiveFromJson = extractDaysActiveFromFrequencyJson(s.habit.frequency_json);
+        const effectiveFreqJson =
+          localScheduleSnapshot.current?.frequency_json ?? s.habit.frequency_json;
+        const effectiveSchedule = localScheduleSnapshot.current?.schedule ?? s.habit.schedule;
+        const daysActiveFromJson = extractDaysActiveFromFrequencyJson(effectiveFreqJson);
         console.log('[Save] FINAL frequency payload (edit):', {
-          frequency: s.habit.schedule,
-          frequency_json: s.habit.frequency_json,
-          cadenceFields: frequencyJsonToCadenceFields(s.habit.frequency_json, s.habit.schedule),
+          frequency: effectiveSchedule,
+          frequency_json: effectiveFreqJson,
+          cadenceFields: frequencyJsonToCadenceFields(effectiveFreqJson, effectiveSchedule),
           localScheduleDirty: hasLocalScheduleChanges.current,
           days_active: daysActiveFromJson,
+          usedSnapshot: !!localScheduleSnapshot.current?.frequency_json,
         });
         // Calculate buffers when time estimate changes
         const habitBuffers = calculateBuffers(
@@ -4221,11 +4243,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         );
         return {
           type: 'habit' as const,
-          ...canonical, // Spread canonical fields (title, name, notes, tags, tags_meta, canonicalType, labels)
-          frequency: s.habit.schedule ?? 'custom',
-          frequency_value: s.habit.frequency_json ?? null, // Maps to frequency_json column
-          ...frequencyJsonToCadenceFields(s.habit.frequency_json, s.habit.schedule), // Set cadence/target_per_period
-          days_active: daysActiveFromJson, // Extract days from custom_days frequency
+          ...canonical,
+          frequency: effectiveSchedule ?? 'custom',
+          frequency_value: effectiveFreqJson ?? null,
+          ...frequencyJsonToCadenceFields(effectiveFreqJson, effectiveSchedule),
+          days_active: daysActiveFromJson,
           subtype: s.habit.subtype ?? 'start_habit', // Build/Break habit mode
           space_id: resolvedSpaceId3,
           origin: 'catchall' as const,
@@ -4251,13 +4273,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (__DEV__ && s.spaceId === null) {
         console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
       }
-      const daysActiveFromJson2 = extractDaysActiveFromFrequencyJson(s.habit.frequency_json);
+      const effectiveFreqJson2 =
+        localScheduleSnapshot.current?.frequency_json ?? s.habit.frequency_json;
+      const effectiveSchedule2 = localScheduleSnapshot.current?.schedule ?? s.habit.schedule;
+      const daysActiveFromJson2 = extractDaysActiveFromFrequencyJson(effectiveFreqJson2);
       console.log('[Save] FINAL frequency payload (create):', {
-        frequency: s.habit.schedule,
-        frequency_json: s.habit.frequency_json,
-        cadenceFields: frequencyJsonToCadenceFields(s.habit.frequency_json, s.habit.schedule),
+        frequency: effectiveSchedule2,
+        frequency_json: effectiveFreqJson2,
+        cadenceFields: frequencyJsonToCadenceFields(effectiveFreqJson2, effectiveSchedule2),
         localScheduleDirty: hasLocalScheduleChanges.current,
         days_active: daysActiveFromJson2,
+        usedSnapshot: !!localScheduleSnapshot.current?.frequency_json,
       });
       // Calculate buffers when time estimate changes
       const habitBuffers2 = calculateBuffers(
@@ -4269,10 +4295,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         type: 'habit' as const,
         title: s.habit.title || firstLine(s.habit.notes) || 'Untitled',
         notes: s.habit.notes || null,
-        frequency: s.habit.schedule ?? 'custom',
-        frequency_value: s.habit.frequency_json ?? null, // Maps to frequency_json column
-        ...frequencyJsonToCadenceFields(s.habit.frequency_json, s.habit.schedule), // Set cadence/target_per_period
-        days_active: daysActiveFromJson2, // Extract days from custom_days frequency
+        frequency: effectiveSchedule2 ?? 'custom',
+        frequency_value: effectiveFreqJson2 ?? null,
+        ...frequencyJsonToCadenceFields(effectiveFreqJson2, effectiveSchedule2),
+        days_active: daysActiveFromJson2,
         subtype: s.habit.subtype ?? 'start_habit', // Build/Break habit mode
         space_id: resolvedSpaceId4,
         origin: 'catchall' as const,
@@ -5539,7 +5565,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
                 }}
               >
-                {getFrequencyLabel(jsonToFrequency(state.habit.frequency_json))}
+                {getFrequencyLabel(
+                  jsonToFrequency(
+                    localScheduleSnapshot.current?.frequency_json ?? state.habit.frequency_json,
+                  ),
+                )}
               </Text>
             </View>
           )}
@@ -7419,7 +7449,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         >
                                           {[
                                             getFrequencyLabel(
-                                              jsonToFrequency(state.habit.frequency_json),
+                                              jsonToFrequency(
+                                                localScheduleSnapshot.current?.frequency_json ??
+                                                  state.habit.frequency_json,
+                                              ),
                                             ),
                                             state.habit.time_estimate_minutes &&
                                               `~${state.habit.time_estimate_minutes}m`,
