@@ -55,6 +55,9 @@ import {
   TrendingDown,
   BarChart3,
   X,
+  Sun,
+  CloudSun,
+  Moon,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -356,6 +359,29 @@ const TIME_WINDOW_OPTIONS: {
 ];
 
 // Multi-photo support for logs (Phase L5)
+
+// ── Schedule Modal Premium Design Constants ──
+const SCHEDULE_BG_MUTED = '#F5F2ED';
+const SCHEDULE_GREEN = '#2D4A3E';
+const SCHEDULE_TEXT_MUTED = '#8B8579';
+const SCHEDULE_TEXT_DIM = '#B5AFA5';
+const SCHEDULE_DIVIDER = '#E8E4DE';
+
+const DURATION_STEPS = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240] as const;
+
+const SCHEDULE_PRESETS: {
+  label: string;
+  count: number;
+  unit: 'day' | 'week' | 'month';
+  days: number[];
+}[] = [
+  { label: 'Every day', count: 1, unit: 'day', days: [] },
+  { label: 'Weekdays', count: 5, unit: 'week', days: [1, 2, 3, 4, 5] },
+  { label: '3×/week', count: 3, unit: 'week', days: [] },
+  { label: 'Weekly', count: 1, unit: 'week', days: [] },
+  { label: 'Monthly', count: 1, unit: 'month', days: [] },
+];
+
 type LogPhoto = {
   id?: string; // existing DB row id (for edit mode)
   url: string; // public URL or storage path (or local file URI for new photos)
@@ -1625,18 +1651,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Preset time picker state
   const [selectedTimePreset, setSelectedTimePreset] = useState<string | 'custom' | null>(null);
   const [showCustomTimePicker, setShowCustomTimePicker] = useState(false);
-  // Frequency picker state (legacy modal — now reads from scheduleModalState)
-  const [showFrequencyModal, setShowFrequencyModal] = useState(false);
   // Unified Schedule Modal state
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showScheduleStartDatePicker, setShowScheduleStartDatePicker] = useState(false);
   const [showScheduleEndDatePicker, setShowScheduleEndDatePicker] = useState(false);
   const [scheduleModalState, setScheduleModalState] = useState({
-    frequencyTab: 'simple' as 'simple' | 'days' | 'custom',
-    frequencyJson: null as any,
     selectedDays: [] as number[],
-    customCount: '1',
-    customUnit: 'week' as 'day' | 'week' | 'month',
+    count: 1,
+    unit: 'day' as 'day' | 'week' | 'month',
     startDate: null as string | null,
     endDate: null as string | null,
     timeWindow: null as string | null,
@@ -2073,12 +2095,26 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const currentFreq = jsonToFrequency(
       localScheduleSnapshot.current?.frequency_json ?? state.habit.frequency_json,
     );
+    // Map frequency config to unified count/unit/days
+    let initCount = 1;
+    let initUnit: 'day' | 'week' | 'month' = 'day';
+    let initDays: number[] = [];
+    if (currentFreq.mode === 'simple') {
+      initCount = 1;
+      initUnit =
+        currentFreq.value === 'daily' ? 'day' : currentFreq.value === 'weekly' ? 'week' : 'month';
+    } else if (currentFreq.mode === 'custom') {
+      initCount = currentFreq.value.count;
+      initUnit = currentFreq.value.unit;
+    } else if (currentFreq.mode === 'days') {
+      initCount = currentFreq.days.length;
+      initUnit = 'week';
+      initDays = currentFreq.days;
+    }
     setScheduleModalState({
-      frequencyTab: currentFreq.mode,
-      frequencyJson: state.habit.frequency_json,
-      selectedDays: currentFreq.mode === 'days' ? currentFreq.days : [],
-      customCount: currentFreq.mode === 'custom' ? String(currentFreq.value.count) : '1',
-      customUnit: currentFreq.mode === 'custom' ? currentFreq.value.unit : 'week',
+      selectedDays: initDays,
+      count: initCount,
+      unit: initUnit,
       startDate: state.habit.start_date ?? null,
       endDate: state.habit.end_date ?? null,
       timeWindow: state.habit.time_window ?? null,
@@ -2091,20 +2127,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Apply all schedule changes at once from modal state
   const applyScheduleChanges = useCallback(() => {
-    // Build frequency_json from modal state
+    // Build frequency_json from unified modal state
+    const count = scheduleModalState.count;
+    const unit = scheduleModalState.unit;
     let newFrequencyJson;
-    if (scheduleModalState.frequencyTab === 'simple') {
-      newFrequencyJson = scheduleModalState.frequencyJson || { type: 'simple', value: 'daily' };
-    } else if (scheduleModalState.frequencyTab === 'days') {
+    if (unit === 'week' && scheduleModalState.selectedDays.length > 0) {
+      // Pinned days mode
       newFrequencyJson = { type: 'days', days: scheduleModalState.selectedDays };
+    } else if (count === 1) {
+      // Simple frequency: 1x/day → daily, 1x/week → weekly, 1x/month → monthly
+      const simpleMap: Record<string, string> = { day: 'daily', week: 'weekly', month: 'monthly' };
+      newFrequencyJson = { type: 'simple', value: simpleMap[unit] };
     } else {
-      newFrequencyJson = {
-        type: 'custom',
-        value: {
-          count: parseInt(scheduleModalState.customCount, 10) || 1,
-          unit: scheduleModalState.customUnit,
-        },
-      };
+      // Custom frequency: Nx/unit
+      newFrequencyJson = { type: 'custom', value: { count, unit } };
     }
 
     // Dispatch all updates
@@ -2119,9 +2155,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       else if (val === 'weekly') derivedSchedule = 'weekly';
       else derivedSchedule = 'custom';
     } else if (newFrequencyJson?.type === 'custom') {
-      const unit = newFrequencyJson.value?.unit;
-      if (unit === 'day') derivedSchedule = 'daily';
-      else if (unit === 'week') derivedSchedule = 'weekly';
+      const cVal = newFrequencyJson.value as { count: number; unit: string };
+      if (cVal?.unit === 'day') derivedSchedule = 'daily';
+      else if (cVal?.unit === 'week') derivedSchedule = 'weekly';
       else derivedSchedule = 'custom';
     }
 
@@ -8978,7 +9014,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </Pressable>
                   </Modal>
 
-                  {/* Unified Schedule Modal for Habits */}
+                  {/* Unified Schedule Modal for Habits — Premium Redesign */}
                   <Modal
                     visible={showScheduleModal}
                     transparent
@@ -8990,7 +9026,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         flex: 1,
                         justifyContent: 'center',
                         alignItems: 'center',
-                        backgroundColor: 'rgba(0,0,0,0.4)',
+                        backgroundColor: 'rgba(0,0,0,0.45)',
                       }}
                       onPress={() => setShowScheduleModal(false)}
                     >
@@ -9002,169 +9038,566 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           {/* Header */}
                           <Text style={styles.scheduleModalTitle}>Schedule</Text>
 
-                          {/* ===== FREQUENCY SECTION ===== */}
-                          <Text style={styles.scheduleModalSectionLabel}>Frequency</Text>
-                          <View style={styles.scheduleModalSection}>
-                            {/* Frequency tabs: Simple | Days | Custom */}
-                            <View style={styles.frequencyTabRow}>
-                              {(['simple', 'days', 'custom'] as const).map((tab) => (
+                          {/* ===== SECTION 1: HOW OFTEN — Quick Presets ===== */}
+                          <Text style={styles.schSectionLabel}>How often</Text>
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            style={{ marginBottom: 16 }}
+                          >
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                              {SCHEDULE_PRESETS.map((preset) => {
+                                const isMatch =
+                                  scheduleModalState.count === preset.count &&
+                                  scheduleModalState.unit === preset.unit &&
+                                  JSON.stringify([...scheduleModalState.selectedDays].sort()) ===
+                                    JSON.stringify([...preset.days].sort());
+                                return (
+                                  <Pressable
+                                    key={preset.label}
+                                    onPress={() => {
+                                      LayoutAnimation.configureNext(
+                                        LayoutAnimation.Presets.easeInEaseOut,
+                                      );
+                                      setScheduleModalState((prev) => ({
+                                        ...prev,
+                                        count: preset.count,
+                                        unit: preset.unit,
+                                        selectedDays: [...preset.days],
+                                      }));
+                                    }}
+                                    style={{
+                                      paddingVertical: 8,
+                                      paddingHorizontal: 16,
+                                      borderRadius: 20,
+                                      backgroundColor: isMatch ? SCHEDULE_GREEN : SCHEDULE_BG_MUTED,
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 13,
+                                        fontWeight: isMatch ? '600' : '500',
+                                        color: isMatch ? '#FFFFFF' : SCHEDULE_TEXT_MUTED,
+                                      }}
+                                    >
+                                      {preset.label}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          </ScrollView>
+
+                          {/* Sentence-style custom counter: [−] N [+] × per [unit] */}
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: SCHEDULE_BG_MUTED,
+                              borderRadius: 14,
+                              paddingVertical: 14,
+                              paddingHorizontal: 16,
+                              marginBottom: 8,
+                            }}
+                          >
+                            <Pressable
+                              onPress={() =>
+                                setScheduleModalState((prev) => ({
+                                  ...prev,
+                                  count: Math.max(1, prev.count - 1),
+                                }))
+                              }
+                              disabled={scheduleModalState.count <= 1}
+                              style={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: 17,
+                                backgroundColor: '#FFFFFF',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <Minus
+                                size={16}
+                                color={scheduleModalState.count <= 1 ? '#C5C0B8' : SCHEDULE_GREEN}
+                              />
+                            </Pressable>
+                            <Text
+                              style={{
+                                fontSize: 22,
+                                fontWeight: '700',
+                                color: SCHEDULE_GREEN,
+                                marginHorizontal: 14,
+                                minWidth: 28,
+                                textAlign: 'center',
+                              }}
+                            >
+                              {scheduleModalState.count}
+                            </Text>
+                            <Pressable
+                              onPress={() =>
+                                setScheduleModalState((prev) => ({
+                                  ...prev,
+                                  count: Math.min(30, prev.count + 1),
+                                }))
+                              }
+                              disabled={scheduleModalState.count >= 30}
+                              style={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: 17,
+                                backgroundColor: '#FFFFFF',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <Plus
+                                size={16}
+                                color={scheduleModalState.count >= 30 ? '#C5C0B8' : SCHEDULE_GREEN}
+                              />
+                            </Pressable>
+                            <Text
+                              style={{
+                                fontSize: 15,
+                                color: SCHEDULE_TEXT_MUTED,
+                                marginHorizontal: 10,
+                              }}
+                            >
+                              × per
+                            </Text>
+                            {/* Unit selector pills */}
+                            {(['day', 'week', 'month'] as const).map((u) => {
+                              const isUnitSelected = scheduleModalState.unit === u;
+                              return (
                                 <Pressable
-                                  key={tab}
-                                  onPress={() =>
+                                  key={u}
+                                  onPress={() => {
+                                    LayoutAnimation.configureNext(
+                                      LayoutAnimation.Presets.easeInEaseOut,
+                                    );
                                     setScheduleModalState((prev) => ({
                                       ...prev,
-                                      frequencyTab: tab,
-                                    }))
-                                  }
-                                  style={[
-                                    styles.frequencyTab,
-                                    scheduleModalState.frequencyTab === tab &&
-                                      styles.frequencyTabActive,
-                                  ]}
+                                      unit: u,
+                                      selectedDays: u !== 'week' ? [] : prev.selectedDays,
+                                    }));
+                                  }}
+                                  style={{
+                                    paddingVertical: 6,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 20,
+                                    backgroundColor: isUnitSelected ? SCHEDULE_GREEN : '#FFFFFF',
+                                    marginLeft: u === 'day' ? 0 : 6,
+                                  }}
                                 >
                                   <Text
-                                    style={[
-                                      styles.frequencyTabText,
-                                      scheduleModalState.frequencyTab === tab &&
-                                        styles.frequencyTabTextActive,
-                                    ]}
+                                    style={{
+                                      fontSize: 13,
+                                      fontWeight: isUnitSelected ? '600' : '500',
+                                      color: isUnitSelected ? '#FFFFFF' : SCHEDULE_TEXT_MUTED,
+                                    }}
                                   >
-                                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                                    {u}
                                   </Text>
                                 </Pressable>
-                              ))}
-                            </View>
+                              );
+                            })}
+                          </View>
 
-                            {/* Simple frequency options */}
-                            {scheduleModalState.frequencyTab === 'simple' && (
-                              <View style={styles.frequencyOptionsColumn}>
-                                {['daily', 'weekly', 'monthly'].map((freq) => {
-                                  const isSelected =
-                                    scheduleModalState.frequencyJson?.type === 'simple' &&
-                                    scheduleModalState.frequencyJson?.value === freq;
-                                  return (
-                                    <Pressable
-                                      key={freq}
-                                      style={[
-                                        styles.frequencyOption,
-                                        isSelected && styles.frequencyOptionSelected,
-                                      ]}
-                                      onPress={() =>
-                                        setScheduleModalState((prev) => ({
-                                          ...prev,
-                                          frequencyJson: { type: 'simple', value: freq },
-                                        }))
-                                      }
-                                    >
-                                      <Text
-                                        style={[
-                                          styles.frequencyOptionText,
-                                          isSelected && styles.frequencyOptionTextSelected,
-                                        ]}
-                                      >
-                                        {freq.charAt(0).toUpperCase() + freq.slice(1)}
-                                      </Text>
-                                    </Pressable>
-                                  );
-                                })}
-                              </View>
-                            )}
+                          {/* ── Divider ── */}
+                          <View style={styles.schDivider} />
 
-                            {/* Days frequency options */}
-                            {scheduleModalState.frequencyTab === 'days' && (
-                              <View style={styles.daysGrid}>
-                                {DAY_LABELS.map(({ day, short }) => {
-                                  const isSelected = scheduleModalState.selectedDays.includes(day);
+                          {/* ===== SECTION 2: ON THESE DAYS (only when unit === 'week') ===== */}
+                          {scheduleModalState.unit === 'week' && (
+                            <>
+                              <Text style={styles.schSectionLabel}>
+                                On these days{' '}
+                                <Text
+                                  style={{
+                                    fontWeight: '400',
+                                    fontStyle: 'italic',
+                                    color: SCHEDULE_TEXT_DIM,
+                                  }}
+                                >
+                                  (optional)
+                                </Text>
+                              </Text>
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  justifyContent: 'space-between',
+                                  marginBottom: 8,
+                                }}
+                              >
+                                {(
+                                  [
+                                    { day: 1, label: 'M' },
+                                    { day: 2, label: 'T' },
+                                    { day: 3, label: 'W' },
+                                    { day: 4, label: 'T' },
+                                    { day: 5, label: 'F' },
+                                    { day: 6, label: 'S' },
+                                    { day: 0, label: 'S' },
+                                  ] as const
+                                ).map(({ day, label }) => {
+                                  const isDaySelected =
+                                    scheduleModalState.selectedDays.includes(day);
                                   return (
                                     <Pressable
                                       key={day}
-                                      style={[styles.dayChip, isSelected && styles.dayChipSelected]}
                                       onPress={() =>
-                                        setScheduleModalState((prev) => ({
-                                          ...prev,
-                                          selectedDays: isSelected
+                                        setScheduleModalState((prev) => {
+                                          const newDays = isDaySelected
                                             ? prev.selectedDays.filter((d) => d !== day)
-                                            : [...prev.selectedDays, day].sort(),
-                                        }))
+                                            : [...prev.selectedDays, day].sort();
+                                          return {
+                                            ...prev,
+                                            selectedDays: newDays,
+                                            // Sync count to match selected days when adding
+                                            count: newDays.length > 0 ? newDays.length : prev.count,
+                                          };
+                                        })
                                       }
+                                      style={{
+                                        width: 40,
+                                        height: 40,
+                                        borderRadius: 20,
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        backgroundColor: isDaySelected
+                                          ? SCHEDULE_GREEN
+                                          : SCHEDULE_BG_MUTED,
+                                      }}
                                     >
                                       <Text
-                                        style={[
-                                          styles.dayChipText,
-                                          isSelected && styles.dayChipTextSelected,
-                                        ]}
+                                        style={{
+                                          fontSize: 14,
+                                          fontWeight: isDaySelected ? '600' : '500',
+                                          color: isDaySelected ? '#FFFFFF' : SCHEDULE_TEXT_MUTED,
+                                        }}
                                       >
-                                        {short}
+                                        {label}
                                       </Text>
                                     </Pressable>
                                   );
                                 })}
                               </View>
-                            )}
+                              {/* ── Divider ── */}
+                              <View style={styles.schDivider} />
+                            </>
+                          )}
 
-                            {/* Custom frequency options */}
-                            {scheduleModalState.frequencyTab === 'custom' && (
-                              <View style={styles.customFrequencyRow}>
-                                <TextInput
-                                  style={styles.customCountInput}
-                                  value={scheduleModalState.customCount}
-                                  onChangeText={(text) =>
+                          {/* ===== SECTION 3: TIME OF DAY ===== */}
+                          <Text style={styles.schSectionLabel}>Time of day</Text>
+                          {/* Anytime full-width bar */}
+                          <Pressable
+                            onPress={() =>
+                              setScheduleModalState((prev) => ({
+                                ...prev,
+                                timeWindow: null,
+                              }))
+                            }
+                            style={{
+                              paddingVertical: 10,
+                              borderRadius: 10,
+                              backgroundColor:
+                                scheduleModalState.timeWindow === null
+                                  ? SCHEDULE_GREEN
+                                  : SCHEDULE_BG_MUTED,
+                              alignItems: 'center',
+                              marginBottom: 8,
+                            }}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Clock
+                                size={14}
+                                color={
+                                  scheduleModalState.timeWindow === null
+                                    ? '#FFFFFF'
+                                    : SCHEDULE_TEXT_MUTED
+                                }
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight:
+                                    scheduleModalState.timeWindow === null ? '600' : '500',
+                                  color:
+                                    scheduleModalState.timeWindow === null
+                                      ? '#FFFFFF'
+                                      : SCHEDULE_TEXT_MUTED,
+                                }}
+                              >
+                                Anytime
+                              </Text>
+                            </View>
+                          </Pressable>
+                          {/* Specific time-of-day buttons */}
+                          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                            {[
+                              { label: 'Morning', value: 'morning' as string, Icon: Sun },
+                              { label: 'Afternoon', value: 'day' as string, Icon: CloudSun },
+                              { label: 'Evening', value: 'evening' as string, Icon: Moon },
+                            ].map(({ label: todLabel, value: todValue, Icon: TodIcon }) => {
+                              const isTodSelected = scheduleModalState.timeWindow === todValue;
+                              const isDimmed = scheduleModalState.timeWindow === null;
+                              return (
+                                <Pressable
+                                  key={todValue}
+                                  onPress={() =>
                                     setScheduleModalState((prev) => ({
                                       ...prev,
-                                      customCount: text,
+                                      timeWindow: todValue,
                                     }))
                                   }
-                                  keyboardType="number-pad"
-                                  maxLength={2}
-                                />
-                                <Text style={styles.customFrequencyLabel}>times per</Text>
-                                <View style={styles.customUnitPicker}>
-                                  {(['day', 'week', 'month'] as const).map((unit) => (
+                                  style={{
+                                    flex: 1,
+                                    paddingVertical: 10,
+                                    borderRadius: 10,
+                                    backgroundColor: isTodSelected
+                                      ? SCHEDULE_GREEN
+                                      : SCHEDULE_BG_MUTED,
+                                    alignItems: 'center',
+                                    opacity: isDimmed && !isTodSelected ? 0.5 : 1,
+                                  }}
+                                >
+                                  <TodIcon
+                                    size={16}
+                                    color={isTodSelected ? '#FFFFFF' : SCHEDULE_TEXT_MUTED}
+                                    style={{ marginBottom: 4 }}
+                                  />
+                                  <Text
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: isTodSelected ? '600' : '500',
+                                      color: isTodSelected ? '#FFFFFF' : SCHEDULE_TEXT_MUTED,
+                                    }}
+                                  >
+                                    {todLabel}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+
+                          {/* ===== SECTION 4: DURATION (build habits only) ===== */}
+                          {state.habit.subtype !== 'break_habit' && (
+                            <>
+                              {/* ── Divider ── */}
+                              <View style={styles.schDivider} />
+
+                              <Text style={styles.schSectionLabel}>Duration</Text>
+                              {/* Duration stepper with discrete steps */}
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  marginBottom: 12,
+                                }}
+                              >
+                                <Pressable
+                                  onPress={() =>
+                                    setScheduleModalState((prev) => {
+                                      const cur = prev.timeEstimateMinutes ?? 0;
+                                      const idx = DURATION_STEPS.findIndex((s) => s >= cur);
+                                      const prevIdx = Math.max(
+                                        0,
+                                        (idx > 0 ? idx : DURATION_STEPS.length) - 1,
+                                      );
+                                      return {
+                                        ...prev,
+                                        timeEstimateMinutes: DURATION_STEPS[prevIdx] || null,
+                                      };
+                                    })
+                                  }
+                                  disabled={!scheduleModalState.timeEstimateMinutes}
+                                  style={{
+                                    width: 34,
+                                    height: 34,
+                                    borderRadius: 17,
+                                    backgroundColor: SCHEDULE_BG_MUTED,
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                  }}
+                                >
+                                  <Minus
+                                    size={16}
+                                    color={
+                                      !scheduleModalState.timeEstimateMinutes
+                                        ? '#C5C0B8'
+                                        : SCHEDULE_GREEN
+                                    }
+                                  />
+                                </Pressable>
+                                <Text
+                                  style={{
+                                    fontSize: 18,
+                                    fontWeight: '600',
+                                    color: SCHEDULE_GREEN,
+                                    marginHorizontal: 16,
+                                    minWidth: 60,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  {scheduleModalState.timeEstimateMinutes
+                                    ? formatTimeEstimate(scheduleModalState.timeEstimateMinutes)
+                                    : 'None'}
+                                </Text>
+                                <Pressable
+                                  onPress={() =>
+                                    setScheduleModalState((prev) => {
+                                      const cur = prev.timeEstimateMinutes ?? 0;
+                                      const idx = DURATION_STEPS.findIndex((s) => s > cur);
+                                      const nextIdx = idx >= 0 ? idx : DURATION_STEPS.length - 1;
+                                      return {
+                                        ...prev,
+                                        timeEstimateMinutes: DURATION_STEPS[nextIdx],
+                                      };
+                                    })
+                                  }
+                                  disabled={(scheduleModalState.timeEstimateMinutes ?? 0) >= 240}
+                                  style={{
+                                    width: 34,
+                                    height: 34,
+                                    borderRadius: 17,
+                                    backgroundColor: SCHEDULE_BG_MUTED,
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                  }}
+                                >
+                                  <Plus
+                                    size={16}
+                                    color={
+                                      (scheduleModalState.timeEstimateMinutes ?? 0) >= 240
+                                        ? '#C5C0B8'
+                                        : SCHEDULE_GREEN
+                                    }
+                                  />
+                                </Pressable>
+                              </View>
+                              {/* Quick duration chips */}
+                              <View
+                                style={{ flexDirection: 'row', gap: 8, justifyContent: 'center' }}
+                              >
+                                {[
+                                  { label: '15m', value: 15 },
+                                  { label: '30m', value: 30 },
+                                  { label: '1h', value: 60 },
+                                  { label: '2h', value: 120 },
+                                ].map((chip) => {
+                                  const isDurChipSelected =
+                                    scheduleModalState.timeEstimateMinutes === chip.value;
+                                  return (
                                     <Pressable
-                                      key={unit}
-                                      style={[
-                                        styles.customUnitOption,
-                                        scheduleModalState.customUnit === unit &&
-                                          styles.customUnitOptionSelected,
-                                      ]}
+                                      key={chip.value}
                                       onPress={() =>
                                         setScheduleModalState((prev) => ({
                                           ...prev,
-                                          customUnit: unit,
+                                          timeEstimateMinutes: isDurChipSelected
+                                            ? null
+                                            : chip.value,
                                         }))
                                       }
+                                      style={{
+                                        paddingVertical: 6,
+                                        paddingHorizontal: 16,
+                                        borderRadius: 20,
+                                        backgroundColor: isDurChipSelected
+                                          ? SCHEDULE_GREEN
+                                          : SCHEDULE_BG_MUTED,
+                                      }}
                                     >
                                       <Text
-                                        style={[
-                                          styles.customUnitText,
-                                          scheduleModalState.customUnit === unit &&
-                                            styles.customUnitTextSelected,
-                                        ]}
+                                        style={{
+                                          fontSize: 13,
+                                          fontWeight: isDurChipSelected ? '600' : '500',
+                                          color: isDurChipSelected
+                                            ? '#FFFFFF'
+                                            : SCHEDULE_TEXT_MUTED,
+                                        }}
                                       >
-                                        {unit}
+                                        {chip.label}
                                       </Text>
                                     </Pressable>
-                                  ))}
-                                </View>
+                                  );
+                                })}
                               </View>
-                            )}
-                          </View>
+                            </>
+                          )}
 
-                          {/* ===== START DATE SECTION ===== */}
-                          <Text style={styles.scheduleModalSectionLabel}>Start date</Text>
-                          <Pressable
-                            style={styles.scheduleModalDateRow}
-                            onPress={() =>
-                              setShowScheduleStartDatePicker(!showScheduleStartDatePicker)
-                            }
-                          >
-                            <Text style={styles.scheduleModalDateText}>
-                              {scheduleModalState.startDate
-                                ? format(parseISO(scheduleModalState.startDate), 'MMM d, yyyy')
-                                : 'Not set'}
-                            </Text>
-                            <Calendar size={18} color="#666666" />
-                          </Pressable>
+                          {/* ── Divider ── */}
+                          <View style={styles.schDivider} />
+
+                          {/* ===== SECTION 5: DATES (Start & End side by side) ===== */}
+                          <Text style={styles.schSectionLabel}>Dates</Text>
+                          <View style={{ flexDirection: 'row', gap: 12, marginBottom: 8 }}>
+                            {/* Start date field */}
+                            <View style={{ flex: 1 }}>
+                              <Text
+                                style={{ fontSize: 11, color: SCHEDULE_TEXT_DIM, marginBottom: 4 }}
+                              >
+                                Starts
+                              </Text>
+                              <Pressable
+                                onPress={() =>
+                                  setShowScheduleStartDatePicker(!showScheduleStartDatePicker)
+                                }
+                                style={{
+                                  backgroundColor: SCHEDULE_BG_MUTED,
+                                  borderRadius: 10,
+                                  paddingVertical: 12,
+                                  paddingHorizontal: 14,
+                                  flexDirection: 'row',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <Text style={{ fontSize: 14, color: SCHEDULE_GREEN }}>
+                                  {scheduleModalState.startDate
+                                    ? format(parseISO(scheduleModalState.startDate), 'MMM d, yyyy')
+                                    : 'Not set'}
+                                </Text>
+                                <Calendar size={16} color={SCHEDULE_TEXT_MUTED} />
+                              </Pressable>
+                            </View>
+                            {/* End date field */}
+                            <View style={{ flex: 1 }}>
+                              <Text
+                                style={{ fontSize: 11, color: SCHEDULE_TEXT_DIM, marginBottom: 4 }}
+                              >
+                                Ends
+                              </Text>
+                              <Pressable
+                                onPress={() =>
+                                  setShowScheduleEndDatePicker(!showScheduleEndDatePicker)
+                                }
+                                style={{
+                                  backgroundColor: SCHEDULE_BG_MUTED,
+                                  borderRadius: 10,
+                                  paddingVertical: 12,
+                                  paddingHorizontal: 14,
+                                  flexDirection: 'row',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 14,
+                                    color: scheduleModalState.endDate
+                                      ? SCHEDULE_GREEN
+                                      : SCHEDULE_TEXT_DIM,
+                                  }}
+                                >
+                                  {scheduleModalState.endDate
+                                    ? format(parseISO(scheduleModalState.endDate), 'MMM d, yyyy')
+                                    : 'No end'}
+                                </Text>
+                                <Calendar size={16} color={SCHEDULE_TEXT_MUTED} />
+                              </Pressable>
+                            </View>
+                          </View>
 
                           {/* Inline DateTimePicker for start date */}
                           {showScheduleStartDatePicker && (
@@ -9188,25 +9621,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               style={{ backgroundColor: 'white' }}
                             />
                           )}
-
-                          {/* ===== END DATE SECTION ===== */}
-                          <Text style={styles.scheduleModalSectionLabel}>End date</Text>
-                          <Pressable
-                            style={styles.scheduleModalDateRow}
-                            onPress={() => setShowScheduleEndDatePicker(!showScheduleEndDatePicker)}
-                          >
-                            <Text
-                              style={[
-                                styles.scheduleModalDateText,
-                                !scheduleModalState.endDate && { color: '#999999' },
-                              ]}
-                            >
-                              {scheduleModalState.endDate
-                                ? format(parseISO(scheduleModalState.endDate), 'MMM d, yyyy')
-                                : 'No end date'}
-                            </Text>
-                            <Calendar size={18} color="#666666" />
-                          </Pressable>
 
                           {showScheduleEndDatePicker && (
                             <View>
@@ -9239,184 +9653,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 }}
                                 style={{ alignSelf: 'center', paddingVertical: 8 }}
                               >
-                                <Text style={{ color: '#888888', fontSize: 14 }}>
+                                <Text style={{ color: SCHEDULE_TEXT_MUTED, fontSize: 14 }}>
                                   Clear end date
                                 </Text>
                               </Pressable>
                             </View>
                           )}
-
-                          {/* ===== TIME OF DAY SECTION ===== */}
-                          <Text style={styles.scheduleModalSectionLabel}>Time of day</Text>
-                          <View style={styles.timeWindowGrid}>
-                            {TIME_WINDOW_OPTIONS.map((option) => {
-                              const isSelected = scheduleModalState.timeWindow === option.value;
-                              return (
-                                <Pressable
-                                  key={option.value ?? 'null'}
-                                  style={[
-                                    styles.timeWindowChip,
-                                    isSelected && styles.timeWindowChipSelected,
-                                  ]}
-                                  onPress={() =>
-                                    setScheduleModalState((prev) => ({
-                                      ...prev,
-                                      timeWindow: option.value,
-                                    }))
-                                  }
-                                >
-                                  <Text
-                                    style={[
-                                      styles.timeWindowChipText,
-                                      isSelected && styles.timeWindowChipTextSelected,
-                                    ]}
-                                  >
-                                    {option.label}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-
-                          {/* ===== DURATION SECTION ===== */}
-                          <Text style={styles.scheduleModalSectionLabel}>Duration</Text>
-
-                          {/* Quick select grid */}
-                          <View style={styles.durationGrid}>
-                            {TIME_ESTIMATE_QUICK_OPTIONS.map((minutes) => {
-                              const isSelected = scheduleModalState.timeEstimateMinutes === minutes;
-                              return (
-                                <Pressable
-                                  key={minutes}
-                                  style={[
-                                    styles.durationChip,
-                                    isSelected && styles.durationChipSelected,
-                                  ]}
-                                  onPress={() =>
-                                    setScheduleModalState((prev) => ({
-                                      ...prev,
-                                      timeEstimateMinutes: minutes,
-                                    }))
-                                  }
-                                >
-                                  <Text
-                                    style={[
-                                      styles.durationChipText,
-                                      isSelected && styles.durationChipTextSelected,
-                                    ]}
-                                  >
-                                    {formatTimeEstimate(minutes)}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-
-                          {/* Stepper for custom values */}
-                          <View style={{ alignItems: 'center', marginTop: 12, marginBottom: 8 }}>
-                            <Text style={{ fontSize: 12, color: '#666666', marginBottom: 6 }}>
-                              Custom
-                            </Text>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                              <Pressable
-                                style={{
-                                  width: 36,
-                                  height: 36,
-                                  borderRadius: 18,
-                                  backgroundColor: '#F5F5F5',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  opacity:
-                                    (scheduleModalState.timeEstimateMinutes ?? 30) <=
-                                    TIME_ESTIMATE_MIN
-                                      ? 0.5
-                                      : 1,
-                                }}
-                                onPress={() =>
-                                  setScheduleModalState((prev) => ({
-                                    ...prev,
-                                    timeEstimateMinutes: Math.max(
-                                      TIME_ESTIMATE_MIN,
-                                      (prev.timeEstimateMinutes ?? 30) - TIME_ESTIMATE_STEP,
-                                    ),
-                                  }))
-                                }
-                                disabled={
-                                  (scheduleModalState.timeEstimateMinutes ?? 30) <=
-                                  TIME_ESTIMATE_MIN
-                                }
-                              >
-                                <Minus
-                                  size={16}
-                                  color={
-                                    (scheduleModalState.timeEstimateMinutes ?? 30) <=
-                                    TIME_ESTIMATE_MIN
-                                      ? '#CCCCCC'
-                                      : '#2E5540'
-                                  }
-                                />
-                              </Pressable>
-
-                              <View style={{ minWidth: 70, alignItems: 'center' }}>
-                                <Text
-                                  style={{
-                                    fontSize: 16,
-                                    fontWeight: '600',
-                                    color: !TIME_ESTIMATE_QUICK_OPTIONS.includes(
-                                      (scheduleModalState.timeEstimateMinutes ??
-                                        30) as (typeof TIME_ESTIMATE_QUICK_OPTIONS)[number],
-                                    )
-                                      ? '#2E5540'
-                                      : '#333333',
-                                  }}
-                                >
-                                  {formatTimeEstimate(scheduleModalState.timeEstimateMinutes ?? 30)}
-                                </Text>
-                              </View>
-
-                              <Pressable
-                                style={{
-                                  width: 36,
-                                  height: 36,
-                                  borderRadius: 18,
-                                  backgroundColor: '#F5F5F5',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  opacity:
-                                    (scheduleModalState.timeEstimateMinutes ?? 30) >=
-                                    TIME_ESTIMATE_MAX
-                                      ? 0.5
-                                      : 1,
-                                }}
-                                onPress={() =>
-                                  setScheduleModalState((prev) => ({
-                                    ...prev,
-                                    timeEstimateMinutes: Math.min(
-                                      TIME_ESTIMATE_MAX,
-                                      (prev.timeEstimateMinutes ?? 30) + TIME_ESTIMATE_STEP,
-                                    ),
-                                  }))
-                                }
-                                disabled={
-                                  (scheduleModalState.timeEstimateMinutes ?? 30) >=
-                                  TIME_ESTIMATE_MAX
-                                }
-                              >
-                                <Plus
-                                  size={16}
-                                  color={
-                                    (scheduleModalState.timeEstimateMinutes ?? 30) >=
-                                    TIME_ESTIMATE_MAX
-                                      ? '#CCCCCC'
-                                      : '#2E5540'
-                                  }
-                                />
-                              </Pressable>
-                            </View>
-                            <Text style={{ fontSize: 11, color: '#999999', marginTop: 4 }}>
-                              5 min – 4 hrs
-                            </Text>
-                          </View>
                         </ScrollView>
 
                         {/* Footer buttons */}
@@ -10248,313 +10490,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         )}
                       </Pressable>
                     </Pressable>
-                  </Modal>
-
-                  {/* Frequency Builder Modal */}
-                  <Modal
-                    visible={showFrequencyModal}
-                    transparent
-                    animationType="fade"
-                    onRequestClose={() => {
-                      setShowFrequencyModal(false);
-                    }}
-                  >
-                    <Box
-                      flex={1}
-                      style={{
-                        backgroundColor: 'rgba(0,0,0,0.4)',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        padding: 16,
-                      }}
-                    >
-                      <Box
-                        bg="bg"
-                        style={{
-                          padding: tokenSpacing.md,
-                          borderRadius: tokenRadius.sm,
-                          width: '100%',
-                          maxWidth: 400,
-                        }}
-                      >
-                        <Text variant="title">Set frequency</Text>
-
-                        {/* Tab selector */}
-                        <Box mt={3}>
-                          <Box
-                            row
-                            gap={2}
-                            style={{
-                              borderBottomWidth: 1,
-                              borderBottomColor:
-                                colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#E0E0E0',
-                            }}
-                          >
-                            {(['simple', 'days', 'custom'] as const).map((tab) => (
-                              <Pressable
-                                key={tab}
-                                onPress={() =>
-                                  setScheduleModalState((prev) => ({ ...prev, frequencyTab: tab }))
-                                }
-                                style={{
-                                  paddingVertical: 8,
-                                  paddingHorizontal: 16,
-                                  borderBottomWidth: 2,
-                                  borderBottomColor:
-                                    scheduleModalState.frequencyTab === tab
-                                      ? colorMode === 'dark'
-                                        ? lightTokens.colors.moss
-                                        : lightTokens.colors.moss
-                                      : 'transparent',
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    color:
-                                      scheduleModalState.frequencyTab === tab
-                                        ? colorMode === 'dark'
-                                          ? '#FFFFFF'
-                                          : '#222222'
-                                        : colorMode === 'dark'
-                                          ? 'rgba(255,255,255,0.6)'
-                                          : 'rgba(34,34,34,0.6)',
-                                    fontWeight:
-                                      scheduleModalState.frequencyTab === tab ? '600' : '400',
-                                  }}
-                                >
-                                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                                </Text>
-                              </Pressable>
-                            ))}
-                          </Box>
-                        </Box>
-
-                        {/* Tab content */}
-                        <Box mt={3} style={{ minHeight: 150 }}>
-                          {/* Simple tab */}
-                          {scheduleModalState.frequencyTab === 'simple' && (
-                            <Box gap={2}>
-                              {(['daily', 'weekly', 'monthly'] as const).map((freq) => (
-                                <Button
-                                  key={freq}
-                                  variant="ghost"
-                                  onPress={() => {
-                                    const config: FrequencyConfig = { mode: 'simple', value: freq };
-                                    const fjson = frequencyToJson(config);
-                                    hasLocalScheduleChanges.current = true;
-                                    localScheduleSnapshot.current = {
-                                      ...localScheduleSnapshot.current,
-                                      frequency_json: fjson,
-                                    };
-                                    dispatch({
-                                      type: 'SET_HABIT_FREQUENCY',
-                                      frequency_json: fjson,
-                                    });
-                                    setShowFrequencyModal(false);
-                                  }}
-                                  title={freq.charAt(0).toUpperCase() + freq.slice(1)}
-                                />
-                              ))}
-                            </Box>
-                          )}
-
-                          {/* Days tab */}
-                          {scheduleModalState.frequencyTab === 'days' && (
-                            <Box>
-                              <Text variant="label" style={{ marginBottom: 12 }}>
-                                Select days
-                              </Text>
-                              <Box row gap={1} style={{ flexWrap: 'wrap' }}>
-                                {DAY_LABELS.map(({ day, short, long }) => {
-                                  const isSelected = scheduleModalState.selectedDays.includes(day);
-                                  return (
-                                    <Pressable
-                                      key={day}
-                                      onPress={() => {
-                                        setScheduleModalState((prev) => ({
-                                          ...prev,
-                                          selectedDays: prev.selectedDays.includes(day)
-                                            ? prev.selectedDays.filter((d) => d !== day)
-                                            : [...prev.selectedDays, day],
-                                        }));
-                                      }}
-                                      style={{
-                                        width: 44,
-                                        height: 44,
-                                        borderRadius: 22,
-                                        backgroundColor: isSelected
-                                          ? colorMode === 'dark'
-                                            ? lightTokens.colors.moss
-                                            : lightTokens.colors.moss
-                                          : colorMode === 'dark'
-                                            ? 'rgba(255,255,255,0.1)'
-                                            : '#F5F5F5',
-                                        justifyContent: 'center',
-                                        alignItems: 'center',
-                                        marginBottom: 8,
-                                      }}
-                                      accessibilityLabel={long}
-                                      accessibilityRole="button"
-                                      accessibilityState={{ selected: isSelected }}
-                                    >
-                                      <Text
-                                        style={{
-                                          color: isSelected
-                                            ? '#FFFFFF'
-                                            : colorMode === 'dark'
-                                              ? 'rgba(255,255,255,0.7)'
-                                              : '#666666',
-                                          fontWeight: isSelected ? '600' : '400',
-                                          fontSize: 16,
-                                        }}
-                                      >
-                                        {short}
-                                      </Text>
-                                    </Pressable>
-                                  );
-                                })}
-                              </Box>
-                            </Box>
-                          )}
-
-                          {/* Custom tab */}
-                          {scheduleModalState.frequencyTab === 'custom' && (
-                            <Box>
-                              <Text variant="label" style={{ marginBottom: 12 }}>
-                                How often?
-                              </Text>
-                              <Box row gap={2} style={{ alignItems: 'center' }}>
-                                <TextInput
-                                  value={scheduleModalState.customCount}
-                                  onChangeText={(text) => {
-                                    const num = text.replace(/[^0-9]/g, '');
-                                    setScheduleModalState((prev) => ({
-                                      ...prev,
-                                      customCount: num || '1',
-                                    }));
-                                  }}
-                                  keyboardType="number-pad"
-                                  placeholder="1"
-                                  style={{
-                                    backgroundColor:
-                                      colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                                    borderWidth: 1,
-                                    borderColor:
-                                      colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#E0E0E0',
-                                    borderRadius: 8,
-                                    paddingHorizontal: 12,
-                                    paddingVertical: 10,
-                                    width: 80,
-                                    color: colorMode === 'dark' ? '#FFFFFF' : '#222222',
-                                    fontSize: 16,
-                                  }}
-                                />
-                                <Text
-                                  style={{
-                                    color:
-                                      colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666',
-                                  }}
-                                >
-                                  times per
-                                </Text>
-                                <View style={{ flex: 1 }}>
-                                  <Pressable
-                                    onPress={() => {
-                                      const units: ('day' | 'week' | 'month')[] = [
-                                        'day',
-                                        'week',
-                                        'month',
-                                      ];
-                                      const currentIndex = units.indexOf(
-                                        scheduleModalState.customUnit,
-                                      );
-                                      const nextIndex = (currentIndex + 1) % units.length;
-                                      setScheduleModalState((prev) => ({
-                                        ...prev,
-                                        customUnit: units[nextIndex],
-                                      }));
-                                    }}
-                                    style={{
-                                      backgroundColor:
-                                        colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                                      borderWidth: 1,
-                                      borderColor:
-                                        colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#E0E0E0',
-                                      borderRadius: 8,
-                                      paddingHorizontal: 12,
-                                      paddingVertical: 10,
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-                                        color: colorMode === 'dark' ? '#FFFFFF' : '#222222',
-                                        fontSize: 16,
-                                      }}
-                                    >
-                                      {scheduleModalState.customUnit}
-                                    </Text>
-                                  </Pressable>
-                                </View>
-                              </Box>
-                            </Box>
-                          )}
-                        </Box>
-
-                        {/* Action buttons */}
-                        <Box row mt={4}>
-                          <Button
-                            variant="ghost"
-                            onPress={() => {
-                              setShowFrequencyModal(false);
-                            }}
-                            title="Cancel"
-                          />
-                          <Box flex={1} />
-                          <Button
-                            variant="primary"
-                            onPress={() => {
-                              let config: FrequencyConfig;
-
-                              if (scheduleModalState.frequencyTab === 'simple') {
-                                config = { mode: 'simple', value: 'daily' }; // Default, but this won't be called in simple mode
-                              } else if (scheduleModalState.frequencyTab === 'days') {
-                                if (scheduleModalState.selectedDays.length === 0) {
-                                  // Require at least one day
-                                  return;
-                                }
-                                config = {
-                                  mode: 'days',
-                                  days: scheduleModalState.selectedDays as DayOfWeek[],
-                                };
-                              } else {
-                                const count = parseInt(scheduleModalState.customCount) || 1;
-                                config = {
-                                  mode: 'custom',
-                                  value: { count, unit: scheduleModalState.customUnit },
-                                };
-                              }
-
-                              const fjson = frequencyToJson(config);
-                              hasLocalScheduleChanges.current = true;
-                              localScheduleSnapshot.current = {
-                                ...localScheduleSnapshot.current,
-                                frequency_json: fjson,
-                              };
-                              dispatch({
-                                type: 'SET_HABIT_FREQUENCY',
-                                frequency_json: fjson,
-                              });
-                              setShowFrequencyModal(false);
-                            }}
-                            title="Set"
-                            disabled={
-                              scheduleModalState.frequencyTab === 'days' &&
-                              scheduleModalState.selectedDays.length === 0
-                            }
-                          />
-                        </Box>
-                      </Box>
-                    </Box>
                   </Modal>
 
                   {/* Save bar (fixed within the sheet) */}
@@ -11733,19 +11668,38 @@ const styles = StyleSheet.create({
     color: '#666666',
   },
 
-  /* ===== Schedule Modal Styles ===== */
+  /* ===== Schedule Modal — Premium Design Styles ===== */
   scheduleModalContent: {
     backgroundColor: '#FFFDF5',
-    borderRadius: 16,
-    marginHorizontal: 20,
-    padding: 20,
-    maxHeight: '85%',
+    borderRadius: 20,
+    marginHorizontal: 16,
+    padding: 24,
+    maxHeight: '88%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 28,
+    elevation: 10,
   },
   scheduleModalTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
-    color: '#222222',
+    color: '#1A1A1A',
     marginBottom: 20,
+    letterSpacing: -0.3,
+  },
+  schSectionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#8B8579',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  schDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#E8E4DE',
+    marginVertical: 16,
   },
   scheduleModalSectionLabel: {
     fontSize: 13,
@@ -11776,141 +11730,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 24,
+    marginTop: 20,
     paddingTop: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(0,0,0,0.1)',
+    borderTopColor: '#E8E4DE',
   },
   scheduleModalCancelButton: {
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 20,
   },
   scheduleModalCancelText: {
     fontSize: 16,
-    color: '#333333',
+    color: '#8B8579',
+    fontWeight: '500',
   },
   scheduleModalSetButton: {
-    backgroundColor: lightTokens.colors.moss,
+    backgroundColor: '#2D4A3E',
     paddingVertical: 12,
-    paddingHorizontal: 28,
-    borderRadius: 10,
+    paddingHorizontal: 32,
+    borderRadius: 12,
   },
   scheduleModalSetText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
-  },
-
-  /* Frequency section styles */
-  frequencyTabRow: {
-    flexDirection: 'row',
-    marginBottom: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
-  },
-  frequencyTab: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    marginRight: 8,
-  },
-  frequencyTabActive: {
-    borderBottomWidth: 2,
-    borderBottomColor: lightTokens.colors.moss,
-  },
-  frequencyTabText: {
-    fontSize: 14,
-    color: '#999999',
-  },
-  frequencyTabTextActive: {
-    color: '#333333',
-    fontWeight: '600',
-  },
-  frequencyOptionsColumn: {
-    gap: 8,
-  },
-  frequencyOption: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.02)',
-  },
-  frequencyOptionSelected: {
-    backgroundColor: lightTokens.colors.moss,
-  },
-  frequencyOptionText: {
-    fontSize: 15,
-    color: '#333333',
-    textAlign: 'center',
-  },
-  frequencyOptionTextSelected: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-
-  /* Days grid styles */
-  daysGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  dayChip: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-  },
-  dayChipSelected: {
-    backgroundColor: lightTokens.colors.moss,
-  },
-  dayChipText: {
-    fontSize: 13,
-    color: '#333333',
-  },
-  dayChipTextSelected: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-
-  /* Custom frequency styles */
-  customFrequencyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  customCountInput: {
-    width: 50,
-    height: 44,
-    borderRadius: 8,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.1)',
-    textAlign: 'center',
-    fontSize: 16,
-  },
-  customFrequencyLabel: {
-    fontSize: 14,
-    color: '#666666',
-  },
-  customUnitPicker: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  customUnitOption: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-  },
-  customUnitOptionSelected: {
-    backgroundColor: lightTokens.colors.moss,
-  },
-  customUnitText: {
-    fontSize: 13,
-    color: '#333333',
-  },
-  customUnitTextSelected: {
-    color: '#FFFFFF',
-    fontWeight: '600',
   },
 
   /* Time window grid */
