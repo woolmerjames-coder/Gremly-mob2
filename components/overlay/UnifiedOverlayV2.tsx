@@ -2085,6 +2085,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Open unified schedule modal with current habit state
   const openScheduleModal = useCallback(() => {
+    if (baseType === 'todo') {
+      // For To-Dos: no frequency, just dates/time/duration
+      setScheduleModalState({
+        selectedDays: [],
+        count: 1,
+        unit: 'day',
+        isCustom: false,
+        startDate: state.todo.scheduled_date ?? null,
+        endDate: state.todo.target_date ?? null,
+        timeWindow: state.todo.time_window ?? null,
+        timeEstimateMinutes: state.todo.time_estimate_minutes ?? null,
+      });
+      setShowScheduleStartDatePicker(false);
+      setShowScheduleEndDatePicker(false);
+      setShowScheduleModal(true);
+      return;
+    }
+
     const currentFreq = jsonToFrequency(
       localScheduleSnapshot.current?.frequency_json ?? state.habit.frequency_json,
     );
@@ -2124,10 +2142,26 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     setShowScheduleStartDatePicker(false);
     setShowScheduleEndDatePicker(false);
     setShowScheduleModal(true);
-  }, [state.habit]);
+  }, [baseType, state.habit, state.todo]);
 
   // Apply all schedule changes at once from modal state
   const applyScheduleChanges = useCallback(() => {
+    if (baseType === 'todo') {
+      // For To-Dos: apply dates, time window, and time estimate
+      dispatch({ type: 'SET_TODO_SCHEDULED_DATE', date: scheduleModalState.startDate });
+      dispatch({ type: 'SET_TODO_TARGET_DATE', date: scheduleModalState.endDate });
+      dispatch({
+        type: 'SET_TODO_TIME_WINDOW',
+        window: scheduleModalState.timeWindow as 'day' | 'any' | 'morning' | 'evening' | null,
+      });
+      dispatch({
+        type: 'SET_TODO_TIME_ESTIMATE',
+        minutes: scheduleModalState.timeEstimateMinutes,
+      });
+      setShowScheduleModal(false);
+      return;
+    }
+
     // Build frequency_json from unified modal state
     const count = scheduleModalState.count;
     const unit = scheduleModalState.unit;
@@ -2183,7 +2217,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     });
 
     setShowScheduleModal(false);
-  }, [scheduleModalState, dispatch]);
+  }, [baseType, scheduleModalState, dispatch]);
 
   // Sync spaces from store when details panel expands (replaces repo.listSpaces)
   useEffect(() => {
