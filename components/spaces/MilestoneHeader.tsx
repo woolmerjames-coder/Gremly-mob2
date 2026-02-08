@@ -22,22 +22,16 @@ import {
   Calendar,
 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
-import type { SpaceMilestone, Note } from '../../lib/types';
+import type { Note } from '../../lib/types';
 import type { ImageSourcePropType } from 'react-native';
 import { getMascotSource, DEFAULT_MASCOT_ID } from '../../lib/mascots/mascotConfig';
 
 interface MilestoneHeaderProps {
   spaceName: string;
-  milestone: SpaceMilestone | null;
-  countdown: {
-    days: number | null;
-    dateFormatted: string | null;
-    isPast: boolean;
-  };
   pinnedCount: number;
   completedCount?: number;
   mascotSource?: ImageSourcePropType; // Custom mascot image source
-  goalEvent?: Note | null; // Primary goal event (first by created_at) - kept for backward compatibility
+  goalEvent?: Note | null; // Featured goal (kept for backward compatibility)
   goals?: Note[]; // All goals for the space (up to 3)
   keyDatesCount?: number; // Number of key date events (excluding goals)
   nextKeyDatePreview?: string | null; // Preview text for next key date
@@ -45,17 +39,13 @@ interface MilestoneHeaderProps {
   onGremlyPress: () => void;
   onPinnedPress: () => void;
   onCompletedPress?: () => void;
-  onNudgePress: () => void;
-  onMilestonePress: () => void;
-  onKeyDatesPress?: () => void; // Open Key Dates modal
+  onKeyDatesPress: () => void; // Open Key Dates modal (goal tap, nudge tap, key dates row)
   onSettingsPress: () => void;
   onBackPress: () => void;
 }
 
 export function MilestoneHeader({
   spaceName,
-  milestone,
-  countdown,
   pinnedCount,
   completedCount = 0,
   mascotSource,
@@ -67,8 +57,6 @@ export function MilestoneHeader({
   onGremlyPress,
   onPinnedPress,
   onCompletedPress,
-  onNudgePress,
-  onMilestonePress,
   onKeyDatesPress,
   onSettingsPress,
   onBackPress,
@@ -78,13 +66,12 @@ export function MilestoneHeader({
   const primaryGoal = goals.length > 0 ? goals[0] : goalEvent;
   const additionalGoalsCount = Math.max(0, goals.length - 1);
 
-  // Show nudge only if no milestone AND no goals
-  const hasMilestone = milestone !== null;
+  // Show nudge only if no goals
   const hasGoals = goals.length > 0 || goalEvent !== null;
-  const showNudge = !hasMilestone && !hasGoals;
+  const showNudge = !hasGoals;
 
-  // Show Key Dates row if there are events or if there's a handler to add them
-  const showKeyDates = keyDatesCount > 0 || onKeyDatesPress;
+  // Always show Key Dates row
+  const showKeyDates = true;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
@@ -134,46 +121,17 @@ export function MilestoneHeader({
           />
         </Pressable>
 
-        {/* Milestone or Nudge */}
+        {/* Goal or Nudge */}
         <View style={styles.milestoneSection}>
-          {hasMilestone ? (
-            // Milestone display - tappable to edit
+          {primaryGoal ? (
+            // Goal display - tappable to open Key Dates modal
             <Pressable
-              onPress={onMilestonePress}
-              accessibilityRole="button"
-              accessibilityLabel="Edit goal"
-              testID="header-milestone-button"
-            >
-              <Text style={styles.milestoneName} numberOfLines={2}>
-                {milestone.name}
-              </Text>
-              {countdown.dateFormatted && (
-                <Text style={styles.countdown}>
-                  {countdown.dateFormatted}
-                  {countdown.days !== null && (
-                    <Text style={countdown.isPast ? styles.countdownPast : styles.countdownDays}>
-                      {' · '}
-                      {countdown.isPast
-                        ? `${Math.abs(countdown.days)} days ago`
-                        : countdown.days === 0
-                          ? 'Today!'
-                          : countdown.days === 1
-                            ? '1 day'
-                            : `${countdown.days} days`}
-                    </Text>
-                  )}
-                </Text>
-              )}
-            </Pressable>
-          ) : primaryGoal ? (
-            // Goal display with support for multiple goals
-            <Pressable
-              onPress={onMilestonePress}
+              onPress={onKeyDatesPress}
               accessibilityRole="button"
               accessibilityLabel={
                 additionalGoalsCount > 0
                   ? `${primaryGoal.title} and ${additionalGoalsCount} more goals`
-                  : 'Edit goal'
+                  : 'View goals and key dates'
               }
               testID="header-goal-button"
             >
@@ -182,16 +140,14 @@ export function MilestoneHeader({
                   {primaryGoal.title || 'Goal'}
                 </Text>
                 {additionalGoalsCount > 0 && (
-                  <Pressable onPress={onKeyDatesPress} hitSlop={8}>
-                    <Text style={styles.moreGoalsText}>+{additionalGoalsCount} more</Text>
-                  </Pressable>
+                  <Text style={styles.moreGoalsText}>+{additionalGoalsCount} more</Text>
                 )}
               </View>
             </Pressable>
           ) : showNudge ? (
-            // Nudge to set a goal
+            // Nudge to set a goal - opens Key Dates modal
             <Pressable
-              onPress={onNudgePress}
+              onPress={onKeyDatesPress}
               style={styles.nudgeContainer}
               accessibilityRole="button"
               accessibilityLabel="Set a goal for this Space"
@@ -356,18 +312,6 @@ const styles = StyleSheet.create({
   moreGoalsText: {
     fontSize: 14,
     color: BRAND.colors.inkMuted,
-    fontWeight: '500',
-  },
-  countdown: {
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-  },
-  countdownDays: {
-    color: BRAND.colors.mossGreen,
-    fontWeight: '500',
-  },
-  countdownPast: {
-    color: '#C9553D', // Red-ish for overdue
     fontWeight: '500',
   },
 

@@ -1726,6 +1726,25 @@ export const selectGoalsForSpace = createSelector(
 export const useGoalsForSpace = (spaceId: string) =>
   useGremlyStore((state) => selectGoalsForSpace(state, spaceId));
 
+/** Featured goal for a space: goal with views.featured_goal === true, else first by created_at */
+export const selectFeaturedGoalForSpace = createSelector(
+  [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
+  (notes, spaceId) => {
+    const goals = notes.filter(
+      (n) => n.subtype === 'event' && n.is_goal === true && n.space_id === spaceId && !n.archived,
+    );
+    if (goals.length === 0) return null;
+    // Prefer the explicitly-featured goal
+    const featured = goals.find((g) => (g as any).views?.featured_goal === true);
+    if (featured) return featured;
+    // Fallback: first by created_at ascending
+    return goals.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))[0] || null;
+  },
+);
+
+export const useFeaturedGoalForSpace = (spaceId: string) =>
+  useGremlyStore((state) => selectFeaturedGoalForSpace(state, spaceId));
+
 /** Journal check-ins related to a goal (by origin, views.goal_checkin, title match, or tag) */
 export const selectCheckInsForGoal = createSelector(
   [

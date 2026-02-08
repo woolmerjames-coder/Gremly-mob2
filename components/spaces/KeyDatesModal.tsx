@@ -34,10 +34,16 @@ import {
 } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { BRAND } from '../../design/brand';
-import { useEventsForSpace, useGoalForSpace, useSpaceById } from '../../lib/store/selectors';
+import {
+  useEventsForSpace,
+  useGoalForSpace,
+  useGoalsForSpace,
+  useSpaceById,
+} from '../../lib/store/selectors';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { getTodayDayString, getDateService } from '../../lib/date';
 import { env, getEnv } from '../../lib/env';
+import * as Haptics from 'expo-haptics';
 import type { Note } from '../../lib/types';
 
 // --- Helpers to read env vars (same pattern as useEventQuickAdd.ts) ---
@@ -129,9 +135,11 @@ export function KeyDatesModal({
   const insets = useSafeAreaInsets();
   const events = useEventsForSpace(spaceId);
   const goalEvent = useGoalForSpace(spaceId);
+  const allGoals = useGoalsForSpace(spaceId);
   const space = useSpaceById(spaceId);
   const spaceName = propSpaceName || space?.name || 'Space';
   const createNote = useGremlyStore((s) => s.createNote);
+  const updateNote = useGremlyStore((s) => s.updateNote);
 
   // UI state
   const [showPast, setShowPast] = useState(false);
@@ -364,7 +372,34 @@ export function KeyDatesModal({
     setShowDatePicker(true);
   }, []);
 
-  const totalCount = events.length + (goalEvent ? 1 : 0);
+  // Toggle featured goal star
+  const handleToggleFeaturedGoal = useCallback(
+    async (goal: Note) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const isCurrentlyFeatured = (goal as any).views?.featured_goal === true;
+
+      if (isCurrentlyFeatured) {
+        // Un-feature this goal (first-by-created_at will become featured via selector fallback)
+        await updateNote(goal.id, {
+          views: { ...((goal as any).views || {}), featured_goal: false },
+        });
+      } else {
+        // Un-feature any previously featured goal, then feature this one
+        const prevFeatured = allGoals.find((g) => (g as any).views?.featured_goal === true);
+        if (prevFeatured && prevFeatured.id !== goal.id) {
+          await updateNote(prevFeatured.id, {
+            views: { ...((prevFeatured as any).views || {}), featured_goal: false },
+          });
+        }
+        await updateNote(goal.id, {
+          views: { ...((goal as any).views || {}), featured_goal: true },
+        });
+      }
+    },
+    [allGoals, updateNote],
+  );
+
+  const totalCount = events.length + allGoals.length;
 
   return (
     <Modal
@@ -475,11 +510,22 @@ export function KeyDatesModal({
           </View>
         ) : !showDatePicker && !showTitleInput ? (
           <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-            {/* Goal Section */}
-            {goalEvent && (
+            {/* Goals Section */}
+            {allGoals.length > 0 && (
               <View style={styles.section}>
-                <Text style={styles.sectionHeader}>Goal</Text>
-                <EventRow event={goalEvent} onPress={onEventPress} isGoal />
+                <Text style={styles.sectionHeader}>
+                  {allGoals.length === 1 ? 'Goal' : `Goals (${allGoals.length})`}
+                </Text>
+                {allGoals.map((goal) => (
+                  <EventRow
+                    key={goal.id}
+                    event={goal}
+                    onPress={onEventPress}
+                    isGoal
+                    isFeatured={(goal as any).views?.featured_goal === true}
+                    onStarPress={() => handleToggleFeaturedGoal(goal)}
+                  />
+                ))}
               </View>
             )}
 
@@ -532,10 +578,19 @@ interface EventRowProps {
   event: Note;
   onPress: (event: Note) => void;
   isGoal?: boolean;
+  isFeatured?: boolean;
   isPast?: boolean;
+  onStarPress?: () => void;
 }
 
-function EventRow({ event, onPress, isGoal = false, isPast = false }: EventRowProps) {
+function EventRow({
+  event,
+  onPress,
+  isGoal = false,
+  isFeatured = false,
+  isPast = false,
+  onStarPress,
+}: EventRowProps) {
   const hasDate = Boolean(event.target_date);
   const dateDisplay = hasDate ? formatDateDisplay(event.target_date!) : 'No date';
   const timeDisplay = event.event_time ? formatTime(event.event_time) : null;
@@ -552,14 +607,24 @@ function EventRow({ event, onPress, isGoal = false, isPast = false }: EventRowPr
       accessibilityRole="button"
       accessibilityLabel={`${isGoal ? 'Goal: ' : ''}${event.title || 'Untitled'}, ${dateDisplay}${countdown ? `, ${countdown}` : ''}`}
     >
-      {/* Goal star icon */}
+      {/* Goal star icon - tappable to toggle featured */}
       {isGoal && (
-        <Star
-          size={14}
-          color={BRAND.colors.goldenPear}
-          fill={BRAND.colors.goldenPear}
-          style={styles.goalIcon}
-        />
+        <Pressable
+          onPress={(e) => {
+            e.stopPropagation?.();
+            onStarPress?.();
+          }}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={isFeatured ? 'Remove as featured goal' : 'Set as featured goal'}
+        >
+          <Star
+            size={16}
+            color={BRAND.colors.goldenPear}
+            fill={isFeatured ? BRAND.colors.goldenPear : 'transparent'}
+            style={styles.goalIcon}
+          />
+        </Pressable>
       )}
 
       {/* Date */}
