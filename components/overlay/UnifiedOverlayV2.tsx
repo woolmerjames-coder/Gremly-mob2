@@ -1970,6 +1970,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     >
   > | null>(null);
   const aiTitlePersistedRef = useRef(false);
+  const hasHydratedEditRef = useRef(false);
   const textInputRef = useRef<TextInput | null>(null);
   const prevConversionMetaRef = useRef(conversionMeta);
 
@@ -1980,12 +1981,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // Reset when overlay closes
       createPrefillAppliedRef.current = false;
       editAutoPrefillRanRef.current = false;
+      hasHydratedEditRef.current = false;
       hasLocalScheduleChanges.current = false;
       localScheduleSnapshot.current = null;
     } else if (conversionMeta !== prevConversionMetaRef.current) {
       // Reset when conversionMeta changes while visible (new save action)
       createPrefillAppliedRef.current = false;
       editAutoPrefillRanRef.current = false;
+      hasHydratedEditRef.current = false;
       hasLocalScheduleChanges.current = false;
       localScheduleSnapshot.current = null;
     }
@@ -2036,6 +2039,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       editAutoPrefillRanRef.current = false;
       hasLoadedEditTagsRef.current = false;
       aiTitlePersistedRef.current = false;
+      hasHydratedEditRef.current = false;
       hasLocalScheduleChanges.current = false;
       localScheduleSnapshot.current = null;
 
@@ -3057,6 +3061,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   useEffect(() => {
     if (mode !== 'edit' || !initialEntity) return;
 
+    // Only hydrate once per entity — prevent re-hydration
+    // from overwriting user's local changes (e.g. frequency)
+    if (hasHydratedEditRef.current) {
+      console.log('[HYDRATE GUARD] Skipping re-hydration — already hydrated');
+      return;
+    }
+
     const entityId = (initialEntity as any)?.id;
     let entityToUse = initialEntity;
 
@@ -3105,6 +3116,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       commitmentNote: payload.commitmentNote,
     });
     dispatch({ type: 'HYDRATE_EDIT', payload } as any);
+    hasHydratedEditRef.current = true;
 
     // Hydrate mood for journal logs (Phase L4) - now multi-select
     const entity = entityToUse as any;
