@@ -11553,6 +11553,7 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 16,
     maxHeight: '85%',
+    alignSelf: 'stretch',
   },
   scheduleModalTitle: {
     fontSize: 18,
