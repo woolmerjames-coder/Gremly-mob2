@@ -9247,6 +9247,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   }}
                                 >
                                   <Text
+                                    numberOfLines={1}
                                     style={{
                                       fontSize: 12,
                                       fontWeight: isSel ? '600' : '500',
@@ -9260,8 +9261,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             })}
                           </View>
 
-                          {/* ===== SECTION 4: Duration (build habits only) ===== */}
-                          {state.habit.subtype !== 'break_habit' && (
+                          {/* ===== SECTION 4: Duration ===== */}
+                          {(baseType === 'todo' || state.habit.subtype !== 'break_habit') && (
                             <>
                               <View style={styles.schDivider} />
                               <Text style={styles.schSectionLabel}>Duration</Text>
@@ -9371,15 +9372,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         }))
                                       }
                                       style={{
-                                        paddingVertical: 6,
+                                        paddingVertical: 7,
                                         paddingHorizontal: 16,
-                                        borderRadius: 6,
+                                        borderRadius: 8,
                                         backgroundColor: isDurSel ? '#2D4A3E' : '#F5F2ED',
                                       }}
                                     >
                                       <Text
                                         style={{
-                                          fontSize: 11,
+                                          fontSize: 12,
                                           fontWeight: isDurSel ? '600' : '500',
                                           color: isDurSel ? '#FFFFFF' : '#6B665C',
                                         }}
@@ -9409,7 +9410,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   marginBottom: 4,
                                 }}
                               >
-                                Starts
+                                {baseType === 'todo' ? 'Do date' : 'Starts'}
                               </Text>
                               <Pressable
                                 onPress={() =>
@@ -9443,7 +9444,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   marginBottom: 4,
                                 }}
                               >
-                                Ends
+                                {baseType === 'todo' ? 'Deadline' : 'Ends'}
                               </Text>
                               <Pressable
                                 onPress={() =>
