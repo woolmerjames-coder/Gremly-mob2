@@ -8967,7 +8967,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         <Text style={styles.scheduleModalTitle}>Schedule</Text>
 
                         <ScrollView
-                          style={{ flex: 1 }}
+                          style={{ flexShrink: 1 }}
                           showsVerticalScrollIndicator={false}
                           keyboardShouldPersistTaps="handled"
                           nestedScrollEnabled
