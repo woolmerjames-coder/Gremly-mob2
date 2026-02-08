@@ -55,9 +55,6 @@ import {
   TrendingDown,
   BarChart3,
   X,
-  Sun,
-  CloudSun,
-  Moon,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -360,26 +357,21 @@ const TIME_WINDOW_OPTIONS: {
 
 // Multi-photo support for logs (Phase L5)
 
-// ── Schedule Modal Premium Design Constants ──
-const SCHEDULE_BG_MUTED = '#F5F2ED';
-const SCHEDULE_GREEN = '#2D4A3E';
-const SCHEDULE_TEXT_MUTED = '#8B8579';
-const SCHEDULE_TEXT_DIM = '#B5AFA5';
-const SCHEDULE_DIVIDER = '#E8E4DE';
-
+// ── Schedule Modal Constants ──
 const DURATION_STEPS = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240] as const;
 
 const SCHEDULE_PRESETS: {
+  key: string;
   label: string;
   count: number;
   unit: 'day' | 'week' | 'month';
   days: number[];
 }[] = [
-  { label: 'Every day', count: 1, unit: 'day', days: [] },
-  { label: 'Weekdays', count: 5, unit: 'week', days: [1, 2, 3, 4, 5] },
-  { label: '3×/week', count: 3, unit: 'week', days: [] },
-  { label: 'Weekly', count: 1, unit: 'week', days: [] },
-  { label: 'Monthly', count: 1, unit: 'month', days: [] },
+  { key: 'every_day', label: 'Every day', count: 1, unit: 'day', days: [] },
+  { key: 'weekdays', label: 'Weekdays', count: 5, unit: 'week', days: [1, 2, 3, 4, 5] },
+  { key: 'weekly', label: 'Weekly', count: 1, unit: 'week', days: [] },
+  { key: '3x_week', label: '3× / week', count: 3, unit: 'week', days: [] },
+  { key: 'monthly', label: 'Monthly', count: 1, unit: 'month', days: [] },
 ];
 
 type LogPhoto = {
@@ -1659,6 +1651,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     selectedDays: [] as number[],
     count: 1,
     unit: 'day' as 'day' | 'week' | 'month',
+    isCustom: false,
     startDate: null as string | null,
     endDate: null as string | null,
     timeWindow: null as string | null,
@@ -2111,10 +2104,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       initUnit = 'week';
       initDays = currentFreq.days;
     }
+    // Determine if current values match any preset
+    const matchesPreset = SCHEDULE_PRESETS.some(
+      (p) =>
+        p.count === initCount &&
+        p.unit === initUnit &&
+        JSON.stringify([...p.days].sort()) === JSON.stringify([...initDays].sort()),
+    );
     setScheduleModalState({
       selectedDays: initDays,
       count: initCount,
       unit: initUnit,
+      isCustom: !matchesPreset,
       startDate: state.habit.start_date ?? null,
       endDate: state.habit.end_date ?? null,
       timeWindow: state.habit.time_window ?? null,
@@ -9014,7 +9015,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </Pressable>
                   </Modal>
 
-                  {/* Unified Schedule Modal for Habits — Premium Redesign */}
+                  {/* Schedule Modal */}
                   <Modal
                     visible={showScheduleModal}
                     transparent
@@ -9026,7 +9027,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         flex: 1,
                         justifyContent: 'center',
                         alignItems: 'center',
-                        backgroundColor: 'rgba(0,0,0,0.45)',
+                        backgroundColor: 'rgba(0,0,0,0.4)',
                       }}
                       onPress={() => setShowScheduleModal(false)}
                     >
@@ -9034,200 +9035,231 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         style={styles.scheduleModalContent}
                         onPress={(e) => e.stopPropagation()}
                       >
+                        <Text style={styles.scheduleModalTitle}>Schedule</Text>
+
                         <ScrollView showsVerticalScrollIndicator={false}>
-                          {/* Header */}
-                          <Text style={styles.scheduleModalTitle}>Schedule</Text>
-
-                          {/* ===== SECTION 1: HOW OFTEN — Quick Presets ===== */}
-                          <Text style={styles.schSectionLabel}>How often</Text>
-                          <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            style={{ marginBottom: 16 }}
-                          >
-                            <View style={{ flexDirection: 'row', gap: 8 }}>
-                              {SCHEDULE_PRESETS.map((preset) => {
-                                const isMatch =
-                                  scheduleModalState.count === preset.count &&
-                                  scheduleModalState.unit === preset.unit &&
-                                  JSON.stringify([...scheduleModalState.selectedDays].sort()) ===
-                                    JSON.stringify([...preset.days].sort());
-                                return (
-                                  <Pressable
-                                    key={preset.label}
-                                    onPress={() => {
-                                      LayoutAnimation.configureNext(
-                                        LayoutAnimation.Presets.easeInEaseOut,
-                                      );
-                                      setScheduleModalState((prev) => ({
-                                        ...prev,
-                                        count: preset.count,
-                                        unit: preset.unit,
-                                        selectedDays: [...preset.days],
-                                      }));
-                                    }}
-                                    style={{
-                                      paddingVertical: 8,
-                                      paddingHorizontal: 16,
-                                      borderRadius: 20,
-                                      backgroundColor: isMatch ? SCHEDULE_GREEN : SCHEDULE_BG_MUTED,
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-                                        fontSize: 13,
-                                        fontWeight: isMatch ? '600' : '500',
-                                        color: isMatch ? '#FFFFFF' : SCHEDULE_TEXT_MUTED,
-                                      }}
-                                    >
-                                      {preset.label}
-                                    </Text>
-                                  </Pressable>
-                                );
-                              })}
-                            </View>
-                          </ScrollView>
-
-                          {/* Sentence-style custom counter: [−] N [+] × per [unit] */}
+                          {/* ===== SECTION 1: Frequency presets ===== */}
+                          <Text style={styles.schSectionLabel}>Frequency</Text>
                           <View
                             style={{
                               flexDirection: 'row',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              backgroundColor: SCHEDULE_BG_MUTED,
-                              borderRadius: 14,
-                              paddingVertical: 14,
-                              paddingHorizontal: 16,
-                              marginBottom: 8,
+                              flexWrap: 'wrap',
+                              gap: 8,
+                              marginBottom: 4,
                             }}
                           >
-                            <Pressable
-                              onPress={() =>
-                                setScheduleModalState((prev) => ({
-                                  ...prev,
-                                  count: Math.max(1, prev.count - 1),
-                                }))
-                              }
-                              disabled={scheduleModalState.count <= 1}
-                              style={{
-                                width: 34,
-                                height: 34,
-                                borderRadius: 17,
-                                backgroundColor: '#FFFFFF',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                              }}
-                            >
-                              <Minus
-                                size={16}
-                                color={scheduleModalState.count <= 1 ? '#C5C0B8' : SCHEDULE_GREEN}
-                              />
-                            </Pressable>
-                            <Text
-                              style={{
-                                fontSize: 22,
-                                fontWeight: '700',
-                                color: SCHEDULE_GREEN,
-                                marginHorizontal: 14,
-                                minWidth: 28,
-                                textAlign: 'center',
-                              }}
-                            >
-                              {scheduleModalState.count}
-                            </Text>
-                            <Pressable
-                              onPress={() =>
-                                setScheduleModalState((prev) => ({
-                                  ...prev,
-                                  count: Math.min(30, prev.count + 1),
-                                }))
-                              }
-                              disabled={scheduleModalState.count >= 30}
-                              style={{
-                                width: 34,
-                                height: 34,
-                                borderRadius: 17,
-                                backgroundColor: '#FFFFFF',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                              }}
-                            >
-                              <Plus
-                                size={16}
-                                color={scheduleModalState.count >= 30 ? '#C5C0B8' : SCHEDULE_GREEN}
-                              />
-                            </Pressable>
-                            <Text
-                              style={{
-                                fontSize: 15,
-                                color: SCHEDULE_TEXT_MUTED,
-                                marginHorizontal: 10,
-                              }}
-                            >
-                              × per
-                            </Text>
-                            {/* Unit selector pills */}
-                            {(['day', 'week', 'month'] as const).map((u) => {
-                              const isUnitSelected = scheduleModalState.unit === u;
+                            {SCHEDULE_PRESETS.map((preset) => {
+                              const isMatch =
+                                !scheduleModalState.isCustom &&
+                                scheduleModalState.count === preset.count &&
+                                scheduleModalState.unit === preset.unit &&
+                                JSON.stringify([...scheduleModalState.selectedDays].sort()) ===
+                                  JSON.stringify([...preset.days].sort());
                               return (
                                 <Pressable
-                                  key={u}
+                                  key={preset.key}
                                   onPress={() => {
                                     LayoutAnimation.configureNext(
                                       LayoutAnimation.Presets.easeInEaseOut,
                                     );
                                     setScheduleModalState((prev) => ({
                                       ...prev,
-                                      unit: u,
-                                      selectedDays: u !== 'week' ? [] : prev.selectedDays,
+                                      count: preset.count,
+                                      unit: preset.unit,
+                                      selectedDays: [...preset.days],
+                                      isCustom: false,
                                     }));
                                   }}
                                   style={{
-                                    paddingVertical: 6,
-                                    paddingHorizontal: 12,
-                                    borderRadius: 20,
-                                    backgroundColor: isUnitSelected ? SCHEDULE_GREEN : '#FFFFFF',
-                                    marginLeft: u === 'day' ? 0 : 6,
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 16,
+                                    borderRadius: 8,
+                                    backgroundColor: isMatch ? '#2D4A3E' : '#F5F2ED',
                                   }}
                                 >
                                   <Text
                                     style={{
                                       fontSize: 13,
-                                      fontWeight: isUnitSelected ? '600' : '500',
-                                      color: isUnitSelected ? '#FFFFFF' : SCHEDULE_TEXT_MUTED,
+                                      fontWeight: isMatch ? '600' : '500',
+                                      color: isMatch ? '#FFFFFF' : '#6B665C',
                                     }}
                                   >
-                                    {u}
+                                    {preset.label}
                                   </Text>
                                 </Pressable>
                               );
                             })}
+                            {/* Custom pill */}
+                            <Pressable
+                              onPress={() => {
+                                LayoutAnimation.configureNext(
+                                  LayoutAnimation.Presets.easeInEaseOut,
+                                );
+                                setScheduleModalState((prev) => ({ ...prev, isCustom: true }));
+                              }}
+                              style={{
+                                paddingVertical: 8,
+                                paddingHorizontal: 16,
+                                borderRadius: 8,
+                                backgroundColor: scheduleModalState.isCustom
+                                  ? '#2D4A3E'
+                                  : '#F5F2ED',
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight: scheduleModalState.isCustom ? '600' : '500',
+                                  color: scheduleModalState.isCustom ? '#FFFFFF' : '#6B665C',
+                                }}
+                              >
+                                Custom
+                              </Text>
+                            </Pressable>
                           </View>
+
+                          {/* ===== SECTION 1b: Custom counter (conditional) ===== */}
+                          {scheduleModalState.isCustom && (
+                            <View
+                              style={{
+                                backgroundColor: '#F5F2ED',
+                                borderRadius: 12,
+                                padding: 16,
+                                marginTop: 12,
+                              }}
+                            >
+                              {/* Counter row */}
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                <Pressable
+                                  onPress={() =>
+                                    setScheduleModalState((prev) => ({
+                                      ...prev,
+                                      count: Math.max(1, prev.count - 1),
+                                    }))
+                                  }
+                                  disabled={scheduleModalState.count <= 1}
+                                  style={{
+                                    width: 36,
+                                    height: 36,
+                                    borderRadius: 18,
+                                    backgroundColor: '#FFFFFF',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity: scheduleModalState.count <= 1 ? 0.3 : 1,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 18, color: '#2D4A3E' }}>−</Text>
+                                </Pressable>
+                                <Text
+                                  style={{
+                                    fontSize: 22,
+                                    fontWeight: '700',
+                                    color: '#2D4A3E',
+                                    marginHorizontal: 24,
+                                    minWidth: 30,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  {scheduleModalState.count}
+                                </Text>
+                                <Pressable
+                                  onPress={() =>
+                                    setScheduleModalState((prev) => ({
+                                      ...prev,
+                                      count: Math.min(30, prev.count + 1),
+                                    }))
+                                  }
+                                  disabled={scheduleModalState.count >= 30}
+                                  style={{
+                                    width: 36,
+                                    height: 36,
+                                    borderRadius: 18,
+                                    backgroundColor: '#FFFFFF',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity: scheduleModalState.count >= 30 ? 0.3 : 1,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 18, color: '#2D4A3E' }}>+</Text>
+                                </Pressable>
+                                <Text style={{ fontSize: 14, color: '#8B8579', marginLeft: 16 }}>
+                                  times per
+                                </Text>
+                              </View>
+                              {/* Unit selector row */}
+                              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                                {(['day', 'week', 'month'] as const).map((u) => {
+                                  const isUnitSel = scheduleModalState.unit === u;
+                                  return (
+                                    <Pressable
+                                      key={u}
+                                      onPress={() => {
+                                        LayoutAnimation.configureNext(
+                                          LayoutAnimation.Presets.easeInEaseOut,
+                                        );
+                                        setScheduleModalState((prev) => ({
+                                          ...prev,
+                                          unit: u,
+                                          selectedDays: u !== 'week' ? [] : prev.selectedDays,
+                                        }));
+                                      }}
+                                      style={{
+                                        flex: 1,
+                                        paddingVertical: 8,
+                                        alignItems: 'center',
+                                        borderRadius: 8,
+                                        backgroundColor: isUnitSel ? '#2D4A3E' : '#FFFFFF',
+                                      }}
+                                    >
+                                      <Text
+                                        style={{
+                                          fontSize: 13,
+                                          fontWeight: isUnitSel ? '600' : '500',
+                                          color: isUnitSel ? '#FFFFFF' : '#6B665C',
+                                        }}
+                                      >
+                                        {u}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                            </View>
+                          )}
 
                           {/* ── Divider ── */}
                           <View style={styles.schDivider} />
 
-                          {/* ===== SECTION 2: ON THESE DAYS (only when unit === 'week') ===== */}
+                          {/* ===== SECTION 2: Pin to days (conditional) ===== */}
                           {scheduleModalState.unit === 'week' && (
                             <>
-                              <Text style={styles.schSectionLabel}>
-                                On these days{' '}
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'baseline',
+                                  marginBottom: 10,
+                                }}
+                              >
+                                <Text style={styles.schSectionLabel}>On these days</Text>
                                 <Text
                                   style={{
-                                    fontWeight: '400',
-                                    fontStyle: 'italic',
-                                    color: SCHEDULE_TEXT_DIM,
+                                    fontSize: 12,
+                                    color: '#A09A90',
+                                    marginLeft: 4,
+                                    marginBottom: 10,
                                   }}
                                 >
                                   (optional)
                                 </Text>
-                              </Text>
+                              </View>
                               <View
-                                style={{
-                                  flexDirection: 'row',
-                                  justifyContent: 'space-between',
-                                  marginBottom: 8,
-                                }}
+                                style={{ flexDirection: 'row', justifyContent: 'space-between' }}
                               >
                                 {(
                                   [
@@ -9250,30 +9282,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           const newDays = isDaySelected
                                             ? prev.selectedDays.filter((d) => d !== day)
                                             : [...prev.selectedDays, day].sort();
-                                          return {
-                                            ...prev,
-                                            selectedDays: newDays,
-                                            // Sync count to match selected days when adding
-                                            count: newDays.length > 0 ? newDays.length : prev.count,
-                                          };
+                                          return { ...prev, selectedDays: newDays };
                                         })
                                       }
                                       style={{
-                                        width: 40,
-                                        height: 40,
-                                        borderRadius: 20,
+                                        width: 38,
+                                        height: 38,
+                                        borderRadius: 19,
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        backgroundColor: isDaySelected
-                                          ? SCHEDULE_GREEN
-                                          : SCHEDULE_BG_MUTED,
+                                        backgroundColor: isDaySelected ? '#2D4A3E' : '#F5F2ED',
                                       }}
                                     >
                                       <Text
                                         style={{
-                                          fontSize: 14,
-                                          fontWeight: isDaySelected ? '600' : '500',
-                                          color: isDaySelected ? '#FFFFFF' : SCHEDULE_TEXT_MUTED,
+                                          fontSize: 13,
+                                          fontWeight: '600',
+                                          color: isDaySelected ? '#FFFFFF' : '#6B665C',
                                         }}
                                       >
                                         {label}
@@ -9282,120 +9307,67 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   );
                                 })}
                               </View>
-                              {/* ── Divider ── */}
                               <View style={styles.schDivider} />
                             </>
                           )}
 
-                          {/* ===== SECTION 3: TIME OF DAY ===== */}
+                          {/* ===== SECTION 3: Time of day ===== */}
                           <Text style={styles.schSectionLabel}>Time of day</Text>
-                          {/* Anytime full-width bar */}
-                          <Pressable
-                            onPress={() =>
-                              setScheduleModalState((prev) => ({
-                                ...prev,
-                                timeWindow: null,
-                              }))
-                            }
-                            style={{
-                              paddingVertical: 10,
-                              borderRadius: 10,
-                              backgroundColor:
-                                scheduleModalState.timeWindow === null
-                                  ? SCHEDULE_GREEN
-                                  : SCHEDULE_BG_MUTED,
-                              alignItems: 'center',
-                              marginBottom: 8,
-                            }}
-                          >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                              <Clock
-                                size={14}
-                                color={
-                                  scheduleModalState.timeWindow === null
-                                    ? '#FFFFFF'
-                                    : SCHEDULE_TEXT_MUTED
-                                }
-                              />
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  fontWeight:
-                                    scheduleModalState.timeWindow === null ? '600' : '500',
-                                  color:
-                                    scheduleModalState.timeWindow === null
-                                      ? '#FFFFFF'
-                                      : SCHEDULE_TEXT_MUTED,
-                                }}
-                              >
-                                Anytime
-                              </Text>
-                            </View>
-                          </Pressable>
-                          {/* Specific time-of-day buttons */}
-                          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
                             {[
-                              { label: 'Morning', value: 'morning' as string, Icon: Sun },
-                              { label: 'Afternoon', value: 'day' as string, Icon: CloudSun },
-                              { label: 'Evening', value: 'evening' as string, Icon: Moon },
-                            ].map(({ label: todLabel, value: todValue, Icon: TodIcon }) => {
-                              const isTodSelected = scheduleModalState.timeWindow === todValue;
-                              const isDimmed = scheduleModalState.timeWindow === null;
+                              { label: 'Anytime', value: null as string | null },
+                              { label: 'Morning', value: 'morning' },
+                              { label: 'Afternoon', value: 'day' },
+                              { label: 'Evening', value: 'evening' },
+                            ].map((opt) => {
+                              const isSel = scheduleModalState.timeWindow === opt.value;
                               return (
                                 <Pressable
-                                  key={todValue}
+                                  key={opt.value ?? 'null'}
                                   onPress={() =>
                                     setScheduleModalState((prev) => ({
                                       ...prev,
-                                      timeWindow: todValue,
+                                      timeWindow: opt.value,
                                     }))
                                   }
                                   style={{
                                     flex: 1,
-                                    paddingVertical: 10,
-                                    borderRadius: 10,
-                                    backgroundColor: isTodSelected
-                                      ? SCHEDULE_GREEN
-                                      : SCHEDULE_BG_MUTED,
+                                    paddingVertical: 9,
                                     alignItems: 'center',
-                                    opacity: isDimmed && !isTodSelected ? 0.5 : 1,
+                                    justifyContent: 'center',
+                                    borderRadius: 8,
+                                    backgroundColor: isSel ? '#2D4A3E' : '#F5F2ED',
                                   }}
                                 >
-                                  <TodIcon
-                                    size={16}
-                                    color={isTodSelected ? '#FFFFFF' : SCHEDULE_TEXT_MUTED}
-                                    style={{ marginBottom: 4 }}
-                                  />
                                   <Text
                                     style={{
-                                      fontSize: 11,
-                                      fontWeight: isTodSelected ? '600' : '500',
-                                      color: isTodSelected ? '#FFFFFF' : SCHEDULE_TEXT_MUTED,
+                                      fontSize: 12,
+                                      fontWeight: isSel ? '600' : '500',
+                                      color: isSel ? '#FFFFFF' : '#6B665C',
                                     }}
                                   >
-                                    {todLabel}
+                                    {opt.label}
                                   </Text>
                                 </Pressable>
                               );
                             })}
                           </View>
 
-                          {/* ===== SECTION 4: DURATION (build habits only) ===== */}
+                          {/* ===== SECTION 4: Duration (build habits only) ===== */}
                           {state.habit.subtype !== 'break_habit' && (
                             <>
-                              {/* ── Divider ── */}
                               <View style={styles.schDivider} />
-
                               <Text style={styles.schSectionLabel}>Duration</Text>
-                              {/* Duration stepper with discrete steps */}
+                              {/* Stepper + quick picks */}
                               <View
                                 style={{
                                   flexDirection: 'row',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  marginBottom: 12,
+                                  gap: 8,
                                 }}
                               >
+                                {/* Stepper */}
                                 <Pressable
                                   onPress={() =>
                                     setScheduleModalState((prev) => {
@@ -9413,30 +9385,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   }
                                   disabled={!scheduleModalState.timeEstimateMinutes}
                                   style={{
-                                    width: 34,
-                                    height: 34,
-                                    borderRadius: 17,
-                                    backgroundColor: SCHEDULE_BG_MUTED,
-                                    justifyContent: 'center',
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 16,
+                                    backgroundColor: '#F5F2ED',
                                     alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity: !scheduleModalState.timeEstimateMinutes ? 0.3 : 1,
                                   }}
                                 >
-                                  <Minus
-                                    size={16}
-                                    color={
-                                      !scheduleModalState.timeEstimateMinutes
-                                        ? '#C5C0B8'
-                                        : SCHEDULE_GREEN
-                                    }
-                                  />
+                                  <Text style={{ fontSize: 16, color: '#2D4A3E' }}>−</Text>
                                 </Pressable>
                                 <Text
                                   style={{
-                                    fontSize: 18,
+                                    fontSize: 15,
                                     fontWeight: '600',
-                                    color: SCHEDULE_GREEN,
-                                    marginHorizontal: 16,
-                                    minWidth: 60,
+                                    color: '#2D4A3E',
+                                    marginHorizontal: 8,
+                                    minWidth: 46,
                                     textAlign: 'center',
                                   }}
                                 >
@@ -9458,35 +9424,30 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   }
                                   disabled={(scheduleModalState.timeEstimateMinutes ?? 0) >= 240}
                                   style={{
-                                    width: 34,
-                                    height: 34,
-                                    borderRadius: 17,
-                                    backgroundColor: SCHEDULE_BG_MUTED,
-                                    justifyContent: 'center',
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 16,
+                                    backgroundColor: '#F5F2ED',
                                     alignItems: 'center',
+                                    justifyContent: 'center',
+                                    opacity:
+                                      (scheduleModalState.timeEstimateMinutes ?? 0) >= 240
+                                        ? 0.3
+                                        : 1,
                                   }}
                                 >
-                                  <Plus
-                                    size={16}
-                                    color={
-                                      (scheduleModalState.timeEstimateMinutes ?? 0) >= 240
-                                        ? '#C5C0B8'
-                                        : SCHEDULE_GREEN
-                                    }
-                                  />
+                                  <Text style={{ fontSize: 16, color: '#2D4A3E' }}>+</Text>
                                 </Pressable>
-                              </View>
-                              {/* Quick duration chips */}
-                              <View
-                                style={{ flexDirection: 'row', gap: 8, justifyContent: 'center' }}
-                              >
+                                {/* Spacer */}
+                                <View style={{ width: 12 }} />
+                                {/* Quick picks */}
                                 {[
                                   { label: '15m', value: 15 },
                                   { label: '30m', value: 30 },
                                   { label: '1h', value: 60 },
                                   { label: '2h', value: 120 },
                                 ].map((chip) => {
-                                  const isDurChipSelected =
+                                  const isDurSel =
                                     scheduleModalState.timeEstimateMinutes === chip.value;
                                   return (
                                     <Pressable
@@ -9494,27 +9455,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       onPress={() =>
                                         setScheduleModalState((prev) => ({
                                           ...prev,
-                                          timeEstimateMinutes: isDurChipSelected
-                                            ? null
-                                            : chip.value,
+                                          timeEstimateMinutes: isDurSel ? null : chip.value,
                                         }))
                                       }
                                       style={{
                                         paddingVertical: 6,
-                                        paddingHorizontal: 16,
-                                        borderRadius: 20,
-                                        backgroundColor: isDurChipSelected
-                                          ? SCHEDULE_GREEN
-                                          : SCHEDULE_BG_MUTED,
+                                        paddingHorizontal: 10,
+                                        borderRadius: 6,
+                                        backgroundColor: isDurSel ? '#2D4A3E' : '#F5F2ED',
                                       }}
                                     >
                                       <Text
                                         style={{
-                                          fontSize: 13,
-                                          fontWeight: isDurChipSelected ? '600' : '500',
-                                          color: isDurChipSelected
-                                            ? '#FFFFFF'
-                                            : SCHEDULE_TEXT_MUTED,
+                                          fontSize: 11,
+                                          fontWeight: isDurSel ? '600' : '500',
+                                          color: isDurSel ? '#FFFFFF' : '#6B665C',
                                         }}
                                       >
                                         {chip.label}
@@ -9529,13 +9484,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           {/* ── Divider ── */}
                           <View style={styles.schDivider} />
 
-                          {/* ===== SECTION 5: DATES (Start & End side by side) ===== */}
+                          {/* ===== SECTION 5: Dates ===== */}
                           <Text style={styles.schSectionLabel}>Dates</Text>
                           <View style={{ flexDirection: 'row', gap: 12, marginBottom: 8 }}>
-                            {/* Start date field */}
+                            {/* Start date */}
                             <View style={{ flex: 1 }}>
                               <Text
-                                style={{ fontSize: 11, color: SCHEDULE_TEXT_DIM, marginBottom: 4 }}
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: '500',
+                                  color: '#A09A90',
+                                  marginBottom: 4,
+                                }}
                               >
                                 Starts
                               </Text>
@@ -9544,27 +9504,32 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   setShowScheduleStartDatePicker(!showScheduleStartDatePicker)
                                 }
                                 style={{
-                                  backgroundColor: SCHEDULE_BG_MUTED,
-                                  borderRadius: 10,
-                                  paddingVertical: 12,
-                                  paddingHorizontal: 14,
+                                  backgroundColor: '#F5F2ED',
+                                  borderRadius: 8,
+                                  paddingVertical: 10,
+                                  paddingHorizontal: 12,
                                   flexDirection: 'row',
                                   justifyContent: 'space-between',
                                   alignItems: 'center',
                                 }}
                               >
-                                <Text style={{ fontSize: 14, color: SCHEDULE_GREEN }}>
+                                <Text style={{ fontSize: 13, fontWeight: '500', color: '#2D4A3E' }}>
                                   {scheduleModalState.startDate
                                     ? format(parseISO(scheduleModalState.startDate), 'MMM d, yyyy')
                                     : 'Not set'}
                                 </Text>
-                                <Calendar size={16} color={SCHEDULE_TEXT_MUTED} />
+                                <Calendar size={14} color="#8B8579" />
                               </Pressable>
                             </View>
-                            {/* End date field */}
+                            {/* End date */}
                             <View style={{ flex: 1 }}>
                               <Text
-                                style={{ fontSize: 11, color: SCHEDULE_TEXT_DIM, marginBottom: 4 }}
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: '500',
+                                  color: '#A09A90',
+                                  marginBottom: 4,
+                                }}
                               >
                                 Ends
                               </Text>
@@ -9573,10 +9538,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   setShowScheduleEndDatePicker(!showScheduleEndDatePicker)
                                 }
                                 style={{
-                                  backgroundColor: SCHEDULE_BG_MUTED,
-                                  borderRadius: 10,
-                                  paddingVertical: 12,
-                                  paddingHorizontal: 14,
+                                  backgroundColor: '#F5F2ED',
+                                  borderRadius: 8,
+                                  paddingVertical: 10,
+                                  paddingHorizontal: 12,
                                   flexDirection: 'row',
                                   justifyContent: 'space-between',
                                   alignItems: 'center',
@@ -9584,17 +9549,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               >
                                 <Text
                                   style={{
-                                    fontSize: 14,
-                                    color: scheduleModalState.endDate
-                                      ? SCHEDULE_GREEN
-                                      : SCHEDULE_TEXT_DIM,
+                                    fontSize: 13,
+                                    fontWeight: '500',
+                                    color: scheduleModalState.endDate ? '#2D4A3E' : '#B5AFA5',
                                   }}
                                 >
                                   {scheduleModalState.endDate
                                     ? format(parseISO(scheduleModalState.endDate), 'MMM d, yyyy')
                                     : 'No end'}
                                 </Text>
-                                <Calendar size={16} color={SCHEDULE_TEXT_MUTED} />
+                                <Calendar size={14} color="#8B8579" />
                               </Pressable>
                             </View>
                           </View>
@@ -9653,7 +9617,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 }}
                                 style={{ alignSelf: 'center', paddingVertical: 8 }}
                               >
-                                <Text style={{ color: SCHEDULE_TEXT_MUTED, fontSize: 14 }}>
+                                <Text style={{ color: '#8B8579', fontSize: 14 }}>
                                   Clear end date
                                 </Text>
                               </Pressable>
@@ -9661,7 +9625,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           )}
                         </ScrollView>
 
-                        {/* Footer buttons */}
+                        {/* Footer */}
                         <View style={styles.scheduleModalFooter}>
                           <Pressable
                             onPress={() => setShowScheduleModal(false)}
@@ -9679,7 +9643,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       </Pressable>
                     </Pressable>
                   </Modal>
-
                   {/* Habit Start Date Picker Modal */}
                   <Modal visible={showHabitStartDatePicker} transparent animationType="fade">
                     <Pressable
@@ -11668,139 +11631,60 @@ const styles = StyleSheet.create({
     color: '#666666',
   },
 
-  /* ===== Schedule Modal — Premium Design Styles ===== */
+  /* ===== Schedule Modal Styles ===== */
   scheduleModalContent: {
     backgroundColor: '#FFFDF5',
-    borderRadius: 20,
-    marginHorizontal: 16,
-    padding: 24,
-    maxHeight: '88%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.15,
-    shadowRadius: 28,
-    elevation: 10,
+    borderRadius: 16,
+    marginHorizontal: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    maxHeight: '85%',
   },
   scheduleModalTitle: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '700',
     color: '#1A1A1A',
-    marginBottom: 20,
-    letterSpacing: -0.3,
+    marginBottom: 16,
   },
   schSectionLabel: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#8B8579',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 12,
+    color: '#6B665C',
+    marginBottom: 10,
   },
   schDivider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: '#E8E4DE',
+    backgroundColor: '#E5E0D8',
     marginVertical: 16,
-  },
-  scheduleModalSectionLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#666666',
-    marginBottom: 8,
-    marginTop: 16,
-  },
-  scheduleModalSection: {
-    backgroundColor: 'rgba(0,0,0,0.02)',
-    borderRadius: 12,
-    padding: 12,
-  },
-  scheduleModalDateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(0,0,0,0.02)',
-    borderRadius: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  scheduleModalDateText: {
-    fontSize: 15,
-    color: '#333333',
   },
   scheduleModalFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 20,
-    paddingTop: 16,
+    marginTop: 16,
+    paddingTop: 14,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#E8E4DE',
+    borderTopColor: '#E5E0D8',
   },
   scheduleModalCancelButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
   scheduleModalCancelText: {
-    fontSize: 16,
-    color: '#8B8579',
+    fontSize: 15,
+    color: '#6B665C',
     fontWeight: '500',
   },
   scheduleModalSetButton: {
     backgroundColor: '#2D4A3E',
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 28,
+    borderRadius: 10,
   },
   scheduleModalSetText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#FFFFFF',
-  },
-
-  /* Time window grid */
-  timeWindowGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  timeWindowChip: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-  },
-  timeWindowChipSelected: {
-    backgroundColor: lightTokens.colors.moss,
-  },
-  timeWindowChipText: {
-    fontSize: 13,
-    color: '#333333',
-  },
-  timeWindowChipTextSelected: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-
-  /* Duration grid */
-  durationGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  durationChip: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-  },
-  durationChipSelected: {
-    backgroundColor: lightTokens.colors.moss,
-  },
-  durationChipText: {
-    fontSize: 13,
-    color: '#333333',
-  },
-  durationChipTextSelected: {
-    color: '#FFFFFF',
-    fontWeight: '600',
   },
 });
