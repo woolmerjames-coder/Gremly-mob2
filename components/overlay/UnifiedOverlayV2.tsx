@@ -9022,19 +9022,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     animationType="fade"
                     onRequestClose={() => setShowScheduleModal(false)}
                   >
-                    <Pressable
-                      style={{
-                        flex: 1,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        backgroundColor: 'rgba(0,0,0,0.4)',
-                      }}
-                      onPress={() => setShowScheduleModal(false)}
-                    >
-                      <View
-                        style={styles.scheduleModalContent}
-                        onStartShouldSetResponder={() => true}
-                      >
+                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                      {/* Backdrop layer — absolute fill, sits BEHIND modal content */}
+                      <Pressable
+                        style={{
+                          ...StyleSheet.absoluteFillObject,
+                          backgroundColor: 'rgba(0,0,0,0.4)',
+                        }}
+                        onPress={() => setShowScheduleModal(false)}
+                      />
+                      {/* Modal content — plain View, NOT wrapped in any Pressable */}
+                      <View style={styles.scheduleModalContent}>
                         <Text style={styles.scheduleModalTitle}>Schedule</Text>
 
                         <ScrollView
@@ -9652,7 +9650,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           </Pressable>
                         </View>
                       </View>
-                    </Pressable>
+                    </View>
                   </Modal>
                   {/* Habit Start Date Picker Modal */}
                   <Modal visible={showHabitStartDatePicker} transparent animationType="fade">
