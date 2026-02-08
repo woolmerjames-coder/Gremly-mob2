@@ -2086,6 +2086,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
 
     // Dispatch all updates
+    console.log('[Schedule] Applying:', JSON.stringify(newFrequencyJson));
     dispatch({ type: 'SET_HABIT_FREQUENCY', frequency_json: newFrequencyJson });
     dispatch({ type: 'SET_HABIT_START_DATE', date: scheduleModalState.startDate });
     dispatch({ type: 'SET_HABIT_END_DATE', date: scheduleModalState.endDate });
@@ -4154,6 +4155,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           schedule: s.habit.schedule,
           days_active: daysActiveFromJson,
           isEditing: !!initialEntity,
+          cadenceFields: frequencyJsonToCadenceFields(s.habit.frequency_json, s.habit.schedule),
         });
         // Calculate buffers when time estimate changes
         const habitBuffers = calculateBuffers(
@@ -4198,6 +4200,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         frequency_json: s.habit.frequency_json,
         schedule: s.habit.schedule,
         days_active: daysActiveFromJson2,
+        cadenceFields: frequencyJsonToCadenceFields(s.habit.frequency_json, s.habit.schedule),
       });
       // Calculate buffers when time estimate changes
       const habitBuffers2 = calculateBuffers(

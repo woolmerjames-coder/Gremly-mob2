@@ -325,19 +325,63 @@ describe('frequencyJsonToCanonical', () => {
   });
 
   describe('custom type', () => {
-    it('converts custom week', () => {
+    it('converts custom week (flat)', () => {
       const result = frequencyJsonToCanonical({ type: 'custom', count: 3, unit: 'week' });
       expect(result).toEqual({ cadence: 'weekly', target_per_period: 3 });
     });
 
-    it('converts custom month', () => {
+    it('converts custom month (flat)', () => {
       const result = frequencyJsonToCanonical({ type: 'custom', count: 2, unit: 'month' });
       expect(result).toEqual({ cadence: 'monthly', target_per_period: 2 });
     });
 
-    it('converts custom day', () => {
+    it('converts custom day (flat)', () => {
       const result = frequencyJsonToCanonical({ type: 'custom', count: 2, unit: 'day' });
       expect(result).toEqual({ cadence: 'daily', target_per_period: 2 });
+    });
+
+    it('converts custom week (nested value from Schedule modal)', () => {
+      const result = frequencyJsonToCanonical({
+        type: 'custom',
+        value: { count: 3, unit: 'week' },
+      } as any);
+      expect(result).toEqual({ cadence: 'weekly', target_per_period: 3 });
+    });
+
+    it('converts custom month (nested value from Schedule modal)', () => {
+      const result = frequencyJsonToCanonical({
+        type: 'custom',
+        value: { count: 2, unit: 'month' },
+      } as any);
+      expect(result).toEqual({ cadence: 'monthly', target_per_period: 2 });
+    });
+
+    it('converts custom day (nested value from Schedule modal)', () => {
+      const result = frequencyJsonToCanonical({
+        type: 'custom',
+        value: { count: 5, unit: 'day' },
+      } as any);
+      expect(result).toEqual({ cadence: 'daily', target_per_period: 5 });
+    });
+  });
+
+  describe('days type', () => {
+    it('converts days with 3 selected days', () => {
+      const result = frequencyJsonToCanonical({ type: 'days', days: [1, 3, 5] } as any);
+      expect(result).toEqual({ cadence: 'weekly', target_per_period: 3 });
+    });
+
+    it('converts days with all 7 days', () => {
+      const result = frequencyJsonToCanonical({
+        type: 'days',
+        days: [0, 1, 2, 3, 4, 5, 6],
+      } as any);
+      expect(result).toEqual({ cadence: 'weekly', target_per_period: 7 });
+    });
+
+    it('handles empty days array', () => {
+      const result = frequencyJsonToCanonical({ type: 'days', days: [] } as any);
+      expect(result).toEqual({ cadence: 'weekly', target_per_period: 1 });
     });
   });
 

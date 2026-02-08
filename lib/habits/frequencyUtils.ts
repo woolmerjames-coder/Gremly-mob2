@@ -29,10 +29,11 @@ export interface FrequencyCanonical {
 }
 
 export interface FrequencyJson {
-  type: 'simple' | 'custom';
-  value?: string; // For simple: 'daily', 'weekly', 'monthly'
-  count?: number; // For custom: e.g., 3
-  unit?: 'day' | 'week' | 'month'; // For custom: e.g., 'week'
+  type: 'simple' | 'custom' | 'days';
+  value?: string | { count: number; unit: 'day' | 'week' | 'month' }; // simple → string; custom → object
+  days?: number[]; // For days: e.g., [1, 3, 5] (0=Sun … 6=Sat)
+  count?: number; // For custom (flat): e.g., 3
+  unit?: 'day' | 'week' | 'month'; // For custom (flat): e.g., 'week'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -299,18 +300,38 @@ export function frequencyJsonToCanonical(
     return { cadence: 'daily', target_per_period: 1 };
   }
 
-  // Simple type
+  // Simple type: { type: 'simple', value: 'daily' | 'weekly' | 'monthly' }
   if (frequencyJson.type === 'simple') {
-    const value = frequencyJson.value?.toLowerCase();
+    const value = typeof frequencyJson.value === 'string' ? frequencyJson.value.toLowerCase() : '';
     return {
       cadence: value === 'weekly' ? 'weekly' : value === 'monthly' ? 'monthly' : 'daily',
       target_per_period: 1,
     };
   }
 
-  // Custom type
-  const unit = frequencyJson.unit;
-  const count = frequencyJson.count ?? 1;
+  // Days type: { type: 'days', days: [1, 3, 5] } → weekly, count = days.length
+  if (frequencyJson.type === 'days') {
+    const days = Array.isArray(frequencyJson.days) ? frequencyJson.days : [];
+    return {
+      cadence: 'weekly',
+      target_per_period: days.length || 1,
+    };
+  }
+
+  // Custom type — supports both nested and flat shapes:
+  //   Nested: { type: 'custom', value: { count: 3, unit: 'week' } }
+  //   Flat:   { type: 'custom', count: 3, unit: 'week' }
+  let unit: string | undefined;
+  let count: number;
+  if (frequencyJson.value && typeof frequencyJson.value === 'object') {
+    // Nested shape from Schedule modal
+    unit = (frequencyJson.value as { count: number; unit: string }).unit;
+    count = (frequencyJson.value as { count: number; unit: string }).count ?? 1;
+  } else {
+    // Flat shape (legacy / direct)
+    unit = frequencyJson.unit;
+    count = frequencyJson.count ?? 1;
+  }
 
   return {
     cadence: unit === 'week' ? 'weekly' : unit === 'month' ? 'monthly' : 'daily',
