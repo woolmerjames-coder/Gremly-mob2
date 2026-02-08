@@ -5,7 +5,7 @@
  * as well as the day boundary for ritual progress tracking.
  */
 
-import React, { useState, useLayoutEffect } from 'react';
+import React, { useState, useLayoutEffect, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Switch, Pressable, Platform, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
@@ -52,6 +52,47 @@ export default function SettingsScreen() {
   });
   const [localDayBoundary, setLocalDayBoundary] = useState(dayBoundaryHour);
 
+  // Track whether user has made any changes
+  const hasChanges = useRef(false);
+
+  // Sync local state when async prefs load completes
+  useEffect(() => {
+    if (notificationPrefs) {
+      if (notificationPrefs.morningTime) setMorningTime(notificationPrefs.morningTime);
+      if (notificationPrefs.eveningTime) setEveningTime(notificationPrefs.eveningTime);
+      if (notificationPrefs.morningEnabled !== undefined)
+        setMorningEnabled(notificationPrefs.morningEnabled);
+      if (notificationPrefs.eveningEnabled !== undefined)
+        setEveningEnabled(notificationPrefs.eveningEnabled);
+    }
+  }, [notificationPrefs]);
+
+  // Auto-save when navigating away
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', () => {
+      if (hasChanges.current && notificationPrefs) {
+        saveNotificationPrefs({
+          morningEnabled,
+          morningTime,
+          eveningEnabled,
+          eveningTime,
+          timezone: notificationPrefs.timezone,
+        });
+        if (localDayBoundary !== dayBoundaryHour) {
+          setDayBoundaryHour(localDayBoundary);
+        }
+      }
+    });
+    return unsubscribe;
+  }, [
+    morningEnabled,
+    morningTime,
+    eveningEnabled,
+    eveningTime,
+    localDayBoundary,
+    notificationPrefs,
+  ]);
+
   const handleBack = () => {
     navigation.goBack();
   };
@@ -59,12 +100,14 @@ export default function SettingsScreen() {
   const handleMorningTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
     if (selectedDate) {
       setMorningTime(selectedDate);
+      hasChanges.current = true;
     }
   };
 
   const handleEveningTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
     if (selectedDate) {
       setEveningTime(selectedDate);
+      hasChanges.current = true;
     }
   };
 
@@ -115,7 +158,10 @@ export default function SettingsScreen() {
             )}
             <Switch
               value={morningEnabled}
-              onValueChange={setMorningEnabled}
+              onValueChange={(val) => {
+                setMorningEnabled(val);
+                hasChanges.current = true;
+              }}
               trackColor={{ false: colors.gray, true: BRAND.colors.sageMist }}
               thumbColor={morningEnabled ? BRAND.colors.mossGreen : colors.white}
             />
@@ -139,7 +185,10 @@ export default function SettingsScreen() {
             )}
             <Switch
               value={eveningEnabled}
-              onValueChange={setEveningEnabled}
+              onValueChange={(val) => {
+                setEveningEnabled(val);
+                hasChanges.current = true;
+              }}
               trackColor={{ false: colors.gray, true: BRAND.colors.sageMist }}
               thumbColor={eveningEnabled ? BRAND.colors.mossGreen : colors.white}
             />
@@ -183,12 +232,23 @@ export default function SettingsScreen() {
             style={{ transform: [{ rotate: '180deg' }] }}
           />
         </Pressable>
+      </ScrollView>
 
-        {/* Save Button */}
+      {/* Fixed footer outside ScrollView */}
+      <View
+        style={{
+          paddingHorizontal: spacing.lg,
+          paddingTop: spacing.md,
+          paddingBottom: spacing.lg,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border.DEFAULT,
+          backgroundColor: colors.cream,
+        }}
+      >
         <Pressable style={styles.saveButton} onPress={handleSave}>
           <Text style={styles.saveButtonText}>Save</Text>
         </Pressable>
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -263,7 +323,6 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     paddingVertical: spacing.md,
     alignItems: 'center',
-    marginTop: spacing.lg,
   },
   saveButtonText: {
     fontSize: 16,

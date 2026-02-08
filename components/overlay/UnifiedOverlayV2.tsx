@@ -3853,9 +3853,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const handleLogSubtypeChipPress = useCallback(() => {
     if (!isLog) return;
 
-    const options = ['Journal', 'Idea', 'General', 'Clear subtype', 'Cancel'];
-    const destructiveButtonIndex = 3; // Clear subtype
-    const cancelButtonIndex = 4;
+    const options = ['Journal', 'Idea', 'General', 'Event', 'Clear subtype', 'Cancel'];
+    const destructiveButtonIndex = 4; // Clear subtype
+    const cancelButtonIndex = 5;
 
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
@@ -3868,11 +3868,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         (buttonIndex) => {
           if (buttonIndex === cancelButtonIndex) return;
 
-          const subtypeMap: Record<number, 'journal' | 'idea' | 'general' | null> = {
+          const subtypeMap: Record<number, 'journal' | 'idea' | 'general' | 'event' | null> = {
             0: 'journal',
             1: 'idea',
             2: 'general',
-            3: null, // Clear subtype
+            3: 'event',
+            4: null, // Clear subtype
           };
 
           const value = subtypeMap[buttonIndex];
@@ -3893,6 +3894,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         {
           text: 'General',
           onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'general' }),
+        },
+        {
+          text: 'Event',
+          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'event' }),
         },
         {
           text: 'Clear subtype',

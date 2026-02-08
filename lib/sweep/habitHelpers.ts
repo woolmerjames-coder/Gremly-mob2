@@ -153,14 +153,10 @@ function getDateStringDaysAgo(daysAgo: number): string {
 }
 
 /**
- * Get the start of the current week (Monday) as YYYY-MM-DD
+ * Get the start of the rolling 7-day window (today minus 6 days) as YYYY-MM-DD
  */
-function getWeekStartDateString(): string {
-  const today = ds().getCurrentDate();
-  const date = ds().fromDateString(today);
-  const dayOfWeek = date?.getDay() ?? 0;
-  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  return ds().addDays(today, -daysFromMonday);
+function getRolling7DayStartDateString(): string {
+  return ds().addDays(ds().getCurrentDate(), -6);
 }
 
 /**
@@ -237,9 +233,9 @@ function getCompletionsInRange(
  * Get completions this week for a habit.
  */
 export function getWeeklyProgress(habitId: string, habitProgress: HabitProgressRow[]): number {
-  const weekStart = getWeekStartDateString();
+  const windowStart = getRolling7DayStartDateString();
   const today = getTodayDateString();
-  return getCompletionsInRange(habitId, habitProgress, weekStart, today);
+  return getCompletionsInRange(habitId, habitProgress, windowStart, today);
 }
 
 /**
