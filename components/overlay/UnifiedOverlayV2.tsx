@@ -9031,9 +9031,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       }}
                       onPress={() => setShowScheduleModal(false)}
                     >
-                      <Pressable
+                      <View
                         style={styles.scheduleModalContent}
-                        onPress={(e) => e.stopPropagation()}
+                        onStartShouldSetResponder={() => true}
                       >
                         <Text style={styles.scheduleModalTitle}>Schedule</Text>
 
@@ -9651,7 +9651,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             <Text style={styles.scheduleModalSetText}>Set</Text>
                           </Pressable>
                         </View>
-                      </Pressable>
+                      </View>
                     </Pressable>
                   </Modal>
                   {/* Habit Start Date Picker Modal */}
