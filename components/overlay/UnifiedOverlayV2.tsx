@@ -1625,12 +1625,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Preset time picker state
   const [selectedTimePreset, setSelectedTimePreset] = useState<string | 'custom' | null>(null);
   const [showCustomTimePicker, setShowCustomTimePicker] = useState(false);
-  // Frequency picker state
+  // Frequency picker state (legacy modal — now reads from scheduleModalState)
   const [showFrequencyModal, setShowFrequencyModal] = useState(false);
-  const [frequencyTab, setFrequencyTab] = useState<'simple' | 'days' | 'custom'>('simple');
-  const [selectedDays, setSelectedDays] = useState<number[]>([]);
-  const [customCount, setCustomCount] = useState('1');
-  const [customUnit, setCustomUnit] = useState<'day' | 'week' | 'month'>('week');
   // Unified Schedule Modal state
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showScheduleStartDatePicker, setShowScheduleStartDatePicker] = useState(false);
@@ -4198,12 +4194,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
         }
         const daysActiveFromJson = extractDaysActiveFromFrequencyJson(s.habit.frequency_json);
-        console.log('[toCreateOrUpdateInput:Habit] 📤 Building habit payload:', {
+        console.log('[Save] FINAL frequency payload (edit):', {
+          frequency: s.habit.schedule,
           frequency_json: s.habit.frequency_json,
-          schedule: s.habit.schedule,
-          days_active: daysActiveFromJson,
-          isEditing: !!initialEntity,
           cadenceFields: frequencyJsonToCadenceFields(s.habit.frequency_json, s.habit.schedule),
+          localScheduleDirty: hasLocalScheduleChanges.current,
+          days_active: daysActiveFromJson,
         });
         // Calculate buffers when time estimate changes
         const habitBuffers = calculateBuffers(
@@ -4244,11 +4240,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
       }
       const daysActiveFromJson2 = extractDaysActiveFromFrequencyJson(s.habit.frequency_json);
-      console.log('[toCreateOrUpdateInput:Habit] 📤 Building NEW habit payload:', {
+      console.log('[Save] FINAL frequency payload (create):', {
+        frequency: s.habit.schedule,
         frequency_json: s.habit.frequency_json,
-        schedule: s.habit.schedule,
-        days_active: daysActiveFromJson2,
         cadenceFields: frequencyJsonToCadenceFields(s.habit.frequency_json, s.habit.schedule),
+        localScheduleDirty: hasLocalScheduleChanges.current,
+        days_active: daysActiveFromJson2,
       });
       // Calculate buffers when time estimate changes
       const habitBuffers2 = calculateBuffers(
@@ -10251,13 +10248,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             {(['simple', 'days', 'custom'] as const).map((tab) => (
                               <Pressable
                                 key={tab}
-                                onPress={() => setFrequencyTab(tab)}
+                                onPress={() =>
+                                  setScheduleModalState((prev) => ({ ...prev, frequencyTab: tab }))
+                                }
                                 style={{
                                   paddingVertical: 8,
                                   paddingHorizontal: 16,
                                   borderBottomWidth: 2,
                                   borderBottomColor:
-                                    frequencyTab === tab
+                                    scheduleModalState.frequencyTab === tab
                                       ? colorMode === 'dark'
                                         ? lightTokens.colors.moss
                                         : lightTokens.colors.moss
@@ -10267,14 +10266,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 <Text
                                   style={{
                                     color:
-                                      frequencyTab === tab
+                                      scheduleModalState.frequencyTab === tab
                                         ? colorMode === 'dark'
                                           ? '#FFFFFF'
                                           : '#222222'
                                         : colorMode === 'dark'
                                           ? 'rgba(255,255,255,0.6)'
                                           : 'rgba(34,34,34,0.6)',
-                                    fontWeight: frequencyTab === tab ? '600' : '400',
+                                    fontWeight:
+                                      scheduleModalState.frequencyTab === tab ? '600' : '400',
                                   }}
                                 >
                                   {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -10287,7 +10287,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         {/* Tab content */}
                         <Box mt={3} style={{ minHeight: 150 }}>
                           {/* Simple tab */}
-                          {frequencyTab === 'simple' && (
+                          {scheduleModalState.frequencyTab === 'simple' && (
                             <Box gap={2}>
                               {(['daily', 'weekly', 'monthly'] as const).map((freq) => (
                                 <Button
@@ -10314,23 +10314,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           )}
 
                           {/* Days tab */}
-                          {frequencyTab === 'days' && (
+                          {scheduleModalState.frequencyTab === 'days' && (
                             <Box>
                               <Text variant="label" style={{ marginBottom: 12 }}>
                                 Select days
                               </Text>
                               <Box row gap={1} style={{ flexWrap: 'wrap' }}>
                                 {DAY_LABELS.map(({ day, short, long }) => {
-                                  const isSelected = selectedDays.includes(day);
+                                  const isSelected = scheduleModalState.selectedDays.includes(day);
                                   return (
                                     <Pressable
                                       key={day}
                                       onPress={() => {
-                                        setSelectedDays((prev) =>
-                                          prev.includes(day)
-                                            ? prev.filter((d) => d !== day)
-                                            : [...prev, day],
-                                        );
+                                        setScheduleModalState((prev) => ({
+                                          ...prev,
+                                          selectedDays: prev.selectedDays.includes(day)
+                                            ? prev.selectedDays.filter((d) => d !== day)
+                                            : [...prev.selectedDays, day],
+                                        }));
                                       }}
                                       style={{
                                         width: 44,
@@ -10372,17 +10373,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           )}
 
                           {/* Custom tab */}
-                          {frequencyTab === 'custom' && (
+                          {scheduleModalState.frequencyTab === 'custom' && (
                             <Box>
                               <Text variant="label" style={{ marginBottom: 12 }}>
                                 How often?
                               </Text>
                               <Box row gap={2} style={{ alignItems: 'center' }}>
                                 <TextInput
-                                  value={customCount}
+                                  value={scheduleModalState.customCount}
                                   onChangeText={(text) => {
                                     const num = text.replace(/[^0-9]/g, '');
-                                    setCustomCount(num || '1');
+                                    setScheduleModalState((prev) => ({
+                                      ...prev,
+                                      customCount: num || '1',
+                                    }));
                                   }}
                                   keyboardType="number-pad"
                                   placeholder="1"
@@ -10416,9 +10420,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         'week',
                                         'month',
                                       ];
-                                      const currentIndex = units.indexOf(customUnit);
+                                      const currentIndex = units.indexOf(
+                                        scheduleModalState.customUnit,
+                                      );
                                       const nextIndex = (currentIndex + 1) % units.length;
-                                      setCustomUnit(units[nextIndex]);
+                                      setScheduleModalState((prev) => ({
+                                        ...prev,
+                                        customUnit: units[nextIndex],
+                                      }));
                                     }}
                                     style={{
                                       backgroundColor:
@@ -10437,7 +10446,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         fontSize: 16,
                                       }}
                                     >
-                                      {customUnit}
+                                      {scheduleModalState.customUnit}
                                     </Text>
                                   </Pressable>
                                 </View>
@@ -10461,17 +10470,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             onPress={() => {
                               let config: FrequencyConfig;
 
-                              if (frequencyTab === 'simple') {
+                              if (scheduleModalState.frequencyTab === 'simple') {
                                 config = { mode: 'simple', value: 'daily' }; // Default, but this won't be called in simple mode
-                              } else if (frequencyTab === 'days') {
-                                if (selectedDays.length === 0) {
+                              } else if (scheduleModalState.frequencyTab === 'days') {
+                                if (scheduleModalState.selectedDays.length === 0) {
                                   // Require at least one day
                                   return;
                                 }
-                                config = { mode: 'days', days: selectedDays as DayOfWeek[] };
+                                config = {
+                                  mode: 'days',
+                                  days: scheduleModalState.selectedDays as DayOfWeek[],
+                                };
                               } else {
-                                const count = parseInt(customCount) || 1;
-                                config = { mode: 'custom', value: { count, unit: customUnit } };
+                                const count = parseInt(scheduleModalState.customCount) || 1;
+                                config = {
+                                  mode: 'custom',
+                                  value: { count, unit: scheduleModalState.customUnit },
+                                };
                               }
 
                               const fjson = frequencyToJson(config);
@@ -10487,7 +10502,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               setShowFrequencyModal(false);
                             }}
                             title="Set"
-                            disabled={frequencyTab === 'days' && selectedDays.length === 0}
+                            disabled={
+                              scheduleModalState.frequencyTab === 'days' &&
+                              scheduleModalState.selectedDays.length === 0
+                            }
                           />
                         </Box>
                       </Box>
