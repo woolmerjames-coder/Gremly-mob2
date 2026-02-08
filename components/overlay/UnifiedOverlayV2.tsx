@@ -7091,10 +7091,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               </Box>
                             )}
 
-                            {/* ===== To-Do-specific rows: Deadline / Do date / Time est / Time of day / Lock In ===== */}
+                            {/* ===== To-Do-specific rows: Schedule / Lock In ===== */}
                             {baseType === 'todo' ? (
                               <View style={{ paddingHorizontal: 16 }}>
-                                {/* Hairline divider above Deadline */}
+                                {/* Hairline divider above Schedule */}
                                 <View
                                   style={{
                                     height: StyleSheet.hairlineWidth,
@@ -7102,27 +7102,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   }}
                                 />
 
-                                {/* Deadline row */}
+                                {/* Schedule row — single row, opens Schedule modal */}
                                 <Pressable
-                                  onPress={() => {
-                                    setMoodPickerExpanded(false);
-                                    if (state.todo.target_date) {
-                                      const parsed = getDateService().fromDateString(
-                                        state.todo.target_date,
-                                      );
-                                      if (parsed) setSelectedDate(parsed);
-                                    } else {
-                                      setSelectedDate(new Date());
-                                    }
-                                    setDateModalTarget('todo_deadline');
-                                    setShowDateModal(true);
-                                  }}
+                                  onPress={openScheduleModal}
                                   accessibilityRole="button"
-                                  accessibilityLabel={
-                                    state.todo.target_date
-                                      ? `Deadline: ${formatDueDay(state.todo.target_date)}`
-                                      : 'Add deadline'
-                                  }
+                                  accessibilityLabel="Edit schedule"
                                   style={({ pressed }) => ({
                                     flexDirection: 'row',
                                     alignItems: 'center',
@@ -7135,17 +7119,50 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
                                   >
                                     <Calendar size={18} color="#6B665C" />
-                                    <Text
-                                      style={{
-                                        fontSize: 14,
-                                        fontWeight: state.todo.target_date ? '600' : '500',
-                                        color: state.todo.target_date ? '#2D4A3E' : '#8B8579',
-                                      }}
-                                    >
-                                      {state.todo.target_date
-                                        ? formatDueDay(state.todo.target_date)
-                                        : 'Add deadline'}
-                                    </Text>
+                                    <View style={{ flexDirection: 'column' }}>
+                                      <Text
+                                        style={{
+                                          fontSize: 14,
+                                          fontWeight: '600',
+                                          color: '#2D4A3E',
+                                        }}
+                                      >
+                                        Schedule
+                                      </Text>
+                                      <Text
+                                        style={{
+                                          fontSize: 12,
+                                          fontWeight: '400',
+                                          color: '#8B8579',
+                                          marginTop: 2,
+                                        }}
+                                      >
+                                        {(() => {
+                                          const parts: string[] = [];
+                                          if (state.todo.target_date)
+                                            parts.push(
+                                              `Due ${formatDueDay(state.todo.target_date)}`,
+                                            );
+                                          if (state.todo.scheduled_date)
+                                            parts.push(
+                                              `Do ${formatDueDay(state.todo.scheduled_date)}`,
+                                            );
+                                          if (state.todo.time_estimate_minutes)
+                                            parts.push(
+                                              formatTimeEstimate(state.todo.time_estimate_minutes),
+                                            );
+                                          if (state.todo.time_window) {
+                                            const label = TIME_WINDOW_OPTIONS.find(
+                                              (o) => o.value === state.todo.time_window,
+                                            )?.label;
+                                            if (label && label !== 'Any time') parts.push(label);
+                                          }
+                                          return parts.length > 0
+                                            ? parts.join(' · ')
+                                            : 'Tap to set schedule';
+                                        })()}
+                                      </Text>
+                                    </View>
                                   </View>
                                   <ChevronRight size={18} color="#A09A90" />
                                 </Pressable>
@@ -7173,159 +7190,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     </Text>
                                   </View>
                                 ) : null}
-
-                                {/* Hairline divider */}
-                                <View
-                                  style={{
-                                    height: StyleSheet.hairlineWidth,
-                                    backgroundColor: '#E5E0D8',
-                                  }}
-                                />
-
-                                {/* Do date row */}
-                                <Pressable
-                                  onPress={() => {
-                                    setMoodPickerExpanded(false);
-                                    if (state.todo.scheduled_date) {
-                                      const parsed = getDateService().fromDateString(
-                                        state.todo.scheduled_date,
-                                      );
-                                      if (parsed) setSelectedDate(parsed);
-                                    } else {
-                                      setSelectedDate(new Date());
-                                    }
-                                    setDateModalTarget('todo_dodate');
-                                    setShowDateModal(true);
-                                  }}
-                                  accessibilityRole="button"
-                                  accessibilityLabel={
-                                    state.todo.scheduled_date
-                                      ? `Do date: ${formatDueDay(state.todo.scheduled_date)}`
-                                      : 'Add do date'
-                                  }
-                                  style={({ pressed }) => ({
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    paddingVertical: 14,
-                                    opacity: pressed ? 0.7 : 1,
-                                  })}
-                                >
-                                  <View
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
-                                  >
-                                    <Clock size={18} color="#6B665C" />
-                                    <Text
-                                      style={{
-                                        fontSize: 14,
-                                        fontWeight: state.todo.scheduled_date ? '600' : '500',
-                                        color: state.todo.scheduled_date ? '#2D4A3E' : '#8B8579',
-                                      }}
-                                    >
-                                      {state.todo.scheduled_date
-                                        ? formatDueDay(state.todo.scheduled_date)
-                                        : 'Add do date'}
-                                    </Text>
-                                  </View>
-                                  <ChevronRight size={18} color="#A09A90" />
-                                </Pressable>
-
-                                {/* Hairline divider */}
-                                <View
-                                  style={{
-                                    height: StyleSheet.hairlineWidth,
-                                    backgroundColor: '#E5E0D8',
-                                  }}
-                                />
-
-                                {/* Time estimate row */}
-                                <Pressable
-                                  onPress={() => {
-                                    setTimeEstimateValue(state.todo.time_estimate_minutes ?? 30);
-                                    setShowTimeEstimateModal(true);
-                                  }}
-                                  accessibilityRole="button"
-                                  accessibilityLabel={
-                                    state.todo.time_estimate_minutes
-                                      ? `Time estimate: ${state.todo.time_estimate_minutes} minutes`
-                                      : 'Add time estimate'
-                                  }
-                                  style={({ pressed }) => ({
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    paddingVertical: 14,
-                                    opacity: pressed ? 0.7 : 1,
-                                  })}
-                                >
-                                  <View
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
-                                  >
-                                    <Clock size={18} color="#6B665C" />
-                                    <Text
-                                      style={{
-                                        fontSize: 14,
-                                        fontWeight: state.todo.time_estimate_minutes
-                                          ? '600'
-                                          : '500',
-                                        color: state.todo.time_estimate_minutes
-                                          ? '#2D4A3E'
-                                          : '#8B8579',
-                                      }}
-                                    >
-                                      {state.todo.time_estimate_minutes
-                                        ? formatTimeEstimate(state.todo.time_estimate_minutes)
-                                        : 'Add time estimate'}
-                                    </Text>
-                                  </View>
-                                  <ChevronRight size={18} color="#A09A90" />
-                                </Pressable>
-
-                                {/* Hairline divider */}
-                                <View
-                                  style={{
-                                    height: StyleSheet.hairlineWidth,
-                                    backgroundColor: '#E5E0D8',
-                                  }}
-                                />
-
-                                {/* Time of day row */}
-                                <Pressable
-                                  onPress={() => setShowTimeWindowModal(true)}
-                                  accessibilityRole="button"
-                                  accessibilityLabel={
-                                    state.todo.time_window
-                                      ? `Time window: ${state.todo.time_window}`
-                                      : 'Set time window'
-                                  }
-                                  style={({ pressed }) => ({
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    paddingVertical: 14,
-                                    opacity: pressed ? 0.7 : 1,
-                                  })}
-                                >
-                                  <View
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
-                                  >
-                                    <Clock size={18} color="#6B665C" />
-                                    <Text
-                                      style={{
-                                        fontSize: 14,
-                                        fontWeight: state.todo.time_window ? '600' : '500',
-                                        color: state.todo.time_window ? '#2D4A3E' : '#8B8579',
-                                      }}
-                                    >
-                                      {state.todo.time_window
-                                        ? TIME_WINDOW_OPTIONS.find(
-                                            (o) => o.value === state.todo.time_window,
-                                          )?.label || state.todo.time_window
-                                        : 'Any time'}
-                                    </Text>
-                                  </View>
-                                  <ChevronRight size={18} color="#A09A90" />
-                                </Pressable>
 
                                 {/* Hairline divider */}
                                 <View
