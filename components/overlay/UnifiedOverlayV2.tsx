@@ -8939,206 +8939,212 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           nestedScrollEnabled
                           contentContainerStyle={{ paddingBottom: 20 }}
                         >
-                          {/* ===== SECTION 1: Frequency presets ===== */}
-                          <Text style={styles.schSectionLabel}>Frequency</Text>
-                          <View
-                            style={{
-                              flexDirection: 'row',
-                              flexWrap: 'wrap',
-                              gap: 8,
-                              marginBottom: 4,
-                            }}
-                          >
-                            {SCHEDULE_PRESETS.map((preset) => {
-                              const isMatch =
-                                !scheduleModalState.isCustom &&
-                                scheduleModalState.count === preset.count &&
-                                scheduleModalState.unit === preset.unit &&
-                                JSON.stringify([...scheduleModalState.selectedDays].sort()) ===
-                                  JSON.stringify([...preset.days].sort());
-                              return (
-                                <Pressable
-                                  key={preset.key}
-                                  onPress={() => {
-                                    LayoutAnimation.configureNext(
-                                      LayoutAnimation.Presets.easeInEaseOut,
-                                    );
-                                    setScheduleModalState((prev) => ({
-                                      ...prev,
-                                      count: preset.count,
-                                      unit: preset.unit,
-                                      selectedDays: [...preset.days],
-                                      isCustom: false,
-                                    }));
-                                  }}
-                                  style={{
-                                    paddingVertical: 8,
-                                    paddingHorizontal: 16,
-                                    borderRadius: 8,
-                                    backgroundColor: isMatch ? '#2D4A3E' : '#F5F2ED',
-                                  }}
-                                >
-                                  <Text
-                                    style={{
-                                      fontSize: 13,
-                                      fontWeight: isMatch ? '600' : '500',
-                                      color: isMatch ? '#FFFFFF' : '#6B665C',
-                                    }}
-                                  >
-                                    {preset.label}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                            {/* Custom pill */}
-                            <Pressable
-                              onPress={() => {
-                                LayoutAnimation.configureNext(
-                                  LayoutAnimation.Presets.easeInEaseOut,
-                                );
-                                setScheduleModalState((prev) => ({ ...prev, isCustom: true }));
-                              }}
-                              style={{
-                                paddingVertical: 8,
-                                paddingHorizontal: 16,
-                                borderRadius: 8,
-                                backgroundColor: scheduleModalState.isCustom
-                                  ? '#2D4A3E'
-                                  : '#F5F2ED',
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  fontWeight: scheduleModalState.isCustom ? '600' : '500',
-                                  color: scheduleModalState.isCustom ? '#FFFFFF' : '#6B665C',
-                                }}
-                              >
-                                Custom
-                              </Text>
-                            </Pressable>
-                          </View>
-
-                          {/* ===== SECTION 1b: Custom counter (conditional) ===== */}
-                          {scheduleModalState.isCustom && (
-                            <View
-                              style={{
-                                backgroundColor: '#F5F2ED',
-                                borderRadius: 12,
-                                padding: 16,
-                                marginTop: 12,
-                              }}
-                            >
-                              {/* Counter row */}
+                          {/* ===== Frequency sections — habits only ===== */}
+                          {baseType === 'habit' && (
+                            <>
+                              {/* ===== SECTION 1: Frequency presets ===== */}
+                              <Text style={styles.schSectionLabel}>Frequency</Text>
                               <View
                                 style={{
                                   flexDirection: 'row',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
+                                  flexWrap: 'wrap',
+                                  gap: 8,
+                                  marginBottom: 4,
                                 }}
                               >
-                                <Pressable
-                                  onPress={() =>
-                                    setScheduleModalState((prev) => ({
-                                      ...prev,
-                                      count: Math.max(1, prev.count - 1),
-                                    }))
-                                  }
-                                  disabled={scheduleModalState.count <= 1}
-                                  style={{
-                                    width: 36,
-                                    height: 36,
-                                    borderRadius: 18,
-                                    backgroundColor: '#FFFFFF',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    opacity: scheduleModalState.count <= 1 ? 0.3 : 1,
-                                  }}
-                                >
-                                  <Text style={{ fontSize: 18, color: '#2D4A3E' }}>−</Text>
-                                </Pressable>
-                                <Text
-                                  style={{
-                                    fontSize: 22,
-                                    fontWeight: '700',
-                                    color: '#2D4A3E',
-                                    marginHorizontal: 24,
-                                    minWidth: 30,
-                                    textAlign: 'center',
-                                  }}
-                                >
-                                  {scheduleModalState.count}
-                                </Text>
-                                <Pressable
-                                  onPress={() =>
-                                    setScheduleModalState((prev) => ({
-                                      ...prev,
-                                      count: Math.min(30, prev.count + 1),
-                                    }))
-                                  }
-                                  disabled={scheduleModalState.count >= 30}
-                                  style={{
-                                    width: 36,
-                                    height: 36,
-                                    borderRadius: 18,
-                                    backgroundColor: '#FFFFFF',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    opacity: scheduleModalState.count >= 30 ? 0.3 : 1,
-                                  }}
-                                >
-                                  <Text style={{ fontSize: 18, color: '#2D4A3E' }}>+</Text>
-                                </Pressable>
-                                <Text style={{ fontSize: 14, color: '#8B8579', marginLeft: 16 }}>
-                                  times per
-                                </Text>
-                              </View>
-                              {/* Unit selector row */}
-                              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-                                {(['day', 'week', 'month'] as const).map((u) => {
-                                  const isUnitSel = scheduleModalState.unit === u;
+                                {SCHEDULE_PRESETS.map((preset) => {
+                                  const isMatch =
+                                    !scheduleModalState.isCustom &&
+                                    scheduleModalState.count === preset.count &&
+                                    scheduleModalState.unit === preset.unit &&
+                                    JSON.stringify([...scheduleModalState.selectedDays].sort()) ===
+                                      JSON.stringify([...preset.days].sort());
                                   return (
                                     <Pressable
-                                      key={u}
+                                      key={preset.key}
                                       onPress={() => {
                                         LayoutAnimation.configureNext(
                                           LayoutAnimation.Presets.easeInEaseOut,
                                         );
                                         setScheduleModalState((prev) => ({
                                           ...prev,
-                                          unit: u,
-                                          selectedDays: u !== 'week' ? [] : prev.selectedDays,
+                                          count: preset.count,
+                                          unit: preset.unit,
+                                          selectedDays: [...preset.days],
+                                          isCustom: false,
                                         }));
                                       }}
                                       style={{
-                                        flex: 1,
                                         paddingVertical: 8,
-                                        alignItems: 'center',
+                                        paddingHorizontal: 16,
                                         borderRadius: 8,
-                                        backgroundColor: isUnitSel ? '#2D4A3E' : '#FFFFFF',
+                                        backgroundColor: isMatch ? '#2D4A3E' : '#F5F2ED',
                                       }}
                                     >
                                       <Text
                                         style={{
                                           fontSize: 13,
-                                          fontWeight: isUnitSel ? '600' : '500',
-                                          color: isUnitSel ? '#FFFFFF' : '#6B665C',
+                                          fontWeight: isMatch ? '600' : '500',
+                                          color: isMatch ? '#FFFFFF' : '#6B665C',
                                         }}
                                       >
-                                        {u}
+                                        {preset.label}
                                       </Text>
                                     </Pressable>
                                   );
                                 })}
+                                {/* Custom pill */}
+                                <Pressable
+                                  onPress={() => {
+                                    LayoutAnimation.configureNext(
+                                      LayoutAnimation.Presets.easeInEaseOut,
+                                    );
+                                    setScheduleModalState((prev) => ({ ...prev, isCustom: true }));
+                                  }}
+                                  style={{
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 16,
+                                    borderRadius: 8,
+                                    backgroundColor: scheduleModalState.isCustom
+                                      ? '#2D4A3E'
+                                      : '#F5F2ED',
+                                  }}
+                                >
+                                  <Text
+                                    style={{
+                                      fontSize: 13,
+                                      fontWeight: scheduleModalState.isCustom ? '600' : '500',
+                                      color: scheduleModalState.isCustom ? '#FFFFFF' : '#6B665C',
+                                    }}
+                                  >
+                                    Custom
+                                  </Text>
+                                </Pressable>
                               </View>
-                            </View>
+
+                              {/* ===== SECTION 1b: Custom counter (conditional) ===== */}
+                              {scheduleModalState.isCustom && (
+                                <View
+                                  style={{
+                                    backgroundColor: '#F5F2ED',
+                                    borderRadius: 12,
+                                    padding: 16,
+                                    marginTop: 12,
+                                  }}
+                                >
+                                  {/* Counter row */}
+                                  <View
+                                    style={{
+                                      flexDirection: 'row',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                    }}
+                                  >
+                                    <Pressable
+                                      onPress={() =>
+                                        setScheduleModalState((prev) => ({
+                                          ...prev,
+                                          count: Math.max(1, prev.count - 1),
+                                        }))
+                                      }
+                                      disabled={scheduleModalState.count <= 1}
+                                      style={{
+                                        width: 36,
+                                        height: 36,
+                                        borderRadius: 18,
+                                        backgroundColor: '#FFFFFF',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        opacity: scheduleModalState.count <= 1 ? 0.3 : 1,
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 18, color: '#2D4A3E' }}>−</Text>
+                                    </Pressable>
+                                    <Text
+                                      style={{
+                                        fontSize: 22,
+                                        fontWeight: '700',
+                                        color: '#2D4A3E',
+                                        marginHorizontal: 24,
+                                        minWidth: 30,
+                                        textAlign: 'center',
+                                      }}
+                                    >
+                                      {scheduleModalState.count}
+                                    </Text>
+                                    <Pressable
+                                      onPress={() =>
+                                        setScheduleModalState((prev) => ({
+                                          ...prev,
+                                          count: Math.min(30, prev.count + 1),
+                                        }))
+                                      }
+                                      disabled={scheduleModalState.count >= 30}
+                                      style={{
+                                        width: 36,
+                                        height: 36,
+                                        borderRadius: 18,
+                                        backgroundColor: '#FFFFFF',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        opacity: scheduleModalState.count >= 30 ? 0.3 : 1,
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 18, color: '#2D4A3E' }}>+</Text>
+                                    </Pressable>
+                                    <Text
+                                      style={{ fontSize: 14, color: '#8B8579', marginLeft: 16 }}
+                                    >
+                                      times per
+                                    </Text>
+                                  </View>
+                                  {/* Unit selector row */}
+                                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                                    {(['day', 'week', 'month'] as const).map((u) => {
+                                      const isUnitSel = scheduleModalState.unit === u;
+                                      return (
+                                        <Pressable
+                                          key={u}
+                                          onPress={() => {
+                                            LayoutAnimation.configureNext(
+                                              LayoutAnimation.Presets.easeInEaseOut,
+                                            );
+                                            setScheduleModalState((prev) => ({
+                                              ...prev,
+                                              unit: u,
+                                              selectedDays: u !== 'week' ? [] : prev.selectedDays,
+                                            }));
+                                          }}
+                                          style={{
+                                            flex: 1,
+                                            paddingVertical: 8,
+                                            alignItems: 'center',
+                                            borderRadius: 8,
+                                            backgroundColor: isUnitSel ? '#2D4A3E' : '#FFFFFF',
+                                          }}
+                                        >
+                                          <Text
+                                            style={{
+                                              fontSize: 13,
+                                              fontWeight: isUnitSel ? '600' : '500',
+                                              color: isUnitSel ? '#FFFFFF' : '#6B665C',
+                                            }}
+                                          >
+                                            {u}
+                                          </Text>
+                                        </Pressable>
+                                      );
+                                    })}
+                                  </View>
+                                </View>
+                              )}
+
+                              <View style={styles.schDivider} />
+                            </>
                           )}
 
-                          {/* ── Divider ── */}
-                          <View style={styles.schDivider} />
-
-                          {/* ===== SECTION 2: Pin to days (conditional) ===== */}
-                          {scheduleModalState.unit === 'week' && (
+                          {/* ===== SECTION 2: Pin to days (habits only, conditional) ===== */}
+                          {baseType === 'habit' && scheduleModalState.unit === 'week' && (
                             <>
                               <View
                                 style={{
