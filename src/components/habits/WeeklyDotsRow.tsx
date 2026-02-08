@@ -40,6 +40,8 @@ export interface WeeklyDotsRowProps {
   dotSize?: number;
   /** Gap between dots in px (default 8) */
   dotSpacing?: number;
+  /** Show single-letter day labels (M, T, W…) above each circle */
+  showDayLabels?: boolean;
   /** Called when the "Tap to pick a start date" banner is pressed */
   onPressPickStartDate?: () => void;
 }
@@ -57,6 +59,7 @@ export function WeeklyDotsRow({
   startDate,
   dotSize = 28,
   dotSpacing = 8,
+  showDayLabels = false,
   onPressPickStartDate,
 }: WeeklyDotsRowProps) {
   // Track optimistic state for each day
@@ -94,6 +97,12 @@ export function WeeklyDotsRow({
     );
   }
 
+  // Derive single-letter day initials from ISO dates
+  const getDayInitial = (dateISO: string): string => {
+    const d = new Date(dateISO + 'T12:00:00');
+    return ['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getDay()];
+  };
+
   // Has start date — render dots row
   return (
     <View style={[styles.dotsRow, { gap: dotSpacing }]}>
@@ -108,20 +117,25 @@ export function WeeklyDotsRow({
         // Check if this day is before habit started
         const isBeforeStart = startDate && dateISO < startDate;
 
-        if (isBeforeStart) {
-          // Show empty placeholder to maintain spacing
-          return <View key={dateISO} style={{ width: dotSize, height: dotSize }} />;
-        }
-
         return (
-          <GremlyDot
-            key={dateISO}
-            isCompleted={isCompleted}
-            isToday={isToday}
-            isFuture={isFuture}
-            onPress={() => handleDotPress(dateISO, !isCompleted)}
-            size={dotSize}
-          />
+          <View key={dateISO} style={{ alignItems: 'center', width: dotSize }}>
+            {showDayLabels && (
+              <Text style={[styles.dayLabel, { width: dotSize }, isToday && styles.dayLabelToday]}>
+                {getDayInitial(dateISO)}
+              </Text>
+            )}
+            {isBeforeStart ? (
+              <View style={{ width: dotSize, height: dotSize }} />
+            ) : (
+              <GremlyDot
+                isCompleted={isCompleted}
+                isToday={isToday}
+                isFuture={isFuture}
+                onPress={() => handleDotPress(dateISO, !isCompleted)}
+                size={dotSize}
+              />
+            )}
+          </View>
         );
       })}
     </View>
@@ -138,6 +152,18 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     alignItems: 'center',
     marginTop: 8, // Gap between name and GremlyDot row
+  },
+  dayLabel: {
+    fontSize: 11,
+    fontFamily: 'Inter-Medium',
+    color: '#8B7E74',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  dayLabelToday: {
+    fontFamily: 'Inter-Bold',
+    fontWeight: '700',
+    color: MOSS_GREEN,
   },
   pickStartDateLink: {
     fontSize: 12,

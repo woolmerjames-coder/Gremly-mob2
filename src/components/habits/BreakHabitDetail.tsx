@@ -558,7 +558,8 @@ export function BreakHabitDetail({
               isBreakingHabit={true}
               startDate={habit.start_date}
               dotSize={40}
-              dotSpacing={12}
+              dotSpacing={7}
+              showDayLabels
               onPressPickStartDate={handleSetStartDate}
             />
             <Text style={styles.weekSummary}>
