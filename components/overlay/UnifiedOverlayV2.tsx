@@ -96,6 +96,7 @@ import {
   type BaseType,
   type TagKey,
   type V2State,
+  type HabitState,
 } from './overlayV2.state';
 import ToastUndo from './ToastUndo';
 import { OverlayExpandedEditor } from './OverlayExpandedEditor';
@@ -1959,6 +1960,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const dueToastTimerRef = useRef<number | null>(null);
   const createPrefillAppliedRef = useRef(false);
   const editAutoPrefillRanRef = useRef(false);
+  const hasLocalScheduleChanges = useRef(false);
+  // Snapshot of the user's local schedule edits so re-hydration can preserve them
+  const localScheduleSnapshot = useRef<Partial<
+    Pick<
+      HabitState,
+      | 'schedule'
+      | 'frequency_json'
+      | 'start_date'
+      | 'end_date'
+      | 'time_window'
+      | 'time_estimate_minutes'
+    >
+  > | null>(null);
   const aiTitlePersistedRef = useRef(false);
   const textInputRef = useRef<TextInput | null>(null);
   const prevConversionMetaRef = useRef(conversionMeta);
@@ -1970,10 +1984,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // Reset when overlay closes
       createPrefillAppliedRef.current = false;
       editAutoPrefillRanRef.current = false;
+      hasLocalScheduleChanges.current = false;
+      localScheduleSnapshot.current = null;
     } else if (conversionMeta !== prevConversionMetaRef.current) {
       // Reset when conversionMeta changes while visible (new save action)
       createPrefillAppliedRef.current = false;
       editAutoPrefillRanRef.current = false;
+      hasLocalScheduleChanges.current = false;
+      localScheduleSnapshot.current = null;
     }
     prevConversionMetaRef.current = conversionMeta;
   }, [visible, conversionMeta]);
@@ -2022,6 +2040,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       editAutoPrefillRanRef.current = false;
       hasLoadedEditTagsRef.current = false;
       aiTitlePersistedRef.current = false;
+      hasLocalScheduleChanges.current = false;
+      localScheduleSnapshot.current = null;
 
       // Reset displayMode based on incoming mode prop and baseType
       const newStartedInView = mode === 'view' && baseType === 'habit';
@@ -2087,6 +2107,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
     // Dispatch all updates
     console.log('[Schedule] Applying:', JSON.stringify(newFrequencyJson));
+    hasLocalScheduleChanges.current = true;
+    localScheduleSnapshot.current = {
+      frequency_json: newFrequencyJson,
+      start_date: scheduleModalState.startDate,
+      end_date: scheduleModalState.endDate,
+      time_window: (scheduleModalState.timeWindow ?? null) as HabitState['time_window'],
+      time_estimate_minutes: scheduleModalState.timeEstimateMinutes,
+    };
     dispatch({ type: 'SET_HABIT_FREQUENCY', frequency_json: newFrequencyJson });
     dispatch({ type: 'SET_HABIT_START_DATE', date: scheduleModalState.startDate });
     dispatch({ type: 'SET_HABIT_END_DATE', date: scheduleModalState.endDate });
@@ -3056,6 +3084,26 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
 
     const payload = buildDraftPayloadFromEntity(entityToUse);
+
+    // Guard: if user has local schedule changes (from Schedule modal),
+    // don't let re-hydration overwrite them
+    if (hasLocalScheduleChanges.current && payload.habit && localScheduleSnapshot.current) {
+      console.log('[UnifiedOverlayV2] Preserving local schedule changes during re-hydration');
+      const {
+        schedule,
+        frequency_json,
+        start_date,
+        end_date,
+        time_window,
+        time_estimate_minutes,
+        ...restHabit
+      } = payload.habit;
+      payload.habit = {
+        ...restHabit, // non-schedule fields from store
+        ...localScheduleSnapshot.current, // user's local schedule edits (from ref, never stale)
+      };
+    }
+
     console.log('[UnifiedOverlayV2] Hydrating with payload:', {
       commitment: payload.commitment,
       commitmentNote: payload.commitmentNote,
@@ -10247,9 +10295,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   variant="ghost"
                                   onPress={() => {
                                     const config: FrequencyConfig = { mode: 'simple', value: freq };
+                                    const fjson = frequencyToJson(config);
+                                    hasLocalScheduleChanges.current = true;
+                                    localScheduleSnapshot.current = {
+                                      ...localScheduleSnapshot.current,
+                                      frequency_json: fjson,
+                                    };
                                     dispatch({
                                       type: 'SET_HABIT_FREQUENCY',
-                                      frequency_json: frequencyToJson(config),
+                                      frequency_json: fjson,
                                     });
                                     setShowFrequencyModal(false);
                                   }}
@@ -10420,9 +10474,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 config = { mode: 'custom', value: { count, unit: customUnit } };
                               }
 
+                              const fjson = frequencyToJson(config);
+                              hasLocalScheduleChanges.current = true;
+                              localScheduleSnapshot.current = {
+                                ...localScheduleSnapshot.current,
+                                frequency_json: fjson,
+                              };
                               dispatch({
                                 type: 'SET_HABIT_FREQUENCY',
-                                frequency_json: frequencyToJson(config),
+                                frequency_json: fjson,
                               });
                               setShowFrequencyModal(false);
                             }}
