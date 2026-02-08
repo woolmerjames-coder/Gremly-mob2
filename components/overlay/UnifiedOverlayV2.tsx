@@ -38,12 +38,12 @@ import {
   Plus,
   Minus,
   Calendar,
-  Pencil,
-  RotateCw,
   Lock,
   Bell,
   Folder,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Trash2,
   Camera,
   Diamond,
@@ -6141,45 +6141,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Text>
                           </Pressable>
                         ) : null}
-
-                        {/* Title actions - edit + resummarize icons (only in edit mode) */}
-                        {mode === 'edit' && fullEntity ? (
-                          <View style={styles.titleActions}>
-                            {/* Edit icon - focuses the text input */}
-                            <Pressable
-                              onPress={handleEditTitle}
-                              hitSlop={8}
-                              accessibilityRole="button"
-                              accessibilityLabel="Edit title"
-                              style={({ pressed }) => ({
-                                opacity: pressed ? 0.5 : 0.6,
-                              })}
-                            >
-                              <Pencil
-                                size={16}
-                                color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                              />
-                            </Pressable>
-                            {/* Resummarize icon - regenerates title via AI */}
-                            {currentText ? (
-                              <Pressable
-                                onPress={handleResummarizeTitle}
-                                disabled={isResummarizingTitle}
-                                hitSlop={8}
-                                accessibilityRole="button"
-                                accessibilityLabel="Re-summarize title"
-                                style={({ pressed }) => ({
-                                  opacity: pressed || isResummarizingTitle ? 0.5 : 0.6,
-                                })}
-                              >
-                                <RotateCw
-                                  size={16}
-                                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'}
-                                />
-                              </Pressable>
-                            ) : null}
-                          </View>
-                        ) : null}
                       </View>
                       {/* Phase 6b: Removed subtitle to avoid duplication - title now shows in header */}
                     </View>
@@ -7423,16 +7384,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               </Box>
                             )}
 
-                            {/* Frequency row for habits */}
+                            {/* ===== Habit-specific rows: Schedule / Lock In ===== */}
                             {baseType === 'habit' ? (
-                              <Box mt={3} px={0}>
+                              <View style={{ paddingHorizontal: 16 }}>
                                 {/* Optional frequency label for break habits */}
                                 {isBreakHabit && (
                                   <Text
                                     style={{
                                       fontSize: 12,
-                                      color:
-                                        colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#888888',
+                                      color: '#888888',
                                       marginBottom: 4,
                                       marginLeft: 4,
                                     }}
@@ -7441,120 +7401,149 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   </Text>
                                 )}
 
-                                {/* Schedule Summary + Lock In row */}
-                                <View style={styles.dueAndLockRow}>
-                                  {/* Left side: Schedule summary pill */}
-                                  <View style={styles.dueDateLeft}>
-                                    <Pressable
-                                      style={({ pressed }) => ({
+                                {/* Hairline divider above Schedule */}
+                                <View
+                                  style={{
+                                    height: StyleSheet.hairlineWidth,
+                                    backgroundColor: '#E5E0D8',
+                                    marginVertical: 4,
+                                  }}
+                                />
+
+                                {/* Schedule row — full width, tappable */}
+                                <Pressable
+                                  onPress={openScheduleModal}
+                                  accessibilityRole="button"
+                                  accessibilityLabel="Edit schedule"
+                                  style={({ pressed }) => ({
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    paddingVertical: 14,
+                                    opacity: pressed ? 0.7 : 1,
+                                  })}
+                                >
+                                  <View
+                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                                  >
+                                    <Calendar size={18} color="#6B665C" />
+                                    <View style={{ flexDirection: 'column' }}>
+                                      <Text
+                                        style={{
+                                          fontSize: 14,
+                                          fontWeight: '600',
+                                          color: '#2D4A3E',
+                                        }}
+                                      >
+                                        Schedule
+                                      </Text>
+                                      <Text
+                                        style={{
+                                          fontSize: 12,
+                                          fontWeight: '400',
+                                          color: '#8B8579',
+                                          marginTop: 2,
+                                        }}
+                                      >
+                                        {[
+                                          getFrequencyLabel(
+                                            jsonToFrequency(
+                                              localScheduleSnapshot.current?.frequency_json ??
+                                                state.habit.frequency_json,
+                                            ),
+                                          ),
+                                          state.habit.time_estimate_minutes &&
+                                            `~${state.habit.time_estimate_minutes}m`,
+                                          state.habit.start_date &&
+                                            format(parseISO(state.habit.start_date), 'MMM d'),
+                                        ]
+                                          .filter(Boolean)
+                                          .join(' · ')}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                  <ChevronRight size={18} color="#A09A90" />
+                                </Pressable>
+
+                                {/* Hairline divider between Schedule and Lock In */}
+                                <View
+                                  style={{
+                                    height: StyleSheet.hairlineWidth,
+                                    backgroundColor: '#E5E0D8',
+                                    marginVertical: 4,
+                                  }}
+                                />
+
+                                {/* Lock In row — full width with toggle */}
+                                {commitmentsOn ? (
+                                  <View
+                                    style={{
+                                      flexDirection: 'row',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      paddingVertical: 12,
+                                    }}
+                                  >
+                                    <View
+                                      style={{
                                         flexDirection: 'row',
                                         alignItems: 'center',
-                                        paddingVertical: 10,
-                                        paddingHorizontal: 14,
-                                        paddingRight: 10,
-                                        backgroundColor: pressed
-                                          ? 'rgba(0,0,0,0.06)'
-                                          : 'rgba(0,0,0,0.03)',
-                                        borderRadius: 10,
-                                        marginRight: 12,
-                                        flex: 1,
-                                      })}
-                                      onPress={openScheduleModal}
-                                      accessibilityRole="button"
-                                      accessibilityLabel="Edit schedule"
+                                        gap: 10,
+                                      }}
                                     >
-                                      <Calendar
-                                        size={16}
-                                        color={
-                                          colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#888888'
-                                        }
-                                        style={{ marginRight: 10 }}
-                                      />
-
-                                      <View style={{ flex: 1 }}>
-                                        <Text
-                                          style={{
-                                            fontSize: 14,
-                                            fontWeight: '500',
-                                            color: '#333333',
-                                          }}
-                                        >
-                                          Schedule
-                                        </Text>
-                                        <Text
-                                          style={{ fontSize: 12, color: '#888888', marginTop: 2 }}
-                                        >
-                                          {[
-                                            getFrequencyLabel(
-                                              jsonToFrequency(
-                                                localScheduleSnapshot.current?.frequency_json ??
-                                                  state.habit.frequency_json,
-                                              ),
-                                            ),
-                                            state.habit.time_estimate_minutes &&
-                                              `~${state.habit.time_estimate_minutes}m`,
-                                            state.habit.start_date &&
-                                              format(parseISO(state.habit.start_date), 'MMM d'),
-                                          ]
-                                            .filter(Boolean)
-                                            .join(' · ')}
-                                        </Text>
-                                      </View>
-
-                                      <ChevronRight
-                                        size={16}
-                                        color={
-                                          colorMode === 'dark' ? 'rgba(255,255,255,0.4)' : '#AAAAAA'
-                                        }
-                                      />
-                                    </Pressable>
-                                  </View>
-
-                                  {/* Right side: Lock In toggle */}
-                                  {commitmentsOn ? (
-                                    <View style={styles.lockInRight}>
-                                      <Diamond
-                                        size={14}
-                                        color={
-                                          colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'
-                                        }
-                                        style={styles.lockIcon}
-                                      />
-                                      <Text style={styles.lockLabel}>Lock In</Text>
-                                      <Switch
-                                        value={isLockedIn}
-                                        onValueChange={async () => {
-                                          if (!state.commitment) {
-                                            const ok = await canEnableCommitment();
-                                            if (!ok) {
-                                              console.log('[Lock In] Limit reached (3)');
-                                              return;
-                                            }
-                                          }
-                                          pushUndoEntry('commitment', {
-                                            commitment: state.commitment,
-                                            commitmentNote: state.commitmentNote,
-                                            commitmentStartedAt: state.commitmentStartedAt,
-                                          });
-                                          dispatch({ type: 'TOGGLE_COMMITMENT' });
-                                          try {
-                                            eventBus.emit('OverlayCommitmentToggled', {
-                                              on: !state.commitment,
-                                            });
-                                          } catch (e) {
-                                            // ignore telemetry errors
-                                          }
+                                      <Diamond size={18} color="#6B665C" />
+                                      <Text
+                                        style={{
+                                          fontSize: 14,
+                                          fontWeight: '600',
+                                          color: '#2D4A3E',
                                         }}
-                                        trackColor={{
-                                          false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
-                                          true: lightTokens.colors.moss,
-                                        }}
-                                        thumbColor="#FFFFFF"
-                                      />
+                                      >
+                                        Lock In
+                                      </Text>
                                     </View>
-                                  ) : null}
-                                </View>
-                              </Box>
+                                    <Switch
+                                      value={isLockedIn}
+                                      onValueChange={async () => {
+                                        if (!state.commitment) {
+                                          const ok = await canEnableCommitment();
+                                          if (!ok) {
+                                            console.log('[Lock In] Limit reached (3)');
+                                            return;
+                                          }
+                                        }
+                                        pushUndoEntry('commitment', {
+                                          commitment: state.commitment,
+                                          commitmentNote: state.commitmentNote,
+                                          commitmentStartedAt: state.commitmentStartedAt,
+                                        });
+                                        dispatch({ type: 'TOGGLE_COMMITMENT' });
+                                        try {
+                                          eventBus.emit('OverlayCommitmentToggled', {
+                                            on: !state.commitment,
+                                          });
+                                        } catch (e) {
+                                          // ignore telemetry errors
+                                        }
+                                      }}
+                                      trackColor={{
+                                        false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
+                                        true: lightTokens.colors.moss,
+                                      }}
+                                      thumbColor="#FFFFFF"
+                                    />
+                                  </View>
+                                ) : null}
+
+                                {/* Hairline divider below Lock In */}
+                                <View
+                                  style={{
+                                    height: StyleSheet.hairlineWidth,
+                                    backgroundColor: '#E5E0D8',
+                                    marginVertical: 4,
+                                  }}
+                                />
+                              </View>
                             ) : null}
 
                             {/* LinkedEventPicker for habits - show when space has events */}
@@ -7568,23 +7557,34 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               </Box>
                             )}
 
-                            <View style={{ alignItems: 'center', marginTop: 16, marginBottom: 12 }}>
-                              <Pressable
-                                onPress={handleToggleDetails}
-                                hitSlop={8}
-                                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                            {/* Show / Hide details toggle with chevron */}
+                            <Pressable
+                              onPress={handleToggleDetails}
+                              hitSlop={8}
+                              style={({ pressed }) => ({
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                                paddingVertical: 12,
+                                opacity: pressed ? 0.6 : 1,
+                              })}
+                            >
+                              <Text
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight: '500',
+                                  color: '#8B8579',
+                                }}
                               >
-                                <Text
-                                  style={{
-                                    color: 'rgba(46, 85, 64, 0.75)',
-                                    fontWeight: '500',
-                                    fontSize: 14,
-                                  }}
-                                >
-                                  {state.expanded ? 'Hide details' : 'Show details'}
-                                </Text>
-                              </Pressable>
-                            </View>
+                                {state.expanded ? 'Hide details' : 'Show details'}
+                              </Text>
+                              {state.expanded ? (
+                                <ChevronUp size={14} color="#8B8579" />
+                              ) : (
+                                <ChevronDown size={14} color="#8B8579" />
+                              )}
+                            </Pressable>
                             {state.expanded ? (
                               <Reanimated.View style={[detailsStyle, { marginTop: 0 }]}>
                                 <Box pb={2}>
