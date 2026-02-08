@@ -9037,7 +9037,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       >
                         <Text style={styles.scheduleModalTitle}>Schedule</Text>
 
-                        <ScrollView showsVerticalScrollIndicator={false}>
+                        <ScrollView
+                          style={{ flex: 1 }}
+                          showsVerticalScrollIndicator={false}
+                          keyboardShouldPersistTaps="handled"
+                          nestedScrollEnabled
+                          contentContainerStyle={{ paddingBottom: 20 }}
+                        >
                           {/* ===== SECTION 1: Frequency presets ===== */}
                           <Text style={styles.schSectionLabel}>Frequency</Text>
                           <View
@@ -9358,16 +9364,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             <>
                               <View style={styles.schDivider} />
                               <Text style={styles.schSectionLabel}>Duration</Text>
-                              {/* Stepper + quick picks */}
+                              {/* Row 1: Stepper */}
                               <View
                                 style={{
                                   flexDirection: 'row',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  gap: 8,
                                 }}
                               >
-                                {/* Stepper */}
                                 <Pressable
                                   onPress={() =>
                                     setScheduleModalState((prev) => {
@@ -9438,9 +9442,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 >
                                   <Text style={{ fontSize: 16, color: '#2D4A3E' }}>+</Text>
                                 </Pressable>
-                                {/* Spacer */}
-                                <View style={{ width: 12 }} />
-                                {/* Quick picks */}
+                              </View>
+                              {/* Row 2: Quick picks */}
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  gap: 8,
+                                  justifyContent: 'center',
+                                  marginTop: 10,
+                                }}
+                              >
                                 {[
                                   { label: '15m', value: 15 },
                                   { label: '30m', value: 30 },
@@ -9460,7 +9471,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       }
                                       style={{
                                         paddingVertical: 6,
-                                        paddingHorizontal: 10,
+                                        paddingHorizontal: 16,
                                         borderRadius: 6,
                                         backgroundColor: isDurSel ? '#2D4A3E' : '#F5F2ED',
                                       }}
