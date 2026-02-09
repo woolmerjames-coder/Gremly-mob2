@@ -50,6 +50,7 @@ const COLORS = {
 
 // Section config with icons
 const SECTION_CONFIG: Record<TimeBlock, { label: string; color: string; Icon: LucideIcon }> = {
+  allday: { label: 'ALL DAY', color: '#999999', Icon: Calendar },
   morning: { label: 'MORNING', color: '#D4A574', Icon: Sunrise },
   afternoon: { label: 'AFTERNOON', color: '#C9956C', Icon: Sun },
   evening: { label: 'EVENING', color: '#A89BC9', Icon: Sunset },
@@ -490,6 +491,7 @@ export default function CalendarScreen() {
         habits: Habit[];
       }
     > = {
+      allday: { events: [], todos: [], habits: [] },
       morning: { events: [], todos: [], habits: [] },
       afternoon: { events: [], todos: [], habits: [] },
       evening: { events: [], todos: [], habits: [] },
