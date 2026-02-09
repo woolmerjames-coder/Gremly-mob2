@@ -5996,6 +5996,129 @@ For LOGS (event):
         }
       }
 
+      // ═══════════════════════════════════════════════════════════════════════════
+      // JOURNAL ANALYZE (v4.2) - Analyze journal entries for themes & patterns
+      // ═══════════════════════════════════════════════════════════════════════════
+      //
+      // Accepts an array of journal entries (body text + mood + date) and returns
+      // structured analysis: themes, patterns, journaling habits, and a suggestion.
+      //
+      // Rate-limited client-side to 1x/week via AsyncStorage.
+      // ═══════════════════════════════════════════════════════════════════════════
+
+      if (type === 'journal-analyze') {
+        const entries = body.entries || [];
+        const timezone = body.timezone || 'UTC';
+
+        if (!Array.isArray(entries) || entries.length === 0) {
+          return j({ error: 'no_entries', detail: 'No journal entries provided' }, 200);
+        }
+
+        // Cap at 60 entries to stay within token budget
+        const cappedEntries = entries.slice(0, 60);
+
+        // Build a compact representation of the journal data
+        const journalBlock = cappedEntries
+          .map((entry, i) => {
+            const parts = [`[${entry.date || 'unknown date'}]`];
+            if (entry.mood && entry.mood.length > 0) {
+              parts.push(`(mood: ${entry.mood.join(', ')})`);
+            }
+            parts.push(entry.body || '(empty)');
+            return parts.join(' ');
+          })
+          .join('\n---\n');
+
+        const analyzePrompt = `You are a thoughtful, warm journal analyst for Gremly, a calm productivity app.
+The user has shared their recent journal entries. Analyze them with care and empathy.
+
+=== JOURNAL ENTRIES (${cappedEntries.length} entries) ===
+${journalBlock}
+
+=== YOUR TASK ===
+Analyze these entries and return a JSON object with these four sections:
+
+1. "themes" - Array of 2-4 recurring themes you notice. Each theme is an object:
+   { "label": "short theme name", "description": "1-2 sentence observation", "count": number_of_entries_touching_this }
+   Be specific to THEIR life, not generic. "Work stress around presentations" not just "Stress".
+
+2. "patterns" - Array of 2-3 behavioral or emotional patterns. Each pattern:
+   { "label": "pattern name", "description": "1-2 sentence insight", "sentiment": "positive" | "neutral" | "watch" }
+   "watch" means something worth being mindful of (not alarming, just worth noticing).
+   Look for: mood swings, recurring triggers, coping mechanisms, growth arcs.
+
+3. "journaling_habits" - Object describing WHEN and HOW they journal:
+   { "frequency": "description of how often", "preferred_time": "morning" | "evening" | "varies" | "unknown", "avg_length": "short" | "medium" | "long", "observation": "1 sentence about their journaling style" }
+
+4. "suggestion" - A single gentle, actionable suggestion. Object:
+   { "text": "the suggestion (2-3 sentences max)", "type": "reflect" | "try" | "continue" }
+   "reflect" = think about something, "try" = experiment with something new, "continue" = keep doing something good.
+   NEVER suggest therapy, medication, or professional help. NEVER be prescriptive about emotions.
+   Frame as an invitation, not advice. Use "you might..." or "it could be interesting to..." language.
+
+=== RULES ===
+- Be warm but honest. Don't sugarcoat, but don't alarm.
+- Reference SPECIFIC things from their entries (names, events, feelings they mentioned).
+- If there are very few entries (< 5), say so in journaling_habits.observation and keep themes/patterns shorter.
+- Return ONLY valid JSON. No markdown, no explanation.
+
+=== OUTPUT ===
+Return a single JSON object with keys: themes, patterns, journaling_habits, suggestion`;
+
+        const t0 = Date.now();
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'system', content: analyzePrompt }],
+              temperature: 0.4,
+              max_tokens: 1200,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[JournalAnalyze] API error', { error: oj.error, latency_ms: latency });
+            return j({ error: 'analyze_failed', latency_ms: latency }, 200);
+          }
+
+          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+          let parsed;
+          try {
+            parsed = JSON.parse(rawContent);
+          } catch {
+            console.log('[JournalAnalyze] Parse error', { raw: rawContent.slice(0, 200) });
+            return j({ error: 'parse_failed', latency_ms: latency }, 200);
+          }
+
+          console.log('[JournalAnalyze] Success', {
+            entryCount: cappedEntries.length,
+            themesCount: parsed.themes?.length || 0,
+            patternsCount: parsed.patterns?.length || 0,
+            latency_ms: latency,
+          });
+
+          return j({
+            analysis: parsed,
+            entry_count: cappedEntries.length,
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[JournalAnalyze] Error', { error: String(err), latency_ms: latency });
+          return j({ error: 'analyze_failed', detail: String(err), latency_ms: latency }, 200);
+        }
+      }
+
       // --- EXISTING LOGIC BELOW (unchanged) ---
       const baseModel = body.model || 'gpt-4o-mini';
 

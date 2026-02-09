@@ -25,7 +25,7 @@ const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 export type HubV1TypeFilter = 'todo' | 'habit' | 'note' | 'space';
 export type HubV1TimeRange = 'week' | 'month' | '3months' | 'all';
 export type HubV1StatusFilter = 'active' | 'completed' | 'all';
-export type HubV1View = 'all' | 'journals';
+export type HubV1View = 'timeline' | 'journals' | 'people';
 
 const TIME_RANGE_LABELS: Record<HubV1TimeRange, string> = {
   week: 'This Week',

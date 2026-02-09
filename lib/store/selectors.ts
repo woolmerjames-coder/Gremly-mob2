@@ -1162,7 +1162,7 @@ export const selectAllItems = createSelector(
   (todos, habits, notes): (Todo | Habit | Note)[] => [...todos, ...habits, ...notes],
 );
 
-/** Discovered people from linked_people field on items */
+/** Discovered people from views.people field on items (Phase 2 enrichment) */
 export interface DiscoveredPerson {
   id: string;
   name: string;
@@ -1175,17 +1175,19 @@ export const selectDiscoveredPeople = createSelector(
     const peopleMap = new Map<string, DiscoveredPerson>();
 
     for (const item of items) {
-      const linkedPeople = (item as { linked_people?: Array<{ id: string; name: string }> })
-        .linked_people;
-      if (!linkedPeople) continue;
+      // People names live in views.people as string[] (from Phase 2 enrichment)
+      const views = (item as { views?: { people?: string[]; [key: string]: any } }).views;
+      const peopleNames = views?.people;
+      if (!peopleNames || !Array.isArray(peopleNames)) continue;
 
-      for (const person of linkedPeople) {
-        if (!person?.id || !person?.name) continue;
-        const existing = peopleMap.get(person.id);
+      for (const personName of peopleNames) {
+        if (!personName || typeof personName !== 'string') continue;
+        const key = personName.toLowerCase().trim();
+        const existing = peopleMap.get(key);
         if (existing) {
           existing.itemCount++;
         } else {
-          peopleMap.set(person.id, { id: person.id, name: person.name, itemCount: 1 });
+          peopleMap.set(key, { id: key, name: personName, itemCount: 1 });
         }
       }
     }
