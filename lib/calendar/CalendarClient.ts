@@ -77,6 +77,10 @@ const GOOGLE_SCOPES = [
 // Redirect URI (matches Azure app registration and wrangler.toml)
 const REDIRECT_URI = 'gremly://auth/callback';
 
+// Google iOS OAuth requires reversed client ID as the URL scheme
+const GOOGLE_REDIRECT_URI =
+  'com.googleusercontent.apps.81105861621-ombuvivk9f9kifkoji8pgvnfsvstovqi:/oauth2redirect/google';
+
 // Read environment variables from typed env layer
 const getCalendarWorkerUrl = (): string => {
   return env.calendarWorkerUrl || '';
@@ -355,7 +359,7 @@ class CalendarClient {
       const request = new AuthSession.AuthRequest({
         clientId,
         scopes: GOOGLE_SCOPES,
-        redirectUri: REDIRECT_URI,
+        redirectUri: GOOGLE_REDIRECT_URI,
         usePKCE: true,
         responseType: AuthSession.ResponseType.Code,
       });
@@ -389,7 +393,7 @@ class CalendarClient {
         {
           code,
           code_verifier: request.codeVerifier,
-          redirect_uri: REDIRECT_URI,
+          redirect_uri: GOOGLE_REDIRECT_URI,
         },
       );
 

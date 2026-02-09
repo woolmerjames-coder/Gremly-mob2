@@ -7,7 +7,7 @@
     "icon": "./assets/mascot/ios_gremly_icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "scheme": "gremly",
+    "scheme": ["gremly", "com.googleusercontent.apps.81105861621-ombuvivk9f9kifkoji8pgvnfsvstovqi"],
     "splash": {
       "image": "./assets/mascot/gremly-mascot.png",
       "resizeMode": "contain",
