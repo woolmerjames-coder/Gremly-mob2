@@ -1,12 +1,14 @@
 /**
  * SettingsScreen.test.tsx
  *
- * Tests for the SettingsScreen component.
- * Validates settings UI for notifications and day boundary.
+ * Tests for the Settings V2 menu-list screen.
+ * Validates 4-row layout and navigation to sub-screens.
+ *
+ * Settings V2 (Feb 2026) - Rewritten to match menu-list refactor.
  */
 
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, fireEvent } from '@testing-library/react-native';
 
 // Mock navigation
 const mockGoBack = jest.fn();
@@ -20,87 +22,22 @@ jest.mock('@react-navigation/native', () => ({
   }),
 }));
 
-// Mock DateTimePicker
-jest.mock('@react-native-community/datetimepicker', () => {
-  const { View, Text } = require('react-native');
-  return {
-    __esModule: true,
-    default: ({ value, testID }: { value: Date; testID?: string }) => (
-      <View testID={testID || 'date-time-picker'}>
-        <Text>{value.toLocaleTimeString()}</Text>
-      </View>
-    ),
-  };
-});
-
 // Mock safe area context
 jest.mock('react-native-safe-area-context', () => ({
   SafeAreaView: ({ children }: { children: React.ReactNode }) => children,
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
 
-// Mock store
-const mockDayBoundaryHour = 5;
-const mockSetDayBoundaryHour = jest.fn().mockResolvedValue(undefined);
-const mockTimeBlockPreferences = {
-  morning: { startHour: 6, endHour: 12 },
-  day: { startHour: 12, endHour: 17 },
-  evening: { startHour: 17, endHour: 22 },
-};
-const mockSetTimeBlockPreferences = jest.fn().mockResolvedValue(undefined);
-jest.mock('../../../lib/store/useGremlyStore', () => ({
-  useGremlyStore: (selector: (state: unknown) => unknown) => {
-    const state = {
-      dayBoundaryHour: mockDayBoundaryHour,
-      setDayBoundaryHour: mockSetDayBoundaryHour,
-      timeBlockPreferences: mockTimeBlockPreferences,
-      setTimeBlockPreferences: mockSetTimeBlockPreferences,
-    };
-    return selector(state);
-  },
-}));
-
-// Mock notification preferences hook
-const mockSavePreferences = jest.fn().mockResolvedValue(undefined);
-jest.mock('../../../hooks/useNotificationPreferences', () => ({
-  useNotificationPreferences: () => ({
-    preferences: {
-      morningEnabled: true,
-      morningTime: new Date('2025-01-01T08:00:00'),
-      eveningEnabled: true,
-      eveningTime: new Date('2025-01-01T20:00:00'),
-      timezone: 'America/New_York',
-    },
-    savePreferences: mockSavePreferences,
-  }),
-}));
-
-// Mock DayBoundaryPicker
-jest.mock('../../../components/settings/DayBoundaryPicker', () => {
-  const { View, Text, Pressable } = require('react-native');
+// Mock lucide icons
+jest.mock('lucide-react-native', () => {
+  const { View } = require('react-native');
   return {
-    __esModule: true,
-    default: ({ value, onChange }: { value: number; onChange: (value: number) => void }) => (
-      <View testID="day-boundary-picker">
-        <Text>Day Boundary: {value}</Text>
-        <Pressable testID="day-boundary-option-3" onPress={() => onChange(3)}>
-          <Text>3:00 AM</Text>
-        </Pressable>
-      </View>
-    ),
-  };
-});
-
-// Mock CalendarConnectionsCard
-jest.mock('../../../components/settings/CalendarConnectionsCard', () => {
-  const { View, Text } = require('react-native');
-  return {
-    __esModule: true,
-    default: () => (
-      <View testID="calendar-connections-card">
-        <Text>Calendar Connections</Text>
-      </View>
-    ),
+    ChevronLeft: (props: any) => <View testID="icon-chevron-left" {...props} />,
+    ChevronRight: (props: any) => <View testID="icon-chevron-right" {...props} />,
+    Bell: (props: any) => <View testID="icon-bell" {...props} />,
+    Clock: (props: any) => <View testID="icon-clock" {...props} />,
+    CalendarDays: (props: any) => <View testID="icon-calendar" {...props} />,
+    Brain: (props: any) => <View testID="icon-brain" {...props} />,
   };
 });
 
@@ -121,39 +58,33 @@ describe('SettingsScreen', () => {
       expect(getByText('Settings')).toBeTruthy();
     });
 
-    it('renders Morning Brief section', () => {
+    it('renders all 4 menu rows', () => {
       const { getByText } = render(<SettingsScreen />);
-      expect(getByText('Morning Brief')).toBeTruthy();
+      expect(getByText('Rituals')).toBeTruthy();
+      expect(getByText('Time Blocks')).toBeTruthy();
+      expect(getByText('Calendar Connections')).toBeTruthy();
+      expect(getByText('What Gremly Knows')).toBeTruthy();
     });
 
-    it('renders Evening Sweep section', () => {
+    it('renders subtitles for each row', () => {
       const { getByText } = render(<SettingsScreen />);
-      expect(getByText('Evening Sweep')).toBeTruthy();
-    });
-
-    it('renders Day Boundary section', () => {
-      const { getByText } = render(<SettingsScreen />);
-      expect(getByText('Day Boundary')).toBeTruthy();
-    });
-
-    it('renders Day Boundary picker', () => {
-      const { getByTestId } = render(<SettingsScreen />);
-      expect(getByTestId('day-boundary-picker')).toBeTruthy();
-    });
-
-    it('renders Calendar Connections card', () => {
-      const { getByTestId } = render(<SettingsScreen />);
-      expect(getByTestId('calendar-connections-card')).toBeTruthy();
-    });
-
-    it('renders Save button', () => {
-      const { getByText } = render(<SettingsScreen />);
-      expect(getByText('Save')).toBeTruthy();
+      expect(getByText('Morning Brief, Evening Sweep, Day Boundary')).toBeTruthy();
+      expect(getByText('Morning, Afternoon, Evening ranges')).toBeTruthy();
+      expect(getByText('Outlook, Google, Calendar links')).toBeTruthy();
+      expect(getByText('View and edit what Gremly has learned about you')).toBeTruthy();
     });
 
     it('hides the navigation header', () => {
       render(<SettingsScreen />);
       expect(mockSetOptions).toHaveBeenCalledWith({ headerShown: false });
+    });
+
+    it('does NOT render old inline settings controls', () => {
+      const { queryByTestId, queryByText } = render(<SettingsScreen />);
+      // These no longer live on the main Settings screen
+      expect(queryByTestId('day-boundary-picker')).toBeNull();
+      expect(queryByTestId('date-time-picker')).toBeNull();
+      expect(queryByText('Save')).toBeNull();
     });
   });
 
@@ -162,97 +93,27 @@ describe('SettingsScreen', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('navigation', () => {
-    it('navigates back when back button is pressed', () => {
-      // The ChevronLeft icon is inside a Pressable - would need testID to test
-      // For now, we test navigation via the save flow
-      expect(true).toBe(true);
-    });
-
-    it('navigates back after saving', async () => {
+    it('navigates to RitualsSettings when Rituals row is pressed', () => {
       const { getByText } = render(<SettingsScreen />);
-      const saveButton = getByText('Save');
-
-      fireEvent.press(saveButton);
-
-      await waitFor(() => {
-        expect(mockGoBack).toHaveBeenCalled();
-      });
+      fireEvent.press(getByText('Rituals'));
+      expect(mockNavigate).toHaveBeenCalledWith('RitualsSettings');
     });
-  });
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Save Functionality
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe('save functionality', () => {
-    it('saves notification preferences when Save is pressed', async () => {
+    it('navigates to TimeBlocksSettings when Time Blocks row is pressed', () => {
       const { getByText } = render(<SettingsScreen />);
-      const saveButton = getByText('Save');
-
-      fireEvent.press(saveButton);
-
-      await waitFor(() => {
-        expect(mockSavePreferences).toHaveBeenCalled();
-      });
+      fireEvent.press(getByText('Time Blocks'));
+      expect(mockNavigate).toHaveBeenCalledWith('TimeBlocksSettings');
     });
 
-    it('saves day boundary when changed and Save is pressed', async () => {
-      const { getByText, getByTestId } = render(<SettingsScreen />);
-
-      // Change day boundary
-      const option = getByTestId('day-boundary-option-3');
-      fireEvent.press(option);
-
-      // Save
-      const saveButton = getByText('Save');
-      fireEvent.press(saveButton);
-
-      await waitFor(() => {
-        expect(mockSetDayBoundaryHour).toHaveBeenCalledWith(3);
-      });
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Toggle States
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe('toggle states', () => {
-    it('shows time picker when Morning Brief is enabled', () => {
-      const { queryAllByTestId } = render(<SettingsScreen />);
-      // Time picker should be visible when enabled
-      const pickers = queryAllByTestId('date-time-picker');
-      expect(pickers.length).toBeGreaterThan(0);
-    });
-
-    it('shows Disabled text when Morning Brief is toggled off', () => {
-      const { getAllByRole } = render(<SettingsScreen />);
-      // Find switches and toggle them
-      // Note: Full toggle testing would require finding the Switch component
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // What Gremly Knows Section
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe('What Gremly Knows section', () => {
-    it('renders What Gremly Knows row', () => {
+    it('navigates to CalendarSettings when Calendar row is pressed', () => {
       const { getByText } = render(<SettingsScreen />);
-      expect(getByText('What Gremly Knows')).toBeTruthy();
+      fireEvent.press(getByText('Calendar Connections'));
+      expect(mockNavigate).toHaveBeenCalledWith('CalendarSettings');
     });
 
-    it('renders What Gremly Knows subtitle', () => {
+    it('navigates to WhatGremlyKnows when What Gremly Knows row is pressed', () => {
       const { getByText } = render(<SettingsScreen />);
-      expect(getByText('View and edit what Gremly has learned about you')).toBeTruthy();
-    });
-
-    it('navigates to WhatGremlyKnows screen when pressed', () => {
-      const { getByText } = render(<SettingsScreen />);
-      const row = getByText('What Gremly Knows');
-
-      fireEvent.press(row);
-
+      fireEvent.press(getByText('What Gremly Knows'));
       expect(mockNavigate).toHaveBeenCalledWith('WhatGremlyKnows');
     });
   });
