@@ -2061,13 +2061,13 @@ const hubV1Styles = StyleSheet.create({
   // View Toggle (All Items | Journal View)
   viewToggleContainer: {
     flexDirection: 'row',
-    marginTop: spacing['2xl'], // Increased spacing from search for Hub Mode
+    marginTop: spacing.md, // Tightened spacing from search for Hub Mode
     backgroundColor: colors.gray100,
     borderRadius: radii.xl,
     padding: spacing.xs,
   },
   viewToggleContainerCompact: {
-    marginTop: spacing.lg, // Tighter spacing when filters are shown (search mode)
+    marginTop: spacing.sm, // Tighter spacing when filters are shown (search mode)
   },
   viewToggleTab: {
     flex: 1,
@@ -2093,7 +2093,7 @@ const hubV1Styles = StyleSheet.create({
     color: colors.gray600,
   },
   hubModeContainer: {
-    marginTop: spacing['2xl'], // Increased breathing room in Hub Mode
+    marginTop: spacing.md, // Tightened breathing room in Hub Mode
   },
   searchModeContainer: {
     marginTop: spacing.md,

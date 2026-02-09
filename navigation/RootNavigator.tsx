@@ -31,6 +31,9 @@ import CalendarScreen from '../app/screens/CalendarScreen';
 import HabitsScreen from '../app/screens/HabitsScreen';
 import HabitDetailScreen from '../app/screens/HabitDetailScreen';
 import SettingsScreen from '../app/screens/SettingsScreen';
+import RitualsSettingsScreen from '../app/screens/RitualsSettingsScreen';
+import TimeBlocksSettingsScreen from '../app/screens/TimeBlocksSettingsScreen';
+import CalendarSettingsScreen from '../app/screens/CalendarSettingsScreen';
 import WhatGremlyKnowsScreen from '../app/screens/WhatGremlyKnowsScreen';
 
 export type RootStackParamList = {
@@ -62,6 +65,9 @@ export type RootStackParamList = {
   Habits: undefined;
   HabitDetail: { habitId: string };
   Settings: undefined;
+  RitualsSettings: undefined;
+  TimeBlocksSettings: undefined;
+  CalendarSettings: undefined;
   WhatGremlyKnows: undefined;
   SweepTest: undefined; // DEV only
 };
@@ -184,6 +190,30 @@ export default function RootNavigator() {
           <Stack.Screen
             name="Settings"
             component={SettingsScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="RitualsSettings"
+            component={RitualsSettingsScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="TimeBlocksSettings"
+            component={TimeBlocksSettingsScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="CalendarSettings"
+            component={CalendarSettingsScreen}
             options={{
               headerShown: false,
               animation: 'slide_from_right',
