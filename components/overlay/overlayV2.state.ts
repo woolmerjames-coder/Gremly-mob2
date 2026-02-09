@@ -456,8 +456,34 @@ export function v2Reducer(state: V2State, action: Action): V2State {
           due_time: 'due_time' in action ? action.due_time : state.todo.due_time,
         },
       };
-    case 'SET_HABIT_FREQUENCY':
-      return { ...state, habit: { ...state.habit, frequency_json: action.frequency_json } };
+    case 'SET_HABIT_FREQUENCY': {
+      // Derive schedule from frequency_json so the save path uses the correct value
+      // Note: schedule only accepts 'daily'|'weekly'|'custom'; monthly maps to 'custom'
+      // (the canonical cadence field carries the real semantics)
+      const fj = action.frequency_json;
+      let derivedSchedule: 'daily' | 'weekly' | 'custom' = 'custom';
+      if (fj?.type === 'simple') {
+        const val = typeof fj.value === 'string' ? fj.value : '';
+        if (val === 'daily') derivedSchedule = 'daily';
+        else if (val === 'weekly') derivedSchedule = 'weekly';
+        else derivedSchedule = 'custom'; // 'monthly' or unknown
+      } else if (fj?.type === 'days') {
+        derivedSchedule = 'custom';
+      } else if (fj?.type === 'custom') {
+        const unit = typeof fj.value === 'object' ? fj.value?.unit : fj.unit;
+        if (unit === 'day') derivedSchedule = 'daily';
+        else if (unit === 'week') derivedSchedule = 'weekly';
+        else derivedSchedule = 'custom'; // 'month' or unknown
+      }
+      return {
+        ...state,
+        habit: {
+          ...state.habit,
+          frequency_json: fj,
+          schedule: derivedSchedule,
+        },
+      };
+    }
     case 'SET_HABIT_SUBTYPE':
       return { ...state, habit: { ...state.habit, subtype: action.subtype } };
     case 'SET_HABIT_START_DATE':

@@ -453,8 +453,9 @@ export function BuildHabitDetail({
               onToggleDay={handleToggleDay}
               isBreakingHabit={false}
               startDate={habit.start_date}
-              dotSize={32}
-              dotSpacing={10}
+              dotSize={40}
+              dotSpacing={7}
+              showDayLabels
               onPressPickStartDate={handleSetStartDate}
             />
             <Text style={styles.weekSummary}>

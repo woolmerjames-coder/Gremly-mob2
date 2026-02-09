@@ -36,18 +36,17 @@ const inngest = new Inngest({
   middleware: [bindings],
 });
 
-// Main synthesis function
-const synthesizeUserProfiles = inngest.createFunction(
+// Dispatcher: fetch active users and fan out one event per user
+const dailySynthesisDispatcher = inngest.createFunction(
   {
-    id: 'synthesize-user-profiles',
-    name: 'Synthesize User Profiles',
+    id: 'daily-synthesis-dispatcher',
+    name: 'Daily Synthesis Dispatcher',
   },
   [
     { cron: '0 4 * * *' }, // 4 AM UTC daily
     { event: 'app/profiles.sync' }, // Manual trigger
   ],
   async ({ step, env }) => {
-    // Step 1: Get active users who need synthesis (new activity since last profile)
     const activeUsers = await step.run('get-active-users', async () => {
       const response = await fetch(
         `${env.SUPABASE_URL}/rest/v1/rpc/get_active_users_needing_synthesis`,
@@ -69,46 +68,46 @@ const synthesizeUserProfiles = inngest.createFunction(
       return response.json();
     });
 
-    console.log(`[SynthesizeProfiles] Found ${activeUsers.length} active users`);
+    console.log(`[Dispatcher] Found ${activeUsers.length} active users`);
 
-    // Step 2: Process each user - profile synthesis
-    let profilesSucceeded = 0;
-    let profilesFailed = 0;
-
-    for (const user of activeUsers) {
-      const result = await step.run(`synthesize-${user.user_id.slice(0, 8)}`, async () => {
-        return synthesizeUserProfile(user.user_id, env);
-      });
-
-      if (result.success) profilesSucceeded++;
-      else profilesFailed++;
+    // Fan out: send one event per user
+    if (activeUsers.length > 0) {
+      await step.sendEvent('dispatch-users',
+        activeUsers.map(u => ({
+          name: 'app/user.synthesize',
+          data: { user_id: u.user_id },
+        }))
+      );
     }
 
-    console.log(
-      `[SynthesizeProfiles] Complete: ${profilesSucceeded} succeeded, ${profilesFailed} failed`,
-    );
+    return { dispatched: activeUsers.length };
+  },
+);
 
-    // Step 3: Generate space suggestions for each user
-    let suggestionsSucceeded = 0;
-    let suggestionsFailed = 0;
+// Per-user worker: synthesize profile + generate suggestions as separate steps
+const synthesizeSingleUser = inngest.createFunction(
+  {
+    id: 'synthesize-single-user',
+    name: 'Synthesize Single User',
+    concurrency: { limit: 5 },
+  },
+  { event: 'app/user.synthesize' },
+  async ({ event, step, env }) => {
+    const userId = event.data.user_id;
+    console.log(`[UserSynth] Starting for user: ${userId}`);
 
-    for (const user of activeUsers) {
-      const result = await step.run(`suggestions-${user.user_id.slice(0, 8)}`, async () => {
-        return generateSpaceSuggestions(user.user_id, env);
-      });
+    const profileResult = await step.run('synthesize-profile', async () => {
+      return synthesizeUserProfile(userId, env);
+    });
 
-      if (result.success) suggestionsSucceeded++;
-      else suggestionsFailed++;
-    }
-
-    console.log(
-      `[SpaceSuggestions] Complete: ${suggestionsSucceeded} succeeded, ${suggestionsFailed} failed`,
-    );
+    const suggestionsResult = await step.run('generate-suggestions', async () => {
+      return generateSpaceSuggestions(userId, env);
+    });
 
     return {
-      processed: activeUsers.length,
-      profiles: { succeeded: profilesSucceeded, failed: profilesFailed },
-      suggestions: { succeeded: suggestionsSucceeded, failed: suggestionsFailed },
+      user_id: userId,
+      profile: profileResult,
+      suggestions: suggestionsResult,
     };
   },
 );
@@ -603,15 +602,15 @@ async function generateSpaceSuggestions(userId, env) {
 
     const [unassignedTodos, unassignedNotes, unassignedHabits] = await Promise.all([
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&created_at=gte.${fourteenDaysAgo}&select=id,title,body,tags,created_at,views&limit=50`,
+        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&completed_at=is.null&created_at=gte.${fourteenDaysAgo}&select=id,title,body,tags,created_at,views&limit=50`,
         { headers },
       ).then((r) => r.json()),
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&created_at=gte.${fourteenDaysAgo}&select=id,title,body,tags,subtype,created_at,views&limit=50`,
+        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&subtype=neq.journal&created_at=gte.${fourteenDaysAgo}&select=id,title,body,tags,subtype,created_at,views&limit=50`,
         { headers },
       ).then((r) => r.json()),
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&created_at=gte.${fourteenDaysAgo}&select=id,name,tags,created_at,views&limit=20`,
+        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&space_id=is.null&archived_at=is.null&created_at=gte.${fourteenDaysAgo}&select=id,name,tags,created_at,views&limit=20`,
         { headers },
       ).then((r) => r.json()),
     ]);
@@ -670,12 +669,9 @@ async function generateSpaceSuggestions(userId, env) {
 
     // Step 5: Build condensed profiles for each space (where disable_suggestions = false)
     const spacesForSuggestions = allSpaces.filter((s) => !s.disable_suggestions);
-    const spaceProfiles = [];
-
-    for (const space of spacesForSuggestions) {
-      const profile = await buildSpaceProfile(space, env, headers);
-      spaceProfiles.push(profile);
-    }
+    const spaceProfiles = await Promise.all(
+      spacesForSuggestions.map(space => buildSpaceProfile(space, env, headers))
+    );
 
     console.log(`[SpaceSuggestions] Built profiles for ${spaceProfiles.length} spaces`);
 
@@ -726,7 +722,7 @@ async function generateSpaceSuggestions(userId, env) {
           `[SpaceSuggestions] Filtered ${originalCount - s.drop_ids.length} invalid drop_ids`,
         );
       }
-      return s.drop_ids.length >= 3; // Need at least 3 items for a new space suggestion
+      return s.drop_ids.length >= 5; // Need at least 5 items for a new space suggestion
     });
 
     const validCount = validAssignSuggestions.length + validNewSpaceSuggestions.length;
@@ -840,6 +836,11 @@ async function buildSpaceProfile(space, env, headers) {
   const chatsData = await chatsResponse.json();
   const chats = Array.isArray(chatsData) ? chatsData : [];
 
+  const sampleTitles = allEntities
+    .map(e => e.title)
+    .filter(Boolean)
+    .slice(0, 10);
+
   return {
     space_id: space.id,
     name: space.name,
@@ -850,6 +851,7 @@ async function buildSpaceProfile(space, env, headers) {
     people_mentioned: extractPeopleFromEntities(allEntities, 5),
     chat_themes: extractChatThemes(chats, 3),
     item_count: allEntities.length,
+    sample_titles: sampleTitles,
   };
 }
 
@@ -1178,6 +1180,7 @@ async function callAIForSpaceSuggestions(spaceProfiles, unassignedDrops, apiKey)
       spacesText += `Goal: ${sp.goal || 'not set'}\n`;
       spacesText += `Target date: ${sp.target_date || 'not set'}\n`;
       spacesText += `Contains ${sp.item_count} items\n`;
+      spacesText += `Sample items: ${sp.sample_titles?.length > 0 ? sp.sample_titles.join(', ') : 'none'}\n`;
       spacesText += `Common tags: ${sp.top_tags.length > 0 ? sp.top_tags.join(', ') : 'none'}\n`;
       spacesText += `Common keywords: ${sp.top_keywords.length > 0 ? sp.top_keywords.join(', ') : 'none'}\n`;
       spacesText += `People mentioned: ${sp.people_mentioned.length > 0 ? sp.people_mentioned.join(', ') : 'none'}\n`;
@@ -1202,15 +1205,16 @@ async function callAIForSpaceSuggestions(spaceProfiles, unassignedDrops, apiKey)
     .join('');
 
   const systemPrompt = `You analyze a user's captured items and suggest how they should be organized into Spaces.
-A Space is a container for a life domain or project. Each Space has a name, optional goal,
-and contains related todos, notes, and habits.
+
+A Space is a container for something a person is actively working on, planning, or managing in their life. The defining quality of a good Space is that the person would open it regularly to check progress, add new items, or figure out what to do next.
+
+Ask yourself: "Would this person open this Space next Tuesday to see what needs attention?" If yes, it's a Space. If it's just a loose grouping of somewhat-related items, it's not.
 
 Your job is to:
 1. Identify which unassigned items belong in existing Spaces
-2. Identify clusters of unassigned items that suggest a NEW Space should be created
+2. Identify clusters of unassigned items that suggest a NEW Space — but ONLY if the cluster represents something the person is actively navigating in their life right now
 
-Be thoughtful but not overly conservative. If an item reasonably belongs somewhere, suggest it.
-The user will make the final decision.`;
+It is completely normal — even expected — to return an empty array for suggest_new_spaces. Most runs will not produce a new Space suggestion. Do not force items into a new Space just because they are unassigned. Unassigned items are fine. Only suggest a new Space if the evidence is strong.`;
 
   const userPrompt = `EXISTING SPACES:
 ${spacesText}
@@ -1218,6 +1222,10 @@ UNASSIGNED ITEMS:
 ${dropsText}
 
 ANALYSIS CRITERIA:
+IMPORTANT: Be generous when assigning to existing Spaces. If an item could plausibly be part of an existing Space based on its title, topic, or context, assign it there. For example, if a Space contains app development tasks like 'Fix Lock-in Button' and 'Build Mind Drop Widget', then an item like 'Plan Your Tomorrow Section' clearly belongs in that same Space even if the keywords don't overlap exactly. Think about WHAT the items are about, not just whether tags match.
+
+Assign first, suggest new Spaces only for what's truly left over and truly clusters around a concrete initiative.
+
 To determine if an item belongs in a Space, consider (in priority order):
 1. SPACE PURPOSE: Does the item relate to the Space's name and goal?
 2. ENTITY OVERLAP: Does the item reference projects or topics present in the Space?
@@ -1227,9 +1235,14 @@ To determine if an item belongs in a Space, consider (in priority order):
    (Weight this higher if the Space itself is about specific people)
 
 For NEW SPACE suggestions:
-- Look for 5+ unassigned items that share a clear theme
-- The theme should be DISTINCT from existing Spaces
-- Derive the Space name from what the items are actually about (be specific, not generic)
+- Look for 5+ unassigned items that point to something the user is actively navigating right now
+- The cluster should have a natural center of gravity — a project, an upcoming event, a transition, a goal with a finish line, or a life area they're actively managing
+- Ask: "If I created this Space, would the user open it next week to check on things?" If not, don't suggest it
+- Ask: "Is this a thing the person is DOING, or just a label I'm grouping items under?" Only suggest if it's a thing they're doing
+- The theme must be DISTINCT from existing Spaces
+- Derive the name from what the person is actually trying to accomplish, not from what category the items fall into
+- If items are loosely related but don't point to a single effort or initiative, leave them unassigned — that's fine
+- Require at least 5 items for a new space suggestion
 
 CONFIDENCE SCORING:
 - 90-100%: Clearly belongs based on Space purpose OR strong entity/keyword match
@@ -1268,13 +1281,13 @@ Maximum 3 new Space suggestions.`;
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o', // Better reasoning for this daily task
+      model: 'gpt-5-mini',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      max_tokens: 1500,
-      temperature: 0.3, // Lower temp for structured output
+      max_completion_tokens: 4096,
+      reasoning_effort: 'medium',
     }),
   });
 
@@ -1350,7 +1363,7 @@ function corsResponse(body, status = 200) {
 // Inngest serve handler
 const inngestHandler = serve({
   client: inngest,
-  functions: [synthesizeUserProfiles],
+  functions: [dailySynthesisDispatcher, synthesizeSingleUser],
   servePath: '/',
 });
 
@@ -1386,6 +1399,6 @@ export default {
     }
 
     // Pass through to Inngest handler for all other routes
-    return inngestHandler.fetch(request, env, ctx);
+    return inngestHandler(request, env, ctx);
   },
 };

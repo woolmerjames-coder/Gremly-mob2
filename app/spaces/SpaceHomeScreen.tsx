@@ -37,14 +37,14 @@ import {
   useSpaceJournalCount,
   useSpaceChats,
   useChatMessages,
-  useSpaceMilestoneFromStore,
-  useMilestoneCountdown,
   useSpaceTimelineFromStore,
   selectCompletedTodosCountBySpace,
   useSpaceCompletedTodos,
   selectIsHabitDoneToday,
   useSpacePendingDrops,
   useGoalForSpace,
+  useGoalsForSpace,
+  useFeaturedGoalForSpace,
   useEventsForSpace,
   useAssignmentSuggestionsForSpace,
 } from '../../lib/store/selectors';
@@ -120,7 +120,6 @@ import { SpaceJourneyModal } from '../../components/spaces/SpaceJourneyModal';
 import { PinnedItemsModal } from '../../components/spaces/PinnedItemsModal';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
 import { EmptySpaceState } from '../../components/spaces/EmptySpaceState';
-import { MilestoneEntryModal } from '../../components/spaces/MilestoneEntryModal';
 import { SpaceSettingsModal } from '../../components/spaces/SpaceSettingsModal';
 import { CompletedInSpaceOverlay } from '../../components/spaces/CompletedInSpaceOverlay';
 import { SheetManager } from 'react-native-actions-sheet';
@@ -456,12 +455,11 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   }, [store]);
 
   const notesCount = useSpaceNotesCount(spaceId);
-  // Phase 12: Milestone and pinned - now from Zustand store
-  // Note: milestone/countdown kept for backwards compatibility but not used in header anymore
-  const milestone = useSpaceMilestoneFromStore(spaceId);
-  const countdown = useMilestoneCountdown(spaceId);
+  // Phase 12: Pinned items - from Zustand store
   // Goal event from event notes (new system)
   const goalEvent = useGoalForSpace(spaceId);
+  const spaceGoals = useGoalsForSpace(spaceId);
+  const featuredGoal = useFeaturedGoalForSpace(spaceId);
   // Key dates (excluding goals) for header preview
   const keyDateEvents = useEventsForSpace(spaceId);
   const { count: pinnedCount } = useSpacePinnedItems(spaceId);
@@ -497,7 +495,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [optimisticVersion, forceUpdate] = useReducer((x) => x + 1, 0);
   const [showPinnedModal, setShowPinnedModal] = useState(false);
   const [showKeyDatesModal, setShowKeyDatesModal] = useState(false);
-  const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [showGoalCheckInJournal, setShowGoalCheckInJournal] = useState(false);
   const [goalCheckInContext, setGoalCheckInContext] = useState<{
     goal_id: string;
@@ -1314,11 +1311,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     handleNewChat();
   }, [handleNewChat]);
 
-  const handleNudgePress = useCallback(() => {
-    // TODO: Open milestone entry modal (Phase 8)
-    console.log('[SpaceHome] Nudge pressed - will open milestone modal');
-  }, []);
-
   const handleSettingsPress = useCallback(() => {
     setShowSettingsModal(true);
   }, []);
@@ -1370,7 +1362,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   }, [spaceId, storeTodos, storeHabits, storeNotes]);
 
   const handleEditMilestoneFromSettings = useCallback(() => {
-    setShowMilestoneModal(true);
+    setShowKeyDatesModal(true);
   }, []);
 
   const handlePinnedPress = useCallback(() => {
@@ -1380,63 +1372,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const handlePinnedModalClose = useCallback(() => {
     setShowPinnedModal(false);
   }, []);
-
-  const handleMilestonePress = useCallback(() => {
-    setShowMilestoneModal(true);
-  }, []);
-
-  const handleMilestoneModalClose = useCallback(() => {
-    setShowMilestoneModal(false);
-  }, []);
-
-  const handleMilestoneSave = useCallback(
-    async (name: string, targetDate: Date) => {
-      if (!spaceId) return;
-
-      // Haptic feedback on save
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      console.log('[SpaceHome] Saving goal event:', name, targetDate);
-
-      try {
-        if (goalEvent) {
-          // Update existing goal event note
-          await store.updateNote(goalEvent.id, {
-            title: name,
-            target_date: dateService.toLocalDate(targetDate),
-          });
-        } else {
-          // Create new goal event note
-          await store.createNote({
-            title: name,
-            subtype: 'event',
-            is_goal: true,
-            space_id: spaceId,
-            target_date: dateService.toLocalDate(targetDate),
-          });
-        }
-        // Store update triggers automatic UI refresh via subscription
-      } catch (error) {
-        console.error('[SpaceHome] Goal event save error:', error);
-        throw error;
-      }
-    },
-    [spaceId, goalEvent, store],
-  );
-
-  const handleMilestoneRemove = useCallback(async () => {
-    if (!goalEvent) return;
-
-    console.log('[SpaceHome] Removing goal event:', goalEvent.id);
-
-    try {
-      await store.deleteNote(goalEvent.id);
-      // Store update triggers automatic UI refresh via subscription
-    } catch (error) {
-      console.error('[SpaceHome] Goal event remove error:', error);
-      throw error;
-    }
-  }, [goalEvent, store]);
 
   const handlePinnedItemPress = useCallback(
     (item: any, type: 'todo' | 'habit' | 'note') => {
@@ -1752,20 +1687,17 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           <View style={[styles.fixedHeader, isScrolled && styles.fixedHeaderShadow]}>
             <MilestoneHeader
               spaceName={space?.name ?? 'Space'}
-              milestone={null} // Milestone display removed - using goal events now
-              countdown={{ days: null, dateFormatted: null, isPast: false }}
               pinnedCount={pinnedCount}
               completedCount={reactiveCompletedCount}
               mascotSource={getMascotSource(space?.mascot_id || 'astro')}
               onGremlyPress={handleGremlyPress}
               onPinnedPress={handlePinnedPress}
               onCompletedPress={() => setShowCompletedOverlay(true)}
-              onNudgePress={handleMilestonePress}
-              onMilestonePress={handleMilestonePress}
               onKeyDatesPress={handleOpenKeyDatesModal}
               onSettingsPress={handleSettingsPress}
               onBackPress={() => navigation.goBack()}
-              goalEvent={goalEvent}
+              goalEvent={featuredGoal}
+              goals={spaceGoals}
               keyDatesCount={keyDateEvents.length}
               nextKeyDatePreview={nextKeyDatePreview}
             />
@@ -2033,23 +1965,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
           }}
         />
 
-        {/* Milestone Entry Modal */}
-        <MilestoneEntryModal
-          visible={showMilestoneModal}
-          onClose={handleMilestoneModalClose}
-          onSave={handleMilestoneSave}
-          onRemove={goalEvent ? handleMilestoneRemove : undefined}
-          initialName={goalEvent?.title ?? undefined}
-          initialDate={goalEvent?.target_date ? new Date(goalEvent.target_date) : undefined}
-          isEditing={!!goalEvent}
-        />
-
         {/* Space Settings Modal */}
         <SpaceSettingsModal
           visible={showSettingsModal}
           onClose={handleSettingsClose}
           space={space}
-          hasMilestone={!!goalEvent}
+          hasMilestone={spaceGoals.length > 0}
           onEditMilestone={handleEditMilestoneFromSettings}
           onSaveSpaceName={handleSaveSpaceName}
           onDeleteSpace={handleDeleteSpace}

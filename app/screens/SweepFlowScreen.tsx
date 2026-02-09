@@ -73,6 +73,7 @@ import {
 } from '../../lib/store/selectors';
 import type { Habit } from '../../lib/types';
 import { supabase } from '../../lib/supabase/client';
+import { env, getEnv } from '../../lib/env';
 import { markSweepCompleted } from '../../lib/sweep/engine';
 import type {
   SweepCandidate,
@@ -139,6 +140,23 @@ const GREMLY_JOURNAL = require('../../assets/mascot/JournalGremly.png');
 const GREMLY_HABIT = require('../../assets/mascot/habitgremly.png');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_SWEEP_INTRO = require('../../assets/mascot/sweepintrogremly.png');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cortex URL helpers (same pattern as JournalFullScreen.tsx)
+// ─────────────────────────────────────────────────────────────────────────────
+const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
+
+const readCortexUrl = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
+  const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
+};
+
+const readSupabaseAnonKey = (): string => {
+  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
+  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
+  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -344,6 +362,7 @@ function SweepIntroStep({
 function SweepMoodStep({ onContinue }: StepProps) {
   // Store mutations and data
   const createNote = useGremlyStore((state) => state.createNote);
+  const updateNote = useGremlyStore((state) => state.updateNote);
   const notes = useGremlyStore((state) => state.notes);
   const overlay = useGlobalOverlay();
 
@@ -451,23 +470,175 @@ function SweepMoodStep({ onContinue }: StepProps) {
 
     setIsSaving(true);
     try {
+      const userText = journalText.trim();
+      const sweepViews = {
+        sweep_origin: true,
+        sweep_reflection: true,
+        sweep_date: getDateService().getCurrentDate(),
+        sweep_moods: selectedMoods,
+      };
+
       // Create a journal note for the sweep reflection
-      await createNote({
+      const createdNote = await createNote({
         subtype: 'journal',
-        title: journalText.trim() || 'Evening reflection',
-        body: journalText.trim() || undefined,
+        title: userText || 'Evening reflection',
+        body: userText || undefined,
         mood: selectedMoods.length > 0 ? selectedMoods : null,
         origin: 'manual',
         canonicalType: 'log',
         journal_subtype: 'reflection',
         tags: ['reflection', 'sweep'],
-        views: {
-          sweep_origin: true,
-          sweep_reflection: true,
-          sweep_date: getDateService().getCurrentDate(),
-          sweep_moods: selectedMoods,
-        },
+        views: sweepViews,
       });
+
+      const noteId = createdNote?.id;
+
+      // Fire-and-forget enrichment (don't block Sweep progression)
+      if (noteId && userText) {
+        (async () => {
+          try {
+            const cortexUrl = readCortexUrl();
+            const anonKey = readSupabaseAnonKey();
+            if (!cortexUrl || !anonKey) {
+              console.warn('[SweepJournal] Missing cortex URL or anon key, skipping enrichment');
+              return;
+            }
+
+            const ds = getDateService();
+            const currentDateStr = ds.getCurrentDate();
+            const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+            console.log('[SweepJournal] Running Phase 1.5a + Phase 2 enrichment');
+
+            // Run Phase 1.5a and Phase 2 in parallel
+            const [phase15aResult, phase2Result] = await Promise.all([
+              // Phase 1.5a: Smart title + confirmation message
+              (async () => {
+                try {
+                  const res = await fetch(cortexUrl, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      Authorization: `Bearer ${anonKey}`,
+                    },
+                    body: JSON.stringify({
+                      type: 'enrich-phase1-5a',
+                      text: userText,
+                      bucket: 'log',
+                      subtype: 'journal',
+                    }),
+                  });
+                  if (!res.ok) return null;
+                  return await res.json();
+                } catch (err) {
+                  console.warn('[SweepJournal] Phase 1.5a failed:', err);
+                  return null;
+                }
+              })(),
+              // Phase 2: Tags, mood, people, energy type
+              (async () => {
+                try {
+                  const res = await fetch(cortexUrl, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      Authorization: `Bearer ${anonKey}`,
+                    },
+                    body: JSON.stringify({
+                      type: 'enrich-phase2',
+                      text: userText,
+                      bucket: 'log',
+                      subtype: 'journal',
+                      currentDate: currentDateStr,
+                      dayOfWeek,
+                      timezone,
+                    }),
+                  });
+                  if (!res.ok) return null;
+                  return await res.json();
+                } catch (err) {
+                  console.warn('[SweepJournal] Phase 2 failed:', err);
+                  return null;
+                }
+              })(),
+            ]);
+
+            console.log(
+              '[SweepJournal] Phase 1.5a result:',
+              JSON.stringify(phase15aResult, null, 2),
+            );
+            console.log('[SweepJournal] Phase 2 result:', JSON.stringify(phase2Result, null, 2));
+
+            // Build update payload
+            const updatePayload: any = {};
+
+            // Smart title from Phase 1.5a
+            if (phase15aResult?.smart_title) {
+              updatePayload.title = phase15aResult.smart_title;
+            }
+
+            // Tags: merge AI tags with existing sweep tags
+            const aiTags = Array.isArray(phase2Result?.tags) ? phase2Result.tags : [];
+            if (aiTags.length > 0) {
+              updatePayload.tags = [...new Set(['reflection', 'sweep', ...aiTags])];
+            }
+
+            // People extraction (merge as @name tags)
+            if (Array.isArray(phase2Result?.people) && phase2Result.people.length > 0) {
+              const peopleTags = phase2Result.people
+                .map((name: string) => {
+                  const normalized = name
+                    .trim()
+                    .toLowerCase()
+                    .replace(/\s+/g, '-')
+                    .replace(/[^a-z0-9-]/g, '');
+                  return normalized ? `@${normalized}` : null;
+                })
+                .filter((t: string | null): t is string => t !== null && t.length >= 2);
+              if (peopleTags.length > 0) {
+                const existingTags = updatePayload.tags || ['reflection', 'sweep'];
+                updatePayload.tags = [...new Set([...existingTags, ...peopleTags])];
+              }
+            }
+
+            // Mood: AI mood supplements user-selected moods
+            if (phase2Result?.mood) {
+              updatePayload.mood = phase2Result.mood;
+            }
+
+            // Energy type
+            if (phase2Result?.energy_type) {
+              updatePayload.energy_type = phase2Result.energy_type;
+            }
+
+            // Views: preserve sweep views, add confirmation message + AI mood
+            if (phase15aResult?.confirmation_message || phase2Result?.mood) {
+              updatePayload.views = {
+                ...sweepViews,
+                ...(phase15aResult?.confirmation_message && {
+                  confirmation_message: phase15aResult.confirmation_message,
+                }),
+                ...(phase2Result?.mood && { ai_mood: phase2Result.mood }),
+              };
+            }
+
+            // Patch the note if we have any updates
+            if (Object.keys(updatePayload).length > 0) {
+              console.log(
+                '[SweepJournal] Updating note with payload:',
+                JSON.stringify(updatePayload, null, 2),
+              );
+              await useGremlyStore.getState().updateNote(noteId, updatePayload);
+              console.log('[SweepJournal] Enrichment complete for note:', noteId);
+            }
+          } catch (error) {
+            console.error('[SweepJournal] Background enrichment failed:', error);
+            // Silent failure — the note is already saved with basic data
+          }
+        })();
+      }
+
       onContinue({ journalWritten: true });
     } catch (error) {
       console.warn('[SweepMoodStep] Failed to save reflection:', error);

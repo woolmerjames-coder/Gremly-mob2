@@ -7,7 +7,7 @@
 
 import type { CalendarEvent } from '../calendar/CalendarClient';
 
-export type TimeBlock = 'morning' | 'afternoon' | 'evening' | 'anytime';
+export type TimeBlock = 'allday' | 'morning' | 'afternoon' | 'evening' | 'anytime';
 
 // Time boundaries (using 24hr format)
 // Morning: 5:00 - 11:59
@@ -52,6 +52,7 @@ export function groupEventsByTimeBlock(
   events: CalendarEvent[],
 ): Record<TimeBlock, CalendarEvent[]> {
   const grouped: Record<TimeBlock, CalendarEvent[]> = {
+    allday: [],
     morning: [],
     afternoon: [],
     evening: [],

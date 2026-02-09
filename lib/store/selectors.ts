@@ -409,14 +409,11 @@ function isHabitDueToday(
   }
 }
 
-/** All habits that are due/available today (not completed today, not archived, not breaking habits) */
+/** All habits that are due/available today (not completed today, not archived) */
 export const selectHabitsDueToday = createSelector(
   [selectHabits, selectCompletionsThisWeek, selectCompletionsThisMonth, selectHabitCompletedToday],
   (habits, weeklyCompletions, monthlyCompletions, completedTodaySet): Habit[] => {
     return habits.filter((habit) => {
-      // Exclude breaking habits - they don't belong in Today's Focus
-      if (habit.subtype === 'break_habit') return false;
-
       return isHabitDueToday(
         habit,
         weeklyCompletions.get(habit.id) ?? 0,
@@ -1165,7 +1162,7 @@ export const selectAllItems = createSelector(
   (todos, habits, notes): (Todo | Habit | Note)[] => [...todos, ...habits, ...notes],
 );
 
-/** Discovered people from linked_people field on items */
+/** Discovered people from views.people field on items (Phase 2 enrichment) */
 export interface DiscoveredPerson {
   id: string;
   name: string;
@@ -1178,17 +1175,19 @@ export const selectDiscoveredPeople = createSelector(
     const peopleMap = new Map<string, DiscoveredPerson>();
 
     for (const item of items) {
-      const linkedPeople = (item as { linked_people?: Array<{ id: string; name: string }> })
-        .linked_people;
-      if (!linkedPeople) continue;
+      // People names live in views.people as string[] (from Phase 2 enrichment)
+      const views = (item as { views?: { people?: string[]; [key: string]: any } }).views;
+      const peopleNames = views?.people;
+      if (!peopleNames || !Array.isArray(peopleNames)) continue;
 
-      for (const person of linkedPeople) {
-        if (!person?.id || !person?.name) continue;
-        const existing = peopleMap.get(person.id);
+      for (const personName of peopleNames) {
+        if (!personName || typeof personName !== 'string') continue;
+        const key = personName.toLowerCase().trim();
+        const existing = peopleMap.get(key);
         if (existing) {
           existing.itemCount++;
         } else {
-          peopleMap.set(person.id, { id: person.id, name: person.name, itemCount: 1 });
+          peopleMap.set(key, { id: key, name: personName, itemCount: 1 });
         }
       }
     }
@@ -1728,6 +1727,25 @@ export const selectGoalsForSpace = createSelector(
 
 export const useGoalsForSpace = (spaceId: string) =>
   useGremlyStore((state) => selectGoalsForSpace(state, spaceId));
+
+/** Featured goal for a space: goal with views.featured_goal === true, else first by created_at */
+export const selectFeaturedGoalForSpace = createSelector(
+  [selectNotes, (_state: GremlyState, spaceId: string) => spaceId],
+  (notes, spaceId) => {
+    const goals = notes.filter(
+      (n) => n.subtype === 'event' && n.is_goal === true && n.space_id === spaceId && !n.archived,
+    );
+    if (goals.length === 0) return null;
+    // Prefer the explicitly-featured goal
+    const featured = goals.find((g) => (g as any).views?.featured_goal === true);
+    if (featured) return featured;
+    // Fallback: first by created_at ascending
+    return goals.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))[0] || null;
+  },
+);
+
+export const useFeaturedGoalForSpace = (spaceId: string) =>
+  useGremlyStore((state) => selectFeaturedGoalForSpace(state, spaceId));
 
 /** Journal check-ins related to a goal (by origin, views.goal_checkin, title match, or tag) */
 export const selectCheckInsForGoal = createSelector(

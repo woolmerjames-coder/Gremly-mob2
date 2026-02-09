@@ -53,11 +53,14 @@ export function jsonToFrequency(json: any): FrequencyConfig {
   }
 
   if (kind === 'custom') {
+    // Support both flat {type:'custom', count:3, unit:'week'}
+    // and nested {type:'custom', value:{count:3, unit:'week'}} shapes
+    const nested = json.value && typeof json.value === 'object' ? json.value : null;
     return {
       mode: 'custom',
       value: {
-        count: json.count || 1,
-        unit: json.unit || 'day',
+        count: nested?.count || json.count || 1,
+        unit: nested?.unit || json.unit || 'day',
       },
     };
   }

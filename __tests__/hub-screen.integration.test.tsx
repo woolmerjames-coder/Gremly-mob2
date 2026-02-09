@@ -147,6 +147,22 @@ jest.mock('../providers/ThemeProvider', () => ({
   }),
 }));
 
+// Mock useJournalAnalysis (added by Hub V2)
+const mockAnalyze = jest.fn().mockResolvedValue(undefined);
+let mockJournalAnalysis = {
+  analysis: null as any,
+  entryCount: 0,
+  loading: false,
+  error: null,
+  onCooldown: false,
+  nextAvailableAt: null,
+  nextAvailableLabel: null,
+  analyze: mockAnalyze,
+};
+jest.mock('../hooks/useJournalAnalysis', () => ({
+  useJournalAnalysis: () => mockJournalAnalysis,
+}));
+
 // =============================================================================
 // Import component after mocks
 // =============================================================================
@@ -338,7 +354,7 @@ describe('HubScreen - Mode Transitions', () => {
     });
   });
 
-  it('renders view toggle with All Items selected by default', async () => {
+  it('renders view toggle with Timeline selected by default', async () => {
     const { getByTestId } = render(
       <TestWrapper>
         <HubScreen />
@@ -350,14 +366,14 @@ describe('HubScreen - Mode Transitions', () => {
       expect(getByTestId('hub-view-toggle')).toBeTruthy();
     });
 
-    // Both toggle options should exist
-    const allItemsTab = getByTestId('hub-view-toggle-all');
+    // Toggle options should exist
+    const timelineTab = getByTestId('hub-view-toggle-timeline');
     const journalsTab = getByTestId('hub-view-toggle-journals');
-    expect(allItemsTab).toBeTruthy();
+    expect(timelineTab).toBeTruthy();
     expect(journalsTab).toBeTruthy();
 
-    // All Items should be selected by default (check accessibility state)
-    expect(allItemsTab.props.accessibilityState?.selected).toBe(true);
+    // Timeline should be selected by default (check accessibility state)
+    expect(timelineTab.props.accessibilityState?.selected).toBe(true);
     expect(journalsTab.props.accessibilityState?.selected).toBe(false);
   });
 
@@ -372,18 +388,18 @@ describe('HubScreen - Mode Transitions', () => {
       expect(getByTestId('hub-view-toggle')).toBeTruthy();
     });
 
-    const allItemsTab = getByTestId('hub-view-toggle-all');
+    const timelineTab = getByTestId('hub-view-toggle-timeline');
     const journalsTab = getByTestId('hub-view-toggle-journals');
 
-    // Initially All Items is selected
-    expect(allItemsTab.props.accessibilityState?.selected).toBe(true);
+    // Initially Timeline is selected
+    expect(timelineTab.props.accessibilityState?.selected).toBe(true);
 
     // Press Journal View
     fireEvent.press(journalsTab);
 
     await waitFor(() => {
       expect(journalsTab.props.accessibilityState?.selected).toBe(true);
-      expect(allItemsTab.props.accessibilityState?.selected).toBe(false);
+      expect(timelineTab.props.accessibilityState?.selected).toBe(false);
     });
   });
 });
@@ -538,6 +554,17 @@ describe('HubScreen - Journal View Data Filtering', () => {
     mockStoreData.unsortedItems = [];
     mockStoreData.isLoading = false;
     mockStoreData.isInitialized = true;
+    // Reset journal analysis mock
+    mockJournalAnalysis = {
+      analysis: null,
+      entryCount: 0,
+      loading: false,
+      error: null,
+      onCooldown: false,
+      nextAvailableAt: null,
+      nextAvailableLabel: null,
+      analyze: mockAnalyze,
+    };
   });
 
   it('calls repo with subtypes: [journal] when switching to Journal View', async () => {
@@ -622,7 +649,7 @@ describe('HubScreen - Journal View Data Filtering', () => {
     });
   });
 
-  it('restores previous type selections when switching back to All Items (search mode)', async () => {
+  it('restores previous type selections when switching back to Timeline (search mode)', async () => {
     const { getByTestId } = render(
       <TestWrapper>
         <HubScreen />
@@ -645,21 +672,21 @@ describe('HubScreen - Journal View Data Filtering', () => {
     const journalToggle = getByTestId('hub-view-toggle-journals');
     fireEvent.press(journalToggle);
 
-    // Switch back to All Items
-    const allToggle = getByTestId('hub-view-toggle-all');
-    fireEvent.press(allToggle);
+    // Switch back to Timeline
+    const timelineToggle = getByTestId('hub-view-toggle-timeline');
+    fireEvent.press(timelineToggle);
 
     // After switching back, habit chip should still be deselected (no active style)
     // Check the chip is not marked active visually
     await waitFor(() => {
       // The habit chip should exist but not have active state
-      // We verify by checking it's back to All Items view (toggle is selected)
-      expect(getByTestId('hub-view-toggle-all')).toBeTruthy();
+      // We verify by checking it's back to Timeline view (toggle is selected)
+      expect(getByTestId('hub-view-toggle-timeline')).toBeTruthy();
     });
 
     // The test verifies the UX flow works without errors
     // Full type restoration is validated by the fact switching back doesn't crash
-    // and we're back in All Items view
+    // and we're back in Timeline view
   });
 
   it('shows empty state in Journal View when no journals exist', async () => {
@@ -872,6 +899,26 @@ describe('HubScreen - Journal View Data Filtering', () => {
   });
 
   it('shows journal count in modal after loading', async () => {
+    // Pre-populate the journal analysis mock so the CTA shows cached results immediately
+    mockJournalAnalysis = {
+      ...mockJournalAnalysis,
+      analysis: {
+        themes: [{ label: 'Growth', count: 2, description: 'Personal growth entries' }],
+        patterns: [{ label: 'Daily reflection', sentiment: 'positive', description: 'Consistent journaling' }],
+        mood_arc: { trend: 'improving' as const, summary: 'Getting better' },
+        journaling_habits: {
+          frequency: '3x/week',
+          preferred_time: 'Evening',
+          avg_length: 'Medium',
+          observation: 'Consistent journaling pattern',
+        },
+        suggestion: { text: 'Keep it up!' },
+      },
+      entryCount: 3,
+      loading: false,
+      error: null,
+    };
+
     // Mock 3 journals for the initial view (component now reads from store, not repo)
     // Use dates that are definitely within 30 days of the test run date
     const now = new Date();

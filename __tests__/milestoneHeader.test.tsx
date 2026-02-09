@@ -5,47 +5,52 @@ import { MilestoneHeader } from '../components/spaces/MilestoneHeader';
 // Mock lucide icons
 jest.mock('lucide-react-native', () => ({
   Flag: () => null,
-  Plus: () => null,
   Pin: () => null,
   MoreHorizontal: () => null,
   ChevronLeft: () => null,
+  ChevronRight: () => null,
+  CheckCircle2: () => null,
+  Calendar: () => null,
+}));
+
+// Mock mascot config
+jest.mock('../lib/mascots/mascotConfig', () => ({
+  getMascotSource: () => 0,
+  DEFAULT_MASCOT_ID: 'default',
 }));
 
 describe('MilestoneHeader', () => {
   const defaultProps = {
     spaceName: 'Test Space',
-    milestone: null,
-    countdown: { days: null, dateFormatted: null, isPast: false },
     pinnedCount: 0,
     onGremlyPress: jest.fn(),
     onPinnedPress: jest.fn(),
-    onNudgePress: jest.fn(),
+    onKeyDatesPress: jest.fn(),
     onSettingsPress: jest.fn(),
     onBackPress: jest.fn(),
-    onMilestonePress: jest.fn(),
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  describe('Without Milestone (Nudge State)', () => {
+  describe('Without Goals (Nudge State)', () => {
     it('renders space name', () => {
       const { getByText } = render(<MilestoneHeader {...defaultProps} />);
       expect(getByText('Test Space')).toBeTruthy();
     });
 
-    it('renders nudge when no milestone', () => {
+    it('renders nudge when no goals', () => {
       const { getByText, getByTestId } = render(<MilestoneHeader {...defaultProps} />);
       expect(getByText('Set a goal')).toBeTruthy();
       expect(getByText('Goals help you get things done')).toBeTruthy();
       expect(getByTestId('header-nudge-button')).toBeTruthy();
     });
 
-    it('calls onNudgePress when nudge tapped', () => {
+    it('calls onKeyDatesPress when nudge tapped', () => {
       const { getByTestId } = render(<MilestoneHeader {...defaultProps} />);
       fireEvent.press(getByTestId('header-nudge-button'));
-      expect(defaultProps.onNudgePress).toHaveBeenCalled();
+      expect(defaultProps.onKeyDatesPress).toHaveBeenCalled();
     });
 
     it('does not render pinned button when count is 0', () => {
@@ -54,92 +59,88 @@ describe('MilestoneHeader', () => {
     });
   });
 
-  describe('With Milestone', () => {
-    const milestoneProps = {
-      ...defaultProps,
-      milestone: {
-        id: 'milestone-1',
-        space_id: 'space-1',
-        owner_id: 'user-1',
-        name: 'Trip to Japan',
-        date: '2025-06-15',
-        completed: false,
-        completed_at: null,
-        is_active: true,
-        sort_order: 0,
-        created_at: '2025-01-01T00:00:00Z',
-        updated_at: '2025-01-01T00:00:00Z',
-      },
-      countdown: { days: 12, dateFormatted: 'June 15', isPast: false },
+  describe('With Goals', () => {
+    const goalNote = {
+      id: 'goal-1',
+      title: 'Trip to Japan',
+      content: '',
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-01T00:00:00Z',
     };
 
-    it('renders milestone name', () => {
-      const { getByText } = render(<MilestoneHeader {...milestoneProps} />);
+    const goalProps = {
+      ...defaultProps,
+      goals: [goalNote] as any[],
+    };
+
+    it('renders goal title', () => {
+      const { getByText } = render(<MilestoneHeader {...goalProps} />);
       expect(getByText('Trip to Japan')).toBeTruthy();
     });
 
-    it('renders countdown with date and days', () => {
-      const { getByText } = render(<MilestoneHeader {...milestoneProps} />);
-      expect(getByText(/June 15/)).toBeTruthy();
-      expect(getByText(/12 days/)).toBeTruthy();
-    });
-
-    it('does not render nudge when milestone exists', () => {
-      const { queryByText } = render(<MilestoneHeader {...milestoneProps} />);
+    it('does not render nudge when goals exist', () => {
+      const { queryByText } = render(<MilestoneHeader {...goalProps} />);
       expect(queryByText('Set a goal')).toBeNull();
     });
 
-    it('renders "Today!" for countdown of 0', () => {
-      const props = {
-        ...milestoneProps,
-        countdown: { days: 0, dateFormatted: 'June 15', isPast: false },
-      };
-      const { getByText } = render(<MilestoneHeader {...props} />);
-      expect(getByText(/Today!/)).toBeTruthy();
+    it('calls onKeyDatesPress when goal tapped', () => {
+      const { getByTestId } = render(<MilestoneHeader {...goalProps} />);
+      fireEvent.press(getByTestId('header-goal-button'));
+      expect(defaultProps.onKeyDatesPress).toHaveBeenCalled();
     });
 
-    it('renders "1 day" for countdown of 1', () => {
-      const props = {
-        ...milestoneProps,
-        countdown: { days: 1, dateFormatted: 'June 16', isPast: false },
+    it('renders additional goals count when multiple goals', () => {
+      const multiGoalProps = {
+        ...defaultProps,
+        goals: [
+          goalNote,
+          { ...goalNote, id: 'goal-2', title: 'Learn Japanese' },
+          { ...goalNote, id: 'goal-3', title: 'Save Money' },
+        ] as any[],
       };
-      const { getByText } = render(<MilestoneHeader {...props} />);
-      expect(getByText(/1 day$/)).toBeTruthy();
-    });
-
-    it('renders past countdown correctly', () => {
-      const props = {
-        ...milestoneProps,
-        countdown: { days: -5, dateFormatted: 'June 10', isPast: true },
-      };
-      const { getByText } = render(<MilestoneHeader {...props} />);
-      expect(getByText(/5 days ago/)).toBeTruthy();
+      const { getByText } = render(<MilestoneHeader {...multiGoalProps} />);
+      expect(getByText('+2 more')).toBeTruthy();
     });
   });
 
-  describe('With Milestone Without Date', () => {
-    const noDateProps = {
+  describe('With goalEvent (backward compatibility)', () => {
+    const goalEventProps = {
       ...defaultProps,
-      milestone: {
-        id: 'milestone-1',
-        space_id: 'space-1',
-        owner_id: 'user-1',
-        name: 'Get Fit',
-        date: null,
-        completed: false,
-        completed_at: null,
-        is_active: true,
-        sort_order: 0,
+      goalEvent: {
+        id: 'note-1',
+        title: 'Get Fit',
+        content: '',
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
-      },
-      countdown: { days: null, dateFormatted: null, isPast: false },
+      } as any,
     };
 
-    it('renders milestone name without countdown', () => {
-      const { getByText, queryByText } = render(<MilestoneHeader {...noDateProps} />);
+    it('renders goalEvent title when no goals array', () => {
+      const { getByText } = render(<MilestoneHeader {...goalEventProps} />);
       expect(getByText('Get Fit')).toBeTruthy();
-      expect(queryByText(/days/)).toBeNull();
+    });
+
+    it('does not render nudge when goalEvent exists', () => {
+      const { queryByText } = render(<MilestoneHeader {...goalEventProps} />);
+      expect(queryByText('Set a goal')).toBeNull();
+    });
+  });
+
+  describe('Key Dates Row', () => {
+    it('always renders Key Dates row', () => {
+      const { getByTestId } = render(<MilestoneHeader {...defaultProps} />);
+      expect(getByTestId('header-key-dates-button')).toBeTruthy();
+    });
+
+    it('shows key dates count when provided', () => {
+      const { getByText } = render(<MilestoneHeader {...defaultProps} keyDatesCount={5} />);
+      expect(getByText('(5)')).toBeTruthy();
+    });
+
+    it('calls onKeyDatesPress when key dates tapped', () => {
+      const { getByTestId } = render(<MilestoneHeader {...defaultProps} />);
+      fireEvent.press(getByTestId('header-key-dates-button'));
+      expect(defaultProps.onKeyDatesPress).toHaveBeenCalled();
     });
   });
 

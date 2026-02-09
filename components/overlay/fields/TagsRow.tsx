@@ -168,35 +168,6 @@ export function TagsRow({
 
   return (
     <View style={styles.container}>
-      {/* Header removed - no "Tags" label, just re-suggest button if available */}
-      {typeof onResuggest === 'function' ? (
-        <View style={styles.header}>
-          <View style={{ flex: 1 }} />
-          <Pressable
-            onPress={onResuggest}
-            disabled={!!resuggesting}
-            accessibilityRole="button"
-            accessibilityLabel="Re-suggest tags"
-            testID="resuggest-tags-action"
-            style={({ pressed }) => [
-              styles.resuggestButton,
-              pressed && !resuggesting ? styles.resuggestButtonPressed : null,
-              resuggesting ? styles.resuggestDisabled : null,
-            ]}
-          >
-            <View style={styles.resuggestContent}>
-              {resuggesting ? (
-                <ActivityIndicator
-                  size="small"
-                  color={palette.sage}
-                  style={styles.resuggestSpinner}
-                />
-              ) : null}
-              <Text style={[styles.resuggestLabel, { color: palette.sage }]}>Re-suggest tags</Text>
-            </View>
-          </Pressable>
-        </View>
-      ) : null}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -311,6 +282,27 @@ export function TagsRow({
           )
         ) : null}
       </ScrollView>
+      {/* Re-suggest tags — shown below tag pills */}
+      {typeof onResuggest === 'function' ? (
+        <Pressable
+          onPress={onResuggest}
+          disabled={!!resuggesting}
+          accessibilityRole="button"
+          accessibilityLabel="Re-suggest tags"
+          testID="resuggest-tags-action"
+          style={({ pressed }) => ({
+            opacity: pressed && !resuggesting ? 0.6 : 1,
+            marginTop: 4,
+          })}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            {resuggesting ? (
+              <ActivityIndicator size="small" color="#A09A90" style={{ marginRight: 4 }} />
+            ) : null}
+            <Text style={{ fontSize: 12, color: '#A09A90' }}>Re-suggest tags</Text>
+          </View>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

@@ -17,8 +17,8 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, Pressable, StyleSheet, ScrollView } from 'react-native';
-import ActionSheet, { SheetManager } from 'react-native-actions-sheet';
+import { View, Pressable, StyleSheet } from 'react-native';
+import ActionSheet, { SheetManager, ScrollView } from 'react-native-actions-sheet';
 import { ChevronRight, Check } from 'lucide-react-native';
 
 import { Text } from '../../ui';
@@ -195,8 +195,12 @@ function SpaceAssignmentActionSheet({ sheetId, payload }: SpaceAssignmentActionS
     <ActionSheet
       id={sheetId}
       gestureEnabled
+      drawUnderStatusBar={false}
       indicatorStyle={styles.indicator}
       containerStyle={styles.sheetContainer}
+      closable
+      closeOnPressBack
+      closeOnTouchBackdrop
       onClose={handleSkip}
     >
       <View style={styles.content}>

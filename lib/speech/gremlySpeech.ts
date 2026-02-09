@@ -1,8 +1,15 @@
 /**
- * Gremly Speech System
+ * Gremly Speech System v2
  *
  * Contextual, personality-driven speech for Gremly mascot.
- * Designed for ADHD productivity app - supportive, slightly quirky.
+ * Designed for ADHD productivity app - warm, clever, never generic.
+ *
+ * Principles:
+ * - Every message should feel like it was written for THIS drop
+ * - Short enough to read in a glance, memorable enough to screenshot
+ * - Never robotic ("Captured." "Noted.") — always has a point of view
+ * - Celebrates without being condescending
+ * - References the ADHD brain fondly, never clinically
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,7 +45,7 @@ type TimeOfDay = 'morning' | 'afternoon' | 'evening' | 'night';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const recentMessages: string[] = [];
-const MAX_RECENT = 3;
+const MAX_RECENT = 4;
 
 function trackMessage(message: string): void {
   recentMessages.push(message);
@@ -72,9 +79,10 @@ function formatDate(date: Date | string | null | undefined): string {
 }
 
 function calculateDuration(message: string): number {
-  const base = 2500;
-  const perChar = 40;
-  const max = 5000;
+  // Longer base + per-char so speech stays visible long enough to read
+  const base = 3000;
+  const perChar = 50;
+  const max = 6000;
   return Math.min(base + message.length * perChar, max);
 }
 
@@ -85,177 +93,188 @@ function calculateDuration(message: string): number {
 const SPEECH_POOLS = {
   GREETINGS: {
     morning: [
-      'Morning. Let it out.',
-      'New day, fresh slate.',
-      'Fresh start, clear mind.',
-      'Morning brain dump time.',
-      'Coffee thoughts welcome.',
+      'Morning! What\u2019s on your mind?',
+      'Fresh brain, fresh page.',
+      'Good morning. I\u2019m ready when you are.',
+      'Let\u2019s get ahead of the day.',
+      'Catch it before coffee wears off.',
     ],
     afternoon: [
-      'Afternoon check-in.',
-      'Midday brain clearing.',
-      'Time to offload.',
-      'Quick drop before you forget.',
-      'Caught something? Drop it.',
+      'Afternoon. What slipped through the cracks?',
+      'Before you forget — drop it here.',
+      'Midday mind clear. Go.',
+      'That thing you keep thinking about? Drop it.',
+      'Caught something? I\u2019ll hold it.',
     ],
     evening: [
-      "Winding down. Let's capture what's left.",
-      'Evening brain sweep.',
-      'Before it escapes — drop it here.',
-      'Last thoughts of the day.',
-      "Capture what's lingering.",
+      'Wind down. Get it out of your head.',
+      'Evening brain sweep — I\u2019ll catch everything.',
+      'Almost done. What\u2019s still bouncing around?',
+      'Last call for loose thoughts.',
+      'Tomorrow-you will thank tonight-you.',
     ],
     night: [
-      'Late night thoughts welcome.',
-      'Late thoughts welcome here.',
-      'Night owl mode. Drop it.',
-      'Get it out of your head.',
-      "Brain won't quiet down. Drop it.",
+      'Can\u2019t sleep? Drop it, then rest.',
+      'Late thoughts are welcome here.',
+      'Get it out, then let it go.',
+      'Night owl mode. I\u2019ll remember, you don\u2019t have to.',
+      'Brain won\u2019t quiet down? That\u2019s what I\u2019m here for.',
     ],
   },
 
   SUCCESS_HIGH_CONFIDENCE: {
     todo_with_date: [
-      "Locked in for {date}. You won't forget.",
-      'On your radar for {date}.',
-      "{date} — it's handled.",
-      'Scheduled. Future you says thanks.',
-      'Pinned to {date}. Done.',
+      'Locked in for {date}. One less thing to hold.',
+      '{date} — handled. Let it go.',
+      'On the calendar for {date}. Brain, released.',
+      'Future you already feels lighter. {date}, done.',
+      '{date}. You won\u2019t have to remember this.',
     ],
     todo_no_date: [
-      'Captured. Date it in Sweep.',
-      'Got it. Date it in Sweep.',
-      'Task saved. Timing TBD.',
-      "Added. Don't forget to date it!",
-      'Safe with me. Set a deadline in Sweep.',
+      'Got it. When do you want to do this?',
+      'Saved. Pick a day when you\u2019re ready.',
+      'Held for you. No rush on the timing.',
+      'Parked it. Sweep will ask about timing.',
+      'One less thing in your head.',
     ],
     habit: [
-      'New habit, who dis?',
-      "Habit locked in. Let's build it.",
-      'Tracking starts now.',
-      'One step at a time. Habit saved.',
-      'Consistency starts here.',
-      "Habit planted. Let's grow it.",
+      'Habit planted. Let\u2019s see it grow.',
+      'Day one starts now.',
+      'Small and steady. That\u2019s how it sticks.',
+      'Routine in progress. I\u2019ll be tracking.',
+      'The hardest part is starting. You just did.',
     ],
     journal: [
-      'Noted. Your future self might thank you.',
-      'Journal entry safe.',
-      'Captured that moment.',
-      'Written down. Weight lifted.',
-      'Journaled. Well done.',
-      'Thought preserved.',
+      'Heard. Thanks for sharing that.',
+      'Written down, weight lifted.',
+      'That took honesty. Saved.',
+      'Your words, safe with me.',
+      'Journaled. That matters more than you think.',
     ],
     idea: [
-      'Ooh, idea captured!',
-      'Interesting... saved.',
-      'Idea banked. Revisit anytime.',
-      "That's a good one. Saved.",
-      'Spark captured ✨',
-      'Filed under: brilliant ideas.',
+      'Ooh. That one has potential.',
+      'Idea saved. Marinate on it.',
+      'Filed under: things worth revisiting.',
+      'Good instinct. I\u2019ll keep it warm for you.',
+      'Spark saved. Come back to it fresh.',
     ],
-    general: ['Got it.', 'Safe with me.', 'Noted!', 'Captured.', 'Done.', 'Tucked away.'],
+    event: [
+      'On the radar. You won\u2019t miss it.',
+      'Marked. I\u2019ll make sure it shows up.',
+      'Event captured. One less thing to juggle.',
+    ],
+    general: [
+      'Grabbed it.',
+      'Safe with me.',
+      'One less thing in your head.',
+      'I\u2019ll hold that for you.',
+      'Out of your brain, into mine.',
+    ],
   },
 
   SUCCESS_MEDIUM_CONFIDENCE: [
-    'Saved! I made my best guess — check it in Sweep.',
-    'Got it. Might need a tweak — peek at Sweep.',
-    'Captured. Double-check my work in Sweep.',
-    'Saved. I took a guess on the type.',
-    'Done! Review in Sweep if I got it wrong.',
+    'Saved — I took my best guess. Peek at Sweep.',
+    'Got it! Might need a small tweak later.',
+    'Held for you. Double-check my sorting in Sweep.',
+    'Saved. If I got the type wrong, Sweep has your back.',
+    'Done! I guessed, but you know best.',
   ],
 
   SUCCESS_LOW_CONFIDENCE: [
-    "Saved to your inbox. Sort it when you're ready.",
-    'Captured! Not sure what it is yet — you decide.',
-    'Safe for now. Sweep will help you sort it.',
-    "Got it. Let's figure out what it is later.",
-    'Tucked away. No rush to categorize.',
+    'Caught it. You sort, I\u2019ll wait.',
+    'Safe for now. No rush to organize.',
+    'Held in your inbox. Sort whenever.',
+    'Saved. Figure out what it is later — no pressure.',
+    'Brain dump complete. Sorting can wait.',
   ],
 
   STREAKS: {
     3: [
-      "That's 3 today. Nice rhythm!",
-      "Third one! You're on a roll.",
-      '3 and counting. Keep going!',
+      'Three in a row. That\u2019s a rhythm.',
+      'Look at you go. That\u2019s three.',
+      'Hat trick. Keep clearing.',
     ],
     5: [
-      "5 drops! Brain's getting lighter.",
-      "High five — that's 5 today!",
-      'Halfway to double digits!',
+      'Five drops. Your brain\u2019s gotta feel lighter.',
+      'Five! That\u2019s a proper brain dump.',
+      'Halfway to double digits. Keep going.',
     ],
     10: [
-      '10 drops! Your brain must feel clearer.',
-      "Double digits! You're crushing it.",
-      "10! That's some serious brain-clearing.",
+      'Ten. That\u2019s some serious headspace clearing.',
+      'Double digits! Your brain thanks you.',
+      'Ten drops. You were holding a lot.',
     ],
-    every5after: ['Another 5! Unstoppable.', '{count} drops today. Legend.'],
+    every5after: [
+      '{count} drops today. You\u2019re unstoppable.',
+      '{count}. At this point you\u2019re just showing off.',
+    ],
   },
 
   PHOTO: {
     with_text: [
-      'Photo + context = perfect capture.',
-      'Visual memory saved.',
-      'Got the pic! Good call adding notes.',
-      'Screenshot brain activated.',
+      'Photo + words = perfect capture.',
+      'Visual receipt saved.',
+      'Picture\u2019s worth a thousand words. You gave me both.',
+      'Screenshot brain, activated.',
     ],
   },
 
   ERRORS: {
     network: [
-      "Hmm, no signal. Saved locally — I'll sync when we're back.",
-      "Offline mode activated. Don't worry, I've got it.",
-      'Connection hiccup. Saved it anyway!',
+      'Offline? No worries. Saved locally, I\u2019ll sync later.',
+      'Connection\u2019s shaky, but I\u2019ve got it. Will sync soon.',
+      'Saved on your device. I\u2019ll upload when signal\u2019s back.',
     ],
     ai_failed: [
-      'Saved, but my brain glitched. Check it in Sweep?',
-      "Got it! My sorter broke — you'll need to file this one.",
-      "Saved to your inbox. I couldn't figure out where it goes.",
+      'Saved, but my brain hiccuped. Sort it in Sweep?',
+      'Got it! My classifier stumbled — you decide the type.',
+      'Saved to inbox. I\u2019ll let you file this one.',
     ],
     generic: [
-      'Something went weird. Try again?',
-      'Oops. Mind dropping that again?',
-      'Glitch! One more time?',
+      'Something went sideways. Try that again?',
+      'Weird glitch. One more time?',
+      'That didn\u2019t land. Mind trying again?',
     ],
   },
 
   FIRST_DROP: [
-    'First drop! This is where the magic starts.',
-    "Welcome! Just drop whatever's on your mind.",
-    "Your brain's new best friend. Drop anything.",
+    'First drop ever! This is where it all starts.',
+    'Your first one! Just drop whatever\u2019s on your mind.',
+    'And so it begins. Drop anything, anytime.',
   ],
 
   RETURNING_USER: [
-    "Hey, welcome back! What's accumulated?",
-    "Missed you! What's been piling up?",
-    "Back again! Let's clear some headspace.",
-    'There you are! Brain full?',
+    'You\u2019re back! What\u2019s been piling up?',
+    'Missed you. Brain full?',
+    'Welcome back. Let\u2019s clear some headspace.',
+    'Hey again! What\u2019s been rattling around in there?',
   ],
 
   EMPTY_STATE: [
-    'All clear! ...for now.',
-    'Inbox zero! Enjoy it while it lasts.',
-    "Nothing here yet. What's on your mind?",
+    'All clear! …for now.',
+    'Nothing here. Enjoy the calm.',
+    'Clean slate. What\u2019s on your mind?',
   ],
 
   MORNING_BRIEF: {
     prompt: [
-      "Good morning! Let's set up your day.",
-      "Rise and shine! What's your One Thing today?",
-      'New day, fresh start. Pick your focus.',
-      "Morning! Let's get clear on today.",
-      'Hey there! Ready to plan your day?',
+      'Good morning! What\u2019s your One Thing today?',
+      'New day. What matters most?',
+      'Morning! Let\u2019s pick a focus.',
+      'Rise and plan. What\u2019s the priority?',
+      'What would make today feel like a win?',
     ],
     complete: [
-      "Locked in! You've got this.",
-      "Perfect. Go get 'em!",
-      'Day planned. Time to crush it.',
-      "You're all set. Let's do this!",
-      'Great choices. Today is yours.',
+      'Locked in. Go make it happen.',
+      'That\u2019s the plan. You\u2019ve got this.',
+      'Day\u2019s set. Now just do the next thing.',
+      'Focused and ready. Let\u2019s go.',
+      'Great call. Today\u2019s yours.',
     ],
     skip: [
-      "No worries! I'm here when you're ready.",
-      'All good. Come back anytime.',
-      'Skipped for now. You know where to find me!',
+      'No pressure. I\u2019m here when you\u2019re ready.',
+      'All good. Come find me when you want to plan.',
+      'Skipped for now. You know where I am.',
     ],
   },
 };
@@ -314,6 +333,7 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
     } else {
       // High confidence - pick by kind
       const kind = ctx.kind || 'general';
+      const logSubtype = ctx.logSubtype || '';
       const hasDueDate = ctx.dueDate != null;
 
       let pool: string[];
@@ -324,10 +344,15 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
           : SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.todo_no_date;
       } else if (kind === 'habit') {
         pool = SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.habit;
-      } else if (kind === 'journal' || kind === 'log') {
+      } else if (kind === 'journal' || (kind === 'log' && logSubtype === 'journal')) {
         pool = SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.journal;
-      } else if (kind === 'idea') {
+      } else if (kind === 'idea' || logSubtype === 'idea') {
         pool = SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.idea;
+      } else if (kind === 'event' || logSubtype === 'event') {
+        pool = SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.event;
+      } else if (kind === 'log') {
+        // Generic log — use general pool
+        pool = SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.general;
       } else {
         pool = SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.general;
       }

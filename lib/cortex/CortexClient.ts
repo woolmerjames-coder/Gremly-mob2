@@ -1404,6 +1404,135 @@ export function callEntityChatStreaming(
   return { close: () => es.close() };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// JOURNAL ANALYZE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface JournalAnalyzeEntry {
+  date: string; // YYYY-MM-DD
+  body: string;
+  mood?: string[] | null;
+}
+
+export interface JournalAnalysisTheme {
+  label: string;
+  description: string;
+  count: number;
+}
+
+export interface JournalAnalysisPattern {
+  label: string;
+  description: string;
+  sentiment: 'positive' | 'neutral' | 'watch';
+}
+
+export interface JournalAnalysisHabits {
+  frequency: string;
+  preferred_time: 'morning' | 'evening' | 'varies' | 'unknown';
+  avg_length: 'short' | 'medium' | 'long';
+  observation: string;
+}
+
+export interface JournalAnalysisSuggestion {
+  text: string;
+  type: 'reflect' | 'try' | 'continue';
+}
+
+export interface JournalAnalysisResult {
+  themes: JournalAnalysisTheme[];
+  patterns: JournalAnalysisPattern[];
+  journaling_habits: JournalAnalysisHabits;
+  suggestion: JournalAnalysisSuggestion;
+}
+
+export interface JournalAnalyzeResponse {
+  analysis: JournalAnalysisResult;
+  entry_count: number;
+  latency_ms: number;
+}
+
+/**
+ * Call the Cortex proxy for Journal Analysis.
+ * Sends journal entries and returns structured themes, patterns, and suggestions.
+ */
+export async function callJournalAnalyze(
+  entries: JournalAnalyzeEntry[],
+  timezone: string = 'UTC',
+): Promise<CortexClientResult<JournalAnalyzeResponse>> {
+  const baseUrl = readCortexUrl();
+
+  if (!baseUrl) {
+    log('CONFIG_MISSING', 'Missing CORTEX_URL for journal analyze');
+    return { ok: false, error: 'Missing CORTEX_URL' };
+  }
+
+  if (isAiDisabled()) {
+    return { ok: false, error: 'AI features are currently disabled' };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  // Use a longer timeout since this processes many entries
+  const timeoutMs = 30000;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const startTime = Date.now();
+
+  try {
+    log('JOURNAL_ANALYZE', 'Calling journal analyze', { entryCount: entries.length });
+
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        type: 'journal-analyze',
+        entries: entries.map((e) => ({
+          date: e.date,
+          body: (e.body || '').slice(0, 500), // Cap per-entry length
+          mood: e.mood || null,
+        })),
+        timezone,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text().catch(() => '');
+      log('JOURNAL_ANALYZE_ERROR', res.status, errorText);
+      return { ok: false, error: `Server error: ${res.status}`, status: res.status };
+    }
+
+    const data = await res.json();
+
+    if (data.error) {
+      log('JOURNAL_ANALYZE_FAIL', data.error);
+      return { ok: false, error: data.error };
+    }
+
+    log('JOURNAL_ANALYZE_OK', {
+      entryCount: data.entry_count,
+      themes: data.analysis?.themes?.length,
+      latency_ms: data.latency_ms,
+    });
+
+    return { ok: true, data };
+  } catch (e: any) {
+    if (e?.name === 'AbortError') {
+      log('JOURNAL_ANALYZE_TIMEOUT', 'Request timed out');
+      return { ok: false, error: 'Request timed out' };
+    }
+    log('JOURNAL_ANALYZE_EXCEPTION', e?.message || e);
+    return { ok: false, error: e?.message || 'Unknown error' };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export const CortexClient = {
   callChat,
   callComplete,
@@ -1416,4 +1545,5 @@ export const CortexClient = {
   callTranscribe,
   callEntityChat,
   callEntityChatStreaming,
+  callJournalAnalyze,
 };

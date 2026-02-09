@@ -5356,7 +5356,7 @@ If unsure, return null.
 Do NOT invent or over-infer.
 
 --------------------------------
-FOR TODOS & HABITS:
+FOR TODOS & BUILD HABITS (start_habit):
 --------------------------------
 1. time_estimate_minutes
 Estimate in 5-minute increments from 5 to 240 minutes.
@@ -5475,6 +5475,8 @@ Estimate the minimum time if everything went perfectly.
 - Tasks involving other people are rarely under 20 min
 - If the user specifies a duration ("30 min run"), honor their estimate
 - Don't be afraid to estimate 45, 50, 55 min — use the full range
+
+NOTE: If the subtype is "break_habit", SKIP time estimation entirely — return time_estimate_minutes: null. Break habits are about NOT doing something, so they don't have a duration.
 
 2. time_window
 Only if explicitly mentioned:
@@ -5700,12 +5702,22 @@ For TODOS:
   "people": ["name1", "name2"] | []
 }
 
-For HABITS:
+For HABITS (start_habit / build):
 {
   "tags": ["tag1", "tag2"],
   "time_estimate_minutes": number | null,
   "time_window": "morning" | "day" | "evening" | null,
   "energy_type": "deep_focus" | "administrative" | "physical" | "social" | "quick",
+  "extracted_frequency": "daily" | "2x/week" | "weekly" | etc,
+  "extracted_days": [0, 1, 2] | null,
+  "extracted_start_date": "YYYY-MM-DD" | null,
+  "people": ["name1", "name2"] | []
+}
+
+For HABITS (break_habit):
+{
+  "tags": ["tag1", "tag2"],
+  "time_window": "morning" | "day" | "evening" | null,
   "extracted_frequency": "daily" | "2x/week" | "weekly" | etc,
   "extracted_days": [0, 1, 2] | null,
   "extracted_start_date": "YYYY-MM-DD" | null,
@@ -5799,9 +5811,10 @@ For LOGS (event):
             .filter((t) => !isStopTag(t))
             .slice(0, 7);
 
-          // Validate time estimate
+          // Validate time estimate (not for break habits)
           let timeEstimate = null;
-          if (bucket === 'todo' || bucket === 'habit') {
+          const isBreakHabit = bucket === 'habit' && subtype === 'break_habit';
+          if ((bucket === 'todo' || bucket === 'habit') && !isBreakHabit) {
             const num = Number(parsed.time_estimate_minutes);
             if (Number.isFinite(num) && num > 0) {
               // Round to nearest 5 minutes, clamp between 5 and 240
@@ -5819,7 +5832,7 @@ For LOGS (event):
 
           // Validate energy_type
           let energyType = null;
-          if (bucket === 'todo' || bucket === 'habit') {
+          if ((bucket === 'todo' || bucket === 'habit') && !isBreakHabit) {
             const validEnergyTypes = [
               'deep_focus',
               'administrative',
@@ -5980,6 +5993,129 @@ For LOGS (event):
           const latency = Date.now() - t0;
           console.log('[Phase2] Error', { error: String(err), latency_ms: latency });
           return j({ error: 'enrichment_failed', detail: String(err), latency_ms: latency }, 200);
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════════
+      // JOURNAL ANALYZE (v4.2) - Analyze journal entries for themes & patterns
+      // ═══════════════════════════════════════════════════════════════════════════
+      //
+      // Accepts an array of journal entries (body text + mood + date) and returns
+      // structured analysis: themes, patterns, journaling habits, and a suggestion.
+      //
+      // Rate-limited client-side to 1x/week via AsyncStorage.
+      // ═══════════════════════════════════════════════════════════════════════════
+
+      if (type === 'journal-analyze') {
+        const entries = body.entries || [];
+        const timezone = body.timezone || 'UTC';
+
+        if (!Array.isArray(entries) || entries.length === 0) {
+          return j({ error: 'no_entries', detail: 'No journal entries provided' }, 200);
+        }
+
+        // Cap at 60 entries to stay within token budget
+        const cappedEntries = entries.slice(0, 60);
+
+        // Build a compact representation of the journal data
+        const journalBlock = cappedEntries
+          .map((entry, i) => {
+            const parts = [`[${entry.date || 'unknown date'}]`];
+            if (entry.mood && entry.mood.length > 0) {
+              parts.push(`(mood: ${entry.mood.join(', ')})`);
+            }
+            parts.push(entry.body || '(empty)');
+            return parts.join(' ');
+          })
+          .join('\n---\n');
+
+        const analyzePrompt = `You are a thoughtful, warm journal analyst for Gremly, a calm productivity app.
+The user has shared their recent journal entries. Analyze them with care and empathy.
+
+=== JOURNAL ENTRIES (${cappedEntries.length} entries) ===
+${journalBlock}
+
+=== YOUR TASK ===
+Analyze these entries and return a JSON object with these four sections:
+
+1. "themes" - Array of 2-4 recurring themes you notice. Each theme is an object:
+   { "label": "short theme name", "description": "1-2 sentence observation", "count": number_of_entries_touching_this }
+   Be specific to THEIR life, not generic. "Work stress around presentations" not just "Stress".
+
+2. "patterns" - Array of 2-3 behavioral or emotional patterns. Each pattern:
+   { "label": "pattern name", "description": "1-2 sentence insight", "sentiment": "positive" | "neutral" | "watch" }
+   "watch" means something worth being mindful of (not alarming, just worth noticing).
+   Look for: mood swings, recurring triggers, coping mechanisms, growth arcs.
+
+3. "journaling_habits" - Object describing WHEN and HOW they journal:
+   { "frequency": "description of how often", "preferred_time": "morning" | "evening" | "varies" | "unknown", "avg_length": "short" | "medium" | "long", "observation": "1 sentence about their journaling style" }
+
+4. "suggestion" - A single gentle, actionable suggestion. Object:
+   { "text": "the suggestion (2-3 sentences max)", "type": "reflect" | "try" | "continue" }
+   "reflect" = think about something, "try" = experiment with something new, "continue" = keep doing something good.
+   NEVER suggest therapy, medication, or professional help. NEVER be prescriptive about emotions.
+   Frame as an invitation, not advice. Use "you might..." or "it could be interesting to..." language.
+
+=== RULES ===
+- Be warm but honest. Don't sugarcoat, but don't alarm.
+- Reference SPECIFIC things from their entries (names, events, feelings they mentioned).
+- If there are very few entries (< 5), say so in journaling_habits.observation and keep themes/patterns shorter.
+- Return ONLY valid JSON. No markdown, no explanation.
+
+=== OUTPUT ===
+Return a single JSON object with keys: themes, patterns, journaling_habits, suggestion`;
+
+        const t0 = Date.now();
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'system', content: analyzePrompt }],
+              temperature: 0.4,
+              max_tokens: 1200,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[JournalAnalyze] API error', { error: oj.error, latency_ms: latency });
+            return j({ error: 'analyze_failed', latency_ms: latency }, 200);
+          }
+
+          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+          let parsed;
+          try {
+            parsed = JSON.parse(rawContent);
+          } catch {
+            console.log('[JournalAnalyze] Parse error', { raw: rawContent.slice(0, 200) });
+            return j({ error: 'parse_failed', latency_ms: latency }, 200);
+          }
+
+          console.log('[JournalAnalyze] Success', {
+            entryCount: cappedEntries.length,
+            themesCount: parsed.themes?.length || 0,
+            patternsCount: parsed.patterns?.length || 0,
+            latency_ms: latency,
+          });
+
+          return j({
+            analysis: parsed,
+            entry_count: cappedEntries.length,
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[JournalAnalyze] Error', { error: String(err), latency_ms: latency });
+          return j({ error: 'analyze_failed', detail: String(err), latency_ms: latency }, 200);
         }
       }
 

@@ -5430,6 +5430,43 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
   const markFirstDropComplete = useGremlyStore((s) => s.markFirstDropComplete);
 
+  // Derive drops-today and last-drop-time from store — survives tab switches
+  const storeTodos = useGremlyStore((s) => s.todos);
+  const storeNotes = useGremlyStore((s) => s.notes);
+  const storeHabits = useGremlyStore((s) => s.habits);
+
+  const storeDropsToday = useMemo(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayISO = todayStart.toISOString();
+
+    let count = 0;
+    for (const item of storeTodos) {
+      if (item.created_at && item.created_at >= todayISO) count++;
+    }
+    for (const item of storeNotes) {
+      if (item.created_at && item.created_at >= todayISO) count++;
+    }
+    for (const item of storeHabits) {
+      if (item.created_at && item.created_at >= todayISO) count++;
+    }
+    return count;
+  }, [storeTodos, storeNotes, storeHabits]);
+
+  const storeLastDropTime = useMemo(() => {
+    let latest = 0;
+    for (const item of storeTodos) {
+      if (item.created_at) latest = Math.max(latest, new Date(item.created_at).getTime());
+    }
+    for (const item of storeNotes) {
+      if (item.created_at) latest = Math.max(latest, new Date(item.created_at).getTime());
+    }
+    for (const item of storeHabits) {
+      if (item.created_at) latest = Math.max(latest, new Date(item.created_at).getTime());
+    }
+    return latest || null;
+  }, [storeTodos, storeNotes, storeHabits]);
+
   // Synchronous lookups from store
   const getItemById = useCallback(
     (id: string) => selectItemById(useGremlyStore.getState(), id),
@@ -5589,10 +5626,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }, durationMs);
   }, []);
 
-  // State for tracking drops today and returning user detection
-  const [dropsToday, setDropsToday] = useState(0);
-  const lastDropTimeRef = useRef<number | null>(null);
-
   // Show a contextual greeting on mount
   useEffect(() => {
     // Delay slightly so the animation is visible
@@ -5602,12 +5635,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }, 500);
     return () => clearTimeout(timer);
   }, [showGremlySpeech]);
-
-  // Helper to check if user is returning (>24h since last drop)
-  const isReturningUser = useCallback(() => {
-    if (!lastDropTimeRef.current) return false;
-    return Date.now() - lastDropTimeRef.current > 24 * 60 * 60 * 1000;
-  }, []);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pulseScale] = useState(() => new Animated.Value(1));
@@ -7889,20 +7916,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         const confidenceCategory: 'high' | 'medium' | 'low' =
           rawConfidence >= 0.8 ? 'high' : rawConfidence >= 0.5 ? 'medium' : 'low';
 
-        const newDropsToday = dropsToday + 1;
-        setDropsToday(newDropsToday);
-        lastDropTimeRef.current = Date.now();
-
         const speechCtx: SpeechContext = {
           kind: uiKind,
           logSubtype: (detail as any).noteSubtype || undefined,
           confidence: confidenceCategory,
           dueDate,
           mode: 'auto',
-          dropsToday: newDropsToday,
-          isFirstDrop: dropsToday === 0,
+          dropsToday: storeDropsToday + 1,
+          isFirstDrop: !firstDropCompletedAt,
           hasPhotos: pendingPhotoUris.length > 0,
-          isReturningUser: isReturningUser(),
+          isReturningUser:
+            storeLastDropTime != null && Date.now() - storeLastDropTime > 24 * 60 * 60 * 1000,
           error: null,
         };
         const speechResult = getGremlySpeech(speechCtx);
@@ -8098,20 +8122,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         const confidenceCategory: 'high' | 'medium' | 'low' =
           rawConfidence >= 0.8 ? 'high' : rawConfidence >= 0.5 ? 'medium' : 'low';
 
-        const newDropsToday = dropsToday + 1;
-        setDropsToday(newDropsToday);
-        lastDropTimeRef.current = Date.now();
-
         const speechCtx: SpeechContext = {
           kind: uiKind,
           logSubtype: (detail as any).noteSubtype || undefined,
           confidence: confidenceCategory,
           dueDate,
           mode: (finalResult.decisionMode as string) ?? 'auto',
-          dropsToday: newDropsToday,
-          isFirstDrop: dropsToday === 0,
+          dropsToday: storeDropsToday + 1,
+          isFirstDrop: !firstDropCompletedAt,
           hasPhotos: currentSubmissionHasPhotosRef.current,
-          isReturningUser: isReturningUser(),
+          isReturningUser:
+            storeLastDropTime != null && Date.now() - storeLastDropTime > 24 * 60 * 60 * 1000,
           error: null,
         };
         console.log('[Gremly Speech] speechCtx:', speechCtx);
@@ -8191,8 +8212,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     user,
     userId,
     showGremlySpeech,
-    dropsToday,
-    isReturningUser,
+    storeDropsToday,
+    storeLastDropTime,
+    firstDropCompletedAt,
   ]);
 
   // Photo Drop handlers
@@ -8361,7 +8383,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 exiting={FadeOut.duration(150)}
               >
                 <View style={styles.gremlyMessageBackdrop}>
-                  <TypewriterText text={gremlySpeech} style={styles.gremlyMessage} />
+                  <TypewriterText
+                    text={gremlySpeech}
+                    style={styles.gremlyMessage}
+                    duration={1400}
+                  />
                 </View>
               </Reanimated.View>
             )}
@@ -8801,19 +8827,26 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       zIndex: 15,
     },
     gremlyMessageBackdrop: {
-      backgroundColor: c.linenCream,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 12,
-      alignSelf: 'flex-end', // Aligns to right since text is right-aligned
+      backgroundColor: '#FFFFFF',
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 14,
+      borderBottomRightRadius: 4,
+      alignSelf: 'flex-end',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.08,
+      shadowRadius: 8,
+      elevation: 3,
+      borderWidth: 1,
+      borderColor: 'rgba(46, 85, 64, 0.08)',
     },
     gremlyMessage: {
-      fontSize: 15,
-      fontStyle: 'italic',
-      fontWeight: '600',
-      color: c.mossGreen,
-      textAlign: 'right', // Flows toward Gremly
-      lineHeight: 22,
+      fontSize: 14,
+      fontWeight: '500',
+      color: '#2D3A35',
+      textAlign: 'right',
+      lineHeight: 20,
       fontFamily: 'Inter-Medium',
     },
 

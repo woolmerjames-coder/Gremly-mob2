@@ -3,7 +3,7 @@
  *
  * Options:
  * - Edit Space name
- * - Edit/set milestone (opens MilestoneEntryModal)
+ * - Goals & Key Dates (opens KeyDatesModal)
  * - Delete Space
  */
 
