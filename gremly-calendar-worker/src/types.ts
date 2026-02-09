@@ -46,9 +46,9 @@ export interface Env {
   AZURE_CLIENT_SECRET: string;
   AZURE_REDIRECT_URI: string;
 
-  // Google (Phase 4)
-  GOOGLE_CLIENT_ID?: string;
-  GOOGLE_CLIENT_SECRET?: string;
+  // Google
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
 
   // Supabase
   SUPABASE_URL: string;

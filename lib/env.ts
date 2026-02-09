@@ -86,6 +86,7 @@ const raw = {
   // Calendar integration
   CALENDAR_WORKER_URL: process.env.EXPO_PUBLIC_CALENDAR_WORKER_URL,
   AZURE_CLIENT_ID: process.env.EXPO_PUBLIC_AZURE_CLIENT_ID,
+  GOOGLE_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? '',
 };
 
 /**
@@ -231,6 +232,7 @@ export const env = {
   // Calendar integration
   calendarWorkerUrl: raw.CALENDAR_WORKER_URL || null,
   azureClientId: raw.AZURE_CLIENT_ID || null,
+  googleClientId: raw.GOOGLE_CLIENT_ID,
 } as const;
 
 // Type exports for convenience

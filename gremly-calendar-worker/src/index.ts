@@ -18,7 +18,9 @@ import { json, error, corsPreflightResponse } from './utils/response';
 import { extractUserIdFromToken } from './utils/auth';
 import { TokenStorage } from './storage/tokens';
 import { exchangeOutlookCode } from './auth/outlook';
+import { exchangeGoogleCode, refreshGoogleToken } from './auth/google';
 import { fetchOutlookEvents } from './calendar/outlook';
+import { fetchGoogleEvents } from './calendar/google';
 import { connectIcsCalendar, fetchIcsEvents } from './calendar/ics';
 
 export default {
@@ -103,9 +105,55 @@ export default {
         return json({ success: true, calendarName: result.calendarName });
       }
 
-      // POST /auth/google/exchange - Exchange auth code for tokens (Phase 4)
+      // POST /auth/google/exchange - Exchange Google auth code for tokens
       if (path === '/auth/google/exchange' && request.method === 'POST') {
-        return error('Google Calendar integration coming soon', 501);
+        const body = (await request.json()) as {
+          code: string;
+          code_verifier: string;
+          redirect_uri: string;
+        };
+
+        if (!body.code || !body.code_verifier || !body.redirect_uri) {
+          return error('Missing required fields: code, code_verifier, redirect_uri', 400);
+        }
+
+        try {
+          const googleClientId = env.GOOGLE_CLIENT_ID;
+          const googleClientSecret = env.GOOGLE_CLIENT_SECRET;
+
+          if (!googleClientId) {
+            return error('Google Client ID not configured', 500);
+          }
+
+          const result = await exchangeGoogleCode(
+            body.code,
+            body.code_verifier,
+            body.redirect_uri,
+            googleClientId,
+            googleClientSecret,
+          );
+
+          // Store tokens in Supabase
+          const storage = new TokenStorage(env);
+          await storage.saveToken(userId, 'google', {
+            access_token: result.accessToken,
+            refresh_token: result.refreshToken,
+            access_token_expires_at: result.expiresAt,
+            provider_email: result.email,
+            is_active: true,
+          });
+
+          return json({
+            success: true,
+            email: result.email,
+          });
+        } catch (err) {
+          console.error('[Google Exchange] Error:', err);
+          return error(
+            `Google auth failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            500,
+          );
+        }
       }
 
       // POST /auth/disconnect - Disconnect a calendar provider
@@ -161,9 +209,42 @@ export default {
           }
         }
 
-        // Google (Phase 4)
-        if (provider === 'google') {
-          errors.push('google: Not implemented yet');
+        // Fetch Google events
+        if (!provider || provider === 'google') {
+          const storage = new TokenStorage(env);
+          const tokens = await storage.getTokensForUser(userId);
+          const googleToken = tokens.find((t) => t.provider === 'google');
+          if (googleToken && googleToken.is_active) {
+            try {
+              let googleAccessToken = googleToken.access_token;
+
+              // Check if token is expired and refresh if needed
+              const expiresAt = new Date(googleToken.access_token_expires_at);
+              if (expiresAt <= new Date()) {
+                console.log('[Events] Google token expired, refreshing...');
+                const refreshed = await refreshGoogleToken(
+                  googleToken.refresh_token,
+                  env.GOOGLE_CLIENT_ID,
+                  env.GOOGLE_CLIENT_SECRET,
+                );
+                googleAccessToken = refreshed.accessToken;
+
+                // Update stored token
+                await storage.saveToken(userId, 'google', {
+                  ...googleToken,
+                  access_token: refreshed.accessToken,
+                  access_token_expires_at: refreshed.expiresAt,
+                });
+              }
+
+              const googleEvents = await fetchGoogleEvents(googleAccessToken, startDate, endDate);
+              allEvents.push(...googleEvents);
+              console.log('[Events] Google events:', googleEvents.length);
+            } catch (err) {
+              console.error('[Events] Google fetch error:', err);
+              errors.push(`google: ${err instanceof Error ? err.message : 'Unknown'}`);
+            }
+          }
         }
 
         // Fetch from ICS if requested or no specific provider

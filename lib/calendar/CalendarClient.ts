@@ -65,6 +65,15 @@ const OUTLOOK_SCOPES = [
   'User.Read',
 ];
 
+// Google OAuth endpoints
+const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
+const GOOGLE_SCOPES = [
+  'openid',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/calendar.readonly',
+];
+
 // Redirect URI (matches Azure app registration and wrangler.toml)
 const REDIRECT_URI = 'gremly://auth/callback';
 
@@ -75,6 +84,10 @@ const getCalendarWorkerUrl = (): string => {
 
 const getAzureClientId = (): string => {
   return env.azureClientId || '';
+};
+
+const getGoogleClientId = (): string => {
+  return env.googleClientId || '';
 };
 
 // Logging helper - always log for debugging OAuth issues
@@ -294,6 +307,102 @@ class CalendarClient {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       log('ERROR', 'connectOutlook failed:', message);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Initiate Google OAuth flow and exchange code for tokens via worker.
+   *
+   * Uses PKCE flow with expo-auth-session for security.
+   * Tokens are stored server-side in Supabase (via worker).
+   */
+  async connectGoogle(): Promise<{ success: boolean; error?: string }> {
+    const clientId = getGoogleClientId();
+    const workerUrl = getCalendarWorkerUrl();
+
+    if (!clientId) {
+      log('ERROR', 'Missing EXPO_PUBLIC_GOOGLE_CLIENT_ID');
+      return {
+        success: false,
+        error: 'Google Client ID not configured. Check EXPO_PUBLIC_GOOGLE_CLIENT_ID.',
+      };
+    }
+
+    if (!workerUrl) {
+      log('ERROR', 'Missing EXPO_PUBLIC_CALENDAR_WORKER_URL');
+      return {
+        success: false,
+        error: 'Calendar Worker URL not configured. Check EXPO_PUBLIC_CALENDAR_WORKER_URL.',
+      };
+    }
+
+    if (!this.supabaseToken) {
+      log('ERROR', 'No Supabase token - user must be logged in');
+      return { success: false, error: 'Not authenticated. Please log in again.' };
+    }
+
+    try {
+      log('Starting Google OAuth flow...');
+
+      // Create OAuth discovery document for Google
+      const discovery: AuthSession.DiscoveryDocument = {
+        authorizationEndpoint: GOOGLE_AUTH_ENDPOINT,
+        tokenEndpoint: GOOGLE_TOKEN_ENDPOINT,
+      };
+
+      // Create auth request with PKCE
+      const request = new AuthSession.AuthRequest({
+        clientId,
+        scopes: GOOGLE_SCOPES,
+        redirectUri: REDIRECT_URI,
+        usePKCE: true,
+        responseType: AuthSession.ResponseType.Code,
+      });
+
+      // Prompt user to authenticate
+      log('Opening browser for Google login...');
+      const result = await request.promptAsync(discovery);
+
+      log('OAuth result type:', result.type);
+
+      if (result.type !== 'success') {
+        if (result.type === 'cancel' || result.type === 'dismiss') {
+          return { success: false, error: 'User cancelled authentication' };
+        }
+        return { success: false, error: `OAuth failed: ${result.type}` };
+      }
+
+      const { code } = result.params;
+
+      if (!code) {
+        log('ERROR', 'No authorization code received');
+        return { success: false, error: 'No authorization code received' };
+      }
+
+      log('Got authorization code, exchanging for tokens...');
+
+      // Exchange code for tokens via our worker
+      // Worker will store tokens in Supabase and return success/failure
+      const exchangeResult = await this.post<{ success: boolean; email?: string }>(
+        '/auth/google/exchange',
+        {
+          code,
+          code_verifier: request.codeVerifier,
+          redirect_uri: REDIRECT_URI,
+        },
+      );
+
+      if (!exchangeResult.ok || !exchangeResult.data?.success) {
+        log('ERROR', 'Token exchange failed:', exchangeResult.error);
+        return { success: false, error: exchangeResult.error || 'Token exchange failed' };
+      }
+
+      log('✅ Google connected successfully:', exchangeResult.data.email);
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      log('ERROR', 'connectGoogle failed:', message);
       return { success: false, error: message };
     }
   }

@@ -3719,9 +3719,10 @@ export const useGremlyStore = create<GremlyState>()(
 
         if (provider === 'outlook') {
           result = await calendarClient.connectOutlook();
+        } else if (provider === 'google') {
+          result = await calendarClient.connectGoogle();
         } else {
-          // Google not yet implemented
-          result = { success: false, error: 'Google Calendar not yet supported' };
+          result = { success: false, error: 'Unsupported calendar provider' };
         }
 
         if (result.success) {
