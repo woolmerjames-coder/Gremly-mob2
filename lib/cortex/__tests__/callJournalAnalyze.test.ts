@@ -62,7 +62,7 @@ describe('callJournalAnalyze', () => {
       const { callJournalAnalyze } = getModule();
       const result = await callJournalAnalyze(sampleEntries, 'UTC');
       expect(result.ok).toBe(false);
-      expect(result.error).toMatch(/Missing/i);
+      if (!result.ok) expect(result.error).toMatch(/Missing/i);
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
@@ -71,7 +71,7 @@ describe('callJournalAnalyze', () => {
       const { callJournalAnalyze } = getModule();
       const result = await callJournalAnalyze(sampleEntries, 'UTC');
       expect(result.ok).toBe(false);
-      expect(result.error).toMatch(/disabled/i);
+      if (!result.ok) expect(result.error).toMatch(/disabled/i);
       expect(mockFetch).not.toHaveBeenCalled();
     });
   });
@@ -173,7 +173,7 @@ describe('callJournalAnalyze', () => {
       const result = await callJournalAnalyze(sampleEntries, 'UTC');
 
       expect(result.ok).toBe(false);
-      expect(result.error).toMatch(/500/);
+      if (!result.ok) expect(result.error).toMatch(/500/);
     });
 
     it('returns error when response contains error field', async () => {
@@ -186,7 +186,7 @@ describe('callJournalAnalyze', () => {
       const result = await callJournalAnalyze(sampleEntries, 'UTC');
 
       expect(result.ok).toBe(false);
-      expect(result.error).toBe('Rate limited');
+      if (!result.ok) expect(result.error).toBe('Rate limited');
     });
 
     it('returns timeout error when request is aborted', async () => {
@@ -196,7 +196,7 @@ describe('callJournalAnalyze', () => {
       const result = await callJournalAnalyze(sampleEntries, 'UTC');
 
       expect(result.ok).toBe(false);
-      expect(result.error).toMatch(/timed out/i);
+      if (!result.ok) expect(result.error).toMatch(/timed out/i);
     });
 
     it('returns generic error for unknown exceptions', async () => {
@@ -206,7 +206,7 @@ describe('callJournalAnalyze', () => {
       const result = await callJournalAnalyze(sampleEntries, 'UTC');
 
       expect(result.ok).toBe(false);
-      expect(result.error).toBe('Network failure');
+      if (!result.ok) expect(result.error).toBe('Network failure');
     });
   });
 });
