@@ -1,9 +1,10 @@
 /**
  * Habit Builder Chip Map
  *
- * Maps the server-computed `next_field` value to tappable chip options.
- * These are deterministic — no AI involvement. The server tells us which
- * field is being asked about, and we show the relevant quick-select options.
+ * Context-aware chip selection. Uses server-computed `next_field` as the
+ * primary signal, but also scans the AI's response for keywords to detect
+ * when it's asking about optional fields (time_window, days) so chips
+ * match what the AI is actually asking.
  */
 
 export interface ChipConfig {
@@ -12,12 +13,62 @@ export interface ChipConfig {
   sendsMessage: boolean;
 }
 
+// Keywords that indicate the AI is asking about specific topics
+const TIME_KEYWORDS = ['time of day', 'morning', 'evening', 'afternoon', 'when during', 'what time', 'specific time', 'time in mind'];
+const DAY_KEYWORDS = ['which days', 'specific days', 'certain days', 'what days'];
+const CONFIRM_KEYWORDS = ["here's what i've got", "here's what i have", "lock this in", "want to lock", "tweak anything", "sound right", "look right", "ready to go"];
+const START_KEYWORDS = ['when do you want to start', 'when would you like to start', 'when to start', 'start tracking', 'begin tracking', 'want to begin'];
+
 /**
- * Get chip options for the current next_field.
- * Returns null if no chips should be shown (e.g., for name or habit_type,
- * which are better answered in natural language).
+ * Get chip options based on conversation context.
+ *
+ * Priority:
+ * 1. Detect confirmation card in AI response → confirm chips
+ * 2. Detect time-of-day question in AI response → time chips
+ * 3. Detect specific-days question in AI response → day chips
+ * 4. Detect start-date question in AI response → start date chips
+ * 5. Fall back to next_field for required fields (cadence, target)
+ * 6. Return null for name/habit_type (better answered in natural language)
  */
-export function getChipsForField(nextField: string | null): ChipConfig | null {
+export function getChipsForField(
+  nextField: string | null,
+  aiResponse?: string,
+): ChipConfig | null {
+  const lower = (aiResponse || '').toLowerCase();
+
+  // 1. Confirmation card detected
+  if (CONFIRM_KEYWORDS.some((k) => lower.includes(k))) {
+    return {
+      chips: ['Lock it in ✓', 'Let me tweak something'],
+      sendsMessage: true,
+    };
+  }
+
+  // 2. AI is asking about time of day
+  if (TIME_KEYWORDS.some((k) => lower.includes(k))) {
+    return {
+      chips: ['Morning', 'Evening', 'Anytime'],
+      sendsMessage: true,
+    };
+  }
+
+  // 3. AI is asking about specific days
+  if (DAY_KEYWORDS.some((k) => lower.includes(k))) {
+    return {
+      chips: ['Weekdays', 'Mon / Wed / Fri', 'Pick my own'],
+      sendsMessage: true,
+    };
+  }
+
+  // 4. AI is asking about start date
+  if (START_KEYWORDS.some((k) => lower.includes(k))) {
+    return {
+      chips: ['Today', 'Tomorrow', 'Next Monday'],
+      sendsMessage: true,
+    };
+  }
+
+  // 5. Fall back to next_field for required fields
   if (!nextField) return null;
 
   switch (nextField) {
@@ -28,9 +79,6 @@ export function getChipsForField(nextField: string | null): ChipConfig | null {
       };
 
     case 'target':
-      // Target is usually inferred from cadence server-side.
-      // If it shows up as next_field, the cadence is probably weekly
-      // and we need specifics.
       return {
         chips: ['2x per week', '3x per week', '4x per week', '5x per week'],
         sendsMessage: true,
@@ -57,13 +105,3 @@ export function getChipsForField(nextField: string | null): ChipConfig | null {
       return null;
   }
 }
-
-/**
- * Optional time window chips — shown after all required fields
- * are resolved but before confirmation, IF the AI asks about timing.
- * The screen can check for keywords in the AI response to decide.
- */
-export const TIME_WINDOW_CHIPS: ChipConfig = {
-  chips: ['Morning', 'Afternoon', 'Evening', 'Anytime'],
-  sendsMessage: true,
-};

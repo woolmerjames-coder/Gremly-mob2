@@ -35,6 +35,21 @@ import RitualsSettingsScreen from '../app/screens/RitualsSettingsScreen';
 import TimeBlocksSettingsScreen from '../app/screens/TimeBlocksSettingsScreen';
 import CalendarSettingsScreen from '../app/screens/CalendarSettingsScreen';
 import WhatGremlyKnowsScreen from '../app/screens/WhatGremlyKnowsScreen';
+import { HabitBuilderScreen } from '../screens/habits/HabitBuilderScreen';
+
+// Wrapper to bridge navigation params to HabitBuilderScreen props
+function HabitBuilderWrapper({ navigation, route }: any) {
+  return (
+    <HabitBuilderScreen
+      prefill={route.params?.prefill}
+      spaceId={route.params?.spaceId}
+      onClose={() => navigation.goBack()}
+      onHabitCreated={() => {
+        navigation.goBack();
+      }}
+    />
+  );
+}
 
 export type RootStackParamList = {
   Login: undefined;
@@ -69,6 +84,7 @@ export type RootStackParamList = {
   TimeBlocksSettings: undefined;
   CalendarSettings: undefined;
   WhatGremlyKnows: undefined;
+  HabitBuilder: { prefill?: string; spaceId?: string } | undefined;
   SweepTest: undefined; // DEV only
 };
 
@@ -225,6 +241,14 @@ export default function RootNavigator() {
             options={{
               headerShown: false,
               animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="HabitBuilder"
+            component={HabitBuilderWrapper}
+            options={{
+              headerShown: false,
+              presentation: 'modal',
             }}
           />
           <Stack.Screen
