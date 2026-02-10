@@ -13,11 +13,53 @@ export interface ChipConfig {
   sendsMessage: boolean;
 }
 
-// Keywords that indicate the AI is asking about specific topics
-const TIME_KEYWORDS = ['time of day', 'morning', 'evening', 'afternoon', 'when during', 'what time', 'specific time', 'time in mind'];
-const DAY_KEYWORDS = ['which days', 'specific days', 'certain days', 'what days'];
-const CONFIRM_KEYWORDS = ["here's what i've got", "here's what i have", "lock this in", "want to lock", "tweak anything", "sound right", "look right", "ready to go"];
-const START_KEYWORDS = ['when do you want to start', 'when would you like to start', 'when to start', 'start tracking', 'begin tracking', 'want to begin'];
+// Only match when the AI is ASKING about time preference, not just mentioning a time
+const TIME_KEYWORDS = [
+  'time of day in mind',
+  'particular time of day',
+  'specific time of day',
+  'what time of day',
+  'morning or evening',
+  'evening or morning',
+  'morning, afternoon, or evening',
+  'tie it to a specific time',
+  'tie your',
+  'when during the day',
+  'prefer to do this',
+  'prefer to do it',
+];
+
+const DAY_KEYWORDS = [
+  'which days of the week',
+  'specific days of the week',
+  'certain days of the week',
+  'what days would',
+  'what days do',
+  'every day or certain days',
+  'every day or just',
+];
+
+const CONFIRM_KEYWORDS = [
+  "here's what i've got",
+  "here's what i have",
+  "here's your habit",
+  'want to lock this in',
+  'ready to lock',
+  'tweak anything',
+  'sound right',
+  'look right',
+  'good to go',
+];
+
+const START_KEYWORDS = [
+  'when do you want to start',
+  'when would you like to start',
+  'when do you want to begin',
+  'when would you like to begin',
+  'want to start tracking',
+  'want to begin tracking',
+  'ready to start',
+];
 
 /**
  * Get chip options based on conversation context.

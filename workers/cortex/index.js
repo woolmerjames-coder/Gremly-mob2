@@ -1996,7 +1996,7 @@ Once all 5 things are clear and the conversation has naturally settled, go to th
 
 === TONE ===
 - Warm, grounded, brief
-- 30-80 words per message (shorter is almost always better on mobile)
+- 30-80 words per message. This is a HARD limit. If your response is longer than 80 words, it's too long. Rewrite it shorter. Two short sentences is ideal. Three sentences is the max. Mobile screens are small — respect that.
 - No exclamation marks
 - No sycophancy ("Great choice!", "Love that!")
 - Gently curious when they share something personal
@@ -2016,7 +2016,7 @@ Once all 5 things are clear and the conversation has naturally settled, go to th
 - Never reference app features like Mind Drop, Evening Sweep, etc.
 - Never add metadata, hidden text, or structured data to your responses
 - Never give a bulleted list of tips or advice unless the user specifically asks for it
-- Never write more than 2 short paragraphs in a single message
+- Never write more than 3 sentences in a single response. If you're writing a 4th sentence, stop and delete one.
 
 === THE CONFIRMATION ===
 When you have all 5 required things AND the conversation feels settled, present a clean summary:
@@ -2099,8 +2099,10 @@ If they want to tweak: ask what to change.`;
               model: 'gpt-4.1',
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: 800,
+              max_completion_tokens: 250,
               stream: true,
+              tools: [WEB_SEARCH_TOOL],
+              tool_choice: 'auto',
             }),
           });
 
@@ -2118,76 +2120,213 @@ If they want to tweak: ask what to change.`;
           const encoder = new TextEncoder();
           const decoder = new TextDecoder();
 
-          (async () => {
-            const reader = openaiRes.body.getReader();
-            let buffer = '';
-            let fullContent = '';
+        (async () => {
+          // Send initial SSE ping
+          await writer.write(encoder.encode(': ping\n\n'));
 
-            try {
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+          const reader = openaiRes.body.getReader();
+          let buffer = '';
+          let fullContent = '';
 
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split(/\r?\n/);
-                buffer = lines.pop() || '';
+          // Track tool call accumulation
+          let toolCalls = [];
 
-                for (const line of lines) {
-                  const trimmed = line.trim();
-                  if (!trimmed || trimmed === 'data: [DONE]') continue;
-                  if (!trimmed.startsWith('data: ')) continue;
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
 
-                  try {
-                    const json = JSON.parse(trimmed.slice(6));
-                    const delta = json.choices?.[0]?.delta?.content;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split(/\r?\n/);
+              buffer = lines.pop() || '';
 
-                    if (delta) {
-                      fullContent += delta;
-                      const sseData = JSON.stringify({ delta, done: false });
-                      await writer.write(encoder.encode(`data: ${sseData}\n\n`));
-                    }
-                  } catch (parseErr) {
-                    // skip
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed === 'data: [DONE]') continue;
+                if (!trimmed.startsWith('data: ')) continue;
+
+                try {
+                  const json = JSON.parse(trimmed.slice(6));
+                  const delta = json.choices?.[0]?.delta?.content;
+
+                  if (delta) {
+                    fullContent += delta;
+                    const sseData = JSON.stringify({ delta, done: false });
+                    await writer.write(encoder.encode(`data: ${sseData}\n\n`));
                   }
+
+                  // Accumulate tool calls
+                  const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
+                  if (toolCallDeltas) {
+                    for (const toolCallDelta of toolCallDeltas) {
+                      const idx = toolCallDelta.index ?? 0;
+                      if (!toolCalls[idx]) {
+                        toolCalls[idx] = { id: null, name: null, arguments: '' };
+                      }
+                      if (toolCallDelta.id) toolCalls[idx].id = toolCallDelta.id;
+                      if (toolCallDelta.function?.name) toolCalls[idx].name = toolCallDelta.function.name;
+                      if (toolCallDelta.function?.arguments) toolCalls[idx].arguments += toolCallDelta.function.arguments;
+                    }
+                  }
+                } catch (parseErr) {
+                  // skip
                 }
               }
-
-              // ── POST-STREAM EXTRACTION ──
-              // Build the full conversation including the AI's response we just streamed
-              const fullConversation = [
-                ...messages,
-                { role: 'assistant', content: fullContent },
-              ];
-
-              const resolved = await extractHabitFields(fullConversation, key);
-
-              const latency = Date.now() - t0;
-              const finalData = JSON.stringify({
-                done: true,
-                full_content: fullContent,
-                resolved_fields: resolved,
-                latency_ms: latency,
-              });
-              await writer.write(encoder.encode(`data: ${finalData}\n\n`));
-
-              console.log('[HabitBuilder:Streaming] Complete', {
-                latency_ms: latency,
-                content_length: fullContent.length,
-                required_count: resolved.required_count,
-                next_field: resolved.next_field,
-              });
-            } catch (streamErr) {
-              console.log('[HabitBuilder:Streaming] Stream error', { error: String(streamErr) });
-              const errorData = JSON.stringify({
-                error: String(streamErr),
-                done: true,
-                full_content: fullContent,
-              });
-              await writer.write(encoder.encode(`data: ${errorData}\n\n`));
-            } finally {
-              await writer.close();
             }
-          })();
+
+            // ── Handle web search tool calls ──
+            const webSearchCalls = toolCalls.filter(tc => tc.name === 'web_search' && tc.arguments);
+
+            if (webSearchCalls.length > 0) {
+              console.log('[HabitBuilder:Streaming] Web search triggered', { searchCount: webSearchCalls.length });
+
+              // Notify client we're searching
+              let firstQuery = '';
+              try {
+                firstQuery = JSON.parse(webSearchCalls[0].arguments).query || '';
+              } catch {
+                const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                firstQuery = match ? match[1] : 'searching';
+              }
+              await writer.write(
+                encoder.encode(`data: ${JSON.stringify({ searching: true, query: firstQuery })}\n\n`)
+              );
+
+              // Execute all searches in parallel
+              const searchPromises = webSearchCalls.map(async (tc) => {
+                try {
+                  let query;
+                  try {
+                    query = JSON.parse(tc.arguments).query;
+                  } catch {
+                    const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                    query = match ? match[1] : null;
+                  }
+                  if (!query) return { toolCallId: tc.id, query: null, results: null };
+
+                  const results = await executeTavilySearch(query, env.TAVILY_API_KEY, { includeImages: false });
+                  return { toolCallId: tc.id, query, results };
+                } catch (err) {
+                  console.log('[HabitBuilder:Streaming] Search error:', err);
+                  return { toolCallId: tc.id, query: null, results: null };
+                }
+              });
+
+              const searchResults = await Promise.all(searchPromises);
+              const successfulSearches = searchResults.filter(sr => sr.results && sr.results.results.length > 0);
+
+              if (successfulSearches.length > 0) {
+                // Build follow-up messages with tool results
+                const assistantToolCalls = successfulSearches.map(sr => ({
+                  id: sr.toolCallId,
+                  type: 'function',
+                  function: { name: 'web_search', arguments: JSON.stringify({ query: sr.query }) },
+                }));
+
+                const toolResultMessages = successfulSearches.map(sr => ({
+                  role: 'tool',
+                  tool_call_id: sr.toolCallId,
+                  content: JSON.stringify(sr.results),
+                }));
+
+                const followUpMessages = [
+                  ...openaiMessages,
+                  { role: 'assistant', content: null, tool_calls: assistantToolCalls },
+                  ...toolResultMessages,
+                ];
+
+                // Second streaming call with search results
+                const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${key}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    model: 'gpt-4.1',
+                    messages: followUpMessages,
+                    temperature: 0.7,
+                    max_completion_tokens: 250,
+                    stream: true,
+                  }),
+                });
+
+                // Stream the follow-up response
+                const followUpReader = followUpRes.body.getReader();
+                let followUpBuffer = '';
+
+                while (true) {
+                  const result = await followUpReader.read();
+                  if (result.done) break;
+
+                  followUpBuffer += decoder.decode(result.value, { stream: true });
+                  const followUpLines = followUpBuffer.split(/\r?\n/);
+                  followUpBuffer = followUpLines.pop() || '';
+
+                  for (const line of followUpLines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith('data:')) continue;
+                    const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                    if (jsonStr === '[DONE]') continue;
+
+                    try {
+                      const json = JSON.parse(jsonStr);
+                      const delta = json.choices?.[0]?.delta?.content;
+                      if (delta) {
+                        fullContent += delta;
+                        await writer.write(
+                          encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`)
+                        );
+                      }
+                    } catch {
+                      // skip
+                    }
+                  }
+                }
+
+                console.log('[HabitBuilder:Streaming] Search complete', {
+                  searchCount: successfulSearches.length,
+                  queries: successfulSearches.map(s => s.query),
+                });
+              }
+            }
+
+            // ── POST-STREAM EXTRACTION ──
+            const fullConversation = [
+              ...messages,
+              { role: 'assistant', content: fullContent },
+            ];
+
+            const resolved = await extractHabitFields(fullConversation, key);
+
+            const latency = Date.now() - t0;
+            const finalData = JSON.stringify({
+              done: true,
+              full_content: fullContent,
+              resolved_fields: resolved,
+              latency_ms: latency,
+            });
+            await writer.write(encoder.encode(`data: ${finalData}\n\n`));
+
+            console.log('[HabitBuilder:Streaming] Complete', {
+              latency_ms: latency,
+              content_length: fullContent.length,
+              required_count: resolved.required_count,
+              next_field: resolved.next_field,
+              had_search: webSearchCalls.length > 0,
+            });
+          } catch (streamErr) {
+            console.log('[HabitBuilder:Streaming] Stream error', { error: String(streamErr) });
+            const errorData = JSON.stringify({
+              error: String(streamErr),
+              done: true,
+              full_content: fullContent,
+            });
+            await writer.write(encoder.encode(`data: ${errorData}\n\n`));
+          } finally {
+            await writer.close();
+          }
+        })();
 
           return new Response(readable, {
             headers: {
@@ -2211,7 +2350,7 @@ If they want to tweak: ask what to change.`;
               model: 'gpt-4.1',
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: 800,
+              max_completion_tokens: 250,
             }),
           });
 
