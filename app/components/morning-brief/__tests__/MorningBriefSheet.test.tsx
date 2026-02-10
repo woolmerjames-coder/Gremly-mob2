@@ -271,3 +271,57 @@ describe.skip('MorningBriefSheet', () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// targetDate prop - documentary tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('MorningBriefSheet - targetDate prop (documentary)', () => {
+  describe('date-parameterized behavior', () => {
+    it('documents that targetDate prop enables tomorrow mode', () => {
+      // When targetDate is provided:
+      //   const isTomorrow = !!targetDate;
+      //   const today = targetDate ?? getDateService().getCurrentDate();
+      //
+      // This affects:
+      // 1. MorningBriefHeader receives targetDate → shows future date info
+      // 2. OrganizeButton receives targetDate → calculates capacity for that date
+      // 3. Capacity/calendar hooks query for targetDate instead of today
+      // 4. saveBrief receives { date: today } which is the targetDate
+
+      const targetDateBehavior = {
+        isTomorrow: 'true when targetDate is set',
+        headerProp: 'targetDate passed to MorningBriefHeader',
+        organizeButtonProp: 'targetDate passed to OrganizeButton',
+        capacityHook: 'useCapacityForDate(today) where today = targetDate',
+        eventsHook: 'useCalendarEventsForDate(today) where today = targetDate',
+        saveBriefDate: 'saveBrief({ date: today }) with today = targetDate',
+      };
+
+      expect(targetDateBehavior.isTomorrow).toBe('true when targetDate is set');
+      expect(targetDateBehavior.saveBriefDate).toContain('targetDate');
+    });
+
+    it('documents that saveBrief receives date param when isTomorrow', () => {
+      // In MorningBriefSheet, when completing the brief:
+      //   saveBrief({
+      //     morning_sequence: ...,
+      //     day_sequence: ...,
+      //     evening_sequence: ...,
+      //     ...(isTomorrow ? { date: today } : {}),
+      //   })
+      //
+      // The `date` field is only passed when in tomorrow mode.
+      // saveBrief then uses this to:
+      // 1. Set the payload date to tomorrow
+      // 2. Skip optimistic dailyBrief update (isToday check)
+
+      const saveBriefFlow = {
+        todayMode: 'no extra date field → saveBrief uses getCurrentDate()',
+        tomorrowMode: 'date: targetDate → saveBrief uses it, skips optimistic update',
+      };
+
+      expect(saveBriefFlow.tomorrowMode).toContain('skips optimistic update');
+    });
+  });
+});

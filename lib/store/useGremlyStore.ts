@@ -356,6 +356,7 @@ export interface PendingDrop {
     action: {
       bucket?: 'todo' | 'habit' | 'log';
       subtype?: string;
+      habitSubtype?: string;
       target_date?: boolean;
       scheduled_date?: boolean;
     };

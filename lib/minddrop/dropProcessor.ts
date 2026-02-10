@@ -136,10 +136,10 @@ async function runPhase1_5InBackground(
   userSpaces: string[] = [],
   ambiguityReason?: string | null,
   plausibleInterpretations?: Array<{
-    bucket: string;
-    subtype?: string;
-    habitSubtype?: string;
-    dateField?: string;
+    bucket: string | null;
+    subtype?: string | null;
+    habitSubtype?: string | null;
+    dateField?: string | null;
   }> | null,
 ): Promise<void> {
   const startTime = Date.now();

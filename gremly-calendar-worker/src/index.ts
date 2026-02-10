@@ -140,7 +140,6 @@ export default {
             refresh_token: result.refreshToken,
             access_token_expires_at: result.expiresAt,
             provider_email: result.email,
-            is_active: true,
           });
 
           return json({

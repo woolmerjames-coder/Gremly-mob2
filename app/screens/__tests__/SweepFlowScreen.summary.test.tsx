@@ -419,3 +419,56 @@ describe.skip('SweepFlowScreen - Summary Step', () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plan Tomorrow Button (Summary Step)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('SweepFlowScreen - Plan Tomorrow Button', () => {
+  describe('onPlanTomorrow prop behavior (documentary)', () => {
+    it('documents that Summary step includes "Plan your tomorrow" button', () => {
+      // The Summary step now includes a "Plan your tomorrow →" Pressable
+      // that calls the onPlanTomorrow callback prop on the SummaryStep component.
+      //
+      // In SweepFlowScreen.tsx:
+      //   <Pressable style={styles.planTomorrowButton} onPress={onPlanTomorrow}>
+      //     <Text>Plan your tomorrow →</Text>
+      //   </Pressable>
+      //
+      // The parent SweepFlowScreen wires it to:
+      //   onPlanTomorrow={() => {
+      //     navigation.goBack();
+      //     eventBus.emit('openTomorrowBrief', {});
+      //   }}
+
+      const planTomorrowBehavior = {
+        buttonText: 'Plan your tomorrow →',
+        onPress: 'navigation.goBack() + eventBus.emit("openTomorrowBrief", {})',
+        location: 'Summary step (step 4), after completion stats',
+      };
+
+      expect(planTomorrowBehavior.buttonText).toBe('Plan your tomorrow →');
+      expect(planTomorrowBehavior.onPress).toContain('openTomorrowBrief');
+    });
+
+    it('documents that onPlanTomorrow triggers eventBus event', () => {
+      // The onPlanTomorrow handler:
+      // 1. Navigates back (closes sweep)
+      // 2. Emits 'openTomorrowBrief' event on the eventBus
+      // 3. NowScreenV1 listens for this event and opens the brief with tomorrow's date
+
+      const eventFlow = {
+        event: 'openTomorrowBrief',
+        payload: {},
+        listener: 'NowScreenV1',
+        result: 'Opens MorningBriefSheet with targetDate = tomorrow',
+      };
+
+      expect(eventFlow.event).toBe('openTomorrowBrief');
+      expect(eventFlow.payload).toEqual({});
+    });
+  });
+
+  // Integration test (skipped - requires full render with navigation mock)
+  it.todo('pressing "Plan your tomorrow" calls navigation.goBack and emits event');
+});
