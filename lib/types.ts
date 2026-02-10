@@ -957,3 +957,57 @@ export const nowIso = (): string => new Date().toISOString();
 
 export const genId = (prefix = 'id'): ID =>
   `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HABIT BUILDER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface HabitBuilderResolvedFields {
+  name: string | null;
+  habit_type: 'build' | 'break' | null;
+  cadence: 'daily' | 'weekly' | 'monthly' | null;
+  target: string | null;
+  start_date: string | null;
+  time_window: 'morning' | 'afternoon' | 'evening' | 'anytime' | null;
+  days: number[] | null;
+  space_name: string | null;
+  notes: string | null;
+  end_date: string | null;
+  time_estimate_minutes: number | null;
+  is_confirmation: boolean;
+  next_field: string | null;
+  required_count: number;
+}
+
+export interface HabitBuilderContext {
+  currentDate: string;
+  dayOfWeek: string;
+  userName?: string;
+  existingHabits: {
+    name: string;
+    subtype: string;
+    frequency?: string;
+    space_name?: string;
+  }[];
+  spaces: { id: string; name: string }[];
+  prefill?: string;
+}
+
+export interface HabitBuilderRequest {
+  type: 'habit-builder';
+  stream: boolean;
+  messages: { role: 'user' | 'assistant'; content: string }[];
+  context: HabitBuilderContext;
+}
+
+export interface HabitBuilderStreamingResponse {
+  content: string;
+  resolved_fields: HabitBuilderResolvedFields;
+  latency_ms?: number;
+}
+
+export interface HabitBuilderStreamingCallbacks {
+  onDelta: (delta: string) => void;
+  onComplete: (response: HabitBuilderStreamingResponse) => void;
+  onError: (error: Error) => void;
+}

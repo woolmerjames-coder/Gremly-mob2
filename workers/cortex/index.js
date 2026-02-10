@@ -1432,6 +1432,7 @@ export default {
       const isSpaceChatStreaming = wantsStreaming && lane === 'space_chat';
       const isPhase2Streaming = wantsStreaming && type === 'enrich-phase2';
       const isEntityChatStreaming = wantsStreaming && type === 'entity-chat';
+      const isHabitBuilderStreaming = wantsStreaming && type === 'habit-builder';
 
       // =========================
       // Helpers
@@ -1947,6 +1948,308 @@ export default {
           people,
           mood,
         };
+      }
+
+      // =========================
+      // === HABIT BUILDER SYSTEM PROMPT ===
+      // =========================
+      const HABIT_BUILDER_PROMPT = `You are Gremly, helping someone design a new habit. You're a thinking partner — warm, curious, and good at helping people turn vague intentions into concrete, trackable behaviors.
+
+=== YOUR GOAL ===
+Through natural conversation, help the user define a new habit. By the end, you need to know:
+
+REQUIRED (all 5 before you can present a confirmation):
+1. What the habit IS — a clear, concrete behavior
+2. Build or break — are they starting something or stopping something
+3. How often — daily, a few times a week, weekly, etc.
+4. Specific target — the exact frequency (e.g., "3x/week", "daily")
+5. Start date — when they want to begin tracking
+
+NICE TO KNOW (only if it comes up naturally):
+- Time of day — morning, afternoon, evening
+- Specific days — for weekly habits (e.g., Mon/Wed/Fri)
+- Which Space it belongs to
+- Why they want this habit (motivation, context)
+- How long per session
+- Whether it's time-boxed ("try for 30 days")
+
+=== HOW TO HAVE THE CONVERSATION ===
+
+**Open with curiosity, not a form.**
+First message (if they haven't said what habit): "What habit are you thinking about?"
+If they already said what it is: acknowledge it, infer what you can, ask what's genuinely unknown.
+
+**Infer before asking.**
+"I want to run every morning" tells you: build habit, daily, morning. Don't confirm what they stated. Jump to what you don't know: "Nice — when do you want to start?"
+
+**Be a thinking partner, not a secretary.**
+"I want to get healthier" is too vague for a habit. Help them narrow: "What does healthier look like for you — more movement, better sleep, nutrition?"
+
+**Use their existing habits.**
+You'll see their current habits in the session context. If they mention something overlapping, flag it: "You already have a morning run — are you thinking about something different, or adjusting that one?"
+
+**One question at a time.**
+Never ask two things in one message. Each response = one easy reply for the user.
+
+**Know when you have enough.**
+Once you know all 5 required things, go straight to the confirmation. Don't fish for optional fields unless the user is clearly in the mood to keep chatting about it.
+
+**3-6 exchanges is typical.** Don't drag it out.
+
+=== TONE ===
+- Warm but not cheesy
+- Brief — this is mobile chat (40-120 words per message)
+- No exclamation marks
+- No sycophancy ("Great choice!", "Love that!")
+- Gently playful when the moment calls for it
+- Never guilt, pressure, or assume intensity
+- Never say "Let's set up your habit!" or anything that sounds like a form wizard
+- Use **bold** for 1-2 key phrases per message
+- No markdown headers, tables, or code blocks
+- Bullets only for 3+ items, max 4
+
+=== THE CONFIRMATION ===
+When you have all 5 required fields, present a clean summary like:
+
+"Here's what I've got:"
+
+**Morning Run** (Build habit)
+3x per week · Morning
+Monday, Wednesday, Friday
+Starts tomorrow · Fitness
+
+"Want to lock this in, or tweak anything?"
+
+Keep the summary tight — name, type, frequency, time, days (if set), start date, space (if set). One line for notes/motivation only if they shared something worth capturing.
+
+If they confirm: brief warm send-off, one sentence, done.
+If they want to tweak: ask what to change.
+
+=== WHAT NOT TO DO ===
+- Never create the habit without confirming first
+- Never guilt or pressure ("You should really do this daily")
+- Never assume high intensity ("Let's start with 5x a week!")
+- Never suggest they have enough habits already
+- Never feel like a medical or therapeutic advisor
+- Never ask "What else would you like to add?" — if you have enough, confirm
+- Never reference app features like Mind Drop, Evening Sweep, etc.
+- Never add metadata, hidden text, or structured data to your responses — just talk naturally`;
+
+      // =========================
+      // === HABIT BUILDER CHAT ===
+      // =========================
+      if (type === 'habit-builder') {
+        const messages = Array.isArray(body.messages) ? body.messages : [];
+        const context = body.context || {};
+
+        // ── Build context string ──
+        const contextParts = [];
+
+        const today = context.currentDate || new Date().toISOString().split('T')[0];
+        const dow = context.dayOfWeek || new Date().toLocaleDateString('en-US', { weekday: 'long' });
+        contextParts.push(`Today is ${dow}, ${today}.`);
+
+        if (context.userName) {
+          contextParts.push(`User's name: ${context.userName}`);
+        }
+
+        if (context.existingHabits && context.existingHabits.length > 0) {
+          const habitList = context.existingHabits
+            .map(h => {
+              let desc = `- "${h.name}" (${h.subtype === 'break_habit' ? 'break' : 'build'})`;
+              if (h.frequency) desc += ` — ${h.frequency}`;
+              if (h.space_name) desc += ` [${h.space_name}]`;
+              return desc;
+            })
+            .join('\n');
+          contextParts.push(`\n=== EXISTING HABITS ===\n${habitList}`);
+        } else {
+          contextParts.push('\n=== EXISTING HABITS ===\nNone yet — this is their first habit.');
+        }
+
+        if (context.spaces && context.spaces.length > 0) {
+          const spaceList = context.spaces.map(s => `- "${s.name}"`).join('\n');
+          contextParts.push(`\n=== USER'S SPACES ===\n${spaceList}`);
+        }
+
+        if (context.prefill) {
+          contextParts.push(`\n=== PRE-FILLED INTENT ===\nThe user started with: "${context.prefill}"\nUse this as the starting point — don't ask "what habit?" again.`);
+        }
+
+        const contextString = contextParts.join('\n');
+
+        const habitBuilderSystemPrompt = `${HABIT_BUILDER_PROMPT}\n\n=== SESSION CONTEXT ===\n${contextString}`;
+
+        const openaiMessages = [
+          { role: 'system', content: habitBuilderSystemPrompt },
+          ...messages.slice(-20),
+        ];
+
+        const t0 = Date.now();
+
+        // ── STREAMING ──
+        if (isHabitBuilderStreaming) {
+          console.log('[HabitBuilder:Streaming] Starting SSE stream');
+
+          const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1',
+              messages: openaiMessages,
+              temperature: 0.7,
+              max_completion_tokens: 800,
+              stream: true,
+            }),
+          });
+
+          if (!openaiRes.ok) {
+            const errText = await openaiRes.text().catch(() => '');
+            console.log('[HabitBuilder:Streaming] OpenAI error', {
+              status: openaiRes.status,
+              error: errText,
+            });
+            return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
+          }
+
+          const { readable, writable } = new TransformStream();
+          const writer = writable.getWriter();
+          const encoder = new TextEncoder();
+          const decoder = new TextDecoder();
+
+          (async () => {
+            const reader = openaiRes.body.getReader();
+            let buffer = '';
+            let fullContent = '';
+
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split(/\r?\n/);
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed === 'data: [DONE]') continue;
+                  if (!trimmed.startsWith('data: ')) continue;
+
+                  try {
+                    const json = JSON.parse(trimmed.slice(6));
+                    const delta = json.choices?.[0]?.delta?.content;
+
+                    if (delta) {
+                      fullContent += delta;
+                      const sseData = JSON.stringify({ delta, done: false });
+                      await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                    }
+                  } catch (parseErr) {
+                    // skip
+                  }
+                }
+              }
+
+              // ── POST-STREAM EXTRACTION ──
+              // Build the full conversation including the AI's response we just streamed
+              const fullConversation = [
+                ...messages,
+                { role: 'assistant', content: fullContent },
+              ];
+
+              const resolved = await extractHabitFields(fullConversation, key);
+
+              const latency = Date.now() - t0;
+              const finalData = JSON.stringify({
+                done: true,
+                full_content: fullContent,
+                resolved_fields: resolved,
+                latency_ms: latency,
+              });
+              await writer.write(encoder.encode(`data: ${finalData}\n\n`));
+
+              console.log('[HabitBuilder:Streaming] Complete', {
+                latency_ms: latency,
+                content_length: fullContent.length,
+                required_count: resolved.required_count,
+                next_field: resolved.next_field,
+              });
+            } catch (streamErr) {
+              console.log('[HabitBuilder:Streaming] Stream error', { error: String(streamErr) });
+              const errorData = JSON.stringify({
+                error: String(streamErr),
+                done: true,
+                full_content: fullContent,
+              });
+              await writer.write(encoder.encode(`data: ${errorData}\n\n`));
+            } finally {
+              await writer.close();
+            }
+          })();
+
+          return new Response(readable, {
+            headers: {
+              'Access-Control-Allow-Origin': '*',
+              'Content-Type': 'text/event-stream; charset=utf-8',
+              'Cache-Control': 'no-cache, no-transform',
+              Connection: 'keep-alive',
+            },
+          });
+        }
+
+        // ── NON-STREAMING FALLBACK ──
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1',
+              messages: openaiMessages,
+              temperature: 0.7,
+              max_completion_tokens: 800,
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[HabitBuilder] API error', { error: oj.error, latency_ms: latency });
+            return j(
+              { error: 'habit_builder_failed', detail: oj.error?.message, latency_ms: latency },
+              200,
+            );
+          }
+
+          const content = oj?.choices?.[0]?.message?.content ?? '';
+
+          // Extraction call with full conversation
+          const fullConversation = [
+            ...messages,
+            { role: 'assistant', content },
+          ];
+          const resolved = await extractHabitFields(fullConversation, key);
+
+          console.log('[HabitBuilder] Complete', {
+            latency_ms: latency,
+            content_length: content.length,
+            required_count: resolved.required_count,
+            next_field: resolved.next_field,
+          });
+
+          return j({ content, resolved_fields: resolved, latency_ms: latency });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[HabitBuilder] Error', { error: String(err), latency_ms: latency });
+          return j({ error: 'habit_builder_failed', detail: String(err), latency_ms: latency }, 200);
+        }
       }
 
       // =========================
@@ -2948,6 +3251,147 @@ Almost never suggest creating a Space. Only if ALL true:
         } catch (parseErr) {
           console.log('[SaveSuggestion] Parse error:', parseErr.message);
           return { suggestion: null, cleanContent: content };
+        }
+      }
+
+      /**
+       * Post-stream extraction: analyzes full conversation to extract resolved habit fields.
+       * Runs after streaming completes (~300ms). User doesn't see this call.
+       */
+      async function extractHabitFields(messages, apiKey) {
+        const extractionPrompt = `You analyze a habit-building conversation and extract what has been resolved so far.
+
+Read the FULL conversation below. For each field, determine if the user and assistant have settled on a value. Only mark a field as resolved if there is clear agreement or strong inference — do not guess.
+
+FIELDS TO EXTRACT:
+1. name — clean habit name, 2-6 words (e.g., "Morning Run", "No Phone After 9pm")
+2. habit_type — "build" (starting something) or "break" (stopping something)
+3. cadence — "daily", "weekly", or "monthly"
+4. target — normalized frequency: "daily", "2x/week", "3x/week", "weekly", "2x/month", etc.
+5. start_date — YYYY-MM-DD format
+6. time_window — "morning", "afternoon", "evening", or "anytime" (null if not discussed)
+7. days — array of day integers 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat (null if not discussed)
+8. space_name — name of the Space the user wants to assign this to (null if not discussed)
+9. notes — any motivation, strategies, or context the user shared (null if none, brief summary if present)
+10. end_date — YYYY-MM-DD if they want a time-boxed trial (null if not discussed)
+11. time_estimate_minutes — minutes per session: 5, 10, 15, 30, 45, 60, 90, 120 (null if not discussed, infer from activity type if obvious e.g. running=30, meditation=10)
+
+ALSO DETERMINE:
+- is_confirmation: true if the assistant's LAST message presented a final summary card for the user to confirm. false otherwise.
+
+Return ONLY valid JSON, no explanation:
+{
+  "name": string | null,
+  "habit_type": "build" | "break" | null,
+  "cadence": "daily" | "weekly" | "monthly" | null,
+  "target": string | null,
+  "start_date": string | null,
+  "time_window": string | null,
+  "days": number[] | null,
+  "space_name": string | null,
+  "notes": string | null,
+  "end_date": string | null,
+  "time_estimate_minutes": number | null,
+  "is_confirmation": boolean
+}`;
+
+        const defaults = {
+          name: null,
+          habit_type: null,
+          cadence: null,
+          target: null,
+          start_date: null,
+          time_window: null,
+          days: null,
+          space_name: null,
+          notes: null,
+          end_date: null,
+          time_estimate_minutes: null,
+          is_confirmation: false,
+          next_field: null,
+          required_count: 0,
+        };
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [
+                { role: 'system', content: extractionPrompt },
+                { role: 'user', content: 'Here is the conversation:\n\n' + messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n') },
+              ],
+              temperature: 0.1,
+              max_tokens: 400,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          if (!res.ok) {
+            console.log('[HabitBuilder:Extract] API error', { status: res.status });
+            return defaults;
+          }
+
+          const oj = await res.json();
+          const raw = oj?.choices?.[0]?.message?.content ?? '{}';
+          const parsed = JSON.parse(raw);
+
+          // Build extracted fields from AI response
+          const extracted = {
+            name: typeof parsed.name === 'string' ? parsed.name : null,
+            habit_type: ['build', 'break'].includes(parsed.habit_type) ? parsed.habit_type : null,
+            cadence: ['daily', 'weekly', 'monthly'].includes(parsed.cadence) ? parsed.cadence : null,
+            target: typeof parsed.target === 'string' ? parsed.target : null,
+            start_date: typeof parsed.start_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.start_date) ? parsed.start_date : null,
+            time_window: ['morning', 'afternoon', 'evening', 'anytime'].includes(parsed.time_window) ? parsed.time_window : null,
+            days: Array.isArray(parsed.days) ? parsed.days.filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : null,
+            space_name: typeof parsed.space_name === 'string' ? parsed.space_name : null,
+            notes: typeof parsed.notes === 'string' ? parsed.notes : null,
+            end_date: typeof parsed.end_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end_date) ? parsed.end_date : null,
+            time_estimate_minutes: Number.isFinite(parsed.time_estimate_minutes) ? parsed.time_estimate_minutes : null,
+            is_confirmation: parsed.is_confirmation === true,
+          };
+
+          // ── Server-side inference: fill obvious gaps the model might miss ──
+          // Daily cadence always means daily target
+          if (extracted.cadence === 'daily' && !extracted.target) {
+            extracted.target = 'daily';
+          }
+          // Weekly cadence with specific days: count the days
+          if (extracted.cadence === 'weekly' && extracted.days && extracted.days.length > 0 && !extracted.target) {
+            extracted.target = `${extracted.days.length}x/week`;
+          }
+          // Monthly cadence without target: default to monthly
+          if (extracted.cadence === 'monthly' && !extracted.target) {
+            extracted.target = 'monthly';
+          }
+          // If target is set but cadence is missing, infer cadence
+          if (extracted.target && !extracted.cadence) {
+            if (extracted.target === 'daily') extracted.cadence = 'daily';
+            else if (extracted.target.includes('/week')) extracted.cadence = 'weekly';
+            else if (extracted.target.includes('/month')) extracted.cadence = 'monthly';
+            else if (extracted.target === 'weekly') extracted.cadence = 'weekly';
+            else if (extracted.target === 'monthly') extracted.cadence = 'monthly';
+          }
+
+          // ── Server-side computation: count and determine next field ──
+          const requiredFields = ['name', 'habit_type', 'cadence', 'target', 'start_date'];
+          const requiredCount = requiredFields.filter(f => extracted[f] !== null).length;
+          const nextField = requiredCount >= 5
+            ? 'confirm'
+            : requiredFields.find(f => extracted[f] === null) || null;
+
+          extracted.required_count = requiredCount;
+          extracted.next_field = nextField;
+
+          return extracted;
+        } catch (err) {
+          console.log('[HabitBuilder:Extract] Error', { error: String(err) });
+          return defaults;
         }
       }
 
