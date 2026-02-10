@@ -414,4 +414,139 @@ describe('CalendarClient Types', () => {
     expect(status.isConnected).toBe(true);
     expect(status.provider).toBe('outlook');
   });
+
+  it('CalendarConnectionStatus supports google provider', () => {
+    const status: CalendarConnectionStatus = {
+      provider: 'google',
+      isConnected: true,
+      email: 'user@gmail.com',
+      lastSyncedAt: '2025-12-22T10:00:00Z',
+      lastError: null,
+    };
+
+    expect(status.provider).toBe('google');
+    expect(status.email).toBe('user@gmail.com');
+  });
+
+  it('CalendarConnectionStatus supports ics provider', () => {
+    const status: CalendarConnectionStatus = {
+      provider: 'ics',
+      isConnected: true,
+      email: null,
+      lastSyncedAt: '2025-12-22T10:00:00Z',
+      lastError: null,
+    };
+
+    expect(status.provider).toBe('ics');
+    expect(status.email).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Google OAuth Flow
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('CalendarClient - Google OAuth', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFetch.mockReset();
+    calendarClient.setSupabaseToken('test-token');
+  });
+
+  describe('Google connection status', () => {
+    it('getConnectionStatus returns google connections', async () => {
+      const mockConnections: CalendarConnectionStatus[] = [
+        {
+          provider: 'google',
+          isConnected: true,
+          email: 'user@gmail.com',
+          lastSyncedAt: '2025-12-22T10:00:00Z',
+          lastError: null,
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ connections: mockConnections }),
+      });
+
+      const result = await calendarClient.getConnectionStatus();
+      expect(result).toEqual(mockConnections);
+      expect(result[0].provider).toBe('google');
+    });
+
+    it('returns multiple provider connections', async () => {
+      const mockConnections: CalendarConnectionStatus[] = [
+        {
+          provider: 'outlook',
+          isConnected: true,
+          email: 'user@outlook.com',
+          lastSyncedAt: '2025-12-22T10:00:00Z',
+          lastError: null,
+        },
+        {
+          provider: 'google',
+          isConnected: true,
+          email: 'user@gmail.com',
+          lastSyncedAt: '2025-12-22T11:00:00Z',
+          lastError: null,
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ connections: mockConnections }),
+      });
+
+      const result = await calendarClient.getConnectionStatus();
+      expect(result).toHaveLength(2);
+      expect(result.map((c: any) => c.provider)).toEqual(['outlook', 'google']);
+    });
+  });
+
+  describe('Google disconnect', () => {
+    it('disconnect works for google provider', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true }),
+      });
+
+      const result = await calendarClient.disconnect('google');
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/disconnect'),
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('google'),
+        }),
+      );
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('Google events', () => {
+    it('getEvents returns google-provider events', async () => {
+      const mockEvents: CalendarEvent[] = [
+        {
+          id: 'google-event-1',
+          provider: 'google',
+          providerEventId: 'google-abc123',
+          title: 'Google Meet',
+          startAt: '2025-12-22T14:00:00Z',
+          endAt: '2025-12-22T15:00:00Z',
+          isAllDay: false,
+          location: 'Google Meet link',
+        },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ events: mockEvents }),
+      });
+
+      const result = await calendarClient.getEvents('2025-12-22', '2025-12-23');
+      expect(result).toHaveLength(1);
+      expect(result[0].provider).toBe('google');
+    });
+  });
 });

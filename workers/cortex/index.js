@@ -392,6 +392,125 @@ function mapPreparseToClassification(preparse) {
 }
 
 /**
+ * Compute plausible interpretations from pre-phase parse signals.
+ *
+ * This is a pure deterministic function — no AI calls. It takes the structured
+ * signals extracted by the preparse step and returns an array of plausible
+ * bucket interpretations for the input. Each interpretation represents a
+ * genuinely distinct way the user might have intended their mind drop.
+ *
+ * Used by Phase 1.5 to seed the clarification options with signal-driven
+ * candidates before the AI generates contextual labels and questions.
+ *
+ * @param {object} preparse - The pre-phase parse result object containing
+ *   structural signals (core_verb, frame_type, frequency_present, etc.)
+ * @returns {Array<{bucket: string|null, subtype: string|null, habitSubtype: string|null, dateField: string|null}>}
+ *   Array of 2-4 plausible interpretation objects.
+ */
+function computePlausibleInterpretations(preparse) {
+  const interpretations = [];
+
+  // --- Evaluate each bucket independently ---
+
+  // Todo: plausible when there's a verb, noun phrase, obligation, or completion point
+  const todoPlausible =
+    preparse.core_verb != null ||
+    preparse.is_noun_phrase_only === true ||
+    preparse.obligation_framing === true ||
+    preparse.has_completion_point === true;
+
+  if (todoPlausible) {
+    interpretations.push({ bucket: 'todo', subtype: null, habitSubtype: null, dateField: null });
+  }
+
+  // Habit/build: plausible when direction without schedule, or explicit/day_names frequency
+  const habitBuildPlausible =
+    preparse.direction_without_schedule === true ||
+    (preparse.frequency_present === true &&
+      (preparse.frequency_type === 'explicit' || preparse.frequency_type === 'day_names'));
+
+  if (habitBuildPlausible) {
+    interpretations.push({ bucket: 'habit', subtype: null, habitSubtype: 'start_habit', dateField: null });
+  }
+
+  // Habit/break: plausible when frequency_type is stop_quit
+  if (preparse.frequency_type === 'stop_quit') {
+    interpretations.push({ bucket: 'habit', subtype: null, habitSubtype: 'break_habit', dateField: null });
+  }
+
+  // Log/journal: plausible when emotional content, self-reflection, or processing frame
+  const journalPlausible =
+    preparse.emotional_content === true ||
+    preparse.self_reflection === true ||
+    preparse.frame_type === 'processing';
+
+  if (journalPlausible) {
+    interpretations.push({ bucket: 'log', subtype: 'journal', habitSubtype: null, dateField: null });
+  }
+
+  // Log/idea: plausible when exploring frame, hedged verb/proposition, or hypothetical
+  const ideaPlausible =
+    preparse.frame_type === 'exploring' ||
+    (preparse.uncertainty_present === true &&
+      (preparse.uncertainty_target === 'verb' || preparse.uncertainty_target === 'entire_proposition')) ||
+    preparse.hypothetical_framing === true;
+
+  // Log/general: plausible unless pure emotional processing
+  const pureEmotionalProcessing =
+    preparse.emotional_content === true && preparse.frame_type === 'processing';
+  const generalPlausible = !pureEmotionalProcessing;
+
+  // Resolve log/general vs log/idea conflict:
+  // Both can appear only when frame_type is "exploring" AND is_noun_phrase_only is true.
+  // Otherwise, include only the one with stronger signal.
+  const bothLogsAllowed =
+    preparse.frame_type === 'exploring' && preparse.is_noun_phrase_only === true;
+
+  if (ideaPlausible && generalPlausible) {
+    if (bothLogsAllowed) {
+      interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+      interpretations.push({ bucket: 'log', subtype: 'idea', habitSubtype: null, dateField: null });
+    } else if (ideaPlausible && preparse.frame_type === 'exploring') {
+      // Idea has stronger signal
+      interpretations.push({ bucket: 'log', subtype: 'idea', habitSubtype: null, dateField: null });
+    } else {
+      // General has stronger signal (default)
+      interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+    }
+  } else if (ideaPlausible) {
+    interpretations.push({ bucket: 'log', subtype: 'idea', habitSubtype: null, dateField: null });
+  } else if (generalPlausible) {
+    interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+  }
+
+  // --- Safety: enforce 2-4 interpretations ---
+
+  // Cap at 4: drop log/idea first, then log/journal
+  if (interpretations.length > 4) {
+    const ideaIdx = interpretations.findIndex(i => i.subtype === 'idea');
+    if (ideaIdx !== -1) interpretations.splice(ideaIdx, 1);
+  }
+  if (interpretations.length > 4) {
+    const journalIdx = interpretations.findIndex(i => i.subtype === 'journal');
+    if (journalIdx !== -1) interpretations.splice(journalIdx, 1);
+  }
+
+  // Floor at 2: add fallback if needed
+  if (interpretations.length < 2) {
+    const hasGeneral = interpretations.some(i => i.bucket === 'log' && i.subtype === 'general');
+    const hasTodo = interpretations.some(i => i.bucket === 'todo');
+
+    if (!hasGeneral) {
+      interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+    } else if (!hasTodo) {
+      interpretations.push({ bucket: 'todo', subtype: null, habitSubtype: null, dateField: null });
+    }
+  }
+
+  return interpretations;
+}
+
+/**
  * Preparse system prompt - extracted for reuse.
  * @type {string}
  */
@@ -3729,6 +3848,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
 
         // Step 2: Apply heuristic mapping
         const heuristicDecision = mapPreparseToClassification(preparseResult.result);
+        const plausibleInterpretations = computePlausibleInterpretations(preparseResult.result);
 
         // Log heuristic decision
         console.log('[Phase1v2] Heuristic decision', {
@@ -3825,6 +3945,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
           is_ambiguous: result.is_ambiguous,
           ambiguity_type: result.ambiguity_type,
           ambiguity_reason: result.ambiguity_reason,
+          plausible_interpretations: result.is_ambiguous ? plausibleInterpretations : null,
           preparse_latency_ms: preparseLatency,
           phase1_latency_ms: phase1Latency,
           heuristic_reason: heuristicDecision.reason,
@@ -4112,96 +4233,76 @@ Return JSON only:
       // =========================
       if (type === 'clarify-ambiguity') {
         const text = body.text || '';
-        const ambiguityType = body.ambiguityType || 'bucket';
-        const userSpaces = Array.isArray(body.userSpaces) ? body.userSpaces : [];
+        const ambiguityReason = body.ambiguityReason || '';
+        const interpretations = Array.isArray(body.plausibleInterpretations) ? body.plausibleInterpretations : null;
 
-        const ALL_OPTIONS = {
-          bucket: [
-            { id: 'opt_todo', label: 'Something I need to do', bucket: 'todo', subtype: null },
-            { id: 'opt_habit', label: 'A habit to build', bucket: 'habit', subtype: null },
-            { id: 'opt_general', label: 'Just reference info', bucket: 'log', subtype: 'general' },
-            { id: 'opt_idea', label: 'An idea to explore', bucket: 'log', subtype: 'idea' },
-          ],
-          action: [
-            {
-              id: 'opt_exists',
-              label: "It's already scheduled",
-              bucket: 'log',
-              subtype: 'general',
-            },
-            { id: 'opt_create', label: 'I need to book this', bucket: 'todo', subtype: null },
-          ],
-          date_type: [
-            {
-              id: 'opt_target',
-              label: "That's when it is",
-              bucket: null,
-              dateField: 'target_date',
-            },
-            {
-              id: 'opt_scheduled',
-              label: "That's when I'll do it",
-              bucket: null,
-              dateField: 'scheduled_date',
-            },
-          ],
-        };
+        // --- Static fallback (used if no valid interpretations or AI fails) ---
+        const FALLBACK_OPTIONS = [
+          { id: 'opt_1', label: 'Something I need to do', bucket: 'todo', subtype: null },
+          { id: 'opt_2', label: 'A habit to build', bucket: 'habit', subtype: null, habitSubtype: 'start_habit' },
+          { id: 'opt_3', label: 'Just a note', bucket: 'log', subtype: 'general' },
+          { id: 'opt_4', label: 'An idea to explore', bucket: 'log', subtype: 'idea' },
+        ];
+        const FALLBACK_QUESTION = 'Quick check — what did you have in mind?';
 
-        const QUESTIONS = {
-          bucket: 'Quick check — what did you have in mind?',
-          action: 'Quick check — is this already set?',
-          date_type: 'Quick check — what does the date mean?',
-        };
+        const t0 = Date.now();
 
-        const availableOptions = ALL_OPTIONS[ambiguityType] || ALL_OPTIONS.bucket;
-        const question = QUESTIONS[ambiguityType] || 'What is this?';
-
-        // For bucket ambiguity, show all options - let user decide
-        if (ambiguityType === 'bucket') {
-          console.log('[Phase1.5] Bucket ambiguity - showing all options', {
-            ambiguityType,
-            options_count: availableOptions.length,
+        // --- If no valid interpretations, use static fallback ---
+        if (!interpretations || interpretations.length < 2) {
+          const fallbackLatency = Date.now() - t0;
+          console.log('[Phase1.5] No valid interpretations, using static fallback', {
+            interpretations_count: interpretations ? interpretations.length : 0,
+            latency_ms: fallbackLatency,
           });
 
           return j({
             success: true,
-            clarification_question: question,
-            options: availableOptions,
-            latency_ms: 0,
+            clarification_question: FALLBACK_QUESTION,
+            options: FALLBACK_OPTIONS,
+            latency_ms: fallbackLatency,
           });
         }
 
-        // AI only filters which options are relevant
-        const filterPrompt = `You filter options for an ambiguous input in a productivity app.
+        // --- Build interpretation list for prompt ---
+        const interpLines = interpretations.map((interp, i) => {
+          const parts = [];
+          if (interp.bucket) parts.push(`bucket: ${interp.bucket}`);
+          if (interp.subtype) parts.push(`subtype: ${interp.subtype}`);
+          if (interp.habitSubtype) parts.push(`habitSubtype: ${interp.habitSubtype}`);
+          if (interp.dateField) parts.push(`dateField: ${interp.dateField}`);
+          return `${i + 1}. { ${parts.join(', ')} }`;
+        }).join('\n');
 
-INPUT: "${text}"
+        const aiPrompt = `You are writing short labels for an ambiguous user input. The user typed something into a quick-capture box and we need to ask what they meant.
 
-AVAILABLE OPTIONS:
-${availableOptions.map((opt, i) => `${i + 1}. "${opt.label}" (id: ${opt.id})`).join('\n')}
+USER INPUT: "${text}"
+${ambiguityReason ? `CONTEXT: "${ambiguityReason}"` : ''}
 
-WHAT EACH OPTION MEANS:
-- opt_todo: An action to complete. Include if user might need to DO something about this.
-- opt_habit: A behavior to repeat. Only include if the input itself is an activity a person performs repeatedly.
-- opt_general: Reference info. Include if user might just be noting this exists.
-- opt_idea: Something to consider. Include if user might be exploring without commitment.
-- opt_exists: Already scheduled/booked. Something that exists in the world.
-- opt_create: Needs to be made. Something that needs to be created or booked.
+INTERPRETATIONS (in order — return exactly ${interpretations.length} labels in the same order):
+${interpLines}
 
-Include opt_todo if the user might need to take any action related to this.
-Include opt_habit if this could represent a recurring behavior (even if stated as a noun).
-Err on the side of including options — the user will choose.
+RULES FOR LABELS:
+- 4 words max, 30 chars max, casual fragments, no periods
+- NEVER reference app concepts in labels. Never say "to-do", "todo", "note", "list", "habit", "log", "reminder", "record", "session", "details", "add to my"
+- For todo interpretations: describe the most likely real-world action with a verb. What would this person actually DO? "Renew passport", "Find a therapist", "Do yoga", "Book dentist"
+- For log/general interpretations: use "Just remembering" or "Just a thought" — the user is noting something, not acting on it
+- For log/idea interpretations: use "Just an idea" or "Exploring it"
+- For log/journal interpretations: use "Just venting" or "Just processing"
+- For habit interpretations: describe what they'd do regularly. "Build a water habit", "Stop staying up late"
 
-Select ALL options that are plausible for this input (typically 2-4).
+RULES FOR QUESTION:
+- Under 6 words, simple, neutral
+- Do not assume any specific interpretation
+- "What about [thing]?" or "How do you mean?" work well
+- Never use "track", "log", "manage", "build", "plan" in the question
 
-Only include an option if the input could genuinely be interpreted that way.
-
-Return JSON:
+Return JSON only:
 {
-  "selected_option_ids": ["opt_id_1", "opt_id_2"]
+  "question": "short question",
+  "labels": ["label 1", "label 2"]
 }`;
 
-        const t0 = Date.now();
-
+        // --- Make AI call ---
         try {
           const res = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -4211,9 +4312,9 @@ Return JSON:
             },
             body: JSON.stringify({
               model: 'gpt-4o-mini',
-              messages: [{ role: 'user', content: filterPrompt }],
-              temperature: 0.2,
-              max_tokens: 60,
+              messages: [{ role: 'user', content: aiPrompt }],
+              temperature: 0.3,
+              max_tokens: 200,
               response_format: { type: 'json_object' },
             }),
           });
@@ -4221,51 +4322,70 @@ Return JSON:
           const oj = await res.json();
           const latency = Date.now() - t0;
 
-          let selectedOptions = availableOptions;
-
           if (res.ok && oj?.choices?.[0]?.message?.content) {
-            try {
-              const parsed = JSON.parse(oj.choices[0].message.content);
-              if (
-                Array.isArray(parsed.selected_option_ids) &&
-                parsed.selected_option_ids.length >= 2
-              ) {
-                const filtered = availableOptions.filter((opt) =>
-                  parsed.selected_option_ids.includes(opt.id),
-                );
-                if (filtered.length >= 2) {
-                  selectedOptions = filtered;
-                }
-              }
-            } catch (e) {
-              console.log('[Phase1.5] Parse error, using defaults', { error: String(e) });
+            const parsed = JSON.parse(oj.choices[0].message.content);
+
+            // --- Validate response ---
+            const question =
+              typeof parsed.question === 'string' && parsed.question.trim()
+                ? parsed.question.trim().substring(0, 100)
+                : null;
+
+            const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
+
+            // Labels count must match interpretations count
+            if (labels.length === interpretations.length && labels.every(l => typeof l === 'string' && l.trim())) {
+              const options = interpretations.map((interp, i) => ({
+                id: `opt_${i + 1}`,
+                label: labels[i].trim().substring(0, 60),
+                bucket: interp.bucket || null,
+                subtype: interp.subtype || null,
+                habitSubtype: interp.habitSubtype || null,
+                dateField: interp.dateField || null,
+              }));
+
+              console.log('[Phase1.5] AI success', {
+                question,
+                options_count: options.length,
+                latency_ms: latency,
+              });
+
+              return j({
+                success: true,
+                clarification_question: question || FALLBACK_QUESTION,
+                options,
+                latency_ms: latency,
+              });
             }
+
+            // Labels didn't match — fall through to fallback
+            console.log('[Phase1.5] AI labels mismatch, using fallback', {
+              expected: interpretations.length,
+              got: labels.length,
+              latency_ms: latency,
+            });
           }
-
-          console.log('[Phase1.5] Success', {
-            ambiguityType,
-            question,
-            options_count: selectedOptions.length,
-            latency_ms: latency,
-          });
-
-          return j({
-            success: true,
-            clarification_question: question,
-            options: selectedOptions,
-            latency_ms: latency,
-          });
         } catch (err) {
           const latency = Date.now() - t0;
-          console.log('[Phase1.5] Error', { error: String(err), latency_ms: latency });
-
-          return j({
-            success: true,
-            clarification_question: question,
-            options: availableOptions,
+          console.log('[Phase1.5] AI error, using fallback', {
+            error: String(err),
             latency_ms: latency,
           });
         }
+
+        // --- Fallback: static options ---
+        const fallbackLatency = Date.now() - t0;
+        console.log('[Phase1.5] Using static fallback', {
+          options_count: FALLBACK_OPTIONS.length,
+          latency_ms: fallbackLatency,
+        });
+
+        return j({
+          success: true,
+          clarification_question: FALLBACK_QUESTION,
+          options: FALLBACK_OPTIONS,
+          latency_ms: fallbackLatency,
+        });
       }
 
       // =========================

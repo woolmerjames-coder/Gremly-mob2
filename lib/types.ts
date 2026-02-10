@@ -795,6 +795,8 @@ export interface DailyBriefInput {
   completed_at?: string | null;
   /** Habit IDs dismissed with "Not today" - defaults to [] */
   dismissed_habit_ids?: string[];
+  /** Target date in YYYY-MM-DD format. Defaults to today if not provided. */
+  date?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

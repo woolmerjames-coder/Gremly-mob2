@@ -19,7 +19,7 @@ import { BRAND } from '../../../design/brand';
 import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
-import { useTodayCapacity, useTodayCalendarEvents } from '../../../lib/store/capacitySelectors';
+import { useCapacityForDate, useCalendarEventsForDate } from '../../../lib/store/capacitySelectors';
 import { useTodayPendingDrops, useEventsForDate } from '../../../lib/store/selectors';
 import { getTimeBlockBoundaries } from '../../../lib/capacity';
 import { getTimeBlockForHour } from '../../../lib/now/timeBlockHelpers';
@@ -53,6 +53,8 @@ interface MorningBriefSheetProps {
   onQuickAddManual?: () => void;
   /** Handler for when a Key Date event is pressed */
   onKeyDatePress?: (event: Note) => void;
+  /** Target date in YYYY-MM-DD format. Defaults to today. Pass tomorrow's date for evening planning. */
+  targetDate?: string;
 }
 
 /**
@@ -136,9 +138,11 @@ export function MorningBriefSheet({
   onQuickAddSubmit,
   onQuickAddManual,
   onKeyDatePress,
+  targetDate,
 }: MorningBriefSheetProps) {
   const insets = useSafeAreaInsets();
-  const today = getTodayDateString();
+  const today = targetDate ?? getTodayDateString();
+  const isTomorrow = today !== getTodayDateString();
 
   // ─────────────────────────────────────────────────────────────────
   // ZUSTAND STATE & ACTIONS
@@ -155,8 +159,8 @@ export function MorningBriefSheet({
   // ─────────────────────────────────────────────────────────────────
   // CAPACITY & CALENDAR DATA
   // ─────────────────────────────────────────────────────────────────
-  const capacity = useTodayCapacity();
-  const calendarEvents = useTodayCalendarEvents();
+  const capacity = useCapacityForDate(today);
+  const calendarEvents = useCalendarEventsForDate(today);
 
   // ─────────────────────────────────────────────────────────────────
   // KEY DATE EVENTS (from Notes with subtype='event')
@@ -186,7 +190,7 @@ export function MorningBriefSheet({
     useMiniSweepGate();
 
   const [miniSweepDismissed, setMiniSweepDismissed] = useState(false);
-  const showMiniSweep = shouldShowMiniSweep && !miniSweepDismissed;
+  const showMiniSweep = !isTomorrow && shouldShowMiniSweep && !miniSweepDismissed;
 
   const handleMiniSweepComplete = useCallback(() => {
     markMiniSweepCompleted();
@@ -222,9 +226,12 @@ export function MorningBriefSheet({
   const todayTodos = useMemo(() => {
     return todos.filter(
       (t) =>
-        !t.archived && !t.completed_at && t.due_day === today && !hiddenTodayIds.includes(t.id),
+        !t.archived &&
+        !t.completed_at &&
+        t.due_day === today &&
+        (!hiddenTodayIds.includes(t.id) || isTomorrow),
     );
-  }, [todos, today, hiddenTodayIds]);
+  }, [todos, today, hiddenTodayIds, isTomorrow]);
 
   // Get habits due today (excluding hidden ones)
   const todayHabits = useMemo(() => {
@@ -232,11 +239,11 @@ export function MorningBriefSheet({
       if (h.archived) return false;
       if (!h.start_date || h.start_date > today) return false;
       if (h.end_date && h.end_date < today) return false;
-      if (hiddenTodayIds.includes(h.id)) return false;
+      if (!isTomorrow && hiddenTodayIds.includes(h.id)) return false;
       // For now, include all active habits
       return true;
     });
-  }, [habits, today, hiddenTodayIds]);
+  }, [habits, today, hiddenTodayIds, isTomorrow]);
 
   // Transform to TaskItemData
   const transformTodo = useCallback(
@@ -503,6 +510,7 @@ export function MorningBriefSheet({
 
     try {
       await saveBrief({
+        ...(isTomorrow && { date: today }),
         morning_sequence: tasksByBlock.morning.map((t) => ({ id: t.id, type: t.type })),
         day_sequence: tasksByBlock.afternoon.map((t) => ({ id: t.id, type: t.type })),
         evening_sequence: tasksByBlock.evening.map((t) => ({ id: t.id, type: t.type })),
@@ -515,7 +523,7 @@ export function MorningBriefSheet({
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, saveBrief, tasksByBlock, onComplete, onClose]);
+  }, [isSaving, saveBrief, tasksByBlock, onComplete, onClose, isTomorrow, today]);
 
   // ─────────────────────────────────────────────────────────────────
   // RENDER
@@ -539,7 +547,7 @@ export function MorningBriefSheet({
         ) : (
           <>
             {/* Header */}
-            <MorningBriefHeader />
+            <MorningBriefHeader targetDate={isTomorrow ? today : undefined} />
 
             {/* Scrollable Content */}
             <ScrollView
@@ -566,6 +574,7 @@ export function MorningBriefSheet({
 
               {/* Help Me Organize Button */}
               <OrganizeButton
+                targetDate={isTomorrow ? today : undefined}
                 onComplete={(summary, reasoning) => {
                   setOrganizeMessage(summary);
                   if (reasoning && reasoning.length > 0) {
@@ -720,6 +729,7 @@ export function MorningBriefSheet({
             />
 
             {/* Quick Add Modal - renders on top of Morning Brief */}
+            {/* Quick-add items use dueDayOverride via useNowQuickAdd → useMindDropSubmit pipeline */}
             <NowQuickAddModal
               visible={isQuickAddVisible}
               onClose={handleQuickAddClose}

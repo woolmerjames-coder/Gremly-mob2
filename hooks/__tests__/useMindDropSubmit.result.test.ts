@@ -8,7 +8,7 @@
  * in integration tests.
  */
 
-import type { SubmitResult } from '../../hooks/useMindDropSubmit';
+import type { SubmitResult, SubmitContext } from '../../hooks/useMindDropSubmit';
 
 describe('SubmitResult interface', () => {
   describe('type shape', () => {
@@ -245,5 +245,53 @@ describe('SubmitResult usage for speech bubble', () => {
     expect(result.confidence).toBeLessThan(0.5);
 
     // This would generate: "Saved. Review in Sweep."
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SubmitContext interface - dueDayOverride field
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('SubmitContext interface', () => {
+  describe('dueDayOverride field', () => {
+    it('accepts dueDayOverride as a string date', () => {
+      const context: SubmitContext = {
+        source: 'today',
+        dueDayOverride: '2026-02-10',
+      };
+
+      expect(context.dueDayOverride).toBe('2026-02-10');
+    });
+
+    it('accepts dueDayOverride as null (explicit no-override)', () => {
+      const context: SubmitContext = {
+        source: 'today',
+        dueDayOverride: null,
+      };
+
+      expect(context.dueDayOverride).toBeNull();
+    });
+
+    it('allows omitting dueDayOverride (defaults to undefined)', () => {
+      const context: SubmitContext = {
+        source: 'minddrop',
+      };
+
+      expect(context.dueDayOverride).toBeUndefined();
+    });
+
+    it('coexists with other context fields', () => {
+      const context: SubmitContext = {
+        source: 'today',
+        spaceId: 'space-123',
+        dueDayOverride: '2026-03-15',
+        dropId: 'drop-456',
+      };
+
+      expect(context.source).toBe('today');
+      expect(context.spaceId).toBe('space-123');
+      expect(context.dueDayOverride).toBe('2026-03-15');
+      expect(context.dropId).toBe('drop-456');
+    });
   });
 });

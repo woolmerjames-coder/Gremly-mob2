@@ -31,6 +31,8 @@ export interface NowQuickAddOptions {
   onComplete?: (result: NowQuickAddCompleteResult) => void;
   /** Called when pipeline fails */
   onError?: (error: Error) => void;
+  /** Override due_day (e.g. tomorrow's YYYY-MM-DD for "Plan tomorrow" mode) */
+  targetDate?: string | null;
 }
 
 export interface UseNowQuickAddResult {
@@ -41,8 +43,12 @@ export interface UseNowQuickAddResult {
 /**
  * Map useMindDropSubmit result to NowQuickAddCompleteResult
  */
-function mapSubmitResult(result: SubmitResult): NowQuickAddCompleteResult {
+function mapSubmitResult(
+  result: SubmitResult,
+  targetDate?: string | null,
+): NowQuickAddCompleteResult {
   const today = getDateService().getCurrentDate();
+  const effectiveDate = targetDate || today;
 
   if (!result.success || !result.bucket) {
     return {
@@ -57,15 +63,15 @@ function mapSubmitResult(result: SubmitResult): NowQuickAddCompleteResult {
         kind: 'todo',
         todoId: result.entityId,
         dropId: result.dropId,
-        dueDay: today, // useMindDropSubmit sets this for source: 'today'
-        isToday: true,
+        dueDay: effectiveDate,
+        isToday: effectiveDate === today,
       };
     case 'habit':
       return {
         kind: 'habit',
         habitId: result.entityId,
         dropId: result.dropId,
-        isToday: true, // start_date set to today
+        isToday: effectiveDate === today,
       };
     case 'log':
       return {
@@ -118,10 +124,11 @@ export function useNowQuickAdd(options?: NowQuickAddOptions): UseNowQuickAddResu
       options?.onStart?.(trimmed);
 
       // Run pipeline with source: 'today' for auto due_day/start_date
-      // Fire-and-forget from caller's perspective
+      // dueDayOverride routes items to targetDate when in "Plan tomorrow" mode
       submit(trimmed, {
         source: 'today',
         spaceId: null,
+        dueDayOverride: options?.targetDate ?? null,
       })
         .then((result) => {
           if (result.success) {
@@ -130,7 +137,7 @@ export function useNowQuickAdd(options?: NowQuickAddOptions): UseNowQuickAddResu
               entityId: result.entityId,
               bucket: result.bucket,
             });
-            options?.onComplete?.(mapSubmitResult(result));
+            options?.onComplete?.(mapSubmitResult(result, options?.targetDate));
           } else {
             console.error('[NowQuickAdd] Pipeline failed:', result.error);
             options?.onError?.(result.error ?? new Error('Unknown error'));

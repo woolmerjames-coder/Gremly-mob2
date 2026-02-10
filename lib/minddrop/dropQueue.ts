@@ -149,6 +149,9 @@ export interface QueuedDrop {
   /** External deadline/due date (ISO) */
   targetDate?: string | null;
 
+  /** Caller-supplied due_day override (e.g. tomorrow mode) */
+  dueDayOverride?: string | null;
+
   /** Scheduled work date (ISO) */
   scheduledDate?: string | null;
 
@@ -168,6 +171,14 @@ export interface QueuedDrop {
   /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
   ambiguityReason?: string | null;
 
+  /** Plausible interpretations from Phase 1 ambiguity detection */
+  plausibleInterpretations?: Array<{
+    bucket: string | null;
+    subtype?: string | null;
+    habitSubtype?: string | null;
+    dateField?: string | null;
+  }> | null;
+
   // ──────────────────────────────────────────────────────────────────────────
   // Phase 1.5: Clarification fields (populated asynchronously in background)
   // ──────────────────────────────────────────────────────────────────────────
@@ -185,6 +196,7 @@ export interface QueuedDrop {
     action: {
       bucket?: 'todo' | 'habit' | 'log';
       subtype?: string | null;
+      habitSubtype?: string | null;
       target_date?: boolean;
       scheduled_date?: boolean;
     };

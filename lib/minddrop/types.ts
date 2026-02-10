@@ -211,6 +211,14 @@ export interface Phase1Result {
   /** Type of ambiguity: bucket, action, or date_type */
   ambiguity_type?: 'bucket' | 'action' | 'date_type' | null;
 
+  /** Preparse-derived plausible interpretations (seeds Phase 1.5 options) */
+  plausible_interpretations?: Array<{
+    bucket: string | null;
+    subtype: string | null;
+    habitSubtype: string | null;
+    dateField: string | null;
+  }> | null;
+
   // ──────────────────────────────────────────────────────────────────────────
   // Phase 1.5: Clarification fields (populated asynchronously in background)
   // ──────────────────────────────────────────────────────────────────────────

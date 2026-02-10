@@ -318,6 +318,14 @@ export interface PendingDrop {
   /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
   ambiguity_reason?: string | null;
 
+  /** Preparse-derived plausible interpretations (seeds Phase 1.5 options) */
+  plausible_interpretations?: Array<{
+    bucket: string | null;
+    subtype: string | null;
+    habitSubtype: string | null;
+    dateField: string | null;
+  }> | null;
+
   /** Set to true when user resolves the clarification */
   clarification_resolved?: boolean;
 
@@ -348,6 +356,7 @@ export interface PendingDrop {
     action: {
       bucket?: 'todo' | 'habit' | 'log';
       subtype?: string;
+      habitSubtype?: string;
       target_date?: boolean;
       scheduled_date?: boolean;
     };
@@ -3306,7 +3315,8 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = input.date ?? getDateService().getCurrentDate();
+      const isToday = todayDate === getDateService().getCurrentDate();
       const now = new Date().toISOString();
       const existingBrief = get().dailyBrief;
 
@@ -3331,7 +3341,9 @@ export const useGremlyStore = create<GremlyState>()(
         dismissed_habit_ids: payload.dismissed_habit_ids,
         created_at: existingBrief?.created_at ?? now,
       };
-      set({ dailyBrief: optimisticBrief });
+      if (isToday) {
+        set({ dailyBrief: optimisticBrief });
+      }
 
       try {
         if (existingBrief?.id && !existingBrief.id.startsWith('temp_')) {
@@ -3357,7 +3369,9 @@ export const useGremlyStore = create<GremlyState>()(
           if (error) throw error;
 
           // Update with real ID from database
-          set({ dailyBrief: data });
+          if (isToday) {
+            set({ dailyBrief: data });
+          }
           console.log('[GremlyStore] ✅ Created daily brief:', data.id);
         }
 
@@ -3366,7 +3380,9 @@ export const useGremlyStore = create<GremlyState>()(
       } catch (error) {
         console.error('[GremlyStore] ❌ saveBrief failed:', error);
         // Rollback optimistic update
-        set({ dailyBrief: existingBrief });
+        if (isToday) {
+          set({ dailyBrief: existingBrief });
+        }
         throw error;
       }
     },
@@ -3719,9 +3735,10 @@ export const useGremlyStore = create<GremlyState>()(
 
         if (provider === 'outlook') {
           result = await calendarClient.connectOutlook();
+        } else if (provider === 'google') {
+          result = await calendarClient.connectGoogle();
         } else {
-          // Google not yet implemented
-          result = { success: false, error: 'Google Calendar not yet supported' };
+          result = { success: false, error: 'Unsupported calendar provider' };
         }
 
         if (result.success) {
@@ -4961,6 +4978,7 @@ export const useGremlyStore = create<GremlyState>()(
           : pendingDrop.clarification_options?.find((opt) => opt.id === optionId);
         const selectedBucket = selectedOption?.action?.bucket || null;
         const selectedSubtype = selectedOption?.action?.subtype || null;
+        const selectedHabitSubtype = selectedOption?.action?.habitSubtype || null;
 
         // Call reclassify endpoint to get bucket, dates, time estimate
         try {
@@ -4975,6 +4993,7 @@ export const useGremlyStore = create<GremlyState>()(
                 selectedLabel: selectedLabel,
                 selectedBucket: selectedBucket,
                 selectedSubtype: selectedSubtype,
+                selectedHabitSubtype: selectedHabitSubtype,
                 currentDate: getDateService().getCurrentDate(),
                 targetBucket: pendingDrop.bucket, // Hint for time estimation
               }),
@@ -5224,6 +5243,9 @@ export const useGremlyStore = create<GremlyState>()(
         (selectedOption as { action?: { bucket?: string } } | null)?.action?.bucket || null;
       const selectedSubtype =
         (selectedOption as { action?: { subtype?: string } } | null)?.action?.subtype || null;
+      const selectedHabitSubtype =
+        (selectedOption as { action?: { habitSubtype?: string } } | null)?.action?.habitSubtype ||
+        null;
 
       try {
         const cortexUrl = env.cortexUrl;
@@ -5238,6 +5260,7 @@ export const useGremlyStore = create<GremlyState>()(
               selectedLabel: selectedLabel,
               selectedBucket: selectedBucket,
               selectedSubtype: selectedSubtype,
+              selectedHabitSubtype: selectedHabitSubtype,
               currentDate: getDateService().getCurrentDate(),
               targetBucket: currentBucket, // Hint for time estimation
             }),

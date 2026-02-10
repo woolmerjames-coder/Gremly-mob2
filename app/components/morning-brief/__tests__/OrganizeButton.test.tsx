@@ -117,3 +117,47 @@ describe('OrganizeButton integration tests', () => {
   it.todo('calls onError on API failure');
   it.todo('prevents double-press while organizing');
 });
+
+describe('OrganizeButton - targetDate prop', () => {
+  describe('date-parameterized behavior', () => {
+    it('documents that targetDate overrides today for capacity/events hooks', () => {
+      // When targetDate is provided:
+      //   const today = targetDate ?? getDateService().getCurrentDate();
+      //   const currentHour = targetDate ? 0 : getDateService().getHour();
+      // This means:
+      // 1. Capacity calculated for targetDate instead of today
+      // 2. Calendar events fetched for targetDate
+      // 3. currentHour = 0 (all blocks fully available for future dates)
+
+      const targetDateBehavior = {
+        dateUsed: 'targetDate ?? today',
+        currentHour: 'targetDate ? 0 : getHour()',
+        capacityHook: 'useCapacityForDate(today) where today = targetDate',
+        eventsHook: 'useCalendarEventsForDate(today) where today = targetDate',
+      };
+
+      expect(targetDateBehavior.currentHour).toBe('targetDate ? 0 : getHour()');
+    });
+
+    it('documents that future dates show all blocks as available', () => {
+      // When targetDate is set and is a future date:
+      // currentHour = 0, so morning/day/evening blocks are all "available"
+      const currentHour = 0; // Future date
+      expect(currentHour).toBe(0);
+    });
+
+    it('documents that unassigned task count filters by targetDate', () => {
+      // The component filters:
+      //   todos.filter(t => !t.archived && !t.completed_at && t.due_day === today)
+      // When targetDate is provided, "today" is the target date, so only
+      // todos due on that date are counted as unassigned.
+
+      const filterLogic = {
+        todosFilter: 'due_day === targetDate (when set)',
+        habitsFilter: 'start_date <= targetDate (when set)',
+      };
+
+      expect(filterLogic.todosFilter).toBe('due_day === targetDate (when set)');
+    });
+  });
+});

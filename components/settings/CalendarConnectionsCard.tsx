@@ -9,17 +9,9 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  TextInput,
-  Keyboard,
-} from 'react-native';
+import { View, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { Text } from '../../ui';
-import { Calendar, Link2, Unlink, Mail, Globe, X, Check } from 'lucide-react-native';
+import { Calendar, Link2, Unlink, Mail } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type { CalendarProvider } from '../../lib/calendar/CalendarClient';
@@ -28,23 +20,17 @@ import type { CalendarProvider } from '../../lib/calendar/CalendarClient';
 const PROVIDER_COLORS = {
   outlook: '#0078D4', // Microsoft blue
   google: '#4285F4', // Google blue
-  ics: '#6B7280',
 };
 
 export default function CalendarConnectionsCard() {
   const connections = useGremlyStore((s) => s.calendarConnections);
   const connectCalendar = useGremlyStore((s) => s.connectCalendar);
-  const connectIcsCalendar = useGremlyStore((s) => s.connectIcsCalendar);
   const disconnectCalendar = useGremlyStore((s) => s.disconnectCalendar);
   const refreshCalendarConnections = useGremlyStore((s) => s.refreshCalendarConnections);
   const loading = useGremlyStore((s) => s.calendarLoading);
 
   const [connectingProvider, setConnectingProvider] = useState<CalendarProvider | null>(null);
   const [disconnectingProvider, setDisconnectingProvider] = useState<CalendarProvider | null>(null);
-  const [showIcsInput, setShowIcsInput] = useState(false);
-  const [icsUrl, setIcsUrl] = useState('');
-  const [icsLabel, setIcsLabel] = useState('');
-  const [icsLoading, setIcsLoading] = useState(false);
 
   // Refresh connections on mount
   useEffect(() => {
@@ -53,7 +39,6 @@ export default function CalendarConnectionsCard() {
 
   const outlookConnection = connections.find((c) => c.provider === 'outlook');
   const googleConnection = connections.find((c) => c.provider === 'google');
-  const icsConnection = connections.find((c) => c.provider === 'ics');
 
   const handleConnect = async (provider: CalendarProvider) => {
     setConnectingProvider(provider);
@@ -79,39 +64,6 @@ export default function CalendarConnectionsCard() {
     } finally {
       setDisconnectingProvider(null);
     }
-  };
-
-  const handleConnectIcs = async () => {
-    if (!icsUrl.trim()) {
-      Alert.alert('Missing URL', 'Please paste your calendar URL');
-      return;
-    }
-
-    Keyboard.dismiss();
-    setIcsLoading(true);
-
-    try {
-      const result = await connectIcsCalendar(icsUrl.trim(), icsLabel.trim() || undefined);
-      if (result.success) {
-        setShowIcsInput(false);
-        setIcsUrl('');
-        setIcsLabel('');
-        Alert.alert('Connected!', `Calendar "${result.calendarName || 'ICS Calendar'}" added`);
-      } else {
-        Alert.alert('Connection Failed', result.error || 'Could not load calendar. Check the URL.');
-      }
-    } catch (error) {
-      Alert.alert('Connection Failed', error instanceof Error ? error.message : 'Unexpected error');
-    } finally {
-      setIcsLoading(false);
-    }
-  };
-
-  const handleCancelIcs = () => {
-    setShowIcsInput(false);
-    setIcsUrl('');
-    setIcsLabel('');
-    Keyboard.dismiss();
   };
 
   const isConnecting = (provider: CalendarProvider) => connectingProvider === provider;
@@ -188,102 +140,6 @@ export default function CalendarConnectionsCard() {
           </TouchableOpacity>
         )}
 
-        {/* ICS Calendar Connection */}
-        {icsConnection?.isConnected ? (
-          <View style={styles.connectedRow}>
-            <View style={styles.providerInfo}>
-              <View style={[styles.providerIcon, { backgroundColor: PROVIDER_COLORS.ics }]}>
-                <Globe size={14} color="#FFFFFF" />
-              </View>
-              <View style={styles.providerDetails}>
-                <Text style={styles.providerName}>Calendar Link</Text>
-                <Text style={styles.providerEmail} numberOfLines={1}>
-                  {icsConnection.email || 'Connected'}
-                </Text>
-              </View>
-            </View>
-            <TouchableOpacity
-              style={styles.disconnectButton}
-              onPress={() => handleDisconnect('ics')}
-              disabled={isDisconnecting('ics')}
-              accessibilityLabel="Disconnect ICS Calendar"
-              accessibilityRole="button"
-            >
-              {isDisconnecting('ics') ? (
-                <ActivityIndicator size="small" color={BRAND.colors.inkSubtle} />
-              ) : (
-                <>
-                  <Unlink size={14} color={BRAND.colors.inkSubtle} />
-                  <Text style={styles.disconnectText}>Disconnect</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        ) : showIcsInput ? (
-          <View style={styles.icsInputContainer}>
-            <View style={styles.icsInputHeader}>
-              <View style={[styles.providerIcon, { backgroundColor: PROVIDER_COLORS.ics }]}>
-                <Globe size={14} color="#FFFFFF" />
-              </View>
-              <Text style={styles.icsInputTitle}>Add Calendar Link</Text>
-              <TouchableOpacity onPress={handleCancelIcs} style={styles.icsCloseButton}>
-                <X size={18} color={BRAND.colors.inkSubtle} />
-              </TouchableOpacity>
-            </View>
-            <TextInput
-              style={styles.icsInput}
-              placeholder="Paste calendar URL (.ics)"
-              placeholderTextColor={BRAND.colors.inkMuted}
-              value={icsUrl}
-              onChangeText={setIcsUrl}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-              editable={!icsLoading}
-            />
-            <TextInput
-              style={styles.icsInput}
-              placeholder="Label (optional, e.g. Work Calendar)"
-              placeholderTextColor={BRAND.colors.inkMuted}
-              value={icsLabel}
-              onChangeText={setIcsLabel}
-              autoCapitalize="words"
-              onSubmitEditing={handleConnectIcs}
-              editable={!icsLoading}
-            />
-            <TouchableOpacity
-              style={[styles.icsAddButton, icsLoading && styles.icsAddButtonDisabled]}
-              onPress={handleConnectIcs}
-              disabled={icsLoading || !icsUrl.trim()}
-            >
-              {icsLoading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <>
-                  <Check size={16} color="#FFFFFF" />
-                  <Text style={styles.icsAddButtonText}>Add Calendar</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity
-            style={styles.connectButtonSecondary}
-            onPress={() => setShowIcsInput(true)}
-          >
-            <View style={[styles.providerIcon, { backgroundColor: PROVIDER_COLORS.ics }]}>
-              <Globe size={14} color="#FFFFFF" />
-            </View>
-            <View style={styles.icsButtonTextContainer}>
-              <Text style={styles.connectButtonTextSecondary}>Add Calendar Link</Text>
-              <Text style={styles.icsButtonSubtext}>
-                For published or restricted work calendars
-              </Text>
-            </View>
-            <Link2 size={16} color={BRAND.colors.mossGreen} style={styles.linkIcon} />
-          </TouchableOpacity>
-        )}
-
         {/* Google Connection */}
         {googleConnection?.isConnected ? (
           <View style={styles.connectedRow}>
@@ -317,18 +173,23 @@ export default function CalendarConnectionsCard() {
           </View>
         ) : (
           <TouchableOpacity
-            style={[styles.connectButton, styles.connectButtonDisabled]}
-            disabled={true}
-            accessibilityLabel="Connect Google Calendar (Coming Soon)"
+            style={styles.connectButton}
+            onPress={() => handleConnect('google')}
+            disabled={isConnecting('google')}
+            accessibilityLabel="Connect Google Calendar"
             accessibilityRole="button"
           >
-            <View style={[styles.providerIcon, { backgroundColor: PROVIDER_COLORS.google }]}>
-              <Mail size={14} color="#FFFFFF" />
-            </View>
-            <Text style={[styles.connectButtonText, styles.connectButtonTextDisabled]}>
-              Connect Google
-            </Text>
-            <Text style={styles.comingSoonBadge}>Coming soon</Text>
+            {isConnecting('google') ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <View style={[styles.providerIcon, { backgroundColor: PROVIDER_COLORS.google }]}>
+                  <Mail size={14} color="#FFFFFF" />
+                </View>
+                <Text style={styles.connectButtonText}>Connect Google Calendar</Text>
+                <Link2 size={16} color="#FFFFFF" style={styles.linkIcon} />
+              </>
+            )}
           </TouchableOpacity>
         )}
       </View>
@@ -434,108 +295,17 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
   },
-  connectButtonDisabled: {
-    backgroundColor: 'rgba(46, 85, 64, 0.4)',
-  },
   connectButtonText: {
     fontSize: 15,
     fontWeight: '600',
     color: '#FFFFFF',
   },
-  connectButtonTextDisabled: {
-    opacity: 0.8,
-  },
   linkIcon: {
-    marginLeft: 'auto',
-  },
-  comingSoonBadge: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.7)',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: BRAND.radius.pill,
     marginLeft: 'auto',
   },
   helperText: {
     fontSize: 13,
     color: BRAND.colors.inkMuted,
     lineHeight: 18,
-  },
-  connectButtonSecondary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.md,
-    borderWidth: 1,
-    borderColor: BRAND.colors.mossGreen,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  connectButtonTextSecondary: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-  },
-  icsButtonTextContainer: {
-    flex: 1,
-  },
-  icsButtonSubtext: {
-    fontSize: 12,
-    color: BRAND.colors.inkMuted,
-    marginTop: 2,
-  },
-  icsInputContainer: {
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.md,
-    borderWidth: 1,
-    borderColor: BRAND.colors.mossGreen,
-    padding: 12,
-    gap: 10,
-  },
-  icsInputHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 4,
-  },
-  icsInputTitle: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
-    color: BRAND.colors.charcoalInk,
-  },
-  icsCloseButton: {
-    padding: 4,
-  },
-  icsInput: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: BRAND.radius.sm,
-    borderWidth: 1,
-    borderColor: '#E8E6E1',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: BRAND.colors.charcoalInk,
-  },
-  icsAddButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: BRAND.colors.mossGreen,
-    borderRadius: BRAND.radius.sm,
-    paddingVertical: 12,
-    marginTop: 4,
-  },
-  icsAddButtonDisabled: {
-    opacity: 0.6,
-  },
-  icsAddButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
   },
 });

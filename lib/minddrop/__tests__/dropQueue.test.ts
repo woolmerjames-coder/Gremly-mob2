@@ -157,6 +157,54 @@ describe('dropQueue', () => {
       expect(savedQueue.length).toBe(50);
       expect(savedQueue.find((d: QueuedDrop) => d.localId === 'drop-0')).toBeUndefined();
     });
+
+    it('preserves dueDayOverride when provided', async () => {
+      mockAsyncStorage.getItem.mockResolvedValue('[]');
+
+      const drop = await enqueue({
+        text: 'Plan for tomorrow',
+        spaceId: null,
+        source: 'today',
+        dueDayOverride: '2026-02-10',
+      });
+
+      expect(drop.dueDayOverride).toBe('2026-02-10');
+
+      // Verify it was persisted to AsyncStorage
+      const savedQueue = JSON.parse(mockAsyncStorage.setItem.mock.calls[0][1]);
+      expect(savedQueue[0].dueDayOverride).toBe('2026-02-10');
+    });
+
+    it('round-trips dueDayOverride through getQueue', async () => {
+      const storedDrops: QueuedDrop[] = [
+        {
+          localId: 'drop-override',
+          text: 'Tomorrow task',
+          spaceId: null,
+          source: 'today',
+          createdAt: '2025-01-17T10:00:00Z',
+          status: 'queued',
+          retryCount: 0,
+          dueDayOverride: '2026-02-10',
+        },
+      ];
+      mockAsyncStorage.getItem.mockResolvedValue(JSON.stringify(storedDrops));
+
+      const queue = await getQueue();
+      expect(queue[0].dueDayOverride).toBe('2026-02-10');
+    });
+
+    it('defaults dueDayOverride to undefined when not provided', async () => {
+      mockAsyncStorage.getItem.mockResolvedValue('[]');
+
+      const drop = await enqueue({
+        text: 'Normal drop',
+        spaceId: null,
+        source: 'minddrop',
+      });
+
+      expect(drop.dueDayOverride).toBeUndefined();
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────────
