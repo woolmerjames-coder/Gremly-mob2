@@ -4962,6 +4962,7 @@ export const useGremlyStore = create<GremlyState>()(
           : pendingDrop.clarification_options?.find((opt) => opt.id === optionId);
         const selectedBucket = selectedOption?.action?.bucket || null;
         const selectedSubtype = selectedOption?.action?.subtype || null;
+        const selectedHabitSubtype = selectedOption?.action?.habitSubtype || null;
 
         // Call reclassify endpoint to get bucket, dates, time estimate
         try {
@@ -4976,6 +4977,7 @@ export const useGremlyStore = create<GremlyState>()(
                 selectedLabel: selectedLabel,
                 selectedBucket: selectedBucket,
                 selectedSubtype: selectedSubtype,
+                selectedHabitSubtype: selectedHabitSubtype,
                 currentDate: getDateService().getCurrentDate(),
                 targetBucket: pendingDrop.bucket, // Hint for time estimation
               }),
@@ -5225,6 +5227,9 @@ export const useGremlyStore = create<GremlyState>()(
         (selectedOption as { action?: { bucket?: string } } | null)?.action?.bucket || null;
       const selectedSubtype =
         (selectedOption as { action?: { subtype?: string } } | null)?.action?.subtype || null;
+      const selectedHabitSubtype =
+        (selectedOption as { action?: { habitSubtype?: string } } | null)?.action?.habitSubtype ||
+        null;
 
       try {
         const cortexUrl = env.cortexUrl;
@@ -5239,6 +5244,7 @@ export const useGremlyStore = create<GremlyState>()(
               selectedLabel: selectedLabel,
               selectedBucket: selectedBucket,
               selectedSubtype: selectedSubtype,
+              selectedHabitSubtype: selectedHabitSubtype,
               currentDate: getDateService().getCurrentDate(),
               targetBucket: currentBucket, // Hint for time estimation
             }),

@@ -134,6 +134,7 @@ async function runPhase1_5InBackground(
   ambiguityType: string,
   bucket: MindDropBucket,
   userSpaces: string[] = [],
+  ambiguityReason?: string | null,
 ): Promise<void> {
   const startTime = Date.now();
   const cortexUrl = readCortexUrl();
@@ -165,6 +166,7 @@ async function runPhase1_5InBackground(
         type: 'clarify-ambiguity',
         text,
         ambiguityType,
+        ambiguityReason: ambiguityReason || undefined,
         detectedTemporal,
         currentDate,
         targetBucket: bucket,
@@ -1082,6 +1084,7 @@ export async function processDrop(
         phase1Result.ambiguity_type,
         phase1Result.bucket,
         spaceNames,
+        phase1Result.ambiguity_reason,
       );
     }
 

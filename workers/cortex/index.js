@@ -4113,33 +4113,34 @@ Return JSON only:
       if (type === 'clarify-ambiguity') {
         const text = body.text || '';
         const ambiguityType = body.ambiguityType || 'bucket';
+        const ambiguityReason = body.ambiguityReason || '';
         const userSpaces = Array.isArray(body.userSpaces) ? body.userSpaces : [];
+        const detectedTemporal = body.detectedTemporal || null;
+        const currentDate = body.currentDate || '';
+        const targetBucket = body.targetBucket || null;
 
-        const ALL_OPTIONS = {
+        // --- Static fallbacks (used if AI fails) ---
+        const FALLBACK_OPTIONS = {
           bucket: [
-            { id: 'opt_todo', label: 'Something I need to do', bucket: 'todo', subtype: null },
-            { id: 'opt_habit', label: 'A habit to build', bucket: 'habit', subtype: null },
-            { id: 'opt_general', label: 'Just reference info', bucket: 'log', subtype: 'general' },
-            { id: 'opt_idea', label: 'An idea to explore', bucket: 'log', subtype: 'idea' },
+            { id: 'opt_1', label: 'Something I need to do', bucket: 'todo', subtype: null },
+            {
+              id: 'opt_2',
+              label: 'A habit to build',
+              bucket: 'habit',
+              subtype: null,
+              habitSubtype: 'start_habit',
+            },
+            { id: 'opt_3', label: 'Just reference info', bucket: 'log', subtype: 'general' },
+            { id: 'opt_4', label: 'An idea to explore', bucket: 'log', subtype: 'idea' },
           ],
           action: [
-            {
-              id: 'opt_exists',
-              label: "It's already scheduled",
-              bucket: 'log',
-              subtype: 'general',
-            },
-            { id: 'opt_create', label: 'I need to book this', bucket: 'todo', subtype: null },
+            { id: 'opt_1', label: "It's already scheduled", bucket: 'log', subtype: 'general' },
+            { id: 'opt_2', label: 'I need to book this', bucket: 'todo', subtype: null },
           ],
           date_type: [
+            { id: 'opt_1', label: "That's when it is", bucket: null, dateField: 'target_date' },
             {
-              id: 'opt_target',
-              label: "That's when it is",
-              bucket: null,
-              dateField: 'target_date',
-            },
-            {
-              id: 'opt_scheduled',
+              id: 'opt_2',
               label: "That's when I'll do it",
               bucket: null,
               dateField: 'scheduled_date',
@@ -4147,61 +4148,106 @@ Return JSON only:
           ],
         };
 
-        const QUESTIONS = {
+        const FALLBACK_QUESTIONS = {
           bucket: 'Quick check — what did you have in mind?',
           action: 'Quick check — is this already set?',
           date_type: 'Quick check — what does the date mean?',
         };
 
-        const availableOptions = ALL_OPTIONS[ambiguityType] || ALL_OPTIONS.bucket;
-        const question = QUESTIONS[ambiguityType] || 'What is this?';
+        const t0 = Date.now();
 
-        // For bucket ambiguity, show all options - let user decide
+        // --- Build AI prompt based on ambiguity type ---
+        let aiPrompt;
+
         if (ambiguityType === 'bucket') {
-          console.log('[Phase1.5] Bucket ambiguity - showing all options', {
-            ambiguityType,
-            options_count: availableOptions.length,
-          });
+          aiPrompt = `You are evaluating which interpretations are plausible for an ambiguous mind drop in a productivity app.
 
-          return j({
-            success: true,
-            clarification_question: question,
-            options: availableOptions,
-            latency_ms: 0,
-          });
-        }
+USER INPUT: "${text}"
+AMBIGUITY REASON: ${ambiguityReason ? `"${ambiguityReason}"` : 'not provided'}
+PHASE 1 LEANED TOWARD BUCKET: ${targetBucket || 'none'}
 
-        // AI only filters which options are relevant
-        const filterPrompt = `You filter options for an ambiguous input in a productivity app.
+POSSIBLE BUCKETS — evaluate each independently as plausible (true/false):
 
-INPUT: "${text}"
+- todo: The user plausibly means a specific one-off action they need to complete. There should be something concrete to do and finish.
+- habit_build: The user plausibly means a recurring behavior they want to start doing regularly. Only plausible when the input describes an activity that makes sense as an ongoing practice. Do NOT include this just because an activity could theoretically be repeated — there must be a reasonable reading where the user wants to build a routine.
+- habit_break: The user plausibly means they want to stop or reduce a behavior. Only plausible when the input describes something negative or unwanted they are currently doing.
+- log_general: The user plausibly is just noting or remembering something. A reminder, reference, or record.
+- log_idea: The user plausibly is exploring a possibility without commitment. Brainstorming, considering, floating something.
+- log_journal: The user plausibly is processing emotions or reflecting on an experience. Only plausible when there is emotional content.
 
-AVAILABLE OPTIONS:
-${availableOptions.map((opt, i) => `${i + 1}. "${opt.label}" (id: ${opt.id})`).join('\n')}
+RULES:
+- Minimum 2 and maximum 4 buckets should be plausible. If only 1 passes, loosen criteria. If more than 4 pass, keep only the most distinct interpretations.
+- log_general and log_idea should rarely both be plausible — only when the distinction is genuinely meaningful for this specific input.
+- For each plausible bucket, generate a contextual label (3-8 words, first-person, referencing the user's actual content). The label must make it immediately obvious what choosing that option means and how it differs from the other options.
+- Generate a short clarification question (5-10 words, casual and warm) that references the content when natural.
 
-WHAT EACH OPTION MEANS:
-- opt_todo: An action to complete. Include if user might need to DO something about this.
-- opt_habit: A behavior to repeat. Only include if the input itself is an activity a person performs repeatedly.
-- opt_general: Reference info. Include if user might just be noting this exists.
-- opt_idea: Something to consider. Include if user might be exploring without commitment.
-- opt_exists: Already scheduled/booked. Something that exists in the world.
-- opt_create: Needs to be made. Something that needs to be created or booked.
-
-Include opt_todo if the user might need to take any action related to this.
-Include opt_habit if this could represent a recurring behavior (even if stated as a noun).
-Err on the side of including options — the user will choose.
-
-Select ALL options that are plausible for this input (typically 2-4).
-
-Only include an option if the input could genuinely be interpreted that way.
+BUCKET MAPPING for output:
+- todo → bucket: "todo", subtype: null, habitSubtype: null
+- habit_build → bucket: "habit", subtype: null, habitSubtype: "start_habit"
+- habit_break → bucket: "habit", subtype: null, habitSubtype: "break_habit"
+- log_general → bucket: "log", subtype: "general", habitSubtype: null
+- log_idea → bucket: "log", subtype: "idea", habitSubtype: null
+- log_journal → bucket: "log", subtype: "journal", habitSubtype: null
 
 Return JSON:
 {
-  "selected_option_ids": ["opt_id_1", "opt_id_2"]
+  "question": "contextual clarification question",
+  "options": [
+    {
+      "id": "opt_1",
+      "label": "contextual label",
+      "bucket": "todo" | "habit" | "log",
+      "subtype": null | "general" | "idea" | "journal",
+      "habitSubtype": null | "start_habit" | "break_habit"
+    }
+  ]
 }`;
+        } else if (ambiguityType === 'action') {
+          aiPrompt = `You are evaluating an ambiguous mind drop in a productivity app where it is unclear whether something already exists or the user needs to take action.
 
-        const t0 = Date.now();
+USER INPUT: "${text}"
+AMBIGUITY REASON: ${ambiguityReason ? `"${ambiguityReason}"` : 'not provided'}
 
+TWO POSSIBLE INTERPRETATIONS:
+1. The thing already exists or is scheduled — the user is just noting/recording it (maps to bucket: "log", subtype: "general")
+2. The user needs to take action on it — they need to create, book, or do something (maps to bucket: "todo", subtype: null)
+
+For each interpretation, generate a contextual label (3-8 words, first-person, referencing the user's actual content). The label must make it immediately obvious what choosing that option means.
+Generate a short clarification question (5-10 words, casual and warm) that references the content when natural.
+
+Return JSON:
+{
+  "question": "contextual clarification question",
+  "options": [
+    { "id": "opt_1", "label": "contextual label for already-exists", "bucket": "log", "subtype": "general", "habitSubtype": null },
+    { "id": "opt_2", "label": "contextual label for needs-action", "bucket": "todo", "subtype": null, "habitSubtype": null }
+  ]
+}`;
+        } else if (ambiguityType === 'date_type') {
+          aiPrompt = `You are evaluating an ambiguous mind drop in a productivity app where a date was mentioned but it is unclear what the date means.
+
+USER INPUT: "${text}"
+AMBIGUITY REASON: ${ambiguityReason ? `"${ambiguityReason}"` : 'not provided'}
+DETECTED DATE: ${detectedTemporal || 'unknown'}
+
+TWO POSSIBLE INTERPRETATIONS:
+1. The date is when something happens — an event date, a deadline, or when something occurs (dateField: "target_date")
+2. The date is when the user will do the work — when they plan to sit down and handle it (dateField: "scheduled_date")
+
+For each interpretation, generate a contextual label (3-8 words, first-person, referencing the user's actual content and the date). The label must make it immediately obvious what choosing that option means.
+Generate a short clarification question (5-10 words, casual and warm) that references the content when natural.
+
+Return JSON:
+{
+  "question": "contextual clarification question",
+  "options": [
+    { "id": "opt_1", "label": "contextual label for event-date", "bucket": null, "dateField": "target_date" },
+    { "id": "opt_2", "label": "contextual label for work-date", "bucket": null, "dateField": "scheduled_date" }
+  ]
+}`;
+        }
+
+        // --- Make AI call ---
         try {
           const res = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -4211,9 +4257,9 @@ Return JSON:
             },
             body: JSON.stringify({
               model: 'gpt-4o-mini',
-              messages: [{ role: 'user', content: filterPrompt }],
-              temperature: 0.2,
-              max_tokens: 60,
+              messages: [{ role: 'user', content: aiPrompt }],
+              temperature: 0.3,
+              max_tokens: 300,
               response_format: { type: 'json_object' },
             }),
           });
@@ -4221,51 +4267,100 @@ Return JSON:
           const oj = await res.json();
           const latency = Date.now() - t0;
 
-          let selectedOptions = availableOptions;
-
           if (res.ok && oj?.choices?.[0]?.message?.content) {
-            try {
-              const parsed = JSON.parse(oj.choices[0].message.content);
-              if (
-                Array.isArray(parsed.selected_option_ids) &&
-                parsed.selected_option_ids.length >= 2
-              ) {
-                const filtered = availableOptions.filter((opt) =>
-                  parsed.selected_option_ids.includes(opt.id),
-                );
-                if (filtered.length >= 2) {
-                  selectedOptions = filtered;
+            const parsed = JSON.parse(oj.choices[0].message.content);
+
+            // --- Validate response ---
+            let question =
+              typeof parsed.question === 'string' && parsed.question.trim()
+                ? parsed.question.trim().substring(0, 100)
+                : null;
+
+            let options = [];
+            if (Array.isArray(parsed.options)) {
+              const validBuckets = ['todo', 'habit', 'log', null];
+              const validSubtypes = [null, 'general', 'idea', 'journal'];
+              const validDateFields = ['target_date', 'scheduled_date'];
+
+              for (let i = 0; i < parsed.options.length && options.length < 4; i++) {
+                const opt = parsed.options[i];
+                if (!opt || typeof opt.label !== 'string' || !opt.label.trim()) continue;
+
+                const validated = {
+                  id: `opt_${options.length + 1}`,
+                  label: opt.label.trim().substring(0, 60),
+                };
+
+                if (ambiguityType === 'date_type') {
+                  if (!validDateFields.includes(opt.dateField)) continue;
+                  validated.bucket = null;
+                  validated.dateField = opt.dateField;
+                } else {
+                  if (!validBuckets.includes(opt.bucket)) continue;
+                  validated.bucket = opt.bucket;
+                  validated.subtype = validSubtypes.includes(opt.subtype) ? opt.subtype : null;
+                  if (opt.habitSubtype === 'start_habit' || opt.habitSubtype === 'break_habit') {
+                    validated.habitSubtype = opt.habitSubtype;
+                  } else {
+                    validated.habitSubtype = null;
+                  }
                 }
+
+                options.push(validated);
               }
-            } catch (e) {
-              console.log('[Phase1.5] Parse error, using defaults', { error: String(e) });
             }
+
+            // If validation passes (2+ options), use AI result
+            if (options.length >= 2) {
+              console.log('[Phase1.5] AI success', {
+                ambiguityType,
+                question,
+                options_count: options.length,
+                latency_ms: latency,
+              });
+
+              return j({
+                success: true,
+                clarification_question:
+                  question || FALLBACK_QUESTIONS[ambiguityType] || 'What did you have in mind?',
+                options,
+                latency_ms: latency,
+              });
+            }
+
+            // AI returned but validation failed — fall through to fallback
+            console.log('[Phase1.5] AI validation failed, using fallback', {
+              ambiguityType,
+              raw_options: parsed.options?.length,
+              valid_options: options.length,
+              latency_ms: latency,
+            });
           }
-
-          console.log('[Phase1.5] Success', {
-            ambiguityType,
-            question,
-            options_count: selectedOptions.length,
-            latency_ms: latency,
-          });
-
-          return j({
-            success: true,
-            clarification_question: question,
-            options: selectedOptions,
-            latency_ms: latency,
-          });
         } catch (err) {
           const latency = Date.now() - t0;
-          console.log('[Phase1.5] Error', { error: String(err), latency_ms: latency });
-
-          return j({
-            success: true,
-            clarification_question: question,
-            options: availableOptions,
+          console.log('[Phase1.5] AI error, using fallback', {
+            error: String(err),
             latency_ms: latency,
           });
         }
+
+        // --- Fallback: static options ---
+        const fallbackLatency = Date.now() - t0;
+        const fallbackOptions = FALLBACK_OPTIONS[ambiguityType] || FALLBACK_OPTIONS.bucket;
+        const fallbackQuestion = FALLBACK_QUESTIONS[ambiguityType] || 'What did you have in mind?';
+
+        console.log('[Phase1.5] Using static fallback', {
+          ambiguityType,
+          options_count: fallbackOptions.length,
+          latency_ms: fallbackLatency,
+        });
+
+        return j({
+          success: true,
+          clarification_question: fallbackQuestion,
+          options: fallbackOptions,
+          latency_ms: fallbackLatency,
+        });
       }
 
       // =========================
