@@ -436,10 +436,11 @@ export const selectHabitsCompletedToday = createSelector(
  * Habits that need start date confirmation in Sweep.
  * An unconfirmed habit is one where:
  * - archived !== true
+ * - start_date is not set (null/undefined)
  * - start_date_confirmed !== true (either false, null, or undefined)
  */
 export const selectUnconfirmedHabits = createSelector([selectHabits], (habits): Habit[] =>
-  habits.filter((h) => !h.archived && h.start_date_confirmed !== true),
+  habits.filter((h) => !h.archived && !h.start_date && h.start_date_confirmed !== true),
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════

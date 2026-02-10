@@ -717,8 +717,13 @@ describe('selectSweepCandidatesUnified', () => {
     it('excludes habits with commitment_until from sweep candidates', () => {
       const state = makeState({
         habits: [
-          makeHabit({ id: 'h1', commitment_until: '2025-12-31', start_date_confirmed: false }), // Locked-in - excluded
-          makeHabit({ id: 'h2', start_date_confirmed: false }), // Not locked - included
+          makeHabit({
+            id: 'h1',
+            commitment_until: '2025-12-31',
+            start_date: null as any,
+            start_date_confirmed: false,
+          }), // Locked-in - excluded
+          makeHabit({ id: 'h2', start_date: null as any, start_date_confirmed: false }), // Not locked - included
         ],
       });
 
@@ -753,9 +758,9 @@ describe('selectSweepCandidatesUnified', () => {
       expect(todoIds).toContain('t1');
     });
 
-    it('includes habits with commitment=undefined', () => {
+    it('includes habits with commitment=undefined and no start_date', () => {
       const state = makeState({
-        habits: [makeHabit({ id: 'h1', start_date_confirmed: false })], // No commitment field
+        habits: [makeHabit({ id: 'h1', start_date: null as any, start_date_confirmed: false })], // No commitment field, no start date
       });
 
       const result = selectSweepCandidatesUnified(state as any);

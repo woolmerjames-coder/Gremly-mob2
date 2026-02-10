@@ -1220,10 +1220,12 @@ function SweepHabitsStep({ onContinue }: StepProps) {
               <View style={styles.habitsNeedsSetupSection}>
                 <View style={styles.habitsSectionHeader}>
                   <View style={styles.habitsSectionLine} />
-                  <Text style={styles.habitsNeedsSetupTitle}>Needs setup</Text>
+                  <Text style={styles.habitsNeedsSetupTitle}>Needs a start date</Text>
                   <View style={styles.habitsSectionLine} />
                 </View>
-                <Text style={styles.needsSetupSubtext}>Set a start date to begin tracking</Text>
+                <Text style={styles.needsSetupSubtext}>
+                  Once you set a start date, these move to your Habits screen for tracking
+                </Text>
                 {displaySections.needsSetup.map((item, index) => (
                   <Reanimated.View
                     key={item.habit.id}

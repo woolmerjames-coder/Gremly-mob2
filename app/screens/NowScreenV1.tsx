@@ -1416,13 +1416,6 @@ function TodayFocusList({
         </TimeBlockSection>
       )}
 
-      {/* All Day section - break habit awareness card */}
-      {breakHabitsByBlock.allday.length > 0 && (
-        <TimeBlockSection block="allday" isFirst={getIsFirst()}>
-          <BreakHabitCard names={breakHabitsByBlock.allday} />
-        </TimeBlockSection>
-      )}
-
       {/* Morning section */}
       {shouldRenderBlock('morning') && (
         <TimeBlockSection
