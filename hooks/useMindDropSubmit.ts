@@ -41,6 +41,8 @@ export interface SubmitContext {
   dropId?: string;
   /** Optional test case name to enable structured test logging */
   testCase?: string;
+  /** Override the default due_day (e.g. tomorrow's date for "Plan tomorrow" mode) */
+  dueDayOverride?: string | null;
 }
 
 /**
@@ -195,6 +197,7 @@ export function useMindDropSubmit(): {
           attachments: photoUris.length > 0 ? photoUris : undefined,
           spaceId: resolvedSpaceId,
           source: context.source,
+          dueDayOverride: context.dueDayOverride ?? null,
         });
 
         console.log('[MindDrop:Submit] Enqueued drop', {

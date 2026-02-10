@@ -86,6 +86,8 @@ export type EventMap = {
   DailyBriefCleared: { date: string };
   // Notification response events
   'notification:open_flow': { type: 'morning' | 'evening' };
+  // Tomorrow Brief navigation event
+  openTomorrowBrief: Record<string, never>;
 };
 
 type Handler<T> = (payload: T) => void;

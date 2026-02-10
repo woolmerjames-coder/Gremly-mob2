@@ -8,7 +8,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Pressable, Text, StyleSheet, Image, View, Animated, Easing } from 'react-native';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
-import { useTodayCapacity, useTodayCalendarEvents } from '../../../../lib/store/capacitySelectors';
+import {
+  useCapacityForDate,
+  useCalendarEventsForDate,
+} from '../../../../lib/store/capacitySelectors';
 import {
   organizeDay,
   buildOrganizeDayRequest,
@@ -30,6 +33,8 @@ interface OrganizeButtonProps {
   onError?: (error: string) => void;
   onAnimationStart?: (assignments: TaskAssignment[]) => void;
   onAnimationComplete?: () => void;
+  /** Target date in YYYY-MM-DD format. Defaults to today. */
+  targetDate?: string;
 }
 
 export function OrganizeButton({
@@ -37,6 +42,7 @@ export function OrganizeButton({
   onError,
   onAnimationStart,
   onAnimationComplete,
+  targetDate,
 }: OrganizeButtonProps) {
   const [phase, setPhase] = useState<OrganizePhase>('idle');
 
@@ -49,11 +55,11 @@ export function OrganizeButton({
   const habits = useGremlyStore((s) => s.habits);
   const applyOrganizeAssignments = useGremlyStore((s) => s.applyOrganizeAssignments);
 
-  const capacity = useTodayCapacity();
-  const calendarEvents = useTodayCalendarEvents();
+  const today = targetDate ?? getDateService().getCurrentDate();
+  const currentHour = targetDate ? 0 : getDateService().getHour();
 
-  const today = getDateService().getCurrentDate();
-  const currentHour = getDateService().getHour();
+  const capacity = useCapacityForDate(today);
+  const calendarEvents = useCalendarEventsForDate(today);
 
   // Pulse animation for icon during organizing
   useEffect(() => {
@@ -98,13 +104,11 @@ export function OrganizeButton({
     console.log('[OrganizeButton] today:', today, 'todayTodos count:', todayTodos.length);
     console.log(
       '[OrganizeButton] all todos due_days:',
-      todos
-        .slice(0, 10)
-        .map((t) => ({
-          title: t.name?.substring(0, 20),
-          due_day: t.due_day,
-          time_window: t.time_window,
-        })),
+      todos.slice(0, 10).map((t) => ({
+        title: t.name?.substring(0, 20),
+        due_day: t.due_day,
+        time_window: t.time_window,
+      })),
     );
 
     const activeHabits = habits.filter((h) => {

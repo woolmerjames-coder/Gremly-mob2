@@ -11,7 +11,10 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal, ScrollView, Image } from 'react-native';
 import { X, RotateCcw, Calendar, CheckSquare, Repeat } from 'lucide-react-native';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
-import { useTodayCapacity, useHiddenEventCount } from '../../../../lib/store/capacitySelectors';
+import {
+  useCapacityForDate,
+  useHiddenEventCountForDate,
+} from '../../../../lib/store/capacitySelectors';
 import { formatDuration } from '../../../../lib/capacity';
 import { getDateService } from '../../../../lib/date';
 import type { CalendarEvent } from '../../../../lib/calendar/CalendarClient';
@@ -27,20 +30,31 @@ const COLORS = {
   sageMist: '#E8F0EB',
 };
 
-export function MorningBriefHeader() {
-  const capacity = useTodayCapacity();
-  const hiddenEventCount = useHiddenEventCount();
+interface MorningBriefHeaderProps {
+  /** Target date in YYYY-MM-DD format. When set, shows that date's info instead of today. */
+  targetDate?: string;
+}
+
+export function MorningBriefHeader({ targetDate }: MorningBriefHeaderProps) {
+  const isCustomDate = !!targetDate;
+  const effectiveDate = targetDate ?? getDateService().getCurrentDate();
+  const capacity = useCapacityForDate(effectiveDate);
+  const hiddenEventCount = useHiddenEventCountForDate(effectiveDate);
   const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
   const [showHiddenPopup, setShowHiddenPopup] = useState(false);
 
-  // Combined hidden count (events + todos/habits)
-  const totalHiddenCount = hiddenEventCount + hiddenTodayIds.length;
+  // Combined hidden count (events + todos/habits — skip today's hidden items when viewing future date)
+  const totalHiddenCount = hiddenEventCount + (isCustomDate ? 0 : hiddenTodayIds.length);
 
-  // Format current date/time using central date service
-  const now = getDateService().now();
-  const dayName = now.toLocaleDateString('en-US', { weekday: 'long' });
-  const dateString = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
-  const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  // Format date/time using central date service
+  const displayDate = targetDate
+    ? (getDateService().fromDateString(targetDate) ?? getDateService().now())
+    : getDateService().now();
+  const dayName = displayDate.toLocaleDateString('en-US', { weekday: 'long' });
+  const dateString = displayDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  const timeString = isCustomDate
+    ? null
+    : getDateService().now().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
   // Stats
   const eventCount = capacity.totalEventCount;
@@ -52,7 +66,8 @@ export function MorningBriefHeader() {
         <View style={styles.headerContent}>
           <Text style={styles.title}>Plan Your {dayName}</Text>
           <Text style={styles.subtitle}>
-            {dateString} · {timeString}
+            {dateString}
+            {timeString ? ` · ${timeString}` : ''}
           </Text>
           <View style={styles.statsRow}>
             <Text style={styles.stats}>

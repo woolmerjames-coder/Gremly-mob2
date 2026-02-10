@@ -135,7 +135,12 @@ async function runPhase1_5InBackground(
   bucket: MindDropBucket,
   userSpaces: string[] = [],
   ambiguityReason?: string | null,
-  plausibleInterpretations?: Array<{ bucket: string; subtype?: string; habitSubtype?: string; dateField?: string }> | null,
+  plausibleInterpretations?: Array<{
+    bucket: string;
+    subtype?: string;
+    habitSubtype?: string;
+    dateField?: string;
+  }> | null,
 ): Promise<void> {
   const startTime = Date.now();
   const cortexUrl = readCortexUrl();
@@ -464,6 +469,9 @@ async function syncDropToSupabase(
 
   const now = new Date().toISOString();
   const today = dateService.today();
+  // When caller provides dueDayOverride (e.g. "Plan tomorrow" mode), use that
+  // instead of today's date for source === 'today' items.
+  const effectiveDueDay = drop.dueDayOverride || today;
 
   // Debug: Log the full drop object to see what clarification fields are present
   console.log('[DropProcessor] Drop object before payload build:', {
@@ -494,7 +502,7 @@ async function syncDropToSupabase(
       const dueDay =
         enrichment?.extracted_date?.split('T')[0] ||
         parsedFields.dueDay ||
-        (source === 'today' ? today : null);
+        (source === 'today' ? effectiveDueDay : null);
 
       // Calculate buffers based on energy type
       const buffers = calculateBuffers(
@@ -572,7 +580,8 @@ async function syncDropToSupabase(
         cadence: freq.cadence,
         target_per_period: freq.target_per_period,
         days_active: enrichment?.extracted_days || null,
-        start_date: enrichment?.extracted_start_date || (source === 'today' ? today : null),
+        start_date:
+          enrichment?.extracted_start_date || (source === 'today' ? effectiveDueDay : null),
         time_window: enrichment?.time_window || 'day', // Default to 'day' to fix NOT NULL constraint
         time_estimate_minutes: enrichment?.time_estimate_minutes || null,
         energy_type: enrichment?.energy_type || 'administrative',

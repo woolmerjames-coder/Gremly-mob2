@@ -149,6 +149,9 @@ export interface QueuedDrop {
   /** External deadline/due date (ISO) */
   targetDate?: string | null;
 
+  /** Caller-supplied due_day override (e.g. tomorrow mode) */
+  dueDayOverride?: string | null;
+
   /** Scheduled work date (ISO) */
   scheduledDate?: string | null;
 

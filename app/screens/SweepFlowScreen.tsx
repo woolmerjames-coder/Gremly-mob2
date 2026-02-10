@@ -2774,6 +2774,7 @@ interface SummaryStepProps {
   habitsCheckedCount: number;
   journalWritten: boolean;
   onDone: () => void;
+  onPlanTomorrow: () => void;
 }
 
 function SweepSummaryStep({
@@ -2786,6 +2787,7 @@ function SweepSummaryStep({
   habitsCheckedCount,
   journalWritten,
   onDone,
+  onPlanTomorrow,
 }: SummaryStepProps) {
   const ds = getDateService();
   const totalProcessed = keptCount + clearedCount;
@@ -3043,6 +3045,11 @@ function SweepSummaryStep({
           <Text style={styles.streakText}>{sweepStreak} day streak</Text>
         </View>
       )}
+
+      {/* Plan Tomorrow CTA */}
+      <Pressable style={styles.planTomorrowButton} onPress={onPlanTomorrow}>
+        <Text style={styles.planTomorrowText}>Plan your tomorrow →</Text>
+      </Pressable>
 
       {/* Done Button */}
       <View style={styles.buttonContainer}>
@@ -3675,6 +3682,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                 habitsCheckedCount={habitsCheckedCount}
                 journalWritten={journalWritten}
                 onDone={handleSummaryDone}
+                onPlanTomorrow={() => {
+                  // Close sweep first, then emit event for NowScreenV1 to open tomorrow brief
+                  navigation.goBack();
+                  setTimeout(() => {
+                    eventBus.emit('openTomorrowBrief', {});
+                  }, 300); // Small delay to let sweep dismissal animation complete
+                }}
               />
             ))}
         </View>
@@ -4487,6 +4501,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: BRAND.colors.inkMuted,
+  },
+  planTomorrowButton: {
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  planTomorrowText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#2E5540',
+    opacity: 0.8,
   },
   wrapUpOpenItemsReminder: {
     fontSize: 13,

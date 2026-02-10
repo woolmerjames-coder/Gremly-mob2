@@ -18,6 +18,7 @@ import {
   Easing,
   ActivityIndicator,
   Pressable,
+  Modal,
 } from 'react-native';
 import { getDateService } from '../../lib/date';
 import { useNavigation } from '@react-navigation/native';
@@ -342,9 +343,20 @@ export default function NowScreenV1() {
   // Morning Brief - sequences and brief state
   const { hasCompletedBriefToday, brief } = useMorningBrief();
   const [isBriefSheetVisible, setBriefSheetVisible] = useState(false);
+  const [briefTargetDate, setBriefTargetDate] = useState<string | undefined>(undefined);
 
   // Daily app open detection
   const { isFirstOpenToday, isChecking, markTodayOpened } = useDailyAppOpen();
+
+  // Sweep completion detection for day picker
+  const lastSweepCompletedAt = useGremlyStore((s) => s.lastSweepCompletedAt);
+  const hasSweepedToday = useMemo(() => {
+    if (!lastSweepCompletedAt) return false;
+    const sweepDay = getDateService().extractDateFromIso(lastSweepCompletedAt);
+    return sweepDay === todayStr;
+  }, [lastSweepCompletedAt, todayStr]);
+
+  const [showDayPicker, setShowDayPicker] = useState(false);
 
   // Fetch calendar events on mount (today + 7 days)
   useEffect(() => {
@@ -356,6 +368,15 @@ export default function NowScreenV1() {
     console.log('[NowScreen] Fetching calendar:', today, 'to', weekFromNow);
     fetchCalendarEvents(today, weekFromNow);
   }, [isInitialized, fetchCalendarEvents]);
+
+  // Listen for "Plan your tomorrow" from sweep completion
+  useEffect(() => {
+    const unsub = eventBus.on('openTomorrowBrief', () => {
+      setBriefTargetDate(getDateService().addDays(todayStr, 1));
+      setBriefSheetVisible(true);
+    });
+    return () => unsub();
+  }, [todayStr]);
 
   // Auto-open Morning Brief on first open of the day (skip for brand new users)
   useEffect(() => {
@@ -708,8 +729,13 @@ export default function NowScreenV1() {
 
   // Handle opening Morning Brief sheet
   const handleOpenBrief = useCallback(() => {
-    setBriefSheetVisible(true);
-  }, []);
+    if (hasSweepedToday) {
+      setShowDayPicker(true);
+    } else {
+      setBriefTargetDate(undefined);
+      setBriefSheetVisible(true);
+    }
+  }, [hasSweepedToday]);
 
   // Add item to Today's Focus by setting due_day to today
   const handleAddToToday = useCallback(
@@ -724,16 +750,20 @@ export default function NowScreenV1() {
     [updateTodo, todayDayString],
   );
 
-  // Quick add hook - no callbacks needed, pending drops come from store
-  const quickAdd = useNowQuickAdd();
+  // Quick add hook - passes briefTargetDate so tomorrow-mode items land on the right day
+  const quickAdd = useNowQuickAdd({ targetDate: briefTargetDate });
 
   // Handle quick add submission - fire-and-forget, modal closes immediately
   const handleQuickAddSubmit = useCallback(
     (text: string) => {
-      console.log('[NowScreenV1] Quick add submitted:', text);
+      console.log(
+        '[NowScreenV1] Quick add submitted:',
+        text,
+        briefTargetDate ? `(target: ${briefTargetDate})` : '',
+      );
       quickAdd.onQuickAdd(text);
     },
-    [quickAdd],
+    [quickAdd, briefTargetDate],
   );
 
   // Handle "Prefer to add manually" from quick add modal
@@ -965,10 +995,89 @@ export default function NowScreenV1() {
         }}
       />
 
+      {/* Day Picker - shown when Organize is pressed after sweep */}
+      <Modal
+        visible={showDayPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDayPicker(false)}
+      >
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.4)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 24,
+          }}
+          onPress={() => setShowDayPicker(false)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: 16,
+              padding: 20,
+              width: '100%',
+              maxWidth: 300,
+            }}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text
+              style={{
+                fontSize: 17,
+                fontWeight: '600',
+                color: '#0E1116',
+                marginBottom: 16,
+                textAlign: 'center',
+              }}
+            >
+              Which day?
+            </Text>
+            <Pressable
+              style={{
+                backgroundColor: '#E8F0EB',
+                paddingVertical: 14,
+                borderRadius: 10,
+                alignItems: 'center',
+                marginBottom: 10,
+              }}
+              onPress={() => {
+                setShowDayPicker(false);
+                setBriefTargetDate(undefined);
+                setBriefSheetVisible(true);
+              }}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '600', color: '#2E5540' }}>Plan today</Text>
+            </Pressable>
+            <Pressable
+              style={{
+                backgroundColor: '#2E5540',
+                paddingVertical: 14,
+                borderRadius: 10,
+                alignItems: 'center',
+              }}
+              onPress={() => {
+                setShowDayPicker(false);
+                setBriefTargetDate(getDateService().addDays(todayStr, 1));
+                setBriefSheetVisible(true);
+              }}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
+                Plan tomorrow
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Morning Brief Sheet */}
       <MorningBriefSheet
         visible={isBriefSheetVisible}
-        onClose={() => setBriefSheetVisible(false)}
+        targetDate={briefTargetDate}
+        onClose={() => {
+          setBriefSheetVisible(false);
+          setBriefTargetDate(undefined);
+        }}
         onComplete={markTodayOpened}
         onQuickAddSubmit={handleQuickAddSubmit}
         onQuickAddManual={handleQuickAddManual}

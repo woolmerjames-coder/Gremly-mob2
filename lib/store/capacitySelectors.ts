@@ -203,3 +203,97 @@ export function useMiniSweepCalendarContext(): {
     };
   }, [capacity.totalCalendarMinutes, capacity.totalEventCount]);
 }
+
+// =========================
+// === DATE-PARAMETERIZED HOOKS ===
+// =========================
+
+/**
+ * Hook: Get calendar events for a specific date (excluding hidden)
+ */
+export function useCalendarEventsForDate(date: string): CalendarEvent[] {
+  const events = useGremlyStore((s) => s.calendarEvents[date] ?? EMPTY_EVENTS);
+  const hiddenIds = useGremlyStore((s) => s.hiddenCalendarEventsByDate[date] ?? EMPTY_HIDDEN);
+
+  return useMemo(() => {
+    if (hiddenIds.length === 0) return events;
+    const hiddenSet = new Set(hiddenIds);
+    return events.filter((e) => !hiddenSet.has(`${e.provider}-${e.providerEventId}`));
+  }, [events, hiddenIds]);
+}
+
+/**
+ * Hook: Get count of hidden events for a specific date
+ */
+export function useHiddenEventCountForDate(date: string): number {
+  const events = useGremlyStore((s) => s.calendarEvents[date] ?? EMPTY_EVENTS);
+  const hiddenIds = useGremlyStore((s) => s.hiddenCalendarEventsByDate[date] ?? EMPTY_HIDDEN);
+
+  return useMemo(() => {
+    if (hiddenIds.length === 0) return 0;
+    const hiddenSet = new Set(hiddenIds);
+    return events.filter((e) => hiddenSet.has(`${e.provider}-${e.providerEventId}`)).length;
+  }, [events, hiddenIds]);
+}
+
+/**
+ * Hook: Get full day capacity breakdown for a specific date
+ * For today, currentHour reflects the actual hour (blocks partially elapsed).
+ * For future dates, currentHour is 0 so all blocks show as fully available.
+ */
+export function useCapacityForDate(date: string): DayCapacity {
+  const events = useCalendarEventsForDate(date);
+  const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
+  const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
+  const todos = useGremlyStore((s) => s.todos);
+  const habits = useGremlyStore((s) => s.habits);
+
+  const currentHour = useMemo(() => {
+    const today = getDateService().getCurrentDate();
+    return date === today ? getDateService().getHour() : 0;
+  }, [date]);
+
+  return useMemo(() => {
+    const taskMinutesByBlock = { morning: 0, day: 0, evening: 0 };
+
+    todos
+      .filter((t) => !t.archived && !t.completed_at && t.due_day === date)
+      .forEach((todo) => {
+        const minutes = todo.time_estimate_minutes ?? 0;
+        if (todo.time_window === 'morning') {
+          taskMinutesByBlock.morning += minutes;
+        } else if (todo.time_window === 'day') {
+          taskMinutesByBlock.day += minutes;
+        } else if (todo.time_window === 'evening') {
+          taskMinutesByBlock.evening += minutes;
+        }
+      });
+
+    habits
+      .filter((h) => {
+        if (h.archived) return false;
+        if (!h.start_date || h.start_date > date) return false;
+        if (h.end_date && h.end_date < date) return false;
+        return true;
+      })
+      .forEach((habit) => {
+        const minutes = habit.time_estimate_minutes ?? 0;
+        if (habit.time_window === 'morning') {
+          taskMinutesByBlock.morning += minutes;
+        } else if (habit.time_window === 'day') {
+          taskMinutesByBlock.day += minutes;
+        } else if (habit.time_window === 'evening') {
+          taskMinutesByBlock.evening += minutes;
+        }
+      });
+
+    return calculateDayCapacity(
+      events,
+      currentHour,
+      date,
+      eventTimeOverrides,
+      taskMinutesByBlock,
+      timeBlockPreferences,
+    );
+  }, [events, currentHour, date, eventTimeOverrides, todos, habits, timeBlockPreferences]);
+}
