@@ -4273,24 +4273,33 @@ Return JSON only:
           return `${i + 1}. { ${parts.join(', ')} }`;
         }).join('\n');
 
-        const aiPrompt = `You are writing labels and a question for an ambiguous user input in a productivity app.
+        const aiPrompt = `You are writing short labels for an ambiguous user input. The user typed something into a quick-capture box and we need to ask what they meant.
 
 USER INPUT: "${text}"
-${ambiguityReason ? `AMBIGUITY REASON: "${ambiguityReason}"` : ''}
+${ambiguityReason ? `CONTEXT: "${ambiguityReason}"` : ''}
 
-INTERPRETATIONS (provided in order — you must not add or remove any):
+INTERPRETATIONS (in order — return exactly ${interpretations.length} labels in the same order):
 ${interpLines}
 
-YOUR TASK:
-- For each interpretation above, write a short label (4 words max, 30 chars max). Labels are casual fragments — think how someone would finish "Oh I meant..." to a friend. No periods.
-- Write a short clarification question (under 6 words, simple, neutral). Do not use productivity jargon like "track", "log", "manage", "build".
-- You must return exactly ${interpretations.length} labels in the same order as the interpretations.
-- Do not use examples.
+RULES FOR LABELS:
+- 4 words max, 30 chars max, casual fragments, no periods
+- NEVER reference app concepts in labels. Never say "to-do", "todo", "note", "list", "habit", "log", "reminder", "record", "session", "details", "add to my"
+- For todo interpretations: describe the most likely real-world action with a verb. What would this person actually DO? "Renew passport", "Find a therapist", "Do yoga", "Book dentist"
+- For log/general interpretations: use "Just remembering" or "Just a thought" — the user is noting something, not acting on it
+- For log/idea interpretations: use "Just an idea" or "Exploring it"
+- For log/journal interpretations: use "Just venting" or "Just processing"
+- For habit interpretations: describe what they'd do regularly. "Build a water habit", "Stop staying up late"
 
-Return JSON:
+RULES FOR QUESTION:
+- Under 6 words, simple, neutral
+- Do not assume any specific interpretation
+- "What about [thing]?" or "How do you mean?" work well
+- Never use "track", "log", "manage", "build", "plan" in the question
+
+Return JSON only:
 {
   "question": "short question",
-  "labels": ["label 1", "label 2", ...]
+  "labels": ["label 1", "label 2"]
 }`;
 
         // --- Make AI call ---
