@@ -4169,17 +4169,25 @@ PHASE 1 LEANED TOWARD BUCKET: ${targetBucket || 'none'}
 POSSIBLE BUCKETS — evaluate each independently as plausible (true/false):
 
 - todo: The user plausibly means a specific one-off action they need to complete. There should be something concrete to do and finish.
-- habit_build: The user plausibly means a recurring behavior they want to start doing regularly. Only plausible when the input describes an activity that makes sense as an ongoing practice. Do NOT include this just because an activity could theoretically be repeated — there must be a reasonable reading where the user wants to build a routine.
+- habit_build: The user plausibly means a recurring behavior they want to start doing regularly. Only plausible when the input describes an activity that makes sense as an ongoing practice. Do NOT include this just because an activity could theoretically be repeated — there must be a reasonable reading where the user wants to build a routine. This should rarely be plausible. Most bare nouns and activities are not habit intent without explicit frequency or regularity language from the user.
 - habit_break: The user plausibly means they want to stop or reduce a behavior. Only plausible when the input describes something negative or unwanted they are currently doing.
 - log_general: The user plausibly is just noting or remembering something. A reminder, reference, or record.
 - log_idea: The user plausibly is exploring a possibility without commitment. Brainstorming, considering, floating something.
 - log_journal: The user plausibly is processing emotions or reflecting on an experience. Only plausible when there is emotional content.
 
+When evaluating plausibility, think about the most common real-world reasons a person would say these exact words out loud to a friend.
+Do not invent interpretations that sound logical but are not how real people think.
+Each option must represent a genuinely distinct intent — if two options would feel like the same thing to a normal person, only include one.
+
 RULES:
 - Minimum 2 and maximum 4 buckets should be plausible. If only 1 passes, loosen criteria. If more than 4 pass, keep only the most distinct interpretations.
 - log_general and log_idea should rarely both be plausible — only when the distinction is genuinely meaningful for this specific input.
-- For each plausible bucket, generate a contextual label (3-8 words, first-person, referencing the user's actual content). The label must make it immediately obvious what choosing that option means and how it differs from the other options.
-- Generate a short clarification question (5-10 words, casual and warm) that references the content when natural.
+- Labels must be 4 words maximum, 30 characters maximum.
+- Labels are casual fragments, not sentences, no periods.
+- Think about how someone would finish the sentence "Oh I meant..." in 3-4 words to a friend.
+- The question must not assume or lead toward any specific interpretation.
+- The question should be simple and neutral, under 6 words when possible.
+- Avoid productivity jargon in the question.
 
 BUCKET MAPPING for output:
 - todo → bucket: "todo", subtype: null, habitSubtype: null
