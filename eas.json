@@ -6,16 +6,26 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_FEATURE_OVERLAY_V2": "on",
+        "EXPO_PUBLIC_FEATURE_COMMITMENTS": "on"
+      }
     },
     "preview": {
-      "distribution": "store"
+      "distribution": "store",
+      "env": {
+        "EXPO_PUBLIC_FEATURE_OVERLAY_V2": "on",
+        "EXPO_PUBLIC_FEATURE_COMMITMENTS": "on"
+      }
     },
     "production": {
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_AZURE_CLIENT_ID": "b21e5c01-5c85-42a6-9c31-f5eccec0dd0f",
-        "EXPO_PUBLIC_CALENDAR_WORKER_URL": "https://gremly-calendar-worker.woolmerjames.workers.dev"
+        "EXPO_PUBLIC_CALENDAR_WORKER_URL": "https://gremly-calendar-worker.woolmerjames.workers.dev",
+        "EXPO_PUBLIC_FEATURE_OVERLAY_V2": "on",
+        "EXPO_PUBLIC_FEATURE_COMMITMENTS": "on"
       }
     }
   },
