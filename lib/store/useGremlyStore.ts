@@ -3314,7 +3314,8 @@ export const useGremlyStore = create<GremlyState>()(
       const userId = get().userId;
       if (!userId) throw new Error('Not authenticated');
 
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = input.date ?? getDateService().getCurrentDate();
+      const isToday = todayDate === getDateService().getCurrentDate();
       const now = new Date().toISOString();
       const existingBrief = get().dailyBrief;
 
@@ -3339,7 +3340,9 @@ export const useGremlyStore = create<GremlyState>()(
         dismissed_habit_ids: payload.dismissed_habit_ids,
         created_at: existingBrief?.created_at ?? now,
       };
-      set({ dailyBrief: optimisticBrief });
+      if (isToday) {
+        set({ dailyBrief: optimisticBrief });
+      }
 
       try {
         if (existingBrief?.id && !existingBrief.id.startsWith('temp_')) {
@@ -3365,7 +3368,9 @@ export const useGremlyStore = create<GremlyState>()(
           if (error) throw error;
 
           // Update with real ID from database
-          set({ dailyBrief: data });
+          if (isToday) {
+            set({ dailyBrief: data });
+          }
           console.log('[GremlyStore] ✅ Created daily brief:', data.id);
         }
 
@@ -3374,7 +3379,9 @@ export const useGremlyStore = create<GremlyState>()(
       } catch (error) {
         console.error('[GremlyStore] ❌ saveBrief failed:', error);
         // Rollback optimistic update
-        set({ dailyBrief: existingBrief });
+        if (isToday) {
+          set({ dailyBrief: existingBrief });
+        }
         throw error;
       }
     },

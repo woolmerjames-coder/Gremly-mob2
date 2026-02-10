@@ -509,9 +509,8 @@ export function MorningBriefSheet({
     setIsSaving(true);
 
     try {
-      // TODO: saveBrief needs to accept an optional date param to save tomorrow's brief
-      // Current signature (DailyBriefInput) only takes sequences, date defaults to today internally
       await saveBrief({
+        ...(isTomorrow && { date: today }),
         morning_sequence: tasksByBlock.morning.map((t) => ({ id: t.id, type: t.type })),
         day_sequence: tasksByBlock.afternoon.map((t) => ({ id: t.id, type: t.type })),
         evening_sequence: tasksByBlock.evening.map((t) => ({ id: t.id, type: t.type })),
@@ -524,7 +523,7 @@ export function MorningBriefSheet({
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, saveBrief, tasksByBlock, onComplete, onClose]);
+  }, [isSaving, saveBrief, tasksByBlock, onComplete, onClose, isTomorrow, today]);
 
   // ─────────────────────────────────────────────────────────────────
   // RENDER
