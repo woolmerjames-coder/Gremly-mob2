@@ -318,6 +318,14 @@ export interface PendingDrop {
   /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
   ambiguity_reason?: string | null;
 
+  /** Preparse-derived plausible interpretations (seeds Phase 1.5 options) */
+  plausible_interpretations?: Array<{
+    bucket: string | null;
+    subtype: string | null;
+    habitSubtype: string | null;
+    dateField: string | null;
+  }> | null;
+
   /** Set to true when user resolves the clarification */
   clarification_resolved?: boolean;
 

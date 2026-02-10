@@ -392,6 +392,125 @@ function mapPreparseToClassification(preparse) {
 }
 
 /**
+ * Compute plausible interpretations from pre-phase parse signals.
+ *
+ * This is a pure deterministic function — no AI calls. It takes the structured
+ * signals extracted by the preparse step and returns an array of plausible
+ * bucket interpretations for the input. Each interpretation represents a
+ * genuinely distinct way the user might have intended their mind drop.
+ *
+ * Used by Phase 1.5 to seed the clarification options with signal-driven
+ * candidates before the AI generates contextual labels and questions.
+ *
+ * @param {object} preparse - The pre-phase parse result object containing
+ *   structural signals (core_verb, frame_type, frequency_present, etc.)
+ * @returns {Array<{bucket: string|null, subtype: string|null, habitSubtype: string|null, dateField: string|null}>}
+ *   Array of 2-4 plausible interpretation objects.
+ */
+function computePlausibleInterpretations(preparse) {
+  const interpretations = [];
+
+  // --- Evaluate each bucket independently ---
+
+  // Todo: plausible when there's a verb, noun phrase, obligation, or completion point
+  const todoPlausible =
+    preparse.core_verb != null ||
+    preparse.is_noun_phrase_only === true ||
+    preparse.obligation_framing === true ||
+    preparse.has_completion_point === true;
+
+  if (todoPlausible) {
+    interpretations.push({ bucket: 'todo', subtype: null, habitSubtype: null, dateField: null });
+  }
+
+  // Habit/build: plausible when direction without schedule, or explicit/day_names frequency
+  const habitBuildPlausible =
+    preparse.direction_without_schedule === true ||
+    (preparse.frequency_present === true &&
+      (preparse.frequency_type === 'explicit' || preparse.frequency_type === 'day_names'));
+
+  if (habitBuildPlausible) {
+    interpretations.push({ bucket: 'habit', subtype: null, habitSubtype: 'start_habit', dateField: null });
+  }
+
+  // Habit/break: plausible when frequency_type is stop_quit
+  if (preparse.frequency_type === 'stop_quit') {
+    interpretations.push({ bucket: 'habit', subtype: null, habitSubtype: 'break_habit', dateField: null });
+  }
+
+  // Log/journal: plausible when emotional content, self-reflection, or processing frame
+  const journalPlausible =
+    preparse.emotional_content === true ||
+    preparse.self_reflection === true ||
+    preparse.frame_type === 'processing';
+
+  if (journalPlausible) {
+    interpretations.push({ bucket: 'log', subtype: 'journal', habitSubtype: null, dateField: null });
+  }
+
+  // Log/idea: plausible when exploring frame, hedged verb/proposition, or hypothetical
+  const ideaPlausible =
+    preparse.frame_type === 'exploring' ||
+    (preparse.uncertainty_present === true &&
+      (preparse.uncertainty_target === 'verb' || preparse.uncertainty_target === 'entire_proposition')) ||
+    preparse.hypothetical_framing === true;
+
+  // Log/general: plausible unless pure emotional processing
+  const pureEmotionalProcessing =
+    preparse.emotional_content === true && preparse.frame_type === 'processing';
+  const generalPlausible = !pureEmotionalProcessing;
+
+  // Resolve log/general vs log/idea conflict:
+  // Both can appear only when frame_type is "exploring" AND is_noun_phrase_only is true.
+  // Otherwise, include only the one with stronger signal.
+  const bothLogsAllowed =
+    preparse.frame_type === 'exploring' && preparse.is_noun_phrase_only === true;
+
+  if (ideaPlausible && generalPlausible) {
+    if (bothLogsAllowed) {
+      interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+      interpretations.push({ bucket: 'log', subtype: 'idea', habitSubtype: null, dateField: null });
+    } else if (ideaPlausible && preparse.frame_type === 'exploring') {
+      // Idea has stronger signal
+      interpretations.push({ bucket: 'log', subtype: 'idea', habitSubtype: null, dateField: null });
+    } else {
+      // General has stronger signal (default)
+      interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+    }
+  } else if (ideaPlausible) {
+    interpretations.push({ bucket: 'log', subtype: 'idea', habitSubtype: null, dateField: null });
+  } else if (generalPlausible) {
+    interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+  }
+
+  // --- Safety: enforce 2-4 interpretations ---
+
+  // Cap at 4: drop log/idea first, then log/journal
+  if (interpretations.length > 4) {
+    const ideaIdx = interpretations.findIndex(i => i.subtype === 'idea');
+    if (ideaIdx !== -1) interpretations.splice(ideaIdx, 1);
+  }
+  if (interpretations.length > 4) {
+    const journalIdx = interpretations.findIndex(i => i.subtype === 'journal');
+    if (journalIdx !== -1) interpretations.splice(journalIdx, 1);
+  }
+
+  // Floor at 2: add fallback if needed
+  if (interpretations.length < 2) {
+    const hasGeneral = interpretations.some(i => i.bucket === 'log' && i.subtype === 'general');
+    const hasTodo = interpretations.some(i => i.bucket === 'todo');
+
+    if (!hasGeneral) {
+      interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+    } else if (!hasTodo) {
+      interpretations.push({ bucket: 'todo', subtype: null, habitSubtype: null, dateField: null });
+    }
+  }
+
+  return interpretations;
+}
+
+/**
  * Preparse system prompt - extracted for reuse.
  * @type {string}
  */
@@ -3729,6 +3848,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
 
         // Step 2: Apply heuristic mapping
         const heuristicDecision = mapPreparseToClassification(preparseResult.result);
+        const plausibleInterpretations = computePlausibleInterpretations(preparseResult.result);
 
         // Log heuristic decision
         console.log('[Phase1v2] Heuristic decision', {
@@ -3825,6 +3945,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
           is_ambiguous: result.is_ambiguous,
           ambiguity_type: result.ambiguity_type,
           ambiguity_reason: result.ambiguity_reason,
+          plausible_interpretations: result.is_ambiguous ? plausibleInterpretations : null,
           preparse_latency_ms: preparseLatency,
           phase1_latency_ms: phase1Latency,
           heuristic_reason: heuristicDecision.reason,
@@ -4112,148 +4233,65 @@ Return JSON only:
       // =========================
       if (type === 'clarify-ambiguity') {
         const text = body.text || '';
-        const ambiguityType = body.ambiguityType || 'bucket';
         const ambiguityReason = body.ambiguityReason || '';
-        const userSpaces = Array.isArray(body.userSpaces) ? body.userSpaces : [];
-        const detectedTemporal = body.detectedTemporal || null;
-        const currentDate = body.currentDate || '';
-        const targetBucket = body.targetBucket || null;
+        const interpretations = Array.isArray(body.plausibleInterpretations) ? body.plausibleInterpretations : null;
 
-        // --- Static fallbacks (used if AI fails) ---
-        const FALLBACK_OPTIONS = {
-          bucket: [
-            { id: 'opt_1', label: 'Something I need to do', bucket: 'todo', subtype: null },
-            {
-              id: 'opt_2',
-              label: 'A habit to build',
-              bucket: 'habit',
-              subtype: null,
-              habitSubtype: 'start_habit',
-            },
-            { id: 'opt_3', label: 'Just reference info', bucket: 'log', subtype: 'general' },
-            { id: 'opt_4', label: 'An idea to explore', bucket: 'log', subtype: 'idea' },
-          ],
-          action: [
-            { id: 'opt_1', label: "It's already scheduled", bucket: 'log', subtype: 'general' },
-            { id: 'opt_2', label: 'I need to book this', bucket: 'todo', subtype: null },
-          ],
-          date_type: [
-            { id: 'opt_1', label: "That's when it is", bucket: null, dateField: 'target_date' },
-            {
-              id: 'opt_2',
-              label: "That's when I'll do it",
-              bucket: null,
-              dateField: 'scheduled_date',
-            },
-          ],
-        };
-
-        const FALLBACK_QUESTIONS = {
-          bucket: 'Quick check — what did you have in mind?',
-          action: 'Quick check — is this already set?',
-          date_type: 'Quick check — what does the date mean?',
-        };
+        // --- Static fallback (used if no valid interpretations or AI fails) ---
+        const FALLBACK_OPTIONS = [
+          { id: 'opt_1', label: 'Something I need to do', bucket: 'todo', subtype: null },
+          { id: 'opt_2', label: 'A habit to build', bucket: 'habit', subtype: null, habitSubtype: 'start_habit' },
+          { id: 'opt_3', label: 'Just a note', bucket: 'log', subtype: 'general' },
+          { id: 'opt_4', label: 'An idea to explore', bucket: 'log', subtype: 'idea' },
+        ];
+        const FALLBACK_QUESTION = 'Quick check — what did you have in mind?';
 
         const t0 = Date.now();
 
-        // --- Build AI prompt based on ambiguity type ---
-        let aiPrompt;
+        // --- If no valid interpretations, use static fallback ---
+        if (!interpretations || interpretations.length < 2) {
+          const fallbackLatency = Date.now() - t0;
+          console.log('[Phase1.5] No valid interpretations, using static fallback', {
+            interpretations_count: interpretations ? interpretations.length : 0,
+            latency_ms: fallbackLatency,
+          });
 
-        if (ambiguityType === 'bucket') {
-          aiPrompt = `You are evaluating which interpretations are plausible for an ambiguous mind drop in a productivity app.
-
-USER INPUT: "${text}"
-AMBIGUITY REASON: ${ambiguityReason ? `"${ambiguityReason}"` : 'not provided'}
-PHASE 1 LEANED TOWARD BUCKET: ${targetBucket || 'none'}
-
-POSSIBLE BUCKETS — evaluate each independently as plausible (true/false):
-
-- todo: The user plausibly means a specific one-off action they need to complete. There should be something concrete to do and finish.
-- habit_build: The user plausibly means a recurring behavior they want to start doing regularly. Only plausible when the input describes an activity that makes sense as an ongoing practice. Do NOT include this just because an activity could theoretically be repeated — there must be a reasonable reading where the user wants to build a routine. This should rarely be plausible. Most bare nouns and activities are not habit intent without explicit frequency or regularity language from the user.
-- habit_break: The user plausibly means they want to stop or reduce a behavior. Only plausible when the input describes something negative or unwanted they are currently doing.
-- log_general: The user plausibly is just noting or remembering something. A reminder, reference, or record.
-- log_idea: The user plausibly is exploring a possibility without commitment. Brainstorming, considering, floating something.
-- log_journal: The user plausibly is processing emotions or reflecting on an experience. Only plausible when there is emotional content.
-
-When evaluating plausibility, think about the most common real-world reasons a person would say these exact words out loud to a friend.
-Do not invent interpretations that sound logical but are not how real people think.
-Each option must represent a genuinely distinct intent — if two options would feel like the same thing to a normal person, only include one.
-
-RULES:
-- Minimum 2 and maximum 4 buckets should be plausible. If only 1 passes, loosen criteria. If more than 4 pass, keep only the most distinct interpretations.
-- log_general and log_idea should rarely both be plausible — only when the distinction is genuinely meaningful for this specific input.
-- Labels must be 4 words maximum, 30 characters maximum.
-- Labels are casual fragments, not sentences, no periods.
-- Think about how someone would finish the sentence "Oh I meant..." in 3-4 words to a friend.
-- The question must not assume or lead toward any specific interpretation.
-- The question should be simple and neutral, under 6 words when possible.
-- Avoid productivity jargon in the question.
-
-BUCKET MAPPING for output:
-- todo → bucket: "todo", subtype: null, habitSubtype: null
-- habit_build → bucket: "habit", subtype: null, habitSubtype: "start_habit"
-- habit_break → bucket: "habit", subtype: null, habitSubtype: "break_habit"
-- log_general → bucket: "log", subtype: "general", habitSubtype: null
-- log_idea → bucket: "log", subtype: "idea", habitSubtype: null
-- log_journal → bucket: "log", subtype: "journal", habitSubtype: null
-
-Return JSON:
-{
-  "question": "contextual clarification question",
-  "options": [
-    {
-      "id": "opt_1",
-      "label": "contextual label",
-      "bucket": "todo" | "habit" | "log",
-      "subtype": null | "general" | "idea" | "journal",
-      "habitSubtype": null | "start_habit" | "break_habit"
-    }
-  ]
-}`;
-        } else if (ambiguityType === 'action') {
-          aiPrompt = `You are evaluating an ambiguous mind drop in a productivity app where it is unclear whether something already exists or the user needs to take action.
-
-USER INPUT: "${text}"
-AMBIGUITY REASON: ${ambiguityReason ? `"${ambiguityReason}"` : 'not provided'}
-
-TWO POSSIBLE INTERPRETATIONS:
-1. The thing already exists or is scheduled — the user is just noting/recording it (maps to bucket: "log", subtype: "general")
-2. The user needs to take action on it — they need to create, book, or do something (maps to bucket: "todo", subtype: null)
-
-For each interpretation, generate a contextual label (3-8 words, first-person, referencing the user's actual content). The label must make it immediately obvious what choosing that option means.
-Generate a short clarification question (5-10 words, casual and warm) that references the content when natural.
-
-Return JSON:
-{
-  "question": "contextual clarification question",
-  "options": [
-    { "id": "opt_1", "label": "contextual label for already-exists", "bucket": "log", "subtype": "general", "habitSubtype": null },
-    { "id": "opt_2", "label": "contextual label for needs-action", "bucket": "todo", "subtype": null, "habitSubtype": null }
-  ]
-}`;
-        } else if (ambiguityType === 'date_type') {
-          aiPrompt = `You are evaluating an ambiguous mind drop in a productivity app where a date was mentioned but it is unclear what the date means.
-
-USER INPUT: "${text}"
-AMBIGUITY REASON: ${ambiguityReason ? `"${ambiguityReason}"` : 'not provided'}
-DETECTED DATE: ${detectedTemporal || 'unknown'}
-
-TWO POSSIBLE INTERPRETATIONS:
-1. The date is when something happens — an event date, a deadline, or when something occurs (dateField: "target_date")
-2. The date is when the user will do the work — when they plan to sit down and handle it (dateField: "scheduled_date")
-
-For each interpretation, generate a contextual label (3-8 words, first-person, referencing the user's actual content and the date). The label must make it immediately obvious what choosing that option means.
-Generate a short clarification question (5-10 words, casual and warm) that references the content when natural.
-
-Return JSON:
-{
-  "question": "contextual clarification question",
-  "options": [
-    { "id": "opt_1", "label": "contextual label for event-date", "bucket": null, "dateField": "target_date" },
-    { "id": "opt_2", "label": "contextual label for work-date", "bucket": null, "dateField": "scheduled_date" }
-  ]
-}`;
+          return j({
+            success: true,
+            clarification_question: FALLBACK_QUESTION,
+            options: FALLBACK_OPTIONS,
+            latency_ms: fallbackLatency,
+          });
         }
+
+        // --- Build interpretation list for prompt ---
+        const interpLines = interpretations.map((interp, i) => {
+          const parts = [];
+          if (interp.bucket) parts.push(`bucket: ${interp.bucket}`);
+          if (interp.subtype) parts.push(`subtype: ${interp.subtype}`);
+          if (interp.habitSubtype) parts.push(`habitSubtype: ${interp.habitSubtype}`);
+          if (interp.dateField) parts.push(`dateField: ${interp.dateField}`);
+          return `${i + 1}. { ${parts.join(', ')} }`;
+        }).join('\n');
+
+        const aiPrompt = `You are writing labels and a question for an ambiguous user input in a productivity app.
+
+USER INPUT: "${text}"
+${ambiguityReason ? `AMBIGUITY REASON: "${ambiguityReason}"` : ''}
+
+INTERPRETATIONS (provided in order — you must not add or remove any):
+${interpLines}
+
+YOUR TASK:
+- For each interpretation above, write a short label (4 words max, 30 chars max). Labels are casual fragments — think how someone would finish "Oh I meant..." to a friend. No periods.
+- Write a short clarification question (under 6 words, simple, neutral). Do not use productivity jargon like "track", "log", "manage", "build".
+- You must return exactly ${interpretations.length} labels in the same order as the interpretations.
+- Do not use examples.
+
+Return JSON:
+{
+  "question": "short question",
+  "labels": ["label 1", "label 2", ...]
+}`;
 
         // --- Make AI call ---
         try {
@@ -4267,7 +4305,7 @@ Return JSON:
               model: 'gpt-4o-mini',
               messages: [{ role: 'user', content: aiPrompt }],
               temperature: 0.3,
-              max_tokens: 300,
+              max_tokens: 200,
               response_format: { type: 'json_object' },
             }),
           });
@@ -4279,49 +4317,25 @@ Return JSON:
             const parsed = JSON.parse(oj.choices[0].message.content);
 
             // --- Validate response ---
-            let question =
+            const question =
               typeof parsed.question === 'string' && parsed.question.trim()
                 ? parsed.question.trim().substring(0, 100)
                 : null;
 
-            let options = [];
-            if (Array.isArray(parsed.options)) {
-              const validBuckets = ['todo', 'habit', 'log', null];
-              const validSubtypes = [null, 'general', 'idea', 'journal'];
-              const validDateFields = ['target_date', 'scheduled_date'];
+            const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
 
-              for (let i = 0; i < parsed.options.length && options.length < 4; i++) {
-                const opt = parsed.options[i];
-                if (!opt || typeof opt.label !== 'string' || !opt.label.trim()) continue;
+            // Labels count must match interpretations count
+            if (labels.length === interpretations.length && labels.every(l => typeof l === 'string' && l.trim())) {
+              const options = interpretations.map((interp, i) => ({
+                id: `opt_${i + 1}`,
+                label: labels[i].trim().substring(0, 60),
+                bucket: interp.bucket || null,
+                subtype: interp.subtype || null,
+                habitSubtype: interp.habitSubtype || null,
+                dateField: interp.dateField || null,
+              }));
 
-                const validated = {
-                  id: `opt_${options.length + 1}`,
-                  label: opt.label.trim().substring(0, 60),
-                };
-
-                if (ambiguityType === 'date_type') {
-                  if (!validDateFields.includes(opt.dateField)) continue;
-                  validated.bucket = null;
-                  validated.dateField = opt.dateField;
-                } else {
-                  if (!validBuckets.includes(opt.bucket)) continue;
-                  validated.bucket = opt.bucket;
-                  validated.subtype = validSubtypes.includes(opt.subtype) ? opt.subtype : null;
-                  if (opt.habitSubtype === 'start_habit' || opt.habitSubtype === 'break_habit') {
-                    validated.habitSubtype = opt.habitSubtype;
-                  } else {
-                    validated.habitSubtype = null;
-                  }
-                }
-
-                options.push(validated);
-              }
-            }
-
-            // If validation passes (2+ options), use AI result
-            if (options.length >= 2) {
               console.log('[Phase1.5] AI success', {
-                ambiguityType,
                 question,
                 options_count: options.length,
                 latency_ms: latency,
@@ -4329,18 +4343,16 @@ Return JSON:
 
               return j({
                 success: true,
-                clarification_question:
-                  question || FALLBACK_QUESTIONS[ambiguityType] || 'What did you have in mind?',
+                clarification_question: question || FALLBACK_QUESTION,
                 options,
                 latency_ms: latency,
               });
             }
 
-            // AI returned but validation failed — fall through to fallback
-            console.log('[Phase1.5] AI validation failed, using fallback', {
-              ambiguityType,
-              raw_options: parsed.options?.length,
-              valid_options: options.length,
+            // Labels didn't match — fall through to fallback
+            console.log('[Phase1.5] AI labels mismatch, using fallback', {
+              expected: interpretations.length,
+              got: labels.length,
               latency_ms: latency,
             });
           }
@@ -4354,19 +4366,15 @@ Return JSON:
 
         // --- Fallback: static options ---
         const fallbackLatency = Date.now() - t0;
-        const fallbackOptions = FALLBACK_OPTIONS[ambiguityType] || FALLBACK_OPTIONS.bucket;
-        const fallbackQuestion = FALLBACK_QUESTIONS[ambiguityType] || 'What did you have in mind?';
-
         console.log('[Phase1.5] Using static fallback', {
-          ambiguityType,
-          options_count: fallbackOptions.length,
+          options_count: FALLBACK_OPTIONS.length,
           latency_ms: fallbackLatency,
         });
 
         return j({
           success: true,
-          clarification_question: fallbackQuestion,
-          options: fallbackOptions,
+          clarification_question: FALLBACK_QUESTION,
+          options: FALLBACK_OPTIONS,
           latency_ms: fallbackLatency,
         });
       }

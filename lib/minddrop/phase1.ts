@@ -214,6 +214,7 @@ export async function runPhase1(
     is_ambiguous: apiResult.is_ambiguous || false,
     ambiguity_reason: apiResult.ambiguity_reason || null,
     ambiguity_type: apiResult.ambiguity_type || null,
+    plausible_interpretations: apiResult.plausible_interpretations || null,
     // Clarification fields (populated by Phase 1.5 asynchronously)
     needs_clarification: apiResult.needs_clarification || false,
     clarification_type: apiResult.clarification_type || null,
