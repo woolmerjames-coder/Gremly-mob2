@@ -32,6 +32,63 @@ import { HabitBuilderProgress } from './HabitBuilderProgress';
 import { Text } from '../../ui/Text';
 import { lightTokens } from '../../design/tokens';
 import type { SpaceChatMessage, HabitBuilderResolvedFields, HabitSubtype } from '../../lib/types';
+import { dateService } from '../../lib/date/DateService';
+
+// ─── Streaming Bubble ─────────────────────────────────────────────
+// Self-updating component that reads from a content ref.
+// FlatList never re-renders during streaming — only this component does.
+interface StreamingBubbleProps {
+  contentRef: React.MutableRefObject<string>;
+  visible: boolean;
+  isSearching: boolean;
+  searchQuery: string | null;
+}
+
+function StreamingBubble({ contentRef, visible, isSearching, searchQuery }: StreamingBubbleProps) {
+  const [displayContent, setDisplayContent] = useState('');
+
+  useEffect(() => {
+    if (!visible) {
+      setDisplayContent('');
+      return;
+    }
+
+    // Poll the ref at 60ms intervals for smooth text appearance
+    const timer = setInterval(() => {
+      const current = contentRef.current;
+      if (current !== displayContent) {
+        setDisplayContent(current);
+      }
+    }, 60);
+
+    return () => clearInterval(timer);
+  }, [visible, contentRef]); // intentionally exclude displayContent to avoid re-creating timer
+
+  if (!visible) return null;
+
+  // Show searching indicator when waiting for Tavily
+  if (isSearching && !displayContent) {
+    return (
+      <Animated.View style={styles.searchingContainer} entering={FadeIn.duration(200)}>
+        <Text style={styles.searchingText}>Searching: {searchQuery}</Text>
+      </Animated.View>
+    );
+  }
+
+  // Render the streaming message using ChatBubble
+  const streamingMsg: SpaceChatMessage = {
+    id: 'streaming-active',
+    chat_id: '',
+    space_id: '',
+    user_id: '',
+    role: 'assistant',
+    content: displayContent,
+    created_at: new Date().toISOString(),
+    isStreaming: true,
+  };
+
+  return <ChatBubble message={streamingMsg} />;
+}
 
 // ─── Props ───────────────────────────────────────────────────────────
 export interface HabitBuilderScreenProps {
@@ -81,6 +138,7 @@ export function HabitBuilderScreen({
   const spaces = useGremlyStore((s) => s.spaces);
   const userId = useGremlyStore((s) => s.userId);
   const createHabit = useGremlyStore((s) => s.createHabit);
+  const updateHabit = useGremlyStore((s) => s.updateHabit);
 
   // ─── State ──────────────────────────────────────────────────────
   const [messages, setMessages] = useState<SpaceChatMessage[]>([]);
@@ -94,14 +152,15 @@ export function HabitBuilderScreen({
   const streamRef = useRef<{ close: () => void } | null>(null);
   const hasStarted = useRef(false);
   const mountedRef = useRef(true);
-  const streamBufferRef = useRef<string>('');
-  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const streamContentRef = useRef<string>('');
+  const createdHabitIdRef = useRef<string | null>(null);
+  const [isStreamActive, setIsStreamActive] = useState(false);
 
   // ─── Build context ──────────────────────────────────────────────
   const chatContext = useMemo(() => {
     const now = new Date();
     return {
-      currentDate: now.toISOString().split('T')[0],
+      currentDate: dateService.today(),
       dayOfWeek: now.toLocaleDateString('en-US', { weekday: 'long' }),
       userName: userName || undefined,
       existingHabits: habits
@@ -112,9 +171,7 @@ export function HabitBuilderScreen({
           frequency: h.frequency || undefined,
           space_name: spaces.find((s) => s.id === h.space_id)?.name,
         })),
-      spaces: spaces
-        .filter((s) => !s.archived_at)
-        .map((s) => ({ id: s.id, name: s.name })),
+      spaces: spaces.filter((s) => !s.archived_at).map((s) => ({ id: s.id, name: s.name })),
       prefill: prefill || undefined,
     };
   }, [habits, spaces, userName, prefill]);
@@ -136,24 +193,11 @@ export function HabitBuilderScreen({
         created_at: new Date().toISOString(),
       };
 
-      // Create streaming placeholder
-      const streamingMsgId = nextId();
-      const streamingMsg: SpaceChatMessage = {
-        id: streamingMsgId,
-        chat_id: '',
-        space_id: '',
-        user_id: '',
-        role: 'assistant',
-        content: '',
-        created_at: new Date().toISOString(),
-        isStreaming: true,
-      };
+      setMessages((prev) => [...prev, ...(isInitial ? [] : [userMsg])]);
 
-      setMessages((prev) => [
-        ...prev,
-        ...(isInitial ? [] : [userMsg]),
-        streamingMsg,
-      ]);
+      // Reset the content ref and show the streaming bubble
+      streamContentRef.current = '';
+      setIsStreamActive(true);
 
       // Build request messages from history (exclude streaming placeholder)
       const requestMessages = messages
@@ -169,24 +213,6 @@ export function HabitBuilderScreen({
         requestMessages.push({ role: 'user', content: text });
       }
 
-      // Start streaming buffer — flush accumulated deltas every 40ms for smooth text appearance
-      let accumulatedContent = '';
-      streamBufferRef.current = '';
-
-      flushTimerRef.current = setInterval(() => {
-        if (!mountedRef.current) return;
-        const buffered = streamBufferRef.current;
-        if (buffered) {
-          streamBufferRef.current = '';
-          accumulatedContent += buffered;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === streamingMsgId ? { ...m, content: accumulatedContent } : m,
-            ),
-          );
-        }
-      }, 80);
-
       streamRef.current = callHabitBuilderStreaming(
         {
           type: 'habit-builder',
@@ -197,7 +223,7 @@ export function HabitBuilderScreen({
         {
           onDelta: (delta) => {
             if (!mountedRef.current) return;
-            streamBufferRef.current += delta;
+            streamContentRef.current += delta;
           },
           onSearching: (query) => {
             if (!mountedRef.current) return;
@@ -206,16 +232,16 @@ export function HabitBuilderScreen({
           },
           onComplete: (response) => {
             if (!mountedRef.current) return;
-            // Flush any remaining buffer and stop the timer
-            if (flushTimerRef.current) {
-              clearInterval(flushTimerRef.current);
-              flushTimerRef.current = null;
-            }
+
             setIsSearching(false);
             setSearchQuery(null);
-            // Finalize message — remove streaming flag
+
+            // Hide streaming bubble
+            setIsStreamActive(false);
+
+            // Add finalized message to FlatList data
             const finalMsg: SpaceChatMessage = {
-              id: streamingMsgId,
+              id: nextId(),
               chat_id: '',
               space_id: '',
               user_id: '',
@@ -223,19 +249,34 @@ export function HabitBuilderScreen({
               content: response.content,
               created_at: new Date().toISOString(),
               sources: response.sources,
-            } as any;
+            };
 
-            setMessages((prev) =>
-              prev.map((m) => (m.id === streamingMsgId ? finalMsg : m)),
-            );
+            setMessages((prev) => [...prev, finalMsg]);
 
-            // Update resolved fields from server
+            // Update resolved fields
             if (response.resolved_fields) {
               setResolved(response.resolved_fields);
             }
 
+            // If we just created a habit and this is the send-off response, save tips as notes
+            if (createdHabitIdRef.current && response.content) {
+              const habitId = createdHabitIdRef.current;
+              createdHabitIdRef.current = null; // Only save once
+
+              // Combine motivation (from extraction) with tips (from send-off)
+              const motivation = resolved.notes || '';
+              const tips = response.content;
+              const combinedNotes = motivation ? `${motivation}\n\n---\n\n${tips}` : tips;
+
+              // Update the habit's notes field asynchronously
+              updateHabit(habitId, { notes: combinedNotes }).catch((err: any) =>
+                console.error('[HabitBuilder] Failed to save tips:', err),
+              );
+            }
+
             setIsLoading(false);
             streamRef.current = null;
+            streamContentRef.current = '';
 
             setTimeout(() => {
               flatListRef.current?.scrollToEnd({ animated: true });
@@ -243,27 +284,24 @@ export function HabitBuilderScreen({
           },
           onError: (error) => {
             if (!mountedRef.current) return;
-            if (flushTimerRef.current) {
-              clearInterval(flushTimerRef.current);
-              flushTimerRef.current = null;
-            }
             setIsSearching(false);
             setSearchQuery(null);
+            setIsStreamActive(false);
             console.error('[HabitBuilder] Stream error:', error);
+
             const errorMsg: SpaceChatMessage = {
-              id: streamingMsgId,
+              id: nextId(),
               chat_id: '',
               space_id: '',
               user_id: '',
               role: 'assistant',
-              content: "Having trouble right now — try again in a sec.",
+              content: 'Having trouble right now — try again in a sec.',
               created_at: new Date().toISOString(),
             };
-            setMessages((prev) =>
-              prev.map((m) => (m.id === streamingMsgId ? errorMsg : m)),
-            );
+            setMessages((prev) => [...prev, errorMsg]);
             setIsLoading(false);
             streamRef.current = null;
+            streamContentRef.current = '';
           },
         },
       );
@@ -276,7 +314,7 @@ export function HabitBuilderScreen({
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     },
-    [isLoading, messages, chatContext, prefill],
+    [isLoading, messages, chatContext, prefill, resolved.notes, updateHabit],
   );
 
   // ─── Auto-start ───────────────────────────────────────────────
@@ -313,10 +351,12 @@ export function HabitBuilderScreen({
         name: resolved.name,
         subtype: (resolved.habit_type === 'break' ? 'break_habit' : 'start_habit') as HabitSubtype,
         frequency: resolved.target || 'daily',
-        start_date: resolved.start_date || new Date().toISOString().split('T')[0],
+        start_date: resolved.start_date || dateService.today(),
         start_date_confirmed: true,
         time_window: resolved.time_window
-          ? ({ morning: 'morning', afternoon: 'day', evening: 'evening', anytime: 'any' } as const)[resolved.time_window]
+          ? ({ morning: 'morning', afternoon: 'day', evening: 'evening', anytime: 'any' } as const)[
+              resolved.time_window
+            ]
           : null,
         space_id: resolvedSpaceId,
         notes: resolved.notes || null,
@@ -326,6 +366,11 @@ export function HabitBuilderScreen({
       };
 
       const newHabit = await createHabit(habitData);
+
+      // Store ID so the send-off response can update the habit's notes
+      if (newHabit?.id) {
+        createdHabitIdRef.current = newHabit.id;
+      }
 
       // Reset isCreating BEFORE sending the follow-up message,
       // so the disabled state is governed purely by isLoading from here on
@@ -353,7 +398,16 @@ export function HabitBuilderScreen({
         },
       ]);
     }
-  }, [resolved, isCreating, spaceId, spaces, userId, createHabit, onHabitCreated, handleSendMessage]);
+  }, [
+    resolved,
+    isCreating,
+    spaceId,
+    spaces,
+    userId,
+    createHabit,
+    onHabitCreated,
+    handleSendMessage,
+  ]);
 
   // ─── Handle chip tap ─────────────────────────────────────────
   const handleChipTap = useCallback(
@@ -378,33 +432,13 @@ export function HabitBuilderScreen({
   const renderMessage = useCallback(
     ({ item, index }: { item: SpaceChatMessage; index: number }) => {
       const isLastAssistant =
-        item.role === 'assistant' &&
-        !(item as any).isStreaming &&
-        index === messages.length - 1;
-
-      const isStreamingAndSearching =
-        (item as any).isStreaming && isSearching && !item.content;
+        item.role === 'assistant' && index === messages.length - 1 && !isStreamActive; // Only show chips when NOT streaming
 
       return (
         <View>
-          {isStreamingAndSearching ? (
-            <Animated.View
-              style={styles.searchingContainer}
-              entering={FadeIn.duration(200)}
-            >
-              <Text style={styles.searchingText}>
-                Searching: {searchQuery}
-              </Text>
-            </Animated.View>
-          ) : (
-            <ChatBubble message={item} />
-          )}
-          {/* Chips below the last assistant message */}
+          <ChatBubble message={item} />
           {isLastAssistant && chipConfig && (
-            <Animated.View
-              style={styles.chipsRow}
-              entering={FadeIn.duration(200).delay(100)}
-            >
+            <Animated.View style={styles.chipsRow} entering={FadeIn.duration(200).delay(100)}>
               {chipConfig.chips.map((chip, idx) => {
                 const isLockIn = chip.includes('Lock it in');
                 return (
@@ -414,9 +448,7 @@ export function HabitBuilderScreen({
                     onPress={() => handleChipTap(chip)}
                     activeOpacity={0.7}
                   >
-                    <Text
-                      style={[styles.chipText, isLockIn && styles.chipTextPrimary]}
-                    >
+                    <Text style={[styles.chipText, isLockIn && styles.chipTextPrimary]}>
                       {chip}
                     </Text>
                   </TouchableOpacity>
@@ -427,7 +459,7 @@ export function HabitBuilderScreen({
         </View>
       );
     },
-    [messages.length, chipConfig, handleChipTap, isSearching, searchQuery],
+    [messages.length, chipConfig, handleChipTap, isStreamActive],
   );
 
   // ─── Cleanup ─────────────────────────────────────────────────
@@ -435,9 +467,6 @@ export function HabitBuilderScreen({
     return () => {
       mountedRef.current = false;
       streamRef.current?.close();
-      if (flushTimerRef.current) {
-        clearInterval(flushTimerRef.current);
-      }
     };
   }, []);
 
@@ -473,8 +502,16 @@ export function HabitBuilderScreen({
             renderItem={renderMessage}
             style={styles.messages}
             contentContainerStyle={styles.messageList}
+            ListFooterComponent={
+              <StreamingBubble
+                contentRef={streamContentRef}
+                visible={isStreamActive}
+                isSearching={isSearching}
+                searchQuery={searchQuery}
+              />
+            }
             onContentSizeChange={() => {
-              if (messages.length > 0) {
+              if (messages.length > 0 || isStreamActive) {
                 flatListRef.current?.scrollToEnd({ animated: false });
               }
             }}
@@ -589,7 +626,7 @@ const styles = StyleSheet.create({
   searchingText: {
     fontSize: 14,
     fontFamily: lightTokens.typography.fontFamily.regular,
-    color: lightTokens.colors.textSecondary,
+    color: lightTokens.colors.subtle,
     fontStyle: 'italic',
   },
 });

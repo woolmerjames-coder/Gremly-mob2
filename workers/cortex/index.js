@@ -430,12 +430,22 @@ function computePlausibleInterpretations(preparse) {
       (preparse.frequency_type === 'explicit' || preparse.frequency_type === 'day_names'));
 
   if (habitBuildPlausible) {
-    interpretations.push({ bucket: 'habit', subtype: null, habitSubtype: 'start_habit', dateField: null });
+    interpretations.push({
+      bucket: 'habit',
+      subtype: null,
+      habitSubtype: 'start_habit',
+      dateField: null,
+    });
   }
 
   // Habit/break: plausible when frequency_type is stop_quit
   if (preparse.frequency_type === 'stop_quit') {
-    interpretations.push({ bucket: 'habit', subtype: null, habitSubtype: 'break_habit', dateField: null });
+    interpretations.push({
+      bucket: 'habit',
+      subtype: null,
+      habitSubtype: 'break_habit',
+      dateField: null,
+    });
   }
 
   // Log/journal: plausible when emotional content, self-reflection, or processing frame
@@ -445,14 +455,20 @@ function computePlausibleInterpretations(preparse) {
     preparse.frame_type === 'processing';
 
   if (journalPlausible) {
-    interpretations.push({ bucket: 'log', subtype: 'journal', habitSubtype: null, dateField: null });
+    interpretations.push({
+      bucket: 'log',
+      subtype: 'journal',
+      habitSubtype: null,
+      dateField: null,
+    });
   }
 
   // Log/idea: plausible when exploring frame, hedged verb/proposition, or hypothetical
   const ideaPlausible =
     preparse.frame_type === 'exploring' ||
     (preparse.uncertainty_present === true &&
-      (preparse.uncertainty_target === 'verb' || preparse.uncertainty_target === 'entire_proposition')) ||
+      (preparse.uncertainty_target === 'verb' ||
+        preparse.uncertainty_target === 'entire_proposition')) ||
     preparse.hypothetical_framing === true;
 
   // Log/general: plausible unless pure emotional processing
@@ -468,40 +484,60 @@ function computePlausibleInterpretations(preparse) {
 
   if (ideaPlausible && generalPlausible) {
     if (bothLogsAllowed) {
-      interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+      interpretations.push({
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        dateField: preparse.temporal_specificity ? 'target_date' : null,
+      });
       interpretations.push({ bucket: 'log', subtype: 'idea', habitSubtype: null, dateField: null });
     } else if (ideaPlausible && preparse.frame_type === 'exploring') {
       // Idea has stronger signal
       interpretations.push({ bucket: 'log', subtype: 'idea', habitSubtype: null, dateField: null });
     } else {
       // General has stronger signal (default)
-      interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+      interpretations.push({
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        dateField: preparse.temporal_specificity ? 'target_date' : null,
+      });
     }
   } else if (ideaPlausible) {
     interpretations.push({ bucket: 'log', subtype: 'idea', habitSubtype: null, dateField: null });
   } else if (generalPlausible) {
-    interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+    interpretations.push({
+      bucket: 'log',
+      subtype: 'general',
+      habitSubtype: null,
+      dateField: preparse.temporal_specificity ? 'target_date' : null,
+    });
   }
 
   // --- Safety: enforce 2-4 interpretations ---
 
   // Cap at 4: drop log/idea first, then log/journal
   if (interpretations.length > 4) {
-    const ideaIdx = interpretations.findIndex(i => i.subtype === 'idea');
+    const ideaIdx = interpretations.findIndex((i) => i.subtype === 'idea');
     if (ideaIdx !== -1) interpretations.splice(ideaIdx, 1);
   }
   if (interpretations.length > 4) {
-    const journalIdx = interpretations.findIndex(i => i.subtype === 'journal');
+    const journalIdx = interpretations.findIndex((i) => i.subtype === 'journal');
     if (journalIdx !== -1) interpretations.splice(journalIdx, 1);
   }
 
   // Floor at 2: add fallback if needed
   if (interpretations.length < 2) {
-    const hasGeneral = interpretations.some(i => i.bucket === 'log' && i.subtype === 'general');
-    const hasTodo = interpretations.some(i => i.bucket === 'todo');
+    const hasGeneral = interpretations.some((i) => i.bucket === 'log' && i.subtype === 'general');
+    const hasTodo = interpretations.some((i) => i.bucket === 'todo');
 
     if (!hasGeneral) {
-      interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+      interpretations.push({
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        dateField: preparse.temporal_specificity ? 'target_date' : null,
+      });
     } else if (!hasTodo) {
       interpretations.push({ bucket: 'todo', subtype: null, habitSubtype: null, dateField: null });
     }
@@ -2013,7 +2049,7 @@ The pattern: drop the preamble, drop the advice, just ask the next genuine quest
 - Never write more than 3 sentences unless the user asked for detailed information
 
 === THE CONFIRMATION ===
-When you naturally have all 4 things and the conversation feels settled:
+When you have all 4 things and the conversation feels settled:
 
 "Here's what I've got:"
 
@@ -2023,7 +2059,27 @@ Starts next Monday
 
 "Want to lock this in, or tweak anything?"
 
-Brief and clean. If they confirm: one warm sentence, done.`;
+If they confirm: one warm sentence, done.
+
+=== AFTER CONFIRMATION — THE HABIT KIT ===
+When the user confirms (sends "Lock it in" or similar), respond with a warm send-off that includes a **personalized habit kit**. This is the part that makes you special — not just a tracker, but a thinking partner who sets them up for success.
+
+Your send-off should include:
+
+1. **A warm one-liner** acknowledging the habit is locked in
+2. **2-3 practical, specific tips** tailored to THIS habit and THIS person's context:
+   - Habit stacking: pair it with something they already do ("right after your morning coffee" or "when you brush your teeth at night")
+   - A concrete first-day suggestion: what exactly to do on day one to make starting easy
+   - An ADHD-friendly tip if they mentioned ADHD: reduce friction, set visual cues, keep the bar low
+   - A realistic obstacle and how to handle it: "If you miss a day, just do it the next — no streak pressure here"
+3. **Use web_search** if it would genuinely help — e.g., "best times to walk dogs for bonding" or "ADHD habit stacking techniques." Real information beats generic advice.
+
+Format the tips as a clean, readable block — short paragraphs, not bullet points. Keep the total send-off to 80-150 words. It should feel like a friend giving you a quick pep talk with actual useful ideas, not a self-help book.
+
+Example tone (DO NOT copy these words):
+"Locked in. Here's what might help it stick: try pairing your walk with something you already do daily — right after your morning coffee, leash goes on. For day one, keep it short — even 10 minutes counts. And if you miss a morning, an evening walk works just as well. Bella won't care about the schedule."
+
+This send-off content will be saved as notes on the habit, so write it as something the user would want to re-read later.`;
 
       // =========================
       // === HABIT BUILDER CHAT ===
@@ -2035,8 +2091,10 @@ Brief and clean. If they confirm: one warm sentence, done.`;
         // ── Build context string ──
         const contextParts = [];
 
+        // eslint-disable-next-line no-restricted-syntax -- server-side fallback; client sends local date via dateService
         const today = context.currentDate || new Date().toISOString().split('T')[0];
-        const dow = context.dayOfWeek || new Date().toLocaleDateString('en-US', { weekday: 'long' });
+        const dow =
+          context.dayOfWeek || new Date().toLocaleDateString('en-US', { weekday: 'long' });
         contextParts.push(`Today is ${dow}, ${today}.`);
 
         if (context.userName) {
@@ -2045,7 +2103,7 @@ Brief and clean. If they confirm: one warm sentence, done.`;
 
         if (context.existingHabits && context.existingHabits.length > 0) {
           const habitList = context.existingHabits
-            .map(h => {
+            .map((h) => {
               let desc = `- "${h.name}" (${h.subtype === 'break_habit' ? 'break' : 'build'})`;
               if (h.frequency) desc += ` — ${h.frequency}`;
               if (h.space_name) desc += ` [${h.space_name}]`;
@@ -2058,12 +2116,14 @@ Brief and clean. If they confirm: one warm sentence, done.`;
         }
 
         if (context.spaces && context.spaces.length > 0) {
-          const spaceList = context.spaces.map(s => `- "${s.name}"`).join('\n');
+          const spaceList = context.spaces.map((s) => `- "${s.name}"`).join('\n');
           contextParts.push(`\n=== USER'S SPACES ===\n${spaceList}`);
         }
 
         if (context.prefill) {
-          contextParts.push(`\n=== PRE-FILLED INTENT ===\nThe user started with: "${context.prefill}"\nUse this as the starting point — don't ask "what habit?" again.`);
+          contextParts.push(
+            `\n=== PRE-FILLED INTENT ===\nThe user started with: "${context.prefill}"\nUse this as the starting point — don't ask "what habit?" again.`,
+          );
         }
 
         const contextString = contextParts.join('\n');
@@ -2112,220 +2172,234 @@ Brief and clean. If they confirm: one warm sentence, done.`;
           const encoder = new TextEncoder();
           const decoder = new TextDecoder();
 
-        (async () => {
-          // Send initial SSE ping
-          await writer.write(encoder.encode(': ping\n\n'));
+          (async () => {
+            // Send initial SSE ping
+            await writer.write(encoder.encode(': ping\n\n'));
 
-          const reader = openaiRes.body.getReader();
-          let buffer = '';
-          let fullContent = '';
-          let sources = undefined;
+            const reader = openaiRes.body.getReader();
+            let buffer = '';
+            let fullContent = '';
+            let sources = undefined;
 
-          // Track tool call accumulation
-          let toolCalls = [];
+            // Track tool call accumulation
+            let toolCalls = [];
 
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
+            try {
+              // eslint-disable-next-line no-constant-condition
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split(/\r?\n/);
-              buffer = lines.pop() || '';
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split(/\r?\n/);
+                buffer = lines.pop() || '';
 
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed || trimmed === 'data: [DONE]') continue;
-                if (!trimmed.startsWith('data: ')) continue;
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed === 'data: [DONE]') continue;
+                  if (!trimmed.startsWith('data: ')) continue;
 
-                try {
-                  const json = JSON.parse(trimmed.slice(6));
-                  const delta = json.choices?.[0]?.delta?.content;
+                  try {
+                    const json = JSON.parse(trimmed.slice(6));
+                    const delta = json.choices?.[0]?.delta?.content;
 
-                  if (delta) {
-                    fullContent += delta;
-                    const sseData = JSON.stringify({ delta, done: false });
-                    await writer.write(encoder.encode(`data: ${sseData}\n\n`));
-                  }
-
-                  // Accumulate tool calls
-                  const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
-                  if (toolCallDeltas) {
-                    for (const toolCallDelta of toolCallDeltas) {
-                      const idx = toolCallDelta.index ?? 0;
-                      if (!toolCalls[idx]) {
-                        toolCalls[idx] = { id: null, name: null, arguments: '' };
-                      }
-                      if (toolCallDelta.id) toolCalls[idx].id = toolCallDelta.id;
-                      if (toolCallDelta.function?.name) toolCalls[idx].name = toolCallDelta.function.name;
-                      if (toolCallDelta.function?.arguments) toolCalls[idx].arguments += toolCallDelta.function.arguments;
+                    if (delta) {
+                      fullContent += delta;
+                      const sseData = JSON.stringify({ delta, done: false });
+                      await writer.write(encoder.encode(`data: ${sseData}\n\n`));
                     }
+
+                    // Accumulate tool calls
+                    const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
+                    if (toolCallDeltas) {
+                      for (const toolCallDelta of toolCallDeltas) {
+                        const idx = toolCallDelta.index ?? 0;
+                        if (!toolCalls[idx]) {
+                          toolCalls[idx] = { id: null, name: null, arguments: '' };
+                        }
+                        if (toolCallDelta.id) toolCalls[idx].id = toolCallDelta.id;
+                        if (toolCallDelta.function?.name)
+                          toolCalls[idx].name = toolCallDelta.function.name;
+                        if (toolCallDelta.function?.arguments)
+                          toolCalls[idx].arguments += toolCallDelta.function.arguments;
+                      }
+                    }
+                  } catch (parseErr) {
+                    // skip
                   }
-                } catch (parseErr) {
-                  // skip
                 }
               }
-            }
 
-            // ── Handle web search tool calls ──
-            const webSearchCalls = toolCalls.filter(tc => tc.name === 'web_search' && tc.arguments);
-
-            if (webSearchCalls.length > 0) {
-              console.log('[HabitBuilder:Streaming] Web search triggered', { searchCount: webSearchCalls.length });
-
-              // Notify client we're searching
-              let firstQuery = '';
-              try {
-                firstQuery = JSON.parse(webSearchCalls[0].arguments).query || '';
-              } catch {
-                const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
-                firstQuery = match ? match[1] : 'searching';
-              }
-              await writer.write(
-                encoder.encode(`data: ${JSON.stringify({ searching: true, query: firstQuery })}\n\n`)
+              // ── Handle web search tool calls ──
+              const webSearchCalls = toolCalls.filter(
+                (tc) => tc.name === 'web_search' && tc.arguments,
               );
 
-              // Execute all searches in parallel
-              const searchPromises = webSearchCalls.map(async (tc) => {
-                try {
-                  let query;
-                  try {
-                    query = JSON.parse(tc.arguments).query;
-                  } catch {
-                    const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
-                    query = match ? match[1] : null;
-                  }
-                  if (!query) return { toolCallId: tc.id, query: null, results: null };
-
-                  const results = await executeTavilySearch(query, env.TAVILY_API_KEY, { includeImages: false });
-                  return { toolCallId: tc.id, query, results };
-                } catch (err) {
-                  console.log('[HabitBuilder:Streaming] Search error:', err);
-                  return { toolCallId: tc.id, query: null, results: null };
-                }
-              });
-
-              const searchResults = await Promise.all(searchPromises);
-              const successfulSearches = searchResults.filter(sr => sr.results && sr.results.results.length > 0);
-
-              if (successfulSearches.length > 0) {
-                // Build follow-up messages with tool results
-                const assistantToolCalls = successfulSearches.map(sr => ({
-                  id: sr.toolCallId,
-                  type: 'function',
-                  function: { name: 'web_search', arguments: JSON.stringify({ query: sr.query }) },
-                }));
-
-                const toolResultMessages = successfulSearches.map(sr => ({
-                  role: 'tool',
-                  tool_call_id: sr.toolCallId,
-                  content: JSON.stringify(sr.results),
-                }));
-
-                const followUpMessages = [
-                  ...openaiMessages,
-                  { role: 'assistant', content: null, tool_calls: assistantToolCalls },
-                  ...toolResultMessages,
-                ];
-
-                // Second streaming call with search results
-                const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${key}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    model: 'gpt-4.1',
-                    messages: followUpMessages,
-                    temperature: 0.7,
-                    max_completion_tokens: 800,
-                    stream: true,
-                  }),
+              if (webSearchCalls.length > 0) {
+                console.log('[HabitBuilder:Streaming] Web search triggered', {
+                  searchCount: webSearchCalls.length,
                 });
 
-                // Stream the follow-up response
-                const followUpReader = followUpRes.body.getReader();
-                let followUpBuffer = '';
+                // Notify client we're searching
+                let firstQuery = '';
+                try {
+                  firstQuery = JSON.parse(webSearchCalls[0].arguments).query || '';
+                } catch {
+                  const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                  firstQuery = match ? match[1] : 'searching';
+                }
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ searching: true, query: firstQuery })}\n\n`,
+                  ),
+                );
 
-                while (true) {
-                  const result = await followUpReader.read();
-                  if (result.done) break;
-
-                  followUpBuffer += decoder.decode(result.value, { stream: true });
-                  const followUpLines = followUpBuffer.split(/\r?\n/);
-                  followUpBuffer = followUpLines.pop() || '';
-
-                  for (const line of followUpLines) {
-                    const trimmed = line.trim();
-                    if (!trimmed.startsWith('data:')) continue;
-                    const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
-                    if (jsonStr === '[DONE]') continue;
-
+                // Execute all searches in parallel
+                const searchPromises = webSearchCalls.map(async (tc) => {
+                  try {
+                    let query;
                     try {
-                      const json = JSON.parse(jsonStr);
-                      const delta = json.choices?.[0]?.delta?.content;
-                      if (delta) {
-                        fullContent += delta;
-                        await writer.write(
-                          encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`)
-                        );
-                      }
+                      query = JSON.parse(tc.arguments).query;
                     } catch {
-                      // skip
+                      const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                      query = match ? match[1] : null;
+                    }
+                    if (!query) return { toolCallId: tc.id, query: null, results: null };
+
+                    const results = await executeTavilySearch(query, env.TAVILY_API_KEY, {
+                      includeImages: false,
+                    });
+                    return { toolCallId: tc.id, query, results };
+                  } catch (err) {
+                    console.log('[HabitBuilder:Streaming] Search error:', err);
+                    return { toolCallId: tc.id, query: null, results: null };
+                  }
+                });
+
+                const searchResults = await Promise.all(searchPromises);
+                const successfulSearches = searchResults.filter(
+                  (sr) => sr.results && sr.results.results.length > 0,
+                );
+
+                if (successfulSearches.length > 0) {
+                  // Build follow-up messages with tool results
+                  const assistantToolCalls = successfulSearches.map((sr) => ({
+                    id: sr.toolCallId,
+                    type: 'function',
+                    function: {
+                      name: 'web_search',
+                      arguments: JSON.stringify({ query: sr.query }),
+                    },
+                  }));
+
+                  const toolResultMessages = successfulSearches.map((sr) => ({
+                    role: 'tool',
+                    tool_call_id: sr.toolCallId,
+                    content: JSON.stringify(sr.results),
+                  }));
+
+                  const followUpMessages = [
+                    ...openaiMessages,
+                    { role: 'assistant', content: null, tool_calls: assistantToolCalls },
+                    ...toolResultMessages,
+                  ];
+
+                  // Second streaming call with search results
+                  const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                      Authorization: `Bearer ${key}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      model: 'gpt-4.1',
+                      messages: followUpMessages,
+                      temperature: 0.7,
+                      max_completion_tokens: 800,
+                      stream: true,
+                    }),
+                  });
+
+                  // Stream the follow-up response
+                  const followUpReader = followUpRes.body.getReader();
+                  let followUpBuffer = '';
+
+                  // eslint-disable-next-line no-constant-condition
+                  while (true) {
+                    const result = await followUpReader.read();
+                    if (result.done) break;
+
+                    followUpBuffer += decoder.decode(result.value, { stream: true });
+                    const followUpLines = followUpBuffer.split(/\r?\n/);
+                    followUpBuffer = followUpLines.pop() || '';
+
+                    for (const line of followUpLines) {
+                      const trimmed = line.trim();
+                      if (!trimmed.startsWith('data:')) continue;
+                      const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                      if (jsonStr === '[DONE]') continue;
+
+                      try {
+                        const json = JSON.parse(jsonStr);
+                        const delta = json.choices?.[0]?.delta?.content;
+                        if (delta) {
+                          fullContent += delta;
+                          await writer.write(
+                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                          );
+                        }
+                      } catch {
+                        // skip
+                      }
                     }
                   }
+
+                  console.log('[HabitBuilder:Streaming] Search complete', {
+                    searchCount: successfulSearches.length,
+                    queries: successfulSearches.map((s) => s.query),
+                  });
+
+                  // Collect sources from search results
+                  sources = successfulSearches.flatMap((sr) =>
+                    sr.results.results.map((r) => ({ title: r.title, url: r.url })),
+                  );
                 }
-
-                console.log('[HabitBuilder:Streaming] Search complete', {
-                  searchCount: successfulSearches.length,
-                  queries: successfulSearches.map(s => s.query),
-                });
-
-                // Collect sources from search results
-                sources = successfulSearches.flatMap((sr) =>
-                  sr.results.results.map((r) => ({ title: r.title, url: r.url })),
-                );
               }
+
+              // ── POST-STREAM EXTRACTION ──
+              const fullConversation = [...messages, { role: 'assistant', content: fullContent }];
+
+              const resolved = await extractHabitFields(fullConversation, key);
+
+              const latency = Date.now() - t0;
+              const finalData = JSON.stringify({
+                done: true,
+                full_content: fullContent,
+                resolved_fields: resolved,
+                latency_ms: latency,
+                sources: sources,
+              });
+              await writer.write(encoder.encode(`data: ${finalData}\n\n`));
+
+              console.log('[HabitBuilder:Streaming] Complete', {
+                latency_ms: latency,
+                content_length: fullContent.length,
+                required_count: resolved.required_count,
+                next_field: resolved.next_field,
+                had_search: webSearchCalls.length > 0,
+              });
+            } catch (streamErr) {
+              console.log('[HabitBuilder:Streaming] Stream error', { error: String(streamErr) });
+              const errorData = JSON.stringify({
+                error: String(streamErr),
+                done: true,
+                full_content: fullContent,
+              });
+              await writer.write(encoder.encode(`data: ${errorData}\n\n`));
+            } finally {
+              await writer.close();
             }
-
-            // ── POST-STREAM EXTRACTION ──
-            const fullConversation = [
-              ...messages,
-              { role: 'assistant', content: fullContent },
-            ];
-
-            const resolved = await extractHabitFields(fullConversation, key);
-
-            const latency = Date.now() - t0;
-            const finalData = JSON.stringify({
-              done: true,
-              full_content: fullContent,
-              resolved_fields: resolved,
-              latency_ms: latency,
-              sources: sources,
-            });
-            await writer.write(encoder.encode(`data: ${finalData}\n\n`));
-
-            console.log('[HabitBuilder:Streaming] Complete', {
-              latency_ms: latency,
-              content_length: fullContent.length,
-              required_count: resolved.required_count,
-              next_field: resolved.next_field,
-              had_search: webSearchCalls.length > 0,
-            });
-          } catch (streamErr) {
-            console.log('[HabitBuilder:Streaming] Stream error', { error: String(streamErr) });
-            const errorData = JSON.stringify({
-              error: String(streamErr),
-              done: true,
-              full_content: fullContent,
-            });
-            await writer.write(encoder.encode(`data: ${errorData}\n\n`));
-          } finally {
-            await writer.close();
-          }
-        })();
+          })();
 
           return new Response(readable, {
             headers: {
@@ -2367,10 +2441,7 @@ Brief and clean. If they confirm: one warm sentence, done.`;
           const content = oj?.choices?.[0]?.message?.content ?? '';
 
           // Extraction call with full conversation
-          const fullConversation = [
-            ...messages,
-            { role: 'assistant', content },
-          ];
+          const fullConversation = [...messages, { role: 'assistant', content }];
           const resolved = await extractHabitFields(fullConversation, key);
 
           console.log('[HabitBuilder] Complete', {
@@ -2384,7 +2455,10 @@ Brief and clean. If they confirm: one warm sentence, done.`;
         } catch (err) {
           const latency = Date.now() - t0;
           console.log('[HabitBuilder] Error', { error: String(err), latency_ms: latency });
-          return j({ error: 'habit_builder_failed', detail: String(err), latency_ms: latency }, 200);
+          return j(
+            { error: 'habit_builder_failed', detail: String(err), latency_ms: latency },
+            200,
+          );
         }
       }
 
@@ -3407,7 +3481,7 @@ FIELDS TO EXTRACT:
 5. start_date — YYYY-MM-DD format
 6. time_window — "morning", "afternoon", "evening", or "anytime" (null if not discussed)
 7. space_name — name of the Space the user wants to assign this to (null if not discussed)
-8. notes — any motivation, strategies, or context the user shared (null if none, brief summary if present)
+8. notes — capture the user's motivation or context in FIRST PERSON as if they wrote it themselves. Use their own words and names. Example: "Lessen the burden on my husband and bond more with Bella" NOT "User wants to lessen burden on husband and bond with dog." Keep it 1-2 sentences max. null if nothing personal was shared.
 9. end_date — YYYY-MM-DD if they want a time-boxed trial (null if not discussed)
 10. time_estimate_minutes — minutes per session: 5, 10, 15, 30, 45, 60, 90, 120 (null if not discussed, infer from activity type if obvious e.g. running=30, meditation=10)
 
@@ -3466,7 +3540,12 @@ Return ONLY valid JSON, no explanation:
               model: 'gpt-4o-mini',
               messages: [
                 { role: 'system', content: extractionPrompt },
-                { role: 'user', content: 'Here is the conversation:\n\n' + messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n') },
+                {
+                  role: 'user',
+                  content:
+                    'Here is the conversation:\n\n' +
+                    messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n'),
+                },
               ],
               temperature: 0.1,
               max_tokens: 400,
@@ -3487,17 +3566,31 @@ Return ONLY valid JSON, no explanation:
           const extracted = {
             name: typeof parsed.name === 'string' ? parsed.name : null,
             habit_type: ['build', 'break'].includes(parsed.habit_type) ? parsed.habit_type : null,
-            cadence: ['daily', 'weekly', 'monthly'].includes(parsed.cadence) ? parsed.cadence : null,
+            cadence: ['daily', 'weekly', 'monthly'].includes(parsed.cadence)
+              ? parsed.cadence
+              : null,
             target: typeof parsed.target === 'string' ? parsed.target : null,
-            start_date: typeof parsed.start_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.start_date) ? parsed.start_date : null,
-            time_window: ['morning', 'afternoon', 'evening', 'anytime'].includes(parsed.time_window) ? parsed.time_window : null,
+            start_date:
+              typeof parsed.start_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.start_date)
+                ? parsed.start_date
+                : null,
+            time_window: ['morning', 'afternoon', 'evening', 'anytime'].includes(parsed.time_window)
+              ? parsed.time_window
+              : null,
             space_name: typeof parsed.space_name === 'string' ? parsed.space_name : null,
             notes: typeof parsed.notes === 'string' ? parsed.notes : null,
-            end_date: typeof parsed.end_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end_date) ? parsed.end_date : null,
-            time_estimate_minutes: Number.isFinite(parsed.time_estimate_minutes) ? parsed.time_estimate_minutes : null,
+            end_date:
+              typeof parsed.end_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end_date)
+                ? parsed.end_date
+                : null,
+            time_estimate_minutes: Number.isFinite(parsed.time_estimate_minutes)
+              ? parsed.time_estimate_minutes
+              : null,
             is_confirmation: parsed.is_confirmation === true,
             suggested_chips: Array.isArray(parsed.suggested_chips)
-              ? parsed.suggested_chips.filter(c => typeof c === 'string' && c.length > 0 && c.length <= 30).slice(0, 4)
+              ? parsed.suggested_chips
+                  .filter((c) => typeof c === 'string' && c.length > 0 && c.length <= 30)
+                  .slice(0, 4)
               : null,
           };
 
@@ -3521,10 +3614,11 @@ Return ONLY valid JSON, no explanation:
 
           // ── Server-side computation: count and determine next field ──
           const requiredFields = ['name', 'habit_type', 'cadence', 'target', 'start_date'];
-          const requiredCount = requiredFields.filter(f => extracted[f] !== null).length;
-          const nextField = requiredCount >= 5
-            ? 'confirm'
-            : requiredFields.find(f => extracted[f] === null) || null;
+          const requiredCount = requiredFields.filter((f) => extracted[f] !== null).length;
+          const nextField =
+            requiredCount >= 5
+              ? 'confirm'
+              : requiredFields.find((f) => extracted[f] === null) || null;
 
           extracted.required_count = requiredCount;
           extracted.next_field = nextField;
@@ -4819,12 +4913,20 @@ Return JSON only:
       if (type === 'clarify-ambiguity') {
         const text = body.text || '';
         const ambiguityReason = body.ambiguityReason || '';
-        const interpretations = Array.isArray(body.plausibleInterpretations) ? body.plausibleInterpretations : null;
+        const interpretations = Array.isArray(body.plausibleInterpretations)
+          ? body.plausibleInterpretations
+          : null;
 
         // --- Static fallback (used if no valid interpretations or AI fails) ---
         const FALLBACK_OPTIONS = [
           { id: 'opt_1', label: 'Something I need to do', bucket: 'todo', subtype: null },
-          { id: 'opt_2', label: 'A habit to build', bucket: 'habit', subtype: null, habitSubtype: 'start_habit' },
+          {
+            id: 'opt_2',
+            label: 'A habit to build',
+            bucket: 'habit',
+            subtype: null,
+            habitSubtype: 'start_habit',
+          },
           { id: 'opt_3', label: 'Just a note', bucket: 'log', subtype: 'general' },
           { id: 'opt_4', label: 'An idea to explore', bucket: 'log', subtype: 'idea' },
         ];
@@ -4849,14 +4951,16 @@ Return JSON only:
         }
 
         // --- Build interpretation list for prompt ---
-        const interpLines = interpretations.map((interp, i) => {
-          const parts = [];
-          if (interp.bucket) parts.push(`bucket: ${interp.bucket}`);
-          if (interp.subtype) parts.push(`subtype: ${interp.subtype}`);
-          if (interp.habitSubtype) parts.push(`habitSubtype: ${interp.habitSubtype}`);
-          if (interp.dateField) parts.push(`dateField: ${interp.dateField}`);
-          return `${i + 1}. { ${parts.join(', ')} }`;
-        }).join('\n');
+        const interpLines = interpretations
+          .map((interp, i) => {
+            const parts = [];
+            if (interp.bucket) parts.push(`bucket: ${interp.bucket}`);
+            if (interp.subtype) parts.push(`subtype: ${interp.subtype}`);
+            if (interp.habitSubtype) parts.push(`habitSubtype: ${interp.habitSubtype}`);
+            if (interp.dateField) parts.push(`dateField: ${interp.dateField}`);
+            return `${i + 1}. { ${parts.join(', ')} }`;
+          })
+          .join('\n');
 
         const aiPrompt = `You are writing short labels for an ambiguous user input. The user typed something into a quick-capture box and we need to ask what they meant.
 
@@ -4919,7 +5023,10 @@ Return JSON only:
             const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
 
             // Labels count must match interpretations count
-            if (labels.length === interpretations.length && labels.every(l => typeof l === 'string' && l.trim())) {
+            if (
+              labels.length === interpretations.length &&
+              labels.every((l) => typeof l === 'string' && l.trim())
+            ) {
               const options = interpretations.map((interp, i) => ({
                 id: `opt_${i + 1}`,
                 label: labels[i].trim().substring(0, 60),
