@@ -29,7 +29,6 @@ import { callHabitBuilderStreaming } from '../../lib/cortex/CortexClient';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { HabitBuilderProgress } from './HabitBuilderProgress';
-import { getChipsForField } from '../../lib/habitBuilder/chipMap';
 import { Text } from '../../ui/Text';
 import { lightTokens } from '../../design/tokens';
 import type { SpaceChatMessage, HabitBuilderResolvedFields, HabitSubtype } from '../../lib/types';
@@ -50,7 +49,6 @@ const EMPTY_RESOLVED: HabitBuilderResolvedFields = {
   target: null,
   start_date: null,
   time_window: null,
-  days: null,
   space_name: null,
   notes: null,
   end_date: null,
@@ -58,6 +56,7 @@ const EMPTY_RESOLVED: HabitBuilderResolvedFields = {
   is_confirmation: false,
   next_field: null,
   required_count: 0,
+  suggested_chips: null,
 };
 
 let messageIdCounter = 0;
@@ -335,19 +334,11 @@ export function HabitBuilderScreen({
   );
 
   // ─── Determine chips to show ─────────────────────────────────
-  const lastAssistantContent = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'assistant' && !messages[i].isStreaming) {
-        return messages[i].content;
-      }
-    }
-    return '';
-  }, [messages]);
-
   const chipConfig = useMemo(() => {
     if (isLoading || isCreating) return null;
-    return getChipsForField(resolved.next_field, lastAssistantContent);
-  }, [resolved.next_field, isLoading, isCreating, lastAssistantContent]);
+    if (!resolved.suggested_chips || resolved.suggested_chips.length === 0) return null;
+    return { chips: resolved.suggested_chips, sendsMessage: true };
+  }, [resolved.suggested_chips, isLoading, isCreating]);
 
   // ─── Render message ──────────────────────────────────────────
   const renderMessage = useCallback(

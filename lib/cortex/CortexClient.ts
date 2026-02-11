@@ -1487,9 +1487,10 @@ export function callHabitBuilderStreaming(
           content: data.full_content || fullContent,
           resolved_fields: data.resolved_fields || {
             name: null, habit_type: null, cadence: null, target: null,
-            start_date: null, time_window: null, days: null, space_name: null,
+            start_date: null, time_window: null, space_name: null,
             notes: null, end_date: null, time_estimate_minutes: null,
             is_confirmation: false, next_field: null, required_count: 0,
+            suggested_chips: null,
           },
           latency_ms,
         });

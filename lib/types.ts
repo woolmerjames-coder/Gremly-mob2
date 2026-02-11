@@ -969,7 +969,6 @@ export interface HabitBuilderResolvedFields {
   target: string | null;
   start_date: string | null;
   time_window: 'morning' | 'afternoon' | 'evening' | 'anytime' | null;
-  days: number[] | null;
   space_name: string | null;
   notes: string | null;
   end_date: string | null;
@@ -977,6 +976,7 @@ export interface HabitBuilderResolvedFields {
   is_confirmation: boolean;
   next_field: string | null;
   required_count: number;
+  suggested_chips: string[] | null;
 }
 
 export interface HabitBuilderContext {
