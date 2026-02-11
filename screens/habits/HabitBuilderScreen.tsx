@@ -92,6 +92,8 @@ export function HabitBuilderScreen({
   const streamRef = useRef<{ close: () => void } | null>(null);
   const hasStarted = useRef(false);
   const mountedRef = useRef(true);
+  const streamBufferRef = useRef<string>('');
+  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ─── Build context ──────────────────────────────────────────────
   const chatContext = useMemo(() => {
@@ -165,7 +167,23 @@ export function HabitBuilderScreen({
         requestMessages.push({ role: 'user', content: text });
       }
 
+      // Start streaming buffer — flush accumulated deltas every 40ms for smooth text appearance
       let accumulatedContent = '';
+      streamBufferRef.current = '';
+
+      flushTimerRef.current = setInterval(() => {
+        if (!mountedRef.current) return;
+        const buffered = streamBufferRef.current;
+        if (buffered) {
+          streamBufferRef.current = '';
+          accumulatedContent += buffered;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === streamingMsgId ? { ...m, content: accumulatedContent } : m,
+            ),
+          );
+        }
+      }, 40);
 
       streamRef.current = callHabitBuilderStreaming(
         {
@@ -177,15 +195,15 @@ export function HabitBuilderScreen({
         {
           onDelta: (delta) => {
             if (!mountedRef.current) return;
-            accumulatedContent += delta;
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === streamingMsgId ? { ...m, content: accumulatedContent } : m,
-              ),
-            );
+            streamBufferRef.current += delta;
           },
           onComplete: (response) => {
             if (!mountedRef.current) return;
+            // Flush any remaining buffer and stop the timer
+            if (flushTimerRef.current) {
+              clearInterval(flushTimerRef.current);
+              flushTimerRef.current = null;
+            }
             // Finalize message — remove streaming flag
             const finalMsg: SpaceChatMessage = {
               id: streamingMsgId,
@@ -215,6 +233,10 @@ export function HabitBuilderScreen({
           },
           onError: (error) => {
             if (!mountedRef.current) return;
+            if (flushTimerRef.current) {
+              clearInterval(flushTimerRef.current);
+              flushTimerRef.current = null;
+            }
             console.error('[HabitBuilder] Stream error:', error);
             const errorMsg: SpaceChatMessage = {
               id: streamingMsgId,
@@ -387,6 +409,9 @@ export function HabitBuilderScreen({
     return () => {
       mountedRef.current = false;
       streamRef.current?.close();
+      if (flushTimerRef.current) {
+        clearInterval(flushTimerRef.current);
+      }
     };
   }, []);
 
