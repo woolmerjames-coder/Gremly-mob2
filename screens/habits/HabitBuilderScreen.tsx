@@ -240,6 +240,7 @@ export function HabitBuilderScreen({
   const [isLoading, setIsLoading] = useState(false);
   const [resolved, setResolved] = useState<HabitBuilderResolvedFields>(EMPTY_RESOLVED);
   const [isCreating, setIsCreating] = useState(false);
+  const [habitLocked, setHabitLocked] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
 
@@ -249,6 +250,7 @@ export function HabitBuilderScreen({
   const mountedRef = useRef(true);
   const streamContentRef = useRef<string>('');
   const createdHabitIdRef = useRef<string | null>(null);
+  const pendingNotesRef = useRef<string | null>(null);
   const [isStreamActive, setIsStreamActive] = useState(false);
 
   // ─── Build context ──────────────────────────────────────────────
@@ -332,10 +334,7 @@ export function HabitBuilderScreen({
             setIsSearching(false);
             setSearchQuery(null);
 
-            // Hide streaming bubble
-            setIsStreamActive(false);
-
-            // Add finalized message to FlatList data
+            // Add finalized message to FlatList FIRST (bubble still visible underneath)
             const finalMsg: SpaceChatMessage = {
               id: nextId(),
               chat_id: '',
@@ -349,10 +348,31 @@ export function HabitBuilderScreen({
             };
 
             setMessages((prev) => [...prev, finalMsg]);
+            setIsStreamActive(false);
 
             // Update resolved fields
             if (response.resolved_fields) {
               setResolved(response.resolved_fields);
+            }
+
+            // Check if the user asked to save notes (from the pre-confirmation research/tips)
+            // The AI may have generated useful content the user wants saved
+            const lastUserMsg = messages.filter((m) => m.role === 'user').pop();
+            const userSaidSaveNotes =
+              lastUserMsg?.content?.toLowerCase().includes('save notes') ||
+              lastUserMsg?.content?.toLowerCase().includes('yes, save');
+
+            if (userSaidSaveNotes && createdHabitIdRef.current === null) {
+              // Notes requested but habit not yet created — store the content to save after creation
+              // The AI's previous assistant message (before this one) has the research content
+              const previousAssistantMsgs = messages.filter((m) => m.role === 'assistant');
+              const researchContent =
+                previousAssistantMsgs.length >= 1
+                  ? previousAssistantMsgs[previousAssistantMsgs.length - 1]?.content
+                  : null;
+              if (researchContent) {
+                pendingNotesRef.current = researchContent;
+              }
             }
 
             // If we just created a habit and this is the send-off response, save tips as notes
@@ -432,6 +452,7 @@ export function HabitBuilderScreen({
   const handleCreateHabit = useCallback(async () => {
     if (isCreating || !resolved.name || !resolved.habit_type) return;
     setIsCreating(true);
+    setHabitLocked(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     try {
@@ -467,6 +488,17 @@ export function HabitBuilderScreen({
       // Store ID so the send-off response can update the habit's notes
       if (newHabit?.id) {
         createdHabitIdRef.current = newHabit.id;
+      }
+
+      // If the user asked to save notes before confirming, save them now
+      if (pendingNotesRef.current && newHabit?.id) {
+        const motivation = resolved.notes || '';
+        const research = pendingNotesRef.current;
+        const combined = motivation ? `${motivation}\n\n---\n\n${research}` : research;
+        pendingNotesRef.current = null;
+        updateHabit(newHabit.id, { notes: combined }).catch((err: any) =>
+          console.error('[HabitBuilder] Failed to save pending notes:', err),
+        );
       }
 
       // Reset isCreating BEFORE sending the follow-up message,
@@ -594,7 +626,7 @@ export function HabitBuilderScreen({
                   isSearching={isSearching}
                   searchQuery={searchQuery}
                 />
-                {!isStreamActive && resolved.is_confirmation && !isCreating && (
+                {!isStreamActive && resolved.is_confirmation && !habitLocked && !isCreating && (
                   <Animated.View entering={FadeIn.duration(300)}>
                     <HabitConfirmCard resolved={resolved} />
                   </Animated.View>
@@ -603,7 +635,7 @@ export function HabitBuilderScreen({
             }
             onContentSizeChange={() => {
               if (messages.length > 0 || isStreamActive) {
-                flatListRef.current?.scrollToEnd({ animated: false });
+                flatListRef.current?.scrollToEnd({ animated: true });
               }
             }}
           />
