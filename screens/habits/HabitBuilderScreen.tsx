@@ -544,7 +544,10 @@ export function HabitBuilderScreen({
     if (!habitId) return;
 
     const habitRecord = habits.find((h) => h.id === habitId);
-    if (!habitRecord) return;
+    if (!habitRecord) {
+      console.warn('[HabitBuilder] Habit not found in store yet:', habitId);
+      return;
+    }
 
     overlayController.openEdit({
       record: habitRecord as any, // AppRecord
@@ -624,8 +627,8 @@ export function HabitBuilderScreen({
             </View>
           )}
 
-          {/* Chips — show on last assistant message */}
-          {isLastAssistant && chipConfig && (
+          {/* Chips — show on last assistant message, not on the locked message itself */}
+          {isLastAssistant && chipConfig && !(isLockedMessage && habitLocked) && (
             <Animated.View style={styles.chipsRow} entering={FadeIn.duration(200).delay(100)}>
               {chipConfig.chips.map((chip, idx) => {
                 const isLockIn = chip.includes('Lock it in');
@@ -657,6 +660,7 @@ export function HabitBuilderScreen({
       tipsSaveState,
       handleOpenHabit,
       handleSaveTips,
+      habitLocked,
     ],
   );
 
