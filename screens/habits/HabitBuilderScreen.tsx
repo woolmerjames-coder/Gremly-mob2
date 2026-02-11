@@ -36,7 +36,8 @@ import { dateService } from '../../lib/date/DateService';
 
 // ─── Streaming Bubble ─────────────────────────────────────────────
 // Self-updating component that reads from a content ref.
-// FlatList never re-renders during streaming — only this component does.
+// Renders DIRECTLY — does NOT use ChatBubble, which has Layout.springify()
+// animations that cause visible jank on every content update.
 interface StreamingBubbleProps {
   contentRef: React.MutableRefObject<string>;
   visible: boolean;
@@ -46,48 +47,45 @@ interface StreamingBubbleProps {
 
 function StreamingBubble({ contentRef, visible, isSearching, searchQuery }: StreamingBubbleProps) {
   const [displayContent, setDisplayContent] = useState('');
+  const prevRef = useRef('');
 
   useEffect(() => {
     if (!visible) {
       setDisplayContent('');
+      prevRef.current = '';
       return;
     }
 
-    // Poll the ref at 60ms intervals for smooth text appearance
     const timer = setInterval(() => {
       const current = contentRef.current;
-      if (current !== displayContent) {
+      if (current !== prevRef.current) {
+        prevRef.current = current;
         setDisplayContent(current);
       }
     }, 60);
 
     return () => clearInterval(timer);
-  }, [visible, contentRef]); // intentionally exclude displayContent to avoid re-creating timer
+  }, [visible, contentRef]);
 
   if (!visible) return null;
 
-  // Show searching indicator when waiting for Tavily
   if (isSearching && !displayContent) {
     return (
-      <Animated.View style={styles.searchingContainer} entering={FadeIn.duration(200)}>
+      <View style={styles.searchingContainer}>
         <Text style={styles.searchingText}>Searching: {searchQuery}</Text>
-      </Animated.View>
+      </View>
     );
   }
 
-  // Render the streaming message using ChatBubble
-  const streamingMsg: SpaceChatMessage = {
-    id: 'streaming-active',
-    chat_id: '',
-    space_id: '',
-    user_id: '',
-    role: 'assistant',
-    content: displayContent,
-    created_at: new Date().toISOString(),
-    isStreaming: true,
-  };
-
-  return <ChatBubble message={streamingMsg} />;
+  // Render directly — matches ChatBubble assistant style exactly.
+  // Plain View only, no Animated.View, no layout animations.
+  return (
+    <View style={styles.streamingContainer}>
+      <View style={styles.streamingBubble}>
+        <Text style={styles.streamingText}>{displayContent}</Text>
+      </View>
+    </View>
+  );
 }
 
 // ─── Props ───────────────────────────────────────────────────────────
@@ -249,6 +247,7 @@ export function HabitBuilderScreen({
               content: response.content,
               created_at: new Date().toISOString(),
               sources: response.sources,
+              wasStreamed: true, // Skip entering animation — content was already visible
             };
 
             setMessages((prev) => [...prev, finalMsg]);
@@ -628,5 +627,32 @@ const styles = StyleSheet.create({
     fontFamily: lightTokens.typography.fontFamily.regular,
     color: lightTokens.colors.subtle,
     fontStyle: 'italic',
+  },
+  // Streaming bubble — matches ChatBubble assistantContainer + assistantBubble exactly
+  streamingContainer: {
+    alignItems: 'flex-start',
+    marginBottom: 4,
+    paddingHorizontal: 16,
+    marginVertical: 4,
+  },
+  streamingBubble: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'transparent',
+    paddingLeft: 14,
+    borderLeftWidth: 2,
+    borderLeftColor: 'rgba(212, 164, 74, 0.60)',
+    borderRadius: 0,
+    maxWidth: '100%',
+    marginLeft: -4,
+    marginTop: -6,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  streamingText: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '400',
+    letterSpacing: -0.2,
+    color: '#2D2D2D',
   },
 });
