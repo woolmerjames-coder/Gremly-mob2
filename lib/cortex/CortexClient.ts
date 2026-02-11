@@ -1462,14 +1462,20 @@ export function callHabitBuilderStreaming(
     try {
       const data = JSON.parse(event.data);
 
-      // Handle error in stream
+      // Handle error
       if (data.error) {
         callbacks.onError(new Error(data.error));
         es.close();
         return;
       }
 
-      // Handle delta (partial content)
+      // Handle searching event — mirror entity chat pattern
+      if (data.searching && data.query) {
+        callbacks.onSearching?.(data.query);
+        return;
+      }
+
+      // Handle delta
       if (data.delta) {
         fullContent += data.delta;
         callbacks.onDelta(data.delta);
@@ -1493,11 +1499,12 @@ export function callHabitBuilderStreaming(
             suggested_chips: null,
           },
           latency_ms,
+          sources: data.sources,
         });
         es.close();
       }
     } catch (parseError) {
-      log('HABIT_BUILDER_STREAM_PARSE_ERROR', parseError);
+      // Ignore parse errors for individual chunks
     }
   });
 

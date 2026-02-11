@@ -1966,8 +1966,8 @@ These should emerge naturally, not get collected.
 
 === HOW TO BE HELPFUL ===
 
-**Understand the person first, then the habit.**
-When there's room, be curious about what's behind the habit — not as a required question, but because understanding motivation leads to better habits. If someone says "I want to journal," asking "what would journaling do for you?" shapes a better habit than jumping to "how often?" But if they already know what they want ("journal every morning starting Monday"), skip straight to confirmation.
+**Understand the person before the logistics.**
+After they tell you what habit they're thinking about, your FIRST follow-up should be about WHY or WHAT'S BEHIND IT — not frequency, not format. Something like "what's drawing you to this?" or "have you tried this before?" Understanding their motivation makes every other part of the habit better shaped. Only skip this if they've already volunteered the context or gave you everything in one message.
 
 **Go where they go.**
 If they share something personal, engage with it. Your curiosity should feel genuine.
@@ -2091,7 +2091,7 @@ Brief and clean. If they confirm: one warm sentence, done.`;
               model: 'gpt-4.1',
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: 400,
+              max_completion_tokens: 800,
               stream: true,
               tools: [WEB_SEARCH_TOOL],
               tool_choice: 'auto',
@@ -2119,6 +2119,7 @@ Brief and clean. If they confirm: one warm sentence, done.`;
           const reader = openaiRes.body.getReader();
           let buffer = '';
           let fullContent = '';
+          let sources = undefined;
 
           // Track tool call accumulation
           let toolCalls = [];
@@ -2238,7 +2239,7 @@ Brief and clean. If they confirm: one warm sentence, done.`;
                     model: 'gpt-4.1',
                     messages: followUpMessages,
                     temperature: 0.7,
-                    max_completion_tokens: 400,
+                    max_completion_tokens: 800,
                     stream: true,
                   }),
                 });
@@ -2280,6 +2281,11 @@ Brief and clean. If they confirm: one warm sentence, done.`;
                   searchCount: successfulSearches.length,
                   queries: successfulSearches.map(s => s.query),
                 });
+
+                // Collect sources from search results
+                sources = successfulSearches.flatMap((sr) =>
+                  sr.results.results.map((r) => ({ title: r.title, url: r.url })),
+                );
               }
             }
 
@@ -2297,6 +2303,7 @@ Brief and clean. If they confirm: one warm sentence, done.`;
               full_content: fullContent,
               resolved_fields: resolved,
               latency_ms: latency,
+              sources: sources,
             });
             await writer.write(encoder.encode(`data: ${finalData}\n\n`));
 

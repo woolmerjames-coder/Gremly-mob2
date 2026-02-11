@@ -87,6 +87,8 @@ export function HabitBuilderScreen({
   const [isLoading, setIsLoading] = useState(false);
   const [resolved, setResolved] = useState<HabitBuilderResolvedFields>(EMPTY_RESOLVED);
   const [isCreating, setIsCreating] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
   const streamRef = useRef<{ close: () => void } | null>(null);
@@ -183,7 +185,7 @@ export function HabitBuilderScreen({
             ),
           );
         }
-      }, 40);
+      }, 80);
 
       streamRef.current = callHabitBuilderStreaming(
         {
@@ -197,6 +199,11 @@ export function HabitBuilderScreen({
             if (!mountedRef.current) return;
             streamBufferRef.current += delta;
           },
+          onSearching: (query) => {
+            if (!mountedRef.current) return;
+            setIsSearching(true);
+            setSearchQuery(query);
+          },
           onComplete: (response) => {
             if (!mountedRef.current) return;
             // Flush any remaining buffer and stop the timer
@@ -204,6 +211,8 @@ export function HabitBuilderScreen({
               clearInterval(flushTimerRef.current);
               flushTimerRef.current = null;
             }
+            setIsSearching(false);
+            setSearchQuery(null);
             // Finalize message — remove streaming flag
             const finalMsg: SpaceChatMessage = {
               id: streamingMsgId,
@@ -213,7 +222,8 @@ export function HabitBuilderScreen({
               role: 'assistant',
               content: response.content,
               created_at: new Date().toISOString(),
-            };
+              sources: response.sources,
+            } as any;
 
             setMessages((prev) =>
               prev.map((m) => (m.id === streamingMsgId ? finalMsg : m)),
@@ -237,6 +247,8 @@ export function HabitBuilderScreen({
               clearInterval(flushTimerRef.current);
               flushTimerRef.current = null;
             }
+            setIsSearching(false);
+            setSearchQuery(null);
             console.error('[HabitBuilder] Stream error:', error);
             const errorMsg: SpaceChatMessage = {
               id: streamingMsgId,
@@ -370,9 +382,23 @@ export function HabitBuilderScreen({
         !(item as any).isStreaming &&
         index === messages.length - 1;
 
+      const isStreamingAndSearching =
+        (item as any).isStreaming && isSearching && !item.content;
+
       return (
         <View>
-          <ChatBubble message={item} />
+          {isStreamingAndSearching ? (
+            <Animated.View
+              style={styles.searchingContainer}
+              entering={FadeIn.duration(200)}
+            >
+              <Text style={styles.searchingText}>
+                Searching: {searchQuery}
+              </Text>
+            </Animated.View>
+          ) : (
+            <ChatBubble message={item} />
+          )}
           {/* Chips below the last assistant message */}
           {isLastAssistant && chipConfig && (
             <Animated.View
@@ -401,7 +427,7 @@ export function HabitBuilderScreen({
         </View>
       );
     },
-    [messages.length, chipConfig, handleChipTap],
+    [messages.length, chipConfig, handleChipTap, isSearching, searchQuery],
   );
 
   // ─── Cleanup ─────────────────────────────────────────────────
@@ -555,5 +581,15 @@ const styles = StyleSheet.create({
   chipTextPrimary: {
     color: '#FFFFFF',
     fontWeight: '600',
+  },
+  searchingContainer: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  searchingText: {
+    fontSize: 14,
+    fontFamily: lightTokens.typography.fontFamily.regular,
+    color: lightTokens.colors.textSecondary,
+    fontStyle: 'italic',
   },
 });

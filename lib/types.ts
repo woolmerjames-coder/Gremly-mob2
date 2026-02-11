@@ -1004,10 +1004,12 @@ export interface HabitBuilderStreamingResponse {
   content: string;
   resolved_fields: HabitBuilderResolvedFields;
   latency_ms?: number;
+  sources?: Array<{ title: string; url: string }>;
 }
 
 export interface HabitBuilderStreamingCallbacks {
   onDelta: (delta: string) => void;
   onComplete: (response: HabitBuilderStreamingResponse) => void;
   onError: (error: Error) => void;
+  onSearching?: (query: string) => void;
 }
