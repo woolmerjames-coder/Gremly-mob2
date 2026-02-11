@@ -33,6 +33,7 @@ import { Text } from '../../ui/Text';
 import { lightTokens } from '../../design/tokens';
 import type { SpaceChatMessage, HabitBuilderResolvedFields, HabitSubtype } from '../../lib/types';
 import { dateService } from '../../lib/date/DateService';
+import { renderFormattedContent } from '../../lib/markdown/renderFormattedContent';
 
 // ─── Streaming Bubble ─────────────────────────────────────────────
 // Self-updating component that reads from a content ref.
@@ -81,12 +82,108 @@ function StreamingBubble({ contentRef, visible, isSearching, searchQuery }: Stre
   // Plain View only, no Animated.View, no layout animations.
   return (
     <View style={styles.streamingContainer}>
-      <View style={styles.streamingBubble}>
-        <Text style={styles.streamingText}>{displayContent}</Text>
-      </View>
+      <View style={styles.streamingBubble}>{renderFormattedContent(displayContent)}</View>
     </View>
   );
 }
+
+// ─── Habit Confirm Card ───────────────────────────────────────────
+interface HabitConfirmCardProps {
+  resolved: HabitBuilderResolvedFields;
+}
+
+function HabitConfirmCard({ resolved }: HabitConfirmCardProps) {
+  const habitType = resolved.habit_type === 'break' ? 'Break habit' : 'Build habit';
+  const frequency = resolved.target || resolved.cadence || 'daily';
+  const timeWindow = resolved.time_window
+    ? resolved.time_window.charAt(0).toUpperCase() + resolved.time_window.slice(1)
+    : null;
+  const startDate = resolved.start_date || 'Today';
+
+  return (
+    <View style={confirmStyles.card}>
+      <Text style={confirmStyles.name}>{resolved.name}</Text>
+      <Text style={confirmStyles.type}>{habitType}</Text>
+      <View style={confirmStyles.divider} />
+      <View style={confirmStyles.row}>
+        <Text style={confirmStyles.label}>Frequency</Text>
+        <Text style={confirmStyles.value}>{frequency}</Text>
+      </View>
+      {timeWindow && (
+        <View style={confirmStyles.row}>
+          <Text style={confirmStyles.label}>Time</Text>
+          <Text style={confirmStyles.value}>{timeWindow}</Text>
+        </View>
+      )}
+      <View style={confirmStyles.row}>
+        <Text style={confirmStyles.label}>Starts</Text>
+        <Text style={confirmStyles.value}>{startDate}</Text>
+      </View>
+      {resolved.notes && (
+        <>
+          <View style={confirmStyles.divider} />
+          <Text style={confirmStyles.notes}>{resolved.notes}</Text>
+        </>
+      )}
+    </View>
+  );
+}
+
+const confirmStyles = StyleSheet.create({
+  card: {
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderRadius: 16,
+    padding: 20,
+    marginVertical: 8,
+    marginHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 164, 74, 0.25)',
+  },
+  name: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    letterSpacing: -0.3,
+    marginBottom: 2,
+  },
+  type: {
+    fontSize: 13,
+    color: '#5C6B5A',
+    fontWeight: '500',
+    marginBottom: 12,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    marginVertical: 10,
+  },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  label: {
+    fontSize: 14,
+    color: '#888',
+    fontWeight: '400',
+  },
+  value: {
+    fontSize: 14,
+    color: '#1a1a1a',
+    fontWeight: '500',
+  },
+  notes: {
+    fontSize: 13,
+    color: '#666',
+    fontStyle: 'italic',
+    lineHeight: 18,
+  },
+});
 
 // ─── Props ───────────────────────────────────────────────────────────
 export interface HabitBuilderScreenProps {
@@ -217,6 +314,7 @@ export function HabitBuilderScreen({
           stream: true,
           messages: requestMessages,
           context: chatContext,
+          userId: userId || undefined,
         },
         {
           onDelta: (delta) => {
@@ -489,12 +587,19 @@ export function HabitBuilderScreen({
             style={styles.messages}
             contentContainerStyle={styles.messageList}
             ListFooterComponent={
-              <StreamingBubble
-                contentRef={streamContentRef}
-                visible={isStreamActive}
-                isSearching={isSearching}
-                searchQuery={searchQuery}
-              />
+              <>
+                <StreamingBubble
+                  contentRef={streamContentRef}
+                  visible={isStreamActive}
+                  isSearching={isSearching}
+                  searchQuery={searchQuery}
+                />
+                {!isStreamActive && resolved.is_confirmation && !isCreating && (
+                  <Animated.View entering={FadeIn.duration(300)}>
+                    <HabitConfirmCard resolved={resolved} />
+                  </Animated.View>
+                )}
+              </>
             }
             onContentSizeChange={() => {
               if (messages.length > 0 || isStreamActive) {
@@ -634,12 +739,5 @@ const styles = StyleSheet.create({
     marginTop: -6,
     paddingVertical: 10,
     paddingHorizontal: 14,
-  },
-  streamingText: {
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: '400',
-    letterSpacing: -0.2,
-    color: '#2D2D2D',
   },
 });

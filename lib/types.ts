@@ -998,6 +998,7 @@ export interface HabitBuilderRequest {
   stream: boolean;
   messages: { role: 'user' | 'assistant'; content: string }[];
   context: HabitBuilderContext;
+  userId?: string;
 }
 
 export interface HabitBuilderStreamingResponse {
