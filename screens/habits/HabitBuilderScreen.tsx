@@ -237,6 +237,7 @@ export function HabitBuilderScreen({
   const userId = useGremlyStore((s) => s.userId);
   const createHabit = useGremlyStore((s) => s.createHabit);
   const updateHabit = useGremlyStore((s) => s.updateHabit);
+  const saveEntityChatNote = useGremlyStore((s) => s.saveEntityChatNote);
   const overlayController = useUnifiedOverlayController();
 
   // ─── State ──────────────────────────────────────────────────────
@@ -385,7 +386,9 @@ export function HabitBuilderScreen({
             streamContentRef.current = '';
 
             setTimeout(() => {
-              flatListRef.current?.scrollToEnd({ animated: true });
+              if (mountedRef.current) {
+                flatListRef.current?.scrollToEnd({ animated: true });
+              }
             }, 150);
           },
           onError: (error) => {
@@ -417,7 +420,9 @@ export function HabitBuilderScreen({
       }
 
       setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
+        if (mountedRef.current) {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }
       }, 100);
     },
     [isLoading, messages, chatContext, prefill, lockedMessageId, tipsMessageId],
@@ -522,21 +527,23 @@ export function HabitBuilderScreen({
     setTipsSaveState('loading');
 
     try {
-      // Get the tips content from the tagged message
       const tipsMsg = messages.find((m) => m.id === tipsMessageId);
       if (!tipsMsg) return;
 
-      const motivation = resolved.notes || '';
-      const tips = tipsMsg.content;
-      const combinedNotes = motivation ? `${motivation}\n\n---\n\n${tips}` : tips;
+      const noteData = {
+        content: tipsMsg.content,
+        is_checklist: false,
+        source_message_id: tipsMessageId,
+        note_type: 'regular' as const,
+      };
 
-      await updateHabit(habitId, { notes: combinedNotes });
+      await saveEntityChatNote(habitId, 'habit', noteData);
       setTipsSaveState('confirmed');
     } catch (err) {
       console.error('[HabitBuilder] Failed to save tips:', err);
       setTipsSaveState('initial');
     }
-  }, [messages, tipsMessageId, resolved.notes, updateHabit]);
+  }, [messages, tipsMessageId, saveEntityChatNote]);
 
   // ─── Open habit in overlay ───────────────────────────────────
   const handleOpenHabit = useCallback(() => {
@@ -669,6 +676,7 @@ export function HabitBuilderScreen({
     return () => {
       mountedRef.current = false;
       streamRef.current?.close();
+      flatListRef.current = null;
     };
   }, []);
 
@@ -720,7 +728,7 @@ export function HabitBuilderScreen({
               </>
             }
             onContentSizeChange={() => {
-              if (messages.length > 0 || isStreamActive) {
+              if (mountedRef.current && (messages.length > 0 || isStreamActive)) {
                 flatListRef.current?.scrollToEnd({ animated: true });
               }
             }}

@@ -248,7 +248,7 @@ export default function RootNavigator() {
             component={HabitBuilderWrapper}
             options={{
               headerShown: false,
-              presentation: 'modal',
+              presentation: 'card',
             }}
           />
           <Stack.Screen
