@@ -375,12 +375,8 @@ export function HabitBuilderScreen({
       // so the disabled state is governed purely by isLoading from here on
       setIsCreating(false);
 
-      // Send confirm message so AI gives the warm send-off
+      // Send confirm message — AI will offer tips
       handleSendMessage('Lock it in ✓');
-
-      if (onHabitCreated && newHabit?.id) {
-        setTimeout(() => onHabitCreated(newHabit.id), 2000);
-      }
     } catch (err) {
       console.error('[HabitBuilder] Create failed:', err);
       setIsCreating(false);
@@ -397,16 +393,7 @@ export function HabitBuilderScreen({
         },
       ]);
     }
-  }, [
-    resolved,
-    isCreating,
-    spaceId,
-    spaces,
-    userId,
-    createHabit,
-    onHabitCreated,
-    handleSendMessage,
-  ]);
+  }, [resolved, isCreating, spaceId, spaces, userId, createHabit, handleSendMessage]);
 
   // ─── Handle chip tap ─────────────────────────────────────────
   const handleChipTap = useCallback(
