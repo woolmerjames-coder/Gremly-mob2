@@ -2115,7 +2115,7 @@ If the user says yes, generate a **personalized habit kit**:
 - Use **web_search** if real research would help
 - Format with **bold** label + short sentence. Total under 100 words.
 
-End with: "Saved these to your habit — you can find them anytime."
+Do NOT mention saving — the app shows a save button automatically.
 
 === IF THEY DON'T WANT TIPS ===
 One warm sentence. Done. No guilt, no "are you sure?"`;
@@ -3546,12 +3546,12 @@ FIELDS TO EXTRACT:
 5. start_date — YYYY-MM-DD format
 6. time_window — "morning", "afternoon", "evening", or "anytime" (null if not discussed)
 7. space_name — name of the Space the user wants to assign this to (null if not discussed)
-8. notes — capture the user's motivation or context in FIRST PERSON as if they wrote it themselves. Use their own words and names. Example: "Lessen the burden on my husband and bond more with Bella" NOT "User wants to lessen burden on husband and bond with dog." Keep it 1-2 sentences max. null if nothing personal was shared.
+8. notes — capture the user's motivation AND context in FIRST PERSON, synthesized from the ENTIRE conversation — not just the last message. Include: why they want this, what they're replacing or changing (if relevant), and any personal context they shared. If the user gave a shorthand response like "all of the above" or "yes", expand it using the full conversation. Example: user says "I want to start reading before bed instead of scrolling my phone", later asked about motivation and replies "All of the above" to "better sleep, less screen time, or finishing a book?" → notes should be "Want to swap phone scrolling for reading before bed — better sleep, less screen time, and actually finishing books." Keep it 1-2 sentences max. null if nothing personal was shared.
 9. end_date — YYYY-MM-DD if they want a time-boxed trial (null if not discussed)
 10. time_estimate_minutes — minutes per session: 5, 10, 15, 30, 45, 60, 90, 120 (null if not discussed, infer from activity type if obvious e.g. running=30, meditation=10)
 
 ALSO DETERMINE:
-- is_confirmation: true if the assistant's LAST message presented a final summary card for the user to confirm. false otherwise.
+- is_confirmation: true if the assistant's LAST message asks the user to confirm/lock in the habit (e.g., "Want to lock this in?", "Ready to lock it in?", "want to lock this in, or tweak anything?"). This is true even if the assistant did NOT list out the habit details — the app renders a visual card separately. false if the assistant is still asking questions to shape the habit.
 - suggested_chips: 2-4 short tappable quick-reply options (each 1-4 words) that would help the user respond to what the assistant just asked. Generate these based on what the assistant is ACTUALLY asking about in its last message, not based on which fields are missing.
   - If the assistant asked about frequency: ["Every day", "A few times a week", "Once a week"]
   - If the assistant asked about time of day: ["Morning", "Evening", "Anytime"]

@@ -29,9 +29,12 @@ import { callHabitBuilderStreaming } from '../../lib/cortex/CortexClient';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { HabitBuilderProgress } from './HabitBuilderProgress';
+import SaveButton from '../../components/chat/SaveButton';
+import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { Text } from '../../ui/Text';
 import { lightTokens } from '../../design/tokens';
 import type { SpaceChatMessage, HabitBuilderResolvedFields, HabitSubtype } from '../../lib/types';
+import type { SaveableType } from '../../lib/chat/saveableTypes';
 import { dateService } from '../../lib/date/DateService';
 import { renderFormattedContent } from '../../lib/markdown/renderFormattedContent';
 
@@ -234,6 +237,7 @@ export function HabitBuilderScreen({
   const userId = useGremlyStore((s) => s.userId);
   const createHabit = useGremlyStore((s) => s.createHabit);
   const updateHabit = useGremlyStore((s) => s.updateHabit);
+  const overlayController = useUnifiedOverlayController();
 
   // ─── State ──────────────────────────────────────────────────────
   const [messages, setMessages] = useState<SpaceChatMessage[]>([]);
@@ -243,6 +247,13 @@ export function HabitBuilderScreen({
   const [habitLocked, setHabitLocked] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
+
+  // Track which messages have save cards
+  const [lockedMessageId, setLockedMessageId] = useState<string | null>(null);
+  const [tipsMessageId, setTipsMessageId] = useState<string | null>(null);
+  const [tipsSaveState, setTipsSaveState] = useState<'initial' | 'loading' | 'confirmed'>(
+    'initial',
+  );
 
   const flatListRef = useRef<FlatList>(null);
   const streamRef = useRef<{ close: () => void } | null>(null);
@@ -355,40 +366,18 @@ export function HabitBuilderScreen({
               setResolved(response.resolved_fields);
             }
 
-            // Check if the user asked to save notes (from the pre-confirmation research/tips)
-            // The AI may have generated useful content the user wants saved
-            const lastUserMsg = messages.filter((m) => m.role === 'user').pop();
-            const userSaidSaveNotes =
-              lastUserMsg?.content?.toLowerCase().includes('save notes') ||
-              lastUserMsg?.content?.toLowerCase().includes('yes, save');
-
-            if (userSaidSaveNotes && createdHabitIdRef.current === null) {
-              // Notes requested but habit not yet created — store the content to save after creation
-              // The AI's previous assistant message (before this one) has the research content
-              const previousAssistantMsgs = messages.filter((m) => m.role === 'assistant');
-              const researchContent =
-                previousAssistantMsgs.length >= 1
-                  ? previousAssistantMsgs[previousAssistantMsgs.length - 1]?.content
-                  : null;
-              if (researchContent) {
-                pendingNotesRef.current = researchContent;
+            // Post-lock-in message tagging
+            if (createdHabitIdRef.current) {
+              if (!lockedMessageId) {
+                // First response after lock-in = "Locked in, want tips?"
+                setLockedMessageId(finalMsg.id);
+              } else if (!tipsMessageId) {
+                // Second response after lock-in = tips content (if they said yes)
+                // Only tag if it's substantial content (not "No problem, good luck!")
+                if (response.content.length > 80) {
+                  setTipsMessageId(finalMsg.id);
+                }
               }
-            }
-
-            // If we just created a habit and this is the send-off response, save tips as notes
-            if (createdHabitIdRef.current && response.content) {
-              const habitId = createdHabitIdRef.current;
-              createdHabitIdRef.current = null; // Only save once
-
-              // Combine motivation (from extraction) with tips (from send-off)
-              const motivation = resolved.notes || '';
-              const tips = response.content;
-              const combinedNotes = motivation ? `${motivation}\n\n---\n\n${tips}` : tips;
-
-              // Update the habit's notes field asynchronously
-              updateHabit(habitId, { notes: combinedNotes }).catch((err: any) =>
-                console.error('[HabitBuilder] Failed to save tips:', err),
-              );
             }
 
             setIsLoading(false);
@@ -431,7 +420,7 @@ export function HabitBuilderScreen({
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     },
-    [isLoading, messages, chatContext, prefill, resolved.notes, updateHabit],
+    [isLoading, messages, chatContext, prefill, lockedMessageId, tipsMessageId],
   );
 
   // ─── Auto-start ───────────────────────────────────────────────
@@ -525,6 +514,44 @@ export function HabitBuilderScreen({
     }
   }, [resolved, isCreating, spaceId, spaces, userId, createHabit, handleSendMessage]);
 
+  // ─── Save tips to habit ──────────────────────────────────────
+  const handleSaveTips = useCallback(async () => {
+    const habitId = createdHabitIdRef.current;
+    if (!habitId || !tipsMessageId) return;
+
+    setTipsSaveState('loading');
+
+    try {
+      // Get the tips content from the tagged message
+      const tipsMsg = messages.find((m) => m.id === tipsMessageId);
+      if (!tipsMsg) return;
+
+      const motivation = resolved.notes || '';
+      const tips = tipsMsg.content;
+      const combinedNotes = motivation ? `${motivation}\n\n---\n\n${tips}` : tips;
+
+      await updateHabit(habitId, { notes: combinedNotes });
+      setTipsSaveState('confirmed');
+    } catch (err) {
+      console.error('[HabitBuilder] Failed to save tips:', err);
+      setTipsSaveState('initial');
+    }
+  }, [messages, tipsMessageId, resolved.notes, updateHabit]);
+
+  // ─── Open habit in overlay ───────────────────────────────────
+  const handleOpenHabit = useCallback(() => {
+    const habitId = createdHabitIdRef.current;
+    if (!habitId) return;
+
+    const habitRecord = habits.find((h) => h.id === habitId);
+    if (!habitRecord) return;
+
+    overlayController.openEdit({
+      record: habitRecord as any, // AppRecord
+      spaceId: spaceId || undefined,
+    });
+  }, [habits, spaceId, overlayController]);
+
   // ─── Handle chip tap ─────────────────────────────────────────
   const handleChipTap = useCallback(
     (chip: string) => {
@@ -548,11 +575,56 @@ export function HabitBuilderScreen({
   const renderMessage = useCallback(
     ({ item, index }: { item: SpaceChatMessage; index: number }) => {
       const isLastAssistant =
-        item.role === 'assistant' && index === messages.length - 1 && !isStreamActive; // Only show chips when NOT streaming
+        item.role === 'assistant' && index === messages.length - 1 && !isStreamActive;
+
+      // Determine if this message should show a save card
+      const isLockedMessage = item.id === lockedMessageId;
+      const isTipsMessage = item.id === tipsMessageId;
 
       return (
         <View>
           <ChatBubble message={item} />
+
+          {/* Save card: "Saved as Habit ✓" — after lock-in */}
+          {isLockedMessage && (
+            <View style={styles.saveButtonWrapper}>
+              <SaveButton
+                visible={true}
+                state="confirmed"
+                savedType="habit"
+                savedItemId={createdHabitIdRef.current || undefined}
+                suggestedType={'habit' as SaveableType}
+                onSave={handleOpenHabit}
+                onEdit={handleOpenHabit}
+                onDismiss={() => {}}
+              />
+            </View>
+          )}
+
+          {/* Save card: "Save to habit?" — after tips */}
+          {isTipsMessage && (
+            <View style={styles.saveButtonWrapper}>
+              <SaveButton
+                visible={true}
+                state={tipsSaveState}
+                suggestedType={'log-general' as SaveableType}
+                smartSuggestion={{
+                  type: 'note',
+                  title: 'Tips to make this stick',
+                  steps: [],
+                }}
+                onSave={handleSaveTips}
+                onEdit={handleSaveTips}
+                onDismiss={() => setTipsMessageId(null)}
+                savedType={tipsSaveState === 'confirmed' ? 'log' : undefined}
+                savedItemId={
+                  tipsSaveState === 'confirmed' ? createdHabitIdRef.current || undefined : undefined
+                }
+              />
+            </View>
+          )}
+
+          {/* Chips — show on last assistant message */}
           {isLastAssistant && chipConfig && (
             <Animated.View style={styles.chipsRow} entering={FadeIn.duration(200).delay(100)}>
               {chipConfig.chips.map((chip, idx) => {
@@ -575,7 +647,17 @@ export function HabitBuilderScreen({
         </View>
       );
     },
-    [messages.length, chipConfig, handleChipTap, isStreamActive],
+    [
+      messages.length,
+      chipConfig,
+      handleChipTap,
+      isStreamActive,
+      lockedMessageId,
+      tipsMessageId,
+      tipsSaveState,
+      handleOpenHabit,
+      handleSaveTips,
+    ],
   );
 
   // ─── Cleanup ─────────────────────────────────────────────────
@@ -758,6 +840,11 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     paddingHorizontal: 16,
     marginVertical: 4,
+  },
+  saveButtonWrapper: {
+    paddingHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 8,
   },
   streamingBubble: {
     alignSelf: 'flex-start',
