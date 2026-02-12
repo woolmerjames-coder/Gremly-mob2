@@ -3883,9 +3883,20 @@ Return ONLY valid JSON, no explanation:
                 .join('\n')
             : 'No calendar events today.';
 
+        const formatGaps = (gaps) =>
+          (gaps || [])
+            .map(
+              (g) =>
+                `  gap: ${g.startIso.slice(11, 16)}–${g.endIso.slice(11, 16)} (${g.durationMinutes} min)`,
+            )
+            .join('\n');
+
         const blockContext = `Morning: ${blocks.morning?.realisticAvailableMinutes ?? blocks.morning?.availableMinutes ?? 0} min
+${formatGaps(blocks.morning?.gaps)}
 Afternoon: ${blocks.day?.realisticAvailableMinutes ?? blocks.day?.availableMinutes ?? 0} min
-Evening: ${blocks.evening?.realisticAvailableMinutes ?? blocks.evening?.availableMinutes ?? 0} min`;
+${formatGaps(blocks.day?.gaps)}
+Evening: ${blocks.evening?.realisticAvailableMinutes ?? blocks.evening?.availableMinutes ?? 0} min
+${formatGaps(blocks.evening?.gaps)}`;
 
         const organizePrompt = `You are a task scheduler. Place tasks into time blocks to create a calm, focused day.
 
@@ -3899,6 +3910,7 @@ ${calendarContext}
 === CAPACITY ===
 ${blockContext}
 Use max 85% of each block.
+Gaps are free time between calendar events within each block.
 
 === TASKS ===
 ${taskList}
@@ -3915,12 +3927,22 @@ Each task includes:
 1. Never schedule tasks in past blocks
 2. Never exceed 85% of block capacity
 3. Respect time_window_preference when set
-
 4. Use energy types to shape task sequencing and flow
-5. Place deep_focus tasks in the longest uninterrupted block
+5. Place deep_focus tasks in the longest uninterrupted gap
 6. Group tasks with shared tags to reduce context switching
 7. Avoid stacking physical or social tasks back-to-back
 8. Spread habits across blocks — avoid clustering
+
+=== GAP SLOTTING ===
+When a block has gaps listed under CAPACITY, you MAY assign a task to a
+specific gap by including "scheduledStartIso" — the ISO-8601 start time
+within that gap. Rules:
+- The task's total_minutes must fit inside the gap
+- "scheduledStartIso" must fall on or after the gap start and leave
+  enough room before the gap end
+- Only slot a task if there is a gap that fits; otherwise just assign
+  the block and omit scheduledStartIso
+- Prefer slotting deep_focus tasks into longer gaps
 
 === GROUPING PRINCIPLES ===
 - Tasks sharing tags (e.g. "work", "finance") benefit from being adjacent
@@ -3931,7 +3953,7 @@ Each task includes:
 === OUTPUT ===
 JSON only, no markdown:
 {
-  "assignments": [{ "taskId": "...", "block": "morning|day|evening", "reason": "5-10 words" }],
+  "assignments": [{ "taskId": "...", "block": "morning|day|evening", "reason": "5-10 words", "scheduledStartIso": "ISO time or omit" }],
   "overflow": [{ "taskId": "...", "reason": "5-10 words" }],
   "reasoning": ["Pattern or decision 1", "Pattern 2", "Pattern 3 if needed"],
   "summary": "One calm sentence about the plan"
@@ -3943,6 +3965,7 @@ Provide 2-4 short bullets explaining your approach. Focus on:
 - Energy flow (e.g. "Put focus work in the morning when you're fresh")
 - Habit placement (e.g. "Spread your habits throughout the day")
 - Preference respect (e.g. "Honored your morning preference for the gym")
+- Gap usage (e.g. "Slotted your deep work into the 90-min morning window")
 
 Do NOT mention in reasoning:
 - Specific minute counts or capacity numbers
@@ -3965,7 +3988,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
               model: 'gpt-4o-mini',
               messages: [{ role: 'system', content: organizePrompt }],
               temperature: 0.2,
-              max_tokens: 900,
+              max_tokens: 1200,
               response_format: { type: 'json_object' },
             }),
           });
@@ -4025,6 +4048,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
               taskId: a.taskId,
               block: a.block,
               reason: String(a.reason || '').substring(0, 50),
+              ...(a.scheduledStartIso ? { scheduledStartIso: String(a.scheduledStartIso) } : {}),
             }));
 
           const overflowIds = new Set();

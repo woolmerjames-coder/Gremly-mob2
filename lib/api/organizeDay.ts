@@ -10,6 +10,7 @@ import type { CalendarEvent } from '../calendar/CalendarClient';
 import type { DayCapacity } from '../capacity';
 import { calculateRealisticAvailableMinutes } from '../capacity';
 import { computeTotalMinutes, validateEnergyType } from '../planning';
+import { computeTimeGaps, getBlockBoundaryIso, type TimeGap } from '../timeGaps';
 
 // =============================================================================
 // TYPES
@@ -40,11 +41,18 @@ export interface OrganizeDayCalendarEvent {
   durationMinutes: number;
 }
 
+export interface OrganizeDayGap {
+  startIso: string;
+  endIso: string;
+  durationMinutes: number;
+}
+
 export interface OrganizeDayBlock {
   startHour: number;
   endHour: number;
   availableMinutes: number;
   realisticAvailableMinutes: number;
+  gaps: OrganizeDayGap[];
 }
 
 export interface OrganizeDayRequest {
@@ -62,6 +70,8 @@ export interface TaskAssignment {
   taskId: string;
   block: 'morning' | 'day' | 'evening';
   reason: string;
+  /** If set, slot this task into a specific gap at this time */
+  scheduledStartIso?: string | null;
 }
 
 export interface TaskOverflow {
@@ -284,26 +294,55 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
     undefined,
   );
 
-  // Build blocks from capacity (keep original availableMinutes for reference)
-  // but add realisticAvailableMinutes for AI scheduling
+  // Compute gaps for each block
+  const morningBounds = getBlockBoundaryIso(
+    today,
+    capacity.blocks.morning.startHour,
+    capacity.blocks.morning.endHour,
+  );
+  const dayBounds = getBlockBoundaryIso(
+    today,
+    capacity.blocks.day.startHour,
+    capacity.blocks.day.endHour,
+  );
+  const eveningBounds = getBlockBoundaryIso(
+    today,
+    capacity.blocks.evening.startHour,
+    capacity.blocks.evening.endHour,
+  );
+
+  const morningGaps = computeTimeGaps(calendarEvents, morningBounds.startIso, morningBounds.endIso);
+  const dayGaps = computeTimeGaps(calendarEvents, dayBounds.startIso, dayBounds.endIso);
+  const eveningGaps = computeTimeGaps(calendarEvents, eveningBounds.startIso, eveningBounds.endIso);
+
+  const toGapData = (gaps: typeof morningGaps): OrganizeDayGap[] =>
+    gaps.map((g) => ({
+      startIso: g.startIso,
+      endIso: g.endIso,
+      durationMinutes: g.durationMinutes,
+    }));
+
   const blocks = {
     morning: {
       startHour: capacity.blocks.morning.startHour,
       endHour: capacity.blocks.morning.endHour,
       availableMinutes: capacity.blocks.morning.availableMinutes,
       realisticAvailableMinutes: realisticMorning,
+      gaps: toGapData(morningGaps),
     },
     day: {
       startHour: capacity.blocks.day.startHour,
       endHour: capacity.blocks.day.endHour,
       availableMinutes: capacity.blocks.day.availableMinutes,
       realisticAvailableMinutes: realisticDay,
+      gaps: toGapData(dayGaps),
     },
     evening: {
       startHour: capacity.blocks.evening.startHour,
       endHour: capacity.blocks.evening.endHour,
       availableMinutes: capacity.blocks.evening.availableMinutes,
       realisticAvailableMinutes: realisticEvening,
+      gaps: toGapData(eveningGaps),
     },
   };
 

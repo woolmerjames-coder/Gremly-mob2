@@ -604,7 +604,11 @@ interface GremlyState {
   // ORGANIZE DAY (AI-powered task assignments)
   // ═══════════════════════════════════════════════════════════════════
   applyOrganizeAssignments: (
-    assignments: Array<{ taskId: string; block: 'morning' | 'day' | 'evening' }>,
+    assignments: Array<{
+      taskId: string;
+      block: 'morning' | 'day' | 'evening';
+      scheduledStartIso?: string | null;
+    }>,
   ) => void;
 
   // ═══════════════════════════════════════════════════════════════════
@@ -3190,7 +3194,13 @@ export const useGremlyStore = create<GremlyState>()(
         const updatedTodos = state.todos.map((todo) => {
           const assignment = assignments.find((a) => a.taskId === todo.id);
           if (assignment) {
-            return { ...todo, time_window: assignment.block };
+            return {
+              ...todo,
+              time_window: assignment.block,
+              ...(assignment.scheduledStartIso
+                ? { scheduled_start_iso: assignment.scheduledStartIso }
+                : {}),
+            };
           }
           return todo;
         });
@@ -3198,7 +3208,13 @@ export const useGremlyStore = create<GremlyState>()(
         const updatedHabits = state.habits.map((habit) => {
           const assignment = assignments.find((a) => a.taskId === habit.id);
           if (assignment) {
-            return { ...habit, time_window: assignment.block };
+            return {
+              ...habit,
+              time_window: assignment.block,
+              ...(assignment.scheduledStartIso
+                ? { scheduled_start_iso: assignment.scheduledStartIso }
+                : {}),
+            };
           }
           return habit;
         });
@@ -3209,14 +3225,19 @@ export const useGremlyStore = create<GremlyState>()(
       // Persist to Supabase
       const { todos, habits } = get();
       assignments.forEach((assignment) => {
+        const updatePayload: Record<string, any> = { time_window: assignment.block };
+        if (assignment.scheduledStartIso) {
+          updatePayload.scheduled_start_iso = assignment.scheduledStartIso;
+        }
+
         const todo = todos.find((t) => t.id === assignment.taskId);
         if (todo) {
-          get().updateTodo(todo.id, { time_window: assignment.block });
+          get().updateTodo(todo.id, updatePayload);
           return;
         }
         const habit = habits.find((h) => h.id === assignment.taskId);
         if (habit) {
-          get().updateHabit(habit.id, { time_window: assignment.block });
+          get().updateHabit(habit.id, updatePayload);
         }
       });
     },
