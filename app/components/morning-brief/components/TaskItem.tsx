@@ -80,7 +80,7 @@ export function TaskItem({
         </Text>
       </Pressable>
 
-      {/* Right side: metadata + time estimate */}
+      {/* Right side: metadata + time estimate on same line */}
       <View style={styles.rightSide}>
         {task.metadata && (
           <Text
@@ -96,11 +96,7 @@ export function TaskItem({
           </Text>
         )}
         {showEstimate && (
-          <Pressable
-            style={styles.timeButton}
-            onPress={handleTimePress}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
+          <Pressable onPress={handleTimePress} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Text style={[styles.time, !timeDisplay && styles.timeEmpty]}>
               {timeDisplay ?? '+ time'}
             </Text>
@@ -138,9 +134,7 @@ const styles = StyleSheet.create({
   },
   timeButton: {
     paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.linenCream,
+    paddingHorizontal: 4,
   },
   time: {
     fontSize: 13,
@@ -152,14 +146,15 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   rightSide: {
-    alignItems: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
     marginLeft: 8,
     flexShrink: 0,
+    gap: 8,
   },
   metadataText: {
     fontSize: 12,
     color: '#999999',
-    marginBottom: 2,
   },
 });
 
