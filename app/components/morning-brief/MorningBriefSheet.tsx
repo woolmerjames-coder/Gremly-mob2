@@ -20,7 +20,14 @@ import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlySto
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
 import { useCapacityForDate, useCalendarEventsForDate } from '../../../lib/store/capacitySelectors';
-import { useTodayPendingDrops, useEventsForDate } from '../../../lib/store/selectors';
+import {
+  useTodayPendingDrops,
+  useEventsForDate,
+  selectHabitCompletedToday,
+  selectHabitLastCompletionDate,
+  selectCompletionsInRolling7Days,
+  selectCompletionsInRolling30Days,
+} from '../../../lib/store/selectors';
 import { getTimeBlockBoundaries } from '../../../lib/capacity';
 import { getTimeBlockForHour } from '../../../lib/now/timeBlockHelpers';
 import type { Note } from '../../../lib/types';
@@ -42,6 +49,7 @@ import {
   TaskItem,
   type TaskItemData,
 } from './components';
+import { LockInPicker } from './components/LockInPicker';
 
 interface MorningBriefSheetProps {
   visible: boolean;
@@ -129,6 +137,50 @@ function getEventsForBlock(
     // Check for overlap
     return eventStart < blockEnd && eventEnd > blockStart;
   });
+}
+
+/**
+ * Compute a relative "last done" label from a YYYY-MM-DD date string.
+ * Returns null if no date provided.
+ */
+function getRelativeLastDone(lastDate: string | undefined, today: string): string | null {
+  if (!lastDate) return null;
+  if (lastDate === today) return null; // Will show "done today" instead
+
+  const todayDate = new Date(today + 'T12:00:00');
+  const lastDateObj = new Date(lastDate + 'T12:00:00');
+  const diffDays = Math.round(
+    (todayDate.getTime() - lastDateObj.getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  if (diffDays === 1) return 'last: yesterday';
+  if (diffDays <= 7) return `last: ${diffDays} days ago`;
+  return `last: ${diffDays}d ago`;
+}
+
+/**
+ * Compute a relative due date label for a todo.
+ * Returns null if no relevant label needed.
+ */
+function getDueDateLabel(
+  dueDay: string | null | undefined,
+  today: string,
+): { label: string; tone: 'neutral' | 'gentle' | 'warm' } | null {
+  if (!dueDay) return null;
+
+  const todayDate = new Date(today + 'T12:00:00');
+  const dueDate = new Date(dueDay + 'T12:00:00');
+  const diffDays = Math.round((dueDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) {
+    // Overdue — gentle, not alarming
+    const monthDay = dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return { label: `from ${monthDay}`, tone: 'warm' };
+  }
+  if (diffDays === 0) return { label: 'due today', tone: 'gentle' };
+  if (diffDays === 1) return { label: 'due tmrw', tone: 'gentle' };
+  if (diffDays <= 3) return { label: `due in ${diffDays}d`, tone: 'neutral' };
+  return null; // More than 3 days out — not urgent enough to show
 }
 
 export function MorningBriefSheet({
@@ -247,28 +299,94 @@ export function MorningBriefSheet({
 
   // Transform to TaskItemData
   const transformTodo = useCallback(
-    (todo: (typeof todos)[0]): TaskItemData => ({
-      id: todo.id,
-      type: 'todo',
-      title: todo.name || 'Untitled',
-      estimatedMinutes: todo.time_estimate_minutes ?? undefined,
-      isLockedIn: todo.commitment === true,
-      timeWindow: (todo.time_window as TaskItemData['timeWindow']) ?? null,
-    }),
-    [],
+    (todo: (typeof todos)[0]): TaskItemData => {
+      const dueMeta = getDueDateLabel(todo.due_day, today);
+      const metadata: TaskItemData['metadata'] = dueMeta
+        ? { label: dueMeta.label, tone: dueMeta.tone }
+        : null;
+
+      return {
+        id: todo.id,
+        type: 'todo',
+        title: todo.name || 'Untitled',
+        estimatedMinutes: todo.time_estimate_minutes ?? undefined,
+        isLockedIn: todo.commitment === true,
+        timeWindow: (todo.time_window as TaskItemData['timeWindow']) ?? null,
+        metadata,
+      };
+    },
+    [today],
   );
 
   const transformHabit = useCallback(
-    (habit: (typeof habits)[0]): TaskItemData => ({
-      id: habit.id,
-      type: 'habit',
-      title: habit.name || 'Untitled',
-      estimatedMinutes: habit.time_estimate_minutes ?? undefined,
-      isLockedIn: isHabitLockedIn(habit),
-      timeWindow: (habit.time_window as TaskItemData['timeWindow']) ?? null,
-    }),
-    [],
+    (habit: (typeof habits)[0]): TaskItemData => {
+      // Compute metadata based on habit type and progress
+      let metadata: TaskItemData['metadata'] = null;
+      const isDoneToday = habitCompletedToday.has(habit.id);
+      const cadence = habit.cadence ?? 'daily';
+      const isBreak = habit.subtype === 'break_habit';
+
+      if (isDoneToday) {
+        metadata = { label: '✓ done today', tone: 'done' };
+      } else if (isBreak) {
+        // Break habits show streak from last_checked_in_at
+        const lastDate = habit.last_checked_in_at
+          ? getDateService().extractDateFromIso(habit.last_checked_in_at)
+          : undefined;
+        if (lastDate) {
+          const todayDate = new Date(today + 'T12:00:00');
+          const lastDateObj = new Date(lastDate + 'T12:00:00');
+          const streakDays = Math.round(
+            (todayDate.getTime() - lastDateObj.getTime()) / (1000 * 60 * 60 * 24),
+          );
+          if (streakDays > 0) {
+            metadata = { label: `${streakDays}d strong`, tone: 'done' };
+          }
+        }
+      } else if (cadence === 'weekly' || cadence === 'monthly') {
+        // Frequency habits show progress: "2/3 this week"
+        const target = habit.target_per_period ?? 1;
+        const completions =
+          cadence === 'weekly'
+            ? (habitRolling7.get(habit.id) ?? 0)
+            : (habitRolling30.get(habit.id) ?? 0);
+        const periodLabel = cadence === 'weekly' ? 'this wk' : 'this mo';
+        const isAtGoal = completions >= target;
+        metadata = {
+          label: isAtGoal
+            ? `✓ ${completions}/${target} ${periodLabel}`
+            : `${completions}/${target} ${periodLabel}`,
+          tone: isAtGoal ? 'done' : 'neutral',
+        };
+      } else {
+        // Daily habits show "last: X days ago"
+        const lastDate = habitLastCompletion.get(habit.id);
+        const relativeLabel = getRelativeLastDone(lastDate, today);
+        if (relativeLabel) {
+          metadata = { label: relativeLabel, tone: 'neutral' };
+        }
+      }
+
+      return {
+        id: habit.id,
+        type: 'habit',
+        title: habit.name || 'Untitled',
+        estimatedMinutes: habit.time_estimate_minutes ?? undefined,
+        isLockedIn: isHabitLockedIn(habit),
+        timeWindow: (habit.time_window as TaskItemData['timeWindow']) ?? null,
+        metadata,
+      };
+    },
+    [habitCompletedToday, habitLastCompletion, habitRolling7, habitRolling30, today],
   );
+
+  // ─────────────────────────────────────────────────────────────────
+  // HABIT METADATA (for contextual display)
+  // ─────────────────────────────────────────────────────────────────
+  const habitCompletedToday = useGremlyStore(selectHabitCompletedToday);
+  const habitLastCompletion = useGremlyStore(selectHabitLastCompletionDate);
+  const habitRolling7 = useGremlyStore(selectCompletionsInRolling7Days);
+  const habitRolling30 = useGremlyStore(selectCompletionsInRolling30Days);
 
   // Pending drops from store - shows loading cards while pipeline runs
   const todayPendingDrops = useTodayPendingDrops();
@@ -373,6 +491,44 @@ export function MorningBriefSheet({
     taskId: string;
     block: string;
   }> | null>(null);
+
+  // ─────────────────────────────────────────────────────────────────
+  // LOCK-IN PICKER STATE
+  // ─────────────────────────────────────────────────────────────────
+  const [lockInPickerVisible, setLockInPickerVisible] = useState(false);
+  const [hasLockedThisSession, setHasLockedThisSession] = useState(false);
+
+  // Items eligible for lock-in: all non-locked items across all blocks
+  const lockInEligibleItems = useMemo(() => {
+    const allItems = [
+      ...tasksByBlock.morning,
+      ...tasksByBlock.afternoon,
+      ...tasksByBlock.evening,
+      ...tasksByBlock.flexible,
+    ];
+    return allItems.filter((item) => !item.isLockedIn);
+  }, [tasksByBlock]);
+
+  // Show lock-in button if: not already locked this session AND at least 2 eligible items
+  const showLockInButton = !hasLockedThisSession && lockInEligibleItems.length >= 2;
+
+  const handleLockInPress = useCallback(() => {
+    setLockInPickerVisible(true);
+  }, []);
+
+  const handleLockInConfirm = useCallback(
+    async (selected: Array<{ id: string; type: 'todo' | 'habit' }>) => {
+      for (const item of selected) {
+        await addCommitment(item.id, item.type);
+      }
+      setHasLockedThisSession(true);
+    },
+    [addCommitment],
+  );
+
+  const handleLockInPickerClose = useCallback(() => {
+    setLockInPickerVisible(false);
+  }, []);
 
   // Summary fade-in animation
   const summaryOpacity = useRef(new Animated.Value(0)).current;
@@ -707,7 +863,12 @@ export function MorningBriefSheet({
             </ScrollView>
 
             {/* Footer */}
-            <MorningBriefFooter onComplete={handleComplete} isLoading={isSaving} />
+            <MorningBriefFooter
+              onComplete={handleComplete}
+              isLoading={isSaving}
+              showLockIn={showLockInButton}
+              onLockInPress={handleLockInPress}
+            />
 
             {/* Time Block Picker */}
             <TimeBlockPicker
@@ -715,6 +876,14 @@ export function MorningBriefSheet({
               task={selectedTask}
               onClose={handlePickerClose}
               onAssign={handleAssign}
+            />
+
+            {/* Lock-In Picker */}
+            <LockInPicker
+              visible={lockInPickerVisible}
+              items={lockInEligibleItems}
+              onClose={handleLockInPickerClose}
+              onConfirm={handleLockInConfirm}
             />
 
             {/* Time Estimate Picker */}

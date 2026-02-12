@@ -78,6 +78,10 @@ export function OnYourPlateSection({
 }: OnYourPlateSectionProps) {
   const count = tasks.length + pendingDrops.length;
 
+  // Split tasks into habits and todos for sub-sections
+  const habitTasks = tasks.filter((t) => t.type === 'habit');
+  const todoTasks = tasks.filter((t) => t.type === 'todo');
+
   return (
     <View style={styles.container}>
       {/* Section Header - matches CalendarScreen pattern */}
@@ -109,27 +113,65 @@ export function OnYourPlateSection({
         <PendingDropRow key={drop.localId} drop={drop} />
       ))}
 
-      {/* Task List */}
-      {tasks.map((task, index) => {
-        // Check if this task is being animated out
-        const animationIndex = animatingAssignments?.findIndex((a) => a.taskId === task.id) ?? -1;
-        const isAnimatingOut = animationIndex >= 0;
-
-        return (
-          <View
-            key={task.id}
-            style={[styles.taskWrapper, index < tasks.length - 1 && styles.taskBorder]}
-          >
-            <AnimatedTaskItem
-              task={task}
-              onPress={onTaskPress}
-              onTimePress={onTimePress}
-              isAnimatingOut={isAnimatingOut}
-              animationDelay={animationIndex * 150}
-            />
+      {/* Habits Sub-section */}
+      {habitTasks.length > 0 && (
+        <>
+          <View style={styles.subSectionHeader}>
+            <Text style={styles.subSectionTitle}>Habits</Text>
+            <Text style={styles.subSectionCount}>{habitTasks.length}</Text>
           </View>
-        );
-      })}
+          {habitTasks.map((task, index) => {
+            const animationIndex =
+              animatingAssignments?.findIndex((a) => a.taskId === task.id) ?? -1;
+            const isAnimatingOut = animationIndex >= 0;
+
+            return (
+              <View
+                key={task.id}
+                style={[styles.taskWrapper, index < habitTasks.length - 1 && styles.taskBorder]}
+              >
+                <AnimatedTaskItem
+                  task={task}
+                  onPress={onTaskPress}
+                  onTimePress={onTimePress}
+                  isAnimatingOut={isAnimatingOut}
+                  animationDelay={animationIndex * 150}
+                />
+              </View>
+            );
+          })}
+        </>
+      )}
+
+      {/* To-dos Sub-section */}
+      {todoTasks.length > 0 && (
+        <>
+          <View style={styles.subSectionHeader}>
+            <Text style={styles.subSectionTitle}>To-dos</Text>
+            <Text style={styles.subSectionCount}>{todoTasks.length}</Text>
+          </View>
+          {todoTasks.map((task, index) => {
+            const animationIndex =
+              animatingAssignments?.findIndex((a) => a.taskId === task.id) ?? -1;
+            const isAnimatingOut = animationIndex >= 0;
+
+            return (
+              <View
+                key={task.id}
+                style={[styles.taskWrapper, index < todoTasks.length - 1 && styles.taskBorder]}
+              >
+                <AnimatedTaskItem
+                  task={task}
+                  onPress={onTaskPress}
+                  onTimePress={onTimePress}
+                  isAnimatingOut={isAnimatingOut}
+                  animationDelay={animationIndex * 150}
+                />
+              </View>
+            );
+          })}
+        </>
+      )}
 
       {/* Empty State */}
       {count === 0 && (
@@ -202,6 +244,24 @@ const styles = StyleSheet.create({
   taskBorder: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.divider,
+  },
+  subSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  subSectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#999999',
+    letterSpacing: 0.3,
+  },
+  subSectionCount: {
+    fontSize: 12,
+    color: '#999999',
+    marginLeft: 6,
   },
   emptyState: {
     paddingVertical: 24,

@@ -61,6 +61,7 @@ const selectMilestones = (state: GremlyState) => state.milestones;
 const selectIsLoading = (state: GremlyState) => state.isLoading;
 const selectIsInitialized = (state: GremlyState) => state.isInitialized;
 const selectSpaceSuggestions = (state: GremlyState) => state.spaceSuggestions;
+const selectHiddenTodayIds = (state: GremlyState) => state.hiddenTodayIds;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // HABIT COMPLETION TRACKING
@@ -112,6 +113,22 @@ export const selectCompletionDaysThisWeek = createSelector(
           map.set(row.habit_id, new Set());
         }
         map.get(row.habit_id)!.add(row.occurred_day);
+      }
+    }
+    return map;
+  },
+);
+
+/** Map of habitId -> most recent occurred_day string (for "last done" display) */
+export const selectHabitLastCompletionDate = createSelector(
+  [selectHabitProgress],
+  (progress): Map<string, string> => {
+    const map = new Map<string, string>();
+
+    for (const row of progress) {
+      const existing = map.get(row.habit_id);
+      if (!existing || row.occurred_day > existing) {
+        map.set(row.habit_id, row.occurred_day);
       }
     }
     return map;
@@ -409,11 +426,18 @@ function isHabitDueToday(
   }
 }
 
-/** All habits that are due/available today (not completed today, not archived) */
+/** All habits that are due/available today (not completed today, not archived, not hidden) */
 export const selectHabitsDueToday = createSelector(
-  [selectHabits, selectCompletionsThisWeek, selectCompletionsThisMonth, selectHabitCompletedToday],
-  (habits, weeklyCompletions, monthlyCompletions, completedTodaySet): Habit[] => {
+  [
+    selectHabits,
+    selectCompletionsThisWeek,
+    selectCompletionsThisMonth,
+    selectHabitCompletedToday,
+    selectHiddenTodayIds,
+  ],
+  (habits, weeklyCompletions, monthlyCompletions, completedTodaySet, hiddenIds): Habit[] => {
     return habits.filter((habit) => {
+      if (hiddenIds.includes(habit.id)) return false;
       return isHabitDueToday(
         habit,
         weeklyCompletions.get(habit.id) ?? 0,
@@ -452,11 +476,14 @@ export const selectActiveTodos = createSelector([selectTodos], (todos): Todo[] =
   todos.filter((t) => !t.archived && !t.completed_at),
 );
 
-/** Todos due today (due_day = today, not completed, not archived) */
-export const selectTodosDueToday = createSelector([selectActiveTodos], (todos): Todo[] => {
-  const today = getTodayDayString();
-  return todos.filter((t) => t.due_day === today);
-});
+/** Todos due today (due_day = today, not completed, not archived, not hidden) */
+export const selectTodosDueToday = createSelector(
+  [selectActiveTodos, selectHiddenTodayIds],
+  (todos, hiddenIds): Todo[] => {
+    const today = getTodayDayString();
+    return todos.filter((t) => t.due_day === today && !hiddenIds.includes(t.id));
+  },
+);
 
 /** Overdue todos (due_day < today, not completed, not archived) */
 export const selectOverdueTodos = createSelector([selectActiveTodos], (todos): Todo[] => {
@@ -521,11 +548,16 @@ export const selectTodosCompletedToday = createSelector([selectTodos], (todos): 
   return todos.filter((t) => t.completed_at && ds().isTimestampToday(t.completed_at));
 });
 
-/** Todos with commitment = true (locked in) AND due today - excludes completed */
-export const selectLockedTodos = createSelector([selectActiveTodos], (todos): Todo[] => {
-  const today = getTodayDayString();
-  return todos.filter((t) => t.commitment === true && t.due_day === today);
-});
+/** Todos with commitment = true (locked in) AND due today - excludes completed and hidden */
+export const selectLockedTodos = createSelector(
+  [selectActiveTodos, selectHiddenTodayIds],
+  (todos, hiddenIds): Todo[] => {
+    const today = getTodayDayString();
+    return todos.filter(
+      (t) => t.commitment === true && t.due_day === today && !hiddenIds.includes(t.id),
+    );
+  },
+);
 
 /** Todos with commitment = true (locked in) AND due today - includes completed for sweep celebration */
 export const selectLockedTodosIncludingCompleted = createSelector(
