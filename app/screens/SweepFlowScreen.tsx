@@ -3394,12 +3394,211 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
   // Handle keeping a multi-drop as a single entity
   const handleMultiKeepAsOne = useCallback((dropId: string) => {
-    const { resolveMultiDropAsSingle } = useGremlyStore.getState();
-    if (resolveMultiDropAsSingle) {
-      resolveMultiDropAsSingle(dropId);
-    } else {
-      console.warn('[SweepFlowScreen] resolveMultiDropAsSingle not available in store');
+    const state = useGremlyStore.getState();
+    const { resolveMultiDropAsSingle, updateNote, createTodo, createHabit, archiveNote } = state;
+    const note = state.notes.find((n) => n.id === dropId);
+
+    if (!note) {
+      console.warn('[SweepFlowScreen] handleMultiKeepAsOne: note not found', { dropId });
+      return;
     }
+
+    const views = note.views as {
+      dominant_bucket?: string;
+      dominant_subtype?: string;
+      space_id?: string | null;
+      multi_items?: Array<{ text: string }>;
+    } | null;
+
+    const dominantBucket = views?.dominant_bucket;
+    const dominantSubtype = views?.dominant_subtype;
+    const originalText = note.body || note.title || '';
+    const spaceId = views?.space_id ?? null;
+
+    // Determine target bucket and subtype
+    const targetBucket =
+      dominantBucket === 'todo' ? 'todo' : dominantBucket === 'habit' ? 'habit' : 'log';
+    const targetSubtype =
+      dominantSubtype === 'journal' || dominantSubtype === 'idea'
+        ? dominantSubtype
+        : targetBucket === 'log'
+          ? 'catchall'
+          : null;
+
+    // Fire-and-forget: convert entity type if needed, then enrich
+    (async () => {
+      try {
+        let entityId = dropId;
+        let entityBucket = targetBucket;
+
+        if (dominantBucket === 'todo') {
+          // Convert note → todo
+          const newTodo = await createTodo?.({
+            name: note.title || originalText,
+            body: originalText,
+            space_id: spaceId,
+            origin: 'sweep',
+            views: {
+              minddrop_stage: 'classified',
+              ai_pending: true,
+              origin: 'multi_kept_together',
+            },
+          } as any);
+
+          if (newTodo?.id) {
+            await archiveNote?.(dropId, 'converted_to_todo');
+            entityId = newTodo.id;
+            entityBucket = 'todo';
+            console.log('[SweepFlowScreen] Converted multi-drop to todo:', entityId);
+          }
+        } else if (dominantBucket === 'habit') {
+          // Convert note → habit
+          const newHabit = await createHabit?.({
+            name: note.title || originalText,
+            title: note.title || originalText,
+            notes: originalText,
+            frequency: 'daily',
+            subtype: 'start_habit',
+            space_id: spaceId,
+            origin: 'sweep',
+            views: {
+              minddrop_stage: 'classified',
+              ai_pending: true,
+              origin: 'multi_kept_together',
+            },
+          } as any);
+
+          if (newHabit?.id) {
+            await archiveNote?.(dropId, 'converted_to_habit');
+            entityId = newHabit.id;
+            entityBucket = 'habit';
+            console.log('[SweepFlowScreen] Converted multi-drop to habit:', entityId);
+          }
+        } else {
+          // Keep as note — clear multi flag, set up for enrichment
+          resolveMultiDropAsSingle?.(dropId);
+        }
+
+        // Run Phase 1.5a + Phase 2 enrichment
+        const cortexUrl = readCortexUrl();
+        const anonKey = readSupabaseAnonKey();
+        if (!cortexUrl || !anonKey) {
+          console.warn('[SweepFlowScreen] Missing cortex URL or anon key, skipping enrichment');
+          return;
+        }
+
+        const ds = getDateService();
+        const currentDateStr = ds.getCurrentDate();
+        const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+        console.log('[SweepFlowScreen] Running Phase 1.5a + Phase 2 for kept-as-single:', entityId);
+
+        const [phase15aResult, phase2Result] = await Promise.all([
+          // Phase 1.5a: Smart title + confirmation message
+          (async () => {
+            try {
+              const res = await fetch(cortexUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${anonKey}`,
+                },
+                body: JSON.stringify({
+                  type: 'enrich-phase1-5a',
+                  text: originalText,
+                  bucket: entityBucket,
+                  subtype: targetSubtype,
+                }),
+              });
+              if (!res.ok) return null;
+              return await res.json();
+            } catch (err) {
+              console.warn('[SweepFlowScreen] Phase 1.5a failed:', err);
+              return null;
+            }
+          })(),
+          // Phase 2: Tags, energy type, etc.
+          (async () => {
+            try {
+              const res = await fetch(cortexUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${anonKey}`,
+                },
+                body: JSON.stringify({
+                  type: 'enrich-phase2',
+                  text: originalText,
+                  bucket: entityBucket,
+                  subtype: targetSubtype,
+                  currentDate: currentDateStr,
+                  dayOfWeek,
+                  timezone,
+                }),
+              });
+              if (!res.ok) return null;
+              return await res.json();
+            } catch (err) {
+              console.warn('[SweepFlowScreen] Phase 2 failed:', err);
+              return null;
+            }
+          })(),
+        ]);
+
+        console.log('[SweepFlowScreen] Phase 1.5a result:', JSON.stringify(phase15aResult));
+        console.log('[SweepFlowScreen] Phase 2 result:', JSON.stringify(phase2Result));
+
+        // Build update payload
+        const updatePayload: Record<string, unknown> = {};
+
+        if (phase15aResult?.smart_title) {
+          updatePayload.title = phase15aResult.smart_title;
+          updatePayload.name = phase15aResult.smart_title;
+        }
+
+        const aiTags = Array.isArray(phase2Result?.tags) ? phase2Result.tags : [];
+        if (aiTags.length > 0) {
+          updatePayload.tags = aiTags;
+        }
+
+        if (phase2Result?.energy_type) {
+          updatePayload.energy_type = phase2Result.energy_type;
+        }
+
+        if (phase2Result?.time_estimate_minutes) {
+          updatePayload.time_estimate_minutes = phase2Result.time_estimate_minutes;
+        }
+
+        // Views update with confirmation message and enriched stage
+        const viewsUpdate: Record<string, unknown> = {
+          minddrop_stage: 'enriched',
+          is_multi: false,
+          ai_pending: false,
+          ...(phase15aResult?.confirmation_message && {
+            confirmation_message: phase15aResult.confirmation_message,
+          }),
+          ...(phase2Result?.mood && { ai_mood: phase2Result.mood }),
+        };
+        updatePayload.views = viewsUpdate;
+
+        // Apply updates to the correct entity type
+        if (Object.keys(updatePayload).length > 0) {
+          const store = useGremlyStore.getState();
+          if (entityBucket === 'todo') {
+            await store.updateTodo?.(entityId, updatePayload as any);
+          } else if (entityBucket === 'habit') {
+            await store.updateHabit?.(entityId, updatePayload as any);
+          } else {
+            await store.updateNote?.(entityId, updatePayload as any);
+          }
+          console.log('[SweepFlowScreen] Enrichment applied for:', entityId);
+        }
+      } catch (error) {
+        console.error('[SweepFlowScreen] Keep-as-single enrichment failed:', error);
+        // Silent failure — the entity is already saved, just without enrichment
+      }
+    })();
   }, []);
 
   // Handle completing the multi-split step
