@@ -797,7 +797,7 @@ interface GremlyState {
   setTimeBlockPreferences: (preferences: TimeBlockPreferences) => void;
   resetTimeBlockPreferences: () => void;
   // Hidden today (Not Today) actions
-  hideForToday: (id: string) => void;
+  hideForToday: (id: string, forDate?: string) => void;
   unhideForToday: (id: string) => void;
   clearHiddenToday: () => void;
 }
@@ -4030,16 +4030,16 @@ export const useGremlyStore = create<GremlyState>()(
     // Hide todos/habits from Morning Brief for today only (auto-resets daily)
     // ═══════════════════════════════════════════════════════════════════
 
-    hideForToday: (id: string) => {
-      const today = getDateService().getCurrentDate();
+    hideForToday: (id: string, forDate?: string) => {
+      const targetDate = forDate ?? getDateService().getCurrentDate();
       set((state) => {
-        // If the stored date is not today, start fresh
-        if (state.hiddenTodayDate !== today) {
-          const newData = { date: today, ids: [id] };
+        // If the stored date doesn't match the target date, start fresh
+        if (state.hiddenTodayDate !== targetDate) {
+          const newData = { date: targetDate, ids: [id] };
           saveHiddenTodayToStorage(newData);
           return {
             hiddenTodayIds: [id],
-            hiddenTodayDate: today,
+            hiddenTodayDate: targetDate,
           };
         }
         // Otherwise add to existing list (if not already there)
@@ -4047,7 +4047,7 @@ export const useGremlyStore = create<GremlyState>()(
           return state;
         }
         const newIds = [...state.hiddenTodayIds, id];
-        saveHiddenTodayToStorage({ date: today, ids: newIds });
+        saveHiddenTodayToStorage({ date: targetDate, ids: newIds });
         return {
           hiddenTodayIds: newIds,
         };

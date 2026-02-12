@@ -42,9 +42,17 @@ interface TimeBlockPickerProps {
     timeWindow: TimeBlock | 'any',
     lockIn: boolean,
   ) => void;
+  /** Target date for "Not today" storage. Defaults to today. */
+  targetDate?: string;
 }
 
-export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockPickerProps) {
+export function TimeBlockPicker({
+  visible,
+  task,
+  onClose,
+  onAssign,
+  targetDate,
+}: TimeBlockPickerProps) {
   // Get time block preferences and hide action from store
   const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
   const hideForToday = useGremlyStore((s) => s.hideForToday);
@@ -107,7 +115,7 @@ export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockP
   };
 
   const handleNotToday = () => {
-    hideForToday(task.id);
+    hideForToday(task.id, targetDate);
     onClose();
   };
 
@@ -161,11 +169,15 @@ export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockP
           <Pressable style={styles.option} onPress={handleNotToday}>
             <EyeOff size={20} color={COLORS.inkMuted} style={styles.optionIcon} />
             <View style={styles.optionLabelContainer}>
-              <Text style={styles.optionLabel}>Not today</Text>
+              <Text style={styles.optionLabel}>{targetDate ? 'Not tomorrow' : 'Not today'}</Text>
               <Text style={styles.optionTimeRange}>
                 {task.type === 'habit'
-                  ? 'Skip for today, back tomorrow'
-                  : 'Hide for now — sweep will check in'}
+                  ? targetDate
+                    ? 'Skip for tomorrow'
+                    : 'Skip for today, back tomorrow'
+                  : targetDate
+                    ? 'Skip for tomorrow'
+                    : 'Hide for now — sweep will check in'}
               </Text>
             </View>
           </Pressable>

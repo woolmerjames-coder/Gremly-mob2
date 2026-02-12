@@ -269,33 +269,35 @@ export function MorningBriefSheet({
   // HIDDEN TODAY (Not Today - todos/habits hidden for the day)
   // ─────────────────────────────────────────────────────────────────
   const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
+  const hiddenTodayDate = useGremlyStore((s) => s.hiddenTodayDate);
+
+  // Only apply hidden IDs if they match the date we're planning for
+  const effectiveHiddenIds = useMemo(() => {
+    return hiddenTodayDate === today ? hiddenTodayIds : [];
+  }, [hiddenTodayIds, hiddenTodayDate, today]);
 
   // ─────────────────────────────────────────────────────────────────
   // TASK DATA TRANSFORMATION
   // ─────────────────────────────────────────────────────────────────
 
-  // Get todos due today (excluding hidden ones)
+  // Get todos due on target date (excluding hidden ones for that date)
   const todayTodos = useMemo(() => {
     return todos.filter(
       (t) =>
-        !t.archived &&
-        !t.completed_at &&
-        t.due_day === today &&
-        (!hiddenTodayIds.includes(t.id) || isTomorrow),
+        !t.archived && !t.completed_at && t.due_day === today && !effectiveHiddenIds.includes(t.id),
     );
-  }, [todos, today, hiddenTodayIds, isTomorrow]);
+  }, [todos, today, effectiveHiddenIds]);
 
-  // Get habits due today (excluding hidden ones)
+  // Get habits due on target date (excluding hidden ones for that date)
   const todayHabits = useMemo(() => {
     return habits.filter((h) => {
       if (h.archived) return false;
       if (!h.start_date || h.start_date > today) return false;
       if (h.end_date && h.end_date < today) return false;
-      if (!isTomorrow && hiddenTodayIds.includes(h.id)) return false;
-      // For now, include all active habits
+      if (effectiveHiddenIds.includes(h.id)) return false;
       return true;
     });
-  }, [habits, today, hiddenTodayIds, isTomorrow]);
+  }, [habits, today, effectiveHiddenIds]);
 
   // Transform to TaskItemData
   const transformTodo = useCallback(
@@ -876,6 +878,7 @@ export function MorningBriefSheet({
               task={selectedTask}
               onClose={handlePickerClose}
               onAssign={handleAssign}
+              targetDate={isTomorrow ? today : undefined}
             />
 
             {/* Lock-In Picker */}

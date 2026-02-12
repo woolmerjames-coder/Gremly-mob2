@@ -134,29 +134,26 @@ function computeTimeRange(range: HubV1TimeRange): {
 } {
   if (range === 'all') return {};
 
-  const now = new Date();
-  let start: Date;
+  const ds = getDateService();
+  const today = ds.getCurrentDate();
+  let startDate: string;
 
   switch (range) {
     case 'week':
-      start = new Date(now);
-      start.setDate(now.getDate() - 7);
+      startDate = ds.addDays(today, -7);
       break;
     case 'month':
-      start = new Date(now);
-      start.setMonth(now.getMonth() - 1);
+      startDate = ds.addDays(today, -30);
       break;
     case '3months':
-      start = new Date(now);
-      start.setMonth(now.getMonth() - 3);
+      startDate = ds.addDays(today, -90);
       break;
     default:
       return {};
   }
 
   return {
-    createdAfter: start.toISOString(),
-    // createdBefore is optional - we want everything up to now
+    createdAfter: startDate + 'T00:00:00.000Z',
   };
 }
 
@@ -262,8 +259,8 @@ export default function HubScreen() {
       owner_id: '', // Not available from discovered data
       display_name: person.name,
       name: person.name,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      created_at: getDateService().getCurrentDate() + 'T00:00:00.000Z',
+      updated_at: getDateService().getCurrentDate() + 'T00:00:00.000Z',
       linkedCounts: {
         habits: 0,
         todos: 0,
@@ -419,7 +416,11 @@ export default function HubScreen() {
       }
 
       const date = item.updated_at || item.created_at;
-      const dateFormatted = date ? new Date(date).toLocaleDateString() : undefined;
+      const dateFormatted = date
+        ? getDateService().formatDateForDisplay(
+            getDateService().extractDateFromIso(date) ?? date.split('T')[0],
+          )
+        : undefined;
 
       // Get tags for this item from the item's tags field (store data)
       const itemTagsArray = (item as { tags?: string[] }).tags ?? [];
@@ -714,7 +715,7 @@ export default function HubScreen() {
     ) as import('../../lib/types').Note[];
     const today = getDateService().getCurrentDate(); // YYYY-MM-DD (local timezone)
     return selectNeedsAttentionItems(todos, notes, {
-      nowIso: new Date().toISOString(),
+      nowIso: getDateService().getCurrentDate() + 'T12:00:00.000Z',
       todayDate: today,
       todoStaleDays: 7,
       ideaStaleDays: 14,
@@ -821,15 +822,24 @@ export default function HubScreen() {
 
   // Format journal date for display
   const formatJournalDate = useCallback((dateStr: string): string => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const ds = getDateService();
+    const today = ds.getCurrentDate();
+    const itemDate = ds.extractDateFromIso(dateStr) ?? dateStr.split('T')[0];
 
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return date.toLocaleDateString('en-US', { weekday: 'short' });
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    if (itemDate === today) return 'Today';
+    if (itemDate === ds.addDays(today, -1)) return 'Yesterday';
+
+    // For dates within the last week, show weekday name
+    const sevenDaysAgo = ds.addDays(today, -7);
+    if (itemDate > sevenDaysAgo) {
+      // Parse at noon to avoid timezone shifts
+      const d = ds.fromDateString(itemDate) ?? new Date(itemDate + 'T12:00:00');
+      return d.toLocaleDateString('en-US', { weekday: 'short' });
+    }
+
+    // Older dates: "Jan 5" format
+    const d = ds.fromDateString(itemDate) ?? new Date(itemDate + 'T12:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }, []);
 
   // =========================================================================
