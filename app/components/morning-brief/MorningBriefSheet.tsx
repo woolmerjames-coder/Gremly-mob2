@@ -30,7 +30,7 @@ import {
 } from '../../../lib/store/selectors';
 import { getTimeBlockBoundaries } from '../../../lib/capacity';
 import { getTimeBlockForHour } from '../../../lib/now/timeBlockHelpers';
-import type { Note } from '../../../lib/types';
+import type { Note, Todo, Habit } from '../../../lib/types';
 import type { TimeBlock, TimeBlockPreferences } from '../../../lib/capacity';
 import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
 import { MiniSweepGate } from './MiniSweepGate';
@@ -50,6 +50,8 @@ import {
   type TaskItemData,
 } from './components';
 import { LockInPicker } from './components/LockInPicker';
+import { GapSlotPicker } from './components/GapSlotPicker';
+import type { TimeGap, SlottedTask } from '../../../lib/timeGaps';
 
 interface MorningBriefSheetProps {
   visible: boolean;
@@ -270,6 +272,8 @@ export function MorningBriefSheet({
   // ─────────────────────────────────────────────────────────────────
   const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
   const hiddenTodayDate = useGremlyStore((s) => s.hiddenTodayDate);
+  const slotTaskIntoGap = useGremlyStore((s) => s.slotTaskIntoGap);
+  const unslotTask = useGremlyStore((s) => s.unslotTask);
 
   // Only apply hidden IDs if they match the date we're planning for
   const effectiveHiddenIds = useMemo(() => {
@@ -479,6 +483,48 @@ export function MorningBriefSheet({
     return allTasks.reduce((sum, task) => sum + (task.estimatedMinutes || 0), 0);
   }, [tasksByBlock]);
 
+  // Slotted items per block (tasks with scheduled_start_iso in this block's time window)
+  const slottedItemsByBlock = useMemo(() => {
+    const allSlotted = [
+      ...todos.filter((t) => t.scheduled_start_iso && t.due_day === today),
+      ...habits.filter((h) => h.scheduled_start_iso),
+    ] as Array<(Todo | Habit) & { scheduled_start_iso: string }>;
+
+    const result = {
+      morning: [] as Array<(Todo | Habit) & { scheduled_start_iso: string }>,
+      afternoon: [] as Array<(Todo | Habit) & { scheduled_start_iso: string }>,
+      evening: [] as Array<(Todo | Habit) & { scheduled_start_iso: string }>,
+    };
+
+    for (const item of allSlotted) {
+      const hour = new Date(item.scheduled_start_iso).getHours();
+      if (hour < capacity.blocks.morning.endHour) {
+        result.morning.push(item);
+      } else if (hour < capacity.blocks.day.endHour) {
+        result.afternoon.push(item);
+      } else {
+        result.evening.push(item);
+      }
+    }
+
+    return result;
+  }, [todos, habits, today, capacity]);
+
+  // Lookup map for rendering slotted tasks with full TaskItemData
+  const taskDataById = useMemo(() => {
+    const map: Record<string, TaskItemData> = {};
+    const allTasks = [
+      ...tasksByBlock.morning,
+      ...tasksByBlock.afternoon,
+      ...tasksByBlock.evening,
+      ...tasksByBlock.flexible,
+    ];
+    for (const task of allTasks) {
+      map[task.id] = task;
+    }
+    return map;
+  }, [tasksByBlock]);
+
   // ─────────────────────────────────────────────────────────────────
   // TIME BLOCK PICKER STATE
   // ─────────────────────────────────────────────────────────────────
@@ -531,6 +577,61 @@ export function MorningBriefSheet({
   const handleLockInPickerClose = useCallback(() => {
     setLockInPickerVisible(false);
   }, []);
+
+  // ─────────────────────────────────────────────────────────────────
+  // GAP SLOT PICKER STATE
+  // ─────────────────────────────────────────────────────────────────
+  const [gapSlotPickerVisible, setGapSlotPickerVisible] = useState(false);
+  const [selectedGap, setSelectedGap] = useState<TimeGap | null>(null);
+  const [selectedGapBlock, setSelectedGapBlock] = useState<'morning' | 'afternoon' | 'evening'>(
+    'morning',
+  );
+
+  const handleGapSlotPress = useCallback(
+    (gap: TimeGap, block: 'morning' | 'afternoon' | 'evening') => {
+      setSelectedGap(gap);
+      setSelectedGapBlock(block);
+      setGapSlotPickerVisible(true);
+    },
+    [],
+  );
+
+  const handleGapSlotTask = useCallback(
+    (taskId: string, taskType: 'todo' | 'habit', gapStartIso: string) => {
+      slotTaskIntoGap(taskId, taskType, gapStartIso);
+    },
+    [slotTaskIntoGap],
+  );
+
+  const handleGapSlotPickerClose = useCallback(() => {
+    setGapSlotPickerVisible(false);
+    setSelectedGap(null);
+  }, []);
+
+  const handleSlottedTaskPress = useCallback(
+    (task: SlottedTask) => {
+      // Unslot the task when tapped
+      unslotTask(task.id, task.type);
+    },
+    [unslotTask],
+  );
+
+  // Tasks available to slot (unslotted, in the selected block)
+  const tasksForGapPicker = useMemo(() => {
+    const blockTasks =
+      selectedGapBlock === 'morning'
+        ? tasksByBlock.morning
+        : selectedGapBlock === 'afternoon'
+          ? tasksByBlock.afternoon
+          : tasksByBlock.evening;
+    // Also include flexible items
+    return [...blockTasks, ...tasksByBlock.flexible].filter(
+      (t) =>
+        !slottedItemsByBlock.morning.some((s) => s.id === t.id) &&
+        !slottedItemsByBlock.afternoon.some((s) => s.id === t.id) &&
+        !slottedItemsByBlock.evening.some((s) => s.id === t.id),
+    );
+  }, [selectedGapBlock, tasksByBlock, slottedItemsByBlock]);
 
   // Summary fade-in animation
   const summaryOpacity = useRef(new Animated.Value(0)).current;
@@ -822,6 +923,10 @@ export function MorningBriefSheet({
                 onTimePress={handleTimePress}
                 hiddenEventIds={hiddenEventIds}
                 dateContext={today}
+                slottedItems={slottedItemsByBlock.morning}
+                onGapSlotPress={(gap) => handleGapSlotPress(gap, 'morning')}
+                onSlottedTaskPress={handleSlottedTaskPress}
+                taskDataById={taskDataById}
               />
               {breakHabitsByBlock.morning.length > 0 && (
                 <BreakHabitCard names={breakHabitsByBlock.morning} />
@@ -840,6 +945,10 @@ export function MorningBriefSheet({
                 onTimePress={handleTimePress}
                 hiddenEventIds={hiddenEventIds}
                 dateContext={today}
+                slottedItems={slottedItemsByBlock.afternoon}
+                onGapSlotPress={(gap) => handleGapSlotPress(gap, 'afternoon')}
+                onSlottedTaskPress={handleSlottedTaskPress}
+                taskDataById={taskDataById}
               />
               {breakHabitsByBlock.afternoon.length > 0 && (
                 <BreakHabitCard names={breakHabitsByBlock.afternoon} />
@@ -858,6 +967,10 @@ export function MorningBriefSheet({
                 onTimePress={handleTimePress}
                 hiddenEventIds={hiddenEventIds}
                 dateContext={today}
+                slottedItems={slottedItemsByBlock.evening}
+                onGapSlotPress={(gap) => handleGapSlotPress(gap, 'evening')}
+                onSlottedTaskPress={handleSlottedTaskPress}
+                taskDataById={taskDataById}
               />
               {breakHabitsByBlock.evening.length > 0 && (
                 <BreakHabitCard names={breakHabitsByBlock.evening} />
@@ -887,6 +1000,15 @@ export function MorningBriefSheet({
               items={lockInEligibleItems}
               onClose={handleLockInPickerClose}
               onConfirm={handleLockInConfirm}
+            />
+
+            {/* Gap Slot Picker */}
+            <GapSlotPicker
+              visible={gapSlotPickerVisible}
+              gap={selectedGap}
+              availableTasks={tasksForGapPicker}
+              onClose={handleGapSlotPickerClose}
+              onSlotTask={handleGapSlotTask}
             />
 
             {/* Time Estimate Picker */}

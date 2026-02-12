@@ -162,6 +162,9 @@ export interface Habit {
   // Preferred time of day for scheduling
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
 
+  /** ISO timestamp for when this habit is slotted into a specific gap between events */
+  scheduled_start_iso?: string | null;
+
   // Estimated minutes per session
   time_estimate_minutes?: number | null;
 
@@ -256,6 +259,9 @@ export interface Todo {
 
   // Preferred time of day for scheduling
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
+
+  /** ISO timestamp for when this todo is slotted into a specific gap between events */
+  scheduled_start_iso?: string | null;
 
   // ═══════════════════════════════════════════════════════════════════
   // Date Intelligence (Phase 2)

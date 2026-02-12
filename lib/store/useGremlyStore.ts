@@ -800,6 +800,9 @@ interface GremlyState {
   hideForToday: (id: string, forDate?: string) => void;
   unhideForToday: (id: string) => void;
   clearHiddenToday: () => void;
+  // Gap slotting actions
+  slotTaskIntoGap: (id: string, entityType: 'todo' | 'habit', startIso: string) => void;
+  unslotTask: (id: string, entityType: 'todo' | 'habit') => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -4023,6 +4026,73 @@ export const useGremlyStore = create<GremlyState>()(
     resetTimeBlockPreferences: () => {
       set({ timeBlockPreferences: DEFAULT_TIME_BLOCK_PREFERENCES });
       saveTimeBlockPreferencesToStorage(DEFAULT_TIME_BLOCK_PREFERENCES);
+    },
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Gap slotting: schedule tasks into specific time gaps
+    // ═══════════════════════════════════════════════════════════════════
+
+    slotTaskIntoGap: (id: string, entityType: 'todo' | 'habit', startIso: string) => {
+      set((state) => {
+        if (entityType === 'todo') {
+          const todos = state.todos.map((t) =>
+            t.id === id
+              ? { ...t, scheduled_start_iso: startIso, updated_at: new Date().toISOString() }
+              : t,
+          );
+          return { todos };
+        } else {
+          const habits = state.habits.map((h) =>
+            h.id === id
+              ? { ...h, scheduled_start_iso: startIso, updated_at: new Date().toISOString() }
+              : h,
+          );
+          return { habits };
+        }
+      });
+
+      // Persist to Supabase
+      const table = entityType === 'todo' ? 'todos' : 'habits';
+      supabase
+        .from(table)
+        .update({ scheduled_start_iso: startIso })
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error)
+            console.error(`[GremlyStore] slotTaskIntoGap: Supabase error for ${table}`, error);
+          else
+            console.log(`[GremlyStore] slotTaskIntoGap: Saved ${entityType} ${id} at ${startIso}`);
+        });
+    },
+
+    unslotTask: (id: string, entityType: 'todo' | 'habit') => {
+      set((state) => {
+        if (entityType === 'todo') {
+          const todos = state.todos.map((t) =>
+            t.id === id
+              ? { ...t, scheduled_start_iso: null, updated_at: new Date().toISOString() }
+              : t,
+          );
+          return { todos };
+        } else {
+          const habits = state.habits.map((h) =>
+            h.id === id
+              ? { ...h, scheduled_start_iso: null, updated_at: new Date().toISOString() }
+              : h,
+          );
+          return { habits };
+        }
+      });
+
+      const table = entityType === 'todo' ? 'todos' : 'habits';
+      supabase
+        .from(table)
+        .update({ scheduled_start_iso: null })
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) console.error(`[GremlyStore] unslotTask: Supabase error for ${table}`, error);
+          else console.log(`[GremlyStore] unslotTask: Cleared ${entityType} ${id}`);
+        });
     },
 
     // ═══════════════════════════════════════════════════════════════════
