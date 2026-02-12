@@ -456,8 +456,10 @@ export default function CalendarScreen() {
 
   // Completed items for selected date
   const completedTodos = useMemo(() => {
-    return todos.filter((t) => t.completed_at && t.completed_at.startsWith(selectedDate));
-  }, [todos, selectedDate]);
+    return todos.filter(
+      (t) => t.completed_at && dateService.extractDateFromIso(t.completed_at) === selectedDate,
+    );
+  }, [todos, selectedDate, dateService]);
 
   // Summary counts
   const summary = useMemo(
@@ -605,7 +607,7 @@ export default function CalendarScreen() {
 
     // Completed todos
     for (const todo of todos) {
-      if (todo.completed_at?.startsWith(selectedDate)) {
+      if (todo.completed_at && dateService.extractDateFromIso(todo.completed_at) === selectedDate) {
         completed.push({
           id: todo.id,
           name: todo.name,
@@ -631,9 +633,11 @@ export default function CalendarScreen() {
     }
 
     // Sort by completion time, most recent first
-    return completed.sort(
-      (a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime(),
-    );
+    return completed.sort((a, b) => {
+      const aTime = new Date(a.completedAt).getTime() || 0;
+      const bTime = new Date(b.completedAt).getTime() || 0;
+      return bTime - aTime;
+    });
   }, [todos, habits, habitProgress, selectedDate]);
 
   // Undo handlers
