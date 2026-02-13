@@ -33,6 +33,7 @@ import SaveButton from '../../components/chat/SaveButton';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { Text } from '../../ui/Text';
 import { lightTokens } from '../../design/tokens';
+import { useNetworkStatus } from '../../lib/network/useNetworkStatus';
 import type { SpaceChatMessage, HabitBuilderResolvedFields, HabitSubtype } from '../../lib/types';
 import type { SaveableType } from '../../lib/chat/saveableTypes';
 import { dateService } from '../../lib/date/DateService';
@@ -240,6 +241,8 @@ export function HabitBuilderScreen({
   const saveEntityChatNote = useGremlyStore((s) => s.saveEntityChatNote);
   const overlayController = useUnifiedOverlayController();
 
+  const { isConnected } = useNetworkStatus();
+
   // ─── State ──────────────────────────────────────────────────────
   const [messages, setMessages] = useState<SpaceChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -289,6 +292,23 @@ export function HabitBuilderScreen({
   const handleSendMessage = useCallback(
     async (text: string, isInitial = false) => {
       if (isLoading) return;
+
+      // Offline guard — prevent network-dependent chat when offline
+      if (!isConnected) {
+        const offlineMsg: SpaceChatMessage = {
+          id: nextId(),
+          chat_id: '',
+          space_id: '',
+          user_id: '',
+          role: 'assistant',
+          content:
+            "I need an internet connection to chat. Your data is safe — I'll be ready when we're back online!",
+          created_at: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, offlineMsg]);
+        return;
+      }
+
       setIsLoading(true);
 
       // Create user message (skip display for auto-start)
@@ -425,7 +445,7 @@ export function HabitBuilderScreen({
         }
       }, 100);
     },
-    [isLoading, messages, chatContext, prefill, lockedMessageId, tipsMessageId],
+    [isLoading, isConnected, messages, chatContext, prefill, lockedMessageId, tipsMessageId],
   );
 
   // ─── Auto-start ───────────────────────────────────────────────
@@ -739,7 +759,9 @@ export function HabitBuilderScreen({
         <View style={styles.composerContainer}>
           <ChatComposer
             onSend={(text) => handleSendMessage(text)}
-            placeholder="Tell Gremly about your habit..."
+            placeholder={
+              isConnected ? 'Tell Gremly about your habit...' : 'Chat available when online'
+            }
             disabled={isLoading || isCreating}
           />
         </View>

@@ -24,6 +24,7 @@ import { processDrop } from '../lib/minddrop/dropProcessor';
 import type { MindDropBucket, LogSubtype } from '../lib/minddrop/types';
 import { isTestMode } from '../lib/config/testMode';
 import { testLogger } from '../src/utils/TestLogger';
+import { networkStatus } from '../lib/network/NetworkStatus';
 
 /**
  * Context for submitting a mind drop
@@ -215,6 +216,7 @@ export function useMindDropSubmit(): {
           bucket, // Heuristic prediction for immediate UI
           subtype: subtypeHint,
           status: 'pending',
+          _offlineCapture: !networkStatus.isConnected,
         });
 
         if (testEnabled) {
@@ -229,63 +231,75 @@ export function useMindDropSubmit(): {
         // STEP 2: BACKGROUND (non-blocking, parallel)
         // ============================================
 
-        // Process in background - don't await
-        processDrop(queuedDrop, {
-          onPhase0Complete: (localId, isMulti) => {
-            console.log('[MindDrop:Background] Phase 0 complete', { localId, isMulti });
-            if (testEnabled) {
-              testLogger.step('phase0_complete', { localId, isMulti });
-            }
-          },
-          onPhase1Complete: (localId, classifiedBucket) => {
-            console.log('[MindDrop:Background] Phase 1 complete', {
-              localId,
-              bucket: classifiedBucket,
-            });
-            if (testEnabled) {
-              testLogger.step('phase1_complete', { localId, bucket: classifiedBucket });
-            }
-          },
-          onPhase2Complete: (localId) => {
-            console.log('[MindDrop:Background] Phase 2 complete', { localId });
-            if (testEnabled) {
-              testLogger.step('phase2_complete', { localId });
-            }
-          },
-          onSyncComplete: (localId, supabaseId) => {
-            console.log('[MindDrop:Background] Synced to Supabase', { localId, supabaseId });
-
-            // Increment drop count for ritual progress
-            incrementDropCount()
-              .then(({ didAgeUp, newAge }) => {
-                if (didAgeUp) {
-                  console.log('[MindDrop:Background] Ritual complete! Gremly aged up to', newAge);
-                }
-              })
-              .catch((err) => {
-                console.warn('[MindDrop:Background] Failed to increment drop count:', err);
+        if (networkStatus.isConnected) {
+          // Online: process immediately (existing behavior)
+          processDrop(queuedDrop, {
+            onPhase0Complete: (localId, isMulti) => {
+              console.log('[MindDrop:Background] Phase 0 complete', { localId, isMulti });
+              if (testEnabled) {
+                testLogger.step('phase0_complete', { localId, isMulti });
+              }
+            },
+            onPhase1Complete: (localId, classifiedBucket) => {
+              console.log('[MindDrop:Background] Phase 1 complete', {
+                localId,
+                bucket: classifiedBucket,
               });
+              if (testEnabled) {
+                testLogger.step('phase1_complete', { localId, bucket: classifiedBucket });
+              }
+            },
+            onPhase2Complete: (localId) => {
+              console.log('[MindDrop:Background] Phase 2 complete', { localId });
+              if (testEnabled) {
+                testLogger.step('phase2_complete', { localId });
+              }
+            },
+            onSyncComplete: (localId, supabaseId) => {
+              console.log('[MindDrop:Background] Synced to Supabase', { localId, supabaseId });
 
-            if (testEnabled) {
-              testLogger.assert('sync_complete', true, { localId, supabaseId });
-              testLogger.end(true);
-            }
-          },
-          onError: (localId, error) => {
-            console.error('[MindDrop:Background] Processing failed', { localId, error });
-            // Remove pending drop so loading card doesn't stay forever
-            removePendingDrop(localId);
-            if (testEnabled) {
-              testLogger.assert('error', false, {
-                where: 'background_processing',
-                message: error.message,
-              });
-              testLogger.end(false);
-            }
-          },
-        }).catch((err) => {
-          console.error('[MindDrop:Background] Unexpected error', err);
-        });
+              // Increment drop count for ritual progress
+              incrementDropCount()
+                .then(({ didAgeUp, newAge }) => {
+                  if (didAgeUp) {
+                    console.log('[MindDrop:Background] Ritual complete! Gremly aged up to', newAge);
+                  }
+                })
+                .catch((err) => {
+                  console.warn('[MindDrop:Background] Failed to increment drop count:', err);
+                });
+
+              if (testEnabled) {
+                testLogger.assert('sync_complete', true, { localId, supabaseId });
+                testLogger.end(true);
+              }
+            },
+            onError: (localId, error) => {
+              console.error('[MindDrop:Background] Processing failed', { localId, error });
+              // Remove pending drop so loading card doesn't stay forever
+              removePendingDrop(localId);
+              if (testEnabled) {
+                testLogger.assert('error', false, {
+                  where: 'background_processing',
+                  message: error.message,
+                });
+                testLogger.end(false);
+              }
+            },
+          }).catch((err) => {
+            console.error('[MindDrop:Background] Unexpected error', err);
+          });
+        } else {
+          // Offline: drop is safely queued in AsyncStorage via enqueue() above
+          // Update the pending drop to show offline status
+          const store = useGremlyStore.getState();
+          store.updatePendingDropEnrichment(queuedDrop.localId, {
+            _offlineCapture: true,
+          });
+          console.log('[MindDrop:Submit] Offline — drop queued for later processing', {
+            localId: queuedDrop.localId,
+          });
+        }
 
         // Return immediately with the local ID (not Supabase ID)
         return {
