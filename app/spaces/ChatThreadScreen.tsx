@@ -623,9 +623,9 @@ export default function ChatThreadScreen({ route }: Props) {
 
       // Offline guard — prevent network-dependent chat when offline
       if (!isConnected) {
-        await sendUserMessage(trimmedText);
-        await appendAssistantMessage(
-          "I need an internet connection to chat. Your data is safe — I'll be ready when we're back online!",
+        Alert.alert(
+          "You're offline",
+          "Chat needs an internet connection. Your data is safe — Gremly will be ready when you're back online!",
         );
         return;
       }

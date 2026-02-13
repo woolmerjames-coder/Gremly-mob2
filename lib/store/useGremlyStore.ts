@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { MMKV } from 'react-native-mmkv';
+import { createMMKV } from 'react-native-mmkv';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabase/client';
 import { getRitualDay } from '../date/ritualDay';
@@ -57,12 +57,12 @@ export function isHabitLockedIn(habit: Habit): boolean {
 // MMKV Storage Engine (synchronous — hydrates before first render)
 // ═══════════════════════════════════════════════════════════════════
 
-const mmkv = new MMKV({ id: 'gremly-store' });
+const mmkv = createMMKV({ id: 'gremly-store' });
 
 const mmkvStorage = {
   getItem: (name: string) => mmkv.getString(name) ?? null,
   setItem: (name: string, value: string) => mmkv.set(name, value),
-  removeItem: (name: string) => mmkv.delete(name),
+  removeItem: (name: string) => mmkv.remove(name),
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -7460,25 +7460,27 @@ export const useGremlyStore = create<GremlyState>()(
       }),
       {
         name: 'gremly-store-v1',
-        storage: createJSONStorage(() => mmkvStorage),
-
-        // Serialize: Convert Map → Array for JSON (pendingDrops is a Map)
-        serialize: (state: any) => {
-          const toStore = { ...state };
-          if (toStore.state?.pendingDrops instanceof Map) {
-            toStore.state.pendingDrops = Array.from(toStore.state.pendingDrops.entries());
-          }
-          return JSON.stringify(toStore);
-        },
-
-        // Deserialize: Convert Array → Map
-        deserialize: (str: string) => {
-          const parsed = JSON.parse(str);
-          if (Array.isArray(parsed.state?.pendingDrops)) {
-            parsed.state.pendingDrops = new Map(parsed.state.pendingDrops);
-          }
-          return parsed;
-        },
+        storage: createJSONStorage(() => mmkvStorage, {
+          replacer: (key: string, value: unknown) => {
+            // Convert Map → Array of entries for JSON serialization
+            if (value instanceof Map) {
+              return { __type: 'Map', entries: Array.from(value.entries()) };
+            }
+            return value;
+          },
+          reviver: (key: string, value: unknown) => {
+            // Convert Array of entries → Map on deserialization
+            if (
+              value &&
+              typeof value === 'object' &&
+              (value as any).__type === 'Map' &&
+              Array.isArray((value as any).entries)
+            ) {
+              return new Map((value as any).entries);
+            }
+            return value;
+          },
+        }),
 
         // Only persist data, not transient UI state
         partialize: (state: GremlyState) => ({
