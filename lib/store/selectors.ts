@@ -2328,3 +2328,105 @@ export const selectEntitiesByIds = createSelector(
 export function useEntitiesByIds(dropIds: string[]): DropEntity[] {
   return useGremlyStore(useShallow((state) => selectEntitiesByIds(state, dropIds)));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EVENT NOTE SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * All non-archived event notes (subtype === 'event').
+ * This is the base selector for all event-note derived selectors.
+ */
+export const selectEventNotes = createSelector([selectNotes], (notes): Note[] =>
+  notes.filter(
+    (n): n is Note => n.type === 'note' && (n as Note).subtype === 'event' && !n.archived,
+  ),
+);
+
+/**
+ * Event notes for a specific date, sorted by event_time (all-day first, then by time).
+ */
+export const selectEventNotesForDate = createSelector(
+  [selectEventNotes, (_state: GremlyState, dateStr: string) => dateStr],
+  (eventNotes, dateStr): Note[] =>
+    eventNotes
+      .filter((n) => n.target_date === dateStr)
+      .sort((a, b) => {
+        // All-day events first (null event_time), then ascending by time
+        if (!a.event_time && b.event_time) return -1;
+        if (a.event_time && !b.event_time) return 1;
+        if (a.event_time && b.event_time) return a.event_time.localeCompare(b.event_time);
+        return 0;
+      }),
+);
+
+/**
+ * Event notes within a date range (inclusive on both ends).
+ */
+export const selectEventNotesForRange = createSelector(
+  [
+    selectEventNotes,
+    (_state: GremlyState, startDate: string) => startDate,
+    (_state: GremlyState, _startDate: string, endDate: string) => endDate,
+  ],
+  (eventNotes, startDate, endDate): Note[] =>
+    eventNotes.filter(
+      (n) => n.target_date != null && n.target_date >= startDate && n.target_date <= endDate,
+    ),
+);
+
+/**
+ * Event notes coming up in the next N days (default 7).
+ */
+export const selectUpcomingEventNotes = createSelector(
+  [selectEventNotes, (_state: GremlyState, days: number = 7) => days],
+  (eventNotes, days): Note[] => {
+    const today = getTodayDayString();
+    const endDate = ds().addDays(today, days);
+    return eventNotes
+      .filter((n) => n.target_date != null && n.target_date >= today && n.target_date <= endDate)
+      .sort((a, b) => {
+        // Sort by date first, then by time
+        const dateCmp = (a.target_date ?? '').localeCompare(b.target_date ?? '');
+        if (dateCmp !== 0) return dateCmp;
+        if (!a.event_time && b.event_time) return -1;
+        if (a.event_time && !b.event_time) return 1;
+        if (a.event_time && b.event_time) return a.event_time.localeCompare(b.event_time);
+        return 0;
+      });
+  },
+);
+
+/**
+ * Event notes that were synced from an external calendar provider.
+ */
+export const selectExternalEventNotes = createSelector([selectEventNotes], (eventNotes): Note[] =>
+  eventNotes.filter((n) => n.external_source != null),
+);
+
+/**
+ * Event notes created natively in Gremly (no external_source).
+ */
+export const selectNativeEventNotes = createSelector([selectEventNotes], (eventNotes): Note[] =>
+  eventNotes.filter((n) => n.external_source == null),
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EVENT NOTE HOOKS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Hook: event notes for a single date, sorted by time (all-day first).
+ * Single source of truth for date-based event rendering.
+ */
+export function useEventNotesForDate(dateStr: string): Note[] {
+  return useGremlyStore(useShallow((state) => selectEventNotesForDate(state, dateStr)));
+}
+
+/**
+ * Hook: upcoming event notes within the next N days (default 7).
+ * Single source of truth for upcoming-events widgets.
+ */
+export function useUpcomingEventNotes(days: number = 7): Note[] {
+  return useGremlyStore(useShallow((state) => selectUpcomingEventNotes(state, days)));
+}

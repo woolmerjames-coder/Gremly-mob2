@@ -33,6 +33,7 @@ import {
   type CalendarConnectionStatus,
   type CalendarProvider,
 } from '../calendar/CalendarClient';
+import { reconcileCalendarEvents } from '../calendar/calendarSync';
 import { DEFAULT_TIME_BLOCK_PREFERENCES } from '../capacity';
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
 import type { TimeBlockPreferences } from '../capacity';
@@ -775,6 +776,12 @@ interface GremlyState {
   // Calendar actions
   refreshCalendarConnections: () => Promise<void>;
   fetchCalendarEventsForRange: (startDate: string, endDate: string) => Promise<void>;
+  syncCalendarEventsToNotes: () => Promise<{
+    created: number;
+    updated: number;
+    softDeleted: number;
+    unchanged: number;
+  }>;
   connectCalendar: (provider: CalendarProvider) => Promise<{ success: boolean; error?: string }>;
   connectIcsCalendar: (
     icsUrl: string,
@@ -3862,9 +3869,147 @@ export const useGremlyStore = create<GremlyState>()(
               calendarLoading: false,
               calendarLastFetched: new Date().toISOString(),
             });
+
+            // Auto-normalize external events into Note entities
+            try {
+              const syncResult = await get().syncCalendarEventsToNotes();
+              console.log('[GremlyStore] Calendar sync result:', syncResult);
+            } catch (syncError) {
+              console.error('[GremlyStore] Calendar sync-to-notes failed:', syncError);
+            }
           } catch (error) {
             console.error('[GremlyStore] fetchCalendarEventsForRange failed:', error);
             set({ calendarLoading: false });
+          }
+        },
+
+        syncCalendarEventsToNotes: async () => {
+          const { notes, calendarEvents, userId } = get();
+          const zero = { created: 0, updated: 0, softDeleted: 0, unchanged: 0 };
+          if (!userId) return zero;
+
+          try {
+            // 1. Flatten calendarEvents Record into a single array, deduplicate by providerEventId
+            const seen = new Set<string>();
+            const flatEvents: CalendarEvent[] = [];
+            for (const dateEvents of Object.values(calendarEvents)) {
+              for (const event of dateEvents) {
+                if (!seen.has(event.providerEventId)) {
+                  seen.add(event.providerEventId);
+                  flatEvents.push(event);
+                }
+              }
+            }
+
+            if (flatEvents.length === 0) return zero;
+
+            // 2. Filter existing event notes that have external_source
+            const existingEventNotes = notes.filter(
+              (n) =>
+                n.type === 'note' &&
+                (n as any).subtype === 'event' &&
+                (n as any).external_source &&
+                !n.archived,
+            ) as import('../types').Note[];
+
+            // 3. Reconcile
+            const { creates, updates, softDeletes, unchanged } = reconcileCalendarEvents(
+              flatEvents,
+              existingEventNotes,
+              userId,
+            );
+
+            // 4. Creates — insert into Supabase, get real IDs, then add to store
+            if (creates.length > 0) {
+              const sanitizedCreates = creates.map((c) =>
+                sanitizeForSupabase({ ...c, owner_id: userId } as Record<string, unknown>, 'note'),
+              );
+              const { data: inserted, error: insertError } = await supabase
+                .from('notes')
+                .insert(sanitizedCreates)
+                .select();
+
+              if (insertError) {
+                console.error('[GremlyStore] syncCalendarEventsToNotes insert error:', insertError);
+              } else if (inserted) {
+                const newNotes = inserted.map((row: any) => ({ ...row, type: 'note' as const }));
+                set({ notes: [...get().notes, ...newNotes] });
+                console.log('[GremlyStore] Calendar sync created', newNotes.length, 'notes');
+              }
+            }
+
+            // 5. Updates — batch update in Supabase, then merge patches into store
+            if (updates.length > 0) {
+              const updatePromises = updates.map(({ id, patch }) => {
+                const sanitized = sanitizeForSupabase(
+                  { ...patch, updated_at: new Date().toISOString() } as Record<string, unknown>,
+                  'note',
+                );
+                return supabase.from('notes').update(sanitized).eq('id', id);
+              });
+              const results = await Promise.allSettled(updatePromises);
+              results.forEach((r, i) => {
+                if (r.status === 'rejected' || (r.status === 'fulfilled' && r.value.error)) {
+                  console.error(
+                    '[GremlyStore] syncCalendarEventsToNotes update error for',
+                    updates[i].id,
+                    r.status === 'rejected' ? r.reason : r.value.error,
+                  );
+                }
+              });
+
+              // Optimistic merge into store
+              const currentNotes = get().notes;
+              const patchMap = new Map(updates.map(({ id, patch }) => [id, patch]));
+              set({
+                notes: currentNotes.map((n) => {
+                  const patch = patchMap.get(n.id);
+                  return patch ? { ...n, ...patch, updated_at: new Date().toISOString() } : n;
+                }),
+              });
+              console.log('[GremlyStore] Calendar sync updated', updates.length, 'notes');
+            }
+
+            // 6. Soft deletes — archive in Supabase, then update store
+            if (softDeletes.length > 0) {
+              const now = new Date().toISOString();
+              const { error: archiveError } = await supabase
+                .from('notes')
+                .update({ archived: true, archived_reason: 'calendar_deleted', archived_at: now })
+                .in('id', softDeletes);
+
+              if (archiveError) {
+                console.error(
+                  '[GremlyStore] syncCalendarEventsToNotes archive error:',
+                  archiveError,
+                );
+              }
+
+              const deleteSet = new Set(softDeletes);
+              set({
+                notes: get().notes.map((n) =>
+                  deleteSet.has(n.id)
+                    ? {
+                        ...n,
+                        archived: true,
+                        archived_reason: 'calendar_deleted',
+                        archived_at: now,
+                      }
+                    : n,
+                ),
+              });
+              console.log('[GremlyStore] Calendar sync soft-deleted', softDeletes.length, 'notes');
+            }
+
+            return {
+              created: creates.length,
+              updated: updates.length,
+              softDeleted: softDeletes.length,
+              unchanged,
+            };
+          } catch (error) {
+            console.error('[GremlyStore] syncCalendarEventsToNotes failed:', error);
+            return zero;
           }
         },
 

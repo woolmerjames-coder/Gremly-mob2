@@ -393,6 +393,35 @@ export interface Note {
 
   /** True once user has resolved the clarification */
   clarification_resolved?: boolean;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Calendar Event Normalization
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** External calendar source metadata for synced events */
+  external_source?: {
+    provider: 'google_calendar' | 'outlook' | 'ics';
+    externalId: string;
+    calendarId: string;
+    lastSyncedAt: string;
+    etag?: string | null;
+  } | null;
+
+  /** Expo notification IDs for scheduled reminders */
+  notification_ids?: string[];
+
+  /** User reminder preferences for this event */
+  reminder_preferences?: {
+    dayBefore: boolean;
+    morningOf: boolean;
+    minutesBefore: number | null;
+  } | null;
+
+  /** Physical or virtual location for the event */
+  location?: string | null;
+
+  /** Whether this is an all-day event (no specific time) */
+  is_all_day?: boolean;
 }
 
 /**
@@ -1019,4 +1048,22 @@ export interface HabitBuilderStreamingCallbacks {
   onComplete: (response: HabitBuilderStreamingResponse) => void;
   onError: (error: Error) => void;
   onSearching?: (query: string) => void;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Calendar Sync Types
+// ═══════════════════════════════════════════════════════════════════
+
+export type CalendarSyncResult = {
+  created: number;
+  updated: number;
+  softDeleted: number;
+  unchanged: number;
+  errors: string[];
+};
+
+export interface DefaultReminderPreferences {
+  dayBefore: boolean;
+  morningOf: boolean;
+  minutesBefore: number | null;
 }
