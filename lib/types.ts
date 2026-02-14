@@ -366,6 +366,9 @@ export interface Note {
   /** Specific time for events (e.g., "2pm" -> "14:00") */
   event_time?: string | null; // HH:mm format
 
+  /** End time for events (HH:mm format, 24h) */
+  end_time?: string | null;
+
   /** Whether this event note is a Space goal */
   is_goal?: boolean;
 

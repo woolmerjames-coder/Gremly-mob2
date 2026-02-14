@@ -78,6 +78,7 @@ export function transformCalendarEventToNote(
     target_date: targetDate,
     end_date: endDate !== targetDate ? endDate : null,
     event_time: !event.isAllDay ? extractTime(event.startAt) : null,
+    end_time: !event.isAllDay ? extractTime(event.endAt) : null,
     is_all_day: event.isAllDay,
     location: event.location,
     external_source: {

@@ -85,6 +85,8 @@ export function hasExternalEventChanged(note: Note, event: CalendarEvent): boole
   if (note.target_date !== incomingDate) return true;
   if ((note.end_date ?? null) !== expectedEndDate) return true;
   if ((note.event_time ?? null) !== incomingTime) return true;
+  const incomingEndTime = !event.isAllDay ? extractTime(event.endAt) : null;
+  if ((note.end_time ?? null) !== incomingEndTime) return true;
   if ((note.is_all_day ?? false) !== event.isAllDay) return true;
   if ((note.location ?? null) !== (event.location ?? null)) return true;
 
