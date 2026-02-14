@@ -92,6 +92,8 @@ export function transformCalendarEventToNote(
 
   // ── Update path: preserve Gremly-enriched fields ──────────────────────────
   if (existingNote) {
+    const userEdited = new Set(existingNote.user_edited_fields ?? []);
+
     return {
       // Preserve user/AI-enriched fields
       space_id: existingNote.space_id,
@@ -105,8 +107,14 @@ export function transformCalendarEventToNote(
       labels: existingNote.labels,
       is_pinned: existingNote.is_pinned,
       is_favorite: existingNote.is_favorite,
-      // Overwrite calendar-sourced fields
+      user_edited_fields: existingNote.user_edited_fields,
+      // Overwrite calendar-sourced fields (unless user-edited)
       ...calendarFields,
+      // Restore user edits
+      ...(userEdited.has('event_time') && {
+        event_time: existingNote.event_time,
+        end_time: existingNote.end_time,
+      }),
     };
   }
 

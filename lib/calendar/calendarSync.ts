@@ -109,12 +109,17 @@ export function hasExternalEventChanged(note: Note, event: CalendarEvent): boole
  * @param existingEventNotes - Current Note entities with subtype='event' and
  *                             a non-null external_source
  * @param ownerId           - Supabase user ID for new note creation
+ * @param dismissedExternalIds - External IDs of events dismissed by the user
+ *                               (archived with reason 'dismissed_by_user');
+ *                               these are skipped during create to prevent
+ *                               re-inserting dismissed events
  * @returns A CalendarReconcileResult with creates, updates, softDeletes, unchanged
  */
 export function reconcileCalendarEvents(
   externalEvents: CalendarEvent[],
   existingEventNotes: Note[],
   ownerId: string,
+  dismissedExternalIds?: Set<string>,
 ): CalendarReconcileResult {
   // ── 1. Build lookup Maps ──────────────────────────────────────────────────
 
@@ -152,6 +157,11 @@ export function reconcileCalendarEvents(
         unchanged++;
       }
     } else {
+      // Skip dismissed events — don't re-create them
+      if (dismissedExternalIds?.has(externalId)) {
+        unchanged++;
+        continue;
+      }
       // New event — create
       creates.push(transformCalendarEventToNote(event, ownerId));
     }

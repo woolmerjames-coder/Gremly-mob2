@@ -425,6 +425,9 @@ export interface Note {
 
   /** Whether this is an all-day event (no specific time) */
   is_all_day?: boolean;
+
+  /** Fields manually edited by the user that should be preserved during sync */
+  user_edited_fields?: string[] | null;
 }
 
 /**

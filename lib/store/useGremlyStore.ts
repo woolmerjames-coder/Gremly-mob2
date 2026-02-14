@@ -3912,11 +3912,26 @@ export const useGremlyStore = create<GremlyState>()(
                 !n.archived,
             ) as import('../types').Note[];
 
+            // 2b. Build dismissed external IDs set (archived by user)
+            const dismissedExternalIds = new Set<string>();
+            notes.forEach((n) => {
+              if (
+                n.type === 'note' &&
+                (n as any).subtype === 'event' &&
+                n.archived &&
+                (n as any).archived_reason === 'dismissed_by_user' &&
+                (n as any).external_source?.externalId
+              ) {
+                dismissedExternalIds.add((n as any).external_source.externalId);
+              }
+            });
+
             // 3. Reconcile
             const { creates, updates, softDeletes, unchanged } = reconcileCalendarEvents(
               flatEvents,
               existingEventNotes,
               userId,
+              dismissedExternalIds,
             );
 
             // 4. Creates — insert into Supabase, get real IDs, then add to store

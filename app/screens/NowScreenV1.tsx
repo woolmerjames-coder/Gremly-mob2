@@ -39,6 +39,9 @@ import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
 import { MorningBriefSheet } from '../components/morning-brief/MorningBriefSheet';
+import EventQuickActionSheet from '../../components/now/EventQuickActionSheet';
+import TodoLinkSheet from '../../components/now/TodoLinkSheet';
+import { scheduleEventReminder } from '../../lib/notifications/scheduleEventReminder';
 import { useMorningBrief } from '../../lib/today/hooks/useMorningBrief';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import FirstTodayVisitBubble from '../../components/onboarding/FirstTodayVisitBubble';
@@ -619,6 +622,8 @@ export default function NowScreenV1() {
   const [showHelp, setShowHelp] = useState(false);
   const [showFirstVisitBubble, setShowFirstVisitBubble] = useState(false);
   const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
+  const [quickActionEvent, setQuickActionEvent] = useState<Note | null>(null);
+  const [linkTodoForEventId, setLinkTodoForEventId] = useState<string | null>(null);
 
   // Pending drops from store - shows loading cards while pipeline runs
   // These persist until promotePendingDropToEntity removes them
@@ -677,6 +682,80 @@ export default function NowScreenV1() {
       completedHabitsToday,
     ],
   );
+
+  // Handle event quick action sheet
+  const handleEventQuickAction = useCallback((event: Note) => {
+    setQuickActionEvent(event);
+  }, []);
+
+  const handleDismissEvent = useCallback((eventId: string) => {
+    const now = new Date().toISOString();
+    useGremlyStore.getState().updateNote(eventId, {
+      archived: true,
+      archived_reason: 'dismissed_by_user',
+      archived_at: now,
+    });
+    setQuickActionEvent(null);
+  }, []);
+
+  const handleEditEventTime = useCallback(
+    (eventId: string, startTime: string, endTime: string | null) => {
+      useGremlyStore.getState().updateNote(eventId, {
+        event_time: startTime,
+        end_time: endTime,
+        user_edited_fields: [...(quickActionEvent?.user_edited_fields ?? []), 'event_time'],
+      });
+      setQuickActionEvent(null);
+    },
+    [quickActionEvent],
+  );
+
+  const handleAddPrepNote = useCallback((eventId: string, body: string) => {
+    useGremlyStore.getState().updateNote(eventId, { body });
+    setQuickActionEvent(null);
+  }, []);
+
+  const handleEventRemind = useCallback(
+    async (eventId: string, minutesBefore: number) => {
+      const event = quickActionEvent;
+      if (!event) return;
+
+      // Schedule the actual notification
+      const notificationId = await scheduleEventReminder(
+        eventId,
+        event.title || 'Event',
+        event.target_date || '',
+        event.event_time || null,
+        minutesBefore,
+      );
+
+      // Store reminder preferences + notification ID on the note
+      const existingIds = event.notification_ids ?? [];
+      useGremlyStore.getState().updateNote(eventId, {
+        reminder_preferences: { dayBefore: minutesBefore >= 1440, morningOf: false, minutesBefore },
+        ...(notificationId ? { notification_ids: [...existingIds, notificationId] } : {}),
+      });
+
+      setQuickActionEvent(null);
+    },
+    [quickActionEvent],
+  );
+
+  const handleOpenFullEvent = useCallback(
+    (event: Note) => {
+      setQuickActionEvent(null);
+      overlayController.openEdit({
+        record: { id: event.id, type: 'note' } as any,
+      });
+    },
+    [overlayController],
+  );
+
+  const handleLinkTodo = useCallback((eventId: string, todoId: string) => {
+    useGremlyStore.getState().updateTodo(todoId, { linked_event_id: eventId } as any);
+    useGremlyStore.getState().updateNote(eventId, { linked_event_id: todoId });
+    setLinkTodoForEventId(null);
+  }, []);
 
   // Handle key date press - close brief first, then open overlay for event note
   const handleKeyDatePress = useCallback(
@@ -884,6 +963,7 @@ export default function NowScreenV1() {
           lockedItemIds={lockedItemIds}
           eventNotes={todayEventNotes}
           onEventPress={handleKeyDatePress}
+          onEventQuickAction={handleEventQuickAction}
         />
       </View>
 
@@ -1063,6 +1143,29 @@ export default function NowScreenV1() {
         onKeyDatePress={handleKeyDatePress}
       />
 
+      {/* Event Quick Action Sheet */}
+      <EventQuickActionSheet
+        visible={!!quickActionEvent}
+        event={quickActionEvent}
+        onClose={() => setQuickActionEvent(null)}
+        onDismiss={handleDismissEvent}
+        onEditTime={handleEditEventTime}
+        onAddPrepNote={handleAddPrepNote}
+        onLinkTodo={(eventId) => {
+          setQuickActionEvent(null);
+          setTimeout(() => setLinkTodoForEventId(eventId), 300);
+        }}
+        onRemind={handleEventRemind}
+        onOpenFull={handleOpenFullEvent}
+      />
+
+      <TodoLinkSheet
+        visible={!!linkTodoForEventId}
+        eventId={linkTodoForEventId}
+        onClose={() => setLinkTodoForEventId(null)}
+        onSelect={handleLinkTodo}
+      />
+
       {/* Help Card */}
       <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="today" />
     </Screen>
@@ -1212,6 +1315,7 @@ type TodayFocusListProps = {
   /** All event notes for today (external + native, from useEventNotesForDate) */
   eventNotes?: Note[];
   onEventPress?: (event: Note) => void;
+  onEventQuickAction?: (event: Note) => void;
 };
 
 function TodayFocusList({
@@ -1231,6 +1335,7 @@ function TodayFocusList({
   lockedItemIds,
   eventNotes = [],
   onEventPress,
+  onEventQuickAction,
 }: TodayFocusListProps) {
   // Get current time block for highlighting
   const currentTimeBlock = getCurrentTimeBlock();
@@ -1387,6 +1492,7 @@ function TodayFocusList({
               eventNote={event}
               isFirst={index === 0}
               onPress={() => onEventPress?.(event)}
+              onQuickAction={() => onEventQuickAction?.(event)}
             />
           ))}
         </TimeBlockSection>
@@ -1401,6 +1507,7 @@ function TodayFocusList({
               eventNote={event}
               isFirst={index === 0 && itemsByBlock.morning.length === 0}
               onPress={() => onEventPress?.(event)}
+              onQuickAction={() => onEventQuickAction?.(event)}
             />
           ))}
           {itemsByBlock.morning.map((item, index) => (
@@ -1429,6 +1536,7 @@ function TodayFocusList({
               eventNote={event}
               isFirst={index === 0 && itemsByBlock.afternoon.length === 0}
               onPress={() => onEventPress?.(event)}
+              onQuickAction={() => onEventQuickAction?.(event)}
             />
           ))}
           {itemsByBlock.afternoon.map((item, index) => (
@@ -1457,6 +1565,7 @@ function TodayFocusList({
               eventNote={event}
               isFirst={index === 0 && itemsByBlock.evening.length === 0}
               onPress={() => onEventPress?.(event)}
+              onQuickAction={() => onEventQuickAction?.(event)}
             />
           ))}
           {itemsByBlock.evening.map((item, index) => (
@@ -1485,6 +1594,7 @@ function TodayFocusList({
               eventNote={event}
               isFirst={index === 0 && itemsByBlock.anytime.length === 0}
               onPress={() => onEventPress?.(event)}
+              onQuickAction={() => onEventQuickAction?.(event)}
             />
           ))}
           {itemsByBlock.anytime.map((item, index) => (

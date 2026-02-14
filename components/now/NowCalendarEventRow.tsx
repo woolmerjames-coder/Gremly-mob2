@@ -8,7 +8,7 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { Text } from '../../ui';
-import { Calendar, Clock, MapPin } from 'lucide-react-native';
+import { Calendar, Clock, MapPin, MoreHorizontal } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import type { CalendarItem } from '../../lib/store/calendarSelectors';
 import type { Note } from '../../lib/types';
@@ -21,6 +21,7 @@ interface NowCalendarEventRowProps {
   isFirst?: boolean;
   isLast?: boolean;
   onPress?: () => void;
+  onQuickAction?: () => void;
 }
 
 /**
@@ -56,6 +57,7 @@ export function NowCalendarEventRow({
   isFirst = false,
   isLast: _isLast = false,
   onPress,
+  onQuickAction,
 }: NowCalendarEventRowProps) {
   // Normalize: support both CalendarItem and Note inputs
   const normalized = useMemo(() => {
@@ -128,6 +130,21 @@ export function NowCalendarEventRow({
             </View>
           )}
         </View>
+
+        {/* Three-dot menu — aligned with NowFocusRow checkbox */}
+        {onQuickAction && (
+          <Pressable
+            style={styles.quickActionButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              onQuickAction();
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Event actions"
+          >
+            <MoreHorizontal size={18} color="#999999" />
+          </Pressable>
+        )}
       </Pressable>
     </View>
   );
@@ -146,8 +163,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 6,
-    paddingLeft: 12,
-    paddingRight: 12,
+    paddingHorizontal: 12,
     minHeight: 36,
   },
   pressed: {
@@ -182,6 +198,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: BRAND.colors.inkSubtle,
     maxWidth: 120,
+  },
+  quickActionButton: {
+    width: 32,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    marginRight: -8,
   },
 });
 
