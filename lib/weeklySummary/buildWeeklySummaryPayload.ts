@@ -43,6 +43,9 @@ export interface WeeklySummaryPayload {
     title: string;
     type: string;
     createdAt: string;
+    dueDate: string;
+    ageDays: number;
+    sweepRescheduleCount: number;
     lastTouchedAt: string;
   }>;
 
@@ -152,7 +155,7 @@ function jsDayToMondayIndex(jsDay: number): number {
 // Main builder
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function buildWeeklySummaryPayload(): WeeklySummaryPayload | null {
+export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload | null> {
   const state = useGremlyStore.getState();
 
   if (!state.userId || !state.isInitialized) return null;
@@ -168,8 +171,9 @@ export function buildWeeklySummaryPayload(): WeeklySummaryPayload | null {
   const nextWeekStart = ds().addDays(weekEndDate, 1);
   const nextWeekEnd = ds().addDays(nextWeekStart, 6);
 
-  // ── Stale threshold (14 days ago) ──────────────────────────────────────
-  const staleThreshold = ds().addDays(today, -14);
+  // ── Stale / zombie thresholds ─────────────────────────────────────────
+  const staleAgeThreshold = ds().addDays(today, -14); // Must be created 14+ days ago
+  const recentDueCutoff = ds().addDays(today, -3); // due_date within last 3 days or today
 
   // ── Raw data ───────────────────────────────────────────────────────────
   const todos: Todo[] = state.todos ?? [];
@@ -261,38 +265,75 @@ export function buildWeeklySummaryPayload(): WeeklySummaryPayload | null {
   // 8. Mind Drops created / swept
   const allItemsThisWeek = [
     ...todosCreatedThisWeek.map((t) => ({
+      id: t.id,
       dropId: t.drop_id,
       completedAt: t.completed_at,
       archived: t.archived,
       type: 'todo' as const,
+      dueDate: t.due_date ?? null,
+      skippedInSweepAt: t.skipped_in_sweep_at ?? null,
+      lastCheckedInAt: null as string | null,
+      sweptAt: null as string | null,
+      subtype: null as string | null,
     })),
     ...habits
       .filter((h) => dayInRange(dayFromTimestamp(h.created_at), weekStartDate, weekEndDate))
       .map((h) => ({
+        id: h.id,
         dropId: h.drop_id,
         completedAt: h.last_completed_at ?? null,
         archived: h.archived,
         type: 'habit' as const,
+        dueDate: null as string | null,
+        skippedInSweepAt: null as string | null,
+        lastCheckedInAt: h.last_checked_in_at ?? null,
+        sweptAt: null as string | null,
+        subtype: null as string | null,
       })),
     ...notes
       .filter((n) => dayInRange(dayFromTimestamp(n.created_at), weekStartDate, weekEndDate))
       .map((n) => ({
+        id: n.id,
         dropId: n.drop_id,
         completedAt: null as string | null,
         archived: n.archived,
         type: 'note' as const,
+        dueDate: null as string | null,
+        skippedInSweepAt: n.skipped_in_sweep_at ?? null,
+        lastCheckedInAt: null as string | null,
+        sweptAt: n.swept_at ?? null,
+        subtype: n.subtype as string | null,
       })),
   ];
 
   const mindDropItems = allItemsThisWeek.filter((i) => i.dropId != null);
   const mindDropsCreated = mindDropItems.length;
-  // Swept = completed (for todos) or acted upon (non-archived habits/notes that exist)
-  const mindDropsSwept = mindDropItems.filter(
-    (i) =>
-      i.completedAt != null ||
-      (i.type === 'habit' && !i.archived) ||
-      (i.type === 'note' && !i.archived),
-  ).length;
+  // Swept/processed = user has made a decision on this mind drop
+  const mindDropsSwept = mindDropItems.filter((i) => {
+    // Archived = cleared in Sweep
+    if (i.archived) return true;
+
+    if (i.type === 'todo') {
+      // Completed, scheduled (has due_date), or explicitly skipped in Sweep
+      return i.completedAt != null || i.dueDate != null || i.skippedInSweepAt != null;
+    }
+
+    if (i.type === 'habit') {
+      // Has any progress logged this week, or was checked in on
+      const hasProgress = habitProgress.some(
+        (p) =>
+          p.habit_id === i.id && p.occurred_day >= weekStartDate && p.occurred_day <= weekEndDate,
+      );
+      return hasProgress || i.lastCheckedInAt != null;
+    }
+
+    if (i.type === 'note') {
+      // Has been swept, or is a journal (intentional capture)
+      return i.sweptAt != null || i.subtype === 'journal';
+    }
+
+    return false;
+  }).length;
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 9. Completed todos detail
@@ -311,38 +352,106 @@ export function buildWeeklySummaryPayload(): WeeklySummaryPayload | null {
     };
   });
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // 10. Stale items (active, untouched >14 days)
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  const staleTodos: WeeklySummaryPayload['staleItems'] = todos
-    .filter((t) => !t.archived && !t.completed_at)
-    .map((t) => {
-      const lastTouched = latestTimestamp(t.updated_at, t.completed_at, t.locked_in_at);
+  // ═══════════════════════════════════════════════════════════════════
+  // STALE / ZOMBIE ITEMS
+  // Two signals for finding items the user keeps avoiding in Sweep:
+  //
+  // Signal 1 (primary): sweep_reschedule_count >= 7
+  //   Item has been bumped 7+ times via "Tomorrow"/"Next Week" in Sweep.
+  //   This is the strongest signal — it directly measures avoidance.
+  //   Works for ANY item regardless of age.
+  //
+  // Signal 2 (secondary): created 14+ days ago AND due_date is today/recent
+  //   The gap between creation and a perpetually-bumped due_date reveals
+  //   items being pushed forward daily. Catches existing zombies while
+  //   reschedule counts are still accumulating from zero.
+  //
+  // Signal 3 (tertiary): created 14+ days ago with NO due_date at all
+  //   Floating items that were dropped in and never scheduled.
+  //
+  // Items with due_date far in the future are excluded — those are planned.
+  // ═══════════════════════════════════════════════════════════════════
+  const staleTodos = state.todos.filter((t) => {
+    if (t.completed_at || t.archived) return false;
+
+    const createdDate = t.created_at?.slice(0, 10) ?? '';
+    const dueDate = t.due_date?.slice(0, 10) ?? '';
+    const rescheduleCount = t.sweep_reschedule_count ?? 0;
+
+    // Signal 1: Rescheduled 7+ times — zombie regardless of age
+    if (rescheduleCount >= 7) return true;
+
+    // Signal 2: Created 14+ days ago with due_date of today or recent (being bumped daily)
+    if (createdDate && createdDate <= staleAgeThreshold) {
+      if (dueDate && dueDate >= recentDueCutoff && dueDate <= today) return true;
+    }
+
+    // Signal 3: Created 14+ days ago with no due_date — just floating
+    if (createdDate && createdDate <= staleAgeThreshold && !dueDate) return true;
+
+    return false;
+  });
+
+  // For habits: stale = created 14+ days ago, active, no recent check-in
+  const staleHabits = habits.filter((h) => {
+    if (h.last_completed_at || h.archived) return false;
+    if (h.subtype !== 'start_habit') return false;
+
+    const createdDate = h.created_at?.slice(0, 10) ?? '';
+    if (!createdDate || createdDate > staleAgeThreshold) return false;
+
+    // No check-in in the last 14 days = abandoned habit
+    const lastActivity = h.last_checked_in_at ?? h.updated_at ?? h.created_at ?? '';
+    const lastActivityDate = lastActivity.slice(0, 10);
+    return lastActivityDate <= staleAgeThreshold;
+  });
+
+  // Build the stale items array with all context the AI needs
+  const staleItems = [
+    ...staleTodos.map((t) => {
+      const createdDate = t.created_at?.slice(0, 10) ?? '';
+      const dueDate = t.due_date?.slice(0, 10) ?? '';
+      const createdMs = new Date(createdDate).getTime();
+      const todayMs = new Date(today).getTime();
+      const ageDays = Math.round((todayMs - createdMs) / (1000 * 60 * 60 * 24));
+      const rescheduleCount = t.sweep_reschedule_count ?? 0;
+
       return {
         id: t.id,
-        title: itemTitle(t),
-        type: 'todo',
-        createdAt: t.created_at,
-        lastTouchedAt: lastTouched || t.created_at,
+        title: t.title || t.name,
+        type: 'todo' as const,
+        createdAt: t.created_at ?? '',
+        dueDate,
+        ageDays,
+        sweepRescheduleCount: rescheduleCount,
+        lastTouchedAt: t.updated_at ?? t.created_at ?? '',
       };
-    })
-    .filter((i) => dayFromTimestamp(i.lastTouchedAt) < staleThreshold);
+    }),
+    ...staleHabits.map((h) => {
+      const createdDate = h.created_at?.slice(0, 10) ?? '';
+      const createdMs = new Date(createdDate).getTime();
+      const todayMs = new Date(today).getTime();
+      const ageDays = Math.round((todayMs - createdMs) / (1000 * 60 * 60 * 24));
 
-  const staleHabits = habits
-    .filter((h) => !h.archived)
-    .map((h) => {
-      const lastTouched = latestTimestamp(h.updated_at, h.locked_in_at, h.last_checked_in_at);
       return {
         id: h.id,
-        title: itemTitle(h),
-        type: 'habit',
-        createdAt: h.created_at,
-        lastTouchedAt: lastTouched || h.created_at,
+        title: h.name,
+        type: 'habit' as const,
+        createdAt: h.created_at ?? '',
+        dueDate: '',
+        ageDays,
+        sweepRescheduleCount: 0,
+        lastTouchedAt: h.last_checked_in_at ?? h.updated_at ?? h.created_at ?? '',
       };
-    })
-    .filter((i) => dayFromTimestamp(i.lastTouchedAt) < staleThreshold);
-
-  const staleItems = [...staleTodos, ...staleHabits];
+    }),
+  ]
+    // Sort priority: highest reschedule count first, then oldest first
+    .sort((a, b) => {
+      if (b.sweepRescheduleCount !== a.sweepRescheduleCount) {
+        return b.sweepRescheduleCount - a.sweepRescheduleCount;
+      }
+      return b.ageDays - a.ageDays;
+    });
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 11. Space activity
@@ -397,42 +506,77 @@ export function buildWeeklySummaryPayload(): WeeklySummaryPayload | null {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 14. Upcoming events (next week)
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  const upcomingEvents: WeeklySummaryPayload['upcomingEvents'] = [];
 
-  // External calendar events for each day in next week
-  for (let i = 0; i < 7; i++) {
-    const dayStr = ds().addDays(nextWeekStart, i);
-    const dayEvents = calendarEvents[dayStr] ?? [];
-    for (const evt of dayEvents) {
-      upcomingEvents.push({
-        title: evt.title,
-        date: dayStr,
-        startTime: evt.isAllDay ? undefined : evt.startAt?.slice(11, 16),
-        isAllDay: evt.isAllDay,
+  // Fetch next week's calendar events (they may not be in memory yet)
+  try {
+    await useGremlyStore.getState().fetchCalendarEventsForRange(nextWeekStart, nextWeekEnd);
+  } catch (err) {
+    console.warn('[WeeklySummary] Failed to fetch next week calendar events:', err);
+    // Non-blocking — continue with whatever's in the store
+  }
+
+  // Re-read state after calendar fetch since calendarEvents record may have been updated
+  const freshState = useGremlyStore.getState();
+
+  // External synced events (from calendar provider, now in memory)
+  const externalEventsNextWeek: WeeklySummaryPayload['upcomingEvents'] = [];
+
+  for (let d = 0; d < 7; d++) {
+    const dateStr = ds().addDays(nextWeekStart, d);
+    const dayEvents = (freshState.calendarEvents ?? {})[dateStr] ?? [];
+    for (const ev of dayEvents) {
+      externalEventsNextWeek.push({
+        title: ev.title ?? 'Untitled',
+        date: dateStr,
+        startTime: ev.isAllDay
+          ? undefined
+          : (() => {
+              if (!ev.startAt) return undefined;
+              try {
+                const userTz =
+                  state.userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+                return new Date(ev.startAt).toLocaleTimeString('en-US', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true,
+                  timeZone: userTz,
+                });
+              } catch {
+                return ev.startAt?.slice(11, 16); // Fallback to UTC
+              }
+            })(),
+        isAllDay: ev.isAllDay ?? !ev.startAt,
         isRecurring: false,
         isUserCreated: false,
         hasGremlyInteraction: false,
+        spaceId: undefined,
         linkedTodoCount: 0,
       });
     }
   }
 
-  // User calendar events in next week
-  for (const evt of userCalendarEvents) {
-    if (dayInRange(evt.event_date, nextWeekStart, nextWeekEnd)) {
-      upcomingEvents.push({
-        title: evt.title,
-        date: evt.event_date,
-        startTime: evt.event_time ?? undefined,
-        isAllDay: !evt.event_time,
-        isRecurring: false,
-        isUserCreated: true,
-        hasGremlyInteraction: !!evt.space_id,
-        spaceId: evt.space_id ?? undefined,
-        linkedTodoCount: 0,
-      });
-    }
-  }
+  // User-created events (from calendar_events Supabase table)
+  const userEventsNextWeek = (freshState.userCalendarEvents ?? [])
+    .filter((e) => {
+      const eventDate = e.event_date;
+      return eventDate >= nextWeekStart && eventDate <= nextWeekEnd;
+    })
+    .map((e) => ({
+      title: e.title ?? 'Untitled',
+      date: e.event_date,
+      startTime: e.event_time ?? undefined,
+      isAllDay: !e.event_time,
+      isRecurring: false,
+      isUserCreated: true,
+      hasGremlyInteraction: !!e.space_id,
+      spaceId: e.space_id ?? undefined,
+      linkedTodoCount: 0,
+    }));
+
+  const upcomingEvents = [...externalEventsNextWeek, ...userEventsNextWeek].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return (a.startTime ?? '').localeCompare(b.startTime ?? '');
+  });
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 15. Upcoming todos (due next week)

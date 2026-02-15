@@ -1548,12 +1548,17 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             } as any),
           );
         } else if (decision.candidateKind === 'todo' && decision.dueDate) {
+          // Get current reschedule count from store
+          const currentTodo = todos.find((t) => t.id === decision.candidateId);
+          const currentCount = currentTodo?.sweep_reschedule_count ?? 0;
+
           updates.push(
             updateTodo(decision.candidateId, {
               scheduled_date: toDayString(decision.dueDate), // New canonical field
               due_day: toDayString(decision.dueDate), // Keep for backwards compat
               skipped_in_sweep_at: null,
               resurface_at: null, // Clear reminder so it doesn't keep resurfacing
+              sweep_reschedule_count: currentCount + 1,
             } as any),
           );
         } else if (decision.candidateKind === 'habit' && decision.startDate) {

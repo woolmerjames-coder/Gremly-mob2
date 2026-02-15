@@ -21,8 +21,8 @@ export interface GenerateWeeklySummaryResult {
 
 export async function generateWeeklySummary(): Promise<GenerateWeeklySummaryResult> {
   try {
-    // 1. Build data payload from store
-    const payload = buildWeeklySummaryPayload();
+    // 1. Build data payload from store (async — fetches next week's calendar)
+    const payload = await buildWeeklySummaryPayload();
     if (!payload) {
       console.warn('[WeeklySummary] Skipped — store not initialized or no user');
       return { success: false, error: 'Not initialized' };

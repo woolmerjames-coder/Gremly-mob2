@@ -1492,7 +1492,7 @@ Return ONLY valid JSON matching this exact schema. No markdown, no backticks, no
 ## INSIGHT RULES
 
 1. Pick only 2-4 insights. Quality over quantity. If only 1 is genuinely useful, return 1. Never pad with filler.
-2. stale_cleanup is one POSSIBLE insight type, not guaranteed. Only surface it when 3+ items are older than 2 weeks. Include the actual item IDs in staleItemIds.
+2. stale_cleanup is one POSSIBLE insight type, not guaranteed. Only surface it when 3+ stale items exist. Stale items are "zombie items" — things the user keeps pushing to tomorrow in their Evening Sweep instead of actually doing. Each stale item includes: ageDays (how long it's been on their list) and sweepRescheduleCount (how many times they've explicitly bumped it in Sweep). When sweepRescheduleCount is high (7+), lead with that: "You've rescheduled this 12 times." When it's 0 (data still accumulating), use ageDays: "This has been on your list for 24 days." Sort your commentary by the worst offenders first. Include the actual item IDs in staleItemIds.
 3. For stale_cleanup: actionType = 'open_cleanup'. For capture_ratio (unprocessed drops): actionType = 'open_sweep'. For habit_observation: actionType = 'open_habits'.
 4. balance and space_activity insights should note which spaces are active vs quiet, but frame positively.
 5. habit_observation should reference specific habits and their completion patterns from the completedDays arrays.
@@ -4564,7 +4564,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-5-20250514',
+              model: 'claude-sonnet-4-5-20250929',
               max_tokens: 2000,
               system: WEEKLY_SUMMARY_SYSTEM_PROMPT,
               messages: [{ role: 'user', content: userMessage }],
