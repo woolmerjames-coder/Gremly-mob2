@@ -13,13 +13,13 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { View, Modal, StyleSheet, ScrollView, Text, Pressable, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ShieldOff } from 'lucide-react-native';
+import { ShieldOff, Calendar, MoreHorizontal } from 'lucide-react-native';
 import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
-import { useCapacityForDate, useCalendarEventsForDate } from '../../../lib/store/capacitySelectors';
+import { useCapacityForDate } from '../../../lib/store/capacitySelectors';
 import {
   useTodayPendingDrops,
   useEventsForDate,
@@ -28,14 +28,13 @@ import {
   selectCompletionsInRolling7Days,
   selectCompletionsInRolling30Days,
 } from '../../../lib/store/selectors';
-import { getTimeBlockBoundaries } from '../../../lib/capacity';
 import { getTimeBlockForHour } from '../../../lib/now/timeBlockHelpers';
 import type { Note, Todo, Habit } from '../../../lib/types';
-import type { TimeBlock, TimeBlockPreferences } from '../../../lib/capacity';
-import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
+import type { TimeBlock } from '../../../lib/capacity';
 import { MiniSweepGate } from './MiniSweepGate';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { GlobalEventPopup } from '../../../components/calendar/GlobalEventPopup';
+import EventQuickActionSheet from '../../../components/now/EventQuickActionSheet';
 import { GlobalEventTimePicker } from '../../../components/calendar/GlobalEventTimePicker';
 import {
   MorningBriefHeader,
@@ -43,7 +42,6 @@ import {
   TimeBlockSection,
   TimeBlockPicker,
   OnYourPlateSection,
-  TodaysKeyDatesSection,
   TimeEstimatePicker,
   OrganizeButton,
   TaskItem,
@@ -54,7 +52,6 @@ import { GapSlotPicker } from './components/GapSlotPicker';
 import type { TimeGap, SlottedTask } from '../../../lib/timeGaps';
 
 interface MorningBriefSheetProps {
-  visible: boolean;
   onClose: () => void;
   onComplete?: () => void;
   /** Handler for quick add text submission */
@@ -78,10 +75,11 @@ function getTodayDateString(): string {
  * Group key date events by time block based on event_time
  * Events without event_time go to 'flexible' (On Your Plate section)
  */
-type KeyDateTimeBlock = 'morning' | 'day' | 'evening' | 'flexible';
+type KeyDateTimeBlock = 'allday' | 'morning' | 'day' | 'evening' | 'flexible';
 
 function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<KeyDateTimeBlock, Note[]> {
   const grouped: Record<KeyDateTimeBlock, Note[]> = {
+    allday: [],
     morning: [],
     day: [],
     evening: [],
@@ -89,56 +87,24 @@ function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<KeyDateTimeBlock, No
   };
 
   for (const event of keyDates) {
-    if (event.event_time) {
-      // Parse HH:mm time string to get hour
+    if (event.is_all_day || !event.event_time) {
+      grouped.allday.push(event);
+    } else {
       const [hourStr] = event.event_time.split(':');
       const hour = parseInt(hourStr, 10);
       if (!isNaN(hour)) {
         const block = getTimeBlockForHour(hour);
-        // Map 'afternoon' -> 'day' and 'anytime' -> 'flexible'
-        if (block === 'afternoon') {
-          grouped.day.push(event);
-        } else if (block === 'morning') {
-          grouped.morning.push(event);
-        } else if (block === 'evening') {
-          grouped.evening.push(event);
-        } else {
-          grouped.flexible.push(event);
-        }
+        if (block === 'afternoon') grouped.day.push(event);
+        else if (block === 'morning') grouped.morning.push(event);
+        else if (block === 'evening') grouped.evening.push(event);
+        else grouped.flexible.push(event);
       } else {
         grouped.flexible.push(event);
       }
-    } else {
-      // No event_time - goes to flexible (On Your Plate)
-      grouped.flexible.push(event);
     }
   }
 
   return grouped;
-}
-
-/**
- * Filter calendar events that overlap with a specific time block
- */
-function getEventsForBlock(
-  events: CalendarEvent[],
-  block: TimeBlock,
-  currentDate: string,
-  timeBlockPreferences: TimeBlockPreferences,
-): CalendarEvent[] {
-  const boundaries = getTimeBlockBoundaries(timeBlockPreferences);
-  const boundary = boundaries[block];
-  const [year, month, day] = currentDate.split('-').map(Number);
-  const blockStart = new Date(year, month - 1, day, boundary.startHour, 0, 0);
-  const blockEnd = new Date(year, month - 1, day, boundary.endHour, 0, 0);
-
-  return events.filter((event) => {
-    if (event.isAllDay) return false;
-    const eventStart = new Date(event.startAt);
-    const eventEnd = new Date(event.endAt);
-    // Check for overlap
-    return eventStart < blockEnd && eventEnd > blockStart;
-  });
 }
 
 /**
@@ -186,7 +152,6 @@ function getDueDateLabel(
 }
 
 export function MorningBriefSheet({
-  visible,
   onClose,
   onComplete,
   onQuickAddSubmit,
@@ -203,7 +168,6 @@ export function MorningBriefSheet({
   // ─────────────────────────────────────────────────────────────────
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
-  const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
   const updateTodo = useGremlyStore((s) => s.updateTodo);
   const updateHabit = useGremlyStore((s) => s.updateHabit);
   const addCommitment = useGremlyStore((s) => s.addCommitment);
@@ -214,7 +178,6 @@ export function MorningBriefSheet({
   // CAPACITY & CALENDAR DATA
   // ─────────────────────────────────────────────────────────────────
   const capacity = useCapacityForDate(today);
-  const calendarEvents = useCalendarEventsForDate(today);
 
   // ─────────────────────────────────────────────────────────────────
   // KEY DATE EVENTS (from Notes with subtype='event')
@@ -528,6 +491,11 @@ export function MorningBriefSheet({
   // ─────────────────────────────────────────────────────────────────
   // TIME BLOCK PICKER STATE
   // ─────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────
+  // EVENT QUICK ACTION STATE
+  // ─────────────────────────────────────────────────────────────────
+  const [quickActionEvent, setQuickActionEvent] = useState<Note | null>(null);
+
   const [pickerVisible, setPickerVisible] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskItemData | null>(null);
   // Organize feedback message
@@ -659,6 +627,53 @@ export function MorningBriefSheet({
     setAnimatingAssignments(null);
   }, []);
 
+  // ─────────────────────────────────────────────────────────────────
+  // EVENT QUICK ACTION HANDLERS
+  // ─────────────────────────────────────────────────────────────────
+  const handleEventQuickAction = useCallback((event: Note) => {
+    setQuickActionEvent(event);
+  }, []);
+
+  const handleDismissEvent = useCallback((eventId: string) => {
+    const now = new Date().toISOString();
+    useGremlyStore.getState().updateNote(eventId, {
+      archived: true,
+      archived_reason: 'dismissed_by_user',
+      archived_at: now,
+    });
+    setQuickActionEvent(null);
+  }, []);
+
+  const handleEditEventTime = useCallback(
+    (eventId: string, startTime: string, endTime: string | null) => {
+      useGremlyStore.getState().updateNote(eventId, {
+        event_time: startTime,
+        end_time: endTime,
+        user_edited_fields: [...(quickActionEvent?.user_edited_fields ?? []), 'event_time'],
+      });
+      setQuickActionEvent(null);
+    },
+    [quickActionEvent],
+  );
+
+  const handleAddPrepNote = useCallback((eventId: string, body: string) => {
+    useGremlyStore.getState().updateNote(eventId, { body });
+    setQuickActionEvent(null);
+  }, []);
+
+  const handleEventRemind = useCallback(async (eventId: string, minutesBefore: number) => {
+    // Uses the same scheduleEventReminder as NowScreenV1
+    setQuickActionEvent(null);
+  }, []);
+
+  const handleOpenFullEvent = useCallback(
+    (event: Note) => {
+      setQuickActionEvent(null);
+      onKeyDatePress?.(event);
+    },
+    [onKeyDatePress],
+  );
+
   const handleTaskPress = useCallback((task: TaskItemData) => {
     setSelectedTask(task);
     setPickerVisible(true);
@@ -789,257 +804,288 @@ export function MorningBriefSheet({
   // ─────────────────────────────────────────────────────────────────
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        {showMiniSweep ? (
-          <MiniSweepGate
-            rolledOverTodos={rolledOverTodos}
-            unscheduledTodos={unscheduledTodos}
-            onComplete={handleMiniSweepComplete}
-            onSkip={handleMiniSweepSkip}
-          />
-        ) : (
-          <>
-            {/* Header */}
-            <MorningBriefHeader targetDate={isTomorrow ? today : undefined} />
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {showMiniSweep ? (
+        <MiniSweepGate
+          rolledOverTodos={rolledOverTodos}
+          unscheduledTodos={unscheduledTodos}
+          onComplete={handleMiniSweepComplete}
+          onSkip={handleMiniSweepSkip}
+        />
+      ) : (
+        <>
+          {/* Header */}
+          <MorningBriefHeader targetDate={isTomorrow ? today : undefined} />
 
-            {/* Scrollable Content */}
-            <ScrollView
-              style={styles.scrollView}
-              contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {/* Today's Key Dates - informational anchors for the day */}
-              <TodaysKeyDatesSection
-                keyDates={keyDatesByBlock.flexible}
-                getSpaceName={getSpaceName}
-                onKeyDatePress={onKeyDatePress}
-              />
-
-              {/* On Your Plate - Flexible/Unassigned Tasks */}
-              <OnYourPlateSection
-                tasks={tasksByBlock.flexible}
-                animatingAssignments={animatingAssignments}
-                onTaskPress={handleTaskPress}
-                onTimePress={handleTimePress}
-                onAddPress={handleAddPress}
-                pendingDrops={todayPendingDrops}
-              />
-
-              {/* Help Me Organize Button */}
-              <OrganizeButton
-                targetDate={isTomorrow ? today : undefined}
-                onComplete={(summary, reasoning) => {
-                  setOrganizeMessage(summary);
-                  if (reasoning && reasoning.length > 0) {
-                    setOrganizeReasoning(reasoning);
-                  } else {
-                    setOrganizeReasoning(null);
-                  }
-                  setTimeout(() => {
-                    setOrganizeMessage(null);
-                    setOrganizeReasoning(null);
-                  }, 30000);
-                }}
-                onError={(error) => {
-                  setOrganizeMessage(error);
-                  setOrganizeReasoning(null);
-                  setTimeout(() => setOrganizeMessage(null), 30000);
-                }}
-                onAnimationStart={handleAnimationStart}
-                onAnimationComplete={handleAnimationComplete}
-              />
-
-              {organizeMessage && (
-                <Animated.View style={[styles.organizeFeedback, { opacity: summaryOpacity }]}>
-                  <Text style={styles.organizeMessage}>{organizeMessage}</Text>
-                  {organizeReasoning && organizeReasoning.length > 0 && (
-                    <Pressable onPress={() => setShowReasoningModal(true)}>
-                      <Text style={styles.reasoningLink}>Why this plan?</Text>
-                    </Pressable>
-                  )}
-                </Animated.View>
-              )}
-
-              {/* Reasoning Modal */}
-              <Modal
-                visible={showReasoningModal}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setShowReasoningModal(false)}
-              >
-                <Pressable style={styles.modalOverlay} onPress={() => setShowReasoningModal(false)}>
-                  <View style={styles.reasoningModal}>
-                    <Text style={styles.reasoningTitle}>Why this plan?</Text>
-                    <View style={styles.reasoningList}>
-                      {organizeReasoning?.map((reason, index) => (
-                        <Text key={index} style={styles.reasoningItem}>
-                          • {reason}
-                        </Text>
-                      ))}
-                    </View>
-                    <Pressable
-                      style={styles.reasoningDismiss}
-                      onPress={() => setShowReasoningModal(false)}
-                    >
-                      <Text style={styles.reasoningDismissText}>Got it</Text>
-                    </Pressable>
-                  </View>
-                </Pressable>
-              </Modal>
-
-              {/* Thick divider between On Your Plate and Time Blocks */}
-              <View style={styles.sectionDivider} />
-
-              {/* All Day - break habit awareness card */}
-              {breakHabitsByBlock.allday.length > 0 && (
-                <>
-                  <View style={styles.alldaySection}>
-                    <View style={styles.alldayHeader}>
-                      <View style={[styles.alldayBar, { backgroundColor: '#8B7E74' }]} />
-                      <ShieldOff size={16} color="#8B7E74" />
-                      <Text style={styles.alldayLabel}>ALL DAY</Text>
-                    </View>
-                    <BreakHabitCard names={breakHabitsByBlock.allday} />
-                  </View>
-                  <View style={styles.blockDivider} />
-                </>
-              )}
-
-              {/* Time Blocks */}
-              <TimeBlockSection
-                capacity={capacity.blocks.morning}
-                events={getEventsForBlock(calendarEvents, 'morning', today, timeBlockPreferences)}
-                keyDateEvents={keyDatesByBlock.morning}
-                getSpaceName={getSpaceName}
-                onKeyDatePress={onKeyDatePress}
-                tasks={tasksByBlock.morning}
-                onTaskPress={handleTaskPress}
-                onTimePress={handleTimePress}
-                hiddenEventIds={hiddenEventIds}
-                dateContext={today}
-                slottedItems={slottedItemsByBlock.morning}
-                onGapSlotPress={(gap) => handleGapSlotPress(gap, 'morning')}
-                onSlottedTaskPress={handleSlottedTaskPress}
-                taskDataById={taskDataById}
-              />
-              {breakHabitsByBlock.morning.length > 0 && (
-                <BreakHabitCard names={breakHabitsByBlock.morning} />
-              )}
-
-              <View style={styles.blockDivider} />
-
-              <TimeBlockSection
-                capacity={capacity.blocks.day}
-                events={getEventsForBlock(calendarEvents, 'day', today, timeBlockPreferences)}
-                keyDateEvents={keyDatesByBlock.day}
-                getSpaceName={getSpaceName}
-                onKeyDatePress={onKeyDatePress}
-                tasks={tasksByBlock.afternoon}
-                onTaskPress={handleTaskPress}
-                onTimePress={handleTimePress}
-                hiddenEventIds={hiddenEventIds}
-                dateContext={today}
-                slottedItems={slottedItemsByBlock.afternoon}
-                onGapSlotPress={(gap) => handleGapSlotPress(gap, 'afternoon')}
-                onSlottedTaskPress={handleSlottedTaskPress}
-                taskDataById={taskDataById}
-              />
-              {breakHabitsByBlock.afternoon.length > 0 && (
-                <BreakHabitCard names={breakHabitsByBlock.afternoon} />
-              )}
-
-              <View style={styles.blockDivider} />
-
-              <TimeBlockSection
-                capacity={capacity.blocks.evening}
-                events={getEventsForBlock(calendarEvents, 'evening', today, timeBlockPreferences)}
-                keyDateEvents={keyDatesByBlock.evening}
-                getSpaceName={getSpaceName}
-                onKeyDatePress={onKeyDatePress}
-                tasks={tasksByBlock.evening}
-                onTaskPress={handleTaskPress}
-                onTimePress={handleTimePress}
-                hiddenEventIds={hiddenEventIds}
-                dateContext={today}
-                slottedItems={slottedItemsByBlock.evening}
-                onGapSlotPress={(gap) => handleGapSlotPress(gap, 'evening')}
-                onSlottedTaskPress={handleSlottedTaskPress}
-                taskDataById={taskDataById}
-              />
-              {breakHabitsByBlock.evening.length > 0 && (
-                <BreakHabitCard names={breakHabitsByBlock.evening} />
-              )}
-            </ScrollView>
-
-            {/* Footer */}
-            <MorningBriefFooter
-              onComplete={handleComplete}
-              isLoading={isSaving}
-              showLockIn={showLockInButton}
-              onLockInPress={handleLockInPress}
+          {/* Scrollable Content */}
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* On Your Plate - Flexible/Unassigned Tasks */}
+            <OnYourPlateSection
+              tasks={tasksByBlock.flexible}
+              animatingAssignments={animatingAssignments}
+              onTaskPress={handleTaskPress}
+              onTimePress={handleTimePress}
+              onAddPress={handleAddPress}
+              pendingDrops={todayPendingDrops}
             />
 
-            {/* Time Block Picker */}
-            <TimeBlockPicker
-              visible={pickerVisible}
-              task={selectedTask}
-              onClose={handlePickerClose}
-              onAssign={handleAssign}
+            {/* Help Me Organize Button */}
+            <OrganizeButton
               targetDate={isTomorrow ? today : undefined}
+              onComplete={(summary, reasoning) => {
+                setOrganizeMessage(summary);
+                if (reasoning && reasoning.length > 0) {
+                  setOrganizeReasoning(reasoning);
+                } else {
+                  setOrganizeReasoning(null);
+                }
+                setTimeout(() => {
+                  setOrganizeMessage(null);
+                  setOrganizeReasoning(null);
+                }, 30000);
+              }}
+              onError={(error) => {
+                setOrganizeMessage(error);
+                setOrganizeReasoning(null);
+                setTimeout(() => setOrganizeMessage(null), 30000);
+              }}
+              onAnimationStart={handleAnimationStart}
+              onAnimationComplete={handleAnimationComplete}
             />
 
-            {/* Lock-In Picker */}
-            <LockInPicker
-              visible={lockInPickerVisible}
-              items={lockInEligibleItems}
-              onClose={handleLockInPickerClose}
-              onConfirm={handleLockInConfirm}
+            {organizeMessage && (
+              <Animated.View style={[styles.organizeFeedback, { opacity: summaryOpacity }]}>
+                <Text style={styles.organizeMessage}>{organizeMessage}</Text>
+                {organizeReasoning && organizeReasoning.length > 0 && (
+                  <Pressable onPress={() => setShowReasoningModal(true)}>
+                    <Text style={styles.reasoningLink}>Why this plan?</Text>
+                  </Pressable>
+                )}
+              </Animated.View>
+            )}
+
+            {/* Reasoning Modal */}
+            <Modal
+              visible={showReasoningModal}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowReasoningModal(false)}
+            >
+              <Pressable style={styles.modalOverlay} onPress={() => setShowReasoningModal(false)}>
+                <View style={styles.reasoningModal}>
+                  <Text style={styles.reasoningTitle}>Why this plan?</Text>
+                  <View style={styles.reasoningList}>
+                    {organizeReasoning?.map((reason, index) => (
+                      <Text key={index} style={styles.reasoningItem}>
+                        • {reason}
+                      </Text>
+                    ))}
+                  </View>
+                  <Pressable
+                    style={styles.reasoningDismiss}
+                    onPress={() => setShowReasoningModal(false)}
+                  >
+                    <Text style={styles.reasoningDismissText}>Got it</Text>
+                  </Pressable>
+                </View>
+              </Pressable>
+            </Modal>
+
+            {/* Thick divider between On Your Plate and Time Blocks */}
+            <View style={styles.sectionDivider} />
+
+            {/* All Day - key date events + break habit awareness card */}
+            {(breakHabitsByBlock.allday.length > 0 || keyDatesByBlock.allday.length > 0) && (
+              <>
+                <View style={styles.alldaySection}>
+                  <View style={styles.alldayHeader}>
+                    <View style={[styles.alldayBar, { backgroundColor: '#8B7E74' }]} />
+                    <ShieldOff size={16} color="#8B7E74" />
+                    <Text style={styles.alldayLabel}>ALL DAY</Text>
+                  </View>
+
+                  {/* All-day key date events */}
+                  {keyDatesByBlock.allday.map((keyDate) => (
+                    <Pressable
+                      key={keyDate.id}
+                      style={styles.alldayEventRow}
+                      onPress={() => onKeyDatePress?.(keyDate)}
+                    >
+                      <Calendar size={14} color="#999999" style={{ marginRight: 10 }} />
+                      <Text style={styles.alldayEventTitle} numberOfLines={1}>
+                        {keyDate.title || 'Untitled Event'}
+                      </Text>
+                      <Pressable
+                        style={styles.quickActionButton}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleEventQuickAction(keyDate);
+                        }}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <MoreHorizontal size={16} color="#CCCCCC" />
+                      </Pressable>
+                    </Pressable>
+                  ))}
+
+                  {breakHabitsByBlock.allday.length > 0 && (
+                    <BreakHabitCard names={breakHabitsByBlock.allday} />
+                  )}
+                </View>
+                <View style={styles.blockDivider} />
+              </>
+            )}
+
+            {/* Time Blocks */}
+            <TimeBlockSection
+              capacity={capacity.blocks.morning}
+              events={[]}
+              keyDateEvents={keyDatesByBlock.morning}
+              getSpaceName={getSpaceName}
+              onKeyDatePress={onKeyDatePress}
+              onKeyDateQuickAction={handleEventQuickAction}
+              tasks={tasksByBlock.morning}
+              onTaskPress={handleTaskPress}
+              onTimePress={handleTimePress}
+              hiddenEventIds={hiddenEventIds}
+              dateContext={today}
+              slottedItems={slottedItemsByBlock.morning}
+              onGapSlotPress={(gap) => handleGapSlotPress(gap, 'morning')}
+              onSlottedTaskPress={handleSlottedTaskPress}
+              taskDataById={taskDataById}
             />
+            {breakHabitsByBlock.morning.length > 0 && (
+              <BreakHabitCard names={breakHabitsByBlock.morning} />
+            )}
 
-            {/* Gap Slot Picker */}
-            <GapSlotPicker
-              visible={gapSlotPickerVisible}
-              gap={selectedGap}
-              availableTasks={tasksForGapPicker}
-              onClose={handleGapSlotPickerClose}
-              onSlotTask={handleGapSlotTask}
+            <View style={styles.blockDivider} />
+
+            <TimeBlockSection
+              capacity={capacity.blocks.day}
+              events={[]}
+              keyDateEvents={keyDatesByBlock.day}
+              getSpaceName={getSpaceName}
+              onKeyDatePress={onKeyDatePress}
+              onKeyDateQuickAction={handleEventQuickAction}
+              tasks={tasksByBlock.afternoon}
+              onTaskPress={handleTaskPress}
+              onTimePress={handleTimePress}
+              hiddenEventIds={hiddenEventIds}
+              dateContext={today}
+              slottedItems={slottedItemsByBlock.afternoon}
+              onGapSlotPress={(gap) => handleGapSlotPress(gap, 'afternoon')}
+              onSlottedTaskPress={handleSlottedTaskPress}
+              taskDataById={taskDataById}
             />
+            {breakHabitsByBlock.afternoon.length > 0 && (
+              <BreakHabitCard names={breakHabitsByBlock.afternoon} />
+            )}
 
-            {/* Time Estimate Picker */}
-            <TimeEstimatePicker
-              visible={timePickerVisible}
-              taskId={timePickerTask?.id ?? null}
-              taskType={timePickerTask?.type ?? null}
-              taskTitle={timePickerTask?.title ?? null}
-              currentEstimate={timePickerTask?.estimatedMinutes ?? null}
-              onClose={handleTimePickerClose}
-              onSave={handleTimeSave}
+            <View style={styles.blockDivider} />
+
+            <TimeBlockSection
+              capacity={capacity.blocks.evening}
+              events={[]}
+              keyDateEvents={keyDatesByBlock.evening}
+              getSpaceName={getSpaceName}
+              onKeyDatePress={onKeyDatePress}
+              onKeyDateQuickAction={handleEventQuickAction}
+              tasks={tasksByBlock.evening}
+              onTaskPress={handleTaskPress}
+              onTimePress={handleTimePress}
+              hiddenEventIds={hiddenEventIds}
+              dateContext={today}
+              slottedItems={slottedItemsByBlock.evening}
+              onGapSlotPress={(gap) => handleGapSlotPress(gap, 'evening')}
+              onSlottedTaskPress={handleSlottedTaskPress}
+              taskDataById={taskDataById}
             />
+            {breakHabitsByBlock.evening.length > 0 && (
+              <BreakHabitCard names={breakHabitsByBlock.evening} />
+            )}
+          </ScrollView>
 
-            {/* Quick Add Modal - renders on top of Morning Brief */}
-            {/* Quick-add items use dueDayOverride via useNowQuickAdd → useMindDropSubmit pipeline */}
-            <NowQuickAddModal
-              visible={isQuickAddVisible}
-              onClose={handleQuickAddClose}
-              onSubmit={handleQuickAddSubmit}
-              onPressManualAdd={handleQuickAddManual}
-            />
+          {/* Footer */}
+          <MorningBriefFooter
+            onComplete={handleComplete}
+            isLoading={isSaving}
+            showLockIn={showLockInButton}
+            onLockInPress={handleLockInPress}
+          />
 
-            {/* Global Event Popup - must be inside MorningBriefSheet Modal to appear on top */}
-            <GlobalEventPopup />
+          {/* Time Block Picker */}
+          <TimeBlockPicker
+            visible={pickerVisible}
+            task={selectedTask}
+            onClose={handlePickerClose}
+            onAssign={handleAssign}
+            targetDate={isTomorrow ? today : undefined}
+          />
 
-            {/* Global Event Time Picker - must be inside MorningBriefSheet Modal to appear on top */}
-            <GlobalEventTimePicker />
-          </>
-        )}
-      </View>
-    </Modal>
+          {/* Lock-In Picker */}
+          <LockInPicker
+            visible={lockInPickerVisible}
+            items={lockInEligibleItems}
+            onClose={handleLockInPickerClose}
+            onConfirm={handleLockInConfirm}
+          />
+
+          {/* Gap Slot Picker */}
+          <GapSlotPicker
+            visible={gapSlotPickerVisible}
+            gap={selectedGap}
+            availableTasks={tasksForGapPicker}
+            onClose={handleGapSlotPickerClose}
+            onSlotTask={handleGapSlotTask}
+          />
+
+          {/* Time Estimate Picker */}
+          <TimeEstimatePicker
+            visible={timePickerVisible}
+            taskId={timePickerTask?.id ?? null}
+            taskType={timePickerTask?.type ?? null}
+            taskTitle={timePickerTask?.title ?? null}
+            currentEstimate={timePickerTask?.estimatedMinutes ?? null}
+            onClose={handleTimePickerClose}
+            onSave={handleTimeSave}
+          />
+
+          {/* Quick Add Modal - renders on top of Morning Brief */}
+          {/* Quick-add items use dueDayOverride via useNowQuickAdd → useMindDropSubmit pipeline */}
+          <NowQuickAddModal
+            visible={isQuickAddVisible}
+            onClose={handleQuickAddClose}
+            onSubmit={handleQuickAddSubmit}
+            onPressManualAdd={handleQuickAddManual}
+          />
+
+          {/* Global Event Popup - must be inside MorningBriefSheet Modal to appear on top */}
+          <GlobalEventPopup />
+
+          {/* Global Event Time Picker - must be inside MorningBriefSheet Modal to appear on top */}
+          <GlobalEventTimePicker />
+
+          {/* Event Quick Action Sheet */}
+          <EventQuickActionSheet
+            visible={!!quickActionEvent}
+            event={quickActionEvent}
+            onClose={() => setQuickActionEvent(null)}
+            onDismiss={handleDismissEvent}
+            onEditTime={handleEditEventTime}
+            onAddPrepNote={handleAddPrepNote}
+            onLinkTodo={(eventId) => {
+              setQuickActionEvent(null);
+            }}
+            onRemind={handleEventRemind}
+            onOpenFull={handleOpenFullEvent}
+          />
+        </>
+      )}
+    </View>
   );
 }
 
@@ -1083,6 +1129,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.5,
     color: '#8B7E74',
+  },
+  alldayEventRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  alldayEventTitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#0E1116',
+    flex: 1,
+  },
+  quickActionButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
   },
   sectionDivider: {
     height: 2,

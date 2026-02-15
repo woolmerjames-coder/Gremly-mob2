@@ -36,6 +36,14 @@ import TimeBlocksSettingsScreen from '../app/screens/TimeBlocksSettingsScreen';
 import CalendarSettingsScreen from '../app/screens/CalendarSettingsScreen';
 import WhatGremlyKnowsScreen from '../app/screens/WhatGremlyKnowsScreen';
 import { HabitBuilderScreen } from '../screens/habits/HabitBuilderScreen';
+import { MorningBriefSheet } from '../app/components/morning-brief/MorningBriefSheet';
+
+// Wrapper to bridge navigation params to MorningBriefSheet props
+function MorningBriefWrapper({ navigation, route }: any) {
+  return (
+    <MorningBriefSheet onClose={() => navigation.goBack()} targetDate={route.params?.targetDate} />
+  );
+}
 
 // Wrapper to bridge navigation params to HabitBuilderScreen props
 function HabitBuilderWrapper({ navigation, route }: any) {
@@ -85,6 +93,7 @@ export type RootStackParamList = {
   CalendarSettings: undefined;
   WhatGremlyKnows: undefined;
   HabitBuilder: { prefill?: string; spaceId?: string } | undefined;
+  MorningBrief: { targetDate?: string } | undefined;
   SweepTest: undefined; // DEV only
 };
 
@@ -172,6 +181,11 @@ export default function RootNavigator() {
           <Stack.Screen
             name="Sweep"
             component={SweepFlowScreen}
+            options={{ headerShown: false, presentation: 'card', gestureEnabled: false }}
+          />
+          <Stack.Screen
+            name="MorningBrief"
+            component={MorningBriefWrapper}
             options={{ headerShown: false, presentation: 'card', gestureEnabled: false }}
           />
           <Stack.Screen

@@ -38,7 +38,7 @@ import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverla
 import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
-import { MorningBriefSheet } from '../components/morning-brief/MorningBriefSheet';
+
 import EventQuickActionSheet from '../../components/now/EventQuickActionSheet';
 import TodoLinkSheet from '../../components/now/TodoLinkSheet';
 import { scheduleEventReminder } from '../../lib/notifications/scheduleEventReminder';
@@ -326,8 +326,9 @@ export default function NowScreenV1() {
 
   // Morning Brief - sequences and brief state
   const { hasCompletedBriefToday, brief } = useMorningBrief();
-  const [isBriefSheetVisible, setBriefSheetVisible] = useState(false);
   const [briefTargetDate, setBriefTargetDate] = useState<string | undefined>(undefined);
+
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   // Daily app open detection
   const { isFirstOpenToday, isChecking, markTodayOpened } = useDailyAppOpen();
@@ -356,11 +357,12 @@ export default function NowScreenV1() {
   // Listen for "Plan your tomorrow" from sweep completion
   useEffect(() => {
     const unsub = eventBus.on('openTomorrowBrief', () => {
-      setBriefTargetDate(getDateService().addDays(todayStr, 1));
-      setBriefSheetVisible(true);
+      const td = getDateService().addDays(todayStr, 1);
+      setBriefTargetDate(td);
+      navigation.navigate('MorningBrief', { targetDate: td });
     });
     return () => unsub();
-  }, [todayStr]);
+  }, [todayStr, navigation]);
 
   // Auto-open Morning Brief on first open of the day (skip for brand new users)
   useEffect(() => {
@@ -368,7 +370,7 @@ export default function NowScreenV1() {
     if (!isChecking && isFirstOpenToday && !hasCompletedBriefToday && isInitialized && !loading) {
       // Small delay to let the screen render first
       const timer = setTimeout(() => {
-        setBriefSheetVisible(true);
+        navigation.navigate('MorningBrief');
       }, 500);
       return () => clearTimeout(timer);
     }
@@ -595,14 +597,13 @@ export default function NowScreenV1() {
 
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   // Handle notification tap to open Morning Brief or Evening Sweep
   useEffect(() => {
     const handleNotificationOpen = (payload: { type: 'morning' | 'evening' }) => {
       if (payload.type === 'morning') {
         console.log('[NowScreenV1] Opening Morning Brief from notification');
-        setBriefSheetVisible(true);
+        navigation.navigate('MorningBrief');
       }
       // Evening notifications navigate to Sweep screen
       if (payload.type === 'evening') {
@@ -761,16 +762,16 @@ export default function NowScreenV1() {
   const handleKeyDatePress = useCallback(
     (event: Note) => {
       console.log('[NowScreenV1] handleKeyDatePress called:', event.id, event.title);
-      // Close the Morning Brief modal first
-      setBriefSheetVisible(false);
-      // Open the overlay after a short delay to allow modal to close
+      // Navigate back from Morning Brief screen first
+      navigation.goBack();
+      // Open the overlay after a short delay to allow screen to close
       setTimeout(() => {
         overlayController.openEdit({
           record: event,
         });
       }, 100);
     },
-    [overlayController],
+    [overlayController, navigation],
   );
 
   // Handle overwhelm plan submission
@@ -793,9 +794,9 @@ export default function NowScreenV1() {
       setShowDayPicker(true);
     } else {
       setBriefTargetDate(undefined);
-      setBriefSheetVisible(true);
+      navigation.navigate('MorningBrief');
     }
-  }, [hasSweepedToday]);
+  }, [hasSweepedToday, navigation]);
 
   // Add item to Today's Focus by setting due_day to today
   const handleAddToToday = useCallback(
@@ -1103,7 +1104,7 @@ export default function NowScreenV1() {
               onPress={() => {
                 setShowDayPicker(false);
                 setBriefTargetDate(undefined);
-                setBriefSheetVisible(true);
+                navigation.navigate('MorningBrief');
               }}
             >
               <Text style={{ fontSize: 15, fontWeight: '600', color: '#2E5540' }}>Plan today</Text>
@@ -1117,8 +1118,9 @@ export default function NowScreenV1() {
               }}
               onPress={() => {
                 setShowDayPicker(false);
-                setBriefTargetDate(getDateService().addDays(todayStr, 1));
-                setBriefSheetVisible(true);
+                const td = getDateService().addDays(todayStr, 1);
+                setBriefTargetDate(td);
+                navigation.navigate('MorningBrief', { targetDate: td });
               }}
             >
               <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
@@ -1128,20 +1130,6 @@ export default function NowScreenV1() {
           </Pressable>
         </Pressable>
       </Modal>
-
-      {/* Morning Brief Sheet */}
-      <MorningBriefSheet
-        visible={isBriefSheetVisible}
-        targetDate={briefTargetDate}
-        onClose={() => {
-          setBriefSheetVisible(false);
-          setBriefTargetDate(undefined);
-        }}
-        onComplete={markTodayOpened}
-        onQuickAddSubmit={handleQuickAddSubmit}
-        onQuickAddManual={handleQuickAddManual}
-        onKeyDatePress={handleKeyDatePress}
-      />
 
       {/* Event Quick Action Sheet */}
       <EventQuickActionSheet

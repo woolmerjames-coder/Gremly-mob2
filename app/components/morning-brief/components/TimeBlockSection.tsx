@@ -9,7 +9,16 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal } from 'react-native';
-import { Sunrise, Sun, Sunset, Calendar, X, ChevronUp, ChevronDown } from 'lucide-react-native';
+import {
+  Sunrise,
+  Sun,
+  Sunset,
+  Calendar,
+  X,
+  ChevronUp,
+  ChevronDown,
+  MoreHorizontal,
+} from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { getEffectiveEventTimes, type EventTimeOverride } from '../../../../lib/capacity';
 import type { TimeBlockCapacity, TimeBlock, TimeBlockPreferences } from '../../../../lib/capacity';
@@ -88,6 +97,8 @@ interface TimeBlockSectionProps {
   getSpaceName?: (spaceId: string | null | undefined) => string | undefined;
   /** Called when user taps a Key Date event */
   onKeyDatePress?: (event: Note) => void;
+  /** Called when user taps the three-dot quick action on a Key Date event */
+  onKeyDateQuickAction?: (event: Note) => void;
   tasks: TaskItemData[];
   onTaskPress: (task: TaskItemData) => void;
   /** Called when user taps the time estimate */
@@ -133,6 +144,7 @@ export function TimeBlockSection({
   keyDateEvents = [],
   getSpaceName,
   onKeyDatePress,
+  onKeyDateQuickAction,
   tasks,
   onTaskPress,
   onTimePress,
@@ -427,6 +439,18 @@ export function TimeBlockSection({
                   </>
                 )}
               </View>
+              {onKeyDateQuickAction && (
+                <Pressable
+                  style={styles.quickActionButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onKeyDateQuickAction(keyDate);
+                  }}
+                  hitSlop={8}
+                >
+                  <MoreHorizontal size={16} color="#CCCCCC" />
+                </Pressable>
+              )}
             </Pressable>
             {!isLast && <View style={styles.rowDivider} />}
           </React.Fragment>
@@ -745,5 +769,12 @@ const styles = StyleSheet.create({
     paddingRight: 16,
     minWidth: 65,
     textAlign: 'right',
+  },
+  quickActionButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
   },
 });
