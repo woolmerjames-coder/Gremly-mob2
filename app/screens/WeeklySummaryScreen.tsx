@@ -53,6 +53,7 @@ import {
   Lock,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useCurrentWeekSummary } from '../../lib/store/selectors';
@@ -1532,6 +1533,14 @@ export default function WeeklySummaryScreen() {
   }, [content]);
 
   // ── Navigation handlers ──────────────────────────────────────────────
+  const handlePrevious = useCallback(() => {
+    if (currentCardIndex <= 0) return;
+    triggerLight();
+    const prevIndex = currentCardIndex - 1;
+    setCurrentCardIndex(prevIndex);
+    flatListRef.current?.scrollToIndex({ index: prevIndex, animated: true });
+  }, [currentCardIndex]);
+
   const handleNext = useCallback(() => {
     if (currentCardIndex < cards.length - 1) {
       triggerLight();
@@ -1596,16 +1605,31 @@ export default function WeeklySummaryScreen() {
     <View style={wsStyles.screen}>
       {/* Header */}
       <View style={[wsStyles.header, { paddingTop: insets.top + 12 }]}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <X size={22} color={WS.text} strokeWidth={2} />
-        </Pressable>
+        {/* Left — Back (hidden on first card) */}
+        <View style={wsStyles.headerSide}>
+          {currentCardIndex > 0 ? (
+            <Pressable onPress={handlePrevious} hitSlop={12}>
+              <ChevronLeft size={22} color={WS.sageDark} strokeWidth={2} />
+            </Pressable>
+          ) : (
+            <View style={{ width: 22 }} />
+          )}
+        </View>
+
+        {/* Center — Progress */}
         <View style={wsStyles.headerCenter}>
           <Text style={wsStyles.cardCountText}>
             {currentCardIndex + 1} of {cards.length}
           </Text>
           <ProgressDots total={cards.length} current={currentCardIndex} />
         </View>
-        <View style={{ width: 22 }} />
+
+        {/* Right — Close */}
+        <View style={wsStyles.headerSide}>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
+            <X size={22} color={WS.textSubtle} strokeWidth={2} />
+          </Pressable>
+        </View>
       </View>
 
       {/* Card Flow */}
@@ -1693,7 +1717,13 @@ const wsStyles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
   },
+  headerSide: {
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerCenter: {
+    flex: 1,
     alignItems: 'center',
     gap: 4,
   },

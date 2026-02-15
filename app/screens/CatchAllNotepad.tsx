@@ -8357,6 +8357,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           </View>
         </View>
 
+        <WeeklySummaryBanner />
+
         {/* Scrollable Recent Drops in the middle - fades when input is focused */}
         <Animated.View
           style={[styles.scrollableSection, { opacity: recentDropsOpacity }]}
@@ -8684,7 +8686,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             },
           ]}
         >
-          <WeeklySummaryBanner />
           {content}
         </View>
       </KeyboardAvoidingView>
