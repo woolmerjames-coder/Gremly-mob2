@@ -1,0 +1,14 @@
+{
+  "name": "gremly-notifications",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Cloudflare Worker that sends morning/evening push notifications via Expo Push API",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

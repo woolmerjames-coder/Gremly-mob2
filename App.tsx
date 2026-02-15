@@ -143,7 +143,7 @@ export default function App() {
         // Emit event after a short delay to ensure navigation is ready
         setTimeout(() => {
           eventBus.emit('notification:open_flow', {
-            type: initialNotification.type as 'morning' | 'evening',
+            type: initialNotification.type as 'morning' | 'evening' | 'weekly_summary',
           });
         }, 1000);
       }
@@ -152,6 +152,7 @@ export default function App() {
       cleanup = await setupNotificationResponseHandler(
         () => eventBus.emit('notification:open_flow', { type: 'morning' }),
         () => eventBus.emit('notification:open_flow', { type: 'evening' }),
+        () => eventBus.emit('notification:open_flow', { type: 'weekly_summary' }),
       );
     };
 

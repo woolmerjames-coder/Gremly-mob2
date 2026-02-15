@@ -45,6 +45,7 @@ import { scheduleEventReminder } from '../../lib/notifications/scheduleEventRemi
 import { useMorningBrief } from '../../lib/today/hooks/useMorningBrief';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import FirstTodayVisitBubble from '../../components/onboarding/FirstTodayVisitBubble';
+import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
 import { useDailyAppOpen } from '../../lib/today/hooks/useDailyAppOpen';
 // Store and selectors
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -598,9 +599,11 @@ export default function NowScreenV1() {
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();
 
-  // Handle notification tap to open Morning Brief or Evening Sweep
+  // Handle notification tap to open Morning Brief, Evening Sweep, or Weekly Summary
   useEffect(() => {
-    const handleNotificationOpen = (payload: { type: 'morning' | 'evening' }) => {
+    const handleNotificationOpen = (payload: {
+      type: 'morning' | 'evening' | 'weekly_summary';
+    }) => {
       if (payload.type === 'morning') {
         console.log('[NowScreenV1] Opening Morning Brief from notification');
         navigation.navigate('MorningBrief');
@@ -609,6 +612,11 @@ export default function NowScreenV1() {
       if (payload.type === 'evening') {
         console.log('[NowScreenV1] Opening Evening Sweep from notification');
         navigation.navigate('Sweep');
+      }
+      // Weekly summary notifications navigate to WeeklySummary screen
+      if (payload.type === 'weekly_summary') {
+        console.log('[NowScreenV1] Opening Weekly Summary from notification');
+        navigation.navigate('WeeklySummary');
       }
     };
 
@@ -911,6 +919,7 @@ export default function NowScreenV1() {
         visible={showFirstVisitBubble}
         onDismiss={handleDismissFirstVisitBubble}
       />
+      <WeeklySummaryBanner />
       <View style={styles.focusSectionHeader}>
         {/* Left: Section title only */}
         <View style={styles.focusSectionHeaderLeft}>

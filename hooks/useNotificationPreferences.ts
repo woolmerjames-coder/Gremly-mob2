@@ -17,6 +17,9 @@ export interface NotificationPreferences {
   morningTime: string; // "HH:MM" format
   eveningEnabled: boolean;
   eveningTime: string; // "HH:MM" format
+  weeklyEnabled: boolean;
+  weeklyTime: string; // "HH:MM" format
+  weeklyDay: number; // 0=Sun, 1=Mon, ..., 6=Sat
   timezone: string;
 }
 
@@ -28,6 +31,9 @@ export interface NotificationPreferencesUI {
   morningTime: Date;
   eveningEnabled: boolean;
   eveningTime: Date;
+  weeklyEnabled: boolean;
+  weeklyTime: Date;
+  weeklyDay: number; // 0=Sun, 1=Mon, ..., 6=Sat
   timezone: string;
 }
 
@@ -36,6 +42,9 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
   morningTime: '08:00',
   eveningEnabled: true,
   eveningTime: '20:00',
+  weeklyEnabled: true,
+  weeklyTime: '18:00',
+  weeklyDay: 0, // Sunday
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 };
 
@@ -67,6 +76,9 @@ function toUIPreferences(prefs: NotificationPreferences): NotificationPreference
     morningTime: timeStringToDate(prefs.morningTime),
     eveningEnabled: prefs.eveningEnabled,
     eveningTime: timeStringToDate(prefs.eveningTime),
+    weeklyEnabled: prefs.weeklyEnabled,
+    weeklyTime: timeStringToDate(prefs.weeklyTime),
+    weeklyDay: prefs.weeklyDay,
     timezone: prefs.timezone,
   };
 }
@@ -80,6 +92,9 @@ function toDBPreferences(prefs: NotificationPreferencesUI): NotificationPreferen
     morningTime: dateToTimeString(prefs.morningTime),
     eveningEnabled: prefs.eveningEnabled,
     eveningTime: dateToTimeString(prefs.eveningTime),
+    weeklyEnabled: prefs.weeklyEnabled,
+    weeklyTime: dateToTimeString(prefs.weeklyTime),
+    weeklyDay: prefs.weeklyDay,
     timezone: prefs.timezone,
   };
 }
@@ -154,6 +169,9 @@ export function useNotificationPreferences(): UseNotificationPreferencesResult {
               morningTime: data.morning_time ?? DEFAULT_PREFERENCES.morningTime,
               eveningEnabled: data.evening_enabled ?? DEFAULT_PREFERENCES.eveningEnabled,
               eveningTime: data.evening_time ?? DEFAULT_PREFERENCES.eveningTime,
+              weeklyEnabled: data.weekly_enabled ?? DEFAULT_PREFERENCES.weeklyEnabled,
+              weeklyTime: data.weekly_time ?? DEFAULT_PREFERENCES.weeklyTime,
+              weeklyDay: data.weekly_day ?? DEFAULT_PREFERENCES.weeklyDay,
               timezone: data.timezone ?? DEFAULT_PREFERENCES.timezone,
             }),
           );
@@ -190,6 +208,9 @@ export function useNotificationPreferences(): UseNotificationPreferencesResult {
             morning_time: dbPrefs.morningTime,
             evening_enabled: dbPrefs.eveningEnabled,
             evening_time: dbPrefs.eveningTime,
+            weekly_enabled: dbPrefs.weeklyEnabled,
+            weekly_time: dbPrefs.weeklyTime,
+            weekly_day: dbPrefs.weeklyDay,
             timezone,
             updated_at: new Date().toISOString(),
           },

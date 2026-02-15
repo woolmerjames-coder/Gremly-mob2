@@ -68,6 +68,7 @@ export async function savePushToken(userId: string, token: string) {
 export async function setupNotificationResponseHandler(
   onMorningNotification: () => void,
   onEveningNotification: () => void,
+  onWeeklyNotification?: () => void,
 ): Promise<() => void> {
   if (isExpoGo) {
     console.log('[Notifications] Skipping response handler - running in Expo Go');
@@ -86,6 +87,8 @@ export async function setupNotificationResponseHandler(
         onMorningNotification();
       } else if (data.type === 'evening') {
         onEveningNotification();
+      } else if (data.type === 'weekly_summary') {
+        onWeeklyNotification?.();
       }
     }
   });

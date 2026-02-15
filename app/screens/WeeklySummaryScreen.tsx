@@ -19,12 +19,16 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import Animated, {
+  FadeIn,
   FadeInUp,
+  FadeInDown,
+  FadeOutLeft,
+  Layout,
   useSharedValue,
   useAnimatedStyle,
   withSpring,
@@ -43,13 +47,19 @@ import {
   Activity,
   BookOpen,
   Calendar,
+  CalendarDays,
   AlertTriangle,
   Lightbulb,
+  Lock,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useCurrentWeekSummary } from '../../lib/store/selectors';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { addDays, nextMonday, format } from 'date-fns';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
+import { getDateService } from '../../lib/date';
 import type { WeeklySummaryContent, WeeklySummaryInsight } from '../../lib/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -60,17 +70,27 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const WS = {
   bg: '#FFF6ED', // Warm cream background
-  cardBg: '#FFFCF8', // Slightly warmer card
+  cardBg: '#FFFFFF', // Clean white card
   sage: '#BFD8C0', // Accent (progress dots, highlights)
-  sageDark: '#2E5540', // Text on sage backgrounds
+  sageDark: '#2E5540', // deepForest — primary text in weekly context
   sageLight: 'rgba(191, 216, 192, 0.3)', // Subtle sage tint
-  sageGlow: 'rgba(191, 216, 192, 0.15)', // Very subtle background tint
-  text: '#222222', // Primary text (charcoalInk)
-  textSubtle: 'rgba(34, 34, 34, 0.55)', // Secondary text
-  textMuted: 'rgba(34, 34, 34, 0.35)', // Tertiary text
-  border: 'rgba(0, 0, 0, 0.06)', // Card borders
+  sageGlow: 'rgba(191, 216, 192, 0.12)', // Very subtle background tint (stat cards)
+  text: '#2E5540', // deepForest — warmer than charcoalInk
+  textSubtle: 'rgba(46, 85, 64, 0.55)', // Secondary (sage-tinted)
+  textMuted: 'rgba(46, 85, 64, 0.35)', // Tertiary (sage-tinted)
+  border: 'rgba(191, 216, 192, 0.2)', // Sage-tinted border
+  divider: 'rgba(191, 216, 192, 0.3)', // Section dividers within cards
   periwinkle: '#9CA6E0', // Used sparingly for calendar/event accents
   golden: '#E0C47A', // Used for highlight moment star
+} as const;
+
+// Distinct card shadow — softer than Sweep
+const WS_CARD_SHADOW = {
+  shadowColor: '#2E5540',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.06,
+  shadowRadius: 12,
+  elevation: 3,
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,23 +141,31 @@ const wirStyles = StyleSheet.create({
     marginBottom: 20,
   },
   commentary: {
-    fontSize: 16,
     fontFamily: 'Inter-Regular',
-    color: WS.text,
-    lineHeight: 24,
-    marginBottom: 20,
+    fontSize: 17,
+    lineHeight: 26,
+    color: WS.sageDark,
+    letterSpacing: -0.2,
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  sectionDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: WS.divider,
+    marginVertical: 20,
   },
   statsRow: {
     flexDirection: 'row',
-    backgroundColor: WS.sageGlow,
-    borderRadius: BRAND.radius.lg,
-    paddingVertical: 16,
-    paddingHorizontal: 8,
+    gap: 10,
     marginBottom: 20,
   },
   statItem: {
     flex: 1,
     alignItems: 'center',
+    backgroundColor: WS.sageGlow,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
   statValueRow: {
     flexDirection: 'row',
@@ -145,7 +173,7 @@ const wirStyles = StyleSheet.create({
     gap: 2,
   },
   statNumber: {
-    fontSize: 24,
+    fontSize: 22,
     fontFamily: 'PlusJakartaSans-Bold',
     color: WS.sageDark,
   },
@@ -162,7 +190,7 @@ const wirStyles = StyleSheet.create({
   statLabel: {
     fontSize: 12,
     fontFamily: 'Inter-Regular',
-    color: WS.textSubtle,
+    color: 'rgba(46, 85, 64, 0.5)',
     marginTop: 2,
   },
   highlight: {
@@ -282,6 +310,9 @@ function WeekInReviewCard({
       {/* Weekly commentary */}
       <Text style={wirStyles.commentary}>{content.weeklyCommentary ?? ''}</Text>
 
+      {/* Divider */}
+      {statItems.length > 0 && <View style={wirStyles.sectionDivider} />}
+
       {/* Stats row */}
       {statItems.length > 0 && (
         <Animated.View entering={FadeInUp.duration(300).delay(200)} style={wirStyles.statsRow}>
@@ -395,18 +426,18 @@ const insStyles = StyleSheet.create({
     marginBottom: 12,
   },
   body: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: 'Inter-Regular',
-    color: WS.text,
-    lineHeight: 24,
+    color: WS.sageDark,
+    lineHeight: 22,
     marginBottom: 20,
   },
   cardAccent: {
     height: 3,
-    borderTopLeftRadius: BRAND.radius['2xl'],
-    borderTopRightRadius: BRAND.radius['2xl'],
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     marginHorizontal: -24,
-    marginTop: -24,
+    marginTop: -28,
     marginBottom: 20,
   },
   staleCount: {
@@ -419,12 +450,14 @@ const insStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 44,
-    borderRadius: BRAND.radius.lg,
-    borderWidth: 1.5,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+    marginTop: 4,
   },
   actionButtonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: 'Inter-Medium',
   },
 });
@@ -496,16 +529,472 @@ function InsightCard({
           <Pressable
             style={({ pressed }) => [
               insStyles.actionButton,
-              { backgroundColor: style.bg, borderColor: style.accent },
+              { backgroundColor: WS.sage },
               pressed && { opacity: 0.8, transform: [{ scale: 0.98 }] },
             ]}
             onPress={() => handleInsightAction(insight)}
           >
-            <Text style={[insStyles.actionButtonText, { color: style.accent }]}>
+            <Text style={[insStyles.actionButtonText, { color: WS.sageDark }]}>
               {insight.actionLabel}
             </Text>
           </Pressable>
         </Animated.View>
+      ) : null}
+    </Animated.View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stale Cleanup card — actionable triage of stale items (Prompt 2D)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const staleStyles = StyleSheet.create({
+  triageProgress: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    color: WS.textSubtle,
+    marginBottom: 12,
+  },
+  bulkActions: {
+    marginBottom: 12,
+  },
+  bulkButton: {
+    alignSelf: 'flex-start',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.15)',
+  },
+  bulkButtonText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(46, 85, 64, 0.5)',
+  },
+  itemRow: {
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(46, 85, 64, 0.08)',
+  },
+  itemTitle: {
+    fontSize: 15,
+    fontFamily: 'Inter-Medium',
+    color: WS.text,
+    marginBottom: 2,
+  },
+  itemAge: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: WS.textSubtle,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  lockInBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: WS.sage, // #BFD8C0
+  },
+  lockInText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    color: WS.sageDark, // #2E5540
+  },
+  rescheduleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.2)',
+  },
+  rescheduleText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    color: WS.sageDark,
+  },
+  dropBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+  },
+  dropText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(46, 85, 64, 0.4)',
+  },
+  datePickerRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+    flexWrap: 'wrap',
+  },
+  dateChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: WS.sageLight,
+  },
+  dateChipText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    color: WS.sageDark,
+  },
+  dateConfirmChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: WS.sage,
+  },
+  dateConfirmText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    color: WS.sageDark,
+  },
+  celebrationContainer: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    gap: 12,
+  },
+  celebrationEmoji: {
+    fontSize: 36,
+  },
+  celebrationText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Medium',
+    color: WS.sageDark,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+});
+
+function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
+  const staleItemIds = insight.staleItemIds ?? [];
+  const todos = useGremlyStore((s) => s.todos);
+  const habits = useGremlyStore((s) => s.habits);
+  const updateTodo = useGremlyStore((s) => s.updateTodo);
+  const archiveTodo = useGremlyStore((s) => s.archiveTodo);
+
+  const style = INSIGHT_STYLE[insight.type] ?? DEFAULT_INSIGHT_STYLE;
+  const IconComponent = INSIGHT_ICON_MAP[insight.type] ?? Sparkles;
+
+  const [triagedIds, setTriagedIds] = useState<Set<string>>(new Set());
+  const [datePickerItemId, setDatePickerItemId] = useState<string | null>(null);
+  const [confirmedDates, setConfirmedDates] = useState<Record<string, string>>({});
+  const [allCleared, setAllCleared] = useState(false);
+
+  type StaleEntity = {
+    id: string;
+    entityType: 'todo' | 'habit';
+    name?: string;
+    title?: string;
+    created_at?: string;
+    sweep_reschedule_count?: number;
+  };
+
+  const staleItems: StaleEntity[] = useMemo(() => {
+    return staleItemIds
+      .map((id) => {
+        const todo = todos.find((t) => t.id === id);
+        if (todo) return { ...todo, entityType: 'todo' as const };
+        const habit = habits.find((h) => h.id === id);
+        if (habit) return { ...habit, entityType: 'habit' as const };
+        return null;
+      })
+      .filter((item): item is StaleEntity => item !== null);
+  }, [staleItemIds, todos, habits]);
+
+  const remainingItems = useMemo(
+    () => staleItems.filter((item) => !triagedIds.has(item.id)),
+    [staleItems, triagedIds],
+  );
+  const triagedCount = triagedIds.size;
+  const totalCount = staleItems.length;
+
+  const triageItem = useCallback(
+    (itemId: string) => {
+      setTriagedIds((prev) => {
+        const next = new Set(prev);
+        next.add(itemId);
+        // Check if all items are now triaged
+        if (next.size >= totalCount && totalCount > 0) {
+          setTimeout(() => {
+            setAllCleared(true);
+            triggerSuccess();
+          }, 300);
+        }
+        return next;
+      });
+      setDatePickerItemId(null);
+    },
+    [totalCount],
+  );
+
+  const handleLockIn = useCallback(
+    async (item: StaleEntity) => {
+      triggerLight();
+      const today = getDateService().getCurrentDate();
+      if (item.entityType === 'todo') {
+        await updateTodo(item.id, { locked_in: true, due_day: today });
+      }
+      // Habits don't have due_day — just lock in
+      triageItem(item.id);
+    },
+    [updateTodo, triageItem],
+  );
+
+  const handleReschedule = useCallback((itemId: string) => {
+    triggerLight();
+    setDatePickerItemId((prev) => (prev === itemId ? null : itemId));
+  }, []);
+
+  const handleDateSelect = useCallback(
+    async (item: StaleEntity, dateStr: string, label: string) => {
+      // Show confirmed date in the UI
+      setConfirmedDates((prev) => ({ ...prev, [item.id]: label }));
+
+      // Update the store
+      if (item.entityType === 'todo') {
+        await updateTodo(item.id, { due_day: dateStr, scheduled_date: dateStr });
+      }
+
+      // Animate out after a brief confirmation pause
+      setTimeout(() => triageItem(item.id), 500);
+    },
+    [updateTodo, triageItem],
+  );
+
+  const handleDrop = useCallback(
+    async (item: StaleEntity) => {
+      triggerLight();
+      if (item.entityType === 'todo') {
+        await archiveTodo(item.id, 'weekly_cleanup');
+      }
+      triageItem(item.id);
+    },
+    [archiveTodo, triageItem],
+  );
+
+  const handleDropAll = useCallback(async () => {
+    triggerLight();
+    const remaining = staleItems.filter((item) => !triagedIds.has(item.id));
+    for (const item of remaining) {
+      if (item.entityType === 'todo') {
+        await archiveTodo(item.id, 'weekly_cleanup');
+      }
+    }
+    setTriagedIds(new Set(staleItems.map((i) => i.id)));
+    setTimeout(() => {
+      setAllCleared(true);
+      triggerSuccess();
+    }, 300);
+  }, [staleItems, triagedIds, archiveTodo]);
+
+  const getAgeContext = useCallback((item: StaleEntity): string => {
+    if ((item.sweep_reschedule_count ?? 0) >= 7) {
+      return `Rescheduled ${item.sweep_reschedule_count} times in Sweep`;
+    }
+    if (item.created_at) {
+      const created = new Date(item.created_at);
+      const ageDays = Math.floor((Date.now() - created.getTime()) / (1000 * 60 * 60 * 24));
+      return `On your list for ${ageDays} days`;
+    }
+    return '';
+  }, []);
+
+  return (
+    <Animated.View entering={FadeInUp.duration(300).delay(100)} style={wsStyles.card}>
+      {/* Accent bar */}
+      <View style={[insStyles.cardAccent, { backgroundColor: style.accent }]} />
+
+      {/* Type badge + icon */}
+      <View style={insStyles.typeBadge}>
+        <IconComponent size={20} color={style.accent} strokeWidth={2} />
+        <Text style={insStyles.typeLabel}>Insight · {humanizeInsightType(insight.type)}</Text>
+      </View>
+
+      {/* Headline */}
+      <Animated.Text entering={FadeInUp.duration(250).delay(150)} style={insStyles.headline}>
+        {insight.headline}
+      </Animated.Text>
+
+      {/* Body — Gremly observation */}
+      <Animated.Text entering={FadeInUp.duration(250).delay(250)} style={insStyles.body}>
+        {insight.body}
+      </Animated.Text>
+
+      {/* Celebration state */}
+      {allCleared ? (
+        <Animated.View
+          entering={FadeIn.duration(300).springify()}
+          style={staleStyles.celebrationContainer}
+        >
+          <Text style={staleStyles.celebrationEmoji}>🧹</Text>
+          <Text style={staleStyles.celebrationText}>
+            All cleared! That's {totalCount} fewer thing{totalCount !== 1 ? 's' : ''} haunting your
+            list.
+          </Text>
+        </Animated.View>
+      ) : totalCount > 0 ? (
+        <>
+          {/* Progress */}
+          <Text style={staleStyles.triageProgress}>
+            {triagedCount} of {totalCount} resolved
+          </Text>
+
+          {/* Bulk drop — only for 5+ items */}
+          {staleItems.length >= 5 && remainingItems.length > 1 && (
+            <View style={staleStyles.bulkActions}>
+              <Pressable
+                onPress={handleDropAll}
+                style={({ pressed }) => [staleStyles.bulkButton, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={staleStyles.bulkButtonText}>Drop all remaining</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Stale item list */}
+          <View>
+            {staleItems.map((item) => {
+              if (triagedIds.has(item.id)) return null;
+              const displayTitle = item.title || item.name || 'Untitled';
+              const ageText = getAgeContext(item);
+              const isDatePickerOpen = datePickerItemId === item.id;
+              const confirmedDate = confirmedDates[item.id];
+
+              return (
+                <Animated.View
+                  key={item.id}
+                  exiting={FadeOutLeft.duration(250)}
+                  layout={Layout.duration(200)}
+                  style={staleStyles.itemRow}
+                >
+                  {/* Title + age */}
+                  <Text style={staleStyles.itemTitle} numberOfLines={2}>
+                    {displayTitle}
+                  </Text>
+                  {ageText ? <Text style={staleStyles.itemAge}>{ageText}</Text> : null}
+
+                  {/* Confirmed date chip (shown after reschedule pick) */}
+                  {confirmedDate ? (
+                    <View style={[staleStyles.actionRow, { marginTop: 10 }]}>
+                      <View style={staleStyles.dateConfirmChip}>
+                        <Text style={staleStyles.dateConfirmText}>✓ {confirmedDate}</Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <>
+                      {/* Action buttons */}
+                      <View style={staleStyles.actionRow}>
+                        <Pressable
+                          onPress={() => handleLockIn(item)}
+                          style={({ pressed }) => [
+                            staleStyles.lockInBtn,
+                            pressed && { opacity: 0.8 },
+                          ]}
+                        >
+                          <Lock size={16} color={WS.sageDark} strokeWidth={2} />
+                          <Text style={staleStyles.lockInText}>Lock In</Text>
+                        </Pressable>
+
+                        <Pressable
+                          onPress={() => handleReschedule(item.id)}
+                          style={({ pressed }) => [
+                            staleStyles.rescheduleBtn,
+                            pressed && { opacity: 0.8 },
+                            isDatePickerOpen && {
+                              backgroundColor: WS.sageLight,
+                              borderColor: WS.sage,
+                            },
+                          ]}
+                        >
+                          <CalendarDays size={16} color={WS.sageDark} strokeWidth={2} />
+                          <Text style={staleStyles.rescheduleText}>Reschedule</Text>
+                        </Pressable>
+
+                        <Pressable
+                          onPress={() => handleDrop(item)}
+                          style={({ pressed }) => [
+                            staleStyles.dropBtn,
+                            pressed && { opacity: 0.6 },
+                          ]}
+                        >
+                          <X size={16} color="rgba(46, 85, 64, 0.4)" strokeWidth={2} />
+                          <Text style={staleStyles.dropText}>Drop</Text>
+                        </Pressable>
+                      </View>
+
+                      {/* Inline date picker */}
+                      {isDatePickerOpen && (
+                        <Animated.View
+                          entering={FadeInDown.duration(200)}
+                          style={staleStyles.datePickerRow}
+                        >
+                          <Pressable
+                            onPress={() => {
+                              const tomorrow = addDays(new Date(), 1);
+                              const dateStr = format(tomorrow, 'yyyy-MM-dd');
+                              handleDateSelect(item, dateStr, 'Tomorrow');
+                            }}
+                            style={({ pressed }) => [
+                              staleStyles.dateChip,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <Text style={staleStyles.dateChipText}>Tomorrow</Text>
+                          </Pressable>
+
+                          <Pressable
+                            onPress={() => {
+                              const monday = nextMonday(new Date());
+                              const dateStr = format(monday, 'yyyy-MM-dd');
+                              handleDateSelect(item, dateStr, 'Next Week');
+                            }}
+                            style={({ pressed }) => [
+                              staleStyles.dateChip,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <Text style={staleStyles.dateChipText}>Next Week</Text>
+                          </Pressable>
+
+                          <Pressable
+                            onPress={() => {
+                              const twoWeeks = addDays(new Date(), 14);
+                              const dateStr = format(twoWeeks, 'yyyy-MM-dd');
+                              handleDateSelect(item, dateStr, 'In 2 Weeks');
+                            }}
+                            style={({ pressed }) => [
+                              staleStyles.dateChip,
+                              pressed && { opacity: 0.7 },
+                            ]}
+                          >
+                            <Text style={staleStyles.dateChipText}>In 2 Weeks</Text>
+                          </Pressable>
+                        </Animated.View>
+                      )}
+                    </>
+                  )}
+                </Animated.View>
+              );
+            })}
+          </View>
+        </>
       ) : null}
     </Animated.View>
   );
@@ -520,6 +1009,59 @@ function WeekAheadCard({ content }: { content: WeeklySummaryContent }) {
   };
   const remainingCount = weekAhead.totalEventCount - weekAhead.highlights.length;
 
+  // ── Day-by-day expand state ──────────────────────────────────────────────
+  const [expanded, setExpanded] = useState(false);
+
+  const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const DAY_SHORT: Record<string, string> = {
+    Monday: 'Mon',
+    Tuesday: 'Tue',
+    Wednesday: 'Wed',
+    Thursday: 'Thu',
+    Friday: 'Fri',
+    Saturday: 'Sat',
+    Sunday: 'Sun',
+  };
+
+  // Group highlights by day name
+  const highlightsByDay = useMemo(() => {
+    const grouped: Record<string, typeof weekAhead.highlights> = {};
+    for (const h of weekAhead.highlights) {
+      const dayKey = DAY_ORDER.find((d) => d.toLowerCase() === h.day.toLowerCase()) ?? h.day;
+      if (!grouped[dayKey]) grouped[dayKey] = [];
+      grouped[dayKey].push(h);
+    }
+    return grouped;
+  }, [weekAhead.highlights]);
+
+  // Days that have at least one highlight
+  const daysWithEvents = useMemo(() => new Set(Object.keys(highlightsByDay)), [highlightsByDay]);
+
+  // Auto-select first day with highlights when expanding
+  const [selectedDay, setSelectedDay] = useState<string>(() => {
+    const first = DAY_ORDER.find((d) => highlightsByDay[d]?.length);
+    return first ?? 'Monday';
+  });
+
+  const handleToggleExpand = useCallback(() => {
+    triggerLight();
+    setExpanded((prev) => {
+      if (!prev) {
+        // When opening, auto-select first day with events
+        const first = DAY_ORDER.find((d) => highlightsByDay[d]?.length);
+        if (first) setSelectedDay(first);
+      }
+      return !prev;
+    });
+  }, [highlightsByDay]);
+
+  const handleDaySelect = useCallback((day: string) => {
+    triggerLight();
+    setSelectedDay(day);
+  }, []);
+
+  const selectedDayHighlights = highlightsByDay[selectedDay] ?? [];
+
   return (
     <Animated.View entering={FadeInUp.duration(300).delay(100)} style={wsStyles.card}>
       {/* Header */}
@@ -531,69 +1073,196 @@ function WeekAheadCard({ content }: { content: WeeklySummaryContent }) {
       {/* Introduction */}
       <Text style={waStyles.introduction}>{weekAhead.introduction ?? ''}</Text>
 
-      {/* Event Highlights */}
-      {weekAhead.highlights.length > 0 && (
-        <View style={waStyles.highlightsContainer}>
-          {weekAhead.highlights.map((highlight, i) => (
-            <Animated.View
-              key={i}
-              entering={FadeInUp.duration(250).delay(100 + i * 80)}
-              style={[
-                waStyles.eventRow,
-                i < weekAhead.highlights.length - 1 && waStyles.eventRowBorder,
-              ]}
-            >
-              <View style={waStyles.eventDayBadge}>
-                <Text style={waStyles.eventDayText}>{highlight.day.slice(0, 3).toUpperCase()}</Text>
-              </View>
-              <View style={waStyles.eventDetail}>
-                <Text style={waStyles.eventTitle} numberOfLines={2}>
-                  {highlight.eventTitle}
-                </Text>
-                {highlight.time ? <Text style={waStyles.eventTime}>{highlight.time}</Text> : null}
-                {highlight.prepNudge ? (
-                  <Text style={waStyles.eventPrepNudge}>↳ {highlight.prepNudge}</Text>
-                ) : null}
-                {highlight.context ? (
-                  <View
-                    style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 4, marginTop: 2 }}
-                  >
-                    <Lightbulb
-                      size={14}
-                      color={WS.textSubtle}
-                      strokeWidth={1.5}
-                      style={{ marginTop: 2 }}
-                    />
-                    <Text style={[waStyles.eventContext, { flex: 1 }]}>{highlight.context}</Text>
+      {/* ── Collapsed: highlight list ──────────────────────────────────────── */}
+      {!expanded && (
+        <>
+          {weekAhead.highlights.length > 0 && (
+            <View style={waStyles.highlightsContainer}>
+              {weekAhead.highlights.map((highlight, i) => (
+                <Animated.View
+                  key={i}
+                  entering={FadeInUp.duration(250).delay(100 + i * 80)}
+                  style={[
+                    waStyles.eventRow,
+                    i < weekAhead.highlights.length - 1 && waStyles.eventRowBorder,
+                  ]}
+                >
+                  <View style={waStyles.eventDayBadge}>
+                    <Text style={waStyles.eventDayText}>
+                      {highlight.day.slice(0, 3).toUpperCase()}
+                    </Text>
                   </View>
-                ) : null}
+                  <View style={waStyles.eventDetail}>
+                    <Text style={waStyles.eventTitle} numberOfLines={2}>
+                      {highlight.eventTitle}
+                    </Text>
+                    {highlight.time ? (
+                      <Text style={waStyles.eventTime}>{highlight.time}</Text>
+                    ) : null}
+                    {highlight.prepNudge ? (
+                      <Text style={waStyles.eventPrepNudge}>↳ {highlight.prepNudge}</Text>
+                    ) : null}
+                    {highlight.context ? (
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'flex-start',
+                          gap: 4,
+                          marginTop: 2,
+                        }}
+                      >
+                        <Lightbulb
+                          size={14}
+                          color={WS.textSubtle}
+                          strokeWidth={1.5}
+                          style={{ marginTop: 2 }}
+                        />
+                        <Text style={[waStyles.eventContext, { flex: 1 }]}>
+                          {highlight.context}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </Animated.View>
+              ))}
+            </View>
+          )}
+
+          {/* Busy Day Warnings */}
+          {weekAhead.busyDayWarnings.length > 0 && (
+            <Animated.View
+              entering={FadeInUp.duration(300).delay(100 + weekAhead.highlights.length * 80 + 100)}
+              style={waStyles.warningSection}
+            >
+              <View style={waStyles.warningHeader}>
+                <AlertTriangle size={16} color={WS.golden} />
+                <Text style={waStyles.warningTitle}>Heads Up</Text>
               </View>
+              {weekAhead.busyDayWarnings.map((warning, i) => (
+                <View key={i} style={waStyles.warningRow}>
+                  <Text style={waStyles.warningDay}>{warning.day}:</Text>
+                  <Text style={waStyles.warningComment}>{warning.comment}</Text>
+                </View>
+              ))}
             </Animated.View>
-          ))}
-        </View>
+          )}
+        </>
       )}
 
-      {/* Busy Day Warnings */}
-      {weekAhead.busyDayWarnings.length > 0 && (
-        <Animated.View
-          entering={FadeInUp.duration(300).delay(100 + weekAhead.highlights.length * 80 + 100)}
-          style={waStyles.warningSection}
-        >
-          <View style={waStyles.warningHeader}>
-            <AlertTriangle size={16} color={WS.golden} />
-            <Text style={waStyles.warningTitle}>Heads Up</Text>
+      {/* ── Expanded: day-by-day view ──────────────────────────────────────── */}
+      {expanded && (
+        <Animated.View entering={FadeInDown.duration(300)} layout={Layout.springify()}>
+          {/* Day pills */}
+          <View style={waStyles.dayPillRow}>
+            {DAY_ORDER.map((day) => {
+              const isSelected = day === selectedDay;
+              const hasEvents = daysWithEvents.has(day);
+              return (
+                <Pressable
+                  key={day}
+                  onPress={() => handleDaySelect(day)}
+                  style={({ pressed }) => [
+                    waStyles.dayPill,
+                    isSelected && waStyles.dayPillSelected,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={[waStyles.dayPillText, isSelected && waStyles.dayPillTextSelected]}>
+                    {DAY_SHORT[day]}
+                  </Text>
+                  {hasEvents && !isSelected && <View style={waStyles.dayPillDot} />}
+                </Pressable>
+              );
+            })}
           </View>
-          {weekAhead.busyDayWarnings.map((warning, i) => (
-            <View key={i} style={waStyles.warningRow}>
-              <Text style={waStyles.warningDay}>{warning.day}:</Text>
-              <Text style={waStyles.warningComment}>{warning.comment}</Text>
-            </View>
-          ))}
+
+          {/* Events for selected day */}
+          <View style={waStyles.dayEventsContainer}>
+            {selectedDayHighlights.length > 0 ? (
+              selectedDayHighlights.map((highlight, i) => (
+                <Animated.View
+                  key={`${selectedDay}-${i}`}
+                  entering={FadeInUp.duration(200).delay(i * 60)}
+                  style={[
+                    waStyles.dayEventRow,
+                    i < selectedDayHighlights.length - 1 && waStyles.dayEventRowBorder,
+                  ]}
+                >
+                  <View style={waStyles.eventDetail}>
+                    <Text style={waStyles.eventTitle} numberOfLines={2}>
+                      {highlight.eventTitle}
+                    </Text>
+                    {highlight.time ? (
+                      <Text style={waStyles.eventTime}>{highlight.time}</Text>
+                    ) : null}
+                    {highlight.prepNudge ? (
+                      <Text style={waStyles.eventPrepNudge}>↳ {highlight.prepNudge}</Text>
+                    ) : null}
+                    {highlight.context ? (
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'flex-start',
+                          gap: 4,
+                          marginTop: 2,
+                        }}
+                      >
+                        <Lightbulb
+                          size={14}
+                          color={WS.textSubtle}
+                          strokeWidth={1.5}
+                          style={{ marginTop: 2 }}
+                        />
+                        <Text style={[waStyles.eventContext, { flex: 1 }]}>
+                          {highlight.context}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </Animated.View>
+              ))
+            ) : (
+              <Animated.View entering={FadeIn.duration(200)} style={waStyles.dayEmptyState}>
+                <Text style={waStyles.dayEmptyText}>
+                  Nothing highlighted for {DAY_SHORT[selectedDay]}
+                </Text>
+              </Animated.View>
+            )}
+          </View>
+
+          {/* Busy day warnings (if selected day has one) */}
+          {weekAhead.busyDayWarnings
+            .filter((w) => w.day.toLowerCase() === selectedDay.toLowerCase())
+            .map((warning, i) => (
+              <Animated.View
+                key={`warn-${i}`}
+                entering={FadeInUp.duration(250).delay(200)}
+                style={waStyles.dayWarningBadge}
+              >
+                <AlertTriangle size={14} color={WS.golden} />
+                <Text style={waStyles.dayWarningText}>{warning.comment}</Text>
+              </Animated.View>
+            ))}
         </Animated.View>
       )}
 
-      {/* Total event count */}
-      {remainingCount > 0 && (
+      {/* ── Toggle trigger ─────────────────────────────────────────────────── */}
+      {(weekAhead.highlights.length > 0 || weekAhead.totalEventCount > 0) && (
+        <Pressable
+          onPress={handleToggleExpand}
+          style={({ pressed }) => [waStyles.expandToggle, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={waStyles.expandToggleText}>{expanded ? 'Collapse' : 'Day by day'}</Text>
+          {expanded ? (
+            <ChevronUp size={16} color={WS.sageDark} strokeWidth={2} />
+          ) : (
+            <ChevronDown size={16} color={WS.sageDark} strokeWidth={2} />
+          )}
+        </Pressable>
+      )}
+
+      {/* Remaining count (collapsed only) */}
+      {!expanded && remainingCount > 0 && (
         <Text style={waStyles.totalEvents}>+ {remainingCount} other events</Text>
       )}
     </Animated.View>
@@ -716,6 +1385,97 @@ const waStyles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
   },
+
+  // ── Day-by-day expand ────────────────────────────────────────────────────
+  dayPillRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    gap: 4,
+  },
+  dayPill: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    borderRadius: BRAND.radius.md,
+    backgroundColor: WS.sageLight,
+    position: 'relative',
+  },
+  dayPillSelected: {
+    backgroundColor: WS.sageDark,
+  },
+  dayPillText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: WS.textSubtle,
+  },
+  dayPillTextSelected: {
+    color: '#FFFFFF',
+  },
+  dayPillDot: {
+    position: 'absolute',
+    bottom: 3,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: WS.periwinkle,
+  },
+  dayEventsContainer: {
+    backgroundColor: WS.cardBg,
+    borderRadius: BRAND.radius.lg,
+    borderWidth: 1,
+    borderColor: WS.border,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    minHeight: 48,
+  },
+  dayEventRow: {
+    paddingVertical: 12,
+  },
+  dayEventRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: WS.border,
+  },
+  dayEmptyState: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  dayEmptyText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: WS.textMuted,
+  },
+  dayWarningBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(224, 196, 122, 0.08)',
+    borderRadius: BRAND.radius.md,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+  },
+  dayWarningText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: WS.textSubtle,
+    flex: 1,
+  },
+  expandToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    marginTop: 4,
+    alignSelf: 'center',
+  },
+  expandToggleText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: WS.sageDark,
+  },
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -745,6 +1505,7 @@ function ProgressDots({ total, current }: { total: number; current: number }) {
 
 export default function WeeklySummaryScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const insets = useSafeAreaInsets();
   const summary = useCurrentWeekSummary();
   const content = summary?.content;
 
@@ -816,8 +1577,8 @@ export default function WeeklySummaryScreen() {
   // ── Empty state ──────────────────────────────────────────────────────
   if (!summary || !content) {
     return (
-      <SafeAreaView style={wsStyles.screen} edges={['top', 'bottom']}>
-        <View style={wsStyles.header}>
+      <View style={wsStyles.screen}>
+        <View style={[wsStyles.header, { paddingTop: insets.top + 12 }]}>
           <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
             <X size={22} color={WS.text} strokeWidth={2} />
           </Pressable>
@@ -826,15 +1587,15 @@ export default function WeeklySummaryScreen() {
           <Text style={wsStyles.emptyText}>Your weekly summary hasn't been generated yet.</Text>
           <Text style={wsStyles.emptySubtext}>Check back Sunday evening!</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   // ── Main render ──────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={wsStyles.screen} edges={['top', 'bottom']}>
+    <View style={wsStyles.screen}>
       {/* Header */}
-      <View style={wsStyles.header}>
+      <View style={[wsStyles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <X size={22} color={WS.text} strokeWidth={2} />
         </Pressable>
@@ -854,6 +1615,7 @@ export default function WeeklySummaryScreen() {
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
+        decelerationRate={0.95}
         onMomentumScrollEnd={handleScrollEnd}
         keyExtractor={(_, i) => String(i)}
         renderItem={({ item }) => (
@@ -871,7 +1633,10 @@ export default function WeeklySummaryScreen() {
                   weekEnd={summary?.week_end_date ?? ''}
                 />
               )}
-              {item.type === 'insight' && (
+              {item.type === 'insight' && item.insight.type === 'stale_cleanup' && (
+                <StaleCleanupCard insight={item.insight} />
+              )}
+              {item.type === 'insight' && item.insight.type !== 'stale_cleanup' && (
                 <InsightCard insight={item.insight} index={item.index} navigation={navigation} />
               )}
               {item.type === 'weekAhead' && <WeekAheadCard content={item.content} />}
@@ -881,7 +1646,7 @@ export default function WeeklySummaryScreen() {
       />
 
       {/* Footer */}
-      <View style={wsStyles.footer}>
+      <View style={[wsStyles.footer, { paddingBottom: insets.bottom + 8 }]}>
         {currentCardIndex < cards.length - 1 ? (
           <Animated.View style={buttonAnimStyle}>
             <Pressable
@@ -908,7 +1673,7 @@ export default function WeeklySummaryScreen() {
           </Animated.View>
         )}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -941,17 +1706,17 @@ const wsStyles = StyleSheet.create({
   dotsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: WS.sageLight,
+    backgroundColor: 'rgba(191, 216, 192, 0.3)',
+    marginHorizontal: 3,
   },
   dotActive: {
-    backgroundColor: WS.sage,
-    width: 24,
+    backgroundColor: WS.sageDark,
+    width: 20,
     borderRadius: 4,
   },
   dotCompleted: {
@@ -962,13 +1727,15 @@ const wsStyles = StyleSheet.create({
   },
   cardScrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 24,
+    paddingTop: 8,
+    paddingBottom: 32,
   },
   card: {
     backgroundColor: WS.cardBg,
-    borderRadius: BRAND.radius['2xl'],
-    padding: 24,
-    ...BRAND.elevation.one,
+    borderRadius: 20,
+    paddingVertical: 28,
+    paddingHorizontal: 24,
+    ...WS_CARD_SHADOW,
     borderWidth: 1,
     borderColor: WS.border,
   },
