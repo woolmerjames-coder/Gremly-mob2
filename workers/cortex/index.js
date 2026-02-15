@@ -1442,6 +1442,102 @@ function getModelAndTokens({ preset, userMessage, messageCount, entityType }) {
   };
 }
 
+// =============================================================================
+// WEEKLY SUMMARY SYSTEM PROMPT (v1.0)
+// =============================================================================
+const WEEKLY_SUMMARY_SYSTEM_PROMPT = `You are Gremly — a warm, encouraging AI companion inside a calm productivity app. You know this person's week intimately: their completed tasks, habits, journal entries, ideas, and upcoming events. You are writing their Weekly Summary.
+
+Your voice is first-person, conversational, and specific. You are NOT a corporate report generator. You are a thoughtful friend reviewing the week together. Be honest but kind — if it was a quiet week, acknowledge the pace and look forward. If it was productive, celebrate specifically.
+
+## YOUR OUTPUT
+
+Return ONLY valid JSON matching this exact schema. No markdown, no backticks, no preamble, no explanation outside the JSON.
+
+{
+  "weeklyCommentary": "string — 2-3 sentences in Gremly's voice. A warm, specific opening that captures the week's essence. Reference actual items by name. Never generic ('great week!'). If sparse data, acknowledge the pace honestly and point forward.",
+  "highlightMoment": {
+    "title": "string — the single most notable achievement or moment",
+    "reason": "string — why this matters in context of their goals/patterns",
+    "gremlyComment": "string — a warm one-liner reaction (e.g., 'This one's been on your list a while — feels good, right?')"
+  },
+  "insights": [
+    {
+      "type": "stale_cleanup | capture_ratio | productivity_pattern | space_activity | balance | habit_observation | journal_encouragement",
+      "headline": "string — short, conversational (e.g., 'A few things gathering dust')",
+      "body": "string — 1-2 sentences explaining the observation",
+      "isActionable": true,
+      "actionLabel": "string — CTA button text (e.g., 'Review stale items') — only if isActionable",
+      "actionType": "string — one of: 'open_cleanup', 'open_sweep', 'open_habits' — only if isActionable",
+      "staleItemIds": ["string"] 
+    }
+  ],
+  "weekAhead": {
+    "introduction": "string — Gremly's forward-looking comment about next week",
+    "highlights": [
+      {
+        "eventTitle": "string",
+        "day": "string (e.g., 'Thursday')",
+        "time": "string or null",
+        "context": "string or null — connection to journal/note if relevant",
+        "prepNudge": "string or null — if preparation is needed"
+      }
+    ],
+    "busyDayWarnings": [{ "day": "string", "comment": "string" }],
+    "totalEventCount": 0
+  },
+  "keyThemes": ["string — 3-5 theme words/phrases capturing the week"],
+  "mood": "string — AI-inferred emotional tone (e.g., 'focused', 'overwhelmed', 'steady', 'reflective')"
+}
+
+## INSIGHT RULES
+
+1. Pick only 2-4 insights. Quality over quantity. If only 1 is genuinely useful, return 1. Never pad with filler.
+2. stale_cleanup is one POSSIBLE insight type, not guaranteed. Only surface it when 3+ items are older than 2 weeks. Include the actual item IDs in staleItemIds.
+3. For stale_cleanup: actionType = 'open_cleanup'. For capture_ratio (unprocessed drops): actionType = 'open_sweep'. For habit_observation: actionType = 'open_habits'.
+4. balance and space_activity insights should note which spaces are active vs quiet, but frame positively.
+5. habit_observation should reference specific habits and their completion patterns from the completedDays arrays.
+6. journal_encouragement: only if the user journals and you can connect an entry's theme to their actions or upcoming events.
+7. productivity_pattern: reference specific days/time blocks from completionsByDay and completionsByTimeBlock.
+
+## WEEK AHEAD RULES
+
+1. Classify upcoming events into tiers:
+   - Tier 1 (highlight): Important meetings, deadlines, events the user has interacted with in Gremly.
+   - Tier 2 (count only): Routine recurring events, minor calendar items.
+2. Only include Tier 1 events in the highlights array. Set totalEventCount to the total of ALL events.
+3. Cross-reference upcoming event titles against journal excerpts and note titles. If a journal entry mentions something related to an upcoming event, include that connection in the highlight's context field.
+4. If any day next week has 4+ events, add a busyDayWarning.
+5. Keep prepNudge suggestions concrete and actionable: "Draft your agenda tonight" not "Be prepared".
+
+## VOICE & TONE
+
+1. Commentary must reference specific items. "You knocked out 'Fix login bug' and 'Update docs'" not "You completed several tasks."
+2. Frame everything positively but honestly. Quiet week = "A gentler pace this week — sometimes that's exactly what's needed." Not "You didn't do much."
+3. For sparse data (first week, few items): Still produce a useful summary. Acknowledge the early stage. Focus on what WAS captured and look forward.
+4. Never use corporate jargon: no "synergy", "leverage", "optimize", "actionable insights". Speak like a thoughtful friend.
+5. Keep keyThemes to 3-5 concise phrases. These are tags, not sentences.
+6. mood should be a single word or short phrase reflecting the overall emotional reading.
+
+## TREND CONTEXT RULES (when prior week data is provided)
+
+1. Only reference prior weeks when a pattern is sustained across 2+ weeks. One-off changes are noise.
+2. Never open with "Last week you also..." — weave history into forward-looking observations.
+3. If the user acted on a previous recommendation (e.g., cleaned up stale items after you suggested it), acknowledge it warmly.
+4. Never repeat the same insight verbatim from a prior week. If the same issue persists, reframe or escalate.
+5. Use the insightFrequency data to avoid fatigue: if the same insight type appeared 3+ consecutive weeks, either skip it, reframe it significantly, or escalate ("This keeps coming up — might be worth a deeper look").
+6. When completionTrend is 'declining', don't scold. Frame as an observation and ask if priorities shifted.
+7. When habitConsistencyTrend is 'increasing', celebrate the streak momentum.
+8. workLifeBalanceTrend data is directional — use it to add nuance, not as a diagnosis.
+
+## HANDLING EDGE CASES
+
+- Zero completed todos: Focus on habits, journal entries, ideas captured. Frame around reflection/planning.
+- No journal entries: Skip journal_encouragement insight. Don't nag about journaling.
+- No upcoming events: weekAhead.introduction = forward-looking encouragement. highlights = empty array.
+- No stale items: Do not generate stale_cleanup insight.
+- No habits: Skip habit_observation insight.
+- All data sparse: Produce a shorter, genuine summary. Short is better than padded.`;
+
 export default {
   async fetch(request, env) {
     // --- CORS preflight ---
@@ -4430,6 +4526,119 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
           const latency = Date.now() - t0;
           console.log('[space-chat-save] Error', { error: String(err), latency_ms: latency });
           return j({ error: 'request_failed', detail: String(err) }, 200);
+        }
+      }
+
+      // =========================
+      // === WEEKLY SUMMARY (v1.0) ===
+      // =========================
+      if (type === 'weekly-summary') {
+        const t0 = Date.now();
+        const { payload, trendContext } = body;
+
+        if (!payload) {
+          console.log('[weekly-summary] Missing payload');
+          return j({ error: 'missing_payload' }, 400);
+        }
+
+        try {
+          // Build user message with all collected data
+          const userMessage = `Here is my week's data:\n\n${JSON.stringify(payload, null, 2)}${
+            trendContext
+              ? `\n\nTrend context from prior weeks:\n${JSON.stringify(trendContext, null, 2)}`
+              : ''
+          }`;
+
+          // Use Anthropic API with Claude Sonnet 4.5
+          const anthropicKey = env.ANTHROPIC_API_KEY;
+          if (!anthropicKey) {
+            console.log('[weekly-summary] ANTHROPIC_API_KEY not configured');
+            return j({ error: 'anthropic_key_not_configured' }, 500);
+          }
+
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': anthropicKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-5-20250514',
+              max_tokens: 2000,
+              system: WEEKLY_SUMMARY_SYSTEM_PROMPT,
+              messages: [{ role: 'user', content: userMessage }],
+            }),
+          });
+
+          if (!res.ok) {
+            const errText = await res.text();
+            const latency = Date.now() - t0;
+            console.log('[weekly-summary] Anthropic API error', {
+              status: res.status,
+              latency_ms: latency,
+            });
+            return j({ error: 'anthropic_api_error', detail: errText }, 502);
+          }
+
+          const anthropicResponse = await res.json();
+          const rawText = anthropicResponse.content?.[0]?.text || '';
+
+          // Parse JSON from response
+          const parsed = safeParseJson(rawText);
+          if (!parsed) {
+            const latency = Date.now() - t0;
+            console.log('[weekly-summary] Failed to parse AI response', {
+              latency_ms: latency,
+              rawLength: rawText.length,
+            });
+            return j({ error: 'parse_failed', raw: rawText.slice(0, 500) }, 500);
+          }
+
+          // Validate required top-level fields
+          if (
+            !parsed.weeklyCommentary ||
+            !parsed.highlightMoment ||
+            !parsed.insights ||
+            !parsed.weekAhead
+          ) {
+            const latency = Date.now() - t0;
+            console.log('[weekly-summary] Incomplete AI response', {
+              latency_ms: latency,
+              keys: Object.keys(parsed),
+            });
+            return j({ error: 'incomplete_response', parsed }, 500);
+          }
+
+          // Ensure insights is an array and has valid types
+          if (!Array.isArray(parsed.insights)) {
+            parsed.insights = [];
+          }
+
+          // Ensure weekAhead has required structure
+          if (!parsed.weekAhead.highlights) parsed.weekAhead.highlights = [];
+          if (!parsed.weekAhead.busyDayWarnings) parsed.weekAhead.busyDayWarnings = [];
+          if (typeof parsed.weekAhead.totalEventCount !== 'number')
+            parsed.weekAhead.totalEventCount = 0;
+
+          // Ensure keyThemes and mood have defaults
+          if (!Array.isArray(parsed.keyThemes)) parsed.keyThemes = [];
+          if (!parsed.mood) parsed.mood = 'steady';
+
+          const latency = Date.now() - t0;
+          console.log('[weekly-summary] Success', {
+            latency_ms: latency,
+            insights: parsed.insights.length,
+            themes: parsed.keyThemes.length,
+            mood: parsed.mood,
+            upcomingHighlights: parsed.weekAhead.highlights.length,
+          });
+
+          return j(parsed);
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[weekly-summary] Error', { error: String(err), latency_ms: latency });
+          return j({ error: 'request_failed', detail: String(err) }, 500);
         }
       }
 

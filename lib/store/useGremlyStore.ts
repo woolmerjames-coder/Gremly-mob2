@@ -21,6 +21,8 @@ import type {
   EntityChatMessage,
   EntityChatNote,
   CalendarEvent as UserCalendarEvent,
+  WeeklySummary,
+  WeeklySummaryCleanupAction,
 } from '../types';
 import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
@@ -435,6 +437,12 @@ interface GremlyState {
   dailyBrief: DailyBrief | null;
   dailyBriefLoading: boolean;
 
+  // ═══════════════════════════════════════════════════════════════════
+  // WEEKLY SUMMARY STATE
+  // ═══════════════════════════════════════════════════════════════════
+  weeklySummaries: WeeklySummary[];
+  weeklySummaryLoading: boolean;
+
   // Loading/sync state
   isLoading: boolean;
   isInitialized: boolean;
@@ -605,6 +613,19 @@ interface GremlyState {
   dismissHabitForToday: (habitId: string) => Promise<void>;
   /** Undo dismissal - bring habit back to Morning Brief */
   undismissHabitForToday: (habitId: string) => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // WEEKLY SUMMARY MUTATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  fetchWeeklySummaries: () => Promise<void>;
+  saveWeeklySummary: (
+    summary: Omit<WeeklySummary, 'id' | 'created_at' | 'updated_at'>,
+  ) => Promise<WeeklySummary>;
+  markSummaryViewed: (summaryId: string) => Promise<void>;
+  markSummaryFlowCompleted: (summaryId: string) => Promise<void>;
+  dismissSummaryBanner: (summaryId: string) => Promise<void>;
+  addCleanupAction: (summaryId: string, action: WeeklySummaryCleanupAction) => Promise<void>;
+  bulkCleanupActions: (summaryId: string, actions: WeeklySummaryCleanupAction[]) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // COMMITMENT MUTATIONS (with optimistic Zustand updates)
@@ -852,6 +873,8 @@ const initialState = {
   spaceSuggestionsLoaded: false,
   dailyBrief: null as DailyBrief | null,
   dailyBriefLoading: false,
+  weeklySummaries: [] as WeeklySummary[],
+  weeklySummaryLoading: false,
   isLoading: false,
   isInitialized: false,
   lastSyncedAt: null as Date | null,
@@ -976,6 +999,7 @@ export const useGremlyStore = create<GremlyState>()(
               cortexPrefsRes,
               sweepEventsCountRes,
               notificationPrefsRes,
+              weeklySummariesRes,
             ] = await Promise.all([
               supabase.from('todos').select('*').eq('owner_id', userId),
               supabase.from('habits').select('*').eq('owner_id', userId),
@@ -1018,6 +1042,12 @@ export const useGremlyStore = create<GremlyState>()(
                 .select('timezone')
                 .eq('user_id', userId)
                 .maybeSingle(),
+              supabase
+                .from('weekly_summaries')
+                .select('*')
+                .eq('user_id', userId)
+                .order('week_start_date', { ascending: false })
+                .limit(12),
             ]);
 
             // Check for errors (chats/milestones are optional - don't fail if tables don't exist)
@@ -1047,6 +1077,8 @@ export const useGremlyStore = create<GremlyState>()(
               console.warn('[GremlyStore] cortex_preferences fetch error:', cortexPrefsRes.error);
             if (sweepEventsCountRes.error)
               console.warn('[GremlyStore] sweep events count error:', sweepEventsCountRes.error);
+            if (weeklySummariesRes.error)
+              console.warn('[GremlyStore] weekly_summaries fetch error:', weeklySummariesRes.error);
 
             // Extract sweep preferences (handle columns that may not exist in TypeScript types)
             const cortexPrefs = cortexPrefsRes.data as Record<string, unknown> | null;
@@ -1104,6 +1136,7 @@ export const useGremlyStore = create<GremlyState>()(
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
               dailyBrief: dailyBriefRes.data ?? null,
+              weeklySummaries: (weeklySummariesRes.data ?? []) as WeeklySummary[],
               spaceChatMessages: [], // Messages are loaded on-demand per chat
               // Sweep preferences
               lastSweepCompletedAt: (cortexPrefs?.last_sweep_completed_at as string) ?? null,
@@ -1174,6 +1207,7 @@ export const useGremlyStore = create<GremlyState>()(
               spaceChats: chatsRes.data?.length ?? 0,
               milestones: milestonesRes.data?.length ?? 0,
               dailyBrief: dailyBriefRes.data?.id ?? 'none',
+              weeklySummaries: weeklySummariesRes.data?.length ?? 0,
               sweepStreak: (cortexPrefs?.sweep_streak as number) ?? 0,
               totalSweepCount: sweepEventsCountRes.count ?? 0,
               gremlyAge: (cortexPrefs?.gremly_age as number) ?? 0,
@@ -1220,6 +1254,8 @@ export const useGremlyStore = create<GremlyState>()(
             milestones: [],
             dailyBrief: null,
             dailyBriefLoading: false,
+            weeklySummaries: [],
+            weeklySummaryLoading: false,
             isLoading: false,
             isInitialized: false,
             lastSyncedAt: null,
@@ -3377,6 +3413,7 @@ export const useGremlyStore = create<GremlyState>()(
               progressRes,
               chatsRes,
               milestonesRes,
+              weeklySummariesRes,
             ] = await Promise.all([
               supabase.from('todos').select('*').eq('owner_id', userId),
               supabase.from('habits').select('*').eq('owner_id', userId),
@@ -3390,6 +3427,12 @@ export const useGremlyStore = create<GremlyState>()(
                 .gte('occurred_day', sinceDate),
               supabase.from('space_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
+              supabase
+                .from('weekly_summaries')
+                .select('*')
+                .eq('user_id', userId)
+                .order('week_start_date', { ascending: false })
+                .limit(12),
             ]);
 
             set({
@@ -3402,6 +3445,7 @@ export const useGremlyStore = create<GremlyState>()(
               habitProgress: progressRes.data ?? [],
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
+              weeklySummaries: (weeklySummariesRes.data ?? []) as WeeklySummary[],
               isLoading: false,
               lastSyncedAt: new Date(),
             });
@@ -3642,6 +3686,194 @@ export const useGremlyStore = create<GremlyState>()(
             // Rollback
             set({ dailyBrief: brief });
             throw error;
+          }
+        },
+
+        // ═══════════════════════════════════════════════════════════════════
+        // WEEKLY SUMMARY MUTATIONS
+        // ═══════════════════════════════════════════════════════════════════
+
+        fetchWeeklySummaries: async () => {
+          const userId = get().userId;
+          if (!userId) return;
+
+          set({ weeklySummaryLoading: true });
+
+          try {
+            const { data, error } = await supabase
+              .from('weekly_summaries')
+              .select('*')
+              .eq('user_id', userId)
+              .order('week_start_date', { ascending: false })
+              .limit(12);
+
+            if (error) throw error;
+
+            set({
+              weeklySummaries: (data ?? []) as WeeklySummary[],
+              weeklySummaryLoading: false,
+            });
+
+            console.log('[GremlyStore] ✅ Fetched weekly summaries:', data?.length ?? 0);
+          } catch (error) {
+            console.error('[GremlyStore] ❌ fetchWeeklySummaries failed:', error);
+            set({ weeklySummaryLoading: false });
+          }
+        },
+
+        saveWeeklySummary: async (
+          summary: Omit<WeeklySummary, 'id' | 'created_at' | 'updated_at'>,
+        ) => {
+          const userId = get().userId;
+          if (!userId) throw new Error('Not authenticated');
+
+          const now = new Date().toISOString();
+
+          try {
+            const { data, error } = await supabase
+              .from('weekly_summaries')
+              .upsert(
+                {
+                  ...summary,
+                  user_id: userId,
+                  created_at: now,
+                  updated_at: now,
+                },
+                { onConflict: 'user_id,week_start_date' },
+              )
+              .select()
+              .single();
+
+            if (error) throw error;
+
+            // Replace if same week exists, otherwise prepend
+            const existing = get().weeklySummaries;
+            const filtered = existing.filter((s) => s.week_start_date !== summary.week_start_date);
+            set({ weeklySummaries: [data as WeeklySummary, ...filtered] });
+
+            console.log('[GremlyStore] ✅ Saved weekly summary:', data.id);
+            return data as WeeklySummary;
+          } catch (error) {
+            console.error('[GremlyStore] ❌ saveWeeklySummary failed:', error);
+            throw error;
+          }
+        },
+
+        markSummaryViewed: async (summaryId: string) => {
+          const now = new Date().toISOString();
+
+          // Optimistic update
+          set({
+            weeklySummaries: get().weeklySummaries.map((s) =>
+              s.id === summaryId ? { ...s, viewed: true, viewed_at: now } : s,
+            ),
+          });
+
+          try {
+            const { error } = await supabase
+              .from('weekly_summaries')
+              .update({ viewed: true, viewed_at: now, updated_at: now })
+              .eq('id', summaryId);
+
+            if (error) console.warn('[GremlyStore] markSummaryViewed sync error:', error);
+          } catch (error) {
+            console.warn('[GremlyStore] markSummaryViewed failed:', error);
+          }
+        },
+
+        markSummaryFlowCompleted: async (summaryId: string) => {
+          const now = new Date().toISOString();
+
+          // Optimistic update
+          set({
+            weeklySummaries: get().weeklySummaries.map((s) =>
+              s.id === summaryId ? { ...s, completed_flow: true, updated_at: now } : s,
+            ),
+          });
+
+          try {
+            const { error } = await supabase
+              .from('weekly_summaries')
+              .update({ completed_flow: true, updated_at: now })
+              .eq('id', summaryId);
+
+            if (error) console.warn('[GremlyStore] markSummaryFlowCompleted sync error:', error);
+          } catch (error) {
+            console.warn('[GremlyStore] markSummaryFlowCompleted failed:', error);
+          }
+        },
+
+        dismissSummaryBanner: async (summaryId: string) => {
+          const now = new Date().toISOString();
+
+          // Optimistic update
+          set({
+            weeklySummaries: get().weeklySummaries.map((s) =>
+              s.id === summaryId ? { ...s, banner_dismissed: true, updated_at: now } : s,
+            ),
+          });
+
+          try {
+            const { error } = await supabase
+              .from('weekly_summaries')
+              .update({ banner_dismissed: true, updated_at: now })
+              .eq('id', summaryId);
+
+            if (error) console.warn('[GremlyStore] dismissSummaryBanner sync error:', error);
+          } catch (error) {
+            console.warn('[GremlyStore] dismissSummaryBanner failed:', error);
+          }
+        },
+
+        addCleanupAction: async (summaryId: string, action: WeeklySummaryCleanupAction) => {
+          const summary = get().weeklySummaries.find((s) => s.id === summaryId);
+          if (!summary) return;
+
+          const updatedActions = [...summary.cleanup_actions, action];
+          const now = new Date().toISOString();
+
+          // Optimistic update
+          set({
+            weeklySummaries: get().weeklySummaries.map((s) =>
+              s.id === summaryId ? { ...s, cleanup_actions: updatedActions, updated_at: now } : s,
+            ),
+          });
+
+          try {
+            const { error } = await supabase
+              .from('weekly_summaries')
+              .update({ cleanup_actions: updatedActions, updated_at: now })
+              .eq('id', summaryId);
+
+            if (error) console.warn('[GremlyStore] addCleanupAction sync error:', error);
+          } catch (error) {
+            console.warn('[GremlyStore] addCleanupAction failed:', error);
+          }
+        },
+
+        bulkCleanupActions: async (summaryId: string, actions: WeeklySummaryCleanupAction[]) => {
+          const summary = get().weeklySummaries.find((s) => s.id === summaryId);
+          if (!summary) return;
+
+          const updatedActions = [...summary.cleanup_actions, ...actions];
+          const now = new Date().toISOString();
+
+          // Optimistic update
+          set({
+            weeklySummaries: get().weeklySummaries.map((s) =>
+              s.id === summaryId ? { ...s, cleanup_actions: updatedActions, updated_at: now } : s,
+            ),
+          });
+
+          try {
+            const { error } = await supabase
+              .from('weekly_summaries')
+              .update({ cleanup_actions: updatedActions, updated_at: now })
+              .eq('id', summaryId);
+
+            if (error) console.warn('[GremlyStore] bulkCleanupActions sync error:', error);
+          } catch (error) {
+            console.warn('[GremlyStore] bulkCleanupActions failed:', error);
           }
         },
 

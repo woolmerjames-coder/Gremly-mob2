@@ -1073,3 +1073,79 @@ export interface DefaultReminderPreferences {
   morningOf: boolean;
   minutesBefore: number | null;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// WEEKLY SUMMARY TYPES
+// ═══════════════════════════════════════════════════════════════════
+
+export interface WeeklySummaryHighlight {
+  title: string;
+  reason: string;
+  gremlyComment: string;
+}
+
+export interface WeeklySummaryInsight {
+  type:
+    | 'stale_cleanup'
+    | 'capture_ratio'
+    | 'productivity_pattern'
+    | 'space_activity'
+    | 'balance'
+    | 'habit_observation'
+    | 'journal_encouragement';
+  headline: string;
+  body: string;
+  isActionable: boolean;
+  actionLabel?: string;
+  actionType?: string;
+  staleItemIds?: string[];
+}
+
+export interface WeeklySummaryWeekAheadHighlight {
+  eventTitle: string;
+  day: string;
+  time?: string;
+  context?: string;
+  prepNudge?: string;
+}
+
+export interface WeeklySummaryWeekAhead {
+  introduction: string;
+  highlights: WeeklySummaryWeekAheadHighlight[];
+  busyDayWarnings: Array<{ day: string; comment: string }>;
+  totalEventCount: number;
+}
+
+export interface WeeklySummaryContent {
+  weeklyCommentary: string;
+  highlightMoment: WeeklySummaryHighlight;
+  insights: WeeklySummaryInsight[];
+  weekAhead: WeeklySummaryWeekAhead;
+  keyThemes: string[];
+  mood: string;
+}
+
+export interface WeeklySummaryCleanupAction {
+  itemId: string;
+  action: 'keep' | 'park' | 'drop';
+  actedAt: string;
+}
+
+export interface WeeklySummary {
+  id: string;
+  user_id: string;
+  week_start_date: string; // YYYY-MM-DD (Monday)
+  week_end_date: string; // YYYY-MM-DD (Sunday)
+  generated_at: string;
+  content: WeeklySummaryContent;
+  stats_snapshot: Record<string, unknown>;
+  trend_context: Record<string, unknown> | null;
+  key_themes: string[] | null;
+  cleanup_actions: WeeklySummaryCleanupAction[];
+  viewed: boolean;
+  viewed_at: string | null;
+  completed_flow: boolean;
+  banner_dismissed: boolean;
+  created_at: string;
+  updated_at: string;
+}

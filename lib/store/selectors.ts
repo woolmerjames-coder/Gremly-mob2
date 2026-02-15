@@ -1,7 +1,7 @@
 import { createSelector } from 'reselect';
 import { useShallow } from 'zustand/react/shallow';
 import { useGremlyStore, isHabitLockedIn, type HabitProgressRow } from './useGremlyStore';
-import type { Todo, Habit, Note, Space, SpaceSuggestion } from '../types';
+import type { Todo, Habit, Note, Space, SpaceSuggestion, WeeklySummary } from '../types';
 import type {
   SweepCandidate,
   SweepCandidateTodo,
@@ -2429,4 +2429,113 @@ export function useEventNotesForDate(dateStr: string): Note[] {
  */
 export function useUpcomingEventNotes(days: number = 7): Note[] {
   return useGremlyStore(useShallow((state) => selectUpcomingEventNotes(state, days)));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WEEKLY SUMMARY SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const selectWeeklySummaries = (state: GremlyState) => state.weeklySummaries;
+const selectWeeklySummaryLoading = (state: GremlyState) => state.weeklySummaryLoading;
+
+/** Get Monday of the current week as YYYY-MM-DD */
+function getMondayDayString(): string {
+  const today = ds().getCurrentDate();
+  const date = ds().fromDateString(today);
+  if (!date) return today;
+  const dayOfWeek = date.getDay(); // 0 = Sunday
+  // Monday offset: Sunday(0) -> -6, Mon(1) -> 0, Tue(2) -> -1 ...
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  return ds().addDays(today, mondayOffset);
+}
+
+/** Current week's summary (matches on week_start_date = this Monday) */
+export const selectCurrentWeekSummary = createSelector(
+  [selectWeeklySummaries],
+  (summaries): WeeklySummary | undefined => {
+    const monday = getMondayDayString();
+    return summaries.find((s) => s.week_start_date === monday);
+  },
+);
+
+/** Past summaries (all except current week), newest first */
+export const selectPastSummaries = createSelector(
+  [selectWeeklySummaries],
+  (summaries): WeeklySummary[] => {
+    const monday = getMondayDayString();
+    return summaries.filter((s) => s.week_start_date !== monday);
+  },
+);
+
+/**
+ * Should the weekly summary banner be shown?
+ * True when: current week summary exists, not yet viewed, banner not dismissed.
+ */
+export const selectShouldShowSummaryBanner = createSelector(
+  [selectCurrentWeekSummary],
+  (summary): boolean => {
+    if (!summary) return false;
+    return !summary.viewed && !summary.banner_dismissed;
+  },
+);
+
+/** Find a summary by week_start_date */
+export function selectSummaryByWeek(
+  state: GremlyState,
+  weekStartDate: string,
+): WeeklySummary | undefined {
+  return state.weeklySummaries.find((s) => s.week_start_date === weekStartDate);
+}
+
+/** Compressed summary content for chat context injection */
+export const selectWeeklySummaryForChatContext = createSelector(
+  [selectCurrentWeekSummary],
+  (summary): string | null => {
+    if (!summary?.content) return null;
+
+    const c = summary.content;
+    const parts: string[] = [];
+
+    if (c.weeklyCommentary) parts.push(c.weeklyCommentary);
+
+    if (c.highlightMoment) {
+      parts.push(`Highlight: ${c.highlightMoment.title} — ${c.highlightMoment.reason}`);
+    }
+
+    if (c.insights?.length) {
+      parts.push('Insights: ' + c.insights.map((i) => i.headline).join('; '));
+    }
+
+    if (c.keyThemes?.length) {
+      parts.push('Themes: ' + c.keyThemes.join(', '));
+    }
+
+    if (c.weekAhead?.highlights?.length) {
+      parts.push(
+        'Week ahead: ' + c.weekAhead.highlights.map((h) => `${h.eventTitle} (${h.day})`).join(', '),
+      );
+    }
+
+    return parts.length > 0 ? parts.join(' | ') : null;
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WEEKLY SUMMARY HOOKS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export function useCurrentWeekSummary(): WeeklySummary | undefined {
+  return useGremlyStore((state) => selectCurrentWeekSummary(state));
+}
+
+export function usePastSummaries(): WeeklySummary[] {
+  return useGremlyStore(useShallow((state) => selectPastSummaries(state)));
+}
+
+export function useShouldShowSummaryBanner(): boolean {
+  return useGremlyStore((state) => selectShouldShowSummaryBanner(state));
+}
+
+export function useWeeklySummaryForChatContext(): string | null {
+  return useGremlyStore((state) => selectWeeklySummaryForChatContext(state));
 }
