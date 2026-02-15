@@ -37,6 +37,7 @@ import CalendarSettingsScreen from '../app/screens/CalendarSettingsScreen';
 import WhatGremlyKnowsScreen from '../app/screens/WhatGremlyKnowsScreen';
 import { HabitBuilderScreen } from '../screens/habits/HabitBuilderScreen';
 import { MorningBriefSheet } from '../app/components/morning-brief/MorningBriefSheet';
+import WeeklySummaryScreen from '../app/screens/WeeklySummaryScreen';
 
 // Wrapper to bridge navigation params to MorningBriefSheet props
 function MorningBriefWrapper({ navigation, route }: any) {
@@ -94,6 +95,7 @@ export type RootStackParamList = {
   WhatGremlyKnows: undefined;
   HabitBuilder: { prefill?: string; spaceId?: string } | undefined;
   MorningBrief: { targetDate?: string } | undefined;
+  WeeklySummary: { weekStartDate?: string } | undefined;
   SweepTest: undefined; // DEV only
 };
 
@@ -186,6 +188,11 @@ export default function RootNavigator() {
           <Stack.Screen
             name="MorningBrief"
             component={MorningBriefWrapper}
+            options={{ headerShown: false, presentation: 'card', gestureEnabled: false }}
+          />
+          <Stack.Screen
+            name="WeeklySummary"
+            component={WeeklySummaryScreen}
             options={{ headerShown: false, presentation: 'card', gestureEnabled: false }}
           />
           <Stack.Screen

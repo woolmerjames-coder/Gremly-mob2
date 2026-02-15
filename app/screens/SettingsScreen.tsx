@@ -16,6 +16,7 @@ import { colors, spacing, borderRadius } from '../../design/tokens';
 import { BRAND } from '../../design/brand';
 import { generateWeeklySummary } from '../../lib/weeklySummary';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useCurrentWeekSummary } from '../../lib/store/selectors';
 
 type SettingsRow = {
   key: string;
@@ -30,6 +31,7 @@ const ICON_SIZE = 20;
 export default function SettingsScreen() {
   const navigation = useNavigation();
   const [weeklyLoading, setWeeklyLoading] = useState(false);
+  const currentSummary = useCurrentWeekSummary();
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -156,9 +158,18 @@ export default function SettingsScreen() {
             </Pressable>
             <Pressable
               onPress={handleDebugWeeklySummary}
-              style={({ pressed }) => [styles.devRow, styles.rowLast, pressed && styles.rowPressed]}
+              style={({ pressed }) => [styles.devRow, pressed && styles.rowPressed]}
             >
               <Text style={styles.devRowText}>🔍 View Weekly Summary Data</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => (navigation as any).navigate('WeeklySummary')}
+              style={({ pressed }) => [styles.devRow, styles.rowLast, pressed && styles.rowPressed]}
+            >
+              <Text style={styles.devRowText}>
+                📊 Open Weekly Summary Screen
+                {currentSummary ? ` (${currentSummary.week_start_date})` : ' (none)'}
+              </Text>
             </Pressable>
           </View>
         </View>
