@@ -400,6 +400,22 @@ export function getEmptyStateSpeech(): { message: string; duration: number } {
   };
 }
 
+export function getFirstVisitSpeech(): { message: string; duration: number } {
+  const message = "Drop your first thought! A task, a worry, an idea, something you keep forgetting. Anything. I'll sort it out later.";
+  return {
+    message,
+    duration: 15000, // Stay visible until user acts — long duration as fallback
+  };
+}
+
+export function getPostFirstDropSpeech(): { message: string; duration: number } {
+  const message = "Nice! That's your first drop. Want me to show you how the Sweep works?";
+  return {
+    message,
+    duration: 30000, // Stay visible until user makes a choice
+  };
+}
+
 export function getMorningBriefSpeech(event: 'prompt' | 'complete' | 'skip'): {
   message: string;
   duration: number;

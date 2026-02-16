@@ -478,6 +478,7 @@ interface GremlyState {
   onboardingCompletedAt: string | null;
   accountCreatedAt: string | null;
   firstDropCompletedAt: string | null;
+  demoSweepCompletedAt: string | null;
   firstTodayVisitCompletedAt: string | null;
   todayRitualDay: string | null;
   todayDropsCount: number;
@@ -495,6 +496,7 @@ interface GremlyState {
   setOnboardingCompletedAt: (timestamp: string) => Promise<void>;
   markOnboardingComplete: () => Promise<void>;
   markFirstDropComplete: () => Promise<void>;
+  markDemoSweepComplete: () => Promise<void>;
   markFirstTodayVisitComplete: () => Promise<void>;
   refreshRitualProgress: () => Promise<void>;
 
@@ -893,6 +895,7 @@ const initialState = {
   onboardingCompletedAt: null as string | null,
   accountCreatedAt: null as string | null,
   firstDropCompletedAt: null as string | null,
+  demoSweepCompletedAt: null as string | null,
   firstTodayVisitCompletedAt: null as string | null,
   todayRitualDay: null as string | null,
   todayDropsCount: 0,
@@ -1026,7 +1029,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1152,6 +1155,7 @@ export const useGremlyStore = create<GremlyState>()(
               onboardingCompletedAt: effectiveOnboardingCompleted,
               accountCreatedAt: (cortexPrefs?.created_at as string) ?? null,
               firstDropCompletedAt: (cortexPrefs?.first_drop_completed_at as string) ?? null,
+              demoSweepCompletedAt: (cortexPrefs?.demo_sweep_completed_at as string) ?? null,
               firstTodayVisitCompletedAt:
                 (cortexPrefs?.first_today_visit_completed_at as string) ?? null,
               todayRitualDay: ritualDay,
@@ -1272,6 +1276,7 @@ export const useGremlyStore = create<GremlyState>()(
             dayBoundaryHour: 0,
             onboardingCompletedAt: null,
             accountCreatedAt: null,
+            demoSweepCompletedAt: null,
             todayRitualDay: null,
             todayDropsCount: 0,
             todaySweepsCount: 0,
@@ -1599,6 +1604,33 @@ export const useGremlyStore = create<GremlyState>()(
 
           set({ firstDropCompletedAt: now });
           console.log('[GremlyStore] First drop marked complete');
+        },
+
+        markDemoSweepComplete: async () => {
+          const userId = get().userId;
+          if (!userId) return;
+
+          const now = new Date().toISOString();
+
+          // Set local state first — don't block UX on DB write
+          set({ demoSweepCompletedAt: now });
+          console.log('[GremlyStore] Demo sweep marked complete');
+
+          // Best-effort persist to Supabase
+          try {
+            const { error } = await supabase
+              .from('cortex_preferences')
+              .upsert(
+                { owner_id: userId, demo_sweep_completed_at: now, updated_at: now },
+                { onConflict: 'owner_id' },
+              );
+
+            if (error) {
+              console.warn('[GremlyStore] markDemoSweepComplete DB write failed (non-blocking):', error.message);
+            }
+          } catch (e) {
+            console.warn('[GremlyStore] markDemoSweepComplete DB exception (non-blocking):', e);
+          }
         },
 
         markFirstTodayVisitComplete: async () => {
@@ -7896,6 +7928,7 @@ export const useGremlyStore = create<GremlyState>()(
           onboardingCompletedAt: state.onboardingCompletedAt,
           accountCreatedAt: state.accountCreatedAt,
           firstDropCompletedAt: state.firstDropCompletedAt,
+          demoSweepCompletedAt: state.demoSweepCompletedAt,
           firstTodayVisitCompletedAt: state.firstTodayVisitCompletedAt,
           todayRitualDay: state.todayRitualDay,
           todayDropsCount: state.todayDropsCount,
