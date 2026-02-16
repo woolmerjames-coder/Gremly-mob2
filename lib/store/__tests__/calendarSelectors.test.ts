@@ -7,7 +7,6 @@ import { renderHook } from '@testing-library/react-native';
 import {
   useCalendarItemsForDate,
   useDatesWithItems,
-  type CalendarItem,
 } from '../calendarSelectors';
 import { resetDateService, createDateService } from '../../date';
 import { useGremlyStore } from '../useGremlyStore';
@@ -410,5 +409,197 @@ describe('useDatesWithItems', () => {
     expect(result.current.has(YESTERDAY)).toBe(true);
     expect(result.current.has(TOMORROW)).toBe(true);
     expect(result.current.size).toBe(2);
+  });
+
+  it('includes dates with event notes', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      target_date: TODAY,
+    });
+    setupMockStore({ notes: [eventNote] });
+
+    const { result } = renderHook(() => useDatesWithItems(YESTERDAY, TOMORROW));
+
+    expect(result.current.has(TODAY)).toBe(true);
+    expect(result.current.has(YESTERDAY)).toBe(false);
+  });
+
+  it('excludes archived event notes from date markers', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      target_date: TODAY,
+      archived: true,
+    });
+    setupMockStore({ notes: [eventNote] });
+
+    const { result } = renderHook(() => useDatesWithItems(YESTERDAY, TOMORROW));
+
+    expect(result.current.has(TODAY)).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Event Notes in Calendar Items
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('useCalendarItemsForDate — event notes', () => {
+  it('includes event notes as calendar_event items', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      title: 'Flight to LA',
+      target_date: TODAY,
+      event_time: '14:30',
+      location: 'LAX Airport',
+    });
+    setupMockStore({ notes: [eventNote] });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    expect(result.current).toHaveLength(1);
+    expect(result.current[0].type).toBe('calendar_event');
+    expect(result.current[0].title).toBe('Flight to LA');
+    expect(result.current[0].time).toBe('14:30');
+    expect(result.current[0].location).toBe('LAX Airport');
+  });
+
+  it('excludes archived event notes', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      title: 'Cancelled Event',
+      target_date: TODAY,
+      archived: true,
+    });
+    setupMockStore({ notes: [eventNote] });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    expect(result.current).toHaveLength(0);
+  });
+
+  it('includes space info for event notes with space_id', () => {
+    const space = makeSpace({ id: 'space-trip', name: 'LA Trip' });
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      title: 'Flight',
+      target_date: TODAY,
+      space_id: 'space-trip',
+    });
+    setupMockStore({ notes: [eventNote], spaces: [space] });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    expect(result.current[0].space).toEqual({
+      id: 'space-trip',
+      name: 'LA Trip',
+      theme: null,
+    });
+  });
+
+  it('marks native event notes as non-external', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      title: 'Party',
+      target_date: TODAY,
+    });
+    setupMockStore({ notes: [eventNote] });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    expect(result.current[0].isExternal).toBe(false);
+  });
+
+  it('marks synced event notes as external with provider', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      title: 'Synced Meeting',
+      target_date: TODAY,
+      external_source: {
+        provider: 'google_calendar',
+        externalId: 'ext-123',
+        calendarId: 'cal-1',
+        lastSyncedAt: '2025-12-22T00:00:00Z',
+      },
+    });
+    setupMockStore({ notes: [eventNote] });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    expect(result.current[0].isExternal).toBe(true);
+    expect(result.current[0].provider).toBe('google');
+  });
+
+  it('deduplicates: event note covers raw calendar event with same externalId', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      title: 'Meeting (from Note)',
+      target_date: TODAY,
+      event_time: '10:00',
+      external_source: {
+        provider: 'google_calendar',
+        externalId: 'google-event-xyz',
+        calendarId: 'cal-1',
+        lastSyncedAt: '2025-12-22T00:00:00Z',
+      },
+    });
+
+    // Raw calendar event with same providerEventId
+    const calendarEvents = {
+      [TODAY]: [
+        {
+          provider: 'google',
+          providerEventId: 'google-event-xyz',
+          title: 'Meeting (from Calendar)',
+          startAt: `${TODAY}T10:00:00Z`,
+          endAt: `${TODAY}T11:00:00Z`,
+          isAllDay: false,
+          location: null,
+        },
+      ],
+    };
+
+    setupMockStore({ notes: [eventNote], calendarEvents });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    // Should only show the Note-based event, not the raw calendar event
+    expect(result.current.filter((i) => i.type === 'calendar_event')).toHaveLength(1);
+    expect(result.current[0].title).toBe('Meeting (from Note)');
+  });
+
+  it('shows raw calendar events that are NOT covered by event notes', () => {
+    const calendarEvents = {
+      [TODAY]: [
+        {
+          provider: 'google',
+          providerEventId: 'uncovered-event',
+          title: 'Uncovered Meeting',
+          startAt: `${TODAY}T15:00:00Z`,
+          endAt: `${TODAY}T16:00:00Z`,
+          isAllDay: false,
+          location: null,
+        },
+      ],
+    };
+
+    setupMockStore({ calendarEvents });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    expect(result.current).toHaveLength(1);
+    expect(result.current[0].title).toBe('Uncovered Meeting');
+  });
+
+  it('handles event notes without event_time as all-day events', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      title: 'All Day Event',
+      target_date: TODAY,
+      event_time: null,
+    });
+    setupMockStore({ notes: [eventNote] });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    expect(result.current[0].time).toBeNull();
   });
 });
