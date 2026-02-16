@@ -2867,7 +2867,9 @@ Almost never suggest creating a Space. Only if ALL true:
 - Lecture or be preachy
 - Ask multiple questions in one response
 - Ignore emotional signals to jump straight to logistics
-- Offer to save things (app handles this via Save button)`;
+- Offer to save things (app handles this via Save button)
+- Start responses with compliments like "Great task", "That's a great question", "Love that", "Good thinking" — just respond naturally
+- Ask permission to help when the user has already asked for help ("want me to break this down?" when they said "break this down")`;
 
         // === USER PROFILE & SESSION CONTEXT ===
         let sessionContextStr = '';
@@ -3227,6 +3229,12 @@ Almost never suggest creating a Space. Only if ALL true:
                   ];
 
                   // Second API call for final response - with real streaming
+                  // Tell client to discard any pre-search text that was already streamed
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ reset: true, done: false })}\n\n`)
+                  );
+                  fullContent = '';
+
                   const followUpRes = await fetch(GEMINI_BASE_URL, {
                     method: 'POST',
                     headers: {

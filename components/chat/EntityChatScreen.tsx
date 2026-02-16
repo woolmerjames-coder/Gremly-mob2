@@ -501,6 +501,17 @@ export function EntityChatScreen({
               }
             }
           },
+          onReset: () => {
+            accumulatedContent = '';
+            if (streamingMessageIdRef.current) {
+              updateStreamingContent(
+                entityId,
+                entityType,
+                streamingMessageIdRef.current,
+                '',
+              );
+            }
+          },
           onDelta: (delta) => {
             // Accumulate content and update the streaming message in place
             accumulatedContent += delta;
