@@ -1084,6 +1084,7 @@ Rules:
  */
 function stripFillerOpening(text) {
   const fillerPatterns = [
+    // Compliment openers
     /^that'?s a (?:great|really great|super|fantastic|wonderful|excellent) (?:question|task|idea|goal|focus|habit|start|one)[.!,]*\s*/i,
     /^great (?:question|task|idea|goal|focus|habit|start|one)[.!,]*\s*/i,
     /^good (?:question|thinking|one)[.!,]*\s*/i,
@@ -1092,6 +1093,13 @@ function stripFillerOpening(text) {
     /^i love that you'?re (?:asking|thinking about|working on)[^.!]*[.!,]*\s*/i,
     /^that'?s (?:really |so )?(?:smart|clever|thoughtful|interesting)[.!,]*\s*/i,
     /^(?:oh |ah )?(?:what a |that's a )?(?:really |super )?great (?:question|one)[.!,]*\s*/i,
+    // Transitional filler openers
+    /^and it'?s (?:smart|wise|good|great|helpful) to [^.!]{0,60}[.!]\s*/i,
+    /^it'?s (?:smart|wise|good|great|a good idea|a great idea|helpful) to [^.!]{0,60}[.!]\s*/i,
+    /^it makes sense to [^.!]{0,60}[.!]\s*/i,
+    /^(?:that's|it's) (?:a )?(?:really )?(?:great|good|smart|important) (?:question|idea|goal|thing to think about|thing to consider)[.!,]*\s*/i,
+    /^you'?re (?:right|smart|wise) to (?:ask|think about|consider|want)[^.!]*[.!,]*\s*/i,
+    /^(?:absolutely|definitely)[.!,]+\s*/i,
   ];
 
   for (const pattern of fillerPatterns) {
@@ -3327,7 +3335,7 @@ Almost never suggest creating a Space. Only if ALL true:
                       messages: followUpMessages,
                       temperature: 0.7,
                       max_tokens: 800,
-                      reasoning_effort: 'none',
+                      reasoning_effort: 'low',
                       stream: true,
                     }),
                   });
@@ -3661,7 +3669,7 @@ Almost never suggest creating a Space. Only if ALL true:
                     messages: followUpMessages,
                     temperature: 0.7,
                     max_tokens: 800,
-                    reasoning_effort: 'none',
+                    reasoning_effort: 'low',
                   }),
                 });
 
