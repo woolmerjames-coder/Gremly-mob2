@@ -14,6 +14,7 @@ import {
 } from '@react-native-google-signin/google-signin';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '../lib/supabase/client';
+import { networkStatus } from '../lib/network/NetworkStatus';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { calendarClient } from '../lib/calendar/CalendarClient';
 import { FLAGS } from '../config/flags';
@@ -86,22 +87,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        let hasCachedSession = false;
         const storedSession = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
         if (storedSession && mounted) {
           try {
             const parsedSession = JSON.parse(storedSession);
             setSession(parsedSession);
             setUser(parsedSession.user);
+            hasCachedSession = true;
           } catch (e) {
             console.error('Failed to parse stored session:', e);
             await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
           }
         }
 
-        const {
-          data: { session: currentSession },
-          error: sessionError,
-        } = await supabase.auth.getSession();
+        // If offline and we have a cached session, skip getSession() to avoid hanging
+        if (!networkStatus.isConnected && hasCachedSession) {
+          console.log(
+            '[AuthProvider] Offline with cached session — skipping getSession(), rendering from cache',
+          );
+          return;
+        }
+
+        // Race getSession() against an 8-second timeout to prevent indefinite hangs
+        const GET_SESSION_TIMEOUT_MS = 8000;
+        let currentSession: Awaited<
+          ReturnType<typeof supabase.auth.getSession>
+        >['data']['session'] = null;
+        let sessionError: Awaited<ReturnType<typeof supabase.auth.getSession>>['error'] = null;
+
+        try {
+          const result = await Promise.race([
+            supabase.auth.getSession(),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error('getSession() timed out after 8s')),
+                GET_SESSION_TIMEOUT_MS,
+              ),
+            ),
+          ]);
+          currentSession = result.data.session;
+          sessionError = result.error;
+        } catch (timeoutErr) {
+          if (hasCachedSession) {
+            console.warn(
+              '[AuthProvider] getSession() timed out but cached session exists — rendering from cache',
+            );
+            return;
+          }
+          sessionError = {
+            message: (timeoutErr as Error).message,
+            name: 'AuthApiError',
+            status: 0,
+          } as any;
+        }
 
         if (sessionError) {
           console.error('Auth session error:', sessionError);
