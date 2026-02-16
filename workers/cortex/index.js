@@ -1334,15 +1334,18 @@ function extractUrlsFromText(text) {
 // OPENAI FUNCTION TOOL DEFINITIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const GEMINI_CHAT_MODEL = 'gemini-2.5-flash';
+
 const WEB_SEARCH_TOOL = {
   type: 'function',
   function: {
     name: 'web_search',
     description: `Search the web for current, factual information. The current date is ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.
 
-IMPORTANT: When searching for events, deadlines, or time-sensitive information, ALWAYS include the relevant year (2026) in your search query to get current results.
+DEFAULT TO SEARCHING. If there is ANY chance that current, specific information would improve your answer, search first. The cost of an unnecessary search is near zero. The cost of giving generic advice when specific information exists is high.
 
-USE this tool when:
+ALWAYS search for:
 - Health, fitness, supplements, medications, medical information
 - Product recommendations or comparisons
 - How-to guides, tutorials, best practices
@@ -1353,8 +1356,9 @@ USE this tool when:
 - Technology, apps, tools, software recommendations
 - Upcoming events, races, conferences, deadlines
 - Any topic where up-to-date external sources would improve the answer
+- ANY question where you're about to write "you might want to", "consider looking into", "some people find", or "it depends on" — search instead of hedging
 
-DO NOT use for:
+DO NOT search for:
 - Questions about the user's own tasks, habits, notes, or personal data
 - Emotional support or reflection conversations
 - Simple factual questions you can confidently answer (math, definitions, historical facts)
@@ -2783,6 +2787,22 @@ For sensitive topics (someone feeling down, mental health, medical questions):
 - Be warm and curious: "That sounds really hard. Want to talk about what's going on?"
 - Only suggest professional help if they ask, or if it's clearly affecting their life.
 
+=== CRITICAL: SEARCH BEHAVIOR ===
+
+You have web search. Use it PROACTIVELY for:
+- Travel planning (weather, closures, accommodations, things to do)
+- Gift ideas and product recommendations  
+- Health, fitness, nutrition questions
+- "What should I know about X"
+- Any question where current, specific information beats generic advice
+
+WRONG: "Check the forecast for suitable clothing" or "Look into camping spots"
+RIGHT: [Search immediately, return actual weather data and specific hotel names]
+
+Never give meta-advice. If you could answer better by searching, search.
+
+RULE: If you find yourself about to write a sentence containing "you might want to", "consider looking into", "some people find", or "it depends on" — STOP and search instead. Never give generic advice when you could search and give a specific, evidence-based answer.
+
 === CURRENT DATE ===
 Today is ${currentDate}. Use this for any time-relative queries.
 
@@ -2810,7 +2830,7 @@ Before responding, identify what mode the user is in:
 
 **RESEARCH-NEEDED** — wants information, not a framework
 - Signals: travel planning, gift ideas, "what should I know", "what should I look for", "what should I consider", "help me find", product recommendations, comparisons, health questions, "how do I", any task where real-world information would help
-- Response: SEARCH IMMEDIATELY. Do not give generic frameworks or criteria lists — search and give specific answers with the reasoning embedded. "What should I look for in X" means "find me good options and tell me why they're good."
+- Response: SEARCH IMMEDIATELY using web_search. Do not write a single word of response before searching. Give specific, sourced answers with reasoning embedded — not generic frameworks or criteria lists.
 
 WRONG: "When buying an air purifier, consider these factors: Room size, CADR ratings..."
 RIGHT: [Search, then] "The Coway Airmega and Levoit Core 400S are top-rated for bedrooms because they're quiet and have strong HEPA filtration."
@@ -2818,20 +2838,6 @@ RIGHT: [Search, then] "The Coway Airmega and Levoit Core 400S are top-rated for 
 **ACTION-READY** — clear task, just needs help executing
 - Signals: "break this down", "what are the steps", "how do I do this"
 - Response: Give clear, specific steps. Offer to save as checklist.
-
-=== CRITICAL: SEARCH BEHAVIOR ===
-
-You have web search. Use it PROACTIVELY for:
-- Travel planning (weather, closures, accommodations, things to do)
-- Gift ideas and product recommendations  
-- Health, fitness, nutrition questions
-- "What should I know about X"
-- Any question where current, specific information beats generic advice
-
-WRONG: "Check the forecast for suitable clothing" or "Look into camping spots"
-RIGHT: [Search immediately, return actual weather data and specific hotel names]
-
-Never give meta-advice. If you could answer better by searching, search.
 
 === TONE & FORMAT ===
 - Brief: 40-100 words typical (mobile UI)
@@ -3011,25 +3017,18 @@ Almost never suggest creating a Space. Only if ALL true:
             );
           }
 
-          const routing = getModelAndTokens({
-            preset,
-            userMessage: lastUserMsg,
-            messageCount: messages.length,
-            entityType: entity?.type,
-          });
-          console.log('[EntityChat:Streaming] Model routing:', routing);
-
-          const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          const openaiRes = await fetch(GEMINI_BASE_URL, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${key}`,
+              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: routing.model,
+              model: GEMINI_CHAT_MODEL,
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: routing.maxTokens,
+              max_tokens: 800,
+              reasoning_effort: 'none',
               stream: true,
               tools: [WEB_SEARCH_TOOL],
               tool_choice: 'auto',
@@ -3228,17 +3227,18 @@ Almost never suggest creating a Space. Only if ALL true:
                   ];
 
                   // Second API call for final response - with real streaming
-                  const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                  const followUpRes = await fetch(GEMINI_BASE_URL, {
                     method: 'POST',
                     headers: {
-                      Authorization: `Bearer ${key}`,
+                      Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                       'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                      model: 'gpt-4.1',
+                      model: GEMINI_CHAT_MODEL,
                       messages: followUpMessages,
                       temperature: 0.7,
-                      max_completion_tokens: 800,
+                      max_tokens: 800,
+                      reasoning_effort: 'none',
                       stream: true,
                     }),
                   });
@@ -3338,14 +3338,14 @@ Almost never suggest creating a Space. Only if ALL true:
                   '[EntityChat:Streaming] Search fallback - responding without search results',
                 );
 
-                const fallbackRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                const fallbackRes = await fetch(GEMINI_BASE_URL, {
                   method: 'POST',
                   headers: {
-                    Authorization: `Bearer ${key}`,
+                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    model: 'gpt-4.1',
+                    model: GEMINI_CHAT_MODEL,
                     messages: [
                       ...openaiMessages,
                       {
@@ -3355,7 +3355,8 @@ Almost never suggest creating a Space. Only if ALL true:
                       },
                     ],
                     temperature: 0.7,
-                    max_completion_tokens: 600,
+                    max_tokens: 600,
+                    reasoning_effort: 'none',
                   }),
                 });
 
@@ -3450,28 +3451,19 @@ Almost never suggest creating a Space. Only if ALL true:
         // =========================
         // NON-STREAMING ENTITY CHAT
         // =========================
-        // Determine optimal model and tokens for this query
-        const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
-        const routing = getModelAndTokens({
-          preset,
-          userMessage: lastUserMsg,
-          messageCount: messages.length,
-          entityType: entity?.type,
-        });
-        console.log('[EntityChat] Model routing:', routing);
-
         try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          const res = await fetch(GEMINI_BASE_URL, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${key}`,
+              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: routing.model,
+              model: GEMINI_CHAT_MODEL,
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: routing.maxTokens,
+              max_tokens: 800,
+              reasoning_effort: 'none',
               tools: [WEB_SEARCH_TOOL],
               tool_choice: 'auto',
             }),
@@ -3533,17 +3525,18 @@ Almost never suggest creating a Space. Only if ALL true:
                 ];
 
                 // Second API call
-                const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                const followUpRes = await fetch(GEMINI_BASE_URL, {
                   method: 'POST',
                   headers: {
-                    Authorization: `Bearer ${key}`,
+                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    model: 'gpt-4.1',
+                    model: GEMINI_CHAT_MODEL,
                     messages: followUpMessages,
                     temperature: 0.7,
-                    max_completion_tokens: 800,
+                    max_tokens: 800,
+                    reasoning_effort: 'none',
                   }),
                 });
 
