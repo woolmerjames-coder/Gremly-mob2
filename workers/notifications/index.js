@@ -192,47 +192,100 @@ async function sendScheduledNotifications(env) {
     };
   }
 
+  // Split users into immediate (morning/evening) and weekly
+  const immediateUsers = usersToNotify.filter((u) => u.type !== 'weekly_summary');
+  const weeklyUsers = usersToNotify.filter((u) => u.type === 'weekly_summary');
+
   // Send notifications and update last_sent
   let sent = 0;
   const errors = [];
 
-  for (const user of usersToNotify) {
+  // --- Process immediate (morning/evening) notifications sequentially ---
+  for (const user of immediateUsers) {
     try {
-      if (user.type === 'weekly_summary') {
-        // --- Weekly summary: generate → save → notify ---
-        console.log(`[Notifications] Generating weekly summary for ${user.user_id}`);
+      await sendExpoPush(user.token, user.title, user.body, user.type);
 
+      const userTimezone =
+        prefs.find((p) => p.user_id === user.user_id)?.timezone || 'America/Los_Angeles';
+      const todayInUserTz = getDateInTimezone(now, userTimezone);
+      await updateLastSent(supabaseUrl, supabaseKey, user.user_id, user.type, todayInUserTz);
+
+      sent++;
+      console.log(`[Notifications] Sent ${user.type} to user ${user.user_id}`);
+    } catch (err) {
+      errors.push({ user_id: user.user_id, error: err.message });
+      console.error(`[Notifications] Failed for ${user.user_id}:`, err.message);
+    }
+  }
+
+  // --- Process weekly summary notifications in parallel batches ---
+  if (weeklyUsers.length > 0) {
+    const WEEKLY_BATCH_SIZE = 5;
+    console.log(
+      `[Notifications] Processing ${weeklyUsers.length} weekly summaries in batches of ${WEEKLY_BATCH_SIZE}`,
+    );
+
+    const batchResults = await processInBatches(weeklyUsers, WEEKLY_BATCH_SIZE, async (user) => {
+      console.log(`[Notifications] Generating weekly summary for ${user.user_id}`);
+
+      try {
+        // Step 1: Build payload
+        const payload = await buildServerSidePayload(env, user.user_id, user.timezone);
+
+        // Step 2: Generate AI summary
+        const aiResponse = await generateWeeklySummary(env, payload);
+
+        // Step 3: Save to Supabase
+        await saveWeeklySummary(
+          env,
+          user.user_id,
+          payload.weekStartDate,
+          payload.weekEndDate,
+          aiResponse,
+          payload,
+        );
+
+        // Step 4: Send push notification with dynamic body
+        const firstSentence = aiResponse.weeklyCommentary?.split(/[.!]/)[0]?.trim() || '';
+        const notificationBody = firstSentence
+          ? `${firstSentence}.`
+          : 'Your weekly summary is ready.';
+
+        await sendExpoPush(
+          user.token,
+          'Your week in review is ready',
+          notificationBody,
+          'weekly_summary',
+        );
+
+        // Step 5: Update weekly_last_sent
+        const { weekStart } = computeWeekBoundaries(new Date(), user.timezone);
+        await updateLastSent(
+          supabaseUrl,
+          supabaseKey,
+          user.user_id,
+          'weekly',
+          weekStart.split('T')[0],
+        );
+
+        console.log(`[Notifications] Weekly summary generated and sent for ${user.user_id}`);
+        return { success: true, user_id: user.user_id };
+      } catch (genErr) {
+        console.error(
+          `[Notifications] Weekly generation failed for ${user.user_id}:`,
+          genErr.message,
+        );
+
+        // Fallback: send notification with generic body
         try {
-          // Step 1: Build payload
-          const payload = await buildServerSidePayload(env, user.user_id, user.timezone);
-
-          // Step 2: Generate AI summary
-          const aiResponse = await generateWeeklySummary(env, payload);
-
-          // Step 3: Save to Supabase
-          await saveWeeklySummary(
-            env,
-            user.user_id,
-            payload.weekStartDate,
-            payload.weekEndDate,
-            aiResponse,
-            payload,
-          );
-
-          // Step 4: Send push notification with dynamic body
-          const firstSentence = aiResponse.weeklyCommentary?.split(/[.!]/)[0]?.trim() || '';
-          const notificationBody = firstSentence
-            ? `${firstSentence}.`
-            : 'Your weekly summary is ready.';
-
           await sendExpoPush(
             user.token,
             'Your week in review is ready',
-            notificationBody,
+            'Tap to see your weekly summary.',
             'weekly_summary',
           );
 
-          // Step 5: Update weekly_last_sent
+          // Still mark as sent so we don't retry every 5 minutes
           const { weekStart } = computeWeekBoundaries(new Date(), user.timezone);
           await updateLastSent(
             supabaseUrl,
@@ -242,54 +295,23 @@ async function sendScheduledNotifications(env) {
             weekStart.split('T')[0],
           );
 
-          sent++;
-          console.log(`[Notifications] Weekly summary generated and sent for ${user.user_id}`);
-        } catch (genErr) {
-          console.error(
-            `[Notifications] Weekly generation failed for ${user.user_id}:`,
-            genErr.message,
-          );
-
-          // Fallback: send notification with generic body
-          try {
-            await sendExpoPush(
-              user.token,
-              'Your week in review is ready',
-              'Tap to see your weekly summary.',
-              'weekly_summary',
-            );
-
-            // Still mark as sent so we don't retry every 5 minutes
-            const { weekStart } = computeWeekBoundaries(new Date(), user.timezone);
-            await updateLastSent(
-              supabaseUrl,
-              supabaseKey,
-              user.user_id,
-              'weekly',
-              weekStart.split('T')[0],
-            );
-
-            sent++;
-            console.log(`[Notifications] Weekly fallback notification sent for ${user.user_id}`);
-          } catch (fallbackErr) {
-            errors.push({ user_id: user.user_id, error: fallbackErr.message });
-          }
+          console.log(`[Notifications] Weekly fallback notification sent for ${user.user_id}`);
+          return { success: true, user_id: user.user_id };
+        } catch (fallbackErr) {
+          return { success: false, user_id: user.user_id, error: fallbackErr.message };
         }
-      } else {
-        // --- Morning/Evening: existing pattern ---
-        await sendExpoPush(user.token, user.title, user.body, user.type);
-
-        const userTimezone =
-          prefs.find((p) => p.user_id === user.user_id)?.timezone || 'America/Los_Angeles';
-        const todayInUserTz = getDateInTimezone(now, userTimezone);
-        await updateLastSent(supabaseUrl, supabaseKey, user.user_id, user.type, todayInUserTz);
-
-        sent++;
-        console.log(`[Notifications] Sent ${user.type} to user ${user.user_id}`);
       }
-    } catch (err) {
-      errors.push({ user_id: user.user_id, error: err.message });
-      console.error(`[Notifications] Failed for ${user.user_id}:`, err.message);
+    });
+
+    // Aggregate batch results
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled' && result.value.success) {
+        sent++;
+      } else if (result.status === 'fulfilled' && !result.value.success) {
+        errors.push({ user_id: result.value.user_id, error: result.value.error });
+      } else if (result.status === 'rejected') {
+        errors.push({ user_id: 'unknown', error: result.reason?.message || 'Unknown batch error' });
+      }
     }
   }
 
@@ -299,6 +321,23 @@ async function sendScheduledNotifications(env) {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+/**
+ * Process items in parallel batches using Promise.allSettled.
+ * @param {Array} items - Items to process
+ * @param {number} batchSize - Number of items per batch
+ * @param {Function} processFn - Async function to process each item
+ * @returns {Array} All settled results from every batch
+ */
+async function processInBatches(items, batchSize, processFn) {
+  const allResults = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const results = await Promise.allSettled(batch.map(processFn));
+    allResults.push(...results);
+  }
+  return allResults;
+}
 
 async function updateLastSent(supabaseUrl, supabaseKey, userId, type, dateStr) {
   const columnMap = {
