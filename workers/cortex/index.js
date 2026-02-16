@@ -1190,6 +1190,39 @@ async function executeTavilySearch(query, apiKey, options = {}) {
 }
 
 /**
+ * Format Tavily search results into a readable brief for the LLM.
+ * Instead of raw JSON, gives the model a structured brief that's 
+ * easy to cite from — the approach used by Perplexity/ChatGPT Browse.
+ */
+function formatSearchBrief(tavilyResult) {
+  if (!tavilyResult || !tavilyResult.results) return JSON.stringify(tavilyResult);
+  
+  let brief = '';
+  
+  // Lead with the synthesized answer if available
+  if (tavilyResult.answer) {
+    brief += `SYNTHESIZED ANSWER: ${tavilyResult.answer}\n\n`;
+  }
+  
+  brief += 'SOURCES:\n\n';
+  
+  for (const result of tavilyResult.results) {
+    // Extract domain name for easy citation
+    let domain = '';
+    try {
+      domain = new URL(result.url).hostname.replace('www.', '');
+    } catch { domain = result.url; }
+    
+    brief += `[${result.title}] (${domain})\n`;
+    brief += `${result.snippet}\n\n`;
+  }
+  
+  brief += 'INSTRUCTIONS: Use the specific findings, statistics, and expert names from these sources in your response. Cite sources by name (e.g. "according to Headspace" or "a study cited by Withinmeditation found"). Do not give generic advice — only share what these sources specifically say.';
+  
+  return brief;
+}
+
+/**
  * Detect if a query would benefit from images
  * Returns true for exercises, recipes, products, places, etc.
  */
@@ -2539,7 +2572,7 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                   const toolResultMessages = successfulSearches.map((sr) => ({
                     role: 'tool',
                     tool_call_id: sr.toolCallId,
-                    content: JSON.stringify(sr.results),
+                    content: formatSearchBrief(sr.results),
                   }));
 
                   const followUpMessages = [
@@ -3304,7 +3337,7 @@ Almost never suggest creating a Space. Only if ALL true:
                   const toolResultMessages = successfulSearches.map((sr) => ({
                     role: 'tool',
                     tool_call_id: sr.toolCallId,
-                    content: JSON.stringify(sr.results),
+                    content: formatSearchBrief(sr.results),
                   }));
 
                   const followUpMessages = [
@@ -3653,7 +3686,7 @@ Almost never suggest creating a Space. Only if ALL true:
                   {
                     role: 'tool',
                     tool_call_id: toolCall.id,
-                    content: JSON.stringify(searchResults),
+                    content: formatSearchBrief(searchResults),
                   },
                 ];
 
@@ -7895,7 +7928,7 @@ Rules:
                 const toolResultMessages = successfulSearches.map((sr) => ({
                   role: 'tool',
                   tool_call_id: sr.toolCallId,
-                  content: JSON.stringify(sr.results),
+                  content: formatSearchBrief(sr.results),
                 }));
 
                 const followUpMessages = [
@@ -8211,7 +8244,7 @@ Rules:
                 {
                   role: 'tool',
                   tool_call_id: toolCall.id,
-                  content: JSON.stringify(searchResults),
+                  content: formatSearchBrief(searchResults),
                 },
               ];
 
