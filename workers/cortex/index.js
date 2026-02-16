@@ -1088,7 +1088,7 @@ Rules:
  * @returns {Promise<Object|null>} Formatted search results or null on error
  */
 async function executeTavilySearch(query, apiKey, options = {}) {
-  const maxResults = options.maxResults ?? 5;
+  const maxResults = options.maxResults ?? 3;
   const searchDepth = options.searchDepth ?? 'basic';
   const includeImages = options.includeImages ?? false;
 
@@ -1103,7 +1103,7 @@ async function executeTavilySearch(query, apiKey, options = {}) {
         query: query,
         search_depth: searchDepth,
         max_results: maxResults,
-        include_answer: false,
+        include_answer: true,
         include_raw_content: false,
         include_images: includeImages,
       }),
@@ -1125,7 +1125,7 @@ async function executeTavilySearch(query, apiKey, options = {}) {
       index: index + 1,
       title: result.title || '',
       url: result.url || '',
-      snippet: (result.content || '').substring(0, 300),
+      snippet: (result.content || '').substring(0, 1000),
     }));
 
     // Get images if available (Tavily returns these separately)
@@ -1141,6 +1141,7 @@ async function executeTavilySearch(query, apiKey, options = {}) {
 
     return {
       query: query,
+      answer: data.answer || null,
       results: results,
       images: images,
     };
@@ -2803,6 +2804,8 @@ Never give meta-advice. If you could answer better by searching, search.
 
 RULE: If you find yourself about to write a sentence containing "you might want to", "consider looking into", "some people find", or "it depends on" — STOP and search instead. Never give generic advice when you could search and give a specific, evidence-based answer.
 
+When you receive search results, DO NOT just restate common knowledge that anyone could find. Lead with the most specific, surprising, or data-backed finding from the results. If a source mentions a specific study, statistic, percentage, or expert name — use it. "Research suggests" is lazy. "A 2023 study in the British Journal of Health Psychology found that..." is what makes search valuable.
+
 === CURRENT DATE ===
 Today is ${currentDate}. Use this for any time-relative queries.
 
@@ -2868,8 +2871,8 @@ Almost never suggest creating a Space. Only if ALL true:
 - Ask multiple questions in one response
 - Ignore emotional signals to jump straight to logistics
 - Offer to save things (app handles this via Save button)
-- Start responses with compliments like "Great task", "That's a great question", "Love that", "Good thinking" — just respond naturally
-- Ask permission to help when the user has already asked for help ("want me to break this down?" when they said "break this down")`;
+- Never start responses with compliments like "Great task", "That's a great question", "Love that", "Good thinking", "That's a great focus" — just respond naturally and get to the point
+- Never ask permission to help when the user has already asked for help ("want me to break this down?" when they literally said "break this down")`;
 
         // === USER PROFILE & SESSION CONTEXT ===
         let sessionContextStr = '';
