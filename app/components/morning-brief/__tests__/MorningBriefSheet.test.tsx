@@ -152,24 +152,17 @@ describe.skip('MorningBriefSheet', () => {
   });
 
   describe('visibility', () => {
-    it('renders when visible is true', () => {
-      render(<MorningBriefSheet visible={true} onClose={jest.fn()} />);
+    it('renders the component', () => {
+      render(<MorningBriefSheet onClose={jest.fn()} />);
 
       // The component should render - look for any content
-      // Modal rendering can be tricky in tests
-    });
-
-    it('does not render content when visible is false', () => {
-      render(<MorningBriefSheet visible={false} onClose={jest.fn()} />);
-
-      // When not visible, morning brief content should not be shown
     });
   });
 
   describe('props', () => {
     it('accepts onClose callback', () => {
       const onClose = jest.fn();
-      render(<MorningBriefSheet visible={true} onClose={onClose} />);
+      render(<MorningBriefSheet onClose={onClose} />);
 
       // onClose should be callable
       expect(onClose).not.toHaveBeenCalled();
@@ -177,7 +170,7 @@ describe.skip('MorningBriefSheet', () => {
 
     it('accepts onComplete callback', () => {
       const onComplete = jest.fn();
-      render(<MorningBriefSheet visible={true} onClose={jest.fn()} onComplete={onComplete} />);
+      render(<MorningBriefSheet onClose={jest.fn()} onComplete={onComplete} />);
 
       // onComplete should be passed but not called initially
       expect(onComplete).not.toHaveBeenCalled();
@@ -204,7 +197,7 @@ describe.skip('MorningBriefSheet', () => {
         return selector(state);
       });
 
-      render(<MorningBriefSheet visible={true} onClose={jest.fn()} />);
+      render(<MorningBriefSheet onClose={jest.fn()} />);
 
       // Component should render without crashing
     });
@@ -218,7 +211,7 @@ describe.skip('MorningBriefSheet', () => {
         },
       ] as any);
 
-      render(<MorningBriefSheet visible={true} onClose={jest.fn()} />);
+      render(<MorningBriefSheet onClose={jest.fn()} />);
 
       // Component should render without crashing
     });
@@ -228,7 +221,7 @@ describe.skip('MorningBriefSheet', () => {
         { id: 'locked-1', type: 'todo', name: 'Locked item' },
       ] as any);
 
-      render(<MorningBriefSheet visible={true} onClose={jest.fn()} />);
+      render(<MorningBriefSheet onClose={jest.fn()} />);
 
       // Component should render without crashing
     });
@@ -241,7 +234,7 @@ describe.skip('MorningBriefSheet', () => {
         loading: true,
       });
 
-      render(<MorningBriefSheet visible={true} onClose={jest.fn()} />);
+      render(<MorningBriefSheet onClose={jest.fn()} />);
 
       // Component should render without crashing
     });
@@ -252,7 +245,7 @@ describe.skip('MorningBriefSheet', () => {
         hasCompletedBriefToday: true,
       });
 
-      render(<MorningBriefSheet visible={true} onClose={jest.fn()} />);
+      render(<MorningBriefSheet onClose={jest.fn()} />);
 
       // Component should render without crashing
     });
@@ -265,7 +258,7 @@ describe.skip('MorningBriefSheet', () => {
         eveningSequence: [],
       });
 
-      render(<MorningBriefSheet visible={true} onClose={jest.fn()} />);
+      render(<MorningBriefSheet onClose={jest.fn()} />);
 
       // Component should render without crashing
     });

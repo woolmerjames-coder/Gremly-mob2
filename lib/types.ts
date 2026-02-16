@@ -654,6 +654,8 @@ export interface SpaceChatMessage {
   // Web search results
   sources?: Array<{ title: string; url: string }>;
   search_query?: string | null;
+  // Skip entering animation — content was already visible via streaming
+  wasStreamed?: boolean;
 }
 
 /**

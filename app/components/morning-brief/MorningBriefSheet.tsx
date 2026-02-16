@@ -287,6 +287,14 @@ export function MorningBriefSheet({
     [today],
   );
 
+  // ─────────────────────────────────────────────────────────────────
+  // HABIT METADATA (for contextual display)
+  // ─────────────────────────────────────────────────────────────────
+  const habitCompletedToday = useGremlyStore(selectHabitCompletedToday);
+  const habitLastCompletion = useGremlyStore(selectHabitLastCompletionDate);
+  const habitRolling7 = useGremlyStore(selectCompletionsInRolling7Days);
+  const habitRolling30 = useGremlyStore(selectCompletionsInRolling30Days);
+
   const transformHabit = useCallback(
     (habit: (typeof habits)[0]): TaskItemData => {
       // Compute metadata based on habit type and progress
@@ -348,14 +356,6 @@ export function MorningBriefSheet({
     },
     [habitCompletedToday, habitLastCompletion, habitRolling7, habitRolling30, today],
   );
-
-  // ─────────────────────────────────────────────────────────────────
-  // HABIT METADATA (for contextual display)
-  // ─────────────────────────────────────────────────────────────────
-  const habitCompletedToday = useGremlyStore(selectHabitCompletedToday);
-  const habitLastCompletion = useGremlyStore(selectHabitLastCompletionDate);
-  const habitRolling7 = useGremlyStore(selectCompletionsInRolling7Days);
-  const habitRolling30 = useGremlyStore(selectCompletionsInRolling30Days);
 
   // Pending drops from store - shows loading cards while pipeline runs
   const todayPendingDrops = useTodayPendingDrops();

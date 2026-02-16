@@ -708,15 +708,19 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
   };
 
   const staleItems: StaleEntity[] = useMemo(() => {
-    return staleItemIds
-      .map((id) => {
-        const todo = todos.find((t) => t.id === id);
-        if (todo) return { ...todo, entityType: 'todo' as const };
-        const habit = habits.find((h) => h.id === id);
-        if (habit) return { ...habit, entityType: 'habit' as const };
-        return null;
-      })
-      .filter((item): item is StaleEntity => item !== null);
+    const result: StaleEntity[] = [];
+    for (const id of staleItemIds) {
+      const todo = todos.find((t) => t.id === id);
+      if (todo) {
+        result.push({ id: todo.id, entityType: 'todo', name: todo.name, title: todo.title, created_at: todo.created_at, sweep_reschedule_count: (todo as any).sweep_reschedule_count });
+        continue;
+      }
+      const habit = habits.find((h) => h.id === id);
+      if (habit) {
+        result.push({ id: habit.id, entityType: 'habit', name: habit.name, created_at: habit.created_at, sweep_reschedule_count: (habit as any).sweep_reschedule_count });
+      }
+    }
+    return result;
   }, [staleItemIds, todos, habits]);
 
   const remainingItems = useMemo(
