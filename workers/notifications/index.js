@@ -505,6 +505,8 @@ async function buildServerSidePayload(env, userId, timezone) {
     priorSummaries,
     allItemsThisWeek,
     mindDropsThisWeek,
+    noteEvents,
+    userCalendarEvents,
   ] = await Promise.all([
     // 1. Completed todos this week
     query(
@@ -643,6 +645,29 @@ async function buildServerSidePayload(env, userId, timezone) {
         `select=id,drop_id,completed_at`,
       ].join('&'),
     ),
+
+    // 13. Note events (subtype='event') for the upcoming week
+    query(
+      'notes',
+      [
+        `owner_id=eq.${userId}`,
+        `subtype=eq.event`,
+        `archived=eq.false`,
+        `or=(date.gte.${nextWeekStart},date.lte.${nextWeekEnd},target_date.gte.${nextWeekStart},target_date.lte.${nextWeekEnd})`,
+        `select=id,title,date,target_date,space_id,subtype`,
+      ].join('&'),
+    ),
+
+    // 14. User calendar events for the upcoming week
+    query(
+      'user_calendar_events',
+      [
+        `owner_id=eq.${userId}`,
+        `event_date=gte.${nextWeekStart.split('T')[0]}`,
+        `event_date=lte.${nextWeekEnd.split('T')[0]}`,
+        `select=id,title,event_date,event_time,space_id`,
+      ].join('&'),
+    ),
   ]);
 
   // --- Aggregate into payload shape ---
@@ -741,8 +766,14 @@ async function buildServerSidePayload(env, userId, timezone) {
     lastTouchedAt: item.updated_at || item.created_at,
   }));
 
-  // Upcoming events — parse payload_json
-  const upcomingEventsForAI = upcomingEvents
+  // Build space name lookup for note events
+  const spaceNameMap = {};
+  for (const s of spaces) {
+    spaceNameMap[s.id] = s.name;
+  }
+
+  // Upcoming events — parse payload_json (external calendar events)
+  const externalEvents = upcomingEvents
     .map((e) => {
       const p = e.payload_json || {};
       return {
@@ -755,6 +786,42 @@ async function buildServerSidePayload(env, userId, timezone) {
         hasGremlyInteraction: false,
         linkedTodoCount: 0,
       };
+    })
+    .slice(0, 30);
+
+  // Note events (subtype='event') — user-created events stored in notes table
+  const noteEventsMapped = noteEvents.map((note) => ({
+    title: note.title,
+    date: note.date || note.target_date,
+    startTime: null,
+    source: 'gremly',
+    spaceName: note.space_id ? spaceNameMap[note.space_id] || null : null,
+    isAllDay: true,
+    isRecurring: false,
+    isUserCreated: true,
+    hasGremlyInteraction: false,
+    linkedTodoCount: 0,
+  }));
+
+  // User calendar events — user-created calendar events
+  const userCalendarEventsMapped = userCalendarEvents.map((event) => ({
+    title: event.title,
+    date: event.event_date,
+    startTime: event.event_time || null,
+    source: 'gremly',
+    isAllDay: !event.event_time,
+    isRecurring: false,
+    isUserCreated: true,
+    hasGremlyInteraction: false,
+    linkedTodoCount: 0,
+  }));
+
+  // Merge all event sources and sort by date ascending
+  const upcomingEventsForAI = [...externalEvents, ...noteEventsMapped, ...userCalendarEventsMapped]
+    .sort((a, b) => {
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      return dateA - dateB;
     })
     .slice(0, 30);
 
