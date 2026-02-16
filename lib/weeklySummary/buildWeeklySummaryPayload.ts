@@ -72,6 +72,10 @@ export interface WeeklySummaryPayload {
     hasGremlyInteraction: boolean;
     spaceId?: string;
     linkedTodoCount: number;
+    source?: 'calendar' | 'gremly_entity' | 'user_calendar';
+    spaceName?: string;
+    location?: string;
+    endDate?: string;
   }>;
 
   upcomingTodos: Array<{
@@ -551,6 +555,7 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
         hasGremlyInteraction: false,
         spaceId: undefined,
         linkedTodoCount: 0,
+        source: 'calendar',
       });
     }
   }
@@ -571,9 +576,52 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
       hasGremlyInteraction: !!e.space_id,
       spaceId: e.space_id ?? undefined,
       linkedTodoCount: 0,
+      source: 'user_calendar' as const,
     }));
 
-  const upcomingEvents = [...externalEventsNextWeek, ...userEventsNextWeek].sort((a, b) => {
+  // Entity events (Notes with subtype='event' — user-created events inside Spaces)
+  const spaceMap = new Map(spaces.map((s) => [s.id, s.name]));
+  const entityEventsNextWeek: WeeklySummaryPayload['upcomingEvents'] = [];
+
+  for (const n of notes) {
+    if (n.archived) continue;
+    if (n.subtype !== 'event') continue;
+    if (!n.target_date) continue;
+
+    // Check if the event falls within next week (including multi-day events)
+    const eventStart = n.target_date;
+    const eventEnd = n.end_date ?? n.target_date;
+
+    // Include if ANY part of the event overlaps next week
+    if (eventEnd < nextWeekStart || eventStart > nextWeekEnd) continue;
+
+    // Count linked todos for this event
+    const linkedTodoCount = todos.filter(
+      (t) => !t.archived && !t.completed_at && t.linked_event_id === n.id,
+    ).length;
+
+    entityEventsNextWeek.push({
+      title: n.title ?? n.body?.slice(0, 60) ?? 'Untitled Event',
+      date: eventStart < nextWeekStart ? nextWeekStart : eventStart,
+      startTime: n.event_time ?? undefined,
+      isAllDay: n.is_all_day ?? !n.event_time,
+      isRecurring: false,
+      isUserCreated: true,
+      hasGremlyInteraction: true,
+      spaceId: n.space_id ?? undefined,
+      linkedTodoCount,
+      source: 'gremly_entity',
+      spaceName: n.space_id ? (spaceMap.get(n.space_id) ?? undefined) : undefined,
+      location: n.location ?? undefined,
+      endDate: n.end_date ?? undefined,
+    });
+  }
+
+  const upcomingEvents = [
+    ...externalEventsNextWeek,
+    ...userEventsNextWeek,
+    ...entityEventsNextWeek,
+  ].sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date);
     return (a.startTime ?? '').localeCompare(b.startTime ?? '');
   });

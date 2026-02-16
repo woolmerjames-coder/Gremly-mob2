@@ -1502,12 +1502,16 @@ Return ONLY valid JSON matching this exact schema. No markdown, no backticks, no
 ## WEEK AHEAD RULES
 
 1. Classify upcoming events into tiers:
-   - Tier 1 (highlight): Important meetings, deadlines, events the user has interacted with in Gremly.
-   - Tier 2 (count only): Routine recurring events, minor calendar items.
+   - Tier 1 (highlight): Events created inside Gremly (source='gremly_entity' or source='user_calendar'), important meetings, deadlines, events the user has interacted with. Gremly-created entity events are ALWAYS Tier 1 — these are things the user intentionally tracked (e.g., "Flight to Los Angeles", "Mom's birthday party").
+   - Tier 2 (count only): Routine recurring calendar events, minor external calendar items (source='calendar').
 2. Only include Tier 1 events in the highlights array. Set totalEventCount to the total of ALL events.
-3. Cross-reference upcoming event titles against journal excerpts and note titles. If a journal entry mentions something related to an upcoming event, include that connection in the highlight's context field.
-4. If any day next week has 4+ events, add a busyDayWarning.
-5. Keep prepNudge suggestions concrete and actionable: "Draft your agenda tonight" not "Be prepared".
+3. When an event has a spaceName, mention the Space by name to give context (e.g., "In your 'LA Trip' space, you've got…").
+4. When an event has a location, include it naturally in the highlight context.
+5. When an event has linkedTodoCount > 0, mention the prep items (e.g., "You have 3 tasks linked to this event").
+6. When an event has an endDate different from its date, it's a multi-day event — frame it as a range (e.g., "Thursday through Sunday").
+7. Cross-reference upcoming event titles against journal excerpts and note titles. If a journal entry mentions something related to an upcoming event, include that connection in the highlight's context field.
+8. If any day next week has 4+ events, add a busyDayWarning.
+9. Keep prepNudge suggestions concrete and actionable: "Draft your agenda tonight" not "Be prepared".
 
 ## VOICE & TONE
 

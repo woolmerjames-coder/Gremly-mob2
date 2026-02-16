@@ -92,3 +92,59 @@ describe('notification module safety', () => {
     expect(typeof notifications.savePushToken).toBe('function');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// setupNotificationResponseHandler TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('setupNotificationResponseHandler', () => {
+  it('exports setupNotificationResponseHandler function', () => {
+    const notifications = require('../notifications');
+    expect(typeof notifications.setupNotificationResponseHandler).toBe('function');
+  });
+
+  it('returns no-op unsubscribe in Expo Go', async () => {
+    jest.doMock('expo-constants', () => ({ appOwnership: 'expo' }));
+    jest.resetModules();
+    const { setupNotificationResponseHandler } = require('../notifications');
+
+    const onMorning = jest.fn();
+    const onEvening = jest.fn();
+    const onWeekly = jest.fn();
+
+    const unsubscribe = await setupNotificationResponseHandler(onMorning, onEvening, onWeekly);
+    expect(typeof unsubscribe).toBe('function');
+    // Should not throw
+    unsubscribe();
+  });
+
+  it('accepts optional weekly notification callback', async () => {
+    jest.doMock('expo-constants', () => ({ appOwnership: 'expo' }));
+    jest.resetModules();
+    const { setupNotificationResponseHandler } = require('../notifications');
+
+    // Should work without the third argument
+    const unsubscribe = await setupNotificationResponseHandler(jest.fn(), jest.fn());
+    expect(typeof unsubscribe).toBe('function');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// getInitialNotification TESTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('getInitialNotification', () => {
+  it('exports getInitialNotification function', () => {
+    const notifications = require('../notifications');
+    expect(typeof notifications.getInitialNotification).toBe('function');
+  });
+
+  it('returns null in Expo Go', async () => {
+    jest.doMock('expo-constants', () => ({ appOwnership: 'expo' }));
+    jest.resetModules();
+    const { getInitialNotification } = require('../notifications');
+
+    const result = await getInitialNotification();
+    expect(result).toBeNull();
+  });
+});

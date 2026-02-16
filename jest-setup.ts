@@ -5,6 +5,49 @@ process.env.JEST_REDUCED_MOTION = '1'; // Force reduced motion in all tests to a
 process.env.JEST_WORKAROUND = '1'; // Enable test-only elements in production code
 process.env.JEST_TODAY_LIGHT = process.env.JEST_TODAY_LIGHT ?? '0';
 
+// Mock react-native-mmkv (requires NitroModules native module unavailable in Jest)
+jest.mock('react-native-mmkv', () => {
+  const store = new Map<string, string>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const createStorage = (): any => ({
+    getString: (key: string) => store.get(key),
+    set: (key: string, value: string) => store.set(key, value),
+    delete: (key: string) => store.delete(key),
+    contains: (key: string) => store.has(key),
+    clearAll: () => store.clear(),
+    getAllKeys: () => [...store.keys()],
+  });
+  return {
+    __esModule: true,
+    createMMKV: createStorage,
+    MMKV: jest.fn().mockImplementation(createStorage),
+  };
+});
+
+// Mock @react-native-community/netinfo (requires native RNCNetInfo module)
+jest.mock('@react-native-community/netinfo', () => ({
+  __esModule: true,
+  default: {
+    addEventListener: jest.fn(() => jest.fn()),
+    fetch: jest.fn().mockResolvedValue({
+      isConnected: true,
+      isInternetReachable: true,
+      type: 'wifi',
+    }),
+  },
+  addEventListener: jest.fn(() => jest.fn()),
+  fetch: jest.fn().mockResolvedValue({
+    isConnected: true,
+    isInternetReachable: true,
+    type: 'wifi',
+  }),
+  useNetInfo: jest.fn(() => ({
+    isConnected: true,
+    isInternetReachable: true,
+    type: 'wifi',
+  })),
+}));
+
 // JSDOM lacks ResizeObserver in some RN libs; provide a stub if accessed
 /* eslint-disable @typescript-eslint/no-explicit-any */
 (global as any).ResizeObserver =
@@ -13,6 +56,14 @@ process.env.JEST_TODAY_LIGHT = process.env.JEST_TODAY_LIGHT ?? '0';
     observe() {}
     unobserve() {}
     disconnect() {}
+  };
+
+// JSDOM lacks TransformStream (used by expo/winter polyfills); provide a minimal stub
+(global as any).TransformStream =
+  (global as any).TransformStream ||
+  class {
+    readable = new ReadableStream();
+    writable = new WritableStream();
   };
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -34,6 +85,23 @@ jest.mock('expo-constants', () => ({
   manifest: null,
   manifest2: null,
   expoConfig: null,
+}));
+
+// Mock expo-notifications (requires native EventEmitter unavailable in Jest)
+jest.mock('expo-notifications', () => ({
+  scheduleNotificationAsync: jest.fn().mockResolvedValue('mock-notification-id'),
+  cancelScheduledNotificationAsync: jest.fn().mockResolvedValue(undefined),
+  setNotificationHandler: jest.fn(),
+  addNotificationReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  getPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+  requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+  SchedulableTriggerInputTypes: {
+    DATE: 'date',
+    DAILY: 'daily',
+    WEEKLY: 'weekly',
+    CALENDAR: 'calendar',
+  },
 }));
 
 // Mock expo-auth-session to avoid expo-modules-core EventEmitter issues

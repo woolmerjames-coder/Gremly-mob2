@@ -433,6 +433,216 @@ describe('buildOrganizeDayRequest', () => {
       expect(result.tasks.find((t) => t.id === 'habit-1')?.type).toBe('habit');
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // hiddenTodayIds filtering
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('hiddenTodayIds', () => {
+    it('excludes hidden todos', () => {
+      const todos = [
+        makeTodo({ id: 'visible', due_day: today }),
+        makeTodo({ id: 'hidden', due_day: today }),
+      ];
+
+      const result = buildOrganizeDayRequest({
+        todos,
+        habits: [],
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+        hiddenTodayIds: ['hidden'],
+      });
+
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0].id).toBe('visible');
+    });
+
+    it('excludes hidden habits', () => {
+      const habits = [
+        makeHabit({ id: 'hvisible', start_date: '2025-01-01' }),
+        makeHabit({ id: 'hhidden', start_date: '2025-01-01' }),
+      ];
+
+      const result = buildOrganizeDayRequest({
+        todos: [],
+        habits,
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+        hiddenTodayIds: ['hhidden'],
+      });
+
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0].id).toBe('hvisible');
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // isAtGoal computation
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('isAtGoal', () => {
+    it('returns true for weekly habit at goal', () => {
+      const habits = [
+        makeHabit({
+          id: 'weekly-habit',
+          start_date: '2025-01-01',
+          cadence: 'weekly',
+          target_per_period: 3,
+        }),
+      ];
+
+      const result = buildOrganizeDayRequest({
+        todos: [],
+        habits,
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+        habitRolling7: new Map([['weekly-habit', 3]]),
+      });
+
+      expect(result.tasks[0].isAtGoal).toBe(true);
+    });
+
+    it('returns false for weekly habit below goal', () => {
+      const habits = [
+        makeHabit({
+          id: 'weekly-habit',
+          start_date: '2025-01-01',
+          cadence: 'weekly',
+          target_per_period: 3,
+        }),
+      ];
+
+      const result = buildOrganizeDayRequest({
+        todos: [],
+        habits,
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+        habitRolling7: new Map([['weekly-habit', 1]]),
+      });
+
+      expect(result.tasks[0].isAtGoal).toBe(false);
+    });
+
+    it('returns true for monthly habit at goal', () => {
+      const habits = [
+        makeHabit({
+          id: 'monthly-habit',
+          start_date: '2025-01-01',
+          cadence: 'monthly',
+          target_per_period: 10,
+        }),
+      ];
+
+      const result = buildOrganizeDayRequest({
+        todos: [],
+        habits,
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+        habitRolling30: new Map([['monthly-habit', 12]]),
+      });
+
+      expect(result.tasks[0].isAtGoal).toBe(true);
+    });
+
+    it('returns false for daily habit (no rolling window check)', () => {
+      const habits = [
+        makeHabit({
+          id: 'daily-habit',
+          start_date: '2025-01-01',
+          cadence: 'daily',
+          target_per_period: 1,
+        }),
+      ];
+
+      const result = buildOrganizeDayRequest({
+        todos: [],
+        habits,
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+      });
+
+      expect(result.tasks[0].isAtGoal).toBe(false);
+    });
+
+    it('returns false when rolling map is not provided', () => {
+      const habits = [
+        makeHabit({
+          id: 'weekly-habit',
+          start_date: '2025-01-01',
+          cadence: 'weekly',
+          target_per_period: 3,
+        }),
+      ];
+
+      const result = buildOrganizeDayRequest({
+        todos: [],
+        habits,
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+        // no habitRolling7 provided
+      });
+
+      expect(result.tasks[0].isAtGoal).toBe(false);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Gap data in blocks
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('block gaps', () => {
+    it('includes gaps array in each block', () => {
+      const result = buildOrganizeDayRequest({
+        todos: [],
+        habits: [],
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+      });
+
+      for (const block of Object.values(result.blocks)) {
+        expect(block.gaps).toBeDefined();
+        expect(Array.isArray(block.gaps)).toBe(true);
+      }
+    });
+
+    it('gaps have startIso, endIso, durationMinutes shape', () => {
+      const result = buildOrganizeDayRequest({
+        todos: [],
+        habits: [],
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+      });
+
+      // With no calendar events, each block should have one full gap
+      for (const block of Object.values(result.blocks)) {
+        if (block.gaps.length > 0) {
+          const gap = block.gaps[0];
+          expect(gap).toHaveProperty('startIso');
+          expect(gap).toHaveProperty('endIso');
+          expect(gap).toHaveProperty('durationMinutes');
+          expect(typeof gap.durationMinutes).toBe('number');
+        }
+      }
+    });
+  });
 });
 
 describe('organizeDay API', () => {

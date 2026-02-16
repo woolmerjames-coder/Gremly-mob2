@@ -140,6 +140,7 @@ function makeState(
     spaceChatMessages: [],
     milestones: [],
     spaceSuggestions: [],
+    hiddenTodayIds: [],
     isLoading: false,
     isInitialized: true,
     lastSyncedAt: new Date(),

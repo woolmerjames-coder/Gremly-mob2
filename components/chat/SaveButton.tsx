@@ -182,7 +182,7 @@ export default function SaveButton({
                 pressed && styles.dismissButtonPressed,
               ]}
               onPress={(e) => {
-                e.stopPropagation();
+                e?.stopPropagation?.();
                 onDismiss();
               }}
               accessibilityRole="button"
