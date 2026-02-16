@@ -23,7 +23,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, Sparkles } from 'lucide-react-native';
 import { Box, Text } from '../../ui';
 import { HabitWeeklyRow } from '../../components/today/HabitWeeklyRow';
 import { useWeeklyHabitStats, type RawHabit } from '../../lib/today/hooks/useWeeklyHabitStats';
@@ -446,6 +446,14 @@ export default function HabitsScreen() {
 
         {/* Filter pills */}
         <View style={styles.pillRow}>
+          <TouchableOpacity
+            style={styles.pillNewHabit}
+            onPress={() => navigation.navigate('HabitBuilder')}
+            activeOpacity={0.7}
+          >
+            <Sparkles size={14} color="#5C6B5A" />
+            <Text style={styles.pillNewHabitText}>Start new habit</Text>
+          </TouchableOpacity>
           {buildingCount > 0 && (
             <TouchableOpacity
               style={[styles.pill, filter === 'build' && styles.pillBuildSelected]}
@@ -704,6 +712,25 @@ const styles = StyleSheet.create({
   },
   pillBreakSelectedText: {
     color: '#C79E5F',
+  },
+  pillNewHabit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  pillNewHabitText: {
+    fontSize: 12,
+    ...BRAND.typography.bodyMedium,
+    color: '#5C6B5A',
   },
   list: {
     paddingHorizontal: 16,

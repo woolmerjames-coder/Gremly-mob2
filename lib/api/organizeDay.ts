@@ -10,6 +10,7 @@ import type { CalendarEvent } from '../calendar/CalendarClient';
 import type { DayCapacity } from '../capacity';
 import { calculateRealisticAvailableMinutes } from '../capacity';
 import { computeTotalMinutes, validateEnergyType } from '../planning';
+import { computeTimeGaps, getBlockBoundaryIso, type TimeGap } from '../timeGaps';
 
 // =============================================================================
 // TYPES
@@ -28,6 +29,8 @@ export interface OrganizeDayTask {
   isLockedIn: boolean;
   currentBlock: 'morning' | 'day' | 'evening' | null;
   timeWindowPreference: 'morning' | 'day' | 'evening' | 'any' | null;
+  /** For habits: whether the weekly/monthly goal is already met */
+  isAtGoal?: boolean;
 }
 
 export interface OrganizeDayCalendarEvent {
@@ -38,11 +41,18 @@ export interface OrganizeDayCalendarEvent {
   durationMinutes: number;
 }
 
+export interface OrganizeDayGap {
+  startIso: string;
+  endIso: string;
+  durationMinutes: number;
+}
+
 export interface OrganizeDayBlock {
   startHour: number;
   endHour: number;
   availableMinutes: number;
   realisticAvailableMinutes: number;
+  gaps: OrganizeDayGap[];
 }
 
 export interface OrganizeDayRequest {
@@ -60,6 +70,8 @@ export interface TaskAssignment {
   taskId: string;
   block: 'morning' | 'day' | 'evening';
   reason: string;
+  /** If set, slot this task into a specific gap at this time */
+  scheduledStartIso?: string | null;
 }
 
 export interface TaskOverflow {
@@ -155,14 +167,33 @@ interface BuildRequestParams {
   capacity: DayCapacity;
   today: string;
   currentHour: number;
+  /** IDs hidden via "Not today" — excluded from organize request */
+  hiddenTodayIds?: string[];
+  /** Map of habitId → completions in rolling 7 days */
+  habitRolling7?: Map<string, number>;
+  /** Map of habitId → completions in rolling 30 days */
+  habitRolling30?: Map<string, number>;
 }
 
 export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDayRequest {
-  const { todos, habits, calendarEvents, capacity, today, currentHour } = params;
+  const {
+    todos,
+    habits,
+    calendarEvents,
+    capacity,
+    today,
+    currentHour,
+    hiddenTodayIds = [],
+    habitRolling7,
+    habitRolling30,
+  } = params;
 
   // Convert todos to OrganizeDayTask format
   const todoTasks: OrganizeDayTask[] = todos
-    .filter((t) => !t.archived && !t.completed_at && t.due_day === today)
+    .filter(
+      (t) =>
+        !t.archived && !t.completed_at && t.due_day === today && !hiddenTodayIds.includes(t.id),
+    )
     .map((t) => {
       const estimateMinutes = t.time_estimate_minutes ?? 30;
       const prepBuffer = (t as any).prep_buffer_minutes ?? 0;
@@ -178,9 +209,10 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
         dueDate: t.due_day ?? null,
         priority: null, // Todo type doesn't have priority
         isLockedIn: t.locked_in ?? false,
-        currentBlock: t.time_window && t.time_window !== 'any'
-          ? t.time_window as 'morning' | 'day' | 'evening'
-          : null,
+        currentBlock:
+          t.time_window && t.time_window !== 'any'
+            ? (t.time_window as 'morning' | 'day' | 'evening')
+            : null,
         timeWindowPreference: t.time_window as 'morning' | 'day' | 'evening' | 'any' | null,
       };
     });
@@ -189,6 +221,7 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
   const habitTasks: OrganizeDayTask[] = habits
     .filter((h) => {
       if (h.archived) return false;
+      if (hiddenTodayIds.includes(h.id)) return false;
       if (!h.start_date || h.start_date > today) return false;
       if (h.end_date && h.end_date < today) return false;
       return true;
@@ -208,10 +241,22 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
         dueDate: null,
         priority: null,
         isLockedIn: false,
-        currentBlock: h.time_window && h.time_window !== 'any'
-          ? h.time_window as 'morning' | 'day' | 'evening'
-          : null,
+        currentBlock:
+          h.time_window && h.time_window !== 'any'
+            ? (h.time_window as 'morning' | 'day' | 'evening')
+            : null,
         timeWindowPreference: h.time_window as 'morning' | 'day' | 'evening' | 'any' | null,
+        isAtGoal: (() => {
+          const cadence = h.cadence ?? 'daily';
+          const target = h.target_per_period ?? 1;
+          if (cadence === 'weekly' && habitRolling7) {
+            return (habitRolling7.get(h.id) ?? 0) >= target;
+          }
+          if (cadence === 'monthly' && habitRolling30) {
+            return (habitRolling30.get(h.id) ?? 0) >= target;
+          }
+          return false;
+        })(),
       };
     });
 
@@ -222,41 +267,82 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
     startAt: e.startAt,
     endAt: e.endAt,
     durationMinutes: Math.round(
-      (new Date(e.endAt).getTime() - new Date(e.startAt).getTime()) / (1000 * 60)
+      (new Date(e.endAt).getTime() - new Date(e.startAt).getTime()) / (1000 * 60),
     ),
   }));
 
   // Calculate realistic available time for each block
   const realisticMorning = calculateRealisticAvailableMinutes(
-    'morning', calendarEvents, today, {}, undefined
+    'morning',
+    calendarEvents,
+    today,
+    {},
+    undefined,
   );
   const realisticDay = calculateRealisticAvailableMinutes(
-    'day', calendarEvents, today, {}, undefined
+    'day',
+    calendarEvents,
+    today,
+    {},
+    undefined,
   );
   const realisticEvening = calculateRealisticAvailableMinutes(
-    'evening', calendarEvents, today, {}, undefined
+    'evening',
+    calendarEvents,
+    today,
+    {},
+    undefined,
   );
 
-  // Build blocks from capacity (keep original availableMinutes for reference)
-  // but add realisticAvailableMinutes for AI scheduling
+  // Compute gaps for each block
+  const morningBounds = getBlockBoundaryIso(
+    today,
+    capacity.blocks.morning.startHour,
+    capacity.blocks.morning.endHour,
+  );
+  const dayBounds = getBlockBoundaryIso(
+    today,
+    capacity.blocks.day.startHour,
+    capacity.blocks.day.endHour,
+  );
+  const eveningBounds = getBlockBoundaryIso(
+    today,
+    capacity.blocks.evening.startHour,
+    capacity.blocks.evening.endHour,
+  );
+
+  const morningGaps = computeTimeGaps(calendarEvents, morningBounds.startIso, morningBounds.endIso);
+  const dayGaps = computeTimeGaps(calendarEvents, dayBounds.startIso, dayBounds.endIso);
+  const eveningGaps = computeTimeGaps(calendarEvents, eveningBounds.startIso, eveningBounds.endIso);
+
+  const toGapData = (gaps: typeof morningGaps): OrganizeDayGap[] =>
+    gaps.map((g) => ({
+      startIso: g.startIso,
+      endIso: g.endIso,
+      durationMinutes: g.durationMinutes,
+    }));
+
   const blocks = {
     morning: {
       startHour: capacity.blocks.morning.startHour,
       endHour: capacity.blocks.morning.endHour,
       availableMinutes: capacity.blocks.morning.availableMinutes,
       realisticAvailableMinutes: realisticMorning,
+      gaps: toGapData(morningGaps),
     },
     day: {
       startHour: capacity.blocks.day.startHour,
       endHour: capacity.blocks.day.endHour,
       availableMinutes: capacity.blocks.day.availableMinutes,
       realisticAvailableMinutes: realisticDay,
+      gaps: toGapData(dayGaps),
     },
     evening: {
       startHour: capacity.blocks.evening.startHour,
       endHour: capacity.blocks.evening.endHour,
       availableMinutes: capacity.blocks.evening.availableMinutes,
       realisticAvailableMinutes: realisticEvening,
+      gaps: toGapData(eveningGaps),
     },
   };
 

@@ -1,7 +1,7 @@
 import { createSelector } from 'reselect';
 import { useShallow } from 'zustand/react/shallow';
 import { useGremlyStore, isHabitLockedIn, type HabitProgressRow } from './useGremlyStore';
-import type { Todo, Habit, Note, Space, SpaceSuggestion } from '../types';
+import type { Todo, Habit, Note, Space, SpaceSuggestion, WeeklySummary } from '../types';
 import type {
   SweepCandidate,
   SweepCandidateTodo,
@@ -61,6 +61,7 @@ const selectMilestones = (state: GremlyState) => state.milestones;
 const selectIsLoading = (state: GremlyState) => state.isLoading;
 const selectIsInitialized = (state: GremlyState) => state.isInitialized;
 const selectSpaceSuggestions = (state: GremlyState) => state.spaceSuggestions;
+const selectHiddenTodayIds = (state: GremlyState) => state.hiddenTodayIds;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // HABIT COMPLETION TRACKING
@@ -112,6 +113,22 @@ export const selectCompletionDaysThisWeek = createSelector(
           map.set(row.habit_id, new Set());
         }
         map.get(row.habit_id)!.add(row.occurred_day);
+      }
+    }
+    return map;
+  },
+);
+
+/** Map of habitId -> most recent occurred_day string (for "last done" display) */
+export const selectHabitLastCompletionDate = createSelector(
+  [selectHabitProgress],
+  (progress): Map<string, string> => {
+    const map = new Map<string, string>();
+
+    for (const row of progress) {
+      const existing = map.get(row.habit_id);
+      if (!existing || row.occurred_day > existing) {
+        map.set(row.habit_id, row.occurred_day);
       }
     }
     return map;
@@ -409,11 +426,18 @@ function isHabitDueToday(
   }
 }
 
-/** All habits that are due/available today (not completed today, not archived) */
+/** All habits that are due/available today (not completed today, not archived, not hidden) */
 export const selectHabitsDueToday = createSelector(
-  [selectHabits, selectCompletionsThisWeek, selectCompletionsThisMonth, selectHabitCompletedToday],
-  (habits, weeklyCompletions, monthlyCompletions, completedTodaySet): Habit[] => {
+  [
+    selectHabits,
+    selectCompletionsThisWeek,
+    selectCompletionsThisMonth,
+    selectHabitCompletedToday,
+    selectHiddenTodayIds,
+  ],
+  (habits, weeklyCompletions, monthlyCompletions, completedTodaySet, hiddenIds): Habit[] => {
     return habits.filter((habit) => {
+      if (hiddenIds.includes(habit.id)) return false;
       return isHabitDueToday(
         habit,
         weeklyCompletions.get(habit.id) ?? 0,
@@ -436,10 +460,11 @@ export const selectHabitsCompletedToday = createSelector(
  * Habits that need start date confirmation in Sweep.
  * An unconfirmed habit is one where:
  * - archived !== true
+ * - start_date is not set (null/undefined)
  * - start_date_confirmed !== true (either false, null, or undefined)
  */
 export const selectUnconfirmedHabits = createSelector([selectHabits], (habits): Habit[] =>
-  habits.filter((h) => !h.archived && h.start_date_confirmed !== true),
+  habits.filter((h) => !h.archived && !h.start_date && h.start_date_confirmed !== true),
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -451,11 +476,14 @@ export const selectActiveTodos = createSelector([selectTodos], (todos): Todo[] =
   todos.filter((t) => !t.archived && !t.completed_at),
 );
 
-/** Todos due today (due_day = today, not completed, not archived) */
-export const selectTodosDueToday = createSelector([selectActiveTodos], (todos): Todo[] => {
-  const today = getTodayDayString();
-  return todos.filter((t) => t.due_day === today);
-});
+/** Todos due today (due_day = today, not completed, not archived, not hidden) */
+export const selectTodosDueToday = createSelector(
+  [selectActiveTodos, selectHiddenTodayIds],
+  (todos, hiddenIds): Todo[] => {
+    const today = getTodayDayString();
+    return todos.filter((t) => t.due_day === today && !hiddenIds.includes(t.id));
+  },
+);
 
 /** Overdue todos (due_day < today, not completed, not archived) */
 export const selectOverdueTodos = createSelector([selectActiveTodos], (todos): Todo[] => {
@@ -520,11 +548,16 @@ export const selectTodosCompletedToday = createSelector([selectTodos], (todos): 
   return todos.filter((t) => t.completed_at && ds().isTimestampToday(t.completed_at));
 });
 
-/** Todos with commitment = true (locked in) AND due today - excludes completed */
-export const selectLockedTodos = createSelector([selectActiveTodos], (todos): Todo[] => {
-  const today = getTodayDayString();
-  return todos.filter((t) => t.commitment === true && t.due_day === today);
-});
+/** Todos with commitment = true (locked in) AND due today - excludes completed and hidden */
+export const selectLockedTodos = createSelector(
+  [selectActiveTodos, selectHiddenTodayIds],
+  (todos, hiddenIds): Todo[] => {
+    const today = getTodayDayString();
+    return todos.filter(
+      (t) => t.commitment === true && t.due_day === today && !hiddenIds.includes(t.id),
+    );
+  },
+);
 
 /** Todos with commitment = true (locked in) AND due today - includes completed for sweep celebration */
 export const selectLockedTodosIncludingCompleted = createSelector(
@@ -2294,4 +2327,215 @@ export const selectEntitiesByIds = createSelector(
  */
 export function useEntitiesByIds(dropIds: string[]): DropEntity[] {
   return useGremlyStore(useShallow((state) => selectEntitiesByIds(state, dropIds)));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EVENT NOTE SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * All non-archived event notes (subtype === 'event').
+ * This is the base selector for all event-note derived selectors.
+ */
+export const selectEventNotes = createSelector([selectNotes], (notes): Note[] =>
+  notes.filter(
+    (n): n is Note => n.type === 'note' && (n as Note).subtype === 'event' && !n.archived,
+  ),
+);
+
+/**
+ * Event notes for a specific date, sorted by event_time (all-day first, then by time).
+ */
+export const selectEventNotesForDate = createSelector(
+  [selectEventNotes, (_state: GremlyState, dateStr: string) => dateStr],
+  (eventNotes, dateStr): Note[] =>
+    eventNotes
+      .filter((n) => n.target_date === dateStr)
+      .sort((a, b) => {
+        // All-day events first (null event_time), then ascending by time
+        if (!a.event_time && b.event_time) return -1;
+        if (a.event_time && !b.event_time) return 1;
+        if (a.event_time && b.event_time) return a.event_time.localeCompare(b.event_time);
+        return 0;
+      }),
+);
+
+/**
+ * Event notes within a date range (inclusive on both ends).
+ */
+export const selectEventNotesForRange = createSelector(
+  [
+    selectEventNotes,
+    (_state: GremlyState, startDate: string) => startDate,
+    (_state: GremlyState, _startDate: string, endDate: string) => endDate,
+  ],
+  (eventNotes, startDate, endDate): Note[] =>
+    eventNotes.filter(
+      (n) => n.target_date != null && n.target_date >= startDate && n.target_date <= endDate,
+    ),
+);
+
+/**
+ * Event notes coming up in the next N days (default 7).
+ */
+export const selectUpcomingEventNotes = createSelector(
+  [selectEventNotes, (_state: GremlyState, days: number = 7) => days],
+  (eventNotes, days): Note[] => {
+    const today = getTodayDayString();
+    const endDate = ds().addDays(today, days);
+    return eventNotes
+      .filter((n) => n.target_date != null && n.target_date >= today && n.target_date <= endDate)
+      .sort((a, b) => {
+        // Sort by date first, then by time
+        const dateCmp = (a.target_date ?? '').localeCompare(b.target_date ?? '');
+        if (dateCmp !== 0) return dateCmp;
+        if (!a.event_time && b.event_time) return -1;
+        if (a.event_time && !b.event_time) return 1;
+        if (a.event_time && b.event_time) return a.event_time.localeCompare(b.event_time);
+        return 0;
+      });
+  },
+);
+
+/**
+ * Event notes that were synced from an external calendar provider.
+ */
+export const selectExternalEventNotes = createSelector([selectEventNotes], (eventNotes): Note[] =>
+  eventNotes.filter((n) => n.external_source != null),
+);
+
+/**
+ * Event notes created natively in Gremly (no external_source).
+ */
+export const selectNativeEventNotes = createSelector([selectEventNotes], (eventNotes): Note[] =>
+  eventNotes.filter((n) => n.external_source == null),
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EVENT NOTE HOOKS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Hook: event notes for a single date, sorted by time (all-day first).
+ * Single source of truth for date-based event rendering.
+ */
+export function useEventNotesForDate(dateStr: string): Note[] {
+  return useGremlyStore(useShallow((state) => selectEventNotesForDate(state, dateStr)));
+}
+
+/**
+ * Hook: upcoming event notes within the next N days (default 7).
+ * Single source of truth for upcoming-events widgets.
+ */
+export function useUpcomingEventNotes(days: number = 7): Note[] {
+  return useGremlyStore(useShallow((state) => selectUpcomingEventNotes(state, days)));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WEEKLY SUMMARY SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const selectWeeklySummaries = (state: GremlyState) => state.weeklySummaries;
+const selectWeeklySummaryLoading = (state: GremlyState) => state.weeklySummaryLoading;
+
+/** Get Monday of the current week as YYYY-MM-DD */
+function getMondayDayString(): string {
+  const today = ds().getCurrentDate();
+  const date = ds().fromDateString(today);
+  if (!date) return today;
+  const dayOfWeek = date.getDay(); // 0 = Sunday
+  // Monday offset: Sunday(0) -> -6, Mon(1) -> 0, Tue(2) -> -1 ...
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  return ds().addDays(today, mondayOffset);
+}
+
+/** Current week's summary (matches on week_start_date = this Monday) */
+export const selectCurrentWeekSummary = createSelector(
+  [selectWeeklySummaries],
+  (summaries): WeeklySummary | undefined => {
+    const monday = getMondayDayString();
+    return summaries.find((s) => s.week_start_date === monday);
+  },
+);
+
+/** Past summaries (all except current week), newest first */
+export const selectPastSummaries = createSelector(
+  [selectWeeklySummaries],
+  (summaries): WeeklySummary[] => {
+    const monday = getMondayDayString();
+    return summaries.filter((s) => s.week_start_date !== monday);
+  },
+);
+
+/**
+ * Should the weekly summary banner be shown?
+ * True when: current week summary exists, not yet viewed, banner not dismissed.
+ */
+export const selectShouldShowSummaryBanner = createSelector(
+  [selectCurrentWeekSummary],
+  (summary): boolean => {
+    if (!summary) return false;
+    return !summary.viewed && !summary.banner_dismissed;
+  },
+);
+
+/** Find a summary by week_start_date */
+export function selectSummaryByWeek(
+  state: GremlyState,
+  weekStartDate: string,
+): WeeklySummary | undefined {
+  return state.weeklySummaries.find((s) => s.week_start_date === weekStartDate);
+}
+
+/** Compressed summary content for chat context injection */
+export const selectWeeklySummaryForChatContext = createSelector(
+  [selectCurrentWeekSummary],
+  (summary): string | null => {
+    if (!summary?.content) return null;
+
+    const c = summary.content;
+    const parts: string[] = [];
+
+    if (c.weeklyCommentary) parts.push(c.weeklyCommentary);
+
+    if (c.highlightMoment) {
+      parts.push(`Highlight: ${c.highlightMoment.title} — ${c.highlightMoment.reason}`);
+    }
+
+    if (c.insights?.length) {
+      parts.push('Insights: ' + c.insights.map((i) => i.headline).join('; '));
+    }
+
+    if (c.keyThemes?.length) {
+      parts.push('Themes: ' + c.keyThemes.join(', '));
+    }
+
+    if (c.weekAhead?.highlights?.length) {
+      parts.push(
+        'Week ahead: ' + c.weekAhead.highlights.map((h) => `${h.eventTitle} (${h.day})`).join(', '),
+      );
+    }
+
+    return parts.length > 0 ? parts.join(' | ') : null;
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WEEKLY SUMMARY HOOKS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export function useCurrentWeekSummary(): WeeklySummary | undefined {
+  return useGremlyStore((state) => selectCurrentWeekSummary(state));
+}
+
+export function usePastSummaries(): WeeklySummary[] {
+  return useGremlyStore(useShallow((state) => selectPastSummaries(state)));
+}
+
+export function useShouldShowSummaryBanner(): boolean {
+  return useGremlyStore((state) => selectShouldShowSummaryBanner(state));
+}
+
+export function useWeeklySummaryForChatContext(): string | null {
+  return useGremlyStore((state) => selectWeeklySummaryForChatContext(state));
 }

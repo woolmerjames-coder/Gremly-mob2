@@ -162,6 +162,9 @@ export interface Habit {
   // Preferred time of day for scheduling
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
 
+  /** ISO timestamp for when this habit is slotted into a specific gap between events */
+  scheduled_start_iso?: string | null;
+
   // Estimated minutes per session
   time_estimate_minutes?: number | null;
 
@@ -256,6 +259,9 @@ export interface Todo {
 
   // Preferred time of day for scheduling
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
+
+  /** ISO timestamp for when this todo is slotted into a specific gap between events */
+  scheduled_start_iso?: string | null;
 
   // ═══════════════════════════════════════════════════════════════════
   // Date Intelligence (Phase 2)
@@ -360,6 +366,9 @@ export interface Note {
   /** Specific time for events (e.g., "2pm" -> "14:00") */
   event_time?: string | null; // HH:mm format
 
+  /** End time for events (HH:mm format, 24h) */
+  end_time?: string | null;
+
   /** Whether this event note is a Space goal */
   is_goal?: boolean;
 
@@ -387,6 +396,38 @@ export interface Note {
 
   /** True once user has resolved the clarification */
   clarification_resolved?: boolean;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Calendar Event Normalization
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** External calendar source metadata for synced events */
+  external_source?: {
+    provider: 'google_calendar' | 'outlook' | 'ics';
+    externalId: string;
+    calendarId: string;
+    lastSyncedAt: string;
+    etag?: string | null;
+  } | null;
+
+  /** Expo notification IDs for scheduled reminders */
+  notification_ids?: string[];
+
+  /** User reminder preferences for this event */
+  reminder_preferences?: {
+    dayBefore: boolean;
+    morningOf: boolean;
+    minutesBefore: number | null;
+  } | null;
+
+  /** Physical or virtual location for the event */
+  location?: string | null;
+
+  /** Whether this is an all-day event (no specific time) */
+  is_all_day?: boolean;
+
+  /** Fields manually edited by the user that should be preserved during sync */
+  user_edited_fields?: string[] | null;
 }
 
 /**
@@ -613,6 +654,8 @@ export interface SpaceChatMessage {
   // Web search results
   sources?: Array<{ title: string; url: string }>;
   search_query?: string | null;
+  // Skip entering animation — content was already visible via streaming
+  wasStreamed?: boolean;
 }
 
 /**
@@ -957,3 +1000,154 @@ export const nowIso = (): string => new Date().toISOString();
 
 export const genId = (prefix = 'id'): ID =>
   `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HABIT BUILDER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface HabitBuilderResolvedFields {
+  name: string | null;
+  habit_type: 'build' | 'break' | null;
+  cadence: 'daily' | 'weekly' | 'monthly' | null;
+  target: string | null;
+  start_date: string | null;
+  time_window: 'morning' | 'afternoon' | 'evening' | 'anytime' | null;
+  space_name: string | null;
+  notes: string | null;
+  end_date: string | null;
+  time_estimate_minutes: number | null;
+  is_confirmation: boolean;
+  next_field: string | null;
+  required_count: number;
+  suggested_chips: string[] | null;
+}
+
+export interface HabitBuilderContext {
+  currentDate: string;
+  dayOfWeek: string;
+  userName?: string;
+  existingHabits: {
+    name: string;
+    subtype: string;
+    frequency?: string;
+    space_name?: string;
+  }[];
+  spaces: { id: string; name: string }[];
+  prefill?: string;
+}
+
+export interface HabitBuilderRequest {
+  type: 'habit-builder';
+  stream: boolean;
+  messages: { role: 'user' | 'assistant'; content: string }[];
+  context: HabitBuilderContext;
+  userId?: string;
+}
+
+export interface HabitBuilderStreamingResponse {
+  content: string;
+  resolved_fields: HabitBuilderResolvedFields;
+  latency_ms?: number;
+  sources?: Array<{ title: string; url: string }>;
+}
+
+export interface HabitBuilderStreamingCallbacks {
+  onDelta: (delta: string) => void;
+  onComplete: (response: HabitBuilderStreamingResponse) => void;
+  onError: (error: Error) => void;
+  onSearching?: (query: string) => void;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Calendar Sync Types
+// ═══════════════════════════════════════════════════════════════════
+
+export type CalendarSyncResult = {
+  created: number;
+  updated: number;
+  softDeleted: number;
+  unchanged: number;
+  errors: string[];
+};
+
+export interface DefaultReminderPreferences {
+  dayBefore: boolean;
+  morningOf: boolean;
+  minutesBefore: number | null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// WEEKLY SUMMARY TYPES
+// ═══════════════════════════════════════════════════════════════════
+
+export interface WeeklySummaryHighlight {
+  title: string;
+  reason: string;
+  gremlyComment: string;
+}
+
+export interface WeeklySummaryInsight {
+  type:
+    | 'stale_cleanup'
+    | 'capture_ratio'
+    | 'productivity_pattern'
+    | 'space_activity'
+    | 'balance'
+    | 'habit_observation'
+    | 'journal_encouragement';
+  headline: string;
+  body: string;
+  isActionable: boolean;
+  actionLabel?: string;
+  actionType?: string;
+  staleItemIds?: string[];
+}
+
+export interface WeeklySummaryWeekAheadHighlight {
+  eventTitle: string;
+  day: string;
+  time?: string;
+  context?: string;
+  prepNudge?: string;
+}
+
+export interface WeeklySummaryWeekAhead {
+  introduction: string;
+  highlights: WeeklySummaryWeekAheadHighlight[];
+  busyDayWarnings: Array<{ day: string; comment: string }>;
+  totalEventCount: number;
+}
+
+export interface WeeklySummaryContent {
+  weeklyCommentary: string;
+  highlightMoment: WeeklySummaryHighlight;
+  insights: WeeklySummaryInsight[];
+  weekAhead: WeeklySummaryWeekAhead;
+  keyThemes: string[];
+  mood: string;
+}
+
+export interface WeeklySummaryCleanupAction {
+  itemId: string;
+  action: 'keep' | 'park' | 'drop';
+  actedAt: string;
+}
+
+export interface WeeklySummary {
+  id: string;
+  user_id: string;
+  week_start_date: string; // YYYY-MM-DD (Monday)
+  week_end_date: string; // YYYY-MM-DD (Sunday)
+  generated_at: string;
+  content: WeeklySummaryContent;
+  stats_snapshot: Record<string, unknown>;
+  trend_context: Record<string, unknown> | null;
+  key_themes: string[] | null;
+  cleanup_actions: WeeklySummaryCleanupAction[];
+  viewed: boolean;
+  viewed_at: string | null;
+  completed_flow: boolean;
+  banner_dismissed: boolean;
+  created_at: string;
+  updated_at: string;
+}

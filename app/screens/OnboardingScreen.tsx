@@ -355,6 +355,9 @@ export default function OnboardingScreen() {
         morningTime: morningTime,
         eveningEnabled: notificationsEnabled,
         eveningTime: eveningTime,
+        weeklyEnabled: notificationPrefs.weeklyEnabled,
+        weeklyTime: notificationPrefs.weeklyTime,
+        weeklyDay: notificationPrefs.weeklyDay,
         timezone: notificationPrefs.timezone,
       });
       console.log('[Onboarding] Notification preferences saved');

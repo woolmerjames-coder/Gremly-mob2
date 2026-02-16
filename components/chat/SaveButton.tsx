@@ -168,7 +168,12 @@ export default function SaveButton({
 
       case 'confirmed':
         return (
-          <View style={styles.confirmedSimple}>
+          <Pressable
+            style={({ pressed }) => [styles.confirmedSimple, pressed && { opacity: 0.7 }]}
+            onPress={onEdit}
+            accessibilityRole="button"
+            accessibilityLabel="Open saved item"
+          >
             <CheckCircle size={16} color="#4A7C59" style={styles.checkIcon} />
             <Text style={styles.confirmedSimpleText}>{getConfirmedLabel()}</Text>
             <Pressable
@@ -176,13 +181,16 @@ export default function SaveButton({
                 styles.dismissButtonSimple,
                 pressed && styles.dismissButtonPressed,
               ]}
-              onPress={onDismiss}
+              onPress={(e) => {
+                e?.stopPropagation?.();
+                onDismiss();
+              }}
               accessibilityRole="button"
               accessibilityLabel="Dismiss"
             >
               <Text style={styles.dismissTextSimple}>×</Text>
             </Pressable>
-          </View>
+          </Pressable>
         );
 
       case 'initial':

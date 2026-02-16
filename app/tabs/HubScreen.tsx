@@ -37,6 +37,7 @@ import {
   Wrench,
   Clock,
   TrendingUp,
+  CalendarDays,
 } from 'lucide-react-native';
 
 import { useAuth } from '../../providers/AuthProvider';
@@ -46,6 +47,7 @@ import HubItemCard, { type HubItem } from '../../components/HubItemCard';
 import { AllItemsTable } from '../../components/hub';
 import TimelineView from '../../components/hub/TimelineView';
 import PeopleView from '../../components/hub/PeopleView';
+import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
 import { getDateService } from '../../lib/date';
 import UnsortedReviewSheet, { type UnsortedItem } from '../../components/UnsortedReviewSheet';
 import PeopleList, { type PersonWithCounts } from '../../components/people/PeopleList';
@@ -90,6 +92,7 @@ import {
   usePopularTags,
   useAllActiveItemsHub,
   filterUnsortedForReview,
+  usePastSummaries,
 } from '../../lib/store/selectors';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
@@ -110,7 +113,7 @@ const HUB_V1 = true;
 type HubV1TypeFilter = 'todo' | 'habit' | 'note' | 'space';
 type HubV1TimeRange = 'week' | 'month' | '3months' | 'all';
 type HubV1StatusFilter = 'active' | 'completed' | 'all';
-type HubV1View = 'timeline' | 'journals' | 'people';
+type HubV1View = 'timeline' | 'journals' | 'people' | 'weekly';
 
 const TIME_RANGE_LABELS: Record<HubV1TimeRange, string> = {
   week: 'This Week',
@@ -134,29 +137,26 @@ function computeTimeRange(range: HubV1TimeRange): {
 } {
   if (range === 'all') return {};
 
-  const now = new Date();
-  let start: Date;
+  const ds = getDateService();
+  const today = ds.getCurrentDate();
+  let startDate: string;
 
   switch (range) {
     case 'week':
-      start = new Date(now);
-      start.setDate(now.getDate() - 7);
+      startDate = ds.addDays(today, -7);
       break;
     case 'month':
-      start = new Date(now);
-      start.setMonth(now.getMonth() - 1);
+      startDate = ds.addDays(today, -30);
       break;
     case '3months':
-      start = new Date(now);
-      start.setMonth(now.getMonth() - 3);
+      startDate = ds.addDays(today, -90);
       break;
     default:
       return {};
   }
 
   return {
-    createdAfter: start.toISOString(),
-    // createdBefore is optional - we want everything up to now
+    createdAfter: startDate + 'T00:00:00.000Z',
   };
 }
 
@@ -167,6 +167,136 @@ export function suggestShortTitle(text: string, maxWords = 5): string {
   const words = cleaned.split(' ');
   return words.slice(0, maxWords).join(' ');
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Weekly Summary List View (Hub "Weekly" tab)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface WeeklySummaryListViewProps {
+  onSummaryPress: (weekStartDate: string) => void;
+}
+
+function formatSummaryDateRange(startDate: string, endDate: string): string {
+  try {
+    const [sy, sm, sd] = startDate.split('-').map(Number);
+    const [ey, em, ed] = endDate.split('-').map(Number);
+    const start = new Date(sy, sm - 1, sd);
+    const end = new Date(ey, em - 1, ed);
+    const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+    const startStr = start.toLocaleDateString('en-US', opts);
+    const endStr = end.toLocaleDateString('en-US', { ...opts, year: 'numeric' });
+    return `${startStr} – ${endStr}`;
+  } catch {
+    return `${startDate} – ${endDate}`;
+  }
+}
+
+function WeeklySummaryListView({ onSummaryPress }: WeeklySummaryListViewProps) {
+  const summaries = usePastSummaries();
+
+  if (summaries.length === 0) {
+    return (
+      <View style={hubV1Styles.journalViewEmpty} testID="weekly-view-empty">
+        <View style={hubV1Styles.journalViewEmptyHeader}>
+          <CalendarDays size={18} color={colors.gray400} style={{ marginRight: spacing.xs }} />
+          <Text style={hubV1Styles.journalViewEmptyTitle}>No weekly summaries yet</Text>
+        </View>
+        <Text style={hubV1Styles.journalViewEmptyHint}>
+          Your first summary will appear here on Sunday evening.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ marginTop: spacing.md }}>
+      {summaries.map((summary) => {
+        const todosCompleted = (summary.stats_snapshot?.todosCompleted as number) ?? 0;
+        const insightCount = (summary.content?.insights ?? []).length;
+        const commentary = summary.content?.weeklyCommentary ?? '';
+        const firstSentence = commentary.split('.')[0];
+
+        return (
+          <TouchableOpacity
+            key={summary.id}
+            onPress={() => onSummaryPress(summary.week_start_date)}
+            style={weeklySummaryListStyles.row}
+            activeOpacity={0.6}
+          >
+            {/* Unviewed indicator */}
+            {!summary.viewed ? (
+              <View style={weeklySummaryListStyles.unviewedDot} />
+            ) : (
+              <View style={weeklySummaryListStyles.dotSpacer} />
+            )}
+
+            {/* Content */}
+            <View style={{ flex: 1 }}>
+              <View style={weeklySummaryListStyles.dateRow}>
+                <Text style={weeklySummaryListStyles.dateRange}>
+                  {formatSummaryDateRange(summary.week_start_date, summary.week_end_date)}
+                </Text>
+                <Text style={weeklySummaryListStyles.statBadge}>
+                  {todosCompleted} tasks · {insightCount} insights
+                </Text>
+              </View>
+              {firstSentence ? (
+                <Text style={weeklySummaryListStyles.commentary} numberOfLines={1}>
+                  {firstSentence}
+                </Text>
+              ) : null}
+            </View>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+const weeklySummaryListStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.gray200,
+  },
+  unviewedDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#BFD8C0',
+    marginRight: 10,
+  },
+  dotSpacer: {
+    width: 8,
+    marginRight: 10,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dateRange: {
+    fontSize: 15,
+    fontFamily: 'PlusJakartaSans-Bold',
+    color: colors.ink,
+    flexShrink: 1,
+  },
+  statBadge: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: colors.gray400,
+    marginLeft: 8,
+  },
+  commentary: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: colors.gray600,
+    marginTop: 2,
+  },
+});
 
 export default function HubScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -262,8 +392,8 @@ export default function HubScreen() {
       owner_id: '', // Not available from discovered data
       display_name: person.name,
       name: person.name,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      created_at: getDateService().getCurrentDate() + 'T00:00:00.000Z',
+      updated_at: getDateService().getCurrentDate() + 'T00:00:00.000Z',
       linkedCounts: {
         habits: 0,
         todos: 0,
@@ -419,7 +549,11 @@ export default function HubScreen() {
       }
 
       const date = item.updated_at || item.created_at;
-      const dateFormatted = date ? new Date(date).toLocaleDateString() : undefined;
+      const dateFormatted = date
+        ? getDateService().formatDateForDisplay(
+            getDateService().extractDateFromIso(date) ?? date.split('T')[0],
+          )
+        : undefined;
 
       // Get tags for this item from the item's tags field (store data)
       const itemTagsArray = (item as { tags?: string[] }).tags ?? [];
@@ -714,7 +848,7 @@ export default function HubScreen() {
     ) as import('../../lib/types').Note[];
     const today = getDateService().getCurrentDate(); // YYYY-MM-DD (local timezone)
     return selectNeedsAttentionItems(todos, notes, {
-      nowIso: new Date().toISOString(),
+      nowIso: getDateService().getCurrentDate() + 'T12:00:00.000Z',
       todayDate: today,
       todoStaleDays: 7,
       ideaStaleDays: 14,
@@ -821,15 +955,24 @@ export default function HubScreen() {
 
   // Format journal date for display
   const formatJournalDate = useCallback((dateStr: string): string => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const ds = getDateService();
+    const today = ds.getCurrentDate();
+    const itemDate = ds.extractDateFromIso(dateStr) ?? dateStr.split('T')[0];
 
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return date.toLocaleDateString('en-US', { weekday: 'short' });
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    if (itemDate === today) return 'Today';
+    if (itemDate === ds.addDays(today, -1)) return 'Yesterday';
+
+    // For dates within the last week, show weekday name
+    const sevenDaysAgo = ds.addDays(today, -7);
+    if (itemDate > sevenDaysAgo) {
+      // Parse at noon to avoid timezone shifts
+      const d = ds.fromDateString(itemDate) ?? new Date(itemDate + 'T12:00:00');
+      return d.toLocaleDateString('en-US', { weekday: 'short' });
+    }
+
+    // Older dates: "Jan 5" format
+    const d = ds.fromDateString(itemDate) ?? new Date(itemDate + 'T12:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }, []);
 
   // =========================================================================
@@ -918,12 +1061,24 @@ export default function HubScreen() {
             ]}
             testID="hub-view-toggle"
           >
-            {(['timeline', 'journals', 'people'] as const).map((mode) => {
+            {(['timeline', 'journals', 'people', 'weekly'] as const).map((mode) => {
               const isActive = hubView === mode;
               const label =
-                mode === 'timeline' ? 'Timeline' : mode === 'journals' ? 'Journals' : 'People';
+                mode === 'timeline'
+                  ? 'Timeline'
+                  : mode === 'journals'
+                    ? 'Journals'
+                    : mode === 'people'
+                      ? 'People'
+                      : 'Weekly';
               const IconComponent =
-                mode === 'timeline' ? LayoutGrid : mode === 'journals' ? BookOpen : Users;
+                mode === 'timeline'
+                  ? LayoutGrid
+                  : mode === 'journals'
+                    ? BookOpen
+                    : mode === 'people'
+                      ? Users
+                      : CalendarDays;
               return (
                 <Pressable
                   key={mode}
@@ -933,6 +1088,11 @@ export default function HubScreen() {
                       // Switching to Journal View: save current type selections
                       savedTypesRef.current = new Set(hubV1Types);
                       setHubV1Types(new Set(['note'])); // Lock to notes only
+                    } else if (mode === 'weekly') {
+                      // Switching to Weekly View: save current type selections
+                      if (!savedTypesRef.current) {
+                        savedTypesRef.current = new Set(hubV1Types);
+                      }
                     } else {
                       // Switching to Timeline or People: restore saved type selections
                       if (savedTypesRef.current) {
@@ -978,15 +1138,16 @@ export default function HubScreen() {
                     style={[
                       hubV1Styles.filterChip,
                       hubV1Types.has('todo') && hubV1Styles.filterChipActive,
-                      hubView === 'journals' && hubV1Styles.filterChipDisabled,
+                      (hubView === 'journals' || hubView === 'weekly') &&
+                        hubV1Styles.filterChipDisabled,
                     ]}
                     onPress={() => toggleTypeFilter('todo')}
-                    disabled={hubView === 'journals'}
+                    disabled={hubView === 'journals' || hubView === 'weekly'}
                     testID="filter-type-todo"
                     accessibilityRole="checkbox"
                     accessibilityState={{
                       checked: hubV1Types.has('todo'),
-                      disabled: hubView === 'journals',
+                      disabled: hubView === 'journals' || hubView === 'weekly',
                     }}
                     accessibilityLabel="Filter by To-Dos"
                   >
@@ -1004,15 +1165,16 @@ export default function HubScreen() {
                     style={[
                       hubV1Styles.filterChip,
                       hubV1Types.has('habit') && hubV1Styles.filterChipActive,
-                      hubView === 'journals' && hubV1Styles.filterChipDisabled,
+                      (hubView === 'journals' || hubView === 'weekly') &&
+                        hubV1Styles.filterChipDisabled,
                     ]}
                     onPress={() => toggleTypeFilter('habit')}
-                    disabled={hubView === 'journals'}
+                    disabled={hubView === 'journals' || hubView === 'weekly'}
                     testID="filter-type-habit"
                     accessibilityRole="checkbox"
                     accessibilityState={{
                       checked: hubV1Types.has('habit'),
-                      disabled: hubView === 'journals',
+                      disabled: hubView === 'journals' || hubView === 'weekly',
                     }}
                     accessibilityLabel="Filter by Habits"
                   >
@@ -1034,12 +1196,12 @@ export default function HubScreen() {
                         : hubV1Types.has('note') && hubV1Styles.filterChipActive,
                     ]}
                     onPress={() => toggleTypeFilter('note')}
-                    disabled={hubView === 'journals'}
+                    disabled={hubView === 'journals' || hubView === 'weekly'}
                     testID="filter-type-note"
                     accessibilityRole="checkbox"
                     accessibilityState={{
                       checked: hubView === 'journals' || hubV1Types.has('note'),
-                      disabled: hubView === 'journals',
+                      disabled: hubView === 'journals' || hubView === 'weekly',
                     }}
                     accessibilityLabel={
                       hubView === 'journals' ? 'Filter by Journals' : 'Filter by Logs'
@@ -1060,15 +1222,16 @@ export default function HubScreen() {
                     style={[
                       hubV1Styles.filterChip,
                       hubV1Types.has('space') && hubV1Styles.filterChipActive,
-                      hubView === 'journals' && hubV1Styles.filterChipDisabled,
+                      (hubView === 'journals' || hubView === 'weekly') &&
+                        hubV1Styles.filterChipDisabled,
                     ]}
                     onPress={() => toggleTypeFilter('space')}
-                    disabled={hubView === 'journals'}
+                    disabled={hubView === 'journals' || hubView === 'weekly'}
                     testID="filter-type-space"
                     accessibilityRole="checkbox"
                     accessibilityState={{
                       checked: hubV1Types.has('space'),
-                      disabled: hubView === 'journals',
+                      disabled: hubView === 'journals' || hubView === 'weekly',
                     }}
                     accessibilityLabel="Filter by Spaces"
                   >
@@ -1076,7 +1239,8 @@ export default function HubScreen() {
                       style={[
                         hubV1Styles.filterChipText,
                         hubV1Types.has('space') && hubV1Styles.filterChipTextActive,
-                        hubView === 'journals' && hubV1Styles.filterChipTextDisabled,
+                        (hubView === 'journals' || hubView === 'weekly') &&
+                          hubV1Styles.filterChipTextDisabled,
                       ]}
                     >
                       Spaces
@@ -1213,7 +1377,16 @@ export default function HubScreen() {
             // HUB MODE (idle state)
             // =================================================================
             <View style={hubV1Styles.hubModeContainer}>
-              {hubView === 'people' ? (
+              {hubView === 'weekly' ? (
+                // ===============================================================
+                // WEEKLY SUMMARY LIST VIEW
+                // ===============================================================
+                <WeeklySummaryListView
+                  onSummaryPress={(weekStartDate: string) => {
+                    navigation.navigate('WeeklySummary', { weekStartDate });
+                  }}
+                />
+              ) : hubView === 'people' ? (
                 // ===============================================================
                 // PEOPLE VIEW: Browse by person
                 // ===============================================================
@@ -1638,6 +1811,9 @@ export default function HubScreen() {
                 />
               </View>
             )}
+
+            {/* Weekly Summary Banner */}
+            <WeeklySummaryBanner />
 
             {/* Unsorted Banner */}
             {unsortedCount > 0 && !bannerDismissed && (

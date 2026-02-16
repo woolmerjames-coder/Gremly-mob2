@@ -18,6 +18,10 @@ import {
   type TaskAssignment,
 } from '../../../../lib/api/organizeDay';
 import { getDateService } from '../../../../lib/date';
+import {
+  selectCompletionsInRolling7Days,
+  selectCompletionsInRolling30Days,
+} from '../../../../lib/store/selectors';
 
 const COLORS = {
   mossGreen: '#2E5540',
@@ -54,6 +58,9 @@ export function OrganizeButton({
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
   const applyOrganizeAssignments = useGremlyStore((s) => s.applyOrganizeAssignments);
+  const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
+  const habitRolling7 = useGremlyStore(selectCompletionsInRolling7Days);
+  const habitRolling30 = useGremlyStore(selectCompletionsInRolling30Days);
 
   const today = targetDate ?? getDateService().getCurrentDate();
   const currentHour = targetDate ? 0 : getDateService().getHour();
@@ -170,6 +177,9 @@ export function OrganizeButton({
         capacity,
         today,
         currentHour,
+        hiddenTodayIds,
+        habitRolling7,
+        habitRolling30,
       });
 
       console.log('[OrganizeButton] Sending request', {

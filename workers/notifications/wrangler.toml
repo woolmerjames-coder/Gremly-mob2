@@ -1,0 +1,19 @@
+name = "gremly-notifications"
+main = "index.js"
+compatibility_date = "2026-01-03"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+# Secrets (set via `wrangler secret put <NAME>`):
+# - SUPABASE_URL
+# - SUPABASE_SERVICE_KEY
+# - ANTHROPIC_API_KEY
+
+# Runs every 5 minutes to check user notification windows
+[triggers]
+crons = ["*/5 * * * *"]

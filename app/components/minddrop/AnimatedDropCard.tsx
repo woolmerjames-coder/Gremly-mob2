@@ -48,6 +48,7 @@ import { useRepo } from '../../../providers/RepoProvider';
 import { runPhase1 } from '../../../lib/minddrop/phase1';
 import { runPhase2 } from '../../../lib/minddrop/phase2';
 import type { MultiDropItem, MindDropBucket, LogSubtype } from '../../../lib/minddrop/types';
+import { useNetworkStatus } from '../../../lib/network/useNetworkStatus';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -184,6 +185,20 @@ const TypewriterText: React.FC<{
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Helper: offline status message
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getOfflineStatusMessage(
+  isOfflineCapture: boolean | undefined,
+  isSynced: boolean,
+  isConnected: boolean,
+): string | null {
+  if (!isOfflineCapture || isSynced) return null;
+  if (isConnected) return 'Syncing now...';
+  return "Saved! I'll organize this when we're back online ✓";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -191,6 +206,14 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
   ({ item, index, onPress, styles: parentStyles, badgeStyleKey }) => {
     // DEBUG: Log every render to confirm component is used
     console.log('[AnimatedDropCard:RENDER]', item.id, item.kind, item.is_multi);
+
+    const { isConnected } = useNetworkStatus();
+    const pendingDrop = useGremlyStore((s) => s.pendingDrops.get(item.id));
+    const offlineMessage = getOfflineStatusMessage(
+      pendingDrop?._offlineCapture,
+      pendingDrop?.status === 'synced',
+      isConnected,
+    );
 
     // Determine if AI title is ready (different from raw text)
     const isAITitleReady =
@@ -669,6 +692,18 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
                   <ShimmerPlaceholder width="60%" height={14} borderRadius={4} />
                 </View>
               )
+            )}
+
+            {/* Offline status message */}
+            {offlineMessage && (
+              <Animated.View
+                entering={FadeIn.duration(200)}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}
+              >
+                <RNText style={{ fontSize: 12, color: '#7A8F7A', fontStyle: 'italic' }}>
+                  {offlineMessage}
+                </RNText>
+              </Animated.View>
             )}
 
             {/* Row 3: Meta row - context + time estimate + timestamp */}

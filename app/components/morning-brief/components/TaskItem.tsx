@@ -20,6 +20,10 @@ const COLORS = {
   inkMuted: '#666666',
   divider: '#E8E6E1',
   surface: '#FFFFFF',
+  metaNeutral: '#999999',
+  metaGentle: '#C9956C',
+  metaWarm: '#C27A6B',
+  metaDone: '#6B9E7E',
 };
 
 export interface TaskItemData {
@@ -29,6 +33,11 @@ export interface TaskItemData {
   timeWindow?: TimeBlock | 'any' | null;
   isLockedIn: boolean;
   estimatedMinutes?: number;
+  /** Contextual metadata shown as secondary text (e.g., "last: yesterday", "due tmrw") */
+  metadata?: {
+    label: string;
+    tone: 'neutral' | 'gentle' | 'warm' | 'done';
+  } | null;
 }
 
 interface TaskItemProps {
@@ -71,18 +80,29 @@ export function TaskItem({
         </Text>
       </Pressable>
 
-      {/* Time estimate - separate tap target */}
-      {showEstimate && (
-        <Pressable
-          style={styles.timeButton}
-          onPress={handleTimePress}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={[styles.time, !timeDisplay && styles.timeEmpty]}>
-            {timeDisplay ?? '+ time'}
+      {/* Right side: metadata + time estimate on same line */}
+      <View style={styles.rightSide}>
+        {task.metadata && (
+          <Text
+            style={[
+              styles.metadataText,
+              task.metadata.tone === 'gentle' && { color: COLORS.metaGentle },
+              task.metadata.tone === 'warm' && { color: COLORS.metaWarm },
+              task.metadata.tone === 'done' && { color: COLORS.metaDone },
+            ]}
+            numberOfLines={1}
+          >
+            {task.metadata.label}
           </Text>
-        </Pressable>
-      )}
+        )}
+        {showEstimate && (
+          <Pressable onPress={handleTimePress} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={[styles.time, !timeDisplay && styles.timeEmpty]}>
+              {timeDisplay ?? '+ time'}
+            </Text>
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -114,10 +134,7 @@ const styles = StyleSheet.create({
   },
   timeButton: {
     paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.linenCream,
-    marginLeft: 8,
+    paddingHorizontal: 4,
   },
   time: {
     fontSize: 13,
@@ -127,6 +144,17 @@ const styles = StyleSheet.create({
   timeEmpty: {
     color: COLORS.mossGreen,
     fontStyle: 'italic',
+  },
+  rightSide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 8,
+    flexShrink: 0,
+    gap: 8,
+  },
+  metadataText: {
+    fontSize: 12,
+    color: '#999999',
   },
 });
 

@@ -15,3 +15,6 @@ export { TodaysKeyDatesSection } from './TodaysKeyDatesSection';
 export { TimeEstimatePicker } from './TimeEstimatePicker';
 export { EventTimePicker } from './EventTimePicker';
 export { OrganizeButton } from './OrganizeButton';
+export { GapRow } from './GapRow';
+export { SlottedTaskRow } from './SlottedTaskRow';
+export { GapSlotPicker } from './GapSlotPicker';

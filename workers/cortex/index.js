@@ -430,12 +430,22 @@ function computePlausibleInterpretations(preparse) {
       (preparse.frequency_type === 'explicit' || preparse.frequency_type === 'day_names'));
 
   if (habitBuildPlausible) {
-    interpretations.push({ bucket: 'habit', subtype: null, habitSubtype: 'start_habit', dateField: null });
+    interpretations.push({
+      bucket: 'habit',
+      subtype: null,
+      habitSubtype: 'start_habit',
+      dateField: null,
+    });
   }
 
   // Habit/break: plausible when frequency_type is stop_quit
   if (preparse.frequency_type === 'stop_quit') {
-    interpretations.push({ bucket: 'habit', subtype: null, habitSubtype: 'break_habit', dateField: null });
+    interpretations.push({
+      bucket: 'habit',
+      subtype: null,
+      habitSubtype: 'break_habit',
+      dateField: null,
+    });
   }
 
   // Log/journal: plausible when emotional content, self-reflection, or processing frame
@@ -445,14 +455,20 @@ function computePlausibleInterpretations(preparse) {
     preparse.frame_type === 'processing';
 
   if (journalPlausible) {
-    interpretations.push({ bucket: 'log', subtype: 'journal', habitSubtype: null, dateField: null });
+    interpretations.push({
+      bucket: 'log',
+      subtype: 'journal',
+      habitSubtype: null,
+      dateField: null,
+    });
   }
 
   // Log/idea: plausible when exploring frame, hedged verb/proposition, or hypothetical
   const ideaPlausible =
     preparse.frame_type === 'exploring' ||
     (preparse.uncertainty_present === true &&
-      (preparse.uncertainty_target === 'verb' || preparse.uncertainty_target === 'entire_proposition')) ||
+      (preparse.uncertainty_target === 'verb' ||
+        preparse.uncertainty_target === 'entire_proposition')) ||
     preparse.hypothetical_framing === true;
 
   // Log/general: plausible unless pure emotional processing
@@ -468,40 +484,60 @@ function computePlausibleInterpretations(preparse) {
 
   if (ideaPlausible && generalPlausible) {
     if (bothLogsAllowed) {
-      interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+      interpretations.push({
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        dateField: preparse.temporal_specificity ? 'target_date' : null,
+      });
       interpretations.push({ bucket: 'log', subtype: 'idea', habitSubtype: null, dateField: null });
     } else if (ideaPlausible && preparse.frame_type === 'exploring') {
       // Idea has stronger signal
       interpretations.push({ bucket: 'log', subtype: 'idea', habitSubtype: null, dateField: null });
     } else {
       // General has stronger signal (default)
-      interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+      interpretations.push({
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        dateField: preparse.temporal_specificity ? 'target_date' : null,
+      });
     }
   } else if (ideaPlausible) {
     interpretations.push({ bucket: 'log', subtype: 'idea', habitSubtype: null, dateField: null });
   } else if (generalPlausible) {
-    interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+    interpretations.push({
+      bucket: 'log',
+      subtype: 'general',
+      habitSubtype: null,
+      dateField: preparse.temporal_specificity ? 'target_date' : null,
+    });
   }
 
   // --- Safety: enforce 2-4 interpretations ---
 
   // Cap at 4: drop log/idea first, then log/journal
   if (interpretations.length > 4) {
-    const ideaIdx = interpretations.findIndex(i => i.subtype === 'idea');
+    const ideaIdx = interpretations.findIndex((i) => i.subtype === 'idea');
     if (ideaIdx !== -1) interpretations.splice(ideaIdx, 1);
   }
   if (interpretations.length > 4) {
-    const journalIdx = interpretations.findIndex(i => i.subtype === 'journal');
+    const journalIdx = interpretations.findIndex((i) => i.subtype === 'journal');
     if (journalIdx !== -1) interpretations.splice(journalIdx, 1);
   }
 
   // Floor at 2: add fallback if needed
   if (interpretations.length < 2) {
-    const hasGeneral = interpretations.some(i => i.bucket === 'log' && i.subtype === 'general');
-    const hasTodo = interpretations.some(i => i.bucket === 'todo');
+    const hasGeneral = interpretations.some((i) => i.bucket === 'log' && i.subtype === 'general');
+    const hasTodo = interpretations.some((i) => i.bucket === 'todo');
 
     if (!hasGeneral) {
-      interpretations.push({ bucket: 'log', subtype: 'general', habitSubtype: null, dateField: preparse.temporal_specificity ? 'target_date' : null });
+      interpretations.push({
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        dateField: preparse.temporal_specificity ? 'target_date' : null,
+      });
     } else if (!hasTodo) {
       interpretations.push({ bucket: 'todo', subtype: null, habitSubtype: null, dateField: null });
     }
@@ -1406,6 +1442,106 @@ function getModelAndTokens({ preset, userMessage, messageCount, entityType }) {
   };
 }
 
+// =============================================================================
+// WEEKLY SUMMARY SYSTEM PROMPT (v1.0)
+// =============================================================================
+const WEEKLY_SUMMARY_SYSTEM_PROMPT = `You are Gremly — a warm, encouraging AI companion inside a calm productivity app. You know this person's week intimately: their completed tasks, habits, journal entries, ideas, and upcoming events. You are writing their Weekly Summary.
+
+Your voice is first-person, conversational, and specific. You are NOT a corporate report generator. You are a thoughtful friend reviewing the week together. Be honest but kind — if it was a quiet week, acknowledge the pace and look forward. If it was productive, celebrate specifically.
+
+## YOUR OUTPUT
+
+Return ONLY valid JSON matching this exact schema. No markdown, no backticks, no preamble, no explanation outside the JSON.
+
+{
+  "weeklyCommentary": "string — 2-3 sentences in Gremly's voice. A warm, specific opening that captures the week's essence. Reference actual items by name. Never generic ('great week!'). If sparse data, acknowledge the pace honestly and point forward.",
+  "highlightMoment": {
+    "title": "string — the single most notable achievement or moment",
+    "reason": "string — why this matters in context of their goals/patterns",
+    "gremlyComment": "string — a warm one-liner reaction (e.g., 'This one's been on your list a while — feels good, right?')"
+  },
+  "insights": [
+    {
+      "type": "stale_cleanup | capture_ratio | productivity_pattern | space_activity | balance | habit_observation | journal_encouragement",
+      "headline": "string — short, conversational (e.g., 'A few things gathering dust')",
+      "body": "string — 1-2 sentences explaining the observation",
+      "isActionable": true,
+      "actionLabel": "string — CTA button text (e.g., 'Review stale items') — only if isActionable",
+      "actionType": "string — one of: 'open_cleanup', 'open_sweep', 'open_habits' — only if isActionable",
+      "staleItemIds": ["string"] 
+    }
+  ],
+  "weekAhead": {
+    "introduction": "string — Gremly's forward-looking comment about next week",
+    "highlights": [
+      {
+        "eventTitle": "string",
+        "day": "string (e.g., 'Thursday')",
+        "time": "string or null",
+        "context": "string or null — connection to journal/note if relevant",
+        "prepNudge": "string or null — if preparation is needed"
+      }
+    ],
+    "busyDayWarnings": [{ "day": "string", "comment": "string" }],
+    "totalEventCount": 0
+  },
+  "keyThemes": ["string — 3-5 theme words/phrases capturing the week"],
+  "mood": "string — AI-inferred emotional tone (e.g., 'focused', 'overwhelmed', 'steady', 'reflective')"
+}
+
+## INSIGHT RULES
+
+1. Pick only 2-4 insights. Quality over quantity. If only 1 is genuinely useful, return 1. Never pad with filler.
+2. stale_cleanup is one POSSIBLE insight type, not guaranteed. Only surface it when 3+ stale items exist. Stale items are "zombie items" — things the user keeps pushing to tomorrow in their Evening Sweep instead of actually doing. Each stale item includes: ageDays (how long it's been on their list) and sweepRescheduleCount (how many times they've explicitly bumped it in Sweep). When sweepRescheduleCount is high (7+), lead with that: "You've rescheduled this 12 times." When it's 0 (data still accumulating), use ageDays: "This has been on your list for 24 days." Sort your commentary by the worst offenders first. Include the actual item IDs in staleItemIds.
+3. For stale_cleanup: actionType = 'open_cleanup'. For capture_ratio (unprocessed drops): actionType = 'open_sweep'. For habit_observation: actionType = 'open_habits'.
+4. balance and space_activity insights should note which spaces are active vs quiet, but frame positively.
+5. habit_observation should reference specific habits and their completion patterns from the completedDays arrays.
+6. journal_encouragement: only if the user journals and you can connect an entry's theme to their actions or upcoming events.
+7. productivity_pattern: reference specific days/time blocks from completionsByDay and completionsByTimeBlock.
+
+## WEEK AHEAD RULES
+
+1. Classify upcoming events into tiers:
+   - Tier 1 (highlight): Events created inside Gremly (source='gremly_entity' or source='user_calendar'), important meetings, deadlines, events the user has interacted with. Gremly-created entity events are ALWAYS Tier 1 — these are things the user intentionally tracked (e.g., "Flight to Los Angeles", "Mom's birthday party").
+   - Tier 2 (count only): Routine recurring calendar events, minor external calendar items (source='calendar').
+2. Only include Tier 1 events in the highlights array. Set totalEventCount to the total of ALL events.
+3. When an event has a spaceName, mention the Space by name to give context (e.g., "In your 'LA Trip' space, you've got…").
+4. When an event has a location, include it naturally in the highlight context.
+5. When an event has linkedTodoCount > 0, mention the prep items (e.g., "You have 3 tasks linked to this event").
+6. When an event has an endDate different from its date, it's a multi-day event — frame it as a range (e.g., "Thursday through Sunday").
+7. Cross-reference upcoming event titles against journal excerpts and note titles. If a journal entry mentions something related to an upcoming event, include that connection in the highlight's context field.
+8. If any day next week has 4+ events, add a busyDayWarning.
+9. Keep prepNudge suggestions concrete and actionable: "Draft your agenda tonight" not "Be prepared".
+
+## VOICE & TONE
+
+1. Commentary must reference specific items. "You knocked out 'Fix login bug' and 'Update docs'" not "You completed several tasks."
+2. Frame everything positively but honestly. Quiet week = "A gentler pace this week — sometimes that's exactly what's needed." Not "You didn't do much."
+3. For sparse data (first week, few items): Still produce a useful summary. Acknowledge the early stage. Focus on what WAS captured and look forward.
+4. Never use corporate jargon: no "synergy", "leverage", "optimize", "actionable insights". Speak like a thoughtful friend.
+5. Keep keyThemes to 3-5 concise phrases. These are tags, not sentences.
+6. mood should be a single word or short phrase reflecting the overall emotional reading.
+
+## TREND CONTEXT RULES (when prior week data is provided)
+
+1. Only reference prior weeks when a pattern is sustained across 2+ weeks. One-off changes are noise.
+2. Never open with "Last week you also..." — weave history into forward-looking observations.
+3. If the user acted on a previous recommendation (e.g., cleaned up stale items after you suggested it), acknowledge it warmly.
+4. Never repeat the same insight verbatim from a prior week. If the same issue persists, reframe or escalate.
+5. Use the insightFrequency data to avoid fatigue: if the same insight type appeared 3+ consecutive weeks, either skip it, reframe it significantly, or escalate ("This keeps coming up — might be worth a deeper look").
+6. When completionTrend is 'declining', don't scold. Frame as an observation and ask if priorities shifted.
+7. When habitConsistencyTrend is 'increasing', celebrate the streak momentum.
+8. workLifeBalanceTrend data is directional — use it to add nuance, not as a diagnosis.
+
+## HANDLING EDGE CASES
+
+- Zero completed todos: Focus on habits, journal entries, ideas captured. Frame around reflection/planning.
+- No journal entries: Skip journal_encouragement insight. Don't nag about journaling.
+- No upcoming events: weekAhead.introduction = forward-looking encouragement. highlights = empty array.
+- No stale items: Do not generate stale_cleanup insight.
+- No habits: Skip habit_observation insight.
+- All data sparse: Produce a shorter, genuine summary. Short is better than padded.`;
+
 export default {
   async fetch(request, env) {
     // --- CORS preflight ---
@@ -1432,6 +1568,7 @@ export default {
       const isSpaceChatStreaming = wantsStreaming && lane === 'space_chat';
       const isPhase2Streaming = wantsStreaming && type === 'enrich-phase2';
       const isEntityChatStreaming = wantsStreaming && type === 'entity-chat';
+      const isHabitBuilderStreaming = wantsStreaming && type === 'habit-builder';
 
       // =========================
       // Helpers
@@ -1947,6 +2084,582 @@ export default {
           people,
           mood,
         };
+      }
+
+      // =========================
+      // === HABIT BUILDER SYSTEM PROMPT ===
+      // =========================
+      const HABIT_BUILDER_PROMPT = `You are Gremly — an AI-powered thinking partner helping someone design a new habit.
+
+=== WHO YOU ARE ===
+- Warm, a little playful, occasionally cheeky
+- Like a helpful friend who's good at thinking things through
+- Supportive and encouraging, never guilt-trippy or shame-based
+- If someone is struggling, you help them dust off and keep going — no lectures
+
+=== YOUR PERSONALITY ===
+You can be playful when the moment calls for it. If someone says something funny, match it. If they're serious, match that too. You're not a bot — you're Gremly.
+
+If someone is rude, don't take the bait. A light "ouch" or "well that stings" is fine, then stay helpful.
+
+For sensitive topics (someone feeling down about themselves, mentioning ADHD struggles, feeling like a failure):
+- First acknowledge and be present. Don't immediately jump to advice.
+- Be warm and curious: "That sounds tough. Want to talk about what's going on, or should we just shape the habit?"
+- Only give advice if they ask or if it naturally fits.
+
+=== GREMLY PRODUCT PHILOSOPHY ===
+These principles shape your advice:
+- **No shame-based tracking**: We use rolling windows, not streaks. Never suggest "tracking streaks" or guilt someone about gaps.
+- **ADHD-friendly by design**: Small actions beat big plans. Lower friction, not higher expectations.
+- **Capture first, organize later**: Don't add complexity.
+- **Meet people where they are**: Not everyone wants a system. Some just want to build one habit.
+
+=== YOUR JOB ===
+Help this person shape a habit through real conversation. You need to understand 4 things before you can confirm:
+1. What they want to do (a clear, concrete behavior)
+2. Build or break
+3. How often
+4. When to start
+
+These should emerge naturally, not get collected like form fields.
+
+=== READING THE ROOM ===
+Before responding, identify what mode the user is in:
+
+**EMOTIONAL** — frustration, overwhelm, shame, vulnerability
+- Signals: "I feel like a bad friend", "I can't seem to", "I keep failing at", ADHD struggles, rejection sensitivity
+- Response: Acknowledge the feeling FIRST. One sentence of warmth before anything practical.
+
+**EXPLORATORY** — uncertain, thinking out loud, not sure what they want
+- Signals: "I think...", "maybe...", "not sure what kind of habit"
+- Response: Ask a question. Help them clarify. Don't rush to the form.
+
+**RESEARCH-NEEDED** — wants real information, not generic advice
+- Signals: "What's a good approach for ADHD?", "Any tips for...", "What do other people do?"
+- Response: SEARCH IMMEDIATELY using web_search. Give specific, sourced answers.
+
+**DIRECT** — knows exactly what they want, just needs to set it up
+- Signals: gives you everything in one message, brief responses, just wants to move forward
+- Response: Skip exploration. Infer what you can, confirm quickly.
+
+=== CRITICAL: SEARCH BEHAVIOR ===
+You have web search. Use it PROACTIVELY — especially for:
+- ADHD strategies, habit science, behavioral research
+- Health, fitness, nutrition, wellness habits
+- Any habit where real research would produce better advice than your training data
+- When the user asks "what's a good approach" or "any tips"
+
+WRONG: "Some people find it helpful to set a specific time"
+RIGHT: [Search "ADHD habit stacking morning routine", then give specific findings]
+
+WRONG: "You might want to look into habit stacking"
+RIGHT: [Search, then] "Research shows pairing a new habit with an existing routine — like right after brushing your teeth — makes it 2-3x more likely to stick for people with ADHD."
+
+Never give generic advice when you could search and give specific, evidence-based advice. This is what makes you more useful than a basic chatbot.
+
+=== GREMLY APP FEATURES (know what you're building on) ===
+ALWAYS say "Gremly's [Feature Name]" — never just "the sweep" or "a nightly ritual."
+ALWAYS tell the user where to find it in the app:
+- Mind Drop → "your Mind Drop tap"
+- Evening Sweep → "the Sweep banner on your Today page"
+- Spaces → "your Spaces tab"
+- Daily Planner → "opens from the Organize Button on your Today page each morning"
+- Journals → "your Notes section, captured via Mind Drop or during the Sweep"
+The user should know this is a real feature they already have, not a generic concept.
+
+If a user's habit overlaps with an existing Gremly feature, SUGGEST USING IT.
+Frame as a choice: "Gremly has [feature] — you could [action]. Or [alternative]. Which sounds more like you?"
+
+**Mind Drop** — Universal capture. Users dump any thought/task/note and AI classifies it automatically.
+→ Suggest when: "brain dump", "capture ideas", "write down thoughts", "be more organized"
+→ Example: "That's what Mind Drop is for — a habit like 'morning Mind Drop session' could clear your head daily."
+
+**Evening Sweep** — Nightly processing ritual. Reviews the day, processes items, includes journaling with mood tags and gratitude prompts. Designed to feel like closing mental tabs.
+→ Suggest when: "journal", "reflect on my day", "process thoughts before bed", "track mood", "feel overwhelmed at night", "be more mindful"
+→ Example: "Gremly has journaling built into Evening Sweep — you could make your habit 'do my Evening Sweep' and journal as part of that."
+
+**Spaces** — Life domain containers (Fitness, Work, Family, etc.) with AI chat, goals, and grouped items.
+→ Suggest when: "get better at [domain]", "organize my [area] goals", "plan a project"
+→ Example: "A Space for [domain] could be the home base — your habit would live alongside your todos and notes."
+
+**Today Page / Morning Brief** — Daily planning. Morning Brief = intention-setting ritual. Today page = daily command center. Lock In = top 3 priorities.
+→ Suggest when: "organize my day", "be more intentional", "stop feeling scattered", "plan my day"
+→ Example: "Morning Brief walks you through this — a habit like 'Morning Brief with coffee' could be your grounding ritual."
+
+**Journals/Logs** — Thought capture via Mind Drop, Evening Sweep, or Entity Chat. Types: Journal, Idea, General. Mood tags available.
+→ Suggest when: "gratitude practice", "write down ideas regularly"
+→ Example: "Evening Sweep already has a gratitude prompt — or you could use Mind Drop to capture gratitude moments throughout the day."
+
+**Entity Chat** — AI thinking partner on every item. After creation, the habit gets its own chat with quick actions. Mention this so users know support continues after the builder.
+
+=== WHEN TO SUGGEST vs. NOT ===
+SUGGEST when the habit overlaps with a Gremly feature. It's more achievable because the tool is already in their pocket.
+DON'T FORCE when the habit is external (running, reading, cooking, etc.). Build it cleanly. You CAN mention complementary features as a bonus — e.g., "use Mind Drop after each run to log how it felt" — but keep focus on the habit they came to build.
+
+=== HOW TO HAVE THE CONVERSATION ===
+
+**Understand the person, then move.**
+Your first follow-up after they tell you their idea should be about WHY or WHAT'S BEHIND IT. One question. Then start shaping.
+
+**By exchange 3-4, propose a habit.**
+Don't keep exploring. Synthesize what you've heard and suggest something concrete:
+"Sounds like a morning power hour — 30 minutes of focused work before checking email. Does that land, or should we shape it differently?"
+If you're wrong, they'll tell you. That's faster than five more questions.
+
+**Infer aggressively.**
+"I want to run every morning" = build, daily, morning. Don't reconfirm what's obvious.
+"I want to be more productive with work" + "ADHD" + "mornings" = you have enough to propose something.
+
+**Go where they go.**
+If they share something personal, engage with it briefly — then steer back to shaping the habit.
+
+=== TONE & FORMAT ===
+- 1-2 sentences per response. 3 sentences is your absolute max.
+- Every response must fit on a mobile screen without scrolling
+- One **bold** phrase per response max
+- No exclamation marks — keep it calm
+- Match their energy — if they're brief, be brief back
+- Use em-dashes, not semicolons
+- When asking a question with options, give 2-3 options max, not 4+
+- Never start with a compliment ("Love it", "Great focus", "That's relatable"). Just respond.
+
+=== WHAT NOT TO DO ===
+- Never give health or medical advice
+- Never guilt or pressure ("You should really...")
+- Never ask multiple questions in one message
+- Never say "That's a great focus/goal/choice" — just respond naturally
+- Never reference app features (Mind Drop, Evening Sweep, Spaces)
+- Never suggest "tracking streaks" (against product philosophy)
+- Never give generic meta-advice when you could search and answer
+
+=== THE CONFIRMATION ===
+When you have all 4 things and the conversation feels settled, ask:
+
+"Want to lock this in, or tweak anything?"
+
+Do NOT list the habit details in text — the app shows a visual summary card automatically. Just ask the confirmation question.
+
+=== AFTER CONFIRMATION ===
+When the user confirms (sends "Lock it in" or similar), respond in TWO parts:
+
+1. A warm one-liner acknowledging the habit is locked in
+2. An offer: "Want me to put together a few tips to help this stick?"
+
+That's it. Don't generate tips yet. Wait for them to say yes.
+
+=== IF THEY WANT TIPS ===
+If the user says yes, generate a **personalized habit kit**:
+- **2-3 tips max**, each 1-2 sentences
+- Habit stacking, first-day plan, ADHD-friendly friction reduction, or realistic obstacle handling — pick the 2-3 most relevant, not all of them
+- Use **web_search** if real research would help
+- Format with **bold** label + short sentence. Total under 100 words.
+
+Do NOT mention saving — the app shows a save button automatically.
+
+=== IF THEY DON'T WANT TIPS ===
+One warm sentence. Done. No guilt, no "are you sure?"`;
+
+      // =========================
+      // === HABIT BUILDER CHAT ===
+      // =========================
+      if (type === 'habit-builder') {
+        const messages = Array.isArray(body.messages) ? body.messages : [];
+        const context = body.context || {};
+
+        // Load user profile and session context (same as entity chat)
+        let userProfileContext = '';
+        if (body.userId) {
+          try {
+            const [sessionData, profile] = await Promise.all([
+              getSessionContext(body.userId, env),
+              getUserProfile(body.userId, env),
+            ]);
+            const sessionStr = buildSessionContextString(sessionData, {});
+            const ageInfo = getAgeGuidance(profile?.relationshipStartedAt, profile?.signals);
+
+            if (profile?.profileText) {
+              userProfileContext += `\n=== ABOUT THIS USER ===\n${profile.profileText}\n`;
+            }
+            if (sessionStr) {
+              userProfileContext += `\n${sessionStr}`;
+            }
+            userProfileContext += `\n${ageInfo.promptGuidance}\n`;
+          } catch (err) {
+            console.error('[HabitBuilder] Context error', err);
+          }
+        }
+
+        // ── Build context string ──
+        const contextParts = [];
+
+        // eslint-disable-next-line no-restricted-syntax -- server-side fallback; client sends local date via dateService
+        const today = context.currentDate || new Date().toISOString().split('T')[0];
+        const dow =
+          context.dayOfWeek || new Date().toLocaleDateString('en-US', { weekday: 'long' });
+        contextParts.push(`Today is ${dow}, ${today}.`);
+
+        if (context.userName) {
+          contextParts.push(`User's name: ${context.userName}`);
+        }
+
+        if (context.existingHabits && context.existingHabits.length > 0) {
+          const habitList = context.existingHabits
+            .map((h) => {
+              let desc = `- "${h.name}" (${h.subtype === 'break_habit' ? 'break' : 'build'})`;
+              if (h.frequency) desc += ` — ${h.frequency}`;
+              if (h.space_name) desc += ` [${h.space_name}]`;
+              return desc;
+            })
+            .join('\n');
+          contextParts.push(`\n=== EXISTING HABITS ===\n${habitList}`);
+        } else {
+          contextParts.push('\n=== EXISTING HABITS ===\nNone yet — this is their first habit.');
+        }
+
+        if (context.spaces && context.spaces.length > 0) {
+          const spaceList = context.spaces.map((s) => `- "${s.name}"`).join('\n');
+          contextParts.push(`\n=== USER'S SPACES ===\n${spaceList}`);
+        }
+
+        if (context.prefill) {
+          contextParts.push(
+            `\n=== PRE-FILLED INTENT ===\nThe user started with: "${context.prefill}"\nUse this as the starting point — don't ask "what habit?" again.`,
+          );
+        }
+
+        const contextString = contextParts.join('\n');
+
+        const habitBuilderSystemPrompt = `${HABIT_BUILDER_PROMPT}\n\n=== SESSION CONTEXT ===\n${contextString}${userProfileContext}`;
+
+        const openaiMessages = [
+          { role: 'system', content: habitBuilderSystemPrompt },
+          ...messages.slice(-20),
+        ];
+
+        const t0 = Date.now();
+
+        // ── STREAMING ──
+        if (isHabitBuilderStreaming) {
+          console.log('[HabitBuilder:Streaming] Starting SSE stream');
+
+          const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1',
+              messages: openaiMessages,
+              temperature: 0.7,
+              max_completion_tokens: 800,
+              stream: true,
+              tools: [WEB_SEARCH_TOOL],
+              tool_choice: 'auto',
+            }),
+          });
+
+          if (!openaiRes.ok) {
+            const errText = await openaiRes.text().catch(() => '');
+            console.log('[HabitBuilder:Streaming] OpenAI error', {
+              status: openaiRes.status,
+              error: errText,
+            });
+            return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
+          }
+
+          const { readable, writable } = new TransformStream();
+          const writer = writable.getWriter();
+          const encoder = new TextEncoder();
+          const decoder = new TextDecoder();
+
+          (async () => {
+            // Send initial SSE ping
+            await writer.write(encoder.encode(': ping\n\n'));
+
+            const reader = openaiRes.body.getReader();
+            let buffer = '';
+            let fullContent = '';
+            let sources = undefined;
+
+            // Track tool call accumulation
+            let toolCalls = [];
+
+            try {
+              // eslint-disable-next-line no-constant-condition
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split(/\r?\n/);
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed === 'data: [DONE]') continue;
+                  if (!trimmed.startsWith('data: ')) continue;
+
+                  try {
+                    const json = JSON.parse(trimmed.slice(6));
+                    const delta = json.choices?.[0]?.delta?.content;
+
+                    if (delta) {
+                      fullContent += delta;
+                      const sseData = JSON.stringify({ delta, done: false });
+                      await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                    }
+
+                    // Accumulate tool calls
+                    const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
+                    if (toolCallDeltas) {
+                      for (const toolCallDelta of toolCallDeltas) {
+                        const idx = toolCallDelta.index ?? 0;
+                        if (!toolCalls[idx]) {
+                          toolCalls[idx] = { id: null, name: null, arguments: '' };
+                        }
+                        if (toolCallDelta.id) toolCalls[idx].id = toolCallDelta.id;
+                        if (toolCallDelta.function?.name)
+                          toolCalls[idx].name = toolCallDelta.function.name;
+                        if (toolCallDelta.function?.arguments)
+                          toolCalls[idx].arguments += toolCallDelta.function.arguments;
+                      }
+                    }
+                  } catch (parseErr) {
+                    // skip
+                  }
+                }
+              }
+
+              // ── Handle web search tool calls ──
+              const webSearchCalls = toolCalls.filter(
+                (tc) => tc.name === 'web_search' && tc.arguments,
+              );
+
+              if (webSearchCalls.length > 0) {
+                console.log('[HabitBuilder:Streaming] Web search triggered', {
+                  searchCount: webSearchCalls.length,
+                });
+
+                // Notify client we're searching
+                let firstQuery = '';
+                try {
+                  firstQuery = JSON.parse(webSearchCalls[0].arguments).query || '';
+                } catch {
+                  const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                  firstQuery = match ? match[1] : 'searching';
+                }
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ searching: true, query: firstQuery })}\n\n`,
+                  ),
+                );
+
+                // Execute all searches in parallel
+                const searchPromises = webSearchCalls.map(async (tc) => {
+                  try {
+                    let query;
+                    try {
+                      query = JSON.parse(tc.arguments).query;
+                    } catch {
+                      const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                      query = match ? match[1] : null;
+                    }
+                    if (!query) return { toolCallId: tc.id, query: null, results: null };
+
+                    const results = await executeTavilySearch(query, env.TAVILY_API_KEY, {
+                      includeImages: false,
+                    });
+                    return { toolCallId: tc.id, query, results };
+                  } catch (err) {
+                    console.log('[HabitBuilder:Streaming] Search error:', err);
+                    return { toolCallId: tc.id, query: null, results: null };
+                  }
+                });
+
+                const searchResults = await Promise.all(searchPromises);
+                const successfulSearches = searchResults.filter(
+                  (sr) => sr.results && sr.results.results.length > 0,
+                );
+
+                if (successfulSearches.length > 0) {
+                  // Build follow-up messages with tool results
+                  const assistantToolCalls = successfulSearches.map((sr) => ({
+                    id: sr.toolCallId,
+                    type: 'function',
+                    function: {
+                      name: 'web_search',
+                      arguments: JSON.stringify({ query: sr.query }),
+                    },
+                  }));
+
+                  const toolResultMessages = successfulSearches.map((sr) => ({
+                    role: 'tool',
+                    tool_call_id: sr.toolCallId,
+                    content: JSON.stringify(sr.results),
+                  }));
+
+                  const followUpMessages = [
+                    ...openaiMessages,
+                    { role: 'assistant', content: null, tool_calls: assistantToolCalls },
+                    ...toolResultMessages,
+                  ];
+
+                  // Second streaming call with search results
+                  const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                      Authorization: `Bearer ${key}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      model: 'gpt-4.1',
+                      messages: followUpMessages,
+                      temperature: 0.7,
+                      max_completion_tokens: 800,
+                      stream: true,
+                    }),
+                  });
+
+                  // Stream the follow-up response
+                  const followUpReader = followUpRes.body.getReader();
+                  let followUpBuffer = '';
+
+                  // eslint-disable-next-line no-constant-condition
+                  while (true) {
+                    const result = await followUpReader.read();
+                    if (result.done) break;
+
+                    followUpBuffer += decoder.decode(result.value, { stream: true });
+                    const followUpLines = followUpBuffer.split(/\r?\n/);
+                    followUpBuffer = followUpLines.pop() || '';
+
+                    for (const line of followUpLines) {
+                      const trimmed = line.trim();
+                      if (!trimmed.startsWith('data:')) continue;
+                      const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                      if (jsonStr === '[DONE]') continue;
+
+                      try {
+                        const json = JSON.parse(jsonStr);
+                        const delta = json.choices?.[0]?.delta?.content;
+                        if (delta) {
+                          fullContent += delta;
+                          await writer.write(
+                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                          );
+                        }
+                      } catch {
+                        // skip
+                      }
+                    }
+                  }
+
+                  console.log('[HabitBuilder:Streaming] Search complete', {
+                    searchCount: successfulSearches.length,
+                    queries: successfulSearches.map((s) => s.query),
+                  });
+
+                  // Collect sources from search results
+                  sources = successfulSearches.flatMap((sr) =>
+                    sr.results.results.map((r) => ({ title: r.title, url: r.url })),
+                  );
+                }
+              }
+
+              // ── POST-STREAM EXTRACTION ──
+              const fullConversation = [...messages, { role: 'assistant', content: fullContent }];
+
+              const resolved = await extractHabitFields(fullConversation, key, today);
+              const latency = Date.now() - t0;
+              const finalData = JSON.stringify({
+                done: true,
+                full_content: fullContent,
+                resolved_fields: resolved,
+                latency_ms: latency,
+                sources: sources,
+              });
+              await writer.write(encoder.encode(`data: ${finalData}\n\n`));
+
+              console.log('[HabitBuilder:Streaming] Complete', {
+                latency_ms: latency,
+                content_length: fullContent.length,
+                required_count: resolved.required_count,
+                next_field: resolved.next_field,
+                had_search: webSearchCalls.length > 0,
+              });
+            } catch (streamErr) {
+              console.log('[HabitBuilder:Streaming] Stream error', { error: String(streamErr) });
+              const errorData = JSON.stringify({
+                error: String(streamErr),
+                done: true,
+                full_content: fullContent,
+              });
+              await writer.write(encoder.encode(`data: ${errorData}\n\n`));
+            } finally {
+              await writer.close();
+            }
+          })();
+
+          return new Response(readable, {
+            headers: {
+              'Access-Control-Allow-Origin': '*',
+              'Content-Type': 'text/event-stream; charset=utf-8',
+              'Cache-Control': 'no-cache, no-transform',
+              Connection: 'keep-alive',
+            },
+          });
+        }
+
+        // ── NON-STREAMING FALLBACK ──
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1',
+              messages: openaiMessages,
+              temperature: 0.7,
+              max_completion_tokens: 400,
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[HabitBuilder] API error', { error: oj.error, latency_ms: latency });
+            return j(
+              { error: 'habit_builder_failed', detail: oj.error?.message, latency_ms: latency },
+              200,
+            );
+          }
+
+          const content = oj?.choices?.[0]?.message?.content ?? '';
+
+          // Extraction call with full conversation
+          const fullConversation = [...messages, { role: 'assistant', content }];
+          const resolved = await extractHabitFields(fullConversation, key, today);
+
+          console.log('[HabitBuilder] Complete', {
+            latency_ms: latency,
+            content_length: content.length,
+            required_count: resolved.required_count,
+            next_field: resolved.next_field,
+          });
+
+          return j({ content, resolved_fields: resolved, latency_ms: latency });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[HabitBuilder] Error', { error: String(err), latency_ms: latency });
+          return j(
+            { error: 'habit_builder_failed', detail: String(err), latency_ms: latency },
+            200,
+          );
+        }
       }
 
       // =========================
@@ -2951,6 +3664,176 @@ Almost never suggest creating a Space. Only if ALL true:
         }
       }
 
+      /**
+       * Post-stream extraction: analyzes full conversation to extract resolved habit fields.
+       * Runs after streaming completes (~300ms). User doesn't see this call.
+       */
+      async function extractHabitFields(messages, apiKey, currentDate) {
+        // eslint-disable-next-line no-restricted-syntax -- server-side fallback, no dateService available
+        const fallbackDate = new Date().toISOString().split('T')[0];
+        const extractionPrompt = `You analyze a habit-building conversation and extract what has been resolved so far.
+Today's date is ${currentDate || fallbackDate}.
+Use this to resolve relative dates like "today", "tomorrow", "tonight", "next Monday", "this weekend" into actual YYYY-MM-DD format.
+
+Read the FULL conversation below. For each field, determine if the user and assistant have settled on a value. Only mark a field as resolved if there is clear agreement or strong inference — do not guess.
+
+FIELDS TO EXTRACT:
+1. name — clean habit name, 2-6 words (e.g., "Morning Run", "No Phone After 9pm")
+2. habit_type — "build" (starting something) or "break" (stopping something)
+3. cadence — "daily", "weekly", or "monthly"
+4. target — normalized frequency: "daily", "2x/week", "3x/week", "weekly", "2x/month", etc.
+5. start_date — YYYY-MM-DD format
+6. time_window — "morning", "afternoon", "evening", or "anytime" (null if not discussed)
+7. space_name — name of the Space the user wants to assign this to (null if not discussed)
+8. notes — capture the user's motivation AND context in FIRST PERSON, synthesized from the ENTIRE conversation — not just the last message. Include: why they want this, what they're replacing or changing (if relevant), and any personal context they shared. If the user gave a shorthand response like "all of the above" or "yes", expand it using the full conversation. Example: user says "I want to start reading before bed instead of scrolling my phone", later asked about motivation and replies "All of the above" to "better sleep, less screen time, or finishing a book?" → notes should be "Want to swap phone scrolling for reading before bed — better sleep, less screen time, and actually finishing books." Keep it 1-2 sentences max. null if nothing personal was shared.
+9. end_date — YYYY-MM-DD if they want a time-boxed trial (null if not discussed)
+10. time_estimate_minutes — minutes per session: 5, 10, 15, 30, 45, 60, 90, 120 (null if not discussed, infer from activity type if obvious e.g. running=30, meditation=10)
+
+ALSO DETERMINE:
+- is_confirmation: true if the assistant's LAST message asks the user to confirm/lock in the habit (e.g., "Want to lock this in?", "Ready to lock it in?", "want to lock this in, or tweak anything?"). This is true even if the assistant did NOT list out the habit details — the app renders a visual card separately. false if the assistant is still asking questions to shape the habit.
+- suggested_chips: 2-4 short tappable quick-reply options (each 1-4 words) that would help the user respond to what the assistant just asked. Generate these based on what the assistant is ACTUALLY asking about in its last message, not based on which fields are missing.
+  - If the assistant asked about frequency: ["Every day", "A few times a week", "Once a week"]
+  - If the assistant asked about time of day: ["Morning", "Evening", "Anytime"]
+  - If the assistant asked about start date: ["Today", "Tomorrow", "Next Monday"]
+  - If the assistant presented a confirmation card: ["Lock it in ✓", "Let me tweak something"]
+  - If the assistant asked an open-ended or exploratory question (like "what does that look like for you?" or "what's gotten in the way?"): null — these are better answered in the user's own words
+  - If the assistant offered specific options in its message (like "texts, calls, or something else?"): use THOSE specific options as chips
+  - Default to null if unsure. It's better to show no chips than wrong chips.
+
+Return ONLY valid JSON, no explanation:
+{
+  "name": string | null,
+  "habit_type": "build" | "break" | null,
+  "cadence": "daily" | "weekly" | "monthly" | null,
+  "target": string | null,
+  "start_date": string | null,
+  "time_window": string | null,
+  "space_name": string | null,
+  "notes": string | null,
+  "end_date": string | null,
+  "time_estimate_minutes": number | null,
+  "is_confirmation": boolean,
+  "suggested_chips": string[] | null
+}`;
+
+        const defaults = {
+          name: null,
+          habit_type: null,
+          cadence: null,
+          target: null,
+          start_date: null,
+          time_window: null,
+          space_name: null,
+          notes: null,
+          end_date: null,
+          time_estimate_minutes: null,
+          is_confirmation: false,
+          suggested_chips: null,
+          next_field: null,
+          required_count: 0,
+        };
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [
+                { role: 'system', content: extractionPrompt },
+                {
+                  role: 'user',
+                  content:
+                    'Here is the conversation:\n\n' +
+                    messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n'),
+                },
+              ],
+              temperature: 0.1,
+              max_tokens: 400,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          if (!res.ok) {
+            console.log('[HabitBuilder:Extract] API error', { status: res.status });
+            return defaults;
+          }
+
+          const oj = await res.json();
+          const raw = oj?.choices?.[0]?.message?.content ?? '{}';
+          const parsed = JSON.parse(raw);
+
+          // Build extracted fields from AI response
+          const extracted = {
+            name: typeof parsed.name === 'string' ? parsed.name : null,
+            habit_type: ['build', 'break'].includes(parsed.habit_type) ? parsed.habit_type : null,
+            cadence: ['daily', 'weekly', 'monthly'].includes(parsed.cadence)
+              ? parsed.cadence
+              : null,
+            target: typeof parsed.target === 'string' ? parsed.target : null,
+            start_date:
+              typeof parsed.start_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.start_date)
+                ? parsed.start_date
+                : null,
+            time_window: ['morning', 'afternoon', 'evening', 'anytime'].includes(parsed.time_window)
+              ? parsed.time_window
+              : null,
+            space_name: typeof parsed.space_name === 'string' ? parsed.space_name : null,
+            notes: typeof parsed.notes === 'string' ? parsed.notes : null,
+            end_date:
+              typeof parsed.end_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end_date)
+                ? parsed.end_date
+                : null,
+            time_estimate_minutes: Number.isFinite(parsed.time_estimate_minutes)
+              ? parsed.time_estimate_minutes
+              : null,
+            is_confirmation: parsed.is_confirmation === true,
+            suggested_chips: Array.isArray(parsed.suggested_chips)
+              ? parsed.suggested_chips
+                  .filter((c) => typeof c === 'string' && c.length > 0 && c.length <= 30)
+                  .slice(0, 4)
+              : null,
+          };
+
+          // ── Server-side inference: fill obvious gaps the model might miss ──
+          // Daily cadence always means daily target
+          if (extracted.cadence === 'daily' && !extracted.target) {
+            extracted.target = 'daily';
+          }
+          // Monthly cadence without target: default to monthly
+          if (extracted.cadence === 'monthly' && !extracted.target) {
+            extracted.target = 'monthly';
+          }
+          // If target is set but cadence is missing, infer cadence
+          if (extracted.target && !extracted.cadence) {
+            if (extracted.target === 'daily') extracted.cadence = 'daily';
+            else if (extracted.target.includes('/week')) extracted.cadence = 'weekly';
+            else if (extracted.target.includes('/month')) extracted.cadence = 'monthly';
+            else if (extracted.target === 'weekly') extracted.cadence = 'weekly';
+            else if (extracted.target === 'monthly') extracted.cadence = 'monthly';
+          }
+
+          // ── Server-side computation: count and determine next field ──
+          const requiredFields = ['name', 'habit_type', 'cadence', 'target', 'start_date'];
+          const requiredCount = requiredFields.filter((f) => extracted[f] !== null).length;
+          const nextField =
+            requiredCount >= 5
+              ? 'confirm'
+              : requiredFields.find((f) => extracted[f] === null) || null;
+
+          extracted.required_count = requiredCount;
+          extracted.next_field = nextField;
+
+          return extracted;
+        } catch (err) {
+          console.log('[HabitBuilder:Extract] Error', { error: String(err) });
+          return defaults;
+        }
+      }
+
       // Helper: Detect saveable content in response
       function detectSaveableContent(content) {
         if (!content) return { detected: false };
@@ -3100,9 +3983,20 @@ Almost never suggest creating a Space. Only if ALL true:
                 .join('\n')
             : 'No calendar events today.';
 
+        const formatGaps = (gaps) =>
+          (gaps || [])
+            .map(
+              (g) =>
+                `  gap: ${g.startIso.slice(11, 16)}–${g.endIso.slice(11, 16)} (${g.durationMinutes} min)`,
+            )
+            .join('\n');
+
         const blockContext = `Morning: ${blocks.morning?.realisticAvailableMinutes ?? blocks.morning?.availableMinutes ?? 0} min
+${formatGaps(blocks.morning?.gaps)}
 Afternoon: ${blocks.day?.realisticAvailableMinutes ?? blocks.day?.availableMinutes ?? 0} min
-Evening: ${blocks.evening?.realisticAvailableMinutes ?? blocks.evening?.availableMinutes ?? 0} min`;
+${formatGaps(blocks.day?.gaps)}
+Evening: ${blocks.evening?.realisticAvailableMinutes ?? blocks.evening?.availableMinutes ?? 0} min
+${formatGaps(blocks.evening?.gaps)}`;
 
         const organizePrompt = `You are a task scheduler. Place tasks into time blocks to create a calm, focused day.
 
@@ -3116,6 +4010,7 @@ ${calendarContext}
 === CAPACITY ===
 ${blockContext}
 Use max 85% of each block.
+Gaps are free time between calendar events within each block.
 
 === TASKS ===
 ${taskList}
@@ -3132,12 +4027,22 @@ Each task includes:
 1. Never schedule tasks in past blocks
 2. Never exceed 85% of block capacity
 3. Respect time_window_preference when set
-
 4. Use energy types to shape task sequencing and flow
-5. Place deep_focus tasks in the longest uninterrupted block
+5. Place deep_focus tasks in the longest uninterrupted gap
 6. Group tasks with shared tags to reduce context switching
 7. Avoid stacking physical or social tasks back-to-back
 8. Spread habits across blocks — avoid clustering
+
+=== GAP SLOTTING ===
+When a block has gaps listed under CAPACITY, you MAY assign a task to a
+specific gap by including "scheduledStartIso" — the ISO-8601 start time
+within that gap. Rules:
+- The task's total_minutes must fit inside the gap
+- "scheduledStartIso" must fall on or after the gap start and leave
+  enough room before the gap end
+- Only slot a task if there is a gap that fits; otherwise just assign
+  the block and omit scheduledStartIso
+- Prefer slotting deep_focus tasks into longer gaps
 
 === GROUPING PRINCIPLES ===
 - Tasks sharing tags (e.g. "work", "finance") benefit from being adjacent
@@ -3148,7 +4053,7 @@ Each task includes:
 === OUTPUT ===
 JSON only, no markdown:
 {
-  "assignments": [{ "taskId": "...", "block": "morning|day|evening", "reason": "5-10 words" }],
+  "assignments": [{ "taskId": "...", "block": "morning|day|evening", "reason": "5-10 words", "scheduledStartIso": "ISO time or omit" }],
   "overflow": [{ "taskId": "...", "reason": "5-10 words" }],
   "reasoning": ["Pattern or decision 1", "Pattern 2", "Pattern 3 if needed"],
   "summary": "One calm sentence about the plan"
@@ -3160,6 +4065,7 @@ Provide 2-4 short bullets explaining your approach. Focus on:
 - Energy flow (e.g. "Put focus work in the morning when you're fresh")
 - Habit placement (e.g. "Spread your habits throughout the day")
 - Preference respect (e.g. "Honored your morning preference for the gym")
+- Gap usage (e.g. "Slotted your deep work into the 90-min morning window")
 
 Do NOT mention in reasoning:
 - Specific minute counts or capacity numbers
@@ -3182,7 +4088,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
               model: 'gpt-4o-mini',
               messages: [{ role: 'system', content: organizePrompt }],
               temperature: 0.2,
-              max_tokens: 900,
+              max_tokens: 1200,
               response_format: { type: 'json_object' },
             }),
           });
@@ -3242,6 +4148,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
               taskId: a.taskId,
               block: a.block,
               reason: String(a.reason || '').substring(0, 50),
+              ...(a.scheduledStartIso ? { scheduledStartIso: String(a.scheduledStartIso) } : {}),
             }));
 
           const overflowIds = new Set();
@@ -3623,6 +4530,119 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
           const latency = Date.now() - t0;
           console.log('[space-chat-save] Error', { error: String(err), latency_ms: latency });
           return j({ error: 'request_failed', detail: String(err) }, 200);
+        }
+      }
+
+      // =========================
+      // === WEEKLY SUMMARY (v1.0) ===
+      // =========================
+      if (type === 'weekly-summary') {
+        const t0 = Date.now();
+        const { payload, trendContext } = body;
+
+        if (!payload) {
+          console.log('[weekly-summary] Missing payload');
+          return j({ error: 'missing_payload' }, 400);
+        }
+
+        try {
+          // Build user message with all collected data
+          const userMessage = `Here is my week's data:\n\n${JSON.stringify(payload, null, 2)}${
+            trendContext
+              ? `\n\nTrend context from prior weeks:\n${JSON.stringify(trendContext, null, 2)}`
+              : ''
+          }`;
+
+          // Use Anthropic API with Claude Sonnet 4.5
+          const anthropicKey = env.ANTHROPIC_API_KEY;
+          if (!anthropicKey) {
+            console.log('[weekly-summary] ANTHROPIC_API_KEY not configured');
+            return j({ error: 'anthropic_key_not_configured' }, 500);
+          }
+
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': anthropicKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-5-20250929',
+              max_tokens: 2000,
+              system: WEEKLY_SUMMARY_SYSTEM_PROMPT,
+              messages: [{ role: 'user', content: userMessage }],
+            }),
+          });
+
+          if (!res.ok) {
+            const errText = await res.text();
+            const latency = Date.now() - t0;
+            console.log('[weekly-summary] Anthropic API error', {
+              status: res.status,
+              latency_ms: latency,
+            });
+            return j({ error: 'anthropic_api_error', detail: errText }, 502);
+          }
+
+          const anthropicResponse = await res.json();
+          const rawText = anthropicResponse.content?.[0]?.text || '';
+
+          // Parse JSON from response
+          const parsed = safeParseJson(rawText);
+          if (!parsed) {
+            const latency = Date.now() - t0;
+            console.log('[weekly-summary] Failed to parse AI response', {
+              latency_ms: latency,
+              rawLength: rawText.length,
+            });
+            return j({ error: 'parse_failed', raw: rawText.slice(0, 500) }, 500);
+          }
+
+          // Validate required top-level fields
+          if (
+            !parsed.weeklyCommentary ||
+            !parsed.highlightMoment ||
+            !parsed.insights ||
+            !parsed.weekAhead
+          ) {
+            const latency = Date.now() - t0;
+            console.log('[weekly-summary] Incomplete AI response', {
+              latency_ms: latency,
+              keys: Object.keys(parsed),
+            });
+            return j({ error: 'incomplete_response', parsed }, 500);
+          }
+
+          // Ensure insights is an array and has valid types
+          if (!Array.isArray(parsed.insights)) {
+            parsed.insights = [];
+          }
+
+          // Ensure weekAhead has required structure
+          if (!parsed.weekAhead.highlights) parsed.weekAhead.highlights = [];
+          if (!parsed.weekAhead.busyDayWarnings) parsed.weekAhead.busyDayWarnings = [];
+          if (typeof parsed.weekAhead.totalEventCount !== 'number')
+            parsed.weekAhead.totalEventCount = 0;
+
+          // Ensure keyThemes and mood have defaults
+          if (!Array.isArray(parsed.keyThemes)) parsed.keyThemes = [];
+          if (!parsed.mood) parsed.mood = 'steady';
+
+          const latency = Date.now() - t0;
+          console.log('[weekly-summary] Success', {
+            latency_ms: latency,
+            insights: parsed.insights.length,
+            themes: parsed.keyThemes.length,
+            mood: parsed.mood,
+            upcomingHighlights: parsed.weekAhead.highlights.length,
+          });
+
+          return j(parsed);
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[weekly-summary] Error', { error: String(err), latency_ms: latency });
+          return j({ error: 'request_failed', detail: String(err) }, 500);
         }
       }
 
@@ -4234,12 +5254,20 @@ Return JSON only:
       if (type === 'clarify-ambiguity') {
         const text = body.text || '';
         const ambiguityReason = body.ambiguityReason || '';
-        const interpretations = Array.isArray(body.plausibleInterpretations) ? body.plausibleInterpretations : null;
+        const interpretations = Array.isArray(body.plausibleInterpretations)
+          ? body.plausibleInterpretations
+          : null;
 
         // --- Static fallback (used if no valid interpretations or AI fails) ---
         const FALLBACK_OPTIONS = [
           { id: 'opt_1', label: 'Something I need to do', bucket: 'todo', subtype: null },
-          { id: 'opt_2', label: 'A habit to build', bucket: 'habit', subtype: null, habitSubtype: 'start_habit' },
+          {
+            id: 'opt_2',
+            label: 'A habit to build',
+            bucket: 'habit',
+            subtype: null,
+            habitSubtype: 'start_habit',
+          },
           { id: 'opt_3', label: 'Just a note', bucket: 'log', subtype: 'general' },
           { id: 'opt_4', label: 'An idea to explore', bucket: 'log', subtype: 'idea' },
         ];
@@ -4264,14 +5292,16 @@ Return JSON only:
         }
 
         // --- Build interpretation list for prompt ---
-        const interpLines = interpretations.map((interp, i) => {
-          const parts = [];
-          if (interp.bucket) parts.push(`bucket: ${interp.bucket}`);
-          if (interp.subtype) parts.push(`subtype: ${interp.subtype}`);
-          if (interp.habitSubtype) parts.push(`habitSubtype: ${interp.habitSubtype}`);
-          if (interp.dateField) parts.push(`dateField: ${interp.dateField}`);
-          return `${i + 1}. { ${parts.join(', ')} }`;
-        }).join('\n');
+        const interpLines = interpretations
+          .map((interp, i) => {
+            const parts = [];
+            if (interp.bucket) parts.push(`bucket: ${interp.bucket}`);
+            if (interp.subtype) parts.push(`subtype: ${interp.subtype}`);
+            if (interp.habitSubtype) parts.push(`habitSubtype: ${interp.habitSubtype}`);
+            if (interp.dateField) parts.push(`dateField: ${interp.dateField}`);
+            return `${i + 1}. { ${parts.join(', ')} }`;
+          })
+          .join('\n');
 
         const aiPrompt = `You are writing short labels for an ambiguous user input. The user typed something into a quick-capture box and we need to ask what they meant.
 
@@ -4334,7 +5364,10 @@ Return JSON only:
             const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
 
             // Labels count must match interpretations count
-            if (labels.length === interpretations.length && labels.every(l => typeof l === 'string' && l.trim())) {
+            if (
+              labels.length === interpretations.length &&
+              labels.every((l) => typeof l === 'string' && l.trim())
+            ) {
               const options = interpretations.map((interp, i) => ({
                 id: `opt_${i + 1}`,
                 label: labels[i].trim().substring(0, 60),

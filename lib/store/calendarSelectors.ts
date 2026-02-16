@@ -41,7 +41,7 @@ export interface CalendarItem {
     progress: { done: number; total: number };
   } | null;
   tags: string[];
-  raw: Todo | Habit | Note | CalendarEvent; // Original record for overlay
+  raw: Todo | Habit | Note | CalendarEvent; // Original record for overlay (Note for synced event notes)
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -219,9 +219,55 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
   });
 
   // ─────────────────────────────────────────────────────────────────
-  // EXTERNAL CALENDAR EVENTS: from connected providers
+  // EVENT NOTES: unified event entities (synced + native)
+  // ─────────────────────────────────────────────────────────────────
+  // Track which external IDs are covered by Note entities so we can
+  // fall back to raw calendarEvents only for events not yet synced.
+  const coveredExternalIds = new Set<string>();
+
+  notes.forEach((note) => {
+    if (note.archived) return;
+    if ((note.subtype as string) !== 'event') return;
+    if (note.target_date !== dateStr) return;
+
+    // Map external_source provider back to CalendarProvider format
+    const providerMap: Record<string, 'google' | 'outlook' | 'ics'> = {
+      google_calendar: 'google',
+      outlook: 'outlook',
+      ics: 'ics',
+    };
+
+    const isExternal = !!note.external_source;
+    if (note.external_source?.externalId) {
+      coveredExternalIds.add(note.external_source.externalId);
+    }
+
+    items.push({
+      id: note.id,
+      type: 'calendar_event',
+      title: note.title || 'Untitled Event',
+      time: note.event_time || null,
+      isCompleted: false,
+      isOverdue: false,
+      isExternal,
+      provider: note.external_source?.provider
+        ? providerMap[note.external_source.provider]
+        : undefined,
+      location: note.location,
+      space: getSpaceInfo(note.space_id, spaces),
+      milestone: null,
+      tags: note.tags || [],
+      raw: note,
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // RAW CALENDAR EVENTS: fallback for events not yet synced to Notes
   // ─────────────────────────────────────────────────────────────────
   calendarEvents.forEach((event) => {
+    // Skip if already covered by a synced Note entity
+    if (coveredExternalIds.has(event.providerEventId)) return;
+
     const startTime = event.isAllDay ? null : new Date(event.startAt).toTimeString().slice(0, 5);
     const endTime = event.isAllDay ? null : new Date(event.endAt).toTimeString().slice(0, 5);
 
@@ -304,7 +350,14 @@ export function useDatesWithItems(startDate: string, endDate: string): Set<strin
       return noteDate === current;
     });
 
-    if (hasTodo || hasHabit || hasJournal) {
+    // Check event notes
+    const hasEvent = notes.some((n) => {
+      if (n.archived) return false;
+      if ((n.subtype as string) !== 'event') return false;
+      return n.target_date === current;
+    });
+
+    if (hasTodo || hasHabit || hasJournal || hasEvent) {
       datesWithItems.add(current);
     }
 

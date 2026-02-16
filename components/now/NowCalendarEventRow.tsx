@@ -1,35 +1,27 @@
 /**
- * NowCalendarEventRow - Read-only row for external calendar events
+ * NowCalendarEventRow - Compact row for calendar events in Gremly brand style
  *
- * Displays calendar events from connected providers (Outlook, Google).
- * Similar to NowFocusRow but:
- * - No completion checkbox (read-only)
- * - Calendar icon instead of entity icon
- * - Shows time range (e.g., "2:00 PM - 3:00 PM" or "All day")
- * - Shows location if present
- * - Distinguished styling with left accent border
+ * Shows event title with time and location chips in muted neutral tones.
+ * Accepts either a CalendarItem or Note entity.
  */
 
-import React from 'react';
-import { TouchableOpacity, View, StyleSheet } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { Text } from '../../ui';
-import { Calendar, MapPin, Clock } from 'lucide-react-native';
+import { Calendar, Clock, MapPin, MoreHorizontal } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import type { CalendarItem } from '../../lib/store/calendarSelectors';
-
-// Provider accent colors
-const PROVIDER_COLORS: Record<string, string> = {
-  outlook: '#0078D4', // Microsoft blue
-  google: '#4285F4', // Google blue
-  ics: '#6B7280', // ICS gray
-  default: '#9CA6E0', // Periwinkle smoke fallback
-};
+import type { Note } from '../../lib/types';
 
 interface NowCalendarEventRowProps {
-  event: CalendarItem;
+  /** CalendarItem from calendarSelectors (existing path) */
+  event?: CalendarItem;
+  /** Note entity with subtype='event' (new unified path) */
+  eventNote?: Note;
   isFirst?: boolean;
   isLast?: boolean;
   onPress?: () => void;
+  onQuickAction?: () => void;
 }
 
 /**
@@ -61,83 +53,106 @@ function formatTimeRange(startTime: string | null, endTime: string | null | unde
 
 export function NowCalendarEventRow({
   event,
+  eventNote,
   isFirst = false,
-  isLast = false,
+  isLast: _isLast = false,
   onPress,
+  onQuickAction,
 }: NowCalendarEventRowProps) {
-  const accentColor = event.provider ? PROVIDER_COLORS[event.provider] : PROVIDER_COLORS.default;
+  // Normalize: support both CalendarItem and Note inputs
+  const normalized = useMemo(() => {
+    if (eventNote) {
+      return {
+        title: eventNote.title || 'Untitled Event',
+        time: eventNote.event_time || null,
+        endTime: eventNote.end_time ?? null,
+        isAllDay: eventNote.is_all_day ?? !eventNote.event_time,
+        location: eventNote.location ?? null,
+      };
+    }
+    if (event) {
+      return {
+        title: event.title,
+        time: event.time,
+        endTime: event.endTime ?? null,
+        isAllDay: !event.time,
+        location: event.location ?? null,
+      };
+    }
+    return null;
+  }, [event, eventNote]);
 
-  const timeRangeText = formatTimeRange(event.time, event.endTime);
-  const isAllDay = !event.time;
+  if (!normalized) return null;
+
+  const timeRangeText = formatTimeRange(normalized.time, normalized.endTime);
+  const isAllDay = normalized.isAllDay;
+  const showChips = !isAllDay;
 
   return (
     <View style={styles.container}>
       {/* Top divider (unless first item) */}
       {!isFirst && <View style={styles.divider} />}
 
-      <TouchableOpacity
-        style={styles.row}
+      <Pressable
+        style={({ pressed }) => [styles.row, pressed && styles.pressed]}
         onPress={onPress}
-        activeOpacity={onPress ? 0.7 : 1}
         accessibilityRole="button"
-        accessibilityLabel={`Calendar event: ${event.title}, ${timeRangeText}`}
+        accessibilityLabel={`Calendar event: ${normalized.title}, ${timeRangeText}`}
       >
-        {/* Left accent border */}
-        <View style={[styles.accentBorder, { backgroundColor: accentColor }]} />
-
         {/* Calendar icon */}
-        <View style={[styles.iconContainer, { backgroundColor: `${accentColor}15` }]}>
-          <Calendar size={16} color={accentColor} />
-        </View>
+        <Calendar size={14} color="#999999" style={{ marginRight: 10 }} />
 
         {/* Content */}
         <View style={styles.content}>
           {/* Title */}
           <Text style={styles.title} numberOfLines={1}>
-            {event.title}
+            {normalized.title}
           </Text>
 
-          {/* Meta row: time and location */}
-          <View style={styles.metaRow}>
-            {/* Time chip */}
-            <View style={[styles.chip, isAllDay && styles.chipAllDay]}>
-              <Clock size={10} color={isAllDay ? accentColor : BRAND.colors.inkSubtle} />
-              <Text style={[styles.chipText, isAllDay && { color: accentColor }]}>
-                {timeRangeText}
-              </Text>
-            </View>
-
-            {/* Location chip */}
-            {event.location && (
+          {/* Meta row: time and location (hidden for all-day events) */}
+          {showChips && (
+            <View style={styles.metaRow}>
+              {/* Time chip */}
               <View style={styles.chip}>
-                <MapPin size={10} color={BRAND.colors.inkSubtle} />
-                <Text style={styles.chipText} numberOfLines={1}>
-                  {event.location}
-                </Text>
+                <Clock size={10} color={BRAND.colors.inkSubtle} />
+                <Text style={styles.chipText}>{timeRangeText}</Text>
               </View>
-            )}
-          </View>
+
+              {/* Location chip */}
+              {normalized.location && (
+                <View style={styles.chip}>
+                  <MapPin size={10} color={BRAND.colors.inkSubtle} />
+                  <Text style={styles.chipText} numberOfLines={1}>
+                    {normalized.location}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
         </View>
 
-        {/* Provider badge (subtle) */}
-        {event.provider && (
-          <View style={styles.providerBadge}>
-            <Text style={[styles.providerText, { color: accentColor }]}>
-              {event.provider === 'outlook' ? 'O' : 'G'}
-            </Text>
-          </View>
+        {/* Three-dot menu — aligned with NowFocusRow checkbox */}
+        {onQuickAction && (
+          <Pressable
+            style={styles.quickActionButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              onQuickAction();
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Event actions"
+          >
+            <MoreHorizontal size={18} color="#999999" />
+          </Pressable>
         )}
-      </TouchableOpacity>
-
-      {/* Bottom padding for last item */}
-      {isLast && <View style={styles.bottomPadding} />}
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: 'rgba(156, 166, 224, 0.06)', // Very subtle periwinkle tint
+    backgroundColor: 'transparent',
   },
   divider: {
     height: 1,
@@ -147,33 +162,20 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingLeft: 0, // Accent border takes space
-    paddingRight: 12,
-    minHeight: 52,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    minHeight: 36,
   },
-  accentBorder: {
-    width: 3,
-    alignSelf: 'stretch',
-    marginRight: 12,
-    borderTopRightRadius: 2,
-    borderBottomRightRadius: 2,
-  },
-  iconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
+  pressed: {
+    opacity: 0.7,
   },
   content: {
     flex: 1,
     justifyContent: 'center',
-    gap: 4,
+    gap: 2,
   },
   title: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: BRAND.colors.charcoalInk,
   },
@@ -186,35 +188,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 0,
+    borderRadius: 3,
     backgroundColor: 'rgba(0, 0, 0, 0.04)',
   },
-  chipAllDay: {
-    backgroundColor: 'rgba(156, 166, 224, 0.15)', // Periwinkle tint for all-day
-  },
   chipText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '500',
     color: BRAND.colors.inkSubtle,
     maxWidth: 120,
   },
-  providerBadge: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.04)',
-    alignItems: 'center',
+  quickActionButton: {
+    width: 32,
+    height: 36,
     justifyContent: 'center',
-    marginLeft: 8,
-  },
-  providerText: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  bottomPadding: {
-    height: 4,
+    alignItems: 'flex-end',
+    marginRight: -8,
   },
 });
 

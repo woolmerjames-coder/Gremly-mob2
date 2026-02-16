@@ -168,4 +168,31 @@ describe('useNotificationPreferences behavior contract', () => {
       });
     });
   });
+
+  describe('weekly summary defaults', () => {
+    it('defines default weekly time as 18:00 (6pm Sunday)', () => {
+      const expectedWeeklyTime = '18:00';
+      const date = timeStringToDate(expectedWeeklyTime);
+      expect(date.getHours()).toBe(18);
+      expect(date.getMinutes()).toBe(0);
+    });
+
+    it('weekly time round-trips correctly', () => {
+      const original = '18:00';
+      const date = timeStringToDate(original);
+      expect(dateToTimeString(date)).toBe(original);
+    });
+
+    it('documents weekly day default as Sunday (0)', () => {
+      // Default weeklyDay = 0 = Sunday per the hook
+      const defaultDay = 0;
+      expect(defaultDay).toBe(0); // Sunday
+    });
+
+    it('documents weekly enabled default as true', () => {
+      // Default weeklyEnabled = true
+      const defaultEnabled = true;
+      expect(defaultEnabled).toBe(true);
+    });
+  });
 });

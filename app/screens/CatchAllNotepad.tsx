@@ -149,6 +149,7 @@ import RitualProgressIndicator from '../../components/ritual/RitualProgressIndic
 import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import FirstDropSpotlight from '../../components/onboarding/FirstDropSpotlight';
+import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
 import {
   filterAndNormalizeTags,
   normalizeTags,
@@ -8355,6 +8356,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             </View>
           </View>
         </View>
+
+        <WeeklySummaryBanner />
 
         {/* Scrollable Recent Drops in the middle - fades when input is focused */}
         <Animated.View

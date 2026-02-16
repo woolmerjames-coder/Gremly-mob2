@@ -4,7 +4,7 @@
 import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
 import { getDateService } from '../date/DateService';
-import type { EntityChatRequest, EntityChatResponse } from '../types';
+import type { EntityChatRequest, EntityChatResponse, HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -1405,6 +1405,120 @@ export function callEntityChatStreaming(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// HABIT BUILDER CHAT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Call the Cortex proxy for Habit Builder Chat with streaming support using EventSource (SSE).
+ * Returns an object with a close() method to cancel the request.
+ *
+ * @param request - The habit builder request payload
+ * @param callbacks - Callbacks for streaming events (onDelta, onComplete, onError)
+ * @returns Object with close() method to cancel the stream
+ */
+export function callHabitBuilderStreaming(
+  request: HabitBuilderRequest,
+  callbacks: HabitBuilderStreamingCallbacks,
+): { close: () => void } {
+  const baseUrl = readCortexUrl();
+
+  if (!baseUrl) {
+    callbacks.onError(new Error('Missing CORTEX_URL'));
+    return { close: () => {} };
+  }
+
+  if (isAiDisabled()) {
+    callbacks.onError(new Error('AI disabled'));
+    return { close: () => {} };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  let fullContent = '';
+  const startTime = Date.now();
+
+  log('HABIT_BUILDER_STREAM', 'Starting streaming habit builder chat', {
+    messageCount: request.messages.length,
+    hasPrefill: !!request.context.prefill,
+  });
+
+  const es = new EventSource(baseUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      ...request,
+      type: 'habit-builder',
+      stream: true,
+    }),
+    lineEndingCharacter: '\n',
+  });
+
+  es.addEventListener('message', (event: any) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      // Handle error
+      if (data.error) {
+        callbacks.onError(new Error(data.error));
+        es.close();
+        return;
+      }
+
+      // Handle searching event — mirror entity chat pattern
+      if (data.searching && data.query) {
+        callbacks.onSearching?.(data.query);
+        return;
+      }
+
+      // Handle delta
+      if (data.delta) {
+        fullContent += data.delta;
+        callbacks.onDelta(data.delta);
+      }
+
+      // Handle completion
+      if (data.done) {
+        const latency_ms = data.latency_ms ?? Date.now() - startTime;
+        log('HABIT_BUILDER_STREAM_DONE', {
+          contentLength: (data.full_content || fullContent).length,
+          requiredCount: data.resolved_fields?.required_count,
+          nextField: data.resolved_fields?.next_field,
+        });
+        callbacks.onComplete({
+          content: data.full_content || fullContent,
+          resolved_fields: data.resolved_fields || {
+            name: null, habit_type: null, cadence: null, target: null,
+            start_date: null, time_window: null, space_name: null,
+            notes: null, end_date: null, time_estimate_minutes: null,
+            is_confirmation: false, next_field: null, required_count: 0,
+            suggested_chips: null,
+          },
+          latency_ms,
+          sources: data.sources,
+        });
+        es.close();
+      }
+    } catch (parseError) {
+      // Ignore parse errors for individual chunks
+    }
+  });
+
+  es.addEventListener('error', (event: any) => {
+    const errorMessage = event.message || 'Stream error';
+    log('HABIT_BUILDER_STREAM_ERROR', errorMessage);
+    callbacks.onError(new Error(errorMessage));
+    es.close();
+  });
+
+  return { close: () => es.close() };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // JOURNAL ANALYZE
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1545,5 +1659,6 @@ export const CortexClient = {
   callTranscribe,
   callEntityChat,
   callEntityChatStreaming,
+  callHabitBuilderStreaming,
   callJournalAnalyze,
 };

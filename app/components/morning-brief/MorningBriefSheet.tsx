@@ -13,22 +13,28 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { View, Modal, StyleSheet, ScrollView, Text, Pressable, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ShieldOff } from 'lucide-react-native';
+import { ShieldOff, Calendar, MoreHorizontal } from 'lucide-react-native';
 import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
-import { useCapacityForDate, useCalendarEventsForDate } from '../../../lib/store/capacitySelectors';
-import { useTodayPendingDrops, useEventsForDate } from '../../../lib/store/selectors';
-import { getTimeBlockBoundaries } from '../../../lib/capacity';
+import { useCapacityForDate } from '../../../lib/store/capacitySelectors';
+import {
+  useTodayPendingDrops,
+  useEventsForDate,
+  selectHabitCompletedToday,
+  selectHabitLastCompletionDate,
+  selectCompletionsInRolling7Days,
+  selectCompletionsInRolling30Days,
+} from '../../../lib/store/selectors';
 import { getTimeBlockForHour } from '../../../lib/now/timeBlockHelpers';
-import type { Note } from '../../../lib/types';
-import type { TimeBlock, TimeBlockPreferences } from '../../../lib/capacity';
-import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
+import type { Note, Todo, Habit } from '../../../lib/types';
+import type { TimeBlock } from '../../../lib/capacity';
 import { MiniSweepGate } from './MiniSweepGate';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { GlobalEventPopup } from '../../../components/calendar/GlobalEventPopup';
+import EventQuickActionSheet from '../../../components/now/EventQuickActionSheet';
 import { GlobalEventTimePicker } from '../../../components/calendar/GlobalEventTimePicker';
 import {
   MorningBriefHeader,
@@ -36,15 +42,16 @@ import {
   TimeBlockSection,
   TimeBlockPicker,
   OnYourPlateSection,
-  TodaysKeyDatesSection,
   TimeEstimatePicker,
   OrganizeButton,
   TaskItem,
   type TaskItemData,
 } from './components';
+import { LockInPicker } from './components/LockInPicker';
+import { GapSlotPicker } from './components/GapSlotPicker';
+import type { TimeGap, SlottedTask } from '../../../lib/timeGaps';
 
 interface MorningBriefSheetProps {
-  visible: boolean;
   onClose: () => void;
   onComplete?: () => void;
   /** Handler for quick add text submission */
@@ -68,10 +75,11 @@ function getTodayDateString(): string {
  * Group key date events by time block based on event_time
  * Events without event_time go to 'flexible' (On Your Plate section)
  */
-type KeyDateTimeBlock = 'morning' | 'day' | 'evening' | 'flexible';
+type KeyDateTimeBlock = 'allday' | 'morning' | 'day' | 'evening' | 'flexible';
 
 function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<KeyDateTimeBlock, Note[]> {
   const grouped: Record<KeyDateTimeBlock, Note[]> = {
+    allday: [],
     morning: [],
     day: [],
     evening: [],
@@ -79,28 +87,20 @@ function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<KeyDateTimeBlock, No
   };
 
   for (const event of keyDates) {
-    if (event.event_time) {
-      // Parse HH:mm time string to get hour
+    if (event.is_all_day || !event.event_time) {
+      grouped.allday.push(event);
+    } else {
       const [hourStr] = event.event_time.split(':');
       const hour = parseInt(hourStr, 10);
       if (!isNaN(hour)) {
         const block = getTimeBlockForHour(hour);
-        // Map 'afternoon' -> 'day' and 'anytime' -> 'flexible'
-        if (block === 'afternoon') {
-          grouped.day.push(event);
-        } else if (block === 'morning') {
-          grouped.morning.push(event);
-        } else if (block === 'evening') {
-          grouped.evening.push(event);
-        } else {
-          grouped.flexible.push(event);
-        }
+        if (block === 'afternoon') grouped.day.push(event);
+        else if (block === 'morning') grouped.morning.push(event);
+        else if (block === 'evening') grouped.evening.push(event);
+        else grouped.flexible.push(event);
       } else {
         grouped.flexible.push(event);
       }
-    } else {
-      // No event_time - goes to flexible (On Your Plate)
-      grouped.flexible.push(event);
     }
   }
 
@@ -108,31 +108,50 @@ function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<KeyDateTimeBlock, No
 }
 
 /**
- * Filter calendar events that overlap with a specific time block
+ * Compute a relative "last done" label from a YYYY-MM-DD date string.
+ * Returns null if no date provided.
  */
-function getEventsForBlock(
-  events: CalendarEvent[],
-  block: TimeBlock,
-  currentDate: string,
-  timeBlockPreferences: TimeBlockPreferences,
-): CalendarEvent[] {
-  const boundaries = getTimeBlockBoundaries(timeBlockPreferences);
-  const boundary = boundaries[block];
-  const [year, month, day] = currentDate.split('-').map(Number);
-  const blockStart = new Date(year, month - 1, day, boundary.startHour, 0, 0);
-  const blockEnd = new Date(year, month - 1, day, boundary.endHour, 0, 0);
+function getRelativeLastDone(lastDate: string | undefined, today: string): string | null {
+  if (!lastDate) return null;
+  if (lastDate === today) return null; // Will show "done today" instead
 
-  return events.filter((event) => {
-    if (event.isAllDay) return false;
-    const eventStart = new Date(event.startAt);
-    const eventEnd = new Date(event.endAt);
-    // Check for overlap
-    return eventStart < blockEnd && eventEnd > blockStart;
-  });
+  const todayDate = new Date(today + 'T12:00:00');
+  const lastDateObj = new Date(lastDate + 'T12:00:00');
+  const diffDays = Math.round(
+    (todayDate.getTime() - lastDateObj.getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  if (diffDays === 1) return 'last: yesterday';
+  if (diffDays <= 7) return `last: ${diffDays} days ago`;
+  return `last: ${diffDays}d ago`;
+}
+
+/**
+ * Compute a relative due date label for a todo.
+ * Returns null if no relevant label needed.
+ */
+function getDueDateLabel(
+  dueDay: string | null | undefined,
+  today: string,
+): { label: string; tone: 'neutral' | 'gentle' | 'warm' } | null {
+  if (!dueDay) return null;
+
+  const todayDate = new Date(today + 'T12:00:00');
+  const dueDate = new Date(dueDay + 'T12:00:00');
+  const diffDays = Math.round((dueDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) {
+    // Overdue — gentle, not alarming
+    const monthDay = dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return { label: `from ${monthDay}`, tone: 'warm' };
+  }
+  if (diffDays === 0) return { label: 'due today', tone: 'gentle' };
+  if (diffDays === 1) return { label: 'due tmrw', tone: 'gentle' };
+  if (diffDays <= 3) return { label: `due in ${diffDays}d`, tone: 'neutral' };
+  return null; // More than 3 days out — not urgent enough to show
 }
 
 export function MorningBriefSheet({
-  visible,
   onClose,
   onComplete,
   onQuickAddSubmit,
@@ -149,7 +168,6 @@ export function MorningBriefSheet({
   // ─────────────────────────────────────────────────────────────────
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
-  const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
   const updateTodo = useGremlyStore((s) => s.updateTodo);
   const updateHabit = useGremlyStore((s) => s.updateHabit);
   const addCommitment = useGremlyStore((s) => s.addCommitment);
@@ -160,7 +178,6 @@ export function MorningBriefSheet({
   // CAPACITY & CALENDAR DATA
   // ─────────────────────────────────────────────────────────────────
   const capacity = useCapacityForDate(today);
-  const calendarEvents = useCalendarEventsForDate(today);
 
   // ─────────────────────────────────────────────────────────────────
   // KEY DATE EVENTS (from Notes with subtype='event')
@@ -217,57 +234,127 @@ export function MorningBriefSheet({
   // HIDDEN TODAY (Not Today - todos/habits hidden for the day)
   // ─────────────────────────────────────────────────────────────────
   const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
+  const hiddenTodayDate = useGremlyStore((s) => s.hiddenTodayDate);
+  const slotTaskIntoGap = useGremlyStore((s) => s.slotTaskIntoGap);
+  const unslotTask = useGremlyStore((s) => s.unslotTask);
+
+  // Only apply hidden IDs if they match the date we're planning for
+  const effectiveHiddenIds = useMemo(() => {
+    return hiddenTodayDate === today ? hiddenTodayIds : [];
+  }, [hiddenTodayIds, hiddenTodayDate, today]);
 
   // ─────────────────────────────────────────────────────────────────
   // TASK DATA TRANSFORMATION
   // ─────────────────────────────────────────────────────────────────
 
-  // Get todos due today (excluding hidden ones)
+  // Get todos due on target date (excluding hidden ones for that date)
   const todayTodos = useMemo(() => {
     return todos.filter(
       (t) =>
-        !t.archived &&
-        !t.completed_at &&
-        t.due_day === today &&
-        (!hiddenTodayIds.includes(t.id) || isTomorrow),
+        !t.archived && !t.completed_at && t.due_day === today && !effectiveHiddenIds.includes(t.id),
     );
-  }, [todos, today, hiddenTodayIds, isTomorrow]);
+  }, [todos, today, effectiveHiddenIds]);
 
-  // Get habits due today (excluding hidden ones)
+  // Get habits due on target date (excluding hidden ones for that date)
   const todayHabits = useMemo(() => {
     return habits.filter((h) => {
       if (h.archived) return false;
       if (!h.start_date || h.start_date > today) return false;
       if (h.end_date && h.end_date < today) return false;
-      if (!isTomorrow && hiddenTodayIds.includes(h.id)) return false;
-      // For now, include all active habits
+      if (effectiveHiddenIds.includes(h.id)) return false;
       return true;
     });
-  }, [habits, today, hiddenTodayIds, isTomorrow]);
+  }, [habits, today, effectiveHiddenIds]);
 
   // Transform to TaskItemData
   const transformTodo = useCallback(
-    (todo: (typeof todos)[0]): TaskItemData => ({
-      id: todo.id,
-      type: 'todo',
-      title: todo.name || 'Untitled',
-      estimatedMinutes: todo.time_estimate_minutes ?? undefined,
-      isLockedIn: todo.commitment === true,
-      timeWindow: (todo.time_window as TaskItemData['timeWindow']) ?? null,
-    }),
-    [],
+    (todo: (typeof todos)[0]): TaskItemData => {
+      const dueMeta = getDueDateLabel(todo.due_day, today);
+      const metadata: TaskItemData['metadata'] = dueMeta
+        ? { label: dueMeta.label, tone: dueMeta.tone }
+        : null;
+
+      return {
+        id: todo.id,
+        type: 'todo',
+        title: todo.name || 'Untitled',
+        estimatedMinutes: todo.time_estimate_minutes ?? undefined,
+        isLockedIn: todo.commitment === true,
+        timeWindow: (todo.time_window as TaskItemData['timeWindow']) ?? null,
+        metadata,
+      };
+    },
+    [today],
   );
 
+  // ─────────────────────────────────────────────────────────────────
+  // HABIT METADATA (for contextual display)
+  // ─────────────────────────────────────────────────────────────────
+  const habitCompletedToday = useGremlyStore(selectHabitCompletedToday);
+  const habitLastCompletion = useGremlyStore(selectHabitLastCompletionDate);
+  const habitRolling7 = useGremlyStore(selectCompletionsInRolling7Days);
+  const habitRolling30 = useGremlyStore(selectCompletionsInRolling30Days);
+
   const transformHabit = useCallback(
-    (habit: (typeof habits)[0]): TaskItemData => ({
-      id: habit.id,
-      type: 'habit',
-      title: habit.name || 'Untitled',
-      estimatedMinutes: habit.time_estimate_minutes ?? undefined,
-      isLockedIn: isHabitLockedIn(habit),
-      timeWindow: (habit.time_window as TaskItemData['timeWindow']) ?? null,
-    }),
-    [],
+    (habit: (typeof habits)[0]): TaskItemData => {
+      // Compute metadata based on habit type and progress
+      let metadata: TaskItemData['metadata'] = null;
+      const isDoneToday = habitCompletedToday.has(habit.id);
+      const cadence = habit.cadence ?? 'daily';
+      const isBreak = habit.subtype === 'break_habit';
+
+      if (isDoneToday) {
+        metadata = { label: '✓ done today', tone: 'done' };
+      } else if (isBreak) {
+        // Break habits show streak from last_checked_in_at
+        const lastDate = habit.last_checked_in_at
+          ? getDateService().extractDateFromIso(habit.last_checked_in_at)
+          : undefined;
+        if (lastDate) {
+          const todayDate = new Date(today + 'T12:00:00');
+          const lastDateObj = new Date(lastDate + 'T12:00:00');
+          const streakDays = Math.round(
+            (todayDate.getTime() - lastDateObj.getTime()) / (1000 * 60 * 60 * 24),
+          );
+          if (streakDays > 0) {
+            metadata = { label: `${streakDays}d strong`, tone: 'done' };
+          }
+        }
+      } else if (cadence === 'weekly' || cadence === 'monthly') {
+        // Frequency habits show progress: "2/3 this week"
+        const target = habit.target_per_period ?? 1;
+        const completions =
+          cadence === 'weekly'
+            ? (habitRolling7.get(habit.id) ?? 0)
+            : (habitRolling30.get(habit.id) ?? 0);
+        const periodLabel = cadence === 'weekly' ? 'this wk' : 'this mo';
+        const isAtGoal = completions >= target;
+        metadata = {
+          label: isAtGoal
+            ? `✓ ${completions}/${target} ${periodLabel}`
+            : `${completions}/${target} ${periodLabel}`,
+          tone: isAtGoal ? 'done' : 'neutral',
+        };
+      } else {
+        // Daily habits show "last: X days ago"
+        const lastDate = habitLastCompletion.get(habit.id);
+        const relativeLabel = getRelativeLastDone(lastDate, today);
+        if (relativeLabel) {
+          metadata = { label: relativeLabel, tone: 'neutral' };
+        }
+      }
+
+      return {
+        id: habit.id,
+        type: 'habit',
+        title: habit.name || 'Untitled',
+        estimatedMinutes: habit.time_estimate_minutes ?? undefined,
+        isLockedIn: isHabitLockedIn(habit),
+        timeWindow: (habit.time_window as TaskItemData['timeWindow']) ?? null,
+        metadata,
+      };
+    },
+    [habitCompletedToday, habitLastCompletion, habitRolling7, habitRolling30, today],
   );
 
   // Pending drops from store - shows loading cards while pipeline runs
@@ -359,9 +446,56 @@ export function MorningBriefSheet({
     return allTasks.reduce((sum, task) => sum + (task.estimatedMinutes || 0), 0);
   }, [tasksByBlock]);
 
+  // Slotted items per block (tasks with scheduled_start_iso in this block's time window)
+  const slottedItemsByBlock = useMemo(() => {
+    const allSlotted = [
+      ...todos.filter((t) => t.scheduled_start_iso && t.due_day === today),
+      ...habits.filter((h) => h.scheduled_start_iso),
+    ] as Array<(Todo | Habit) & { scheduled_start_iso: string }>;
+
+    const result = {
+      morning: [] as Array<(Todo | Habit) & { scheduled_start_iso: string }>,
+      afternoon: [] as Array<(Todo | Habit) & { scheduled_start_iso: string }>,
+      evening: [] as Array<(Todo | Habit) & { scheduled_start_iso: string }>,
+    };
+
+    for (const item of allSlotted) {
+      const hour = new Date(item.scheduled_start_iso).getHours();
+      if (hour < capacity.blocks.morning.endHour) {
+        result.morning.push(item);
+      } else if (hour < capacity.blocks.day.endHour) {
+        result.afternoon.push(item);
+      } else {
+        result.evening.push(item);
+      }
+    }
+
+    return result;
+  }, [todos, habits, today, capacity]);
+
+  // Lookup map for rendering slotted tasks with full TaskItemData
+  const taskDataById = useMemo(() => {
+    const map: Record<string, TaskItemData> = {};
+    const allTasks = [
+      ...tasksByBlock.morning,
+      ...tasksByBlock.afternoon,
+      ...tasksByBlock.evening,
+      ...tasksByBlock.flexible,
+    ];
+    for (const task of allTasks) {
+      map[task.id] = task;
+    }
+    return map;
+  }, [tasksByBlock]);
+
   // ─────────────────────────────────────────────────────────────────
   // TIME BLOCK PICKER STATE
   // ─────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────
+  // EVENT QUICK ACTION STATE
+  // ─────────────────────────────────────────────────────────────────
+  const [quickActionEvent, setQuickActionEvent] = useState<Note | null>(null);
+
   const [pickerVisible, setPickerVisible] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskItemData | null>(null);
   // Organize feedback message
@@ -373,6 +507,99 @@ export function MorningBriefSheet({
     taskId: string;
     block: string;
   }> | null>(null);
+
+  // ─────────────────────────────────────────────────────────────────
+  // LOCK-IN PICKER STATE
+  // ─────────────────────────────────────────────────────────────────
+  const [lockInPickerVisible, setLockInPickerVisible] = useState(false);
+  const [hasLockedThisSession, setHasLockedThisSession] = useState(false);
+
+  // Items eligible for lock-in: all non-locked items across all blocks
+  const lockInEligibleItems = useMemo(() => {
+    const allItems = [
+      ...tasksByBlock.morning,
+      ...tasksByBlock.afternoon,
+      ...tasksByBlock.evening,
+      ...tasksByBlock.flexible,
+    ];
+    return allItems.filter((item) => !item.isLockedIn);
+  }, [tasksByBlock]);
+
+  // Show lock-in button if: not already locked this session AND at least 2 eligible items
+  const showLockInButton = !hasLockedThisSession && lockInEligibleItems.length >= 2;
+
+  const handleLockInPress = useCallback(() => {
+    setLockInPickerVisible(true);
+  }, []);
+
+  const handleLockInConfirm = useCallback(
+    async (selected: Array<{ id: string; type: 'todo' | 'habit' }>) => {
+      for (const item of selected) {
+        await addCommitment(item.id, item.type);
+      }
+      setHasLockedThisSession(true);
+    },
+    [addCommitment],
+  );
+
+  const handleLockInPickerClose = useCallback(() => {
+    setLockInPickerVisible(false);
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────────
+  // GAP SLOT PICKER STATE
+  // ─────────────────────────────────────────────────────────────────
+  const [gapSlotPickerVisible, setGapSlotPickerVisible] = useState(false);
+  const [selectedGap, setSelectedGap] = useState<TimeGap | null>(null);
+  const [selectedGapBlock, setSelectedGapBlock] = useState<'morning' | 'afternoon' | 'evening'>(
+    'morning',
+  );
+
+  const handleGapSlotPress = useCallback(
+    (gap: TimeGap, block: 'morning' | 'afternoon' | 'evening') => {
+      setSelectedGap(gap);
+      setSelectedGapBlock(block);
+      setGapSlotPickerVisible(true);
+    },
+    [],
+  );
+
+  const handleGapSlotTask = useCallback(
+    (taskId: string, taskType: 'todo' | 'habit', gapStartIso: string) => {
+      slotTaskIntoGap(taskId, taskType, gapStartIso);
+    },
+    [slotTaskIntoGap],
+  );
+
+  const handleGapSlotPickerClose = useCallback(() => {
+    setGapSlotPickerVisible(false);
+    setSelectedGap(null);
+  }, []);
+
+  const handleSlottedTaskPress = useCallback(
+    (task: SlottedTask) => {
+      // Unslot the task when tapped
+      unslotTask(task.id, task.type);
+    },
+    [unslotTask],
+  );
+
+  // Tasks available to slot (unslotted, in the selected block)
+  const tasksForGapPicker = useMemo(() => {
+    const blockTasks =
+      selectedGapBlock === 'morning'
+        ? tasksByBlock.morning
+        : selectedGapBlock === 'afternoon'
+          ? tasksByBlock.afternoon
+          : tasksByBlock.evening;
+    // Also include flexible items
+    return [...blockTasks, ...tasksByBlock.flexible].filter(
+      (t) =>
+        !slottedItemsByBlock.morning.some((s) => s.id === t.id) &&
+        !slottedItemsByBlock.afternoon.some((s) => s.id === t.id) &&
+        !slottedItemsByBlock.evening.some((s) => s.id === t.id),
+    );
+  }, [selectedGapBlock, tasksByBlock, slottedItemsByBlock]);
 
   // Summary fade-in animation
   const summaryOpacity = useRef(new Animated.Value(0)).current;
@@ -399,6 +626,53 @@ export function MorningBriefSheet({
   const handleAnimationComplete = useCallback(() => {
     setAnimatingAssignments(null);
   }, []);
+
+  // ─────────────────────────────────────────────────────────────────
+  // EVENT QUICK ACTION HANDLERS
+  // ─────────────────────────────────────────────────────────────────
+  const handleEventQuickAction = useCallback((event: Note) => {
+    setQuickActionEvent(event);
+  }, []);
+
+  const handleDismissEvent = useCallback((eventId: string) => {
+    const now = new Date().toISOString();
+    useGremlyStore.getState().updateNote(eventId, {
+      archived: true,
+      archived_reason: 'dismissed_by_user',
+      archived_at: now,
+    });
+    setQuickActionEvent(null);
+  }, []);
+
+  const handleEditEventTime = useCallback(
+    (eventId: string, startTime: string, endTime: string | null) => {
+      useGremlyStore.getState().updateNote(eventId, {
+        event_time: startTime,
+        end_time: endTime,
+        user_edited_fields: [...(quickActionEvent?.user_edited_fields ?? []), 'event_time'],
+      });
+      setQuickActionEvent(null);
+    },
+    [quickActionEvent],
+  );
+
+  const handleAddPrepNote = useCallback((eventId: string, body: string) => {
+    useGremlyStore.getState().updateNote(eventId, { body });
+    setQuickActionEvent(null);
+  }, []);
+
+  const handleEventRemind = useCallback(async (eventId: string, minutesBefore: number) => {
+    // Uses the same scheduleEventReminder as NowScreenV1
+    setQuickActionEvent(null);
+  }, []);
+
+  const handleOpenFullEvent = useCallback(
+    (event: Note) => {
+      setQuickActionEvent(null);
+      onKeyDatePress?.(event);
+    },
+    [onKeyDatePress],
+  );
 
   const handleTaskPress = useCallback((task: TaskItemData) => {
     setSelectedTask(task);
@@ -530,222 +804,288 @@ export function MorningBriefSheet({
   // ─────────────────────────────────────────────────────────────────
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        {showMiniSweep ? (
-          <MiniSweepGate
-            rolledOverTodos={rolledOverTodos}
-            unscheduledTodos={unscheduledTodos}
-            onComplete={handleMiniSweepComplete}
-            onSkip={handleMiniSweepSkip}
-          />
-        ) : (
-          <>
-            {/* Header */}
-            <MorningBriefHeader targetDate={isTomorrow ? today : undefined} />
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {showMiniSweep ? (
+        <MiniSweepGate
+          rolledOverTodos={rolledOverTodos}
+          unscheduledTodos={unscheduledTodos}
+          onComplete={handleMiniSweepComplete}
+          onSkip={handleMiniSweepSkip}
+        />
+      ) : (
+        <>
+          {/* Header */}
+          <MorningBriefHeader targetDate={isTomorrow ? today : undefined} />
 
-            {/* Scrollable Content */}
-            <ScrollView
-              style={styles.scrollView}
-              contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {/* Today's Key Dates - informational anchors for the day */}
-              <TodaysKeyDatesSection
-                keyDates={keyDatesByBlock.flexible}
-                getSpaceName={getSpaceName}
-                onKeyDatePress={onKeyDatePress}
-              />
+          {/* Scrollable Content */}
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* On Your Plate - Flexible/Unassigned Tasks */}
+            <OnYourPlateSection
+              tasks={tasksByBlock.flexible}
+              animatingAssignments={animatingAssignments}
+              onTaskPress={handleTaskPress}
+              onTimePress={handleTimePress}
+              onAddPress={handleAddPress}
+              pendingDrops={todayPendingDrops}
+            />
 
-              {/* On Your Plate - Flexible/Unassigned Tasks */}
-              <OnYourPlateSection
-                tasks={tasksByBlock.flexible}
-                animatingAssignments={animatingAssignments}
-                onTaskPress={handleTaskPress}
-                onTimePress={handleTimePress}
-                onAddPress={handleAddPress}
-                pendingDrops={todayPendingDrops}
-              />
-
-              {/* Help Me Organize Button */}
-              <OrganizeButton
-                targetDate={isTomorrow ? today : undefined}
-                onComplete={(summary, reasoning) => {
-                  setOrganizeMessage(summary);
-                  if (reasoning && reasoning.length > 0) {
-                    setOrganizeReasoning(reasoning);
-                  } else {
-                    setOrganizeReasoning(null);
-                  }
-                  setTimeout(() => {
-                    setOrganizeMessage(null);
-                    setOrganizeReasoning(null);
-                  }, 30000);
-                }}
-                onError={(error) => {
-                  setOrganizeMessage(error);
+            {/* Help Me Organize Button */}
+            <OrganizeButton
+              targetDate={isTomorrow ? today : undefined}
+              onComplete={(summary, reasoning) => {
+                setOrganizeMessage(summary);
+                if (reasoning && reasoning.length > 0) {
+                  setOrganizeReasoning(reasoning);
+                } else {
                   setOrganizeReasoning(null);
-                  setTimeout(() => setOrganizeMessage(null), 30000);
-                }}
-                onAnimationStart={handleAnimationStart}
-                onAnimationComplete={handleAnimationComplete}
-              />
+                }
+                setTimeout(() => {
+                  setOrganizeMessage(null);
+                  setOrganizeReasoning(null);
+                }, 30000);
+              }}
+              onError={(error) => {
+                setOrganizeMessage(error);
+                setOrganizeReasoning(null);
+                setTimeout(() => setOrganizeMessage(null), 30000);
+              }}
+              onAnimationStart={handleAnimationStart}
+              onAnimationComplete={handleAnimationComplete}
+            />
 
-              {organizeMessage && (
-                <Animated.View style={[styles.organizeFeedback, { opacity: summaryOpacity }]}>
-                  <Text style={styles.organizeMessage}>{organizeMessage}</Text>
-                  {organizeReasoning && organizeReasoning.length > 0 && (
-                    <Pressable onPress={() => setShowReasoningModal(true)}>
-                      <Text style={styles.reasoningLink}>Why this plan?</Text>
-                    </Pressable>
-                  )}
-                </Animated.View>
-              )}
+            {organizeMessage && (
+              <Animated.View style={[styles.organizeFeedback, { opacity: summaryOpacity }]}>
+                <Text style={styles.organizeMessage}>{organizeMessage}</Text>
+                {organizeReasoning && organizeReasoning.length > 0 && (
+                  <Pressable onPress={() => setShowReasoningModal(true)}>
+                    <Text style={styles.reasoningLink}>Why this plan?</Text>
+                  </Pressable>
+                )}
+              </Animated.View>
+            )}
 
-              {/* Reasoning Modal */}
-              <Modal
-                visible={showReasoningModal}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setShowReasoningModal(false)}
-              >
-                <Pressable style={styles.modalOverlay} onPress={() => setShowReasoningModal(false)}>
-                  <View style={styles.reasoningModal}>
-                    <Text style={styles.reasoningTitle}>Why this plan?</Text>
-                    <View style={styles.reasoningList}>
-                      {organizeReasoning?.map((reason, index) => (
-                        <Text key={index} style={styles.reasoningItem}>
-                          • {reason}
-                        </Text>
-                      ))}
-                    </View>
+            {/* Reasoning Modal */}
+            <Modal
+              visible={showReasoningModal}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowReasoningModal(false)}
+            >
+              <Pressable style={styles.modalOverlay} onPress={() => setShowReasoningModal(false)}>
+                <View style={styles.reasoningModal}>
+                  <Text style={styles.reasoningTitle}>Why this plan?</Text>
+                  <View style={styles.reasoningList}>
+                    {organizeReasoning?.map((reason, index) => (
+                      <Text key={index} style={styles.reasoningItem}>
+                        • {reason}
+                      </Text>
+                    ))}
+                  </View>
+                  <Pressable
+                    style={styles.reasoningDismiss}
+                    onPress={() => setShowReasoningModal(false)}
+                  >
+                    <Text style={styles.reasoningDismissText}>Got it</Text>
+                  </Pressable>
+                </View>
+              </Pressable>
+            </Modal>
+
+            {/* Thick divider between On Your Plate and Time Blocks */}
+            <View style={styles.sectionDivider} />
+
+            {/* All Day - key date events + break habit awareness card */}
+            {(breakHabitsByBlock.allday.length > 0 || keyDatesByBlock.allday.length > 0) && (
+              <>
+                <View style={styles.alldaySection}>
+                  <View style={styles.alldayHeader}>
+                    <View style={[styles.alldayBar, { backgroundColor: '#8B7E74' }]} />
+                    <ShieldOff size={16} color="#8B7E74" />
+                    <Text style={styles.alldayLabel}>ALL DAY</Text>
+                  </View>
+
+                  {/* All-day key date events */}
+                  {keyDatesByBlock.allday.map((keyDate) => (
                     <Pressable
-                      style={styles.reasoningDismiss}
-                      onPress={() => setShowReasoningModal(false)}
+                      key={keyDate.id}
+                      style={styles.alldayEventRow}
+                      onPress={() => onKeyDatePress?.(keyDate)}
                     >
-                      <Text style={styles.reasoningDismissText}>Got it</Text>
+                      <Calendar size={14} color="#999999" style={{ marginRight: 10 }} />
+                      <Text style={styles.alldayEventTitle} numberOfLines={1}>
+                        {keyDate.title || 'Untitled Event'}
+                      </Text>
+                      <Pressable
+                        style={styles.quickActionButton}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleEventQuickAction(keyDate);
+                        }}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <MoreHorizontal size={16} color="#CCCCCC" />
+                      </Pressable>
                     </Pressable>
-                  </View>
-                </Pressable>
-              </Modal>
+                  ))}
 
-              {/* Thick divider between On Your Plate and Time Blocks */}
-              <View style={styles.sectionDivider} />
-
-              {/* All Day - break habit awareness card */}
-              {breakHabitsByBlock.allday.length > 0 && (
-                <>
-                  <View style={styles.alldaySection}>
-                    <View style={styles.alldayHeader}>
-                      <View style={[styles.alldayBar, { backgroundColor: '#8B7E74' }]} />
-                      <ShieldOff size={16} color="#8B7E74" />
-                      <Text style={styles.alldayLabel}>ALL DAY</Text>
-                    </View>
+                  {breakHabitsByBlock.allday.length > 0 && (
                     <BreakHabitCard names={breakHabitsByBlock.allday} />
-                  </View>
-                  <View style={styles.blockDivider} />
-                </>
-              )}
+                  )}
+                </View>
+                <View style={styles.blockDivider} />
+              </>
+            )}
 
-              {/* Time Blocks */}
-              <TimeBlockSection
-                capacity={capacity.blocks.morning}
-                events={getEventsForBlock(calendarEvents, 'morning', today, timeBlockPreferences)}
-                keyDateEvents={keyDatesByBlock.morning}
-                getSpaceName={getSpaceName}
-                onKeyDatePress={onKeyDatePress}
-                tasks={tasksByBlock.morning}
-                onTaskPress={handleTaskPress}
-                onTimePress={handleTimePress}
-                hiddenEventIds={hiddenEventIds}
-                dateContext={today}
-              />
-              {breakHabitsByBlock.morning.length > 0 && (
-                <BreakHabitCard names={breakHabitsByBlock.morning} />
-              )}
-
-              <View style={styles.blockDivider} />
-
-              <TimeBlockSection
-                capacity={capacity.blocks.day}
-                events={getEventsForBlock(calendarEvents, 'day', today, timeBlockPreferences)}
-                keyDateEvents={keyDatesByBlock.day}
-                getSpaceName={getSpaceName}
-                onKeyDatePress={onKeyDatePress}
-                tasks={tasksByBlock.afternoon}
-                onTaskPress={handleTaskPress}
-                onTimePress={handleTimePress}
-                hiddenEventIds={hiddenEventIds}
-                dateContext={today}
-              />
-              {breakHabitsByBlock.afternoon.length > 0 && (
-                <BreakHabitCard names={breakHabitsByBlock.afternoon} />
-              )}
-
-              <View style={styles.blockDivider} />
-
-              <TimeBlockSection
-                capacity={capacity.blocks.evening}
-                events={getEventsForBlock(calendarEvents, 'evening', today, timeBlockPreferences)}
-                keyDateEvents={keyDatesByBlock.evening}
-                getSpaceName={getSpaceName}
-                onKeyDatePress={onKeyDatePress}
-                tasks={tasksByBlock.evening}
-                onTaskPress={handleTaskPress}
-                onTimePress={handleTimePress}
-                hiddenEventIds={hiddenEventIds}
-                dateContext={today}
-              />
-              {breakHabitsByBlock.evening.length > 0 && (
-                <BreakHabitCard names={breakHabitsByBlock.evening} />
-              )}
-            </ScrollView>
-
-            {/* Footer */}
-            <MorningBriefFooter onComplete={handleComplete} isLoading={isSaving} />
-
-            {/* Time Block Picker */}
-            <TimeBlockPicker
-              visible={pickerVisible}
-              task={selectedTask}
-              onClose={handlePickerClose}
-              onAssign={handleAssign}
+            {/* Time Blocks */}
+            <TimeBlockSection
+              capacity={capacity.blocks.morning}
+              events={[]}
+              keyDateEvents={keyDatesByBlock.morning}
+              getSpaceName={getSpaceName}
+              onKeyDatePress={onKeyDatePress}
+              onKeyDateQuickAction={handleEventQuickAction}
+              tasks={tasksByBlock.morning}
+              onTaskPress={handleTaskPress}
+              onTimePress={handleTimePress}
+              hiddenEventIds={hiddenEventIds}
+              dateContext={today}
+              slottedItems={slottedItemsByBlock.morning}
+              onGapSlotPress={(gap) => handleGapSlotPress(gap, 'morning')}
+              onSlottedTaskPress={handleSlottedTaskPress}
+              taskDataById={taskDataById}
             />
+            {breakHabitsByBlock.morning.length > 0 && (
+              <BreakHabitCard names={breakHabitsByBlock.morning} />
+            )}
 
-            {/* Time Estimate Picker */}
-            <TimeEstimatePicker
-              visible={timePickerVisible}
-              taskId={timePickerTask?.id ?? null}
-              taskType={timePickerTask?.type ?? null}
-              taskTitle={timePickerTask?.title ?? null}
-              currentEstimate={timePickerTask?.estimatedMinutes ?? null}
-              onClose={handleTimePickerClose}
-              onSave={handleTimeSave}
+            <View style={styles.blockDivider} />
+
+            <TimeBlockSection
+              capacity={capacity.blocks.day}
+              events={[]}
+              keyDateEvents={keyDatesByBlock.day}
+              getSpaceName={getSpaceName}
+              onKeyDatePress={onKeyDatePress}
+              onKeyDateQuickAction={handleEventQuickAction}
+              tasks={tasksByBlock.afternoon}
+              onTaskPress={handleTaskPress}
+              onTimePress={handleTimePress}
+              hiddenEventIds={hiddenEventIds}
+              dateContext={today}
+              slottedItems={slottedItemsByBlock.afternoon}
+              onGapSlotPress={(gap) => handleGapSlotPress(gap, 'afternoon')}
+              onSlottedTaskPress={handleSlottedTaskPress}
+              taskDataById={taskDataById}
             />
+            {breakHabitsByBlock.afternoon.length > 0 && (
+              <BreakHabitCard names={breakHabitsByBlock.afternoon} />
+            )}
 
-            {/* Quick Add Modal - renders on top of Morning Brief */}
-            {/* Quick-add items use dueDayOverride via useNowQuickAdd → useMindDropSubmit pipeline */}
-            <NowQuickAddModal
-              visible={isQuickAddVisible}
-              onClose={handleQuickAddClose}
-              onSubmit={handleQuickAddSubmit}
-              onPressManualAdd={handleQuickAddManual}
+            <View style={styles.blockDivider} />
+
+            <TimeBlockSection
+              capacity={capacity.blocks.evening}
+              events={[]}
+              keyDateEvents={keyDatesByBlock.evening}
+              getSpaceName={getSpaceName}
+              onKeyDatePress={onKeyDatePress}
+              onKeyDateQuickAction={handleEventQuickAction}
+              tasks={tasksByBlock.evening}
+              onTaskPress={handleTaskPress}
+              onTimePress={handleTimePress}
+              hiddenEventIds={hiddenEventIds}
+              dateContext={today}
+              slottedItems={slottedItemsByBlock.evening}
+              onGapSlotPress={(gap) => handleGapSlotPress(gap, 'evening')}
+              onSlottedTaskPress={handleSlottedTaskPress}
+              taskDataById={taskDataById}
             />
+            {breakHabitsByBlock.evening.length > 0 && (
+              <BreakHabitCard names={breakHabitsByBlock.evening} />
+            )}
+          </ScrollView>
 
-            {/* Global Event Popup - must be inside MorningBriefSheet Modal to appear on top */}
-            <GlobalEventPopup />
+          {/* Footer */}
+          <MorningBriefFooter
+            onComplete={handleComplete}
+            isLoading={isSaving}
+            showLockIn={showLockInButton}
+            onLockInPress={handleLockInPress}
+          />
 
-            {/* Global Event Time Picker - must be inside MorningBriefSheet Modal to appear on top */}
-            <GlobalEventTimePicker />
-          </>
-        )}
-      </View>
-    </Modal>
+          {/* Time Block Picker */}
+          <TimeBlockPicker
+            visible={pickerVisible}
+            task={selectedTask}
+            onClose={handlePickerClose}
+            onAssign={handleAssign}
+            targetDate={isTomorrow ? today : undefined}
+          />
+
+          {/* Lock-In Picker */}
+          <LockInPicker
+            visible={lockInPickerVisible}
+            items={lockInEligibleItems}
+            onClose={handleLockInPickerClose}
+            onConfirm={handleLockInConfirm}
+          />
+
+          {/* Gap Slot Picker */}
+          <GapSlotPicker
+            visible={gapSlotPickerVisible}
+            gap={selectedGap}
+            availableTasks={tasksForGapPicker}
+            onClose={handleGapSlotPickerClose}
+            onSlotTask={handleGapSlotTask}
+          />
+
+          {/* Time Estimate Picker */}
+          <TimeEstimatePicker
+            visible={timePickerVisible}
+            taskId={timePickerTask?.id ?? null}
+            taskType={timePickerTask?.type ?? null}
+            taskTitle={timePickerTask?.title ?? null}
+            currentEstimate={timePickerTask?.estimatedMinutes ?? null}
+            onClose={handleTimePickerClose}
+            onSave={handleTimeSave}
+          />
+
+          {/* Quick Add Modal - renders on top of Morning Brief */}
+          {/* Quick-add items use dueDayOverride via useNowQuickAdd → useMindDropSubmit pipeline */}
+          <NowQuickAddModal
+            visible={isQuickAddVisible}
+            onClose={handleQuickAddClose}
+            onSubmit={handleQuickAddSubmit}
+            onPressManualAdd={handleQuickAddManual}
+          />
+
+          {/* Global Event Popup - must be inside MorningBriefSheet Modal to appear on top */}
+          <GlobalEventPopup />
+
+          {/* Global Event Time Picker - must be inside MorningBriefSheet Modal to appear on top */}
+          <GlobalEventTimePicker />
+
+          {/* Event Quick Action Sheet */}
+          <EventQuickActionSheet
+            visible={!!quickActionEvent}
+            event={quickActionEvent}
+            onClose={() => setQuickActionEvent(null)}
+            onDismiss={handleDismissEvent}
+            onEditTime={handleEditEventTime}
+            onAddPrepNote={handleAddPrepNote}
+            onLinkTodo={(eventId) => {
+              setQuickActionEvent(null);
+            }}
+            onRemind={handleEventRemind}
+            onOpenFull={handleOpenFullEvent}
+          />
+        </>
+      )}
+    </View>
   );
 }
 
@@ -789,6 +1129,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.5,
     color: '#8B7E74',
+  },
+  alldayEventRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  alldayEventTitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#0E1116',
+    flex: 1,
+  },
+  quickActionButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
   },
   sectionDivider: {
     height: 2,

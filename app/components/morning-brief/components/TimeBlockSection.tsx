@@ -7,17 +7,33 @@
  * - Assigned tasks
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal } from 'react-native';
-import { Sunrise, Sun, Sunset, Calendar, X, ChevronUp, ChevronDown } from 'lucide-react-native';
+import {
+  Sunrise,
+  Sun,
+  Sunset,
+  Calendar,
+  X,
+  ChevronUp,
+  ChevronDown,
+  MoreHorizontal,
+} from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { getEffectiveEventTimes, type EventTimeOverride } from '../../../../lib/capacity';
 import type { TimeBlockCapacity, TimeBlock, TimeBlockPreferences } from '../../../../lib/capacity';
 import type { CalendarEvent } from '../../../../lib/calendar/CalendarClient';
-import type { Note } from '../../../../lib/types';
+import type { Todo, Habit, Note } from '../../../../lib/types';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { TaskItem, type TaskItemData } from './TaskItem';
 import { EventTimePicker } from './EventTimePicker';
+import { GapRow } from './GapRow';
+import {
+  buildTimeline,
+  getBlockBoundaryIso,
+  type TimeGap,
+  type SlottedTask,
+} from '../../../../lib/timeGaps';
 
 // Stable empty object to prevent re-renders from new object references
 const EMPTY_TIME_OVERRIDES: Record<string, EventTimeOverride> = {};
@@ -81,6 +97,8 @@ interface TimeBlockSectionProps {
   getSpaceName?: (spaceId: string | null | undefined) => string | undefined;
   /** Called when user taps a Key Date event */
   onKeyDatePress?: (event: Note) => void;
+  /** Called when user taps the three-dot quick action on a Key Date event */
+  onKeyDateQuickAction?: (event: Note) => void;
   tasks: TaskItemData[];
   onTaskPress: (task: TaskItemData) => void;
   /** Called when user taps the time estimate */
@@ -89,6 +107,14 @@ interface TimeBlockSectionProps {
   hiddenEventIds?: string[];
   /** Date context for hiding events (YYYY-MM-DD) */
   dateContext: string;
+  /** Todos/habits slotted into specific times in this block */
+  slottedItems?: Array<(Todo | Habit) & { scheduled_start_iso: string }>;
+  /** Called when user taps [+] on a gap */
+  onGapSlotPress?: (gap: TimeGap) => void;
+  /** Called when user taps a slotted task */
+  onSlottedTaskPress?: (task: SlottedTask) => void;
+  /** Lookup map: id → TaskItemData for rendering slotted tasks with TaskItem */
+  taskDataById?: Record<string, TaskItemData>;
 }
 
 /**
@@ -118,11 +144,16 @@ export function TimeBlockSection({
   keyDateEvents = [],
   getSpaceName,
   onKeyDatePress,
+  onKeyDateQuickAction,
   tasks,
   onTaskPress,
   onTimePress,
   hiddenEventIds = [],
   dateContext,
+  slottedItems = [],
+  onGapSlotPress,
+  onSlottedTaskPress,
+  taskDataById = {},
 }: TimeBlockSectionProps) {
   const { block, availableMinutes, isPast } = capacity;
   const config = SECTION_CONFIG[block];
@@ -191,11 +222,26 @@ export function TimeBlockSection({
     return events.filter((e) => !e.isAllDay && !hiddenSet.has(getEventId(e)));
   }, [events, hiddenEventIds]);
 
+  // Build timeline with events, slotted tasks, and gaps
+  const timeline = useMemo(() => {
+    const { startIso, endIso } = getBlockBoundaryIso(
+      dateContext,
+      capacity.startHour,
+      capacity.endHour,
+    );
+    return buildTimeline(visibleEvents, slottedItems, startIso, endIso);
+  }, [visibleEvents, slottedItems, dateContext, capacity.startHour, capacity.endHour]);
+
+  const hasTimeline = timeline.length > 0;
+
+  // Set of slotted task IDs to exclude from bottom "Assigned Tasks" section
+  const slottedIds = useMemo(() => new Set((slottedItems ?? []).map((s) => s.id)), [slottedItems]);
+
   if (!config) return null;
 
   const { label, color, Icon } = config;
 
-  const isEmpty = visibleEvents.length === 0 && keyDateEvents.length === 0 && tasks.length === 0;
+  const isEmpty = timeline.length === 0 && keyDateEvents.length === 0 && tasks.length === 0;
 
   const handleEventPress = (event: CalendarEvent) => {
     console.log('[TimeBlockSection] handleEventPress called:', event.title);
@@ -249,8 +295,55 @@ export function TimeBlockSection({
         </Text>
       </View>
 
-      {/* Calendar Events - 2 lines only */}
-      {visibleEvents.map((event, idx) => {
+      {/* Timeline: Events + Gaps + Slotted Tasks */}
+      {timeline.map((entry, idx) => {
+        const isLastTimeline =
+          idx === timeline.length - 1 && keyDateEvents.length === 0 && tasks.length === 0;
+
+        if (entry.kind === 'gap') {
+          return (
+            <GapRow key={`gap-${entry.startIso}`} gap={entry.gap!} onSlotPress={onGapSlotPress} />
+          );
+        }
+
+        if (entry.kind === 'slotted_task') {
+          const st = entry.slottedTask!;
+          const taskData = taskDataById[st.id];
+          const timeLabel = new Date(st.scheduledStartIso).toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+          });
+
+          return (
+            <React.Fragment key={`slotted-${st.id}`}>
+              <View style={styles.slottedRow}>
+                <View style={styles.slottedTaskContent}>
+                  {taskData ? (
+                    <TaskItem
+                      task={taskData}
+                      onPress={() => onSlottedTaskPress?.(st)}
+                      onTimePress={onTimePress}
+                      showEstimate={true}
+                      dimmed={isPast}
+                    />
+                  ) : (
+                    <View style={styles.taskRow}>
+                      <Text style={{ fontSize: 14, color: COLORS.charcoalInk }}>{st.title}</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.slottedTime}>{timeLabel}</Text>
+              </View>
+              {!isLastTimeline && timeline[idx + 1]?.kind !== 'gap' && (
+                <View style={styles.rowDivider} />
+              )}
+            </React.Fragment>
+          );
+        }
+
+        // kind === 'event'
+        const event = entry.event!;
         const eventId = getEventId(event);
         const {
           startAt: effectiveStart,
@@ -258,29 +351,23 @@ export function TimeBlockSection({
           hasOverride,
         } = getEffectiveEventTimes(event, eventTimeOverrides);
 
-        // Calculate durations
         const originalMinutes = getOriginalDurationMinutes(event);
         const effectiveMinutes = Math.round(
           (effectiveEnd.getTime() - effectiveStart.getTime()) / (1000 * 60),
         );
 
-        // Format times for display
         const formatTime = (d: Date) =>
           d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
         const effectiveTimeRange = `${formatTime(effectiveStart)} - ${formatTime(effectiveEnd)}`;
 
-        const isLast =
-          idx === visibleEvents.length - 1 && keyDateEvents.length === 0 && tasks.length === 0;
         return (
           <React.Fragment key={eventId}>
             <Pressable style={styles.eventRow} onPress={() => handleEventPress(event)}>
               <Calendar size={16} color={COLORS.inkMuted} style={styles.eventIcon} />
               <View style={styles.eventContent}>
-                {/* Line 1: Time + Duration */}
                 <Text style={[styles.eventTime, isPast && styles.textMuted]}>
                   {effectiveTimeRange}{' '}
                   {hasOverride ? (
-                    // Override: Show duration change
                     <>
                       <Text style={styles.durationStrike}>
                         ({formatDurationMinutes(originalMinutes)}
@@ -291,17 +378,17 @@ export function TimeBlockSection({
                       </Text>
                     </>
                   ) : (
-                    // No override: Show duration only
                     <>({formatDurationMinutes(effectiveMinutes)})</>
                   )}
                 </Text>
-                {/* Line 2: Title */}
                 <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
                   {event.title}
                 </Text>
               </View>
             </Pressable>
-            {!isLast && <View style={styles.rowDivider} />}
+            {!isLastTimeline && timeline[idx + 1]?.kind !== 'gap' && (
+              <View style={styles.rowDivider} />
+            )}
           </React.Fragment>
         );
       })}
@@ -352,6 +439,18 @@ export function TimeBlockSection({
                   </>
                 )}
               </View>
+              {onKeyDateQuickAction && (
+                <Pressable
+                  style={styles.quickActionButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onKeyDateQuickAction(keyDate);
+                  }}
+                  hitSlop={8}
+                >
+                  <MoreHorizontal size={16} color="#CCCCCC" />
+                </Pressable>
+              )}
             </Pressable>
             {!isLast && <View style={styles.rowDivider} />}
           </React.Fragment>
@@ -359,23 +458,25 @@ export function TimeBlockSection({
       })}
 
       {/* Assigned Tasks */}
-      {tasks.map((task, idx) => {
-        const isLast = idx === tasks.length - 1;
-        return (
-          <React.Fragment key={task.id}>
-            <View style={styles.taskRow}>
-              <TaskItem
-                task={task}
-                onPress={onTaskPress}
-                onTimePress={onTimePress}
-                showEstimate={true}
-                dimmed={isPast}
-              />
-            </View>
-            {!isLast && <View style={styles.rowDivider} />}
-          </React.Fragment>
-        );
-      })}
+      {tasks
+        .filter((t) => !slottedIds.has(t.id))
+        .map((task, idx, arr) => {
+          const isLast = idx === arr.length - 1;
+          return (
+            <React.Fragment key={task.id}>
+              <View style={styles.taskRow}>
+                <TaskItem
+                  task={task}
+                  onPress={onTaskPress}
+                  onTimePress={onTimePress}
+                  showEstimate={true}
+                  dimmed={isPast}
+                />
+              </View>
+              {!isLast && <View style={styles.rowDivider} />}
+            </React.Fragment>
+          );
+        })}
 
       {/* Empty state */}
       {isEmpty && !isPast && (
@@ -653,5 +754,27 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: COLORS.surface,
+  },
+  slottedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  slottedTaskContent: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  slottedTime: {
+    fontSize: 12,
+    color: '#999999',
+    paddingRight: 16,
+    minWidth: 65,
+    textAlign: 'right',
+  },
+  quickActionButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
   },
 });

@@ -4,7 +4,14 @@
  */
 
 import React, { useState } from 'react';
-import { View, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Image } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  ActivityIndicator,
+  TouchableOpacity,
+  Linking,
+  Image,
+} from 'react-native';
 import Animated, { FadeIn, SlideInRight, Layout } from 'react-native-reanimated';
 import { Search } from 'lucide-react-native';
 import { Text } from '../../ui/Text';
@@ -40,14 +47,14 @@ interface SourcesDisplayProps {
 
 function SourcesDisplay({ sources }: SourcesDisplayProps) {
   const [failedFavicons, setFailedFavicons] = useState<Record<number, boolean>>({});
-  
+
   // Generate consistent color from domain for fallback
   const getDomainColor = (domain: string) => {
     const colors = ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#6366F1'];
     const hash = domain.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
     return colors[hash % colors.length];
   };
-  
+
   return (
     <View style={styles.sourcesRow}>
       <Text style={styles.sourcesLabel}>Sources:</Text>
@@ -59,11 +66,12 @@ function SourcesDisplay({ sources }: SourcesDisplayProps) {
         } catch {
           domain = source.url;
         }
-        
+
         // Use DuckDuckGo's favicon service (more reliable, no CORS issues)
         const faviconUrl = `https://icons.duckduckgo.com/ip3/${domain}.ico`;
-        const displayName = domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
-        
+        const displayName =
+          domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
+
         return (
           <React.Fragment key={idx}>
             {idx > 0 && <Text style={styles.sourceSeparator}>·</Text>}
@@ -77,10 +85,12 @@ function SourcesDisplay({ sources }: SourcesDisplayProps) {
                   source={{ uri: faviconUrl }}
                   style={styles.sourceFavicon}
                   resizeMode="cover"
-                  onError={() => setFailedFavicons(prev => ({ ...prev, [idx]: true }))}
+                  onError={() => setFailedFavicons((prev) => ({ ...prev, [idx]: true }))}
                 />
               ) : (
-                <View style={[styles.sourceFallbackDot, { backgroundColor: getDomainColor(domain) }]} />
+                <View
+                  style={[styles.sourceFallbackDot, { backgroundColor: getDomainColor(domain) }]}
+                />
               )}
               <Text style={styles.sourceName} numberOfLines={1}>
                 {displayName}
@@ -107,6 +117,7 @@ function ChatBubbleInner({
 
   // Streaming state
   const isStreaming = (message as any).isStreaming === true;
+  const wasStreamed = (message as any).wasStreamed === true;
   const streamingFailed = (message as any).streamingCancelled === true;
   const isSearching = (message as any).isSearching === true;
   const searchQuery = (message as any).searchQuery as string | null;
@@ -140,13 +151,14 @@ function ChatBubbleInner({
   const userAnimation = isTestEnv ? undefined : SlideInRight.duration(150).springify().mass(0.8);
 
   // Assistant messages: fade in with gentle rise
-  const assistantAnimation = isTestEnv
-    ? undefined
-    : FadeIn.duration(200)
-        .delay(120)
-        .withInitialValues({
-          transform: [{ translateY: 10 }],
-        });
+  const assistantAnimation =
+    isTestEnv || wasStreamed
+      ? undefined
+      : FadeIn.duration(200)
+          .delay(120)
+          .withInitialValues({
+            transform: [{ translateY: 10 }],
+          });
 
   // Layout animation
   const layoutAnimation = isTestEnv ? undefined : Layout.springify();
@@ -293,11 +305,13 @@ function ChatBubbleInner({
           }
 
           // Build smart suggestion from saveable data if we have title
-          const smartSuggestion = saveable.title ? {
-            type: saveable.type,
-            title: saveable.title,
-            steps: saveable.prefillData?.steps || [],
-          } : undefined;
+          const smartSuggestion = saveable.title
+            ? {
+                type: saveable.type,
+                title: saveable.title,
+                steps: saveable.prefillData?.steps || [],
+              }
+            : undefined;
 
           return (
             <View style={styles.saveableCardContainer}>
@@ -307,7 +321,9 @@ function ChatBubbleInner({
                 savedType={savedType}
                 savedItemId={saveable.savedItemId}
                 smartSuggestion={smartSuggestion}
-                onTypeChange={onTypeChange ? (newType) => onTypeChange(message.id, newType) : undefined}
+                onTypeChange={
+                  onTypeChange ? (newType) => onTypeChange(message.id, newType) : undefined
+                }
                 onSave={() => onSavePress?.(saveable)}
                 onEdit={() => onEditPress?.(saveable)}
                 onDismiss={() => onDismissSaveable?.(message.id)}

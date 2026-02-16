@@ -8,7 +8,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import { View, Text, Modal, Pressable, StyleSheet, Switch } from 'react-native';
-import { Sunrise, Sun, Sunset, ArrowLeftRight, Diamond, Check, EyeOff } from 'lucide-react-native';
+import { Sunrise, Sun, Sunset, Diamond, Check, EyeOff } from 'lucide-react-native';
 import { getTimeBlockBoundaries, type TimeBlock } from '../../../../lib/capacity';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import type { TaskItemData } from './TaskItem';
@@ -32,13 +32,6 @@ function formatHour(hour: number): string {
   return `${hour - 12}pm`;
 }
 
-const FLEXIBLE_OPTION = {
-  key: 'any' as const,
-  label: 'Keep flexible',
-  color: '#999999',
-  Icon: ArrowLeftRight,
-};
-
 interface TimeBlockPickerProps {
   visible: boolean;
   task: TaskItemData | null;
@@ -49,9 +42,17 @@ interface TimeBlockPickerProps {
     timeWindow: TimeBlock | 'any',
     lockIn: boolean,
   ) => void;
+  /** Target date for "Not today" storage. Defaults to today. */
+  targetDate?: string;
 }
 
-export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockPickerProps) {
+export function TimeBlockPicker({
+  visible,
+  task,
+  onClose,
+  onAssign,
+  targetDate,
+}: TimeBlockPickerProps) {
   // Get time block preferences and hide action from store
   const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
   const hideForToday = useGremlyStore((s) => s.hideForToday);
@@ -106,13 +107,15 @@ export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockP
   const currentTimeWindow = task.timeWindow;
   const isFlexible = !currentTimeWindow || currentTimeWindow === 'any';
 
-  const handleSelect = (key: TimeBlock | 'any') => {
-    onAssign(task.id, task.type, key, lockIn);
+  const handleSelect = (key: TimeBlock) => {
+    // Toggle: if tapping the already-selected block, deselect back to flexible
+    const resolvedKey = currentTimeWindow === key ? 'any' : key;
+    onAssign(task.id, task.type, resolvedKey, lockIn);
     onClose();
   };
 
   const handleNotToday = () => {
-    hideForToday(task.id);
+    hideForToday(task.id, targetDate);
     onClose();
   };
 
@@ -121,6 +124,7 @@ export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockP
       <Pressable style={styles.overlay} onPress={onClose}>
         <View style={styles.content} onStartShouldSetResponder={() => true}>
           <Text style={styles.title}>Assign to time block</Text>
+          <Text style={styles.subtitle}>Tap a block, or leave unassigned</Text>
 
           {/* Time Block Options */}
           {timeBlockOptions.map((option) => {
@@ -146,23 +150,6 @@ export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockP
           {/* Divider */}
           <View style={styles.divider} />
 
-          {/* Keep Flexible Option */}
-          <Pressable
-            style={[styles.option, isFlexible && styles.optionSelected]}
-            onPress={() => handleSelect('any')}
-          >
-            <FLEXIBLE_OPTION.Icon
-              size={20}
-              color={FLEXIBLE_OPTION.color}
-              style={styles.optionIcon}
-            />
-            <Text style={styles.optionLabel}>{FLEXIBLE_OPTION.label}</Text>
-            {isFlexible && <Check size={20} color={COLORS.mossGreen} />}
-          </Pressable>
-
-          {/* Divider */}
-          <View style={styles.divider} />
-
           {/* Lock-in Toggle */}
           <View style={styles.lockInRow}>
             <Diamond size={20} color={COLORS.mossGreen} style={styles.optionIcon} />
@@ -182,8 +169,16 @@ export function TimeBlockPicker({ visible, task, onClose, onAssign }: TimeBlockP
           <Pressable style={styles.option} onPress={handleNotToday}>
             <EyeOff size={20} color={COLORS.inkMuted} style={styles.optionIcon} />
             <View style={styles.optionLabelContainer}>
-              <Text style={styles.optionLabel}>Not today</Text>
-              <Text style={styles.optionTimeRange}>Hide from Morning Brief until tomorrow</Text>
+              <Text style={styles.optionLabel}>{targetDate ? 'Not tomorrow' : 'Not today'}</Text>
+              <Text style={styles.optionTimeRange}>
+                {task.type === 'habit'
+                  ? targetDate
+                    ? 'Skip for tomorrow'
+                    : 'Skip for today, back tomorrow'
+                  : targetDate
+                    ? 'Skip for tomorrow'
+                    : 'Hide for now — sweep will check in'}
+              </Text>
             </View>
           </Pressable>
 
@@ -218,6 +213,13 @@ const styles = StyleSheet.create({
     color: COLORS.charcoalInk,
     textAlign: 'center',
     marginBottom: 16,
+  },
+  subtitle: {
+    fontSize: 13,
+    color: COLORS.inkMuted,
+    textAlign: 'center',
+    marginTop: -8,
+    marginBottom: 12,
   },
   option: {
     flexDirection: 'row',

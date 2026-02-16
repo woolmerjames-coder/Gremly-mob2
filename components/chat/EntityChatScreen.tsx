@@ -41,6 +41,7 @@ import { ChatComposer } from './ChatComposer';
 import { ChatBubble } from './ChatBubble';
 import SaveButton from './SaveButton';
 import { lightTokens } from '../../design/tokens';
+import { useNetworkStatus } from '../../lib/network/useNetworkStatus';
 import type { SaveableType } from '../../lib/chat/saveableTypes';
 import type {
   EntityChatPreset,
@@ -281,6 +282,8 @@ export function EntityChatScreen({
   const chatData = getEntityChat(entityId, entityType);
   const storedMessages = chatData?.messages ?? [];
 
+  const { isConnected } = useNetworkStatus();
+
   // ─── Local State ───────────────────────────────────────────────────────────
   const [isLoading, setIsLoading] = useState(false);
   const [lastSaveable, setLastSaveable] = useState<EntityChatResponse['saveable'] | null>(null);
@@ -309,6 +312,20 @@ export function EntityChatScreen({
   const handleSendMessage = useCallback(
     async (text: string, preset?: EntityChatPreset) => {
       if (!entity || isLoading) return;
+
+      // Offline guard — prevent network-dependent chat when offline
+      if (!isConnected) {
+        await appendEntityChatMessage(entityId, entityType, {
+          role: 'user',
+          content: text,
+        });
+        await appendEntityChatMessage(entityId, entityType, {
+          role: 'assistant',
+          content:
+            "I need an internet connection to chat. Your data is safe — I'll be ready when we're back online!",
+        });
+        return;
+      }
 
       setIsLoading(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -423,41 +440,62 @@ export function EntityChatScreen({
               );
               // Update message with fetching state directly
               const state = useGremlyStore.getState();
-              const updateFetching = (msg: any) => 
+              const updateFetching = (msg: any) =>
                 msg.id === streamingMessageIdRef.current
                   ? { ...msg, metadata: { ...msg.metadata, isFetching, fetchingUrl } }
                   : msg;
               if (entityType === 'todo') {
-                const todo = state.todos.find(t => t.id === entityId);
+                const todo = state.todos.find((t) => t.id === entityId);
                 if (todo?.views?.chat) {
                   const chat = todo.views.chat as any;
                   useGremlyStore.setState({
-                    todos: state.todos.map(t => t.id === entityId ? {
-                      ...t,
-                      views: { ...t.views, chat: { ...chat, messages: chat.messages.map(updateFetching) } }
-                    } : t)
+                    todos: state.todos.map((t) =>
+                      t.id === entityId
+                        ? {
+                            ...t,
+                            views: {
+                              ...t.views,
+                              chat: { ...chat, messages: chat.messages.map(updateFetching) },
+                            },
+                          }
+                        : t,
+                    ),
                   });
                 }
               } else if (entityType === 'habit') {
-                const habit = state.habits.find(h => h.id === entityId);
+                const habit = state.habits.find((h) => h.id === entityId);
                 if (habit?.views?.chat) {
                   const chat = habit.views.chat as any;
                   useGremlyStore.setState({
-                    habits: state.habits.map(h => h.id === entityId ? {
-                      ...h,
-                      views: { ...h.views, chat: { ...chat, messages: chat.messages.map(updateFetching) } }
-                    } : h)
+                    habits: state.habits.map((h) =>
+                      h.id === entityId
+                        ? {
+                            ...h,
+                            views: {
+                              ...h.views,
+                              chat: { ...chat, messages: chat.messages.map(updateFetching) },
+                            },
+                          }
+                        : h,
+                    ),
                   });
                 }
               } else if (entityType === 'note') {
-                const note = state.notes.find(n => n.id === entityId);
+                const note = state.notes.find((n) => n.id === entityId);
                 if (note?.views?.chat) {
                   const chat = note.views.chat as any;
                   useGremlyStore.setState({
-                    notes: state.notes.map(n => n.id === entityId ? {
-                      ...n,
-                      views: { ...n.views, chat: { ...chat, messages: chat.messages.map(updateFetching) } }
-                    } : n)
+                    notes: state.notes.map((n) =>
+                      n.id === entityId
+                        ? {
+                            ...n,
+                            views: {
+                              ...n.views,
+                              chat: { ...chat, messages: chat.messages.map(updateFetching) },
+                            },
+                          }
+                        : n,
+                    ),
                   });
                 }
               }
@@ -600,6 +638,7 @@ export function EntityChatScreen({
       entityId,
       entityType,
       isLoading,
+      isConnected,
       appendEntityChatMessage,
       createStreamingMessage,
       updateStreamingContent,
@@ -696,7 +735,11 @@ export function EntityChatScreen({
           note_type: 'regular' as const,
         };
 
-        console.log('[EntityChatScreen] Saving note to entity:', { entityId, entityType, noteData });
+        console.log('[EntityChatScreen] Saving note to entity:', {
+          entityId,
+          entityType,
+          noteData,
+        });
         await saveEntityChatNote(entityId, entityType, noteData);
         console.log('[EntityChatScreen] Note saved successfully');
         setSaveState('confirmed');
@@ -705,13 +748,7 @@ export function EntityChatScreen({
         setSaveState('initial');
       }
     },
-    [
-      entityId,
-      entityType,
-      saveEntityChatNote,
-      lastAssistantMessageId,
-      getEntityChat,
-    ],
+    [entityId, entityType, saveEntityChatNote, lastAssistantMessageId, getEntityChat],
   );
 
   // ─── Handle Dismiss Saveable ───────────────────────────────────────────────
@@ -739,7 +776,11 @@ export function EntityChatScreen({
       const isSearchingMessage = item.metadata?.isSearching === true;
 
       // Convert EntityChatMessage to SpaceChatMessage shape for ChatBubble
-      const bubbleMessage: SpaceChatMessage & { isStreaming?: boolean; sources?: Array<{ title: string; url: string }>; images?: string[] } = {
+      const bubbleMessage: SpaceChatMessage & {
+        isStreaming?: boolean;
+        sources?: Array<{ title: string; url: string }>;
+        images?: string[];
+      } = {
         id: item.id,
         chat_id: `entity-chat-${entityId}`, // Virtual chat ID for entity chats
         space_id: entity?.space_id ?? '',
@@ -971,7 +1012,7 @@ export function EntityChatScreen({
         <View style={styles.composerContainer}>
           <ChatComposer
             onSend={(text) => handleSendMessage(text)}
-            placeholder="Ask Gremly..."
+            placeholder={isConnected ? 'Ask Gremly...' : 'Chat available when online'}
             disabled={isLoading}
           />
         </View>

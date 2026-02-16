@@ -28,6 +28,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics';
 import { ChevronLeft } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
+import { useNetworkStatus } from '../../lib/network/useNetworkStatus';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -151,6 +152,8 @@ export default function ChatThreadScreen({ route }: Props) {
   const createTodo = useGremlyStore((s) => s.createTodo);
   const createHabit = useGremlyStore((s) => s.createHabit);
   const createNote = useGremlyStore((s) => s.createNote);
+
+  const { isConnected } = useNetworkStatus();
 
   const [chat, setChat] = useState<SpaceChat | null>(null);
   const [loading, setLoading] = useState(true);
@@ -618,6 +621,15 @@ export default function ChatThreadScreen({ route }: Props) {
       const trimmedText = text.trim();
       if (!trimmedText || !chat) return;
 
+      // Offline guard — prevent network-dependent chat when offline
+      if (!isConnected) {
+        Alert.alert(
+          "You're offline",
+          "Chat needs an internet connection. Your data is safe — Gremly will be ready when you're back online!",
+        );
+        return;
+      }
+
       // Guard against rapid double-taps while sending
       if (sending) {
         console.log('[Chat] Ignoring send - already sending');
@@ -985,6 +997,7 @@ export default function ChatThreadScreen({ route }: Props) {
       chatId,
       currentChatId,
       userId,
+      isConnected,
       sendUserMessage,
       appendAssistantMessage,
       messages,
@@ -1664,7 +1677,12 @@ export default function ChatThreadScreen({ route }: Props) {
 
           {/* Chat Composer */}
           <View style={{ paddingBottom: Math.max(insets.bottom, 8) }}>
-            <ChatComposer onSend={handleSendDebounced} disabled={sending} testID="chat-composer" />
+            <ChatComposer
+              onSend={handleSendDebounced}
+              disabled={sending}
+              placeholder={isConnected ? 'Type a message...' : 'Chat available when online'}
+              testID="chat-composer"
+            />
           </View>
 
           {ActionToast}

@@ -185,4 +185,59 @@ describe('EventBus', () => {
       expect(handler).toHaveBeenCalledWith({ date: '2025-12-16' });
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Notification open flow events (morning, evening, weekly_summary)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('notification:open_flow event', () => {
+    it('fires with morning type', () => {
+      const handler = jest.fn();
+      eventBus.on('notification:open_flow', handler);
+
+      eventBus.emit('notification:open_flow', { type: 'morning' });
+
+      expect(handler).toHaveBeenCalledWith({ type: 'morning' });
+    });
+
+    it('fires with evening type', () => {
+      const handler = jest.fn();
+      eventBus.on('notification:open_flow', handler);
+
+      eventBus.emit('notification:open_flow', { type: 'evening' });
+
+      expect(handler).toHaveBeenCalledWith({ type: 'evening' });
+    });
+
+    it('fires with weekly_summary type', () => {
+      const handler = jest.fn();
+      eventBus.on('notification:open_flow', handler);
+
+      eventBus.emit('notification:open_flow', { type: 'weekly_summary' });
+
+      expect(handler).toHaveBeenCalledWith({ type: 'weekly_summary' });
+    });
+
+    it('multiple handlers receive the event', () => {
+      const handler1 = jest.fn();
+      const handler2 = jest.fn();
+      eventBus.on('notification:open_flow', handler1);
+      eventBus.on('notification:open_flow', handler2);
+
+      eventBus.emit('notification:open_flow', { type: 'weekly_summary' });
+
+      expect(handler1).toHaveBeenCalledTimes(1);
+      expect(handler2).toHaveBeenCalledTimes(1);
+    });
+
+    it('unsubscribe stops delivery', () => {
+      const handler = jest.fn();
+      const unsubscribe = eventBus.on('notification:open_flow', handler);
+
+      unsubscribe();
+      eventBus.emit('notification:open_flow', { type: 'morning' });
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
 });

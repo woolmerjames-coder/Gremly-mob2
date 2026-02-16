@@ -38,10 +38,14 @@ import { OverwhelmFocusOverlay } from '../../components/now/OverwhelmFocusOverla
 import { NowProgressPopup } from '../../components/now/NowProgressPopup';
 import { YourNotesPopup } from '../../components/now/YourNotesPopup';
 import { JournalFullScreen } from '../../components/now/JournalFullScreen';
-import { MorningBriefSheet } from '../components/morning-brief/MorningBriefSheet';
+
+import EventQuickActionSheet from '../../components/now/EventQuickActionSheet';
+import TodoLinkSheet from '../../components/now/TodoLinkSheet';
+import { scheduleEventReminder } from '../../lib/notifications/scheduleEventReminder';
 import { useMorningBrief } from '../../lib/today/hooks/useMorningBrief';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import FirstTodayVisitBubble from '../../components/onboarding/FirstTodayVisitBubble';
+import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
 import { useDailyAppOpen } from '../../lib/today/hooks/useDailyAppOpen';
 // Store and selectors
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -60,7 +64,7 @@ import {
   useHabitsCompletedToday,
   useHabitsUpToDateCount,
   useTodayPendingDrops,
-  useEventsForDate,
+  useEventNotesForDate,
 } from '../../lib/store/selectors';
 import { useNowQuickAdd } from '../../lib/now/useNowQuickAdd';
 import { useOverwhelmFlow } from '../../lib/now/useOverwhelmFlow';
@@ -76,23 +80,15 @@ import type {
   NowCompletedItem,
 } from '../../lib/now/nowTypes';
 import type { SweepCandidate } from '../../lib/today/sweepSelectors';
-import type { CalendarEvent } from '../../lib/calendar/CalendarClient';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import type { Habit, Todo, Space, Note } from '../../lib/types';
 import { eventBus } from '../../lib/events';
 import { TimeBlockSection } from '../../components/now/TimeBlockSection';
-import { CalendarHint } from '../../components/now/CalendarHint';
-import { EventRow } from '../../components/now/EventRow';
 import {
   getCurrentTimeBlock,
-  groupEventsByTimeBlock,
-  formatEventTimeForHint,
   getTimeBlockForHour,
   type TimeBlock,
 } from '../../lib/now/timeBlockHelpers';
-
-// Stable empty array to avoid creating new references in selectors
-const EMPTY_CALENDAR_EVENTS: CalendarEvent[] = [];
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPE TRANSFORMERS - Convert raw store types to Now screen types
@@ -199,8 +195,9 @@ function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<TimeBlock, Note[]> {
   };
 
   for (const event of keyDates) {
-    if (event.event_time) {
-      // Parse HH:mm time string to get hour
+    if (event.is_all_day) {
+      grouped.allday.push(event);
+    } else if (event.event_time) {
       const [hourStr] = event.event_time.split(':');
       const hour = parseInt(hourStr, 10);
       if (!isNaN(hour)) {
@@ -210,7 +207,6 @@ function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<TimeBlock, Note[]> {
         grouped.anytime.push(event);
       }
     } else {
-      // No event_time - goes to anytime
       grouped.anytime.push(event);
     }
   }
@@ -322,28 +318,18 @@ export default function NowScreenV1() {
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
   const markFirstTodayVisitComplete = useGremlyStore((s) => s.markFirstTodayVisitComplete);
 
-  // Calendar integration - access today's events from the Record
+  // Calendar integration
   const todayStr = useMemo(() => getDateService().getCurrentDate(), []);
-  const todayCalendarEvents = useGremlyStore(
-    useCallback((s) => s.calendarEvents[todayStr] ?? EMPTY_CALENDAR_EVENTS, [todayStr]),
-  );
   const fetchCalendarEvents = useGremlyStore((s) => s.fetchCalendarEventsForRange);
 
-  // Key Dates - internal event notes for today
-  const todayKeyDates = useEventsForDate(todayStr);
-
-  // Debug: log calendar events selector result
-  console.log(
-    '[NowScreen] todayCalendarEvents:',
-    todayCalendarEvents.length,
-    'for date:',
-    todayStr,
-  );
+  // Unified event notes for today (external + native, from Phase 1 normalization)
+  const todayEventNotes = useEventNotesForDate(todayStr);
 
   // Morning Brief - sequences and brief state
   const { hasCompletedBriefToday, brief } = useMorningBrief();
-  const [isBriefSheetVisible, setBriefSheetVisible] = useState(false);
   const [briefTargetDate, setBriefTargetDate] = useState<string | undefined>(undefined);
+
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   // Daily app open detection
   const { isFirstOpenToday, isChecking, markTodayOpened } = useDailyAppOpen();
@@ -372,11 +358,12 @@ export default function NowScreenV1() {
   // Listen for "Plan your tomorrow" from sweep completion
   useEffect(() => {
     const unsub = eventBus.on('openTomorrowBrief', () => {
-      setBriefTargetDate(getDateService().addDays(todayStr, 1));
-      setBriefSheetVisible(true);
+      const td = getDateService().addDays(todayStr, 1);
+      setBriefTargetDate(td);
+      navigation.navigate('MorningBrief', { targetDate: td });
     });
     return () => unsub();
-  }, [todayStr]);
+  }, [todayStr, navigation]);
 
   // Auto-open Morning Brief on first open of the day (skip for brand new users)
   useEffect(() => {
@@ -384,7 +371,7 @@ export default function NowScreenV1() {
     if (!isChecking && isFirstOpenToday && !hasCompletedBriefToday && isInitialized && !loading) {
       // Small delay to let the screen render first
       const timer = setTimeout(() => {
-        setBriefSheetVisible(true);
+        navigation.navigate('MorningBrief');
       }, 500);
       return () => clearTimeout(timer);
     }
@@ -611,19 +598,25 @@ export default function NowScreenV1() {
 
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  // Handle notification tap to open Morning Brief or Evening Sweep
+  // Handle notification tap to open Morning Brief, Evening Sweep, or Weekly Summary
   useEffect(() => {
-    const handleNotificationOpen = (payload: { type: 'morning' | 'evening' }) => {
+    const handleNotificationOpen = (payload: {
+      type: 'morning' | 'evening' | 'weekly_summary';
+    }) => {
       if (payload.type === 'morning') {
         console.log('[NowScreenV1] Opening Morning Brief from notification');
-        setBriefSheetVisible(true);
+        navigation.navigate('MorningBrief');
       }
       // Evening notifications navigate to Sweep screen
       if (payload.type === 'evening') {
         console.log('[NowScreenV1] Opening Evening Sweep from notification');
         navigation.navigate('Sweep');
+      }
+      // Weekly summary notifications navigate to WeeklySummary screen
+      if (payload.type === 'weekly_summary') {
+        console.log('[NowScreenV1] Opening Weekly Summary from notification');
+        navigation.navigate('WeeklySummary');
       }
     };
 
@@ -638,6 +631,8 @@ export default function NowScreenV1() {
   const [showHelp, setShowHelp] = useState(false);
   const [showFirstVisitBubble, setShowFirstVisitBubble] = useState(false);
   const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
+  const [quickActionEvent, setQuickActionEvent] = useState<Note | null>(null);
+  const [linkTodoForEventId, setLinkTodoForEventId] = useState<string | null>(null);
 
   // Pending drops from store - shows loading cards while pipeline runs
   // These persist until promotePendingDropToEntity removes them
@@ -697,20 +692,94 @@ export default function NowScreenV1() {
     ],
   );
 
+  // Handle event quick action sheet
+  const handleEventQuickAction = useCallback((event: Note) => {
+    setQuickActionEvent(event);
+  }, []);
+
+  const handleDismissEvent = useCallback((eventId: string) => {
+    const now = new Date().toISOString();
+    useGremlyStore.getState().updateNote(eventId, {
+      archived: true,
+      archived_reason: 'dismissed_by_user',
+      archived_at: now,
+    });
+    setQuickActionEvent(null);
+  }, []);
+
+  const handleEditEventTime = useCallback(
+    (eventId: string, startTime: string, endTime: string | null) => {
+      useGremlyStore.getState().updateNote(eventId, {
+        event_time: startTime,
+        end_time: endTime,
+        user_edited_fields: [...(quickActionEvent?.user_edited_fields ?? []), 'event_time'],
+      });
+      setQuickActionEvent(null);
+    },
+    [quickActionEvent],
+  );
+
+  const handleAddPrepNote = useCallback((eventId: string, body: string) => {
+    useGremlyStore.getState().updateNote(eventId, { body });
+    setQuickActionEvent(null);
+  }, []);
+
+  const handleEventRemind = useCallback(
+    async (eventId: string, minutesBefore: number) => {
+      const event = quickActionEvent;
+      if (!event) return;
+
+      // Schedule the actual notification
+      const notificationId = await scheduleEventReminder(
+        eventId,
+        event.title || 'Event',
+        event.target_date || '',
+        event.event_time || null,
+        minutesBefore,
+      );
+
+      // Store reminder preferences + notification ID on the note
+      const existingIds = event.notification_ids ?? [];
+      useGremlyStore.getState().updateNote(eventId, {
+        reminder_preferences: { dayBefore: minutesBefore >= 1440, morningOf: false, minutesBefore },
+        ...(notificationId ? { notification_ids: [...existingIds, notificationId] } : {}),
+      });
+
+      setQuickActionEvent(null);
+    },
+    [quickActionEvent],
+  );
+
+  const handleOpenFullEvent = useCallback(
+    (event: Note) => {
+      setQuickActionEvent(null);
+      overlayController.openEdit({
+        record: { id: event.id, type: 'note' } as any,
+      });
+    },
+    [overlayController],
+  );
+
+  const handleLinkTodo = useCallback((eventId: string, todoId: string) => {
+    useGremlyStore.getState().updateTodo(todoId, { linked_event_id: eventId } as any);
+    useGremlyStore.getState().updateNote(eventId, { linked_event_id: todoId });
+    setLinkTodoForEventId(null);
+  }, []);
+
   // Handle key date press - close brief first, then open overlay for event note
   const handleKeyDatePress = useCallback(
     (event: Note) => {
       console.log('[NowScreenV1] handleKeyDatePress called:', event.id, event.title);
-      // Close the Morning Brief modal first
-      setBriefSheetVisible(false);
-      // Open the overlay after a short delay to allow modal to close
+      // Navigate back from Morning Brief screen first
+      navigation.goBack();
+      // Open the overlay after a short delay to allow screen to close
       setTimeout(() => {
         overlayController.openEdit({
           record: event,
         });
       }, 100);
     },
-    [overlayController],
+    [overlayController, navigation],
   );
 
   // Handle overwhelm plan submission
@@ -733,9 +802,9 @@ export default function NowScreenV1() {
       setShowDayPicker(true);
     } else {
       setBriefTargetDate(undefined);
-      setBriefSheetVisible(true);
+      navigation.navigate('MorningBrief');
     }
-  }, [hasSweepedToday]);
+  }, [hasSweepedToday, navigation]);
 
   // Add item to Today's Focus by setting due_day to today
   const handleAddToToday = useCallback(
@@ -839,7 +908,7 @@ export default function NowScreenV1() {
         habitsUpToDate={habitsUpToDate.upToDate}
         habitsTotal={habitsUpToDate.total}
         remainingMinutes={remainingMinutes}
-        calendarEvents={todayCalendarEvents}
+        eventNotes={todayEventNotes}
         onPressProgress={() => setProgressVisible(true)}
         onPressWeek={() => navigation.navigate('Habits')}
         onCalendarPress={handleCalendarHintPress}
@@ -850,6 +919,7 @@ export default function NowScreenV1() {
         visible={showFirstVisitBubble}
         onDismiss={handleDismissFirstVisitBubble}
       />
+      <WeeklySummaryBanner />
       <View style={styles.focusSectionHeader}>
         {/* Left: Section title only */}
         <View style={styles.focusSectionHeaderLeft}>
@@ -901,10 +971,9 @@ export default function NowScreenV1() {
           bottomInset={insets.bottom}
           brief={brief}
           lockedItemIds={lockedItemIds}
-          calendarEvents={todayCalendarEvents}
-          onCalendarHintPress={handleCalendarHintPress}
-          keyDates={todayKeyDates}
-          onKeyDatePress={handleKeyDatePress}
+          eventNotes={todayEventNotes}
+          onEventPress={handleKeyDatePress}
+          onEventQuickAction={handleEventQuickAction}
         />
       </View>
 
@@ -1044,7 +1113,7 @@ export default function NowScreenV1() {
               onPress={() => {
                 setShowDayPicker(false);
                 setBriefTargetDate(undefined);
-                setBriefSheetVisible(true);
+                navigation.navigate('MorningBrief');
               }}
             >
               <Text style={{ fontSize: 15, fontWeight: '600', color: '#2E5540' }}>Plan today</Text>
@@ -1058,8 +1127,9 @@ export default function NowScreenV1() {
               }}
               onPress={() => {
                 setShowDayPicker(false);
-                setBriefTargetDate(getDateService().addDays(todayStr, 1));
-                setBriefSheetVisible(true);
+                const td = getDateService().addDays(todayStr, 1);
+                setBriefTargetDate(td);
+                navigation.navigate('MorningBrief', { targetDate: td });
               }}
             >
               <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
@@ -1070,18 +1140,27 @@ export default function NowScreenV1() {
         </Pressable>
       </Modal>
 
-      {/* Morning Brief Sheet */}
-      <MorningBriefSheet
-        visible={isBriefSheetVisible}
-        targetDate={briefTargetDate}
-        onClose={() => {
-          setBriefSheetVisible(false);
-          setBriefTargetDate(undefined);
+      {/* Event Quick Action Sheet */}
+      <EventQuickActionSheet
+        visible={!!quickActionEvent}
+        event={quickActionEvent}
+        onClose={() => setQuickActionEvent(null)}
+        onDismiss={handleDismissEvent}
+        onEditTime={handleEditEventTime}
+        onAddPrepNote={handleAddPrepNote}
+        onLinkTodo={(eventId) => {
+          setQuickActionEvent(null);
+          setTimeout(() => setLinkTodoForEventId(eventId), 300);
         }}
-        onComplete={markTodayOpened}
-        onQuickAddSubmit={handleQuickAddSubmit}
-        onQuickAddManual={handleQuickAddManual}
-        onKeyDatePress={handleKeyDatePress}
+        onRemind={handleEventRemind}
+        onOpenFull={handleOpenFullEvent}
+      />
+
+      <TodoLinkSheet
+        visible={!!linkTodoForEventId}
+        eventId={linkTodoForEventId}
+        onClose={() => setLinkTodoForEventId(null)}
+        onSelect={handleLinkTodo}
       />
 
       {/* Help Card */}
@@ -1230,10 +1309,10 @@ type TodayFocusListProps = {
     evening_sequence?: { id: string }[];
   } | null;
   lockedItemIds?: Set<string>;
-  calendarEvents?: CalendarEvent[];
-  onCalendarHintPress?: () => void;
-  keyDates?: Note[];
-  onKeyDatePress?: (event: Note) => void;
+  /** All event notes for today (external + native, from useEventNotesForDate) */
+  eventNotes?: Note[];
+  onEventPress?: (event: Note) => void;
+  onEventQuickAction?: (event: Note) => void;
 };
 
 function TodayFocusList({
@@ -1251,19 +1330,15 @@ function TodayFocusList({
   bottomInset,
   brief,
   lockedItemIds,
-  calendarEvents = [],
-  onCalendarHintPress,
-  keyDates = [],
-  onKeyDatePress,
+  eventNotes = [],
+  onEventPress,
+  onEventQuickAction,
 }: TodayFocusListProps) {
   // Get current time block for highlighting
   const currentTimeBlock = getCurrentTimeBlock();
 
-  // Group calendar events by time block
-  const eventsByBlock = useMemo(() => groupEventsByTimeBlock(calendarEvents), [calendarEvents]);
-
-  // Group key dates (internal events) by time block based on event_time
-  const keyDatesByBlock = useMemo(() => groupKeyDatesByTimeBlock(keyDates), [keyDates]);
+  // Group all event notes by time block
+  const eventNotesByBlock = useMemo(() => groupKeyDatesByTimeBlock(eventNotes ?? []), [eventNotes]);
 
   // Build flat sorted list: locked items first, then active items sorted by sequence
   const sortedItems = useMemo(() => {
@@ -1347,20 +1422,9 @@ function TodayFocusList({
   // Only render if block has items, calendar events, key dates, or break habits
   const shouldRenderBlock = (block: TimeBlock) => {
     const hasItems = itemsByBlock[block].length > 0;
-    const hasEvents = eventsByBlock[block].length > 0;
-    const hasKeyDates = keyDatesByBlock[block].length > 0;
+    const hasEvents = eventNotesByBlock[block].length > 0;
     const hasBreakHabits = breakHabitsByBlock[block].length > 0;
-    return hasItems || hasEvents || hasKeyDates || hasBreakHabits;
-  };
-
-  // Helper to get calendar hint data for a block
-  const getCalendarHint = (block: TimeBlock) => {
-    const events = eventsByBlock[block];
-    if (events.length === 0) return null;
-    return {
-      count: events.length,
-      times: events.map(formatEventTimeForHint),
-    };
+    return hasItems || hasEvents || hasBreakHabits;
   };
 
   // Track which section is first for divider logic
@@ -1416,35 +1480,31 @@ function TodayFocusList({
         </TimeBlockSection>
       )}
 
-      {/* All Day section - break habit awareness card */}
-      {breakHabitsByBlock.allday.length > 0 && (
+      {/* All Day section */}
+      {shouldRenderBlock('allday') && (
         <TimeBlockSection block="allday" isFirst={getIsFirst()}>
-          <BreakHabitCard names={breakHabitsByBlock.allday} />
+          {eventNotesByBlock.allday.map((event, index) => (
+            <NowCalendarEventRow
+              key={event.id}
+              eventNote={event}
+              isFirst={index === 0}
+              onPress={() => onEventPress?.(event)}
+              onQuickAction={() => onEventQuickAction?.(event)}
+            />
+          ))}
         </TimeBlockSection>
       )}
 
       {/* Morning section */}
       {shouldRenderBlock('morning') && (
-        <TimeBlockSection
-          block="morning"
-          isFirst={getIsFirst()}
-          calendarHint={
-            getCalendarHint('morning') && (
-              <CalendarHint
-                eventCount={getCalendarHint('morning')!.count}
-                times={getCalendarHint('morning')!.times}
-                onPress={onCalendarHintPress}
-              />
-            )
-          }
-        >
-          {/* Key dates with morning event_time */}
-          {keyDatesByBlock.morning.map((event, index) => (
-            <EventRow
+        <TimeBlockSection block="morning" isFirst={getIsFirst()}>
+          {eventNotesByBlock.morning.map((event, index) => (
+            <NowCalendarEventRow
               key={event.id}
-              event={event}
-              onPress={() => onKeyDatePress?.(event)}
+              eventNote={event}
               isFirst={index === 0 && itemsByBlock.morning.length === 0}
+              onPress={() => onEventPress?.(event)}
+              onQuickAction={() => onEventQuickAction?.(event)}
             />
           ))}
           {itemsByBlock.morning.map((item, index) => (
@@ -1453,7 +1513,7 @@ function TodayFocusList({
               item={item}
               isCompleted={false}
               isLocked={false}
-              isFirst={index === 0 && keyDatesByBlock.morning.length === 0}
+              isFirst={index === 0 && eventNotesByBlock.morning.length === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}
             />
@@ -1466,26 +1526,14 @@ function TodayFocusList({
 
       {/* Afternoon section */}
       {shouldRenderBlock('afternoon') && (
-        <TimeBlockSection
-          block="afternoon"
-          isFirst={getIsFirst()}
-          calendarHint={
-            getCalendarHint('afternoon') && (
-              <CalendarHint
-                eventCount={getCalendarHint('afternoon')!.count}
-                times={getCalendarHint('afternoon')!.times}
-                onPress={onCalendarHintPress}
-              />
-            )
-          }
-        >
-          {/* Key dates with afternoon event_time */}
-          {keyDatesByBlock.afternoon.map((event, index) => (
-            <EventRow
+        <TimeBlockSection block="afternoon" isFirst={getIsFirst()}>
+          {eventNotesByBlock.afternoon.map((event, index) => (
+            <NowCalendarEventRow
               key={event.id}
-              event={event}
-              onPress={() => onKeyDatePress?.(event)}
+              eventNote={event}
               isFirst={index === 0 && itemsByBlock.afternoon.length === 0}
+              onPress={() => onEventPress?.(event)}
+              onQuickAction={() => onEventQuickAction?.(event)}
             />
           ))}
           {itemsByBlock.afternoon.map((item, index) => (
@@ -1494,7 +1542,7 @@ function TodayFocusList({
               item={item}
               isCompleted={false}
               isLocked={false}
-              isFirst={index === 0 && keyDatesByBlock.afternoon.length === 0}
+              isFirst={index === 0 && eventNotesByBlock.afternoon.length === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}
             />
@@ -1507,26 +1555,14 @@ function TodayFocusList({
 
       {/* Evening section */}
       {shouldRenderBlock('evening') && (
-        <TimeBlockSection
-          block="evening"
-          isFirst={getIsFirst()}
-          calendarHint={
-            getCalendarHint('evening') && (
-              <CalendarHint
-                eventCount={getCalendarHint('evening')!.count}
-                times={getCalendarHint('evening')!.times}
-                onPress={onCalendarHintPress}
-              />
-            )
-          }
-        >
-          {/* Key dates with evening event_time */}
-          {keyDatesByBlock.evening.map((event, index) => (
-            <EventRow
+        <TimeBlockSection block="evening" isFirst={getIsFirst()}>
+          {eventNotesByBlock.evening.map((event, index) => (
+            <NowCalendarEventRow
               key={event.id}
-              event={event}
-              onPress={() => onKeyDatePress?.(event)}
+              eventNote={event}
               isFirst={index === 0 && itemsByBlock.evening.length === 0}
+              onPress={() => onEventPress?.(event)}
+              onQuickAction={() => onEventQuickAction?.(event)}
             />
           ))}
           {itemsByBlock.evening.map((item, index) => (
@@ -1535,7 +1571,7 @@ function TodayFocusList({
               item={item}
               isCompleted={false}
               isLocked={false}
-              isFirst={index === 0 && keyDatesByBlock.evening.length === 0}
+              isFirst={index === 0 && eventNotesByBlock.evening.length === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}
             />
@@ -1546,16 +1582,16 @@ function TodayFocusList({
         </TimeBlockSection>
       )}
 
-      {/* Any time section - includes key dates without event_time */}
-      {(itemsByBlock.anytime.length > 0 || keyDatesByBlock.anytime.length > 0) && (
+      {/* Any time section */}
+      {shouldRenderBlock('anytime') && (
         <TimeBlockSection block="anytime" isFirst={getIsFirst()}>
-          {/* Key dates without event_time */}
-          {keyDatesByBlock.anytime.map((event, index) => (
-            <EventRow
+          {eventNotesByBlock.anytime.map((event, index) => (
+            <NowCalendarEventRow
               key={event.id}
-              event={event}
-              onPress={() => onKeyDatePress?.(event)}
+              eventNote={event}
               isFirst={index === 0 && itemsByBlock.anytime.length === 0}
+              onPress={() => onEventPress?.(event)}
+              onQuickAction={() => onEventQuickAction?.(event)}
             />
           ))}
           {itemsByBlock.anytime.map((item, index) => (
@@ -1564,7 +1600,7 @@ function TodayFocusList({
               item={item}
               isCompleted={false}
               isLocked={false}
-              isFirst={index === 0 && keyDatesByBlock.anytime.length === 0}
+              isFirst={index === 0 && eventNotesByBlock.anytime.length === 0}
               onPress={() => onPressItem?.(item)}
               onToggleComplete={() => onToggleComplete?.(item)}
             />

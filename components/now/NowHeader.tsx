@@ -19,7 +19,7 @@ import { makeStyles } from '../../design/makeStyles';
 import { Icon } from '../../design-system/Icon';
 import { BRAND } from '../../design/brand';
 import GREMLY_CLIPBOARD from '../../assets/mascot/clipboardgremly.png';
-import type { CalendarEvent } from '../../lib/calendar/CalendarClient';
+import type { Note } from '../../lib/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -61,8 +61,8 @@ interface NowHeaderProps {
   habitsTotal: number;
   /** Remaining time estimate in minutes for incomplete todos */
   remainingMinutes?: number;
-  /** Calendar events for today */
-  calendarEvents?: CalendarEvent[];
+  /** Event notes for today (from useEventNotesForDate) */
+  eventNotes?: Note[];
   onPressProgress?: () => void;
   onPressWeek?: () => void;
   /** Handler for Calendar card press - navigates to CalendarScreen */
@@ -113,7 +113,7 @@ export function NowHeader({
   habitsUpToDate,
   habitsTotal,
   remainingMinutes = 0,
-  calendarEvents = [],
+  eventNotes = [],
   onPressProgress,
   onPressWeek,
   onCalendarPress,
@@ -144,30 +144,37 @@ export function NowHeader({
   const notesCountText = capturesCount === 0 ? '0' : `${capturesCount}`;
 
   // Calendar summary calculations
-  const eventCount = calendarEvents.length;
-  const totalMinutes = calendarEvents.reduce((sum, event) => {
-    if (event.isAllDay) return sum;
-    const start = new Date(event.startAt);
-    const end = new Date(event.endAt);
-    return sum + (end.getTime() - start.getTime()) / (1000 * 60);
-  }, 0);
-  const totalHours = Math.round((totalMinutes / 60) * 10) / 10;
+  const events = eventNotes ?? [];
+  const eventCount = events.length;
+
+  // Count hours from timed events (approximate: assume 1hr per timed event since Notes don't store duration)
+  const timedEvents = events.filter((e) => e.event_time && !e.is_all_day);
+  const totalHours = timedEvents.length; // 1hr estimate per event
 
   // Find next upcoming event
   const now = new Date();
-  const upcomingEvent = calendarEvents.find((e) => new Date(e.startAt) > now);
-  const minutesUntil = upcomingEvent
-    ? Math.round((new Date(upcomingEvent.startAt).getTime() - now.getTime()) / (1000 * 60))
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const upcomingEvent = events.find((e) => {
+    if (!e.event_time) return false;
+    const [h, m] = e.event_time.split(':').map(Number);
+    return h * 60 + m > nowMinutes;
+  });
+
+  const minutesUntil = upcomingEvent?.event_time
+    ? (() => {
+        const [h, m] = upcomingEvent.event_time!.split(':').map(Number);
+        return h * 60 + m - nowMinutes;
+      })()
     : null;
 
   // Format calendar summary text
   const calendarLine1 =
     eventCount > 0
-      ? `${eventCount} event${eventCount !== 1 ? 's' : ''} · ${totalHours} hrs`
+      ? `${eventCount} event${eventCount !== 1 ? 's' : ''}${timedEvents.length > 0 ? ` · ~${totalHours} hr${totalHours !== 1 ? 's' : ''}` : ''}`
       : 'No events today';
   const calendarLine2 =
     upcomingEvent && minutesUntil !== null && minutesUntil > 0
-      ? `Next: ${upcomingEvent.title} in ${minutesUntil} min`
+      ? `Next: ${upcomingEvent.title}${minutesUntil <= 60 ? ` in ${minutesUntil} min` : ''}`
       : null;
 
   return (

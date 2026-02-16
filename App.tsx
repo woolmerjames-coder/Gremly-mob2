@@ -31,6 +31,8 @@ import celebrationController from './app/features/celebration/CelebrationControl
 import AgeUpCelebrationModal from './components/ritual/AgeUpCelebrationModal';
 import { GlobalEventPopup } from './components/calendar/GlobalEventPopup';
 import { GlobalEventTimePicker } from './components/calendar/GlobalEventTimePicker';
+import { networkStatus } from './lib/network/NetworkStatus';
+import { initOfflineSync } from './lib/network/offlineSync';
 
 // Prevent the splash screen from auto-hiding before app is ready
 SplashScreen.preventAutoHideAsync();
@@ -45,6 +47,13 @@ export default function App() {
     visible: false,
     age: 0,
   });
+
+  // Start network monitoring and offline sync
+  useEffect(() => {
+    networkStatus.start();
+    initOfflineSync();
+    return () => networkStatus.stop();
+  }, []);
 
   // Subscribe to age-up celebration events
   useEffect(() => {
@@ -134,7 +143,7 @@ export default function App() {
         // Emit event after a short delay to ensure navigation is ready
         setTimeout(() => {
           eventBus.emit('notification:open_flow', {
-            type: initialNotification.type as 'morning' | 'evening',
+            type: initialNotification.type as 'morning' | 'evening' | 'weekly_summary',
           });
         }, 1000);
       }
@@ -143,6 +152,7 @@ export default function App() {
       cleanup = await setupNotificationResponseHandler(
         () => eventBus.emit('notification:open_flow', { type: 'morning' }),
         () => eventBus.emit('notification:open_flow', { type: 'evening' }),
+        () => eventBus.emit('notification:open_flow', { type: 'weekly_summary' }),
       );
     };
 

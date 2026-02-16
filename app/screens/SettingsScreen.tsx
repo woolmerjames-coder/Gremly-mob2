@@ -7,13 +7,16 @@
  * Settings V2 (Feb 2026)
  */
 
-import React, { useLayoutEffect } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import React, { useLayoutEffect, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { ChevronLeft, ChevronRight, Bell, Clock, CalendarDays, Brain } from 'lucide-react-native';
 import { colors, spacing, borderRadius } from '../../design/tokens';
 import { BRAND } from '../../design/brand';
+import { generateWeeklySummary } from '../../lib/weeklySummary';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useCurrentWeekSummary } from '../../lib/store/selectors';
 
 type SettingsRow = {
   key: string;
@@ -27,10 +30,42 @@ const ICON_SIZE = 20;
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
+  const currentSummary = useCurrentWeekSummary();
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
+
+  const handleGenerateWeeklySummary = async () => {
+    setWeeklyLoading(true);
+    try {
+      const result = await generateWeeklySummary();
+      if (result.success) {
+        Alert.alert(
+          'Weekly Summary Generated',
+          `Commentary: ${result.summary?.content?.weeklyCommentary?.substring(0, 100)}...`,
+        );
+        console.log('[Dev] Weekly Summary result:', JSON.stringify(result.summary, null, 2));
+      } else {
+        Alert.alert('Generation Failed', result.error || 'Unknown error');
+      }
+    } catch (err) {
+      Alert.alert('Error', String(err));
+    } finally {
+      setWeeklyLoading(false);
+    }
+  };
+
+  const handleDebugWeeklySummary = () => {
+    const state = useGremlyStore.getState();
+    const count = state.weeklySummaries?.length ?? 0;
+    console.log('[Dev] Weekly Summaries in store:', count);
+    if (count > 0) {
+      console.log('[Dev] Current week summary:', JSON.stringify(state.weeklySummaries[0], null, 2));
+    }
+    Alert.alert('Weekly Summary Data', `${count} summaries in store. Check console for details.`);
+  };
 
   const rows: SettingsRow[] = [
     {
@@ -95,6 +130,50 @@ export default function SettingsScreen() {
           </Pressable>
         ))}
       </View>
+
+      {/* Dev tools — only in __DEV__ */}
+      {__DEV__ && (
+        <View style={styles.devSection}>
+          <Text style={styles.devSectionTitle}>Dev Tools</Text>
+          <View style={styles.devCard}>
+            <Pressable
+              onPress={handleGenerateWeeklySummary}
+              disabled={weeklyLoading}
+              style={({ pressed }) => [
+                styles.devRow,
+                pressed && styles.rowPressed,
+                weeklyLoading && styles.devRowDisabled,
+              ]}
+            >
+              {weeklyLoading ? (
+                <ActivityIndicator
+                  size="small"
+                  color={BRAND.colors.mossGreen}
+                  style={{ marginRight: spacing.sm }}
+                />
+              ) : null}
+              <Text style={styles.devRowText}>
+                {weeklyLoading ? 'Generating...' : '🧪 Generate Weekly Summary'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={handleDebugWeeklySummary}
+              style={({ pressed }) => [styles.devRow, pressed && styles.rowPressed]}
+            >
+              <Text style={styles.devRowText}>🔍 View Weekly Summary Data</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => (navigation as any).navigate('WeeklySummary')}
+              style={({ pressed }) => [styles.devRow, styles.rowLast, pressed && styles.rowPressed]}
+            >
+              <Text style={styles.devRowText}>
+                📊 Open Weekly Summary Screen
+                {currentSummary ? ` (${currentSummary.week_start_date})` : ' (none)'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -170,5 +249,41 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: colors.text.secondary,
     marginTop: 2,
+  },
+  devSection: {
+    marginTop: spacing.xl,
+    marginHorizontal: spacing.lg,
+  },
+  devSectionTitle: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
+    marginLeft: spacing.xs,
+  },
+  devCard: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.border.DEFAULT,
+    overflow: 'hidden',
+  },
+  devRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border.DEFAULT,
+  },
+  devRowDisabled: {
+    opacity: 0.6,
+  },
+  devRowText: {
+    fontSize: 15,
+    fontFamily: 'Inter-Medium',
+    color: BRAND.colors.charcoalInk,
   },
 });

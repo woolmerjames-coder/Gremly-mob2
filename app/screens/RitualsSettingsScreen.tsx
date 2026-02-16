@@ -48,6 +48,14 @@ export default function RitualsSettingsScreen() {
     d.setHours(20, 0, 0, 0);
     return d;
   });
+  const [weeklyEnabled, setWeeklyEnabled] = useState(notificationPrefs?.weeklyEnabled ?? true);
+  const [weeklyTime, setWeeklyTime] = useState(() => {
+    if (notificationPrefs?.weeklyTime) return notificationPrefs.weeklyTime;
+    const d = new Date();
+    d.setHours(18, 0, 0, 0);
+    return d;
+  });
+  const [weeklyDay, setWeeklyDay] = useState(notificationPrefs?.weeklyDay ?? 0);
   const [localDayBoundary, setLocalDayBoundary] = useState(dayBoundaryHour);
 
   const hasChanges = useRef(false);
@@ -61,6 +69,10 @@ export default function RitualsSettingsScreen() {
         setMorningEnabled(notificationPrefs.morningEnabled);
       if (notificationPrefs.eveningEnabled !== undefined)
         setEveningEnabled(notificationPrefs.eveningEnabled);
+      if (notificationPrefs.weeklyTime) setWeeklyTime(notificationPrefs.weeklyTime);
+      if (notificationPrefs.weeklyEnabled !== undefined)
+        setWeeklyEnabled(notificationPrefs.weeklyEnabled);
+      if (notificationPrefs.weeklyDay !== undefined) setWeeklyDay(notificationPrefs.weeklyDay);
     }
   }, [notificationPrefs]);
 
@@ -73,6 +85,9 @@ export default function RitualsSettingsScreen() {
           morningTime,
           eveningEnabled,
           eveningTime,
+          weeklyEnabled,
+          weeklyTime,
+          weeklyDay,
           timezone: notificationPrefs.timezone,
         });
         if (localDayBoundary !== dayBoundaryHour) {
@@ -86,6 +101,9 @@ export default function RitualsSettingsScreen() {
     morningTime,
     eveningEnabled,
     eveningTime,
+    weeklyEnabled,
+    weeklyTime,
+    weeklyDay,
     localDayBoundary,
     notificationPrefs,
   ]);
@@ -100,6 +118,13 @@ export default function RitualsSettingsScreen() {
   const handleEveningTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
     if (selectedDate) {
       setEveningTime(selectedDate);
+      hasChanges.current = true;
+    }
+  };
+
+  const handleWeeklyTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
+    if (selectedDate) {
+      setWeeklyTime(selectedDate);
       hasChanges.current = true;
     }
   };
@@ -169,6 +194,67 @@ export default function RitualsSettingsScreen() {
                 accentColor={BRAND.colors.mossGreen}
               />
             </View>
+          )}
+        </View>
+
+        {/* Weekly Summary */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Weekly Summary</Text>
+            <Switch
+              value={weeklyEnabled}
+              onValueChange={(val) => {
+                setWeeklyEnabled(val);
+                hasChanges.current = true;
+              }}
+              trackColor={{ false: colors.gray, true: BRAND.colors.sageMist }}
+              thumbColor={weeklyEnabled ? BRAND.colors.mossGreen : colors.white}
+            />
+          </View>
+          <Text style={styles.cardDescription}>
+            Get a personalized review of your week with insights and a preview of what's ahead.
+          </Text>
+          {weeklyEnabled && (
+            <>
+              {/* Day picker */}
+              <View style={styles.timeRow}>
+                <Text style={styles.timeLabel}>Summary day</Text>
+                <View style={styles.dayPickerRow}>
+                  {(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const).map(
+                    (label, index) => (
+                      <Pressable
+                        key={label}
+                        onPress={() => {
+                          setWeeklyDay(index);
+                          hasChanges.current = true;
+                        }}
+                        style={[styles.dayPill, weeklyDay === index && styles.dayPillActive]}
+                      >
+                        <Text
+                          style={[
+                            styles.dayPillText,
+                            weeklyDay === index && styles.dayPillTextActive,
+                          ]}
+                        >
+                          {label}
+                        </Text>
+                      </Pressable>
+                    ),
+                  )}
+                </View>
+              </View>
+              {/* Time picker */}
+              <View style={styles.timeRow}>
+                <Text style={styles.timeLabel}>Notification time</Text>
+                <DateTimePicker
+                  value={weeklyTime}
+                  mode="time"
+                  display={Platform.OS === 'ios' ? 'compact' : 'default'}
+                  onChange={handleWeeklyTimeChange}
+                  accentColor={BRAND.colors.mossGreen}
+                />
+              </View>
+            </>
           )}
         </View>
 
@@ -260,5 +346,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter-Regular',
     color: colors.text.secondary,
+  },
+  dayPickerRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  dayPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: colors.gray + '20',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  },
+  dayPillActive: {
+    backgroundColor: BRAND.colors.mossGreen,
+  },
+  dayPillText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    color: colors.text.secondary,
+  },
+  dayPillTextActive: {
+    color: colors.white,
   },
 });
