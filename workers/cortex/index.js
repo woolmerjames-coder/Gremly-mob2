@@ -1078,6 +1078,36 @@ Rules:
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
+ * Strip filler/compliment openings from AI responses.
+ * Runs on buffered first sentence before streaming to client.
+ * This is a lightweight output guard — catches patterns regardless of prompt wording.
+ */
+function stripFillerOpening(text) {
+  const fillerPatterns = [
+    /^that'?s a (?:great|really great|super|fantastic|wonderful|excellent) (?:question|task|idea|goal|focus|habit|start|one)[.!,]*\s*/i,
+    /^great (?:question|task|idea|goal|focus|habit|start|one)[.!,]*\s*/i,
+    /^good (?:question|thinking|one)[.!,]*\s*/i,
+    /^love (?:that|this|it)[.!,]*\s*/i,
+    /^what a great (?:question|idea|goal)[.!,]*\s*/i,
+    /^i love that you'?re (?:asking|thinking about|working on)[^.!]*[.!,]*\s*/i,
+    /^that'?s (?:really |so )?(?:smart|clever|thoughtful|interesting)[.!,]*\s*/i,
+    /^(?:oh |ah )?(?:what a |that's a )?(?:really |super )?great (?:question|one)[.!,]*\s*/i,
+  ];
+
+  for (const pattern of fillerPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const stripped = text.slice(match[0].length);
+      if (stripped.length > 0) {
+        return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+      }
+      return stripped;
+    }
+  }
+  return text;
+}
+
+/**
  * Execute a web search using Tavily API
  *
  * @param {string} query - The search query
@@ -2825,22 +2855,44 @@ Before responding, identify what mode the user is in:
 
 **EMOTIONAL** — grief, frustration, overwhelm, anxiety
 - Signals: "since [person] died", "disaster", "mess", "can't face", "been putting off for months"
-- Response: Acknowledge the feeling first. One sentence of warmth before any practical suggestion. Don't rush to fix.
+- Acknowledge the feeling first. One sentence of warmth before any practical suggestion. Don't rush to fix.
 
 **EXPLORATORY** — uncertain, thinking out loud, not ready for action
 - Signals: "I think...", "maybe...", "not sure...", "I want to but...", "help me think through"
-- Response: Ask a question. Help them clarify. Don't create checklists or action plans.
+- Ask a question. Help them clarify. Don't create checklists or action plans.
 
 **RESEARCH-NEEDED** — wants information, not a framework
-- Signals: travel planning, gift ideas, "what should I know", "what should I look for", "what should I consider", "help me find", product recommendations, comparisons, health questions, "how do I", any task where real-world information would help
-- Response: SEARCH IMMEDIATELY using web_search. Do not write a single word of response before searching. Give specific, sourced answers with reasoning embedded — not generic frameworks or criteria lists.
-
-WRONG: "When buying an air purifier, consider these factors: Room size, CADR ratings..."
-RIGHT: [Search, then] "The Coway Airmega and Levoit Core 400S are top-rated for bedrooms because they're quiet and have strong HEPA filtration."
+- Signals: travel planning, gift ideas, "what should I know", comparisons, health questions, "how do I", "based on research", any task where real-world information would help
+- SEARCH IMMEDIATELY using web_search. Do not write a single word of response before searching. When you get results back, lead with the most specific finding — a study name, a statistic, a concrete recommendation.
 
 **ACTION-READY** — clear task, just needs help executing
 - Signals: "break this down", "what are the steps", "how do I do this"
-- Response: Give clear, specific steps. Offer to save as checklist.
+- Give clear, specific steps. Don't ask permission — just do it.
+
+=== EXAMPLE EXCHANGES ===
+
+These show exactly how Gremly responds. Match this voice.
+
+User asks about sticking with a habit (RESEARCH-NEEDED):
+[Search first, then respond:]
+"Habit stacking has the strongest evidence — a UCL study found linking a new habit to an existing routine makes it about 2x more likely to stick after 30 days. Since yours is daily, try anchoring it right after something you already do every morning, like brushing your teeth. The first two weeks are the hardest — after that it gets much easier."
+
+User asks to break down a task (ACTION-READY):
+"Here's how I'd break this down:
+- **Pick your launch date** and work backwards
+- **List the non-negotiables** — what absolutely must ship vs nice-to-have
+- **Set weekly milestones** — one deliverable per week keeps momentum
+Want me to save this as a checklist?"
+
+User shares they keep avoiding something (EMOTIONAL):
+"That avoidance feeling is heavy — and totally normal when something keeps sitting there. What's making this one feel hard to start right now?"
+
+User asks for best time of day (RESEARCH-NEEDED):
+[Search first, then respond:]
+"Morning tends to win for meditation — a 2022 study in Frontiers in Psychology found morning meditators had 35% higher consistency over 8 weeks compared to evening. Your body's cortisol is naturally higher in the morning, which actually helps with focus during meditation."
+
+User asks a vague question (EXPLORATORY):
+"What's pulling you toward this right now — is there something specific you're trying to solve, or more of a general feeling?"
 
 === TONE & FORMAT ===
 - Brief: 40-100 words typical (mobile UI)
@@ -2866,13 +2918,10 @@ Almost never suggest creating a Space. Only if ALL true:
 === NEVER DO ===
 - Suggest "tracking streaks" (against product philosophy)
 - Give meta-advice like "research X" when you could search and answer
-- Use exclamation marks
 - Lecture or be preachy
 - Ask multiple questions in one response
 - Ignore emotional signals to jump straight to logistics
-- Offer to save things (app handles this via Save button)
-- Never start responses with compliments like "Great task", "That's a great question", "Love that", "Good thinking", "That's a great focus" — just respond naturally and get to the point
-- Never ask permission to help when the user has already asked for help ("want me to break this down?" when they literally said "break this down")`;
+- Offer to save things (app handles this via Save button)`;
 
         // === USER PROFILE & SESSION CONTEXT ===
         let sessionContextStr = '';
@@ -3058,6 +3107,10 @@ Almost never suggest creating a Space. Only if ALL true:
             let fullContent = '';
             let searchImages = [];
 
+            // Output guard: buffer first sentence to strip filler openings
+            let fillerBuffer = '';
+            let fillerFlushed = false;
+
             // Track tool call accumulation - support multiple tool calls
             let toolCalls = []; // Array of { id, name, arguments }
             let currentToolCallIndex = -1;
@@ -3085,8 +3138,22 @@ Almost never suggest creating a Space. Only if ALL true:
                       fullContent += delta;
                       // Don't stream SAVE comments to client
                       if (!fullContent.includes('<!--SAVE:')) {
-                        const sseData = JSON.stringify({ delta, done: false });
-                        await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                        if (!fillerFlushed) {
+                          // Buffer first sentence for filler stripping
+                          fillerBuffer += delta;
+                          // Flush once we have a sentence boundary or enough content
+                          const hasBreak = /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
+                          if (hasBreak) {
+                            const cleaned = stripFillerOpening(fillerBuffer);
+                            if (cleaned) {
+                              await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                            }
+                            fillerFlushed = true;
+                          }
+                        } else {
+                          const sseData = JSON.stringify({ delta, done: false });
+                          await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                        }
                       }
                     }
 
@@ -3115,6 +3182,17 @@ Almost never suggest creating a Space. Only if ALL true:
                   }
                 }
               }
+
+              // Flush any remaining filler buffer from main stream
+              if (!fillerFlushed && fillerBuffer) {
+                const cleaned = stripFillerOpening(fillerBuffer);
+                if (cleaned) {
+                  await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                }
+              }
+
+              // Clean fullContent to match what was streamed
+              fullContent = stripFillerOpening(fullContent);
 
               // Track search metadata
               let sources = undefined;
@@ -3260,6 +3338,10 @@ Almost never suggest creating a Space. Only if ALL true:
                   let followUpBuffer = '';
                   let readerDone = false;
 
+                  // Output guard: buffer first sentence to strip filler openings
+                  let followUpFillerBuffer = '';
+                  let followUpFillerFlushed = false;
+
                   while (!readerDone) {
                     const result = await followUpReader.read();
                     readerDone = result.done;
@@ -3284,9 +3366,23 @@ Almost never suggest creating a Space. Only if ALL true:
                         const delta = json.choices?.[0]?.delta?.content;
                         if (delta) {
                           fullContent += delta;
-                          await writer.write(
-                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                          );
+                          if (!followUpFillerFlushed) {
+                            followUpFillerBuffer += delta;
+                            const hasBreak = /[.?!]\s/.test(followUpFillerBuffer) || followUpFillerBuffer.length > 150;
+                            if (hasBreak) {
+                              const cleaned = stripFillerOpening(followUpFillerBuffer);
+                              if (cleaned) {
+                                await writer.write(
+                                  encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                                );
+                              }
+                              followUpFillerFlushed = true;
+                            }
+                          } else {
+                            await writer.write(
+                              encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                            );
+                          }
                         }
                       } catch {
                         // Skip malformed JSON
@@ -3305,9 +3401,13 @@ Almost never suggest creating a Space. Only if ALL true:
                           const delta = json.choices?.[0]?.delta?.content;
                           if (delta) {
                             fullContent += delta;
-                            await writer.write(
-                              encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                            );
+                            if (!followUpFillerFlushed) {
+                              followUpFillerBuffer += delta;
+                            } else {
+                              await writer.write(
+                                encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                              );
+                            }
                           }
                         } catch {
                           // Skip
@@ -3315,6 +3415,19 @@ Almost never suggest creating a Space. Only if ALL true:
                       }
                     }
                   }
+
+                  // Flush any remaining filler buffer at end of stream
+                  if (!followUpFillerFlushed && followUpFillerBuffer) {
+                    const cleaned = stripFillerOpening(followUpFillerBuffer);
+                    if (cleaned) {
+                      await writer.write(
+                        encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                      );
+                    }
+                  }
+
+                  // Clean fullContent to match what was streamed
+                  fullContent = stripFillerOpening(fullContent);
 
                   // Combine all sources
                   sources = successfulSearches.flatMap((sr) =>
@@ -3375,6 +3488,7 @@ Almost never suggest creating a Space. Only if ALL true:
                 fullContent =
                   fallbackData?.choices?.[0]?.message?.content ??
                   'I had trouble searching for that information. Could you try rephrasing your question?';
+                fullContent = stripFillerOpening(fullContent);
 
                 // Stream the fallback content
                 const words = fullContent.split(' ');
@@ -3574,6 +3688,7 @@ Almost never suggest creating a Space. Only if ALL true:
 
           // Use cleaned content (without suggestion block) for display
           content = cleanContent;
+          content = stripFillerOpening(content);
 
           // Detect space promotion suggestion
           const promotion = detectSpacePromotion(content, messages.length);
