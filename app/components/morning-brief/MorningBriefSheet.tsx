@@ -805,8 +805,23 @@ export function MorningBriefSheet({
     for (const task of allTasks) {
       map[task.id] = task;
     }
+    // Also include slotted items that were excluded from tasksByBlock
+    // (e.g., items with scheduled_start_iso but time_window 'any'/null)
+    const allSlotted = [
+      ...slottedItemsByBlock.morning,
+      ...slottedItemsByBlock.afternoon,
+      ...slottedItemsByBlock.evening,
+    ];
+    for (const item of allSlotted) {
+      if (!map[item.id]) {
+        const isHabit = 'cadence' in item;
+        map[item.id] = isHabit
+          ? transformHabit(item as (typeof habits)[0])
+          : transformTodo(item as (typeof todos)[0]);
+      }
+    }
     return map;
-  }, [tasksByBlock]);
+  }, [tasksByBlock, slottedItemsByBlock, transformTodo, transformHabit]);
 
   // ─────────────────────────────────────────────────────────────────
   // GAP COMPUTATION FOR TASK QUICK ACTION SHEET
