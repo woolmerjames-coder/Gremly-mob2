@@ -211,11 +211,32 @@ export function TaskQuickActionSheet({
     }
   }, [task?.id, task?.timeWindow]);
 
-  // Gaps filtered to the selected block
-  const blockGaps = useMemo(
-    () => (selectedBlock ? gaps.filter((g) => g.block === selectedBlock) : []),
-    [gaps, selectedBlock],
-  );
+  // Gaps filtered to the selected block, excluding past time slots
+  const blockGaps = useMemo(() => {
+    if (!selectedBlock) return [];
+    const now = new Date();
+    return gaps
+      .filter((g) => g.block === selectedBlock)
+      .map((g) => {
+        const gapEnd = new Date(g.endIso);
+        // Fully in the past — drop entirely
+        if (gapEnd <= now) return null;
+
+        const gapStart = new Date(g.startIso);
+        if (gapStart < now) {
+          // Partially past — clip start to next 5-minute mark
+          const nowMins = now.getHours() * 60 + now.getMinutes();
+          const roundedUp = Math.ceil(nowMins / 5) * 5;
+          const clipped = new Date(now);
+          clipped.setHours(Math.floor(roundedUp / 60), roundedUp % 60, 0, 0);
+          const clippedDuration = Math.round((gapEnd.getTime() - clipped.getTime()) / 60000);
+          if (clippedDuration < 5) return null; // Too small after clipping
+          return { ...g, startIso: clipped.toISOString(), durationMinutes: clippedDuration };
+        }
+        return g;
+      })
+      .filter((g): g is GapSlot => g !== null);
+  }, [gaps, selectedBlock]);
 
   // First gap that fits the task estimate
   const recommendedIdx = useMemo(() => {

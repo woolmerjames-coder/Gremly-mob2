@@ -1199,34 +1199,37 @@ async function executeTavilySearch(query, apiKey, options = {}) {
 
 /**
  * Format Tavily search results into a readable brief for the LLM.
- * Instead of raw JSON, gives the model a structured brief that's 
+ * Instead of raw JSON, gives the model a structured brief that's
  * easy to cite from — the approach used by Perplexity/ChatGPT Browse.
  */
 function formatSearchBrief(tavilyResult) {
   if (!tavilyResult || !tavilyResult.results) return JSON.stringify(tavilyResult);
-  
+
   let brief = '';
-  
+
   // Lead with the synthesized answer if available
   if (tavilyResult.answer) {
     brief += `SYNTHESIZED ANSWER: ${tavilyResult.answer}\n\n`;
   }
-  
+
   brief += 'SOURCES:\n\n';
-  
+
   for (const result of tavilyResult.results) {
     // Extract domain name for easy citation
     let domain = '';
     try {
       domain = new URL(result.url).hostname.replace('www.', '');
-    } catch { domain = result.url; }
-    
+    } catch {
+      domain = result.url;
+    }
+
     brief += `[${result.title}] (${domain})\n`;
     brief += `${result.snippet}\n\n`;
   }
-  
-  brief += 'INSTRUCTIONS: Use the specific findings, statistics, and expert names from these sources in your response. Cite sources by name (e.g. "according to Headspace" or "a study cited by Withinmeditation found"). Do not give generic advice — only share what these sources specifically say.';
-  
+
+  brief +=
+    'INSTRUCTIONS: Use the specific findings, statistics, and expert names from these sources in your response. Cite sources by name (e.g. "according to Headspace" or "a study cited by Withinmeditation found"). Do not give generic advice — only share what these sources specifically say.';
+
   return brief;
 }
 
@@ -2533,7 +2536,11 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                         if (hasBreak) {
                           const cleaned = stripFillerOpening(fillerBuffer);
                           if (cleaned) {
-                            await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                            await writer.write(
+                              encoder.encode(
+                                `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                              ),
+                            );
                           }
                           fillerFlushed = true;
                         }
@@ -2568,7 +2575,9 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
               if (!fillerFlushed && fillerBuffer) {
                 const cleaned = stripFillerOpening(fillerBuffer);
                 if (cleaned) {
-                  await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                  );
                 }
               }
               fullContent = stripFillerOpening(fullContent);
@@ -2693,11 +2702,17 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                           fullContent += delta;
                           if (!followUpFillerFlushed) {
                             followUpFillerBuffer += delta;
-                            const hasBreak = /[.?!]\s/.test(followUpFillerBuffer) || followUpFillerBuffer.length > 150;
+                            const hasBreak =
+                              /[.?!]\s/.test(followUpFillerBuffer) ||
+                              followUpFillerBuffer.length > 150;
                             if (hasBreak) {
                               const cleaned = stripFillerOpening(followUpFillerBuffer);
                               if (cleaned) {
-                                await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                                await writer.write(
+                                  encoder.encode(
+                                    `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                  ),
+                                );
                               }
                               followUpFillerFlushed = true;
                             }
@@ -2717,7 +2732,11 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                   if (!followUpFillerFlushed && followUpFillerBuffer) {
                     const cleaned = stripFillerOpening(followUpFillerBuffer);
                     if (cleaned) {
-                      await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                      await writer.write(
+                        encoder.encode(
+                          `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                        ),
+                      );
                     }
                   }
                   fullContent = stripFillerOpening(fullContent);
@@ -2882,8 +2901,12 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
         if (entity.habitStats) {
           const hs = entity.habitStats;
           entityContextParts.push(`\n--- Habit Progress ---`);
-          entityContextParts.push(`Completions last 7 days: ${hs.completionsLast7Days} of ${hs.targetPerWeek} target`);
-          entityContextParts.push(`Completion rate (7-day): ${Math.round(hs.completionRate7Day * 100)}%`);
+          entityContextParts.push(
+            `Completions last 7 days: ${hs.completionsLast7Days} of ${hs.targetPerWeek} target`,
+          );
+          entityContextParts.push(
+            `Completion rate (7-day): ${Math.round(hs.completionRate7Day * 100)}%`,
+          );
           if (hs.completionsLast14Days !== undefined) {
             entityContextParts.push(`Completions last 14 days: ${hs.completionsLast14Days}`);
           }
@@ -2892,12 +2915,15 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
           }
           if (hs.daysSinceLastCompletion !== null && hs.daysSinceLastCompletion !== undefined) {
             if (hs.daysSinceLastCompletion === 0) entityContextParts.push(`Last completed: today`);
-            else if (hs.daysSinceLastCompletion === 1) entityContextParts.push(`Last completed: yesterday`);
+            else if (hs.daysSinceLastCompletion === 1)
+              entityContextParts.push(`Last completed: yesterday`);
             else entityContextParts.push(`Last completed: ${hs.daysSinceLastCompletion} days ago`);
           } else {
             entityContextParts.push(`Never completed yet`);
           }
-          entityContextParts.push(`Use this data to personalize your response — acknowledge consistency ("you've been crushing it"), identify gaps ("it's been a few days"), or calibrate advice accordingly. Never shame gaps.`);
+          entityContextParts.push(
+            `Use this data to personalize your response — acknowledge consistency ("you've been crushing it"), identify gaps ("it's been a few days"), or calibrate advice accordingly. Never shame gaps.`,
+          );
         }
 
         const entityContext = entityContextParts.join('\n');
@@ -2927,32 +2953,44 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
 
           if (sc.sameSpace && sc.sameSpace.length > 0) {
             siblingContextStr += `\n\n=== OTHER ITEMS IN THIS SPACE ===\n`;
-            siblingContextStr += sc.sameSpace.map(item => {
-              let line = `- ${item.type}: "${item.title}"`;
-              if (item.frequency) line += ` (${item.frequency})`;
-              if (item.last_completed_at) {
-                const daysAgo = Math.floor((Date.now() - new Date(item.last_completed_at).getTime()) / 86400000);
-                line += daysAgo === 0 ? ' — done today' : daysAgo === 1 ? ' — done yesterday' : ` — last done ${daysAgo}d ago`;
-              }
-              return line;
-            }).join('\n');
+            siblingContextStr += sc.sameSpace
+              .map((item) => {
+                let line = `- ${item.type}: "${item.title}"`;
+                if (item.frequency) line += ` (${item.frequency})`;
+                if (item.last_completed_at) {
+                  const daysAgo = Math.floor(
+                    (Date.now() - new Date(item.last_completed_at).getTime()) / 86400000,
+                  );
+                  line +=
+                    daysAgo === 0
+                      ? ' — done today'
+                      : daysAgo === 1
+                        ? ' — done yesterday'
+                        : ` — last done ${daysAgo}d ago`;
+                }
+                return line;
+              })
+              .join('\n');
             siblingContextStr += `\nWhen giving advice, reference these sibling items by name. For habit stacking, suggest pairing with a sibling habit they already do consistently rather than generic examples like "brushing your teeth".\n`;
           }
 
           if (sc.otherHabits && sc.otherHabits.length > 0) {
             siblingContextStr += `\n=== USER'S OTHER ACTIVE HABITS ===\n`;
-            siblingContextStr += sc.otherHabits.map(h => {
-              let line = `- "${h.title}" (${h.frequency})`;
-              if (h.completionsLast7Days !== undefined) line += ` — ${h.completionsLast7Days}/7 days last week`;
-              if (h.time_window && h.time_window !== 'any') line += ` — prefers ${h.time_window}`;
-              return line;
-            }).join('\n');
+            siblingContextStr += sc.otherHabits
+              .map((h) => {
+                let line = `- "${h.title}" (${h.frequency})`;
+                if (h.completionsLast7Days !== undefined)
+                  line += ` — ${h.completionsLast7Days}/7 days last week`;
+                if (h.time_window && h.time_window !== 'any') line += ` — prefers ${h.time_window}`;
+                return line;
+              })
+              .join('\n');
             siblingContextStr += `\nReference these when relevant. If the user is consistent with another habit, suggest stacking. If they struggle with multiple habits, acknowledge the load.\n`;
           }
 
           if (sc.recentCompletions && sc.recentCompletions.length > 0) {
             siblingContextStr += `\n=== RECENTLY COMPLETED TASKS ===\n`;
-            siblingContextStr += sc.recentCompletions.map(t => `- "${t.title}"`).join('\n');
+            siblingContextStr += sc.recentCompletions.map((t) => `- "${t.title}"`).join('\n');
             siblingContextStr += `\nThe user has momentum. Reference these for confidence when appropriate — "you knocked out X recently, this is smaller than that."\n`;
           }
         }
@@ -3369,11 +3407,16 @@ Almost never suggest creating a Space. Only if ALL true:
                           // Buffer first sentence for filler stripping
                           fillerBuffer += delta;
                           // Flush once we have a sentence boundary or enough content
-                          const hasBreak = /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
+                          const hasBreak =
+                            /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
                           if (hasBreak) {
                             const cleaned = stripFillerOpening(fillerBuffer);
                             if (cleaned) {
-                              await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                              await writer.write(
+                                encoder.encode(
+                                  `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                ),
+                              );
                             }
                             fillerFlushed = true;
                           }
@@ -3414,7 +3457,9 @@ Almost never suggest creating a Space. Only if ALL true:
               if (!fillerFlushed && fillerBuffer) {
                 const cleaned = stripFillerOpening(fillerBuffer);
                 if (cleaned) {
-                  await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                  );
                 }
               }
 
@@ -3539,7 +3584,7 @@ Almost never suggest creating a Space. Only if ALL true:
                   // Second API call for final response - with real streaming
                   // Tell client to discard any pre-search text that was already streamed
                   await writer.write(
-                    encoder.encode(`data: ${JSON.stringify({ reset: true, done: false })}\n\n`)
+                    encoder.encode(`data: ${JSON.stringify({ reset: true, done: false })}\n\n`),
                   );
                   fullContent = '';
 
@@ -3595,12 +3640,16 @@ Almost never suggest creating a Space. Only if ALL true:
                           fullContent += delta;
                           if (!followUpFillerFlushed) {
                             followUpFillerBuffer += delta;
-                            const hasBreak = /[.?!]\s/.test(followUpFillerBuffer) || followUpFillerBuffer.length > 150;
+                            const hasBreak =
+                              /[.?!]\s/.test(followUpFillerBuffer) ||
+                              followUpFillerBuffer.length > 150;
                             if (hasBreak) {
                               const cleaned = stripFillerOpening(followUpFillerBuffer);
                               if (cleaned) {
                                 await writer.write(
-                                  encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                                  encoder.encode(
+                                    `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                  ),
                                 );
                               }
                               followUpFillerFlushed = true;
@@ -3632,7 +3681,9 @@ Almost never suggest creating a Space. Only if ALL true:
                               followUpFillerBuffer += delta;
                             } else {
                               await writer.write(
-                                encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                                encoder.encode(
+                                  `data: ${JSON.stringify({ delta, done: false })}\n\n`,
+                                ),
                               );
                             }
                           }
@@ -3648,7 +3699,9 @@ Almost never suggest creating a Space. Only if ALL true:
                     const cleaned = stripFillerOpening(followUpFillerBuffer);
                     if (cleaned) {
                       await writer.write(
-                        encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                        encoder.encode(
+                          `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                        ),
                       );
                     }
                   }
@@ -4292,9 +4345,12 @@ Return ONLY valid JSON, no explanation:
 
         if (userId && env.CORTEX_KV) {
           try {
-            const today = new Date().toISOString().split('T')[0];
+            // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+            const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(
+              new Date(),
+            );
             const limitKey = `organize-limit:${userId}:${today}`;
-            const currentCount = parseInt(await env.CORTEX_KV.get(limitKey) || '0', 10);
+            const currentCount = parseInt((await env.CORTEX_KV.get(limitKey)) || '0', 10);
 
             if (currentCount >= DAILY_ORGANIZE_LIMIT) {
               return j({
@@ -4310,7 +4366,9 @@ Return ONLY valid JSON, no explanation:
 
             await env.CORTEX_KV.put(limitKey, String(currentCount + 1), { expirationTtl: 172800 });
           } catch (kvErr) {
-            console.log('[organize-day] KV limit check failed, proceeding', { error: String(kvErr) });
+            console.log('[organize-day] KV limit check failed, proceeding', {
+              error: String(kvErr),
+            });
           }
         }
 
@@ -4405,38 +4463,50 @@ ${formatGaps(blocks.evening?.gaps)}`;
 
         if (userPatterns) {
           expandedContext += `\n=== USER PATTERNS ===\n`;
-          if (userPatterns.peakFocusTime) expandedContext += `Peak focus time: ${userPatterns.peakFocusTime}\n`;
-          if (userPatterns.avgCompletionRate != null) expandedContext += `Avg daily completion rate: ${Math.round(userPatterns.avgCompletionRate * 100)}%\n`;
-          if (userPatterns.commonSkipTimes) expandedContext += `Common skip times: ${userPatterns.commonSkipTimes}\n`;
-          if (userPatterns.preferredTaskOrder) expandedContext += `Preferred order: ${userPatterns.preferredTaskOrder}\n`;
+          if (userPatterns.peakFocusTime)
+            expandedContext += `Peak focus time: ${userPatterns.peakFocusTime}\n`;
+          if (userPatterns.avgCompletionRate != null)
+            expandedContext += `Avg daily completion rate: ${Math.round(userPatterns.avgCompletionRate * 100)}%\n`;
+          if (userPatterns.commonSkipTimes)
+            expandedContext += `Common skip times: ${userPatterns.commonSkipTimes}\n`;
+          if (userPatterns.preferredTaskOrder)
+            expandedContext += `Preferred order: ${userPatterns.preferredTaskOrder}\n`;
         }
 
         if (spacePriorities && spacePriorities.length > 0) {
           expandedContext += `\n=== SPACE PRIORITIES ===\n`;
-          expandedContext += spacePriorities
-            .map((s) => `- ${s.name}: priority ${s.priority}${s.taskCount ? ` (${s.taskCount} tasks)` : ''}`)
-            .join('\n') + '\n';
+          expandedContext +=
+            spacePriorities
+              .map(
+                (s) =>
+                  `- ${s.name}: priority ${s.priority}${s.taskCount ? ` (${s.taskCount} tasks)` : ''}`,
+              )
+              .join('\n') + '\n';
         }
 
         if (habitContext && habitContext.length > 0) {
           expandedContext += `\n=== HABIT CONTEXT ===\n`;
-          expandedContext += habitContext
-            .map((h) => {
-              const parts = [`- "${h.title}"`];
-              if (h.currentStreak) parts.push(`streak: ${h.currentStreak} days`);
-              if (h.bestTime) parts.push(`best time: ${h.bestTime}`);
-              if (h.lastCompleted) parts.push(`last: ${h.lastCompleted}`);
-              return parts.join(', ');
-            })
-            .join('\n') + '\n';
+          expandedContext +=
+            habitContext
+              .map((h) => {
+                const parts = [`- "${h.title}"`];
+                if (h.currentStreak) parts.push(`streak: ${h.currentStreak} days`);
+                if (h.bestTime) parts.push(`best time: ${h.bestTime}`);
+                if (h.lastCompleted) parts.push(`last: ${h.lastCompleted}`);
+                return parts.join(', ');
+              })
+              .join('\n') + '\n';
         }
 
         if (recentCompletions && recentCompletions.length > 0) {
           expandedContext += `\n=== RECENT COMPLETIONS (last 3 days) ===\n`;
-          expandedContext += recentCompletions
-            .slice(0, 15)
-            .map((c) => `- "${c.title}" → ${c.block}${c.completedAt ? ` at ${c.completedAt}` : ''}`)
-            .join('\n') + '\n';
+          expandedContext +=
+            recentCompletions
+              .slice(0, 15)
+              .map(
+                (c) => `- "${c.title}" → ${c.block}${c.completedAt ? ` at ${c.completedAt}` : ''}`,
+              )
+              .join('\n') + '\n';
         }
 
         // === Static system prompt (cached) ===
@@ -4451,7 +4521,7 @@ You are scheduling for real humans who may have ADHD or executive function chall
 
 === SCHEDULING RULES ===
 1. Never schedule tasks in past blocks (check current hour).
-2. Aim for 85-90% of block capacity. Leave a small buffer but do NOT leave large gaps — it's better to schedule a task and let the user adjust than to overflow it when there's clearly room.
+2. Aim for 85-95% of block capacity. Fill gaps thoroughly — it's better to schedule a task and let the user adjust than to overflow it when there's clearly room. Every assigned task must land in a specific gap.
 3. Respect time_window_preference when set — this is a user commitment.
 4. Use energy types to shape sequencing:
    - deep_focus: longest uninterrupted gap, ideally morning
@@ -4467,12 +4537,20 @@ You are scheduling for real humans who may have ADHD or executive function chall
 10. If recent completions show a pattern (user always does X in morning), follow it.
 11. LOCKED PRIORITIES: Tasks marked locked:true MUST be scheduled — never overflow them. Place locked tasks FIRST, then fill remaining capacity with unlocked tasks. If a locked task has a time preference, honor it strictly.
 
-=== GAP SLOTTING ===
-When a block has gaps listed under CAPACITY, you MAY assign a task to a specific gap by including "scheduledStartIso" — the ISO-8601 start time within that gap. Rules:
-- The task's total_minutes must fit inside the gap.
-- scheduledStartIso must fall on or after the gap start and leave enough room before the gap end.
-- Only slot a task if there is a gap that fits; otherwise just assign the block and omit scheduledStartIso.
-- Prefer slotting deep_focus tasks into longer gaps.
+=== TIME SLOT ASSIGNMENT (REQUIRED) ===
+Every assigned task MUST include a "scheduledStartIso" — the ISO-8601 start time within one of the block's gaps. This is NOT optional.
+
+Rules:
+1. Look at the gaps listed under each block in CAPACITY. Each gap has a start, end, and duration.
+2. Pick a gap where the task's total_minutes fits entirely.
+3. Set scheduledStartIso to a time ON or AFTER the gap start, leaving enough room before the gap end for the full task.
+4. Round scheduledStartIso to the nearest 5-minute mark (e.g. :00, :05, :10 …).
+5. Do NOT double-book — track remaining gap time as you assign tasks and split gaps accordingly.
+6. Prefer placing deep_focus tasks in the longest available gap.
+7. Prefer placing quick tasks in short gaps or as transitions between heavier tasks.
+8. If no gap can fit a task, overflow it — do NOT assign without a valid scheduledStartIso.
+9. scheduledStartIso MUST be in the future — never before the current time shown in the TIME section.
+10. Use ISO-8601 format with timezone offset, e.g. "2025-01-15T09:30:00-05:00".
 
 === OVERFLOW RULES ===
 If tasks won't fit, overflow them. This is NOT failure — it's realistic planning.
@@ -4491,7 +4569,7 @@ Respond with ONLY valid JSON. No markdown, no backticks, no explanation outside 
       "taskId": "...",
       "block": "morning|day|evening",  // IMPORTANT: use "day" for afternoon, never "afternoon"
       "reason": "5-10 words",
-      "scheduledStartIso": "ISO time or omit"
+      "scheduledStartIso": "2025-01-15T09:30:00-05:00"  // REQUIRED ISO-8601 start time
     }
   ],
   "overflow": [
@@ -4519,12 +4597,25 @@ Do NOT mention in reasoning:
 - Energy type names (use plain language like "heavier tasks" or "quick wins")
 - Technical terms
 
+=== SCHEDULING WALKTHROUGH ===
+Follow these steps IN ORDER:
+1. Read all gaps for each block. Note their start, end, and available minutes.
+2. Place LOCKED tasks first — they must be scheduled. Honor their time preferences.
+3. Place overdue and due-today tasks next, fitting them into appropriate gaps.
+4. Place remaining tasks by priority and energy fit, filling gaps as you go.
+5. After each placement, subtract the task's total_minutes from the gap. If the gap is partially used, split it into the remaining segment.
+6. When no gap can fit a task, overflow it with an encouraging reason.
+7. Double-check: every assignment has a valid scheduledStartIso that falls inside a gap and is in the future.
+
 Keep the tone warm and reassuring — like a helpful friend explaining the plan.`;
 
         // === Dynamic user message ===
+        const currentIso = new Date().toISOString();
         const userMessage = `=== TIME ===
+Current time: ${currentIso}
 Current hour: ${currentHour}:00
 Timezone: ${timezone}
+Do NOT schedule any task before the current time.
 Past blocks are unavailable.
 
 === CALENDAR ===
@@ -4663,12 +4754,36 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
               assignedIds.add(a.taskId);
               return true;
             })
-            .map((a) => ({
-              taskId: a.taskId,
-              block: a.block,
-              reason: String(a.reason || '').substring(0, 80),
-              ...(a.scheduledStartIso ? { scheduledStartIso: String(a.scheduledStartIso) } : {}),
-            }));
+            .map((a) => {
+              const result = {
+                taskId: a.taskId,
+                block: a.block,
+                reason: String(a.reason || '').substring(0, 80),
+              };
+              if (a.scheduledStartIso) {
+                const iso = String(a.scheduledStartIso);
+                const parsed_date = new Date(iso);
+                if (!isNaN(parsed_date.getTime())) {
+                  // Drop scheduledStartIso if it's in the past
+                  if (parsed_date.getTime() > Date.now()) {
+                    result.scheduledStartIso = iso;
+                  } else {
+                    console.log('[organize-day] Dropped past scheduledStartIso', {
+                      taskId: a.taskId,
+                      iso,
+                    });
+                  }
+                } else {
+                  console.log('[organize-day] Invalid scheduledStartIso', {
+                    taskId: a.taskId,
+                    iso,
+                  });
+                }
+              } else {
+                console.log('[organize-day] Missing scheduledStartIso', { taskId: a.taskId });
+              }
+              return result;
+            });
 
           const overflowIds = new Set();
           const overflow = (Array.isArray(parsed.overflow) ? parsed.overflow : [])
@@ -4725,14 +4840,17 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
           const latency = Date.now() - t0;
           if (err.name === 'AbortError') {
             console.log('[organize-day] Request timed out', { latency_ms: latency });
-            return j({
-              error: 'timeout',
-              assignments: [],
-              overflow: tasksToAssign.map((t) => ({ taskId: t.id, reason: 'Timed out' })),
-              reasoning: [],
-              summary: 'Took too long — tasks left flexible.',
-              latency_ms: latency,
-            }, 200);
+            return j(
+              {
+                error: 'timeout',
+                assignments: [],
+                overflow: tasksToAssign.map((t) => ({ taskId: t.id, reason: 'Timed out' })),
+                reasoning: [],
+                summary: 'Took too long — tasks left flexible.',
+                latency_ms: latency,
+              },
+              200,
+            );
           }
           console.log('[organize-day] Error', { error: String(err), latency_ms: latency });
           return j(
@@ -8087,7 +8205,8 @@ Rules:
         // Time of day for contextual suggestions
         const scClientTime = body.currentTime ? new Date(body.currentTime) : new Date();
         const scClientHour = scClientTime.getHours();
-        const scTimeOfDay = scClientHour < 12 ? 'morning' : scClientHour < 17 ? 'afternoon' : 'evening';
+        const scTimeOfDay =
+          scClientHour < 12 ? 'morning' : scClientHour < 17 ? 'afternoon' : 'evening';
         const scTimeStr = `${scClientHour}:${String(scClientTime.getMinutes()).padStart(2, '0')}`;
 
         // Build context injection for space chat
@@ -8162,7 +8281,10 @@ Rules:
 
         const openaiRes = await fetch(GEMINI_BASE_URL, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${env.GOOGLE_API_KEY}`, 'Content-Type': 'application/json' },
+          headers: {
+            Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
           body: JSON.stringify(openaiPayload),
         });
 
@@ -8183,9 +8305,9 @@ Rules:
           // Track tool calls accumulation (array for multiple calls)
           let toolCalls = [];
 
-            // Output guard: buffer first sentence to strip filler openings
-            let fillerBuffer = '';
-            let fillerFlushed = false;
+          // Output guard: buffer first sentence to strip filler openings
+          let fillerBuffer = '';
+          let fillerFlushed = false;
 
           try {
             // eslint-disable-next-line no-constant-condition
@@ -8216,7 +8338,11 @@ Rules:
                         if (hasBreak) {
                           const cleaned = stripFillerOpening(fillerBuffer);
                           if (cleaned) {
-                            await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                            await writer.write(
+                              encoder.encode(
+                                `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                              ),
+                            );
                           }
                           fillerFlushed = true;
                         }
@@ -8253,7 +8379,9 @@ Rules:
             if (!fillerFlushed && fillerBuffer) {
               const cleaned = stripFillerOpening(fillerBuffer);
               if (cleaned) {
-                await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                await writer.write(
+                  encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                );
               }
             }
             fullContent = stripFillerOpening(fullContent);
@@ -8417,11 +8545,17 @@ Rules:
                         fullContent += delta;
                         if (!followUpFillerFlushed) {
                           followUpFillerBuffer += delta;
-                          const hasBreak = /[.?!]\s/.test(followUpFillerBuffer) || followUpFillerBuffer.length > 150;
+                          const hasBreak =
+                            /[.?!]\s/.test(followUpFillerBuffer) ||
+                            followUpFillerBuffer.length > 150;
                           if (hasBreak) {
                             const cleaned = stripFillerOpening(followUpFillerBuffer);
                             if (cleaned) {
-                              await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                              await writer.write(
+                                encoder.encode(
+                                  `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                ),
+                              );
                             }
                             followUpFillerFlushed = true;
                           }
@@ -8467,7 +8601,11 @@ Rules:
                 if (!followUpFillerFlushed && followUpFillerBuffer) {
                   const cleaned = stripFillerOpening(followUpFillerBuffer);
                   if (cleaned) {
-                    await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                    await writer.write(
+                      encoder.encode(
+                        `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                      ),
+                    );
                   }
                 }
                 fullContent = stripFillerOpening(fullContent);
@@ -8624,12 +8762,17 @@ Rules:
       }
 
       // Use Gemini for Space Chat, OpenAI for everything else (classify, etc.)
-      const nonStreamUrl = isSpaceChatLane ? GEMINI_BASE_URL : 'https://api.openai.com/v1/chat/completions';
+      const nonStreamUrl = isSpaceChatLane
+        ? GEMINI_BASE_URL
+        : 'https://api.openai.com/v1/chat/completions';
       const nonStreamAuthKey = isSpaceChatLane ? env.GOOGLE_API_KEY : key;
 
       const res = await fetch(nonStreamUrl, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${nonStreamAuthKey}`, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${nonStreamAuthKey}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(openaiPayload),
       });
 
