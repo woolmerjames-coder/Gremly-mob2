@@ -3106,20 +3106,6 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const { user } = useAuth();
   const demoSweepCompletedAt = useGremlyStore((s) => s.demoSweepCompletedAt);
 
-  // ── Demo: show for ANY user who hasn't completed the demo yet ──
-  if (!demoSweepCompletedAt) {
-    return (
-      <SweepDemoFlow
-        onComplete={() => {
-          if (demoMode) {
-            navigation.goBack();
-          }
-          // else: do nothing — Zustand re-render handles the transition
-        }}
-        returnsToMindDrop={demoMode}
-      />
-    );
-  }
   const [step, setStep] = useState<number>(initialStep);
 
   // Check if user has locked items for lock-in checkpoint (including completed ones for celebration)
@@ -3775,6 +3761,21 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       navigation.goBack();
     }
   }, [step, navigation]);
+
+  // ── Demo: show for ANY user who hasn't completed the demo yet ──
+  if (!demoSweepCompletedAt) {
+    return (
+      <SweepDemoFlow
+        onComplete={() => {
+          if (demoMode) {
+            navigation.goBack();
+          }
+          // else: do nothing — Zustand re-render handles the transition
+        }}
+        returnsToMindDrop={demoMode}
+      />
+    );
+  }
 
   return (
     <>
