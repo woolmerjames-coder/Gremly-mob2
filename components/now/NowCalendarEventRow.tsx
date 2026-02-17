@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     justifyContent: 'center',
-    gap: 2,
+    gap: 0,
   },
   title: {
     fontSize: 15,
@@ -166,7 +166,7 @@ const styles = StyleSheet.create({
   metaText: {
     fontSize: 12,
     color: '#999999',
-    marginTop: 1,
+    marginTop: 0,
   },
   quickActionButton: {
     width: 32,

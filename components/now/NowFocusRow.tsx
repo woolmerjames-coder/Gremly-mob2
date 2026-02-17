@@ -571,7 +571,7 @@ const styles = StyleSheet.create({
   metaText: {
     fontSize: 12,
     color: '#999999',
-    marginTop: 1,
+    marginTop: 0,
   },
   chips: {
     flexDirection: 'row',
