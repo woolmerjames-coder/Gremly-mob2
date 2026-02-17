@@ -4395,7 +4395,7 @@ Return ONLY valid JSON, no explanation:
 
         const blockContext = `Morning: ${calendarFreeMinutes(blocks.morning)} min available
 ${formatGaps(blocks.morning?.gaps)}
-Afternoon: ${calendarFreeMinutes(blocks.day)} min available
+Day: ${calendarFreeMinutes(blocks.day)} min available
 ${formatGaps(blocks.day?.gaps)}
 Evening: ${calendarFreeMinutes(blocks.evening)} min available
 ${formatGaps(blocks.evening?.gaps)}`;
@@ -4489,7 +4489,7 @@ Respond with ONLY valid JSON. No markdown, no backticks, no explanation outside 
   "assignments": [
     {
       "taskId": "...",
-      "block": "morning|day|evening",
+      "block": "morning|day|evening",  // IMPORTANT: use "day" for afternoon, never "afternoon"
       "reason": "5-10 words",
       "scheduledStartIso": "ISO time or omit"
     }
@@ -4644,7 +4644,18 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
           const taskIds = new Set(tasksToAssign.map((t) => t.id));
           const assignedIds = new Set();
 
+          // Normalize block names — AI may output "afternoon" instead of "day"
+          const normalizeBlock = (block) => {
+            if (!block) return block;
+            const lower = block.toLowerCase().trim();
+            if (lower === 'afternoon' || lower === 'day') return 'day';
+            if (lower === 'morning') return 'morning';
+            if (lower === 'evening' || lower === 'night') return 'evening';
+            return block;
+          };
+
           const assignments = (Array.isArray(parsed.assignments) ? parsed.assignments : [])
+            .map((a) => ({ ...a, block: normalizeBlock(a.block) }))
             .filter((a) => {
               if (!taskIds.has(a.taskId)) return false;
               if (!validBlocks.includes(a.block)) return false;
