@@ -450,7 +450,12 @@ export function MorningBriefSheet({
           evening.push(task);
           break;
         default:
-          flexible.push(task);
+          // Items with scheduled_start_iso but time_window 'any'/null
+          // are already visible in the timeline via slottedItemsByBlock.
+          // Don't double-show them in priorities.
+          if (!todo.scheduled_start_iso) {
+            flexible.push(task);
+          }
       }
     });
 
@@ -486,7 +491,9 @@ export function MorningBriefSheet({
             evening.push(task);
             break;
           default:
-            flexible.push(task);
+            if (!habit.scheduled_start_iso) {
+              flexible.push(task);
+            }
         }
       }
     });
