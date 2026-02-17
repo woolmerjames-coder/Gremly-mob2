@@ -159,8 +159,8 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   title: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '500',
     color: BRAND.colors.charcoalInk,
   },
   metaText: {
