@@ -118,6 +118,14 @@
  * - Save detection in responses (notes, checklists)
  * - Space promotion detection for complex tasks
  * - Streaming and non-streaming support
+ *
+ * v5.0 (2026-02-16):
+ * - UPGRADED: organize-day now uses Anthropic Sonnet 4.5 (was gpt-4o-mini)
+ * - NEW: Prompt caching on static scheduling rules for ~90% input cost savings
+ * - NEW: Expanded context support: userPatterns, spacePriorities, habitContext, recentCompletions
+ * - NEW: Daily usage limit (5/day per user via KV)
+ * - IMPROVED: ADHD-aware scheduling rules (quick wins, transition costs, streak protection)
+ * - IMPROVED: max_tokens 1200 → 4096 for larger task sets
  */
 
 import { getSessionContext } from './context/sessionContext.js';
@@ -4257,22 +4265,56 @@ Return ONLY valid JSON, no explanation:
         };
       }
 
-      // =========================
-      // === ORGANIZE DAY (v1.0) ===
+      // === ORGANIZE DAY (v2.0) ===
       // AI-powered task scheduling for Morning Brief
-      // Assigns unscheduled tasks to time blocks based on:
-      // - Available time per block
-      // - Task estimates and due dates
-      // - Calendar context
-      // - Smart placement rules
+      // UPGRADED: Anthropic Sonnet 4.5 (was gpt-4o-mini)
+      // - Prompt caching on static scheduling rules (~90% input cost reduction on cache hits)
+      // - Expanded context: user patterns, space priorities, habit streaks, completion history
+      // - Daily usage limit (configurable, default 5/day)
+      // - Better multi-constraint reasoning for 20-50+ tasks
       // =========================
       if (type === 'organize-day') {
         const tasks = Array.isArray(body.tasks) ? body.tasks : [];
         const calendarEvents = Array.isArray(body.calendarEvents) ? body.calendarEvents : [];
         const blocks = body.blocks || {};
         const currentHour = body.currentHour ?? new Date().getHours();
+        const userId = body.userId || null;
+        const timezone = body.timezone || 'America/Los_Angeles';
 
-        // Validation
+        // === Expanded context (new in v2.0) ===
+        const userPatterns = body.userPatterns || null;
+        const spacePriorities = body.spacePriorities || null;
+        const habitContext = body.habitContext || null;
+        const recentCompletions = body.recentCompletions || null;
+
+        // === Daily usage limit ===
+        const DAILY_ORGANIZE_LIMIT = 5;
+
+        if (userId && env.CORTEX_KV) {
+          try {
+            const today = new Date().toISOString().split('T')[0];
+            const limitKey = `organize-limit:${userId}:${today}`;
+            const currentCount = parseInt(await env.CORTEX_KV.get(limitKey) || '0', 10);
+
+            if (currentCount >= DAILY_ORGANIZE_LIMIT) {
+              return j({
+                error: 'daily_limit_reached',
+                limit: DAILY_ORGANIZE_LIMIT,
+                assignments: [],
+                overflow: [],
+                reasoning: [],
+                summary: `You've organized ${DAILY_ORGANIZE_LIMIT} times today. Trust your plan — you've got this.`,
+                latency_ms: 0,
+              });
+            }
+
+            await env.CORTEX_KV.put(limitKey, String(currentCount + 1), { expirationTtl: 172800 });
+          } catch (kvErr) {
+            console.log('[organize-day] KV limit check failed, proceeding', { error: String(kvErr) });
+          }
+        }
+
+        // === Validation ===
         if (tasks.length === 0) {
           return j({
             assignments: [],
@@ -4283,7 +4325,6 @@ Return ONLY valid JSON, no explanation:
           });
         }
 
-        // Filter to only unassigned, unlocked tasks
         const tasksToAssign = tasks.filter((t) => !t.isLockedIn && !t.currentBlock);
 
         if (tasksToAssign.length === 0) {
@@ -4296,24 +4337,33 @@ Return ONLY valid JSON, no explanation:
           });
         }
 
-        // Build context strings for the prompt
+        // === Build task context ===
         const taskList = tasksToAssign
           .map((t) => {
             const parts = [`- ${t.id}: "${t.title}"`];
             parts.push(`  total_minutes: ${t.totalMinutes || t.estimateMinutes || 30}`);
             parts.push(`  energy: ${t.energyType || 'administrative'}`);
             parts.push(`  type: ${t.type || 'todo'}`);
-            // Include tags if available (comma-separated)
             if (t.tags && Array.isArray(t.tags) && t.tags.length > 0) {
               parts.push(`  tags: ${t.tags.slice(0, 5).join(', ')}`);
             }
             if (t.timeWindowPreference) {
               parts.push(`  prefers: ${t.timeWindowPreference}`);
             }
+            if (t.dueDate) {
+              parts.push(`  due: ${t.dueDate}`);
+            }
+            if (t.priority) {
+              parts.push(`  priority: ${t.priority}`);
+            }
+            if (t.spaceName) {
+              parts.push(`  space: ${t.spaceName}`);
+            }
             return parts.join('\n');
           })
           .join('\n');
 
+        // === Build calendar context ===
         const calendarContext =
           calendarEvents.length > 0
             ? calendarEvents
@@ -4321,6 +4371,7 @@ Return ONLY valid JSON, no explanation:
                 .join('\n')
             : 'No calendar events today.';
 
+        // === Build block capacity context ===
         const formatGaps = (gaps) =>
           (gaps || [])
             .map(
@@ -4336,74 +4387,115 @@ ${formatGaps(blocks.day?.gaps)}
 Evening: ${blocks.evening?.realisticAvailableMinutes ?? blocks.evening?.availableMinutes ?? 0} min
 ${formatGaps(blocks.evening?.gaps)}`;
 
-        const organizePrompt = `You are a task scheduler. Place tasks into time blocks to create a calm, focused day.
+        // === Build expanded context sections (new in v2.0) ===
+        let expandedContext = '';
 
-=== TIME ===
-Current hour: ${currentHour}:00
-Past blocks are unavailable.
+        if (userPatterns) {
+          expandedContext += `\n=== USER PATTERNS ===\n`;
+          if (userPatterns.peakFocusTime) expandedContext += `Peak focus time: ${userPatterns.peakFocusTime}\n`;
+          if (userPatterns.avgCompletionRate != null) expandedContext += `Avg daily completion rate: ${Math.round(userPatterns.avgCompletionRate * 100)}%\n`;
+          if (userPatterns.commonSkipTimes) expandedContext += `Common skip times: ${userPatterns.commonSkipTimes}\n`;
+          if (userPatterns.preferredTaskOrder) expandedContext += `Preferred order: ${userPatterns.preferredTaskOrder}\n`;
+        }
 
-=== CALENDAR ===
-${calendarContext}
+        if (spacePriorities && spacePriorities.length > 0) {
+          expandedContext += `\n=== SPACE PRIORITIES ===\n`;
+          expandedContext += spacePriorities
+            .map((s) => `- ${s.name}: priority ${s.priority}${s.taskCount ? ` (${s.taskCount} tasks)` : ''}`)
+            .join('\n') + '\n';
+        }
 
-=== CAPACITY ===
-${blockContext}
-Use max 85% of each block.
-Gaps are free time between calendar events within each block.
+        if (habitContext && habitContext.length > 0) {
+          expandedContext += `\n=== HABIT CONTEXT ===\n`;
+          expandedContext += habitContext
+            .map((h) => {
+              const parts = [`- "${h.title}"`];
+              if (h.currentStreak) parts.push(`streak: ${h.currentStreak} days`);
+              if (h.bestTime) parts.push(`best time: ${h.bestTime}`);
+              if (h.lastCompleted) parts.push(`last: ${h.lastCompleted}`);
+              return parts.join(', ');
+            })
+            .join('\n') + '\n';
+        }
 
-=== TASKS ===
-${taskList}
+        if (recentCompletions && recentCompletions.length > 0) {
+          expandedContext += `\n=== RECENT COMPLETIONS (last 3 days) ===\n`;
+          expandedContext += recentCompletions
+            .slice(0, 15)
+            .map((c) => `- "${c.title}" → ${c.block}${c.completedAt ? ` at ${c.completedAt}` : ''}`)
+            .join('\n') + '\n';
+        }
 
-Each task includes:
-- id, title
-- total_minutes (includes prep/cooldown, use for capacity)
-- energy: deep_focus | administrative | physical | social | quick
-- type: todo | habit
-- tags: topical labels (work, health, finance, creative, etc.)
-- prefers: time_window_preference if set
+        // === Static system prompt (cached) ===
+        const ORGANIZE_SYSTEM_PROMPT = `You are a task scheduler for a productivity app called Gremly. Your job is to place tasks into time blocks to create a calm, focused, achievable day.
+
+You are scheduling for real humans who may have ADHD or executive function challenges. This means:
+- Overscheduling causes anxiety and paralysis. Leave breathing room.
+- Transitions between very different tasks are cognitively expensive.
+- Starting the day with a quick win builds momentum.
+- Ending the day with low-energy tasks prevents evening overwhelm.
+- Habits that have active streaks should be protected — don't let them slip.
 
 === SCHEDULING RULES ===
-1. Never schedule tasks in past blocks
-2. Never exceed 85% of block capacity
-3. Respect time_window_preference when set
-4. Use energy types to shape task sequencing and flow
-5. Place deep_focus tasks in the longest uninterrupted gap
-6. Group tasks with shared tags to reduce context switching
-7. Avoid stacking physical or social tasks back-to-back
-8. Spread habits across blocks — avoid clustering
+1. Never schedule tasks in past blocks (check current hour).
+2. Never exceed 85% of block capacity. This is a HARD ceiling.
+3. Respect time_window_preference when set — this is a user commitment.
+4. Use energy types to shape sequencing:
+   - deep_focus: longest uninterrupted gap, ideally morning
+   - administrative: batch together, any block
+   - physical: avoid stacking back-to-back, avoid immediately after meals
+   - social: avoid stacking, respect energy cost
+   - quick: use as buffer between heavier tasks, or to start a block
+5. Group tasks with shared tags or spaces to reduce context switching.
+6. Spread habits across blocks — never cluster them all in one block.
+7. Tasks due today get priority placement. Overdue tasks get highest.
+8. If a user pattern indicates peak focus time, place deep_focus tasks there.
+9. If habit context shows a best time, honor it.
+10. If recent completions show a pattern (user always does X in morning), follow it.
 
 === GAP SLOTTING ===
-When a block has gaps listed under CAPACITY, you MAY assign a task to a
-specific gap by including "scheduledStartIso" — the ISO-8601 start time
-within that gap. Rules:
-- The task's total_minutes must fit inside the gap
-- "scheduledStartIso" must fall on or after the gap start and leave
-  enough room before the gap end
-- Only slot a task if there is a gap that fits; otherwise just assign
-  the block and omit scheduledStartIso
-- Prefer slotting deep_focus tasks into longer gaps
+When a block has gaps listed under CAPACITY, you MAY assign a task to a specific gap by including "scheduledStartIso" — the ISO-8601 start time within that gap. Rules:
+- The task's total_minutes must fit inside the gap.
+- scheduledStartIso must fall on or after the gap start and leave enough room before the gap end.
+- Only slot a task if there is a gap that fits; otherwise just assign the block and omit scheduledStartIso.
+- Prefer slotting deep_focus tasks into longer gaps.
 
-=== GROUPING PRINCIPLES ===
-- Tasks sharing tags (e.g. "work", "finance") benefit from being adjacent
-- Similar energy types flow better together
-- Habits should feel integrated, not front-loaded
-- Reduce mental overhead by minimizing topic jumps
+=== OVERFLOW RULES ===
+If tasks won't fit, overflow them. This is NOT failure — it's realistic planning.
+- Overflow the lowest-priority, non-due-today tasks first.
+- Never overflow an overdue task unless there is literally zero capacity.
+- Never overflow a habit with an active streak unless capacity is truly zero.
+- Overflow reason should be encouraging, not guilt-inducing.
 
-=== OUTPUT ===
-JSON only, no markdown:
+=== OUTPUT FORMAT ===
+Respond with ONLY valid JSON. No markdown, no backticks, no explanation outside the JSON.
 {
-  "assignments": [{ "taskId": "...", "block": "morning|day|evening", "reason": "5-10 words", "scheduledStartIso": "ISO time or omit" }],
-  "overflow": [{ "taskId": "...", "reason": "5-10 words" }],
-  "reasoning": ["Pattern or decision 1", "Pattern 2", "Pattern 3 if needed"],
+  "assignments": [
+    {
+      "taskId": "...",
+      "block": "morning|day|evening",
+      "reason": "5-10 words",
+      "scheduledStartIso": "ISO time or omit"
+    }
+  ],
+  "overflow": [
+    {
+      "taskId": "...",
+      "reason": "5-10 encouraging words"
+    }
+  ],
+  "reasoning": ["Pattern or decision 1", "Pattern 2", "Pattern 3"],
   "summary": "One calm sentence about the plan"
 }
 
 === REASONING GUIDELINES ===
 Provide 2-4 short bullets explaining your approach. Focus on:
-- Grouping patterns (e.g. "Batched your work tasks together")
-- Energy flow (e.g. "Put focus work in the morning when you're fresh")
-- Habit placement (e.g. "Spread your habits throughout the day")
-- Preference respect (e.g. "Honored your morning preference for the gym")
-- Gap usage (e.g. "Slotted your deep work into the 90-min morning window")
+- Grouping patterns ("Batched your work tasks together")
+- Energy flow ("Put focus work in the morning when you're fresh")
+- Habit placement ("Spread your habits throughout the day")
+- Preference respect ("Honored your morning preference for the gym")
+- Gap usage ("Slotted your deep work into the 90-min morning window")
+- Pattern following ("You usually journal in the evening, so kept it there")
 
 Do NOT mention in reasoning:
 - Specific minute counts or capacity numbers
@@ -4413,33 +4505,78 @@ Do NOT mention in reasoning:
 
 Keep the tone warm and reassuring — like a helpful friend explaining the plan.`;
 
+        // === Dynamic user message ===
+        const userMessage = `=== TIME ===
+Current hour: ${currentHour}:00
+Timezone: ${timezone}
+Past blocks are unavailable.
+
+=== CALENDAR ===
+${calendarContext}
+
+=== CAPACITY ===
+${blockContext}
+
+=== TASKS (${tasksToAssign.length} to schedule) ===
+${taskList}
+
+Each task includes:
+- id, title
+- total_minutes (includes prep/cooldown, use for capacity math)
+- energy: deep_focus | administrative | physical | social | quick
+- type: todo | habit
+- tags: topical labels (work, health, finance, creative, etc.)
+- prefers: time_window_preference if set
+- due: due date if set
+- priority: priority level if set
+- space: which life domain this belongs to
+${expandedContext}
+Schedule these tasks now. Respond with ONLY valid JSON.`;
+
+        // === API Call ===
+        const anthropicKey = env.ANTHROPIC_API_KEY;
+        if (!anthropicKey) {
+          console.log('[organize-day] ANTHROPIC_API_KEY not configured');
+          return j({ error: 'anthropic_key_not_configured' }, 500);
+        }
+
         const t0 = Date.now();
 
         try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${key}`,
               'Content-Type': 'application/json',
+              'x-api-key': anthropicKey,
+              'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [{ role: 'system', content: organizePrompt }],
-              temperature: 0.2,
-              max_tokens: 1200,
-              response_format: { type: 'json_object' },
+              model: 'claude-sonnet-4-5-20250929',
+              max_tokens: 4096,
+              system: [
+                {
+                  type: 'text',
+                  text: ORGANIZE_SYSTEM_PROMPT,
+                  cache_control: { type: 'ephemeral' },
+                },
+              ],
+              messages: [{ role: 'user', content: userMessage }],
             }),
           });
 
-          const oj = await res.json();
           const latency = Date.now() - t0;
 
           if (!res.ok) {
-            console.log('[organize-day] API error', { error: oj.error, latency_ms: latency });
+            const errText = await res.text();
+            console.log('[organize-day] Anthropic API error', {
+              status: res.status,
+              latency_ms: latency,
+              error: errText.substring(0, 300),
+            });
             return j(
               {
                 error: 'organize_failed',
-                detail: oj.error?.message,
+                detail: errText.substring(0, 200),
                 assignments: [],
                 overflow: tasksToAssign.map((t) => ({ taskId: t.id, reason: 'AI unavailable' })),
                 reasoning: [],
@@ -4450,7 +4587,18 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
             );
           }
 
-          const rawContent = oj?.choices?.[0]?.message?.content ?? '';
+          const anthropicResponse = await res.json();
+          const rawContent = anthropicResponse.content?.[0]?.text || '';
+
+          // Log cache performance
+          const usage = anthropicResponse.usage || {};
+          console.log('[organize-day] Anthropic usage', {
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
+            cache_read_input_tokens: usage.cache_read_input_tokens || 0,
+            latency_ms: latency,
+          });
 
           let parsed = safeParseJson(rawContent);
 
@@ -4469,7 +4617,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
             );
           }
 
-          // Validate and extract
+          // === Validate and extract ===
           const validBlocks = ['morning', 'day', 'evening'];
           const taskIds = new Set(tasksToAssign.map((t) => t.id));
           const assignedIds = new Set();
@@ -4485,7 +4633,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
             .map((a) => ({
               taskId: a.taskId,
               block: a.block,
-              reason: String(a.reason || '').substring(0, 50),
+              reason: String(a.reason || '').substring(0, 80),
               ...(a.scheduledStartIso ? { scheduledStartIso: String(a.scheduledStartIso) } : {}),
             }));
 
@@ -4500,7 +4648,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
             })
             .map((o) => ({
               taskId: o.taskId,
-              reason: String(o.reason || '').substring(0, 50),
+              reason: String(o.reason || '').substring(0, 80),
             }));
 
           // Catch any unaccounted tasks
@@ -4512,17 +4660,19 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
 
           const summary =
             typeof parsed.summary === 'string' && parsed.summary.length > 0
-              ? parsed.summary.substring(0, 150)
+              ? parsed.summary.substring(0, 200)
               : `Scheduled ${assignments.length} of ${tasksToAssign.length} tasks.`;
 
           const reasoning = Array.isArray(parsed.reasoning)
-            ? parsed.reasoning.map((r) => String(r).substring(0, 150)).slice(0, 4)
+            ? parsed.reasoning.map((r) => String(r).substring(0, 200)).slice(0, 5)
             : [];
 
           console.log('[organize-day] Success', {
             assigned: assignments.length,
             overflow: overflow.length,
+            total_tasks: tasksToAssign.length,
             latency_ms: latency,
+            cached: (usage.cache_read_input_tokens || 0) > 0,
           });
 
           return j({
@@ -4531,6 +4681,12 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
             reasoning,
             summary,
             latency_ms: latency,
+            _debug: {
+              model: 'claude-sonnet-4-5',
+              cached: (usage.cache_read_input_tokens || 0) > 0,
+              input_tokens: usage.input_tokens,
+              output_tokens: usage.output_tokens,
+            },
           });
         } catch (err) {
           const latency = Date.now() - t0;
