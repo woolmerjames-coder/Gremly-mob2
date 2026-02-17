@@ -498,11 +498,11 @@ export function MorningBriefSheet({
   }, [todayTodos, todayHabits, transformTodo, transformHabit]);
 
   // ─── Gap-based free minutes from TimeBlockSection callbacks ───
-  const [blockFreeMinutes, setBlockFreeMinutes] = useState<Record<string, number>>({
-    morning: 0,
-    day: 0,
-    evening: 0,
-  });
+  const [blockFreeMinutes, setBlockFreeMinutes] = useState<Record<string, number>>(() => ({
+    morning: capacity.blocks.morning.availableMinutes,
+    day: capacity.blocks.day.availableMinutes,
+    evening: capacity.blocks.evening.availableMinutes,
+  }));
 
   const handleFreeMinutesCalculated = useCallback((block: string, minutes: number) => {
     setBlockFreeMinutes((prev) => {
