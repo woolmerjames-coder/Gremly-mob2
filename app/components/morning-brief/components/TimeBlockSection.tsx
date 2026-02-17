@@ -19,12 +19,7 @@ import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { TaskItem, type TaskItemData } from './TaskItem';
 import { EventTimePicker } from './EventTimePicker';
 import { GapRow } from './GapRow';
-import {
-  buildTimeline,
-  getBlockBoundaryIso,
-  type TimeGap,
-  type SlottedTask,
-} from '../../../../lib/timeGaps';
+import { type TimeGap, type SlottedTask } from '../../../../lib/timeGaps';
 
 // Stable empty object to prevent re-renders from new object references
 const EMPTY_TIME_OVERRIDES: Record<string, EventTimeOverride> = {};
@@ -122,6 +117,70 @@ function getEventId(event: CalendarEvent): string {
   return `${event.provider}-${event.providerEventId}`;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// UNIFIED TIMELINE HELPERS
+// ═══════════════════════════════════════════════════════════════════
+
+const MIN_GAP_MINUTES = 10;
+
+/** Format gap duration for display (e.g., "45 min free") */
+function formatGapLabel(mins: number): string {
+  if (mins < 60) return `${mins} min free`;
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return rem === 0 ? `${hrs} hr free` : `${hrs} hr ${rem} min free`;
+}
+
+/** Convert minutes-since-midnight to ISO string for a given date */
+function minutesToIso(dateCtx: string, mins: number): string {
+  const d = new Date(`${dateCtx}T12:00:00`);
+  d.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
+  return d.toISOString();
+}
+
+/** Format HH:mm string to "h:mm AM/PM" */
+function formatKeyDateTime(time: string): string {
+  const [hourStr, minStr] = time.split(':');
+  const hour = parseInt(hourStr, 10);
+  const min = parseInt(minStr, 10);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 || 12;
+  return min > 0 ? `${displayHour}:${minStr} ${ampm}` : `${displayHour}:00 ${ampm}`;
+}
+
+/** Discriminated union for all items in a block's unified timeline */
+type UnifiedItem =
+  | { kind: 'slotted_task'; slottedTask: SlottedTask; startMinutes: number }
+  | { kind: 'event'; event: CalendarEvent; startMinutes: number }
+  | { kind: 'key_date'; keyDate: Note; startMinutes: number | null }
+  | { kind: 'task'; task: TaskItemData; startMinutes: null }
+  | { kind: 'gap'; gap: TimeGap };
+
+/** Get the duration in minutes for an item (used for gap calculation) */
+function getItemDuration(item: Exclude<UnifiedItem, { kind: 'gap' }>): number {
+  switch (item.kind) {
+    case 'event':
+      return Math.round(
+        (new Date(item.event.endAt).getTime() - new Date(item.event.startAt).getTime()) /
+          (1000 * 60),
+      );
+    case 'slotted_task':
+      return item.slottedTask.estimateMinutes;
+    case 'key_date': {
+      const et = item.keyDate.event_time;
+      const endt = item.keyDate.end_time;
+      if (et && endt) {
+        const [sh, sm] = et.split(':').map(Number);
+        const [eh, em] = endt.split(':').map(Number);
+        return Math.max(0, eh * 60 + em - (sh * 60 + sm));
+      }
+      return 0;
+    }
+    case 'task':
+      return item.task.estimatedMinutes || 0;
+  }
+}
+
 export function TimeBlockSection({
   capacity,
   events,
@@ -206,26 +265,118 @@ export function TimeBlockSection({
     return events.filter((e) => !e.isAllDay && !hiddenSet.has(getEventId(e)));
   }, [events, hiddenEventIds]);
 
-  // Build timeline with events, slotted tasks, and gaps
-  const timeline = useMemo(() => {
-    const { startIso, endIso } = getBlockBoundaryIso(
-      dateContext,
-      capacity.startHour,
-      capacity.endHour,
-    );
-    return buildTimeline(visibleEvents, slottedItems, startIso, endIso);
-  }, [visibleEvents, slottedItems, dateContext, capacity.startHour, capacity.endHour]);
-
-  const hasTimeline = timeline.length > 0;
-
-  // Set of slotted task IDs to exclude from bottom "Assigned Tasks" section
+  // Set of slotted task IDs to avoid duplicates
   const slottedIds = useMemo(() => new Set((slottedItems ?? []).map((s) => s.id)), [slottedItems]);
+
+  // ── Unified timeline: merge all items, sort chronologically, insert gaps ──
+  const unifiedTimeline = useMemo((): UnifiedItem[] => {
+    type TimedItem = Exclude<UnifiedItem, { kind: 'gap' }>;
+    const items: TimedItem[] = [];
+
+    // 1. Slotted tasks (have scheduled_start_iso)
+    for (const item of slottedItems) {
+      const start = new Date(item.scheduled_start_iso);
+      const estimate = item.time_estimate_minutes ?? 15;
+      items.push({
+        kind: 'slotted_task',
+        slottedTask: {
+          id: item.id,
+          type: item.type,
+          title: item.name,
+          estimateMinutes: estimate,
+          scheduledStartIso: item.scheduled_start_iso,
+          scheduledEndIso: new Date(start.getTime() + estimate * 60 * 1000).toISOString(),
+        },
+        startMinutes: start.getHours() * 60 + start.getMinutes(),
+      });
+    }
+
+    // 2. Calendar events (currently empty, future-proofed)
+    for (const event of visibleEvents) {
+      const start = new Date(event.startAt);
+      items.push({
+        kind: 'event',
+        event,
+        startMinutes: start.getHours() * 60 + start.getMinutes(),
+      });
+    }
+
+    // 3. Key date events
+    for (const keyDate of keyDateEvents) {
+      if (keyDate.event_time) {
+        const [h, m] = keyDate.event_time.split(':').map(Number);
+        items.push({ kind: 'key_date', keyDate, startMinutes: h * 60 + m });
+      } else {
+        items.push({ kind: 'key_date', keyDate, startMinutes: null });
+      }
+    }
+
+    // 4. Non-slotted assigned tasks (no scheduled time)
+    for (const task of tasks) {
+      if (!slottedIds.has(task.id)) {
+        items.push({ kind: 'task', task, startMinutes: null });
+      }
+    }
+
+    // Sort: timed items ascending, untimed items at end preserving order
+    const timed = items
+      .filter((i): i is TimedItem & { startMinutes: number } => i.startMinutes != null)
+      .sort((a, b) => a.startMinutes - b.startMinutes);
+    const untimed = items.filter((i) => i.startMinutes == null);
+
+    // Walk through timed items, inserting gaps >= 10 min
+    const result: UnifiedItem[] = [];
+    const blockStartMins = capacity.startHour * 60;
+    const blockEndMins = capacity.endHour * 60;
+
+    if (timed.length > 0) {
+      let cursor = blockStartMins;
+      for (const item of timed) {
+        if (item.startMinutes > cursor) {
+          const gapMins = item.startMinutes - cursor;
+          if (gapMins >= MIN_GAP_MINUTES) {
+            result.push({
+              kind: 'gap',
+              gap: {
+                startIso: minutesToIso(dateContext, cursor),
+                endIso: minutesToIso(dateContext, item.startMinutes),
+                durationMinutes: gapMins,
+                label: formatGapLabel(gapMins),
+              },
+            });
+          }
+        }
+        result.push(item);
+        cursor = Math.max(cursor, item.startMinutes + getItemDuration(item));
+      }
+      // Trailing gap to block end
+      if (cursor < blockEndMins) {
+        const gapMins = blockEndMins - cursor;
+        if (gapMins >= MIN_GAP_MINUTES) {
+          result.push({
+            kind: 'gap',
+            gap: {
+              startIso: minutesToIso(dateContext, cursor),
+              endIso: minutesToIso(dateContext, blockEndMins),
+              durationMinutes: gapMins,
+              label: formatGapLabel(gapMins),
+            },
+          });
+        }
+      }
+    }
+
+    // Append untimed items at end
+    result.push(...untimed);
+
+    return result;
+  }, [slottedItems, visibleEvents, keyDateEvents, tasks, slottedIds, capacity, dateContext]);
 
   if (!config) return null;
 
   const { label, color, Icon } = config;
 
-  const isEmpty = timeline.length === 0 && keyDateEvents.length === 0 && tasks.length === 0;
+  const isEmpty = unifiedTimeline.length === 0;
 
   const handleEventPress = (event: CalendarEvent) => {
     console.log('[TimeBlockSection] handleEventPress called:', event.title);
@@ -272,22 +423,22 @@ export function TimeBlockSection({
         </Text>
       </View>
 
-      {/* Timeline: Events + Gaps + Slotted Tasks */}
-      {timeline.map((entry, idx) => {
-        const isLastTimeline =
-          idx === timeline.length - 1 && keyDateEvents.length === 0 && tasks.length === 0;
+      {/* Unified chronological timeline */}
+      {unifiedTimeline.map((item, idx) => {
+        const isLast = idx === unifiedTimeline.length - 1;
+        const nextItem = unifiedTimeline[idx + 1];
+        const showDivider = !isLast && nextItem?.kind !== 'gap';
 
-        if (entry.kind === 'gap') {
+        if (item.kind === 'gap') {
           return (
-            <GapRow key={`gap-${entry.startIso}`} gap={entry.gap!} onSlotPress={onGapSlotPress} />
+            <GapRow key={`gap-${item.gap.startIso}`} gap={item.gap} onSlotPress={onGapSlotPress} />
           );
         }
 
-        if (entry.kind === 'slotted_task') {
-          const st = entry.slottedTask!;
+        if (item.kind === 'slotted_task') {
+          const st = item.slottedTask;
           const taskData = taskDataById[st.id];
           const timeLabel = formatTimeShort(new Date(st.scheduledStartIso));
-
           return (
             <React.Fragment key={`slotted-${st.id}`}>
               <View style={styles.slottedTaskRow}>
@@ -302,7 +453,11 @@ export function TimeBlockSection({
                     />
                   ) : (
                     <View
-                      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12 }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingVertical: 12,
+                      }}
                     >
                       <Text
                         style={{ fontSize: 15, color: COLORS.charcoalInk, flex: 1 }}
@@ -315,115 +470,95 @@ export function TimeBlockSection({
                 </View>
                 <Text style={styles.unifiedTime}>{timeLabel}</Text>
               </View>
-              {!isLastTimeline && timeline[idx + 1]?.kind !== 'gap' && (
-                <View style={styles.rowDivider} />
-              )}
+              {showDivider && <View style={styles.rowDivider} />}
             </React.Fragment>
           );
         }
 
-        // kind === 'event'
-        const event = entry.event!;
-        const eventId = getEventId(event);
-        const { startAt: effectiveStart, endAt: effectiveEnd } = getEffectiveEventTimes(
-          event,
-          eventTimeOverrides,
-        );
-
-        const effectiveMinutes = Math.round(
-          (effectiveEnd.getTime() - effectiveStart.getTime()) / (1000 * 60),
-        );
-
-        return (
-          <React.Fragment key={eventId}>
-            <Pressable style={styles.unifiedRow} onPress={() => handleEventPress(event)}>
-              <Calendar size={16} color={COLORS.inkMuted} style={styles.unifiedIcon} />
-              <Text style={[styles.unifiedTitle, isPast && styles.textMuted]} numberOfLines={1}>
-                {event.title}
-              </Text>
-              <Text style={styles.unifiedDuration}>{formatDurationCompact(effectiveMinutes)}</Text>
-              <Text style={styles.unifiedTime}>{formatTimeShort(effectiveStart)}</Text>
-            </Pressable>
-            {!isLastTimeline && timeline[idx + 1]?.kind !== 'gap' && (
-              <View style={styles.rowDivider} />
-            )}
-          </React.Fragment>
-        );
-      })}
-
-      {/* Key Date Events (from Notes with subtype='event') */}
-      {keyDateEvents.map((keyDate, idx) => {
-        const spaceName = getSpaceName?.(keyDate.space_id);
-        const eventTime = keyDate.event_time;
-
-        // Format time range similar to calendar events
-        const formatKeyDateTime = (time: string): string => {
-          const [hourStr, minStr] = time.split(':');
-          const hour = parseInt(hourStr, 10);
-          const min = parseInt(minStr, 10);
-          const ampm = hour >= 12 ? 'PM' : 'AM';
-          const displayHour = hour % 12 || 12;
-          return min > 0 ? `${displayHour}:${minStr} ${ampm}` : `${displayHour}:00 ${ampm}`;
-        };
-
-        const titleText =
-          (keyDate.title || 'Untitled Event') + (spaceName ? ` · ${spaceName}` : '');
-        const endTime = keyDate.end_time;
-
-        // Calculate duration in minutes from event_time and end_time
-        let durationLabel: string | null = null;
-        if (eventTime && endTime) {
-          const [sh, sm] = eventTime.split(':').map(Number);
-          const [eh, em] = endTime.split(':').map(Number);
-          const durationMins = eh * 60 + em - (sh * 60 + sm);
-          if (durationMins > 0) durationLabel = formatDurationCompact(durationMins);
-        }
-
-        const isLast = idx === keyDateEvents.length - 1 && tasks.length === 0;
-        return (
-          <React.Fragment key={keyDate.id}>
-            <Pressable
-              style={styles.unifiedRow}
-              onPress={() =>
-                onKeyDateQuickAction ? onKeyDateQuickAction(keyDate) : handleKeyDatePress(keyDate)
-              }
-            >
-              <Calendar size={16} color={COLORS.inkMuted} style={styles.unifiedIcon} />
-              <Text style={[styles.unifiedTitle, isPast && styles.textMuted]} numberOfLines={1}>
-                {titleText}
-              </Text>
-              {durationLabel && <Text style={styles.unifiedDuration}>{durationLabel}</Text>}
-              {eventTime ? (
-                <Text style={styles.unifiedTime}>{formatKeyDateTime(eventTime)}</Text>
-              ) : (
-                <Text style={styles.unifiedTime}>All day</Text>
-              )}
-            </Pressable>
-            {!isLast && <View style={styles.rowDivider} />}
-          </React.Fragment>
-        );
-      })}
-
-      {/* Assigned Tasks */}
-      {tasks
-        .filter((t) => !slottedIds.has(t.id))
-        .map((task, idx, arr) => {
-          const isLast = idx === arr.length - 1;
+        if (item.kind === 'event') {
+          const event = item.event;
+          const eventId = getEventId(event);
+          const { startAt: effectiveStart, endAt: effectiveEnd } = getEffectiveEventTimes(
+            event,
+            eventTimeOverrides,
+          );
+          const effectiveMinutes = Math.round(
+            (effectiveEnd.getTime() - effectiveStart.getTime()) / (1000 * 60),
+          );
           return (
-            <React.Fragment key={task.id}>
-              <View style={styles.taskRow}>
-                <TaskItem
-                  task={task}
-                  onPress={onTaskPress}
-                  onTimePress={onTimePress}
-                  showEstimate={true}
-                  dimmed={isPast}
-                />
-              </View>
-              {!isLast && <View style={styles.rowDivider} />}
+            <React.Fragment key={eventId}>
+              <Pressable style={styles.unifiedRow} onPress={() => handleEventPress(event)}>
+                <Calendar size={16} color={COLORS.inkMuted} style={styles.unifiedIcon} />
+                <Text style={[styles.unifiedTitle, isPast && styles.textMuted]} numberOfLines={1}>
+                  {event.title}
+                </Text>
+                <Text style={styles.unifiedDuration}>
+                  {formatDurationCompact(effectiveMinutes)}
+                </Text>
+                <Text style={styles.unifiedTime}>{formatTimeShort(effectiveStart)}</Text>
+              </Pressable>
+              {showDivider && <View style={styles.rowDivider} />}
             </React.Fragment>
           );
-        })}
+        }
+
+        if (item.kind === 'key_date') {
+          const keyDate = item.keyDate;
+          const spaceName = getSpaceName?.(keyDate.space_id);
+          const eventTime = keyDate.event_time;
+          const titleText =
+            (keyDate.title || 'Untitled Event') + (spaceName ? ` \u00B7 ${spaceName}` : '');
+          const endTime = keyDate.end_time;
+
+          let durationLabel: string | null = null;
+          if (eventTime && endTime) {
+            const [sh, sm] = eventTime.split(':').map(Number);
+            const [eh, em] = endTime.split(':').map(Number);
+            const durationMins = eh * 60 + em - (sh * 60 + sm);
+            if (durationMins > 0) durationLabel = formatDurationCompact(durationMins);
+          }
+
+          return (
+            <React.Fragment key={keyDate.id}>
+              <Pressable
+                style={styles.unifiedRow}
+                onPress={() =>
+                  onKeyDateQuickAction ? onKeyDateQuickAction(keyDate) : handleKeyDatePress(keyDate)
+                }
+              >
+                <Calendar size={16} color={COLORS.inkMuted} style={styles.unifiedIcon} />
+                <Text style={[styles.unifiedTitle, isPast && styles.textMuted]} numberOfLines={1}>
+                  {titleText}
+                </Text>
+                {durationLabel && <Text style={styles.unifiedDuration}>{durationLabel}</Text>}
+                {eventTime ? (
+                  <Text style={styles.unifiedTime}>{formatKeyDateTime(eventTime)}</Text>
+                ) : (
+                  <Text style={styles.unifiedTime}>All day</Text>
+                )}
+              </Pressable>
+              {showDivider && <View style={styles.rowDivider} />}
+            </React.Fragment>
+          );
+        }
+
+        // kind === 'task' (untimed, at bottom)
+        const task = item.task;
+        return (
+          <React.Fragment key={task.id}>
+            <View style={styles.taskRow}>
+              <TaskItem
+                task={task}
+                onPress={onTaskPress}
+                onTimePress={onTimePress}
+                showEstimate={true}
+                dimmed={isPast}
+              />
+            </View>
+            {showDivider && <View style={styles.rowDivider} />}
+          </React.Fragment>
+        );
+      })}
 
       {/* Empty state */}
       {isEmpty && !isPast && (

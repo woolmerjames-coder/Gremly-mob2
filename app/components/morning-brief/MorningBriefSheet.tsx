@@ -20,7 +20,9 @@ import {
   Pressable,
   Animated,
   LayoutAnimation,
+  Alert,
 } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ShieldOff, Calendar, MoreHorizontal } from 'lucide-react-native';
 import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
@@ -46,11 +48,12 @@ import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { GlobalEventPopup } from '../../../components/calendar/GlobalEventPopup';
 import EventQuickActionSheet from '../../../components/now/EventQuickActionSheet';
 import { GlobalEventTimePicker } from '../../../components/calendar/GlobalEventTimePicker';
+import { useUnifiedOverlayController } from '../../../hooks/useUnifiedOverlayController';
 import {
   MorningBriefHeader,
   MorningBriefFooter,
   TimeBlockSection,
-  TimeBlockPicker,
+  TaskQuickActionSheet,
   OnYourPlateSection,
   TimeEstimatePicker,
   OrganizeButton,
@@ -180,6 +183,7 @@ export function MorningBriefSheet({
   targetDate,
 }: MorningBriefSheetProps) {
   const insets = useSafeAreaInsets();
+  const overlayController = useUnifiedOverlayController();
   const today = targetDate ?? getTodayDateString();
   const isTomorrow = today !== getTodayDateString();
 
@@ -267,6 +271,7 @@ export function MorningBriefSheet({
   const hiddenTodayDate = useGremlyStore((s) => s.hiddenTodayDate);
   const slotTaskIntoGap = useGremlyStore((s) => s.slotTaskIntoGap);
   const unslotTask = useGremlyStore((s) => s.unslotTask);
+  const hideForToday = useGremlyStore((s) => s.hideForToday);
 
   // Only apply hidden IDs if they match the date we're planning for
   const effectiveHiddenIds = useMemo(() => {
@@ -675,15 +680,119 @@ export function MorningBriefSheet({
   }, [tasksByBlock]);
 
   // ─────────────────────────────────────────────────────────────────
-  // TIME BLOCK PICKER STATE
+  // GAP COMPUTATION FOR TASK QUICK ACTION SHEET
+  // ─────────────────────────────────────────────────────────────────
+  // Compute free time gaps per block from key date events + slotted items
+  const allGaps = useMemo(() => {
+    const MIN_GAP_MINUTES = 10;
+    const blockEntries: Array<{
+      block: TimeBlock;
+      slotted: typeof slottedItemsByBlock.morning;
+      keyDates: Note[];
+    }> = [
+      { block: 'morning', slotted: slottedItemsByBlock.morning, keyDates: keyDatesByBlock.morning },
+      { block: 'day', slotted: slottedItemsByBlock.afternoon, keyDates: keyDatesByBlock.day },
+      { block: 'evening', slotted: slottedItemsByBlock.evening, keyDates: keyDatesByBlock.evening },
+    ];
+
+    const result: Array<{
+      block: TimeBlock;
+      startIso: string;
+      endIso: string;
+      durationMinutes: number;
+    }> = [];
+
+    for (const { block, slotted, keyDates } of blockEntries) {
+      const cap = capacity.blocks[block];
+      const blockStartMins = cap.startHour * 60;
+      const blockEndMins = cap.endHour * 60;
+
+      // Collect all occupied intervals as [startMin, endMin]
+      const occupied: Array<[number, number]> = [];
+
+      for (const kd of keyDates) {
+        if (!kd.event_time) continue;
+        const [h, m] = kd.event_time.split(':').map(Number);
+        const startMin = h * 60 + m;
+        let endMin = startMin + 30; // default 30 min
+        if (kd.end_time) {
+          const [eh, em] = kd.end_time.split(':').map(Number);
+          endMin = eh * 60 + em;
+        }
+        occupied.push([Math.max(startMin, blockStartMins), Math.min(endMin, blockEndMins)]);
+      }
+
+      for (const s of slotted) {
+        const d = new Date(s.scheduled_start_iso);
+        const startMin = d.getHours() * 60 + d.getMinutes();
+        const est = (s as any).time_estimate_minutes ?? 15;
+        const endMin = startMin + est;
+        occupied.push([Math.max(startMin, blockStartMins), Math.min(endMin, blockEndMins)]);
+      }
+
+      // Sort by start
+      occupied.sort((a, b) => a[0] - b[0]);
+
+      // Walk and find free gaps
+      let cursor = blockStartMins;
+      for (const [oStart, oEnd] of occupied) {
+        if (oStart > cursor) {
+          const gapMins = oStart - cursor;
+          if (gapMins >= MIN_GAP_MINUTES) {
+            const startIso = new Date(`${today}T00:00:00`);
+            startIso.setHours(Math.floor(cursor / 60), cursor % 60, 0, 0);
+            const endIso = new Date(`${today}T00:00:00`);
+            endIso.setHours(Math.floor(oStart / 60), oStart % 60, 0, 0);
+            result.push({
+              block,
+              startIso: startIso.toISOString(),
+              endIso: endIso.toISOString(),
+              durationMinutes: gapMins,
+            });
+          }
+        }
+        cursor = Math.max(cursor, oEnd);
+      }
+      // Trailing gap
+      if (cursor < blockEndMins) {
+        const gapMins = blockEndMins - cursor;
+        if (gapMins >= MIN_GAP_MINUTES) {
+          const startIso = new Date(`${today}T00:00:00`);
+          startIso.setHours(Math.floor(cursor / 60), cursor % 60, 0, 0);
+          const endIso = new Date(`${today}T00:00:00`);
+          endIso.setHours(Math.floor(blockEndMins / 60), blockEndMins % 60, 0, 0);
+          result.push({
+            block,
+            startIso: startIso.toISOString(),
+            endIso: endIso.toISOString(),
+            durationMinutes: gapMins,
+          });
+        }
+      }
+    }
+
+    return result;
+  }, [capacity, slottedItemsByBlock, keyDatesByBlock, today]);
+
+  const blockAvailability = useMemo(
+    () => ({
+      morning: capacity.blocks.morning.availableMinutes,
+      day: capacity.blocks.day.availableMinutes,
+      evening: capacity.blocks.evening.availableMinutes,
+    }),
+    [capacity],
+  );
+
+  // ─────────────────────────────────────────────────────────────────
+  // TIME BLOCK PICKER STATE → TASK QUICK ACTION SHEET
   // ─────────────────────────────────────────────────────────────────
   // ─────────────────────────────────────────────────────────────────
   // EVENT QUICK ACTION STATE
   // ─────────────────────────────────────────────────────────────────
   const [quickActionEvent, setQuickActionEvent] = useState<Note | null>(null);
 
-  const [pickerVisible, setPickerVisible] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<TaskItemData | null>(null);
+  const [quickActionTask, setQuickActionTask] = useState<TaskItemData | null>(null);
+  const [quickActionIsSlotted, setQuickActionIsSlotted] = useState(false);
   // Organize feedback message
   const [organizeMessage, setOrganizeMessage] = useState<string | null>(null);
   const [organizeReasoning, setOrganizeReasoning] = useState<string[] | null>(null);
@@ -726,10 +835,14 @@ export function MorningBriefSheet({
 
   const handleSlottedTaskPress = useCallback(
     (task: SlottedTask) => {
-      // Unslot the task when tapped
-      unslotTask(task.id, task.type);
+      // Open quick action sheet instead of auto-unslotting
+      const taskData = taskDataById[task.id];
+      if (taskData) {
+        setQuickActionTask(taskData);
+        setQuickActionIsSlotted(true);
+      }
     },
-    [unslotTask],
+    [taskDataById],
   );
 
   // Tasks available to slot (unslotted, in the selected block)
@@ -823,13 +936,13 @@ export function MorningBriefSheet({
   );
 
   const handleTaskPress = useCallback((task: TaskItemData) => {
-    setSelectedTask(task);
-    setPickerVisible(true);
+    setQuickActionTask(task);
+    setQuickActionIsSlotted(false);
   }, []);
 
-  const handlePickerClose = useCallback(() => {
-    setPickerVisible(false);
-    setSelectedTask(null);
+  const handleQuickActionClose = useCallback(() => {
+    setQuickActionTask(null);
+    setQuickActionIsSlotted(false);
   }, []);
 
   // Capacity gate handlers
@@ -849,8 +962,8 @@ export function MorningBriefSheet({
   );
 
   const handleAssignPress = useCallback((task: TaskItemData) => {
-    setSelectedTask(task);
-    setPickerVisible(true);
+    setQuickActionTask(task);
+    setQuickActionIsSlotted(false);
   }, []);
 
   const handleAssign = useCallback(
@@ -902,6 +1015,73 @@ export function MorningBriefSheet({
       briefSelectedSet,
       toggleBriefSelection,
     ],
+  );
+
+  // ─────────────────────────────────────────────────────────────────
+  // TASK QUICK ACTION SHEET HANDLERS
+  // ─────────────────────────────────────────────────────────────────
+
+  const handleQuickActionNotToday = useCallback(
+    (taskId: string) => {
+      hideForToday(taskId, isTomorrow ? today : undefined);
+    },
+    [hideForToday, isTomorrow, today],
+  );
+
+  const handleQuickActionUnschedule = useCallback(
+    (taskId: string, taskType: 'todo' | 'habit') => {
+      unslotTask(taskId, taskType);
+    },
+    [unslotTask],
+  );
+
+  const handleQuickActionToggleLock = useCallback(
+    (taskId: string, _taskType: 'todo' | 'habit', _lockIn: boolean) => {
+      toggleBriefLock(taskId);
+    },
+    [toggleBriefLock],
+  );
+
+  const handleQuickActionAssignSlot = useCallback(
+    (taskId: string, taskType: 'todo' | 'habit', startIso: string, _block: TimeBlock) => {
+      slotTaskIntoGap(taskId, taskType, startIso);
+    },
+    [slotTaskIntoGap],
+  );
+
+  const handleQuickActionRemind = useCallback(
+    async (taskId: string) => {
+      try {
+        const taskTitle = quickActionTask?.title ?? 'your task';
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'Reminder',
+            body: `Don't forget: ${taskTitle}`,
+            data: { type: 'task_reminder', taskId },
+            sound: 'default',
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+            seconds: 30 * 60, // 30 minutes
+          },
+        });
+        Alert.alert('Reminder set', "You'll be reminded in 30 minutes.");
+      } catch {
+        Alert.alert('Oops', 'Could not schedule reminder.');
+      }
+    },
+    [quickActionTask],
+  );
+
+  const handleQuickActionOpenDetails = useCallback(
+    (task: TaskItemData) => {
+      setQuickActionTask(null);
+      setQuickActionIsSlotted(false);
+      overlayController.openEdit({
+        record: { id: task.id, type: task.type } as any,
+      });
+    },
+    [overlayController],
   );
 
   // ─────────────────────────────────────────────────────────────────
@@ -1264,13 +1444,23 @@ export function MorningBriefSheet({
           {/* Footer */}
           <MorningBriefFooter onComplete={handleComplete} isLoading={isSaving} />
 
-          {/* Time Block Picker */}
-          <TimeBlockPicker
-            visible={pickerVisible}
-            task={selectedTask}
-            onClose={handlePickerClose}
-            onAssign={handleAssign}
+          {/* Task Quick Action Sheet */}
+          <TaskQuickActionSheet
+            visible={!!quickActionTask}
+            task={quickActionTask}
+            isSlotted={quickActionIsSlotted}
+            onClose={handleQuickActionClose}
+            onAssignBlock={handleAssign}
+            onAssignSlot={handleQuickActionAssignSlot}
+            onUnschedule={handleQuickActionUnschedule}
+            onNotToday={handleQuickActionNotToday}
+            onToggleLock={handleQuickActionToggleLock}
+            isLocked={quickActionTask ? briefLockedSet.has(quickActionTask.id) : false}
             targetDate={isTomorrow ? today : undefined}
+            gaps={allGaps}
+            blockAvailability={blockAvailability}
+            onRemind={handleQuickActionRemind}
+            onOpenDetails={handleQuickActionOpenDetails}
           />
 
           {/* Gap Slot Picker */}

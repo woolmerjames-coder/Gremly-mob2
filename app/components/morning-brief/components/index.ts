@@ -13,7 +13,11 @@ export {
   type TaskItemData,
   type TaskPrioritizationProps,
 } from './TaskItem';
-export { TimeBlockPicker } from './TimeBlockPicker';
+export {
+  TaskQuickActionSheet,
+  type TaskQuickActionSheetProps,
+  type GapSlot,
+} from './TaskQuickActionSheet';
 export { TimeBlockSection } from './TimeBlockSection';
 export { OnYourPlateSection } from './OnYourPlateSection';
 export { TodaysKeyDatesSection } from './TodaysKeyDatesSection';

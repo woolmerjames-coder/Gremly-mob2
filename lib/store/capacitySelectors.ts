@@ -16,6 +16,7 @@ import {
   calculateBlockCapacity,
   getCapacitySummary,
   getMiniSweepGremlyMessage,
+  getTimeBlockBoundaries,
   type EventTimeOverride,
 } from '../capacity';
 import type { TimeBlock, DayCapacity, TimeBlockCapacity, CapacitySummary } from '../capacity';
@@ -97,6 +98,8 @@ export function useTodayCapacity(): DayCapacity {
   return useMemo(() => {
     // Calculate task minutes per block
     const taskMinutesByBlock = { morning: 0, day: 0, evening: 0 };
+    const countedIds = new Set<string>();
+    const boundaries = getTimeBlockBoundaries(timeBlockPreferences);
 
     // Sum todos assigned to each block
     todos
@@ -105,10 +108,13 @@ export function useTodayCapacity(): DayCapacity {
         const minutes = todo.time_estimate_minutes ?? 0;
         if (todo.time_window === 'morning') {
           taskMinutesByBlock.morning += minutes;
+          countedIds.add(todo.id);
         } else if (todo.time_window === 'day') {
           taskMinutesByBlock.day += minutes;
+          countedIds.add(todo.id);
         } else if (todo.time_window === 'evening') {
           taskMinutesByBlock.evening += minutes;
+          countedIds.add(todo.id);
         }
         // 'any' or null = flexible, don't count against specific block
       });
@@ -125,13 +131,47 @@ export function useTodayCapacity(): DayCapacity {
         const minutes = habit.time_estimate_minutes ?? 0;
         if (habit.time_window === 'morning') {
           taskMinutesByBlock.morning += minutes;
+          countedIds.add(habit.id);
         } else if (habit.time_window === 'day') {
           taskMinutesByBlock.day += minutes;
+          countedIds.add(habit.id);
         } else if (habit.time_window === 'evening') {
           taskMinutesByBlock.evening += minutes;
+          countedIds.add(habit.id);
         }
         // 'any' or null = flexible, don't count against specific block
       });
+
+    // Also count slotted tasks (scheduled_start_iso) not already counted via time_window
+    const slottedTodos = todos.filter(
+      (t) =>
+        !t.archived &&
+        !t.completed_at &&
+        t.due_day === today &&
+        t.scheduled_start_iso &&
+        !countedIds.has(t.id),
+    );
+    const slottedHabits = habits.filter(
+      (h) =>
+        !h.archived &&
+        h.scheduled_start_iso &&
+        !countedIds.has(h.id) &&
+        (!h.start_date || h.start_date <= today) &&
+        (!h.end_date || h.end_date >= today),
+    );
+
+    for (const item of [...slottedTodos, ...slottedHabits]) {
+      const minutes = item.time_estimate_minutes ?? 0;
+      if (minutes <= 0) continue;
+      const hour = new Date(item.scheduled_start_iso!).getHours();
+      if (hour < boundaries.morning.endHour) {
+        taskMinutesByBlock.morning += minutes;
+      } else if (hour < boundaries.day.endHour) {
+        taskMinutesByBlock.day += minutes;
+      } else {
+        taskMinutesByBlock.evening += minutes;
+      }
+    }
 
     return calculateDayCapacity(
       events,
@@ -255,6 +295,8 @@ export function useCapacityForDate(date: string): DayCapacity {
 
   return useMemo(() => {
     const taskMinutesByBlock = { morning: 0, day: 0, evening: 0 };
+    const countedIds = new Set<string>();
+    const boundaries = getTimeBlockBoundaries(timeBlockPreferences);
 
     todos
       .filter((t) => !t.archived && !t.completed_at && t.due_day === date)
@@ -262,10 +304,13 @@ export function useCapacityForDate(date: string): DayCapacity {
         const minutes = todo.time_estimate_minutes ?? 0;
         if (todo.time_window === 'morning') {
           taskMinutesByBlock.morning += minutes;
+          countedIds.add(todo.id);
         } else if (todo.time_window === 'day') {
           taskMinutesByBlock.day += minutes;
+          countedIds.add(todo.id);
         } else if (todo.time_window === 'evening') {
           taskMinutesByBlock.evening += minutes;
+          countedIds.add(todo.id);
         }
       });
 
@@ -280,12 +325,46 @@ export function useCapacityForDate(date: string): DayCapacity {
         const minutes = habit.time_estimate_minutes ?? 0;
         if (habit.time_window === 'morning') {
           taskMinutesByBlock.morning += minutes;
+          countedIds.add(habit.id);
         } else if (habit.time_window === 'day') {
           taskMinutesByBlock.day += minutes;
+          countedIds.add(habit.id);
         } else if (habit.time_window === 'evening') {
           taskMinutesByBlock.evening += minutes;
+          countedIds.add(habit.id);
         }
       });
+
+    // Also count slotted tasks (scheduled_start_iso) not already counted via time_window
+    const slottedTodos = todos.filter(
+      (t) =>
+        !t.archived &&
+        !t.completed_at &&
+        t.due_day === date &&
+        t.scheduled_start_iso &&
+        !countedIds.has(t.id),
+    );
+    const slottedHabits = habits.filter(
+      (h) =>
+        !h.archived &&
+        h.scheduled_start_iso &&
+        !countedIds.has(h.id) &&
+        (!h.start_date || h.start_date <= date) &&
+        (!h.end_date || h.end_date >= date),
+    );
+
+    for (const item of [...slottedTodos, ...slottedHabits]) {
+      const minutes = item.time_estimate_minutes ?? 0;
+      if (minutes <= 0) continue;
+      const hour = new Date(item.scheduled_start_iso!).getHours();
+      if (hour < boundaries.morning.endHour) {
+        taskMinutesByBlock.morning += minutes;
+      } else if (hour < boundaries.day.endHour) {
+        taskMinutesByBlock.day += minutes;
+      } else {
+        taskMinutesByBlock.evening += minutes;
+      }
+    }
 
     return calculateDayCapacity(
       events,
