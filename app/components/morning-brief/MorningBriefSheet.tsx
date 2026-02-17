@@ -17,6 +17,7 @@ import { ShieldOff, Calendar, MoreHorizontal } from 'lucide-react-native';
 import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
+import { computeHabitStreak } from '../../../lib/habits/streakUtils';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
 import { useCapacityForDate } from '../../../lib/store/capacitySelectors';
@@ -46,8 +47,9 @@ import {
   OrganizeButton,
   TaskItem,
   type TaskItemData,
+  CapacityBar,
+  ParkedForLaterSection,
 } from './components';
-import { LockInPicker } from './components/LockInPicker';
 import { GapSlotPicker } from './components/GapSlotPicker';
 import type { TimeGap, SlottedTask } from '../../../lib/timeGaps';
 
@@ -174,6 +176,16 @@ export function MorningBriefSheet({
   const removeCommitment = useGremlyStore((s) => s.removeCommitment);
   const saveBrief = useGremlyStore((s) => s.saveBrief);
 
+  // Brief capacity gate state
+  const briefSelectedIds = useGremlyStore((s) => s.briefSelectedIds);
+  const briefLockedIds = useGremlyStore((s) => s.briefLockedIds);
+  const briefSelectionDate = useGremlyStore((s) => s.briefSelectionDate);
+  const setBriefSelections = useGremlyStore((s) => s.setBriefSelections);
+  const toggleBriefSelection = useGremlyStore((s) => s.toggleBriefSelection);
+  const toggleBriefLock = useGremlyStore((s) => s.toggleBriefLock);
+  const setBriefParked = useGremlyStore((s) => s.setBriefParked);
+  const habitProgress = useGremlyStore((s) => s.habitProgress);
+
   // ─────────────────────────────────────────────────────────────────
   // CAPACITY & CALENDAR DATA
   // ─────────────────────────────────────────────────────────────────
@@ -274,6 +286,14 @@ export function MorningBriefSheet({
         ? { label: dueMeta.label, tone: dueMeta.tone }
         : null;
 
+      // Compute dueStatus for prioritization chips
+      let dueStatus: TaskItemData['dueStatus'] = null;
+      if (dueMeta) {
+        if (dueMeta.tone === 'warm') dueStatus = 'overdue';
+        else if (dueMeta.label === 'due today') dueStatus = 'today';
+        else if (dueMeta.label === 'due tmrw') dueStatus = 'tomorrow';
+      }
+
       return {
         id: todo.id,
         type: 'todo',
@@ -282,6 +302,7 @@ export function MorningBriefSheet({
         isLockedIn: todo.commitment === true,
         timeWindow: (todo.time_window as TaskItemData['timeWindow']) ?? null,
         metadata,
+        dueStatus,
       };
     },
     [today],
@@ -344,6 +365,16 @@ export function MorningBriefSheet({
         }
       }
 
+      // Compute streak for prioritization chips
+      let streakCount: number | undefined;
+      if (!isBreak && cadence === 'daily') {
+        const progressDates = habitProgress
+          .filter((p) => p.habit_id === habit.id)
+          .map((p) => p.occurred_day);
+        const { count } = computeHabitStreak(progressDates, cadence, habit.target_per_period ?? 1);
+        if (count > 0) streakCount = count;
+      }
+
       return {
         id: habit.id,
         type: 'habit',
@@ -352,9 +383,10 @@ export function MorningBriefSheet({
         isLockedIn: isHabitLockedIn(habit),
         timeWindow: (habit.time_window as TaskItemData['timeWindow']) ?? null,
         metadata,
+        streakCount,
       };
     },
-    [habitCompletedToday, habitLastCompletion, habitRolling7, habitRolling30, today],
+    [habitCompletedToday, habitLastCompletion, habitRolling7, habitRolling30, today, habitProgress],
   );
 
   // Pending drops from store - shows loading cards while pipeline runs
@@ -446,6 +478,102 @@ export function MorningBriefSheet({
     return allTasks.reduce((sum, task) => sum + (task.estimatedMinutes || 0), 0);
   }, [tasksByBlock]);
 
+  // ─────────────────────────────────────────────────────────────────
+  // CAPACITY GATE DETECTION
+  // ─────────────────────────────────────────────────────────────────
+  const realisticCapacity = useMemo(() => {
+    const raw =
+      capacity.blocks.morning.availableMinutes +
+      capacity.blocks.day.availableMinutes +
+      capacity.blocks.evening.availableMinutes;
+    return Math.round(raw * 0.85);
+  }, [capacity]);
+
+  const flexibleTaskMinutes = useMemo(() => {
+    return tasksByBlock.flexible.reduce((sum, t) => sum + (t.estimatedMinutes || 0), 0);
+  }, [tasksByBlock.flexible]);
+
+  const isPrioritizing =
+    flexibleTaskMinutes > realisticCapacity && tasksByBlock.flexible.length > 3;
+
+  // Memoized Sets for O(1) lookup
+  const briefSelectedSet = useMemo(() => new Set(briefSelectedIds), [briefSelectedIds]);
+  const briefLockedSet = useMemo(() => new Set(briefLockedIds), [briefLockedIds]);
+  const isSelectionsStale = briefSelectionDate !== today;
+
+  // Pre-selection: auto-select tasks up to 72% of realistic capacity when stale
+  useEffect(() => {
+    if (!isPrioritizing || !isSelectionsStale) return;
+
+    const target = Math.round(realisticCapacity * 0.72);
+    const sorted = [...tasksByBlock.flexible].sort((a, b) => {
+      // Locked-in first
+      if (a.isLockedIn !== b.isLockedIn) return a.isLockedIn ? -1 : 1;
+      // Streaks (higher first)
+      const sa = a.streakCount ?? 0;
+      const sb = b.streakCount ?? 0;
+      if (sa !== sb) return sb - sa;
+      // Overdue > today > tomorrow > none
+      const dueRank = (d: TaskItemData['dueStatus']) =>
+        d === 'overdue' ? 0 : d === 'today' ? 1 : d === 'tomorrow' ? 2 : 3;
+      const da = dueRank(a.dueStatus);
+      const db = dueRank(b.dueStatus);
+      if (da !== db) return da - db;
+      return 0;
+    });
+
+    let budget = 0;
+    const autoIds: string[] = [];
+    for (const t of sorted) {
+      const mins = t.estimatedMinutes || 0;
+      if (budget + mins <= target || t.isLockedIn) {
+        autoIds.push(t.id);
+        budget += mins;
+      }
+    }
+    setBriefSelections(autoIds, [], today);
+  }, [
+    isPrioritizing,
+    isSelectionsStale,
+    realisticCapacity,
+    tasksByBlock.flexible,
+    today,
+    setBriefSelections,
+  ]);
+
+  // Derived capacity metrics
+  const selectedMinutes = useMemo(() => {
+    return tasksByBlock.flexible
+      .filter((t) => briefSelectedSet.has(t.id))
+      .reduce((sum, t) => sum + (t.estimatedMinutes || 0), 0);
+  }, [tasksByBlock.flexible, briefSelectedSet]);
+
+  const remainingMinutes = realisticCapacity - selectedMinutes;
+
+  const missingEstimateCount = useMemo(() => {
+    return tasksByBlock.flexible.filter((t) => briefSelectedSet.has(t.id) && !t.estimatedMinutes)
+      .length;
+  }, [tasksByBlock.flexible, briefSelectedSet]);
+
+  // Parked tasks = flexible items NOT selected (when prioritizing)
+  const parkedTasks = useMemo(() => {
+    if (!isPrioritizing) return [];
+    return tasksByBlock.flexible.filter((t) => !briefSelectedSet.has(t.id));
+  }, [isPrioritizing, tasksByBlock.flexible, briefSelectedSet]);
+
+  // Pulse detection: fire when parked count increases
+  const prevParkedCount = useRef(0);
+  const [shouldPulse, setShouldPulse] = useState(false);
+
+  useEffect(() => {
+    if (parkedTasks.length > prevParkedCount.current && prevParkedCount.current > 0) {
+      setShouldPulse(true);
+      const timer = setTimeout(() => setShouldPulse(false), 600);
+      return () => clearTimeout(timer);
+    }
+    prevParkedCount.current = parkedTasks.length;
+  }, [parkedTasks.length]);
+
   // Slotted items per block (tasks with scheduled_start_iso in this block's time window)
   const slottedItemsByBlock = useMemo(() => {
     const allSlotted = [
@@ -507,44 +635,6 @@ export function MorningBriefSheet({
     taskId: string;
     block: string;
   }> | null>(null);
-
-  // ─────────────────────────────────────────────────────────────────
-  // LOCK-IN PICKER STATE
-  // ─────────────────────────────────────────────────────────────────
-  const [lockInPickerVisible, setLockInPickerVisible] = useState(false);
-  const [hasLockedThisSession, setHasLockedThisSession] = useState(false);
-
-  // Items eligible for lock-in: all non-locked items across all blocks
-  const lockInEligibleItems = useMemo(() => {
-    const allItems = [
-      ...tasksByBlock.morning,
-      ...tasksByBlock.afternoon,
-      ...tasksByBlock.evening,
-      ...tasksByBlock.flexible,
-    ];
-    return allItems.filter((item) => !item.isLockedIn);
-  }, [tasksByBlock]);
-
-  // Show lock-in button if: not already locked this session AND at least 2 eligible items
-  const showLockInButton = !hasLockedThisSession && lockInEligibleItems.length >= 2;
-
-  const handleLockInPress = useCallback(() => {
-    setLockInPickerVisible(true);
-  }, []);
-
-  const handleLockInConfirm = useCallback(
-    async (selected: Array<{ id: string; type: 'todo' | 'habit' }>) => {
-      for (const item of selected) {
-        await addCommitment(item.id, item.type);
-      }
-      setHasLockedThisSession(true);
-    },
-    [addCommitment],
-  );
-
-  const handleLockInPickerClose = useCallback(() => {
-    setLockInPickerVisible(false);
-  }, []);
 
   // ─────────────────────────────────────────────────────────────────
   // GAP SLOT PICKER STATE
@@ -684,6 +774,26 @@ export function MorningBriefSheet({
     setSelectedTask(null);
   }, []);
 
+  // Capacity gate handlers
+  const handleToggleSelect = useCallback(
+    (task: TaskItemData) => {
+      toggleBriefSelection(task.id);
+    },
+    [toggleBriefSelection],
+  );
+
+  const handleToggleLock = useCallback(
+    (task: TaskItemData) => {
+      toggleBriefLock(task.id);
+    },
+    [toggleBriefLock],
+  );
+
+  const handleAssignPress = useCallback((task: TaskItemData) => {
+    setSelectedTask(task);
+    setPickerVisible(true);
+  }, []);
+
   const handleAssign = useCallback(
     async (
       taskId: string,
@@ -716,8 +826,23 @@ export function MorningBriefSheet({
       } else if (!lockIn && wasLockedIn) {
         await removeCommitment(taskId, taskType);
       }
+
+      // When prioritizing and assigning to a time block, auto-select
+      if (isPrioritizing && timeWindow !== 'any' && !briefSelectedSet.has(taskId)) {
+        toggleBriefSelection(taskId);
+      }
     },
-    [todayTodos, todayHabits, updateTodo, updateHabit, addCommitment, removeCommitment],
+    [
+      todayTodos,
+      todayHabits,
+      updateTodo,
+      updateHabit,
+      addCommitment,
+      removeCommitment,
+      isPrioritizing,
+      briefSelectedSet,
+      toggleBriefSelection,
+    ],
   );
 
   // ─────────────────────────────────────────────────────────────────
@@ -783,6 +908,11 @@ export function MorningBriefSheet({
     setIsSaving(true);
 
     try {
+      // Save parked items when capacity gate is active
+      if (isPrioritizing) {
+        setBriefParked(parkedTasks.map((t) => t.id));
+      }
+
       await saveBrief({
         ...(isTomorrow && { date: today }),
         morning_sequence: tasksByBlock.morning.map((t) => ({ id: t.id, type: t.type })),
@@ -797,7 +927,18 @@ export function MorningBriefSheet({
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, saveBrief, tasksByBlock, onComplete, onClose, isTomorrow, today]);
+  }, [
+    isSaving,
+    saveBrief,
+    tasksByBlock,
+    onComplete,
+    onClose,
+    isTomorrow,
+    today,
+    isPrioritizing,
+    setBriefParked,
+    parkedTasks,
+  ]);
 
   // ─────────────────────────────────────────────────────────────────
   // RENDER
@@ -823,6 +964,33 @@ export function MorningBriefSheet({
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
+            {/* Capacity Bar (shown when prioritizing) */}
+            {isPrioritizing && (
+              <CapacityBar
+                remainingMinutes={remainingMinutes}
+                totalMinutes={realisticCapacity}
+                lockedCount={briefLockedIds.length}
+                maxLocks={3}
+              />
+            )}
+            {isPrioritizing && missingEstimateCount > 0 && (
+              <Text
+                style={{
+                  fontSize: 11.5,
+                  color: '#C9956C',
+                  fontStyle: 'italic',
+                  paddingHorizontal: 20,
+                  paddingTop: 2,
+                  paddingBottom: 4,
+                  fontFamily: 'Inter-Regular',
+                }}
+              >
+                {missingEstimateCount === 1
+                  ? '1 task needs a time estimate for accurate planning'
+                  : `${missingEstimateCount} tasks need time estimates for accurate planning`}
+              </Text>
+            )}
+
             {/* On Your Plate - Flexible/Unassigned Tasks */}
             <OnYourPlateSection
               tasks={tasksByBlock.flexible}
@@ -831,7 +999,19 @@ export function MorningBriefSheet({
               onTimePress={handleTimePress}
               onAddPress={handleAddPress}
               pendingDrops={todayPendingDrops}
+              isPrioritizing={isPrioritizing}
+              selectedIds={briefSelectedSet}
+              lockedIds={briefLockedSet}
+              onToggleSelect={handleToggleSelect}
+              onToggleLock={handleToggleLock}
+              onAssignPress={handleAssignPress}
+              maxLocks={3}
             />
+
+            {/* Parked For Later (shown when prioritizing and items deselected) */}
+            {isPrioritizing && parkedTasks.length > 0 && (
+              <ParkedForLaterSection tasks={parkedTasks} onPulse={shouldPulse} />
+            )}
 
             {/* Help Me Organize Button */}
             <OrganizeButton
@@ -1010,12 +1190,7 @@ export function MorningBriefSheet({
           </ScrollView>
 
           {/* Footer */}
-          <MorningBriefFooter
-            onComplete={handleComplete}
-            isLoading={isSaving}
-            showLockIn={showLockInButton}
-            onLockInPress={handleLockInPress}
-          />
+          <MorningBriefFooter onComplete={handleComplete} isLoading={isSaving} />
 
           {/* Time Block Picker */}
           <TimeBlockPicker
@@ -1024,14 +1199,6 @@ export function MorningBriefSheet({
             onClose={handlePickerClose}
             onAssign={handleAssign}
             targetDate={isTomorrow ? today : undefined}
-          />
-
-          {/* Lock-In Picker */}
-          <LockInPicker
-            visible={lockInPickerVisible}
-            items={lockInEligibleItems}
-            onClose={handleLockInPickerClose}
-            onConfirm={handleLockInConfirm}
           />
 
           {/* Gap Slot Picker */}

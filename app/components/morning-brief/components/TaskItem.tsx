@@ -245,8 +245,8 @@ export function TaskItem({
           <TaskChip
             label={`${task.streakCount}-day streak`}
             active
-            activeColor={COLORS.mossGreen}
-            activeBg="rgba(46,85,64,0.08)"
+            activeColor="#7BAF8B"
+            activeBg="rgba(107,158,126,0.12)"
           />
         )}
         {task.dueStatus === 'overdue' && (
