@@ -421,6 +421,7 @@ export function callSpaceChatStreaming(
       spaceId: opts.spaceId,
       chatId: opts.chatId,
       userId: opts.userId,
+      currentTime: new Date().toISOString(),
     }),
     lineEndingCharacter: '\n',
   });
