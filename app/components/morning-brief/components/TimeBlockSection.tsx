@@ -335,8 +335,30 @@ export function TimeBlockSection({
 
     // Walk through timed items, inserting gaps >= 10 min
     const result: UnifiedItem[] = [];
-    const blockStartMins = capacity.startHour * 60;
     const blockEndMins = capacity.endHour * 60;
+
+    // Clip block start to current time for today's blocks.
+    // Past time is NOT free time — don't count it in gaps.
+    const rawBlockStart = capacity.startHour * 60;
+    const isToday = (() => {
+      const d = new Date();
+      const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return dateContext === todayStr;
+    })();
+
+    let blockStartMins: number;
+    if (capacity.isPast) {
+      // Past block: no free time at all
+      blockStartMins = blockEndMins;
+    } else if (isToday) {
+      // Current/future block today: clip to current minute
+      const now = new Date();
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      blockStartMins = Math.max(rawBlockStart, nowMinutes);
+    } else {
+      // Future date: use raw block start
+      blockStartMins = rawBlockStart;
+    }
 
     if (timed.length > 0) {
       let cursor = blockStartMins;
