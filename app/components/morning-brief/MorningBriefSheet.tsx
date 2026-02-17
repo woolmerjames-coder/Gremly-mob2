@@ -11,7 +11,16 @@
  */
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { View, Modal, StyleSheet, ScrollView, Text, Pressable, Animated } from 'react-native';
+import {
+  View,
+  Modal,
+  StyleSheet,
+  ScrollView,
+  Text,
+  Pressable,
+  Animated,
+  LayoutAnimation,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ShieldOff, Calendar, MoreHorizontal } from 'lucide-react-native';
 import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
@@ -491,19 +500,7 @@ export function MorningBriefSheet({
   // CAPACITY GATE DETECTION
   // ─────────────────────────────────────────────────────────────────
   const realisticCapacity = useMemo(() => {
-    // Calendar-free time — same base math the block headers use
-    const calendarFree = (block: typeof capacity.blocks.morning) =>
-      Math.max(0, block.totalMinutes - block.calendarMinutes);
-    return (
-      calendarFree(capacity.blocks.morning) +
-      calendarFree(capacity.blocks.day) +
-      calendarFree(capacity.blocks.evening)
-    );
-  }, [capacity]);
-
-  // Minutes already placed in time blocks (from the capacity system)
-  const assignedTaskMinutes = useMemo(() => {
-    return capacity.totalTaskMinutes;
+    return capacity.totalAvailableMinutes;
   }, [capacity]);
 
   const flexibleTaskMinutes = useMemo(() => {
@@ -511,9 +508,9 @@ export function MorningBriefSheet({
   }, [tasksByBlock.flexible]);
 
   const isPrioritizing =
-    realisticCapacity > 15
-    && (flexibleTaskMinutes + assignedTaskMinutes) > realisticCapacity
-    && tasksByBlock.flexible.length > 3;
+    realisticCapacity > 15 &&
+    flexibleTaskMinutes > realisticCapacity &&
+    tasksByBlock.flexible.length > 3;
 
   // Memoized Sets for O(1) lookup
   const briefSelectedSet = useMemo(() => new Set(briefSelectedIds), [briefSelectedIds]);
@@ -541,7 +538,12 @@ export function MorningBriefSheet({
     const lockedTodosToReset = todayTodos.filter((t) => t.commitment === true);
     const lockedHabitsToReset = todayHabits.filter((h) => isHabitLockedIn(h));
 
-    if (todosToReset.length > 0 || habitsToReset.length > 0 || lockedTodosToReset.length > 0 || lockedHabitsToReset.length > 0) {
+    if (
+      todosToReset.length > 0 ||
+      habitsToReset.length > 0 ||
+      lockedTodosToReset.length > 0 ||
+      lockedHabitsToReset.length > 0
+    ) {
       console.log('[MorningBrief] Daily reset', {
         blockResets: todosToReset.length + habitsToReset.length,
         lockResets: lockedTodosToReset.length + lockedHabitsToReset.length,
@@ -604,7 +606,7 @@ export function MorningBriefSheet({
       .reduce((sum, t) => sum + (t.estimatedMinutes || 0), 0);
   }, [tasksByBlock.flexible, briefSelectedSet]);
 
-  const remainingMinutes = realisticCapacity - assignedTaskMinutes - selectedMinutes;
+  const remainingMinutes = realisticCapacity - selectedMinutes;
 
   const missingEstimateCount = useMemo(() => {
     return tasksByBlock.flexible.filter((t) => briefSelectedSet.has(t.id) && !t.estimatedMinutes)
@@ -833,6 +835,7 @@ export function MorningBriefSheet({
   // Capacity gate handlers
   const handleToggleSelect = useCallback(
     (task: TaskItemData) => {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       toggleBriefSelection(task.id);
     },
     [toggleBriefSelection],
@@ -1066,7 +1069,11 @@ export function MorningBriefSheet({
 
             {/* Parked For Later (shown when prioritizing and items deselected) */}
             {isPrioritizing && parkedTasks.length > 0 && (
-              <ParkedForLaterSection tasks={parkedTasks} onPulse={shouldPulse} />
+              <ParkedForLaterSection
+                tasks={parkedTasks}
+                onPulse={shouldPulse}
+                onToggleSelect={handleToggleSelect}
+              />
             )}
 
             {/* Help Me Organize Button */}

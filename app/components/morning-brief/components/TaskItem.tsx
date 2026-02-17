@@ -162,7 +162,7 @@ export function TaskItem({
         </Pressable>
 
         <View style={styles.rightSide}>
-          {task.metadata && (
+          {task.metadata && task.metadata.label !== 'due today' && (
             <Text
               style={[
                 styles.metadataText,
@@ -220,7 +220,9 @@ export function TaskItem({
         </Text>
         {showEstimate && (
           <Pressable
-            onPress={() => { if (onTimePress) onTimePress(task); }}
+            onPress={() => {
+              if (onTimePress) onTimePress(task);
+            }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Text style={[pStyles.deselectedTime, !timeDisplay && pStyles.timeEmpty]}>
@@ -246,7 +248,9 @@ export function TaskItem({
         </Text>
         {showEstimate && (
           <Pressable
-            onPress={() => { if (onTimePress) onTimePress(task); }}
+            onPress={() => {
+              if (onTimePress) onTimePress(task);
+            }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Text style={[pStyles.selectedTime, !timeDisplay && pStyles.timeEmpty]}>
@@ -273,14 +277,6 @@ export function TaskItem({
             active
             activeColor={COLORS.metaWarm}
             activeBg="rgba(194,122,107,0.1)"
-          />
-        )}
-        {task.dueStatus === 'today' && (
-          <TaskChip
-            label="due today"
-            active
-            activeColor={COLORS.metaGentle}
-            activeBg="rgba(201,149,108,0.1)"
           />
         )}
 

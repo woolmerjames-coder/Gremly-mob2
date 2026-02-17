@@ -118,12 +118,18 @@ export function OnYourPlateSection({
   // Split tasks into habits and todos for sub-sections
   const habitTasks = useMemo(() => {
     const habits = tasks.filter((t) => t.type === 'habit');
-    return isPrioritizing && selectedIds ? sortBySelection(habits, selectedIds) : habits;
+    if (isPrioritizing && selectedIds) {
+      return habits.filter((t) => selectedIds.has(t.id));
+    }
+    return habits;
   }, [tasks, isPrioritizing, selectedIds]);
 
   const todoTasks = useMemo(() => {
     const todos = tasks.filter((t) => t.type === 'todo');
-    return isPrioritizing && selectedIds ? sortBySelection(todos, selectedIds) : todos;
+    if (isPrioritizing && selectedIds) {
+      return todos.filter((t) => selectedIds.has(t.id));
+    }
+    return todos;
   }, [tasks, isPrioritizing, selectedIds]);
 
   // In prioritization mode, row press toggles selection instead of opening picker
@@ -131,7 +137,7 @@ export function OnYourPlateSection({
 
   // Count badge text
   const countText =
-    isPrioritizing && selectedIds ? `${selectedIds.size} selected` : `${count} flexible`;
+    isPrioritizing && selectedIds ? `${selectedIds.size} for today` : `${count} flexible`;
 
   // Instruction text
   const instructionText = isPrioritizing

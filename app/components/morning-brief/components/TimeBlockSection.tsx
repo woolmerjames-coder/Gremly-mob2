@@ -9,16 +9,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal } from 'react-native';
-import {
-  Sunrise,
-  Sun,
-  Sunset,
-  Calendar,
-  X,
-  ChevronUp,
-  ChevronDown,
-  MoreHorizontal,
-} from 'lucide-react-native';
+import { Sunrise, Sun, Sunset, Calendar, X, ChevronUp, ChevronDown } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { getEffectiveEventTimes, type EventTimeOverride } from '../../../../lib/capacity';
 import type { TimeBlockCapacity, TimeBlock, TimeBlockPreferences } from '../../../../lib/capacity';
@@ -57,16 +48,6 @@ function formatAvailable(mins: number): string {
   const hrs = Math.floor(mins / 60);
   const remaining = mins % 60;
   return remaining > 0 ? `${hrs}h ${remaining}m` : `${hrs}h`;
-}
-
-/**
- * Format duration in minutes to readable string (e.g., 90 -> "1 hr 30 min")
- */
-function formatDurationMinutes(mins: number): string {
-  if (mins < 60) return `${mins} min`;
-  const hrs = Math.floor(mins / 60);
-  const remaining = mins % 60;
-  return remaining > 0 ? `${hrs} hr ${remaining} min` : `${hrs} hr`;
 }
 
 // Colors matching CalendarScreen
@@ -118,17 +99,20 @@ interface TimeBlockSectionProps {
 }
 
 /**
- * Calculate event duration string
+ * Format duration in compact form matching task estimates (e.g., "30m", "1h", "1h 30m")
  */
-function formatEventDuration(event: CalendarEvent, overrideMinutes?: number): string | null {
-  if (event.isAllDay) return null;
-  const start = new Date(event.startAt);
-  const end = new Date(event.endAt);
-  const mins = overrideMinutes ?? Math.round((end.getTime() - start.getTime()) / (1000 * 60));
-  if (mins < 60) return `${mins} min`;
+function formatDurationCompact(mins: number): string {
+  if (mins < 60) return `${mins}m`;
   const hrs = Math.floor(mins / 60);
-  const remainingMins = mins % 60;
-  return remainingMins > 0 ? `${hrs} hr ${remainingMins} min` : `${hrs} hr`;
+  const rem = mins % 60;
+  return rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
+}
+
+/**
+ * Format time as "h:mm AM/PM" (no leading zero)
+ */
+function formatTimeShort(d: Date): string {
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
 /**
@@ -267,13 +251,6 @@ export function TimeBlockSection({
     setTimePickerEvent(null);
   };
 
-  // Helper to get original duration in minutes
-  const getOriginalDurationMinutes = (event: CalendarEvent): number => {
-    return Math.round(
-      (new Date(event.endAt).getTime() - new Date(event.startAt).getTime()) / (1000 * 60),
-    );
-  };
-
   // Format time range from capacity
   const timeRange = `${formatHour(capacity.startHour)} – ${formatHour(capacity.endHour)}`;
   const availableDisplay = formatAvailable(availableMinutes);
@@ -309,16 +286,12 @@ export function TimeBlockSection({
         if (entry.kind === 'slotted_task') {
           const st = entry.slottedTask!;
           const taskData = taskDataById[st.id];
-          const timeLabel = new Date(st.scheduledStartIso).toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true,
-          });
+          const timeLabel = formatTimeShort(new Date(st.scheduledStartIso));
 
           return (
             <React.Fragment key={`slotted-${st.id}`}>
-              <View style={styles.slottedRow}>
-                <View style={styles.slottedTaskContent}>
+              <View style={styles.slottedTaskRow}>
+                <View style={{ flex: 1 }}>
                   {taskData ? (
                     <TaskItem
                       task={taskData}
@@ -328,12 +301,19 @@ export function TimeBlockSection({
                       dimmed={isPast}
                     />
                   ) : (
-                    <View style={styles.taskRow}>
-                      <Text style={{ fontSize: 14, color: COLORS.charcoalInk }}>{st.title}</Text>
+                    <View
+                      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12 }}
+                    >
+                      <Text
+                        style={{ fontSize: 15, color: COLORS.charcoalInk, flex: 1 }}
+                        numberOfLines={1}
+                      >
+                        {st.title}
+                      </Text>
                     </View>
                   )}
                 </View>
-                <Text style={styles.slottedTime}>{timeLabel}</Text>
+                <Text style={styles.unifiedTime}>{timeLabel}</Text>
               </View>
               {!isLastTimeline && timeline[idx + 1]?.kind !== 'gap' && (
                 <View style={styles.rowDivider} />
@@ -345,46 +325,24 @@ export function TimeBlockSection({
         // kind === 'event'
         const event = entry.event!;
         const eventId = getEventId(event);
-        const {
-          startAt: effectiveStart,
-          endAt: effectiveEnd,
-          hasOverride,
-        } = getEffectiveEventTimes(event, eventTimeOverrides);
+        const { startAt: effectiveStart, endAt: effectiveEnd } = getEffectiveEventTimes(
+          event,
+          eventTimeOverrides,
+        );
 
-        const originalMinutes = getOriginalDurationMinutes(event);
         const effectiveMinutes = Math.round(
           (effectiveEnd.getTime() - effectiveStart.getTime()) / (1000 * 60),
         );
 
-        const formatTime = (d: Date) =>
-          d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-        const effectiveTimeRange = `${formatTime(effectiveStart)} - ${formatTime(effectiveEnd)}`;
-
         return (
           <React.Fragment key={eventId}>
-            <Pressable style={styles.eventRow} onPress={() => handleEventPress(event)}>
-              <Calendar size={16} color={COLORS.inkMuted} style={styles.eventIcon} />
-              <View style={styles.eventContent}>
-                <Text style={[styles.eventTime, isPast && styles.textMuted]}>
-                  {effectiveTimeRange}{' '}
-                  {hasOverride ? (
-                    <>
-                      <Text style={styles.durationStrike}>
-                        ({formatDurationMinutes(originalMinutes)}
-                      </Text>
-                      <Text style={styles.durationOverride}>
-                        {' → '}
-                        {formatDurationMinutes(effectiveMinutes)})
-                      </Text>
-                    </>
-                  ) : (
-                    <>({formatDurationMinutes(effectiveMinutes)})</>
-                  )}
-                </Text>
-                <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
-                  {event.title}
-                </Text>
-              </View>
+            <Pressable style={styles.unifiedRow} onPress={() => handleEventPress(event)}>
+              <Calendar size={16} color={COLORS.inkMuted} style={styles.unifiedIcon} />
+              <Text style={[styles.unifiedTitle, isPast && styles.textMuted]} numberOfLines={1}>
+                {event.title}
+              </Text>
+              <Text style={styles.unifiedDuration}>{formatDurationCompact(effectiveMinutes)}</Text>
+              <Text style={styles.unifiedTime}>{formatTimeShort(effectiveStart)}</Text>
             </Pressable>
             {!isLastTimeline && timeline[idx + 1]?.kind !== 'gap' && (
               <View style={styles.rowDivider} />
@@ -408,48 +366,37 @@ export function TimeBlockSection({
           return min > 0 ? `${displayHour}:${minStr} ${ampm}` : `${displayHour}:00 ${ampm}`;
         };
 
+        const titleText =
+          (keyDate.title || 'Untitled Event') + (spaceName ? ` · ${spaceName}` : '');
+        const endTime = keyDate.end_time;
+
+        // Calculate duration in minutes from event_time and end_time
+        let durationLabel: string | null = null;
+        if (eventTime && endTime) {
+          const [sh, sm] = eventTime.split(':').map(Number);
+          const [eh, em] = endTime.split(':').map(Number);
+          const durationMins = eh * 60 + em - (sh * 60 + sm);
+          if (durationMins > 0) durationLabel = formatDurationCompact(durationMins);
+        }
+
         const isLast = idx === keyDateEvents.length - 1 && tasks.length === 0;
         return (
           <React.Fragment key={keyDate.id}>
-            <Pressable style={styles.eventRow} onPress={() => handleKeyDatePress(keyDate)}>
-              <Calendar size={16} color={COLORS.inkMuted} style={styles.eventIcon} />
-              <View style={styles.eventContent}>
-                {eventTime ? (
-                  // WITH time: Show time on line 1, title + space on line 2 (matches calendar events)
-                  <>
-                    <Text style={[styles.eventTime, isPast && styles.textMuted]}>
-                      {formatKeyDateTime(eventTime)}
-                    </Text>
-                    <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
-                      {keyDate.title || 'Untitled Event'}
-                      {spaceName ? ` · ${spaceName}` : ''}
-                    </Text>
-                  </>
-                ) : (
-                  // WITHOUT time: Show title on line 1, space on line 2
-                  <>
-                    <Text style={[styles.eventTitle, isPast && styles.textMuted]} numberOfLines={1}>
-                      {keyDate.title || 'Untitled Event'}
-                    </Text>
-                    {spaceName && (
-                      <Text style={[styles.eventTime, isPast && styles.textMuted]}>
-                        {spaceName} · Needs time
-                      </Text>
-                    )}
-                  </>
-                )}
-              </View>
-              {onKeyDateQuickAction && (
-                <Pressable
-                  style={styles.quickActionButton}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    onKeyDateQuickAction(keyDate);
-                  }}
-                  hitSlop={8}
-                >
-                  <MoreHorizontal size={16} color="#CCCCCC" />
-                </Pressable>
+            <Pressable
+              style={styles.unifiedRow}
+              onPress={() =>
+                onKeyDateQuickAction ? onKeyDateQuickAction(keyDate) : handleKeyDatePress(keyDate)
+              }
+            >
+              <Calendar size={16} color={COLORS.inkMuted} style={styles.unifiedIcon} />
+              <Text style={[styles.unifiedTitle, isPast && styles.textMuted]} numberOfLines={1}>
+                {titleText}
+              </Text>
+              {durationLabel && <Text style={styles.unifiedDuration}>{durationLabel}</Text>}
+              {eventTime ? (
+                <Text style={styles.unifiedTime}>{formatKeyDateTime(eventTime)}</Text>
+              ) : (
+                <Text style={styles.unifiedTime}>All day</Text>
               )}
             </Pressable>
             {!isLast && <View style={styles.rowDivider} />}
@@ -625,42 +572,42 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'right',
   },
-  eventRow: {
+  /* Unified row — shared by events, slotted tasks, key dates */
+  unifiedRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  rowDivider: {
-    height: 1,
-    backgroundColor: '#E5E5E5',
-    marginHorizontal: 16,
-  },
-  eventIcon: {
-    marginTop: 2,
+  unifiedIcon: {
     marginRight: 12,
   },
-  eventContent: {
+  unifiedTitle: {
     flex: 1,
-  },
-  eventTime: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: COLORS.inkMuted,
-    marginBottom: 2,
-  },
-  durationStrike: {
-    textDecorationLine: 'line-through',
-    color: COLORS.inkMuted,
-  },
-  durationOverride: {
-    color: COLORS.mossGreen,
-    fontWeight: '600',
-  },
-  eventTitle: {
     fontSize: 15,
-    fontWeight: '500',
     color: COLORS.charcoalInk,
+  },
+  unifiedDuration: {
+    fontSize: 13,
+    color: COLORS.inkMuted,
+    marginLeft: 8,
+  },
+  unifiedTime: {
+    fontSize: 13,
+    color: COLORS.inkMuted,
+    marginLeft: 8,
+    minWidth: 65,
+    textAlign: 'right',
+  },
+  slottedTaskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  rowDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#E8E6E1',
+    marginHorizontal: 16,
   },
   textMuted: {
     color: COLORS.inkMuted,
@@ -754,27 +701,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: COLORS.surface,
-  },
-  slottedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  slottedTaskContent: {
-    flex: 1,
-    paddingHorizontal: 16,
-  },
-  slottedTime: {
-    fontSize: 12,
-    color: '#999999',
-    paddingRight: 16,
-    minWidth: 65,
-    textAlign: 'right',
-  },
-  quickActionButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 4,
   },
 });

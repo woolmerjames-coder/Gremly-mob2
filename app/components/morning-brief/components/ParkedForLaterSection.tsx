@@ -2,16 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { Animated, Easing, LayoutAnimation, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChevronDown } from 'lucide-react-native';
 import { BRAND } from '../../../../design/brand';
-
-interface ParkedTask {
-  id: string;
-  title: string;
-  estimatedMinutes?: number;
-}
+import type { TaskItemData } from './TaskItem';
 
 interface ParkedForLaterSectionProps {
-  tasks: ParkedTask[];
-  onPulse?: boolean; // triggers a subtle visual pulse when a task is parked
+  tasks: TaskItemData[];
+  onPulse?: boolean;
+  onToggleSelect?: (task: TaskItemData) => void;
 }
 
 function formatTime(minutes: number): string {
@@ -21,9 +17,13 @@ function formatTime(minutes: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-export function ParkedForLaterSection({ tasks, onPulse = false }: ParkedForLaterSectionProps) {
-  const [expanded, setExpanded] = useState(false);
-  const rotateAnim = useMemo(() => new Animated.Value(0), []);
+export function ParkedForLaterSection({
+  tasks,
+  onPulse = false,
+  onToggleSelect,
+}: ParkedForLaterSectionProps) {
+  const [expanded, setExpanded] = useState(true);
+  const rotateAnim = useMemo(() => new Animated.Value(1), []);
   const pulseAnim = useMemo(() => new Animated.Value(1), []);
 
   // Pulse animation when onPulse changes to true
@@ -68,9 +68,8 @@ export function ParkedForLaterSection({ tasks, onPulse = false }: ParkedForLater
     <View style={styles.container}>
       {/* Header */}
       <Pressable onPress={toggleExpanded} style={styles.header}>
-        <Text style={styles.headerText}>Parked for later</Text>
-        <Animated.View style={[styles.badge, { transform: [{ scale: pulseAnim }] }]}>
-          <Text style={styles.badgeText}>{tasks.length}</Text>
+        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+          <Text style={styles.headerText}>{tasks.length} more available</Text>
         </Animated.View>
         <View style={styles.spacer} />
         <Animated.View style={{ transform: [{ rotate: chevronRotate }] }}>
@@ -78,23 +77,21 @@ export function ParkedForLaterSection({ tasks, onPulse = false }: ParkedForLater
         </Animated.View>
       </Pressable>
 
-      {/* Expandable content — LayoutAnimation handles height transition */}
+      {/* Expandable content */}
       {expanded && (
         <View style={styles.content}>
           {tasks.map((task) => (
-            <View key={task.id} style={styles.taskRow}>
-              <View style={styles.dot} />
+            <Pressable key={task.id} style={styles.taskRow} onPress={() => onToggleSelect?.(task)}>
+              <View style={styles.checkbox} />
               <Text style={styles.taskTitle} numberOfLines={1}>
                 {task.title}
               </Text>
               {task.estimatedMinutes != null && task.estimatedMinutes > 0 && (
                 <Text style={styles.taskEstimate}>{formatTime(task.estimatedMinutes)}</Text>
               )}
-            </View>
+            </Pressable>
           ))}
-          <Text style={styles.footer}>
-            These stay on your plate — they'll surface again in your Evening Sweep.
-          </Text>
+          <Text style={styles.footer}>Tap to add to today's plan</Text>
         </View>
       )}
     </View>
@@ -121,22 +118,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     color: BRAND.colors.inkMuted,
   },
-  badge: {
-    backgroundColor: 'rgba(0,0,0,0.04)',
-    borderRadius: 7,
-    minWidth: 16,
-    height: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-    marginLeft: 7,
-  },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: '500',
-    fontFamily: 'Inter-Medium',
-    color: BRAND.colors.inkMuted,
-  },
   spacer: {
     flex: 1,
   },
@@ -147,25 +128,28 @@ const styles = StyleSheet.create({
   taskRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: 5,
+    opacity: 0.55,
   },
-  dot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: 'rgba(0,0,0,0.1)',
-    marginRight: 8,
+  checkbox: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: 'rgba(34,34,34,0.14)',
+    backgroundColor: 'transparent',
+    marginRight: 10,
   },
   taskTitle: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 13.5,
     fontFamily: 'Inter-Regular',
-    color: 'rgba(34,34,34,0.75)',
+    color: 'rgba(34,34,34,0.45)',
   },
   taskEstimate: {
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: 'Inter-Regular',
-    color: BRAND.colors.inkMuted,
+    color: '#666666',
     marginLeft: 8,
   },
   footer: {
