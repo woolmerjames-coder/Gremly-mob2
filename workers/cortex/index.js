@@ -4383,11 +4383,21 @@ Return ONLY valid JSON, no explanation:
             )
             .join('\n');
 
-        const blockContext = `Morning: ${blocks.morning?.realisticAvailableMinutes ?? blocks.morning?.availableMinutes ?? 0} min
+        // Calendar-only availability: block total minus calendar events only
+        // This ensures task assignments don't shrink reported capacity
+        const calendarFreeMinutes = (block) => {
+          if (!block) return 0;
+          const total = ((block.endHour ?? 0) - (block.startHour ?? 0)) * 60;
+          // Gaps give us the actual free windows so sum those
+          const gapTotal = (block.gaps || []).reduce((sum, g) => sum + (g.durationMinutes || 0), 0);
+          return gapTotal || block.realisticAvailableMinutes || block.availableMinutes || 0;
+        };
+
+        const blockContext = `Morning: ${calendarFreeMinutes(blocks.morning)} min available
 ${formatGaps(blocks.morning?.gaps)}
-Afternoon: ${blocks.day?.realisticAvailableMinutes ?? blocks.day?.availableMinutes ?? 0} min
+Afternoon: ${calendarFreeMinutes(blocks.day)} min available
 ${formatGaps(blocks.day?.gaps)}
-Evening: ${blocks.evening?.realisticAvailableMinutes ?? blocks.evening?.availableMinutes ?? 0} min
+Evening: ${calendarFreeMinutes(blocks.evening)} min available
 ${formatGaps(blocks.evening?.gaps)}`;
 
         // === Build expanded context sections (new in v2.0) ===
@@ -4441,7 +4451,7 @@ You are scheduling for real humans who may have ADHD or executive function chall
 
 === SCHEDULING RULES ===
 1. Never schedule tasks in past blocks (check current hour).
-2. Never exceed 85% of block capacity. This is a HARD ceiling.
+2. Aim for 85-90% of block capacity. Leave a small buffer but do NOT leave large gaps — it's better to schedule a task and let the user adjust than to overflow it when there's clearly room.
 3. Respect time_window_preference when set — this is a user commitment.
 4. Use energy types to shape sequencing:
    - deep_focus: longest uninterrupted gap, ideally morning
@@ -4455,7 +4465,7 @@ You are scheduling for real humans who may have ADHD or executive function chall
 8. If a user pattern indicates peak focus time, place deep_focus tasks there.
 9. If habit context shows a best time, honor it.
 10. If recent completions show a pattern (user always does X in morning), follow it.
-11. LOCKED PRIORITIES: Tasks marked locked:true are the user's non-negotiable priorities. Schedule these FIRST in optimal time slots. Never overflow a locked task — if capacity is tight, overflow unlocked tasks instead.
+11. LOCKED PRIORITIES: Tasks marked locked:true MUST be scheduled — never overflow them. Place locked tasks FIRST, then fill remaining capacity with unlocked tasks. If a locked task has a time preference, honor it strictly.
 
 === GAP SLOTTING ===
 When a block has gaps listed under CAPACITY, you MAY assign a task to a specific gap by including "scheduledStartIso" — the ISO-8601 start time within that gap. Rules:
@@ -4470,6 +4480,8 @@ If tasks won't fit, overflow them. This is NOT failure — it's realistic planni
 - Never overflow an overdue task unless there is literally zero capacity.
 - Never overflow a habit with an active streak unless capacity is truly zero.
 - Overflow reason should be encouraging, not guilt-inducing.
+
+CRITICAL: Only overflow tasks when blocks are genuinely full. If a block has 60+ minutes of unscheduled time, you MUST place more tasks there before overflowing anything. Count your assignments against capacity as you go. Users feel frustrated when they see empty time blocks alongside overflowed tasks.
 
 === OUTPUT FORMAT ===
 Respond with ONLY valid JSON. No markdown, no backticks, no explanation outside the JSON.
@@ -4548,7 +4560,11 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
         const t0 = Date.now();
 
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
+
           const res = await fetch('https://api.anthropic.com/v1/messages', {
+            signal: controller.signal,
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -4570,6 +4586,7 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
           });
 
           const latency = Date.now() - t0;
+          clearTimeout(timeoutId);
 
           if (!res.ok) {
             const errText = await res.text();
@@ -4695,6 +4712,17 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
           });
         } catch (err) {
           const latency = Date.now() - t0;
+          if (err.name === 'AbortError') {
+            console.log('[organize-day] Request timed out', { latency_ms: latency });
+            return j({
+              error: 'timeout',
+              assignments: [],
+              overflow: tasksToAssign.map((t) => ({ taskId: t.id, reason: 'Timed out' })),
+              reasoning: [],
+              summary: 'Took too long — tasks left flexible.',
+              latency_ms: latency,
+            }, 200);
+          }
           console.log('[organize-day] Error', { error: String(err), latency_ms: latency });
           return j(
             {
