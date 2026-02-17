@@ -153,6 +153,15 @@ function getDueDateLabel(
   return null; // More than 3 days out — not urgent enough to show
 }
 
+// Helper: does the task name imply a specific time of day?
+function getSemanticBlock(name: string): 'morning' | 'day' | 'evening' | null {
+  const lower = name.toLowerCase();
+  if (/\b(morning|am routine|sunrise|wake|breakfast)\b/.test(lower)) return 'morning';
+  if (/\b(afternoon|lunch|midday)\b/.test(lower)) return 'day';
+  if (/\b(evening|night|bedtime|dinner|sunset|pm routine)\b/.test(lower)) return 'evening';
+  return null;
+}
+
 export function MorningBriefSheet({
   onClose,
   onComplete,
@@ -482,10 +491,15 @@ export function MorningBriefSheet({
   // CAPACITY GATE DETECTION
   // ─────────────────────────────────────────────────────────────────
   const realisticCapacity = useMemo(() => {
+    // Use calendar-only availability (totalMinutes − calendarMinutes) so the
+    // capacity bar total stays stable regardless of how many tasks are
+    // already assigned to time blocks.
+    const calendarFree = (block: typeof capacity.blocks.morning) =>
+      Math.max(0, block.totalMinutes - block.calendarMinutes);
     const raw =
-      capacity.blocks.morning.availableMinutes +
-      capacity.blocks.day.availableMinutes +
-      capacity.blocks.evening.availableMinutes;
+      calendarFree(capacity.blocks.morning) +
+      calendarFree(capacity.blocks.day) +
+      calendarFree(capacity.blocks.evening);
     return Math.round(raw * 0.85);
   }, [capacity]);
 
@@ -500,6 +514,43 @@ export function MorningBriefSheet({
   const briefSelectedSet = useMemo(() => new Set(briefSelectedIds), [briefSelectedIds]);
   const briefLockedSet = useMemo(() => new Set(briefLockedIds), [briefLockedIds]);
   const isSelectionsStale = briefSelectionDate !== today;
+
+  // Reset daily assignments on new day
+  useEffect(() => {
+    if (!isSelectionsStale) return;
+
+    // Reset time_window for todos — unless name semantically matches the block
+    const todosToReset = todayTodos.filter((t) => {
+      if (!t.time_window || t.time_window === 'any') return false;
+      const semantic = getSemanticBlock(t.name || '');
+      return semantic !== t.time_window; // Only reset if name doesn't match block
+    });
+
+    const habitsToReset = todayHabits.filter((h) => {
+      if (!h.time_window || h.time_window === 'any') return false;
+      const semantic = getSemanticBlock(h.name || '');
+      return semantic !== h.time_window;
+    });
+
+    // Reset lock-ins (always — lock-in is a daily commitment)
+    const lockedTodosToReset = todayTodos.filter((t) => t.commitment === true);
+    const lockedHabitsToReset = todayHabits.filter((h) => isHabitLockedIn(h));
+
+    if (todosToReset.length > 0 || habitsToReset.length > 0 || lockedTodosToReset.length > 0 || lockedHabitsToReset.length > 0) {
+      console.log('[MorningBrief] Daily reset', {
+        blockResets: todosToReset.length + habitsToReset.length,
+        lockResets: lockedTodosToReset.length + lockedHabitsToReset.length,
+      });
+
+      // Reset block assignments
+      todosToReset.forEach((t) => updateTodo(t.id, { time_window: 'any' }));
+      habitsToReset.forEach((h) => updateHabit(h.id, { time_window: 'any' }));
+
+      // Reset lock-ins
+      lockedTodosToReset.forEach((t) => removeCommitment(t.id, 'todo'));
+      lockedHabitsToReset.forEach((h) => removeCommitment(h.id, 'habit'));
+    }
+  }, [isSelectionsStale, todayTodos, todayHabits, updateTodo, updateHabit, removeCommitment]);
 
   // Pre-selection: auto-select tasks up to 72% of realistic capacity when stale
   useEffect(() => {

@@ -218,7 +218,16 @@ export function TaskItem({
         <Text style={pStyles.deselectedTitle} numberOfLines={1}>
           {task.title}
         </Text>
-        {showEstimate && timeDisplay && <Text style={pStyles.deselectedTime}>{timeDisplay}</Text>}
+        {showEstimate && (
+          <Pressable
+            onPress={() => { if (onTimePress) onTimePress(task); }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={[pStyles.deselectedTime, !timeDisplay && pStyles.timeEmpty]}>
+              {timeDisplay ?? '+ time'}
+            </Text>
+          </Pressable>
+        )}
       </Pressable>
     );
   }
@@ -235,7 +244,16 @@ export function TaskItem({
         <Text style={pStyles.selectedTitle} numberOfLines={1}>
           {task.title}
         </Text>
-        {showEstimate && timeDisplay && <Text style={pStyles.selectedTime}>{timeDisplay}</Text>}
+        {showEstimate && (
+          <Pressable
+            onPress={() => { if (onTimePress) onTimePress(task); }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={[pStyles.selectedTime, !timeDisplay && pStyles.timeEmpty]}>
+              {timeDisplay ?? '+ time'}
+            </Text>
+          </Pressable>
+        )}
       </View>
 
       {/* Line 2: contextual chips + action chips */}
@@ -270,7 +288,7 @@ export function TaskItem({
         <View style={pStyles.chipSpacer} />
 
         {/* Action chips */}
-        <TaskChip label="assign \u203A" onPress={handleAssign} />
+        <TaskChip label={`assign ›`} onPress={handleAssign} />
         {isLocked ? (
           <TaskChip
             label={`\u25C6 locked`}
@@ -411,6 +429,10 @@ const pStyles = StyleSheet.create({
     color: COLORS.inkMuted,
     marginLeft: 8,
     fontFamily: 'Inter-Regular',
+  },
+  timeEmpty: {
+    color: '#2E5540',
+    fontStyle: 'italic',
   },
 
   /* Line 2: chips */

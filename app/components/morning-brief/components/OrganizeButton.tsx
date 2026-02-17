@@ -297,7 +297,7 @@ export function OrganizeButton({
   if (isPrioritizing) {
     return (
       <Pressable style={styles.button} onPress={handlePress} disabled={phase !== 'idle'}>
-        <Text style={styles.text}>\u2726 Organize my day</Text>
+        <Text style={styles.text}>{'✦ Organize my day'}</Text>
       </Pressable>
     );
   }
