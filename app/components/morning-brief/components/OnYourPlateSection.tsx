@@ -5,9 +5,14 @@
  * Tasks here can be tapped to assign to a time block.
  * Styled to match CalendarScreen section patterns.
  * Supports exit animations when tasks are being organized.
+ *
+ * When isPrioritizing is true, enters "prioritization mode":
+ * - Tasks show checkboxes and two-line selected state
+ * - Tapping a row toggles selection
+ * - Selected items sort to top within each sub-section
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { Plus, Clock } from 'lucide-react-native';
 import { AnimatedTaskItem, type TaskItemData } from './TaskItem';
@@ -38,6 +43,14 @@ interface OnYourPlateSectionProps {
   onTimePress?: (task: TaskItemData) => void;
   onAddPress: () => void;
   pendingDrops?: PendingDrop[];
+  // Prioritization mode props
+  isPrioritizing?: boolean;
+  selectedIds?: Set<string>;
+  lockedIds?: Set<string>;
+  onToggleSelect?: (task: TaskItemData) => void;
+  onToggleLock?: (task: TaskItemData) => void;
+  onAssignPress?: (task: TaskItemData) => void;
+  maxLocks?: number;
 }
 
 /**
@@ -68,6 +81,22 @@ function PendingDropRow({ drop }: { drop: PendingDrop }) {
   );
 }
 
+/**
+ * Stable sort: selected items first, preserving original order within each group.
+ */
+function sortBySelection(tasks: TaskItemData[], selectedIds: Set<string>): TaskItemData[] {
+  const selected: TaskItemData[] = [];
+  const deselected: TaskItemData[] = [];
+  for (const t of tasks) {
+    if (selectedIds.has(t.id)) {
+      selected.push(t);
+    } else {
+      deselected.push(t);
+    }
+  }
+  return [...selected, ...deselected];
+}
+
 export function OnYourPlateSection({
   tasks,
   animatingAssignments,
@@ -75,12 +104,42 @@ export function OnYourPlateSection({
   onTimePress,
   onAddPress,
   pendingDrops = [],
+  // Prioritization props
+  isPrioritizing = false,
+  selectedIds,
+  lockedIds,
+  onToggleSelect,
+  onToggleLock,
+  onAssignPress,
+  maxLocks = 3,
 }: OnYourPlateSectionProps) {
   const count = tasks.length + pendingDrops.length;
 
   // Split tasks into habits and todos for sub-sections
-  const habitTasks = tasks.filter((t) => t.type === 'habit');
-  const todoTasks = tasks.filter((t) => t.type === 'todo');
+  const habitTasks = useMemo(() => {
+    const habits = tasks.filter((t) => t.type === 'habit');
+    return isPrioritizing && selectedIds ? sortBySelection(habits, selectedIds) : habits;
+  }, [tasks, isPrioritizing, selectedIds]);
+
+  const todoTasks = useMemo(() => {
+    const todos = tasks.filter((t) => t.type === 'todo');
+    return isPrioritizing && selectedIds ? sortBySelection(todos, selectedIds) : todos;
+  }, [tasks, isPrioritizing, selectedIds]);
+
+  // In prioritization mode, row press toggles selection instead of opening picker
+  const handleRowPress = isPrioritizing && onToggleSelect ? onToggleSelect : onTaskPress;
+
+  // Count badge text
+  const countText =
+    isPrioritizing && selectedIds ? `${selectedIds.size} selected` : `${count} flexible`;
+
+  // Instruction text
+  const instructionText = isPrioritizing
+    ? 'Pick what matters \u2014 Gremly handles the rest'
+    : 'Tap to assign to a time block, or leave flexible';
+
+  // Shared prioritization props for TaskItem
+  const lockCount = lockedIds?.size ?? 0;
 
   return (
     <View style={styles.container}>
@@ -89,7 +148,7 @@ export function OnYourPlateSection({
         <View style={[styles.sectionHeaderAccent, { backgroundColor: SECTION_COLOR }]} />
         <Clock size={16} color={SECTION_COLOR} style={styles.sectionIcon} />
         <Text style={[styles.sectionHeader, { color: SECTION_COLOR }]}>ON YOUR PLATE</Text>
-        <Text style={styles.countBadge}>{count} flexible</Text>
+        <Text style={styles.countBadge}>{countText}</Text>
 
         {/* Add Button */}
         <Pressable
@@ -104,9 +163,7 @@ export function OnYourPlateSection({
       </View>
 
       {/* Instructions */}
-      {count > 0 && (
-        <Text style={styles.instructions}>Tap to assign to a time block, or leave flexible</Text>
-      )}
+      {count > 0 && <Text style={styles.instructions}>{instructionText}</Text>}
 
       {/* Pending Drops - Processing cards from store */}
       {pendingDrops.map((drop) => (
@@ -120,26 +177,39 @@ export function OnYourPlateSection({
             <Text style={styles.subSectionTitle}>Habits</Text>
             <Text style={styles.subSectionCount}>{habitTasks.length}</Text>
           </View>
-          {habitTasks.map((task, index) => {
-            const animationIndex =
-              animatingAssignments?.findIndex((a) => a.taskId === task.id) ?? -1;
-            const isAnimatingOut = animationIndex >= 0;
+          <View style={isPrioritizing ? styles.prioritizingList : undefined}>
+            {habitTasks.map((task, index) => {
+              const animationIndex =
+                animatingAssignments?.findIndex((a) => a.taskId === task.id) ?? -1;
+              const isAnimatingOut = animationIndex >= 0;
 
-            return (
-              <View
-                key={task.id}
-                style={[styles.taskWrapper, index < habitTasks.length - 1 && styles.taskBorder]}
-              >
-                <AnimatedTaskItem
-                  task={task}
-                  onPress={onTaskPress}
-                  onTimePress={onTimePress}
-                  isAnimatingOut={isAnimatingOut}
-                  animationDelay={animationIndex * 150}
-                />
-              </View>
-            );
-          })}
+              return (
+                <View
+                  key={task.id}
+                  style={[
+                    isPrioritizing ? styles.taskWrapperPrioritizing : styles.taskWrapper,
+                    !isPrioritizing && index < habitTasks.length - 1 && styles.taskBorder,
+                  ]}
+                >
+                  <AnimatedTaskItem
+                    task={task}
+                    onPress={handleRowPress}
+                    onTimePress={onTimePress}
+                    isAnimatingOut={isAnimatingOut}
+                    animationDelay={animationIndex * 150}
+                    isPrioritizing={isPrioritizing}
+                    isSelected={selectedIds?.has(task.id)}
+                    isLocked={lockedIds?.has(task.id)}
+                    lockCount={lockCount}
+                    maxLocks={maxLocks}
+                    onToggleSelect={onToggleSelect}
+                    onToggleLock={onToggleLock}
+                    onAssignPress={onAssignPress}
+                  />
+                </View>
+              );
+            })}
+          </View>
         </>
       )}
 
@@ -150,26 +220,39 @@ export function OnYourPlateSection({
             <Text style={styles.subSectionTitle}>To-dos</Text>
             <Text style={styles.subSectionCount}>{todoTasks.length}</Text>
           </View>
-          {todoTasks.map((task, index) => {
-            const animationIndex =
-              animatingAssignments?.findIndex((a) => a.taskId === task.id) ?? -1;
-            const isAnimatingOut = animationIndex >= 0;
+          <View style={isPrioritizing ? styles.prioritizingList : undefined}>
+            {todoTasks.map((task, index) => {
+              const animationIndex =
+                animatingAssignments?.findIndex((a) => a.taskId === task.id) ?? -1;
+              const isAnimatingOut = animationIndex >= 0;
 
-            return (
-              <View
-                key={task.id}
-                style={[styles.taskWrapper, index < todoTasks.length - 1 && styles.taskBorder]}
-              >
-                <AnimatedTaskItem
-                  task={task}
-                  onPress={onTaskPress}
-                  onTimePress={onTimePress}
-                  isAnimatingOut={isAnimatingOut}
-                  animationDelay={animationIndex * 150}
-                />
-              </View>
-            );
-          })}
+              return (
+                <View
+                  key={task.id}
+                  style={[
+                    isPrioritizing ? styles.taskWrapperPrioritizing : styles.taskWrapper,
+                    !isPrioritizing && index < todoTasks.length - 1 && styles.taskBorder,
+                  ]}
+                >
+                  <AnimatedTaskItem
+                    task={task}
+                    onPress={handleRowPress}
+                    onTimePress={onTimePress}
+                    isAnimatingOut={isAnimatingOut}
+                    animationDelay={animationIndex * 150}
+                    isPrioritizing={isPrioritizing}
+                    isSelected={selectedIds?.has(task.id)}
+                    isLocked={lockedIds?.has(task.id)}
+                    lockCount={lockCount}
+                    maxLocks={maxLocks}
+                    onToggleSelect={onToggleSelect}
+                    onToggleLock={onToggleLock}
+                    onAssignPress={onAssignPress}
+                  />
+                </View>
+              );
+            })}
+          </View>
         </>
       )}
 
@@ -240,6 +323,12 @@ const styles = StyleSheet.create({
   },
   taskWrapper: {
     marginHorizontal: 16,
+  },
+  taskWrapperPrioritizing: {
+    marginBottom: 2,
+  },
+  prioritizingList: {
+    marginHorizontal: 14,
   },
   taskBorder: {
     borderBottomWidth: StyleSheet.hairlineWidth,

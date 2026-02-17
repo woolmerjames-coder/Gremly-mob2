@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, LayoutAnimation, Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChevronDown } from 'lucide-react-native';
 import { BRAND } from '../../../../design/brand';
 
@@ -24,7 +24,6 @@ function formatTime(minutes: number): string {
 export function ParkedForLaterSection({ tasks, onPulse = false }: ParkedForLaterSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const rotateAnim = useMemo(() => new Animated.Value(0), []);
-  const heightAnim = useMemo(() => new Animated.Value(0), []);
   const pulseAnim = useMemo(() => new Animated.Value(1), []);
 
   // Pulse animation when onPulse changes to true
@@ -47,22 +46,15 @@ export function ParkedForLaterSection({ tasks, onPulse = false }: ParkedForLater
 
   const toggleExpanded = () => {
     const next = !expanded;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpanded(next);
 
-    Animated.parallel([
-      Animated.timing(rotateAnim, {
-        toValue: next ? 1 : 0,
-        duration: 250,
-        easing: Easing.inOut(Easing.ease),
-        useNativeDriver: true,
-      }),
-      Animated.timing(heightAnim, {
-        toValue: next ? 1 : 0,
-        duration: 250,
-        easing: Easing.inOut(Easing.ease),
-        useNativeDriver: false,
-      }),
-    ]).start();
+    Animated.timing(rotateAnim, {
+      toValue: next ? 1 : 0,
+      duration: 250,
+      easing: Easing.inOut(Easing.ease),
+      useNativeDriver: true,
+    }).start();
   };
 
   const chevronRotate = rotateAnim.interpolate({
@@ -73,25 +65,25 @@ export function ParkedForLaterSection({ tasks, onPulse = false }: ParkedForLater
   if (tasks.length === 0) return null;
 
   return (
-    <Animated.View style={[styles.container, { transform: [{ scale: pulseAnim }] }]}>
+    <View style={styles.container}>
       {/* Header */}
       <Pressable onPress={toggleExpanded} style={styles.header}>
         <Text style={styles.headerText}>Parked for later</Text>
-        <View style={styles.badge}>
+        <Animated.View style={[styles.badge, { transform: [{ scale: pulseAnim }] }]}>
           <Text style={styles.badgeText}>{tasks.length}</Text>
-        </View>
+        </Animated.View>
         <View style={styles.spacer} />
         <Animated.View style={{ transform: [{ rotate: chevronRotate }] }}>
           <ChevronDown size={16} color={BRAND.colors.inkMuted} />
         </Animated.View>
       </Pressable>
 
-      {/* Expandable content */}
+      {/* Expandable content — LayoutAnimation handles height transition */}
       {expanded && (
         <View style={styles.content}>
           {tasks.map((task) => (
             <View key={task.id} style={styles.taskRow}>
-              <Text style={styles.dot}>·</Text>
+              <View style={styles.dot} />
               <Text style={styles.taskTitle} numberOfLines={1}>
                 {task.title}
               </Text>
@@ -105,7 +97,7 @@ export function ParkedForLaterSection({ tasks, onPulse = false }: ParkedForLater
           </Text>
         </View>
       )}
-    </Animated.View>
+    </View>
   );
 }
 
@@ -125,25 +117,25 @@ const styles = StyleSheet.create({
   },
   headerText: {
     fontSize: 13,
-    fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
+    fontWeight: '500',
+    fontFamily: 'Inter-Medium',
     color: BRAND.colors.inkMuted,
   },
   badge: {
-    backgroundColor: BRAND.colors.mossGreen,
-    borderRadius: 8,
-    minWidth: 18,
-    height: 18,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+    borderRadius: 7,
+    minWidth: 16,
+    height: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 5,
+    paddingHorizontal: 4,
     marginLeft: 7,
   },
   badgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    fontFamily: 'Inter-Bold',
-    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '500',
+    fontFamily: 'Inter-Medium',
+    color: BRAND.colors.inkMuted,
   },
   spacer: {
     flex: 1,
@@ -158,10 +150,11 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   dot: {
-    fontSize: 18,
-    color: BRAND.colors.inkMuted,
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: 'rgba(0,0,0,0.1)',
     marginRight: 8,
-    lineHeight: 20,
   },
   taskTitle: {
     flex: 1,

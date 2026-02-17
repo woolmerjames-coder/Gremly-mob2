@@ -71,7 +71,9 @@ export function CapacityBar({ remainingMinutes, totalMinutes, lockedCount }: Cap
             : `${formatTime(remainingMinutes)} remaining`}
         </Text>
 
-        {lockedCount > 0 && <Text style={styles.lockedLabel}>◆ {lockedCount} locked</Text>}
+        {lockedCount > 0 && (
+          <Text style={styles.lockedLabel}>{`\u25C6 ${lockedCount} locked`}</Text>
+        )}
 
         <Text style={styles.totalLabel}>{formatTime(totalMinutes)} total</Text>
       </View>
@@ -104,12 +106,12 @@ const styles = StyleSheet.create({
   remainingLabel: {
     fontSize: 11,
     fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
+    fontFamily: 'Inter-Medium',
   },
   lockedLabel: {
     fontSize: 10,
     fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
+    fontFamily: 'Inter-Medium',
     color: BRAND.colors.mossGreen,
     marginLeft: 'auto',
     marginRight: 8,
