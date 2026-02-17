@@ -2785,6 +2785,28 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
           entityContextParts.push(`Additional notes: "${entity.notes.substring(0, 300)}"`);
         if (entity.is_favorite) entityContextParts.push(`Marked as favorite`);
 
+        // Habit completion stats
+        if (entity.habitStats) {
+          const hs = entity.habitStats;
+          entityContextParts.push(`\n--- Habit Progress ---`);
+          entityContextParts.push(`Completions last 7 days: ${hs.completionsLast7Days} of ${hs.targetPerWeek} target`);
+          entityContextParts.push(`Completion rate (7-day): ${Math.round(hs.completionRate7Day * 100)}%`);
+          if (hs.completionsLast14Days !== undefined) {
+            entityContextParts.push(`Completions last 14 days: ${hs.completionsLast14Days}`);
+          }
+          if (hs.currentStreak > 0) {
+            entityContextParts.push(`Current streak: ${hs.currentStreak} days`);
+          }
+          if (hs.daysSinceLastCompletion !== null && hs.daysSinceLastCompletion !== undefined) {
+            if (hs.daysSinceLastCompletion === 0) entityContextParts.push(`Last completed: today`);
+            else if (hs.daysSinceLastCompletion === 1) entityContextParts.push(`Last completed: yesterday`);
+            else entityContextParts.push(`Last completed: ${hs.daysSinceLastCompletion} days ago`);
+          } else {
+            entityContextParts.push(`Never completed yet`);
+          }
+          entityContextParts.push(`Use this data to personalize your response — acknowledge consistency ("you've been crushing it"), identify gaps ("it's been a few days"), or calibrate advice accordingly. Never shame gaps.`);
+        }
+
         const entityContext = entityContextParts.join('\n');
 
         // Build sweep context if present
@@ -2802,6 +2824,43 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
           if (sweepContext.is_overdue) sweepParts.push(`This item is overdue.`);
           if (sweepParts.length > 0) {
             sweepContextStr = `\n\n=== SWEEP CONTEXT ===\n${sweepParts.join('\n')}`;
+          }
+        }
+
+        // Build sibling context if present
+        let siblingContextStr = '';
+        if (body.siblingContext) {
+          const sc = body.siblingContext;
+
+          if (sc.sameSpace && sc.sameSpace.length > 0) {
+            siblingContextStr += `\n\n=== OTHER ITEMS IN THIS SPACE ===\n`;
+            siblingContextStr += sc.sameSpace.map(item => {
+              let line = `- ${item.type}: "${item.title}"`;
+              if (item.frequency) line += ` (${item.frequency})`;
+              if (item.last_completed_at) {
+                const daysAgo = Math.floor((Date.now() - new Date(item.last_completed_at).getTime()) / 86400000);
+                line += daysAgo === 0 ? ' — done today' : daysAgo === 1 ? ' — done yesterday' : ` — last done ${daysAgo}d ago`;
+              }
+              return line;
+            }).join('\n');
+            siblingContextStr += `\nWhen giving advice, reference these sibling items by name. For habit stacking, suggest pairing with a sibling habit they already do consistently rather than generic examples like "brushing your teeth".\n`;
+          }
+
+          if (sc.otherHabits && sc.otherHabits.length > 0) {
+            siblingContextStr += `\n=== USER'S OTHER ACTIVE HABITS ===\n`;
+            siblingContextStr += sc.otherHabits.map(h => {
+              let line = `- "${h.title}" (${h.frequency})`;
+              if (h.completionsLast7Days !== undefined) line += ` — ${h.completionsLast7Days}/7 days last week`;
+              if (h.time_window && h.time_window !== 'any') line += ` — prefers ${h.time_window}`;
+              return line;
+            }).join('\n');
+            siblingContextStr += `\nReference these when relevant. If the user is consistent with another habit, suggest stacking. If they struggle with multiple habits, acknowledge the load.\n`;
+          }
+
+          if (sc.recentCompletions && sc.recentCompletions.length > 0) {
+            siblingContextStr += `\n=== RECENTLY COMPLETED TASKS ===\n`;
+            siblingContextStr += sc.recentCompletions.map(t => `- "${t.title}"`).join('\n');
+            siblingContextStr += `\nThe user has momentum. Reference these for confidence when appropriate — "you knocked out X recently, this is smaller than that."\n`;
           }
         }
 
@@ -2837,6 +2896,13 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
           month: 'long',
           day: 'numeric',
         });
+
+        // Time of day for contextual suggestions
+        const clientTime = body.currentTime ? new Date(body.currentTime) : new Date();
+        const clientHour = clientTime.getHours();
+        const timeOfDay = clientHour < 12 ? 'morning' : clientHour < 17 ? 'afternoon' : 'evening';
+        const timeStr = `${clientHour}:${String(clientTime.getMinutes()).padStart(2, '0')}`;
+
         const entityChatSystemPrompt = `You are Gremly—an AI-powered thinking partner helping someone work through a specific item in their productivity app.
 
 === WHO YOU ARE ===
@@ -2875,13 +2941,30 @@ Never give meta-advice. If you could answer better by searching, search.
 
 RULE: If you find yourself about to write a sentence containing "you might want to", "consider looking into", "some people find", or "it depends on" — STOP and search instead. Never give generic advice when you could search and give a specific, evidence-based answer.
 
+=== WHEN TO SEARCH vs NOT SEARCH ===
+
+ALWAYS SEARCH:
+- "based on research", "what does the science say", "best way to"
+- Product recommendations, comparisons, "what should I buy/use"
+- Travel planning, event planning, gift ideas
+- Health, fitness, nutrition, medical questions
+- Any question where specific data or current info beats generic advice
+
+NEVER SEARCH — just respond directly:
+- "help me break this down" — use the entity context, create steps
+- Emotional support — "I feel bad", "I keep avoiding this", "I'm overwhelmed"
+- "what do you think" — they want your perspective, not web results
+- Simple planning — "what order should I do these in"
+- Motivation — "I don't feel like doing this today"
+- Follow-up on previous advice — "tell me more about that"
+
 When you receive search results, DO NOT just restate common knowledge that anyone could find. Lead with the most specific, surprising, or data-backed finding from the results. If a source mentions a specific study, statistic, percentage, or expert name — use it. "Research suggests" is lazy. "A 2023 study in the British Journal of Health Psychology found that..." is what makes search valuable.
 
-=== CURRENT DATE ===
-Today is ${currentDate}. Use this for any time-relative queries.
+=== CURRENT DATE & TIME ===
+Today is ${currentDate}. It's currently ${timeOfDay} (${timeStr}). If suggesting the user do something now, consider the time — don't suggest starting a workout at 11pm or a morning routine in the evening.
 
 === THE ITEM YOU'RE HELPING WITH ===
-${entityContext}${sweepContextStr}${presetInstruction}
+${entityContext}${sweepContextStr}${siblingContextStr}${presetInstruction}
 
 === GREMLY PRODUCT PHILOSOPHY ===
 These principles shape your advice:
@@ -2890,25 +2973,34 @@ These principles shape your advice:
 - **Capture first, organize later**: Mind Drop exists so thoughts don't get lost. Don't add complexity.
 - **Meet people where they are**: Not everyone wants a system. Some just want to get one thing done.
 
+=== CONVERSATION CONTINUITY ===
+If the message history shows previous conversations with this user about 
+this item, build on what was discussed. Examples:
+- "Last time we talked about [strategy] — how's that been going?"
+- "You mentioned [concern] before — has anything changed?"
+- "Building on what we discussed — here's a next step."
+Don't repeat previous advice verbatim. Evolve it.
+If this is the first message (empty history), skip this entirely.
+
 === READING THE ROOM ===
 
 Before responding, identify what mode the user is in:
 
 **EMOTIONAL** — grief, frustration, overwhelm, anxiety
 - Signals: "since [person] died", "disaster", "mess", "can't face", "been putting off for months"
-- Acknowledge the feeling first. One sentence of warmth before any practical suggestion. Don't rush to fix.
+- Acknowledge the feeling first. One sentence of warmth + one question max. 20-50 words. Don't rush to fix.
 
 **EXPLORATORY** — uncertain, thinking out loud, not ready for action
 - Signals: "I think...", "maybe...", "not sure...", "I want to but...", "help me think through"
-- Ask a question. Help them clarify. Don't create checklists or action plans.
+- Ask a question. Help them clarify. Don't create checklists or action plans. 30-60 words.
 
 **RESEARCH-NEEDED** — wants information, not a framework
 - Signals: travel planning, gift ideas, "what should I know", comparisons, health questions, "how do I", "based on research", any task where real-world information would help
-- SEARCH IMMEDIATELY using web_search. Do not write a single word of response before searching. When you get results back, lead with the most specific finding — a study name, a statistic, a concrete recommendation.
+- SEARCH IMMEDIATELY using web_search. Do not write a single word of response before searching. When you get results back, lead with the most specific finding — a study name, a statistic, a concrete recommendation. 80-150 words.
 
 **ACTION-READY** — clear task, just needs help executing
 - Signals: "break this down", "what are the steps", "how do I do this"
-- Give clear, specific steps. Don't ask permission — just do it.
+- Give clear, specific steps. Don't ask permission — just do it. 40-120 words. Bullets for 3+ steps.
 
 === EXAMPLE EXCHANGES ===
 
@@ -2936,7 +3028,8 @@ User asks a vague question (EXPLORATORY):
 "What's pulling you toward this right now — is there something specific you're trying to solve, or more of a general feeling?"
 
 === TONE & FORMAT ===
-- Brief: 40-100 words typical (mobile UI)
+- Length varies by mode (see above) — emotional is shortest, research is longest
+- This is a MOBILE UI — every word must earn its place
 - One **bold** phrase per response max
 - Bullets only for 3+ items, max 4 bullets
 - No headers (#), no tables, no code blocks

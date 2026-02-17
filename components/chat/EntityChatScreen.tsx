@@ -264,6 +264,7 @@ export function EntityChatScreen({
   const finalizeStreamingMessage = useGremlyStore((s) => s.finalizeEntityChatStreamingMessage);
   const saveEntityChatNote = useGremlyStore((s) => s.saveEntityChatNote);
   const accountCreatedAt = useGremlyStore((s) => s.accountCreatedAt);
+  const habitProgress = useGremlyStore((s) => s.habitProgress);
 
   // ─── Get Entity ────────────────────────────────────────────────────────────
   const entity = useMemo(() => {
@@ -378,6 +379,56 @@ export function EntityChatScreen({
           if (habit.commitment_note) {
             entityContext.commitment_note = habit.commitment_note;
           }
+
+          // Compute habit completion stats from habitProgress
+          const today = new Date();
+          const daysAgo = (n: number) => {
+            const d = new Date(today);
+            d.setDate(d.getDate() - n);
+            return d.toISOString().split('T')[0];
+          };
+
+          const thisHabitProgress = habitProgress.filter(p => p.habit_id === entity.id);
+          const last7 = thisHabitProgress.filter(p => p.occurred_day >= daysAgo(7)).length;
+          const last14 = thisHabitProgress.filter(p => p.occurred_day >= daysAgo(14)).length;
+
+          // Target per week based on frequency
+          const targetPerWeek = habit.frequency === 'daily' ? 7
+            : habit.frequency === 'weekly' ? 1
+            : (habit as any).target_per_period ?? 3;
+
+          // Current streak — consecutive days with completion, working backwards from today
+          const completedDays = [...new Set(thisHabitProgress.map(p => p.occurred_day))].sort().reverse();
+          let currentStreak = 0;
+          const checkDate = new Date(today);
+          for (let i = 0; i < 90; i++) {
+            const dateStr = checkDate.toISOString().split('T')[0];
+            if (completedDays.includes(dateStr)) {
+              currentStreak++;
+              checkDate.setDate(checkDate.getDate() - 1);
+            } else if (i === 0) {
+              // Today not completed yet — check if yesterday starts a streak
+              checkDate.setDate(checkDate.getDate() - 1);
+              continue;
+            } else {
+              break;
+            }
+          }
+
+          const lastCompletedDay = completedDays[0] || null;
+          const daysSinceLast = lastCompletedDay
+            ? Math.floor((today.getTime() - new Date(lastCompletedDay).getTime()) / 86400000)
+            : null;
+
+          entityContext.habitStats = {
+            completionsLast7Days: last7,
+            completionsLast14Days: last14,
+            targetPerWeek,
+            currentStreak,
+            lastCompletedAt: habit.last_completed_at ?? null,
+            daysSinceLastCompletion: daysSinceLast,
+            completionRate7Day: targetPerWeek > 0 ? Math.round((last7 / targetPerWeek) * 100) / 100 : 0,
+          };
         } else {
           const note = entity as Note;
           entityContext.body = note.body ?? undefined;
@@ -390,6 +441,79 @@ export function EntityChatScreen({
         if (spaceName) {
           entityContext.space_name = spaceName;
         }
+
+        // 6. Build sibling context — other items for cross-entity awareness
+        const allTodos = useGremlyStore.getState().todos;
+        const allHabits = useGremlyStore.getState().habits;
+        const allHabitProgress = useGremlyStore.getState().habitProgress;
+        const currentSpaceId = (entity as any).space_id;
+
+        // Same space items (excluding current entity, max 8)
+        const sameSpaceItems: NonNullable<EntityChatRequest['siblingContext']>['sameSpace'] = [];
+        if (currentSpaceId) {
+          const spaceTodos = allTodos
+            .filter(t => t.space_id === currentSpaceId && t.id !== entity.id && !t.archived && !t.completed_at)
+            .slice(0, 4)
+            .map(t => ({
+              type: 'todo' as const,
+              title: t.name || t.title || '',
+              completed_at: t.completed_at ?? undefined,
+            }));
+
+          const spaceHabits = allHabits
+            .filter(h => h.space_id === currentSpaceId && h.id !== entity.id && !h.archived)
+            .slice(0, 4)
+            .map(h => ({
+              type: 'habit' as const,
+              title: h.name,
+              frequency: h.frequency ?? 'daily',
+              last_completed_at: h.last_completed_at ?? undefined,
+            }));
+
+          sameSpaceItems.push(...spaceTodos, ...spaceHabits);
+        }
+
+        // Other active habits (excluding current entity, max 8)
+        const sevenDaysAgoStr = (() => {
+          const d = new Date();
+          d.setDate(d.getDate() - 7);
+          return d.toISOString().split('T')[0];
+        })();
+
+        const otherHabits = allHabits
+          .filter(h => h.id !== entity.id && !h.archived)
+          .slice(0, 8)
+          .map(h => {
+            const completionsLast7 = allHabitProgress
+              .filter(p => p.habit_id === h.id && p.occurred_day >= sevenDaysAgoStr)
+              .length;
+            return {
+              title: h.name,
+              frequency: h.frequency ?? 'daily',
+              last_completed_at: h.last_completed_at ?? undefined,
+              time_window: h.time_window ?? undefined,
+              completionsLast7Days: completionsLast7,
+            };
+          });
+
+        // Recently completed todos (last 7 days, max 5)
+        const recentCompletions = allTodos
+          .filter(t => t.completed_at && new Date(t.completed_at) >= new Date(sevenDaysAgoStr))
+          .sort((a, b) => new Date(b.completed_at!).getTime() - new Date(a.completed_at!).getTime())
+          .slice(0, 5)
+          .map(t => ({
+            title: t.name || t.title || '',
+            completed_at: t.completed_at!,
+          }));
+
+        const siblingContext: EntityChatRequest['siblingContext'] =
+          (sameSpaceItems.length > 0 || otherHabits.length > 0 || recentCompletions.length > 0)
+            ? {
+                sameSpace: sameSpaceItems.length > 0 ? sameSpaceItems : undefined,
+                otherHabits: otherHabits.length > 0 ? otherHabits : undefined,
+                recentCompletions: recentCompletions.length > 0 ? recentCompletions : undefined,
+              }
+            : undefined;
 
         // 4. Build messages for request (include history, exclude the streaming placeholder)
         const requestMessages = [
@@ -409,6 +533,8 @@ export function EntityChatScreen({
           preset,
           sweepContext,
           accountCreatedAt,
+          currentTime: new Date().toISOString(),
+          siblingContext,
         };
 
         // Track accumulated content for updates
