@@ -3395,86 +3395,38 @@ export const useGremlyStore = create<GremlyState>()(
         // ═══════════════════════════════════════════════════════════════════
 
         applyOrganizeAssignments: (assignments) => {
-          // === STEP 1: Validate scheduledStartIso values ===
           const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
+          const today = getDateService().getCurrentDate();
+          const [year, month, day] = today.split('-').map(Number);
+          const now = new Date();
           const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
 
+          // === PHASE 1: Validate all scheduledStartIso values ===
           const validatedAssignments = assignments.map((a) => {
-            if (!a.scheduledStartIso) return a;
-
+            if (!a.scheduledStartIso) return { ...a, scheduledStartIso: null as string | null };
             const startTime = new Date(a.scheduledStartIso);
-            if (isNaN(startTime.getTime())) {
-              console.warn('[Organize] Invalid scheduledStartIso:', a.scheduledStartIso);
-              return { ...a, scheduledStartIso: undefined };
-            }
-
-            // Reject if in the past (5 min grace)
-            if (startTime < fiveMinAgo) {
-              console.warn('[Organize] Past scheduledStartIso:', a.scheduledStartIso);
-              return { ...a, scheduledStartIso: undefined };
-            }
-
-            // Reject if outside the assigned block's boundaries
+            if (isNaN(startTime.getTime()))
+              return { ...a, scheduledStartIso: null as string | null };
+            if (startTime < fiveMinAgo) return { ...a, scheduledStartIso: null as string | null };
             const bound = boundaries[a.block];
             if (bound) {
               const hour = startTime.getHours();
               if (hour < bound.startHour || hour >= bound.endHour) {
-                console.warn(
-                  '[Organize] Out of block bounds:',
-                  a.scheduledStartIso,
-                  'block:',
-                  a.block,
-                );
-                return { ...a, scheduledStartIso: undefined };
+                return { ...a, scheduledStartIso: null as string | null };
               }
             }
-
             return a;
           });
 
-          // === STEP 2: Apply assignments to local state ===
-          // Always write scheduled_start_iso — null clears stale times from previous runs
-          set((state) => {
-            const updatedTodos = state.todos.map((todo) => {
-              const assignment = validatedAssignments.find((a) => a.taskId === todo.id);
-              if (assignment) {
-                return {
-                  ...todo,
-                  time_window: assignment.block,
-                  scheduled_start_iso: assignment.scheduledStartIso || null,
-                };
-              }
-              return todo;
-            });
-
-            const updatedHabits = state.habits.map((habit) => {
-              const assignment = validatedAssignments.find((a) => a.taskId === habit.id);
-              if (assignment) {
-                return {
-                  ...habit,
-                  time_window: assignment.block,
-                  scheduled_start_iso: assignment.scheduledStartIso || null,
-                };
-              }
-              return habit;
-            });
-
-            return { todos: updatedTodos, habits: updatedHabits };
-          });
-
-          // === STEP 3: Fallback — auto-slot tasks missing scheduledStartIso ===
-          const today = getDateService().getCurrentDate();
-          const [year, month, day] = today.split('-').map(Number);
-          const now = new Date();
-
-          // Build occupied time ranges per block
+          // === PHASE 2: Build occupied ranges (calendar + non-reassigned tasks) ===
+          const assignedTaskIds = new Set(validatedAssignments.map((a) => a.taskId));
           const occupiedRanges: Record<string, Array<{ start: number; end: number }>> = {
             morning: [],
             day: [],
             evening: [],
           };
 
-          // Calendar events → occupied ranges
+          // Calendar events
           const calendarEvents = get().calendarEvents[today] || [];
           for (const event of calendarEvents) {
             if (event.isAllDay) continue;
@@ -3483,281 +3435,160 @@ export const useGremlyStore = create<GremlyState>()(
             const startMin = eStart.getHours() * 60 + eStart.getMinutes();
             const endMin = eEnd.getHours() * 60 + eEnd.getMinutes();
             for (const [block, bound] of Object.entries(boundaries)) {
-              const blockStart = bound.startHour * 60;
-              const blockEnd = bound.endHour * 60;
-              if (startMin < blockEnd && endMin > blockStart) {
+              const bStart = bound.startHour * 60;
+              const bEnd = bound.endHour * 60;
+              if (startMin < bEnd && endMin > bStart) {
                 occupiedRanges[block].push({
-                  start: Math.max(startMin, blockStart),
-                  end: Math.min(endMin, blockEnd),
+                  start: Math.max(startMin, bStart),
+                  end: Math.min(endMin, bEnd),
                 });
               }
             }
           }
 
-          // Already-slotted tasks → occupied ranges
-          const allTodos = get().todos;
-          const allHabits = get().habits;
-          for (const item of [...allTodos, ...allHabits]) {
-            if (item.scheduled_start_iso) {
-              const s = new Date(item.scheduled_start_iso);
-              const sMin = s.getHours() * 60 + s.getMinutes();
-              const duration = item.time_estimate_minutes || 15;
-              const eMin = sMin + duration;
-              for (const [block, bound] of Object.entries(boundaries)) {
-                if (sMin >= bound.startHour * 60 && sMin < bound.endHour * 60) {
-                  occupiedRanges[block].push({ start: sMin, end: eMin });
-                }
+          // Existing slotted tasks NOT being reassigned
+          for (const item of [...get().todos, ...get().habits]) {
+            if (assignedTaskIds.has(item.id)) continue;
+            if (!item.scheduled_start_iso) continue;
+            const s = new Date(item.scheduled_start_iso);
+            const sMin = s.getHours() * 60 + s.getMinutes();
+            const duration = item.time_estimate_minutes || 15;
+            for (const [block, bound] of Object.entries(boundaries)) {
+              if (sMin >= bound.startHour * 60 && sMin < bound.endHour * 60) {
+                occupiedRanges[block].push({ start: sMin, end: sMin + duration });
               }
             }
           }
 
-          // Sort occupied ranges per block
+          // Sort ranges
           for (const block of Object.keys(occupiedRanges)) {
             occupiedRanges[block].sort((a, b) => a.start - b.start);
           }
 
-          // Find tasks needing slot assignment
-          const needsSlotting = validatedAssignments.filter((a) => !a.scheduledStartIso);
-          if (needsSlotting.length > 0) {
-            console.log(
-              '[Organize Fallback] Tasks needing slotting:',
-              needsSlotting.map((a) => ({ taskId: a.taskId, block: a.block })),
-            );
-          }
+          // === PHASE 3: Resolve times for ALL assignments ===
+          const finalAssignments: Record<
+            string,
+            { block: string; scheduledStartIso: string | null }
+          > = {};
+          const allTodos = get().todos;
+          const allHabits = get().habits;
 
-          for (const assignment of needsSlotting) {
-            const block = assignment.block;
-            const bound = boundaries[block];
-            if (!bound) continue;
+          for (const assignment of validatedAssignments) {
+            const taskId = assignment.taskId;
+            let finalBlock: string = assignment.block;
+            let finalIso: string | null = assignment.scheduledStartIso || null;
 
-            const taskDuration = (() => {
-              const todo = allTodos.find((t) => t.id === assignment.taskId);
-              if (todo) return todo.time_estimate_minutes || 15;
-              const habit = allHabits.find((h) => h.id === assignment.taskId);
-              if (habit) return habit.time_estimate_minutes || 15;
-              return 15;
-            })();
+            if (finalIso) {
+              // AI provided valid time — use it, register in occupied
+              const s = new Date(finalIso);
+              const sMin = s.getHours() * 60 + s.getMinutes();
+              const todo = allTodos.find((t) => t.id === taskId);
+              const habit = allHabits.find((h) => h.id === taskId);
+              const duration = todo?.time_estimate_minutes || habit?.time_estimate_minutes || 15;
+              occupiedRanges[finalBlock].push({ start: sMin, end: sMin + duration });
+              occupiedRanges[finalBlock].sort((a, b) => a.start - b.start);
+            } else {
+              // Need fallback slotting
+              const todo = allTodos.find((t) => t.id === taskId);
+              const habit = allHabits.find((h) => h.id === taskId);
+              const taskDuration =
+                todo?.time_estimate_minutes || habit?.time_estimate_minutes || 15;
 
-            const blockStartMin = Math.max(
-              bound.startHour * 60,
-              now.getHours() * 60 + now.getMinutes(), // Don't schedule in the past
-            );
-            const blockEndMin = bound.endHour * 60;
+              // Try assigned block first, then others
+              const blockOrder = [
+                finalBlock,
+                ...['day', 'evening', 'morning'].filter((b) => b !== finalBlock),
+              ];
 
-            // Find first gap that fits
-            const ranges = occupiedRanges[block];
-            let cursor = blockStartMin;
-            let slotFound = false;
+              for (const tryBlock of blockOrder) {
+                const bound = boundaries[tryBlock as keyof typeof boundaries];
+                if (!bound) continue;
 
-            for (const range of ranges) {
-              if (range.start - cursor >= taskDuration) {
-                const startHour = Math.floor(cursor / 60);
-                const startMinute = cursor % 60;
-                const startDate = new Date(year, month - 1, day, startHour, startMinute);
-                const iso = startDate.toISOString();
-
-                console.log(
-                  '[Organize Fallback] Slotted:',
-                  assignment.taskId,
-                  'at',
-                  iso,
-                  'in',
-                  block,
-                );
-
-                const todo = get().todos.find((t) => t.id === assignment.taskId);
-                if (todo) {
-                  get().updateTodo(assignment.taskId, { scheduled_start_iso: iso });
-                } else {
-                  get().updateHabit(assignment.taskId, { scheduled_start_iso: iso });
-                }
-
-                ranges.push({ start: cursor, end: cursor + taskDuration });
-                ranges.sort((a, b) => a.start - b.start);
-                slotFound = true;
-                break;
-              }
-              cursor = Math.max(cursor, range.end);
-            }
-
-            // Check gap after last occupied range
-            if (!slotFound && blockEndMin - cursor >= taskDuration) {
-              const startHour = Math.floor(cursor / 60);
-              const startMinute = cursor % 60;
-              const startDate = new Date(year, month - 1, day, startHour, startMinute);
-              const iso = startDate.toISOString();
-
-              console.log(
-                '[Organize Fallback] Slotted (end):',
-                assignment.taskId,
-                'at',
-                iso,
-                'in',
-                block,
-              );
-
-              const todo = get().todos.find((t) => t.id === assignment.taskId);
-              if (todo) {
-                get().updateTodo(assignment.taskId, { scheduled_start_iso: iso });
-              } else {
-                get().updateHabit(assignment.taskId, { scheduled_start_iso: iso });
-              }
-
-              ranges.push({ start: cursor, end: cursor + taskDuration });
-              ranges.sort((a, b) => a.start - b.start);
-              slotFound = true;
-            }
-
-            // === Cross-block fallback: if assigned block is full, try other blocks ===
-            if (!slotFound) {
-              const blockOrder: Array<'morning' | 'day' | 'evening'> = (
-                ['day', 'evening', 'morning'] as const
-              ).filter((b) => b !== block);
-
-              for (const altBlock of blockOrder) {
-                const altBound = boundaries[altBlock];
-                if (!altBound) continue;
-
-                const altBlockStartMin = Math.max(
-                  altBound.startHour * 60,
+                const bStartMin = Math.max(
+                  bound.startHour * 60,
                   now.getHours() * 60 + now.getMinutes(),
                 );
-                const altBlockEndMin = altBound.endHour * 60;
-                if (altBlockStartMin >= altBlockEndMin) continue; // Block is past
+                const bEndMin = bound.endHour * 60;
+                if (bStartMin >= bEndMin) continue;
 
-                const altRanges = occupiedRanges[altBlock];
-                let altCursor = altBlockStartMin;
-                let altSlotFound = false;
+                const ranges = occupiedRanges[tryBlock];
+                let cursor = bStartMin;
+                let found = false;
 
-                for (const range of altRanges) {
-                  if (range.start - altCursor >= taskDuration) {
-                    const sh = Math.floor(altCursor / 60);
-                    const sm = altCursor % 60;
-                    const sd = new Date(year, month - 1, day, sh, sm);
-                    const altIso = sd.toISOString();
-
-                    console.log(
-                      '[Organize Fallback] Cross-block slotted:',
-                      assignment.taskId,
-                      'at',
-                      altIso,
-                      'in',
-                      altBlock,
-                      '(originally',
-                      block,
-                      ')',
-                    );
-
-                    set((state) => ({
-                      todos: state.todos.map((t) =>
-                        t.id === assignment.taskId
-                          ? {
-                              ...t,
-                              time_window: altBlock as Todo['time_window'],
-                              scheduled_start_iso: altIso,
-                            }
-                          : t,
-                      ),
-                      habits: state.habits.map((h) =>
-                        h.id === assignment.taskId
-                          ? {
-                              ...h,
-                              time_window: altBlock as Habit['time_window'],
-                              scheduled_start_iso: altIso,
-                            }
-                          : h,
-                      ),
-                    }));
-
-                    altRanges.push({ start: altCursor, end: altCursor + taskDuration });
-                    altRanges.sort((a, b) => a.start - b.start);
-                    altSlotFound = true;
+                for (const range of ranges) {
+                  if (range.start - cursor >= taskDuration) {
+                    const h = Math.floor(cursor / 60);
+                    const m = cursor % 60;
+                    finalIso = new Date(year, month - 1, day, h, m).toISOString();
+                    finalBlock = tryBlock;
+                    ranges.push({ start: cursor, end: cursor + taskDuration });
+                    ranges.sort((a, b) => a.start - b.start);
+                    found = true;
                     break;
                   }
-                  altCursor = Math.max(altCursor, range.end);
+                  cursor = Math.max(cursor, range.end);
                 }
 
-                // Check after last range in alt block
-                if (!altSlotFound && altBlockEndMin - altCursor >= taskDuration) {
-                  const sh = Math.floor(altCursor / 60);
-                  const sm = altCursor % 60;
-                  const sd = new Date(year, month - 1, day, sh, sm);
-                  const altIso = sd.toISOString();
-
-                  console.log(
-                    '[Organize Fallback] Cross-block slotted (end):',
-                    assignment.taskId,
-                    'at',
-                    altIso,
-                    'in',
-                    altBlock,
-                    '(originally',
-                    block,
-                    ')',
-                  );
-
-                  set((state) => ({
-                    todos: state.todos.map((t) =>
-                      t.id === assignment.taskId
-                        ? {
-                            ...t,
-                            time_window: altBlock as Todo['time_window'],
-                            scheduled_start_iso: altIso,
-                          }
-                        : t,
-                    ),
-                    habits: state.habits.map((h) =>
-                      h.id === assignment.taskId
-                        ? {
-                            ...h,
-                            time_window: altBlock as Habit['time_window'],
-                            scheduled_start_iso: altIso,
-                          }
-                        : h,
-                    ),
-                  }));
-
-                  altRanges.push({ start: altCursor, end: altCursor + taskDuration });
-                  altRanges.sort((a, b) => a.start - b.start);
-                  altSlotFound = true;
+                if (!found && bEndMin - cursor >= taskDuration) {
+                  const h = Math.floor(cursor / 60);
+                  const m = cursor % 60;
+                  finalIso = new Date(year, month - 1, day, h, m).toISOString();
+                  finalBlock = tryBlock;
+                  ranges.push({ start: cursor, end: cursor + taskDuration });
+                  ranges.sort((a, b) => a.start - b.start);
+                  found = true;
                 }
 
-                if (altSlotFound) {
-                  slotFound = true;
-                  break;
-                }
+                if (found) break;
               }
 
-              if (!slotFound) {
-                console.warn(
-                  '[Organize Fallback] No slot found in any block for:',
-                  assignment.taskId,
-                );
+              if (!finalIso) {
+                console.warn('[Organize] No slot found in any block for:', taskId);
               }
             }
+
+            finalAssignments[taskId] = { block: finalBlock, scheduledStartIso: finalIso };
           }
 
-          // === STEP 4: Persist all assignments to Supabase ===
+          // === PHASE 4: ONE set() call with everything resolved ===
+          set((state) => ({
+            todos: state.todos.map((todo) => {
+              const fa = finalAssignments[todo.id];
+              if (!fa) return todo;
+              return {
+                ...todo,
+                time_window: fa.block as Todo['time_window'],
+                scheduled_start_iso: fa.scheduledStartIso,
+              };
+            }),
+            habits: state.habits.map((habit) => {
+              const fa = finalAssignments[habit.id];
+              if (!fa) return habit;
+              return {
+                ...habit,
+                time_window: fa.block as Habit['time_window'],
+                scheduled_start_iso: fa.scheduledStartIso,
+              };
+            }),
+          }));
+
+          // === PHASE 5: Persist to Supabase (non-blocking, no UI impact) ===
           const { todos: finalTodos, habits: finalHabits } = get();
-          validatedAssignments.forEach((assignment) => {
-            const matchedTodo = finalTodos.find((t) => t.id === assignment.taskId);
+          for (const [taskId, fa] of Object.entries(finalAssignments)) {
+            const payload: Record<string, any> = { time_window: fa.block };
+            if (fa.scheduledStartIso) {
+              payload.scheduled_start_iso = fa.scheduledStartIso;
+            }
+            const matchedTodo = finalTodos.find((t) => t.id === taskId);
             if (matchedTodo) {
-              const payload: Record<string, any> = { time_window: assignment.block };
-              if (matchedTodo.scheduled_start_iso) {
-                payload.scheduled_start_iso = matchedTodo.scheduled_start_iso;
-              }
-              get().updateTodo(matchedTodo.id, payload);
-              return;
+              get().updateTodo(taskId, payload);
+              continue;
             }
-            const matchedHabit = finalHabits.find((h) => h.id === assignment.taskId);
+            const matchedHabit = finalHabits.find((h) => h.id === taskId);
             if (matchedHabit) {
-              const payload: Record<string, any> = { time_window: assignment.block };
-              if (matchedHabit.scheduled_start_iso) {
-                payload.scheduled_start_iso = matchedHabit.scheduled_start_iso;
-              }
-              get().updateHabit(matchedHabit.id, payload);
+              get().updateHabit(taskId, payload);
             }
-          });
+          }
         },
 
         // ═══════════════════════════════════════════════════════════════════
