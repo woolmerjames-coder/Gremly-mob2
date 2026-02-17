@@ -31,6 +31,8 @@ export interface OrganizeDayTask {
   timeWindowPreference: 'morning' | 'day' | 'evening' | 'any' | null;
   /** For habits: whether the weekly/monthly goal is already met */
   isAtGoal?: boolean;
+  /** User has locked this task as a priority via capacity gate */
+  locked?: boolean;
 }
 
 export interface OrganizeDayCalendarEvent {
@@ -173,6 +175,8 @@ interface BuildRequestParams {
   habitRolling7?: Map<string, number>;
   /** Map of habitId → completions in rolling 30 days */
   habitRolling30?: Map<string, number>;
+  /** IDs of tasks the user has locked as priorities via capacity gate */
+  lockedIds?: Set<string>;
 }
 
 export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDayRequest {
@@ -186,6 +190,7 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
     hiddenTodayIds = [],
     habitRolling7,
     habitRolling30,
+    lockedIds,
   } = params;
 
   // Convert todos to OrganizeDayTask format
@@ -214,6 +219,7 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
             ? (t.time_window as 'morning' | 'day' | 'evening')
             : null,
         timeWindowPreference: t.time_window as 'morning' | 'day' | 'evening' | 'any' | null,
+        ...(lockedIds?.has(t.id) && { locked: true }),
       };
     });
 
@@ -257,6 +263,7 @@ export function buildOrganizeDayRequest(params: BuildRequestParams): OrganizeDay
           }
           return false;
         })(),
+        ...(lockedIds?.has(h.id) && { locked: true }),
       };
     });
 

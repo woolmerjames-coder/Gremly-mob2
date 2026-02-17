@@ -4359,6 +4359,9 @@ Return ONLY valid JSON, no explanation:
             if (t.spaceName) {
               parts.push(`  space: ${t.spaceName}`);
             }
+            if (t.locked) {
+              parts.push(`  locked: true`);
+            }
             return parts.join('\n');
           })
           .join('\n');
@@ -4452,6 +4455,7 @@ You are scheduling for real humans who may have ADHD or executive function chall
 8. If a user pattern indicates peak focus time, place deep_focus tasks there.
 9. If habit context shows a best time, honor it.
 10. If recent completions show a pattern (user always does X in morning), follow it.
+11. LOCKED PRIORITIES: Tasks marked locked:true are the user's non-negotiable priorities. Schedule these FIRST in optimal time slots. Never overflow a locked task — if capacity is tight, overflow unlocked tasks instead.
 
 === GAP SLOTTING ===
 When a block has gaps listed under CAPACITY, you MAY assign a task to a specific gap by including "scheduledStartIso" — the ISO-8601 start time within that gap. Rules:
@@ -4530,6 +4534,7 @@ Each task includes:
 - due: due date if set
 - priority: priority level if set
 - space: which life domain this belongs to
+- locked (boolean) — true if the user has committed to completing this task today. Prioritize scheduling these.
 ${expandedContext}
 Schedule these tasks now. Respond with ONLY valid JSON.`;
 

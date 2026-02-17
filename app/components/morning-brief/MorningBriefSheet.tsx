@@ -1016,6 +1016,10 @@ export function MorningBriefSheet({
             {/* Help Me Organize Button */}
             <OrganizeButton
               targetDate={isTomorrow ? today : undefined}
+              isPrioritizing={isPrioritizing}
+              selectedIds={briefSelectedSet}
+              lockedIds={briefLockedSet}
+              isOverCapacity={remainingMinutes < 0}
               onComplete={(summary, reasoning) => {
                 setOrganizeMessage(summary);
                 if (reasoning && reasoning.length > 0) {
@@ -1027,6 +1031,11 @@ export function MorningBriefSheet({
                   setOrganizeMessage(null);
                   setOrganizeReasoning(null);
                 }, 30000);
+
+                // Save parked items after successful organize
+                if (isPrioritizing) {
+                  setBriefParked(parkedTasks.map((t) => t.id));
+                }
               }}
               onError={(error) => {
                 setOrganizeMessage(error);
