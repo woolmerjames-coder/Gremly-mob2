@@ -34,6 +34,18 @@ function extractTime(iso: string): string {
   return new Date(iso).toTimeString().slice(0, 5);
 }
 
+/**
+ * Convert an exclusive all-day end date to an inclusive end date.
+ * Calendar APIs (Google, Outlook) use exclusive end dates for all-day events:
+ * a single-day event on Feb 17 has endAt = Feb 18. Subtract 1 day to get
+ * the last day the event actually occupies.
+ */
+export function exclusiveEndToInclusive(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00'); // noon to avoid DST edge cases
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /** Map CalendarProvider to the external_source provider format */
 function mapProvider(provider: CalendarProvider): 'google_calendar' | 'outlook' | 'ics' {
   switch (provider) {
@@ -70,7 +82,10 @@ export function transformCalendarEventToNote(
   existingNote?: Note | null,
 ): Partial<Note> {
   const targetDate = extractDate(event.startAt);
-  const endDate = extractDate(event.endAt);
+  // All-day events use exclusive end dates (a 1-day event on Feb 17 has
+  // endAt = Feb 18). Convert to inclusive so Notes store the last actual day.
+  const rawEndDate = extractDate(event.endAt);
+  const endDate = event.isAllDay ? exclusiveEndToInclusive(rawEndDate) : rawEndDate;
 
   // Calendar-sourced fields (always overwritten from external source)
   const calendarFields: Partial<Note> = {

@@ -146,9 +146,7 @@ export function OrganizeButton({
 
   // Disabled states when prioritizing
   const isDisabled = isPrioritizing && (isOverCapacity || (selectedIds && selectedIds.size === 0));
-  const disabledText = isOverCapacity
-    ? 'Park some items to continue'
-    : 'Select some tasks first';
+  const disabledText = isOverCapacity ? 'Park some items to continue' : 'Select some tasks first';
 
   const startProgressAnimation = () => {
     progressAnimRef.current.setValue(0);
@@ -189,12 +187,10 @@ export function OrganizeButton({
 
     try {
       // When prioritizing, only send selected tasks
-      const filteredTodos = isPrioritizing && selectedIds
-        ? todos.filter((t) => selectedIds.has(t.id))
-        : todos;
-      const filteredHabits = isPrioritizing && selectedIds
-        ? habits.filter((h) => selectedIds.has(h.id))
-        : habits;
+      const filteredTodos =
+        isPrioritizing && selectedIds ? todos.filter((t) => selectedIds.has(t.id)) : todos;
+      const filteredHabits =
+        isPrioritizing && selectedIds ? habits.filter((h) => selectedIds.has(h.id)) : habits;
 
       const request = buildOrganizeDayRequest({
         todos: filteredTodos,
@@ -319,7 +315,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 16,
     borderRadius: 8,
-    marginHorizontal: 16,
+    marginHorizontal: 6,
     marginTop: 12,
     marginBottom: 8,
     gap: 8,
@@ -343,7 +339,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 16,
     borderRadius: 8,
-    marginHorizontal: 16,
+    marginHorizontal: 6,
     marginTop: 12,
     marginBottom: 8,
     overflow: 'hidden',
@@ -372,7 +368,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 16,
     borderRadius: 8,
-    marginHorizontal: 16,
+    marginHorizontal: 6,
     marginTop: 12,
     marginBottom: 8,
   },

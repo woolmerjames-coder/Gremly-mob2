@@ -4131,24 +4131,39 @@ export const useGremlyStore = create<GremlyState>()(
             const eventsByDate: Record<string, CalendarEvent[]> = { ...get().calendarEvents };
 
             for (const event of events) {
-              // Extract local date from UTC datetime
-              // Worker returns ISO strings with Z suffix (UTC), new Date() converts to local
-              const eventDate = new Date(event.startAt);
-              const dateKey = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
-              console.log(
-                '[GremlyStore] Event:',
-                event.title,
-                'startAt:',
-                event.startAt,
-                '-> dateKey:',
-                dateKey,
-              );
+              if (event.isAllDay) {
+                // All-day events span from startAt to endAt (exclusive).
+                // Add the event to every date it occupies.
+                const start = new Date(event.startAt);
+                const end = new Date(event.endAt);
+                const cursor = new Date(start);
+                while (cursor < end) {
+                  const dateKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
+                  const existing = eventsByDate[dateKey] || [];
+                  const alreadyExists = existing.some((e) => e.id === event.id);
+                  if (!alreadyExists) {
+                    eventsByDate[dateKey] = [...existing, event];
+                  }
+                  cursor.setDate(cursor.getDate() + 1);
+                }
+              } else {
+                // Timed events: group by local start date
+                const eventDate = new Date(event.startAt);
+                const dateKey = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
+                console.log(
+                  '[GremlyStore] Event:',
+                  event.title,
+                  'startAt:',
+                  event.startAt,
+                  '-> dateKey:',
+                  dateKey,
+                );
 
-              const existing = eventsByDate[dateKey] || [];
-              // Avoid duplicates by checking event ID
-              const alreadyExists = existing.some((e) => e.id === event.id);
-              if (!alreadyExists) {
-                eventsByDate[dateKey] = [...existing, event];
+                const existing = eventsByDate[dateKey] || [];
+                const alreadyExists = existing.some((e) => e.id === event.id);
+                if (!alreadyExists) {
+                  eventsByDate[dateKey] = [...existing, event];
+                }
               }
             }
 

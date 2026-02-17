@@ -24,7 +24,15 @@ import {
 } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ShieldOff, Calendar, MoreHorizontal } from 'lucide-react-native';
+import { scheduleEventReminder } from '../../../lib/notifications/scheduleEventReminder';
+import {
+  ShieldOff,
+  Calendar,
+  MoreHorizontal,
+  ChevronUp,
+  ChevronDown,
+  Plus,
+} from 'lucide-react-native';
 import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
@@ -57,11 +65,10 @@ import {
   OnYourPlateSection,
   TimeEstimatePicker,
   OrganizeButton,
-  TaskItem,
   type TaskItemData,
-  CapacityBar,
   ParkedForLaterSection,
 } from './components';
+import { CapacityRing } from './components/CapacityRing';
 import { GapSlotPicker } from './components/GapSlotPicker';
 import type { TimeGap, SlottedTask } from '../../../lib/timeGaps';
 
@@ -490,23 +497,27 @@ export function MorningBriefSheet({
     };
   }, [todayTodos, todayHabits, transformTodo, transformHabit]);
 
-  // Calculate total task minutes for Gremly summary
-  const totalTaskMinutes = useMemo(() => {
-    const allTasks = [
-      ...tasksByBlock.morning,
-      ...tasksByBlock.afternoon,
-      ...tasksByBlock.evening,
-      ...tasksByBlock.flexible,
-    ];
-    return allTasks.reduce((sum, task) => sum + (task.estimatedMinutes || 0), 0);
-  }, [tasksByBlock]);
+  // ─── Gap-based free minutes from TimeBlockSection callbacks ───
+  const [blockFreeMinutes, setBlockFreeMinutes] = useState<Record<string, number>>({
+    morning: 0,
+    day: 0,
+    evening: 0,
+  });
+
+  const handleFreeMinutesCalculated = useCallback((block: string, minutes: number) => {
+    setBlockFreeMinutes((prev) => {
+      if (prev[block] === minutes) return prev;
+      return { ...prev, [block]: minutes };
+    });
+  }, []);
+
+  const totalActualFreeMinutes =
+    blockFreeMinutes.morning + blockFreeMinutes.day + blockFreeMinutes.evening;
 
   // ─────────────────────────────────────────────────────────────────
   // CAPACITY GATE DETECTION
   // ─────────────────────────────────────────────────────────────────
-  const realisticCapacity = useMemo(() => {
-    return capacity.totalAvailableMinutes;
-  }, [capacity]);
+  const realisticCapacity = totalActualFreeMinutes;
 
   const flexibleTaskMinutes = useMemo(() => {
     return tasksByBlock.flexible.reduce((sum, t) => sum + (t.estimatedMinutes || 0), 0);
@@ -636,6 +647,91 @@ export function MorningBriefSheet({
     }
     prevParkedCount.current = parkedTasks.length;
   }, [parkedTasks.length]);
+
+  // Day name for schedule section header (e.g., "TUESDAY'S SCHEDULE")
+  const scheduleDayName = useMemo(() => {
+    const d = new Date(today + 'T12:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+  }, [today]);
+
+  // ─── Capacity helpers for planning card header ───
+  const formatMins = useCallback((m: number) => {
+    const abs = Math.abs(m);
+    if (abs <= 0) return '0m';
+    if (abs < 60) return `${abs}m`;
+    const h = Math.floor(abs / 60);
+    const r = abs % 60;
+    return r > 0 ? `${h}h ${r}m` : `${h}h`;
+  }, []);
+
+  // Effective free = gap-based free minus selected flexible tasks
+  // (selectedMinutes is identical to selectedFlexibleMinutes — both
+  //  sum estimatedMinutes for selected flexible tasks)
+  const effectiveFreeMinutes = Math.max(0, totalActualFreeMinutes - selectedMinutes);
+
+  // Day-fullness percentage: total committed / total day window
+  const totalDayMinutes = useMemo(() => {
+    return (
+      capacity.blocks.morning.totalMinutes +
+      capacity.blocks.day.totalMinutes +
+      capacity.blocks.evening.totalMinutes
+    );
+  }, [capacity]);
+
+  const totalCommittedMinutes = totalDayMinutes - effectiveFreeMinutes;
+
+  const dayPercentage =
+    totalDayMinutes > 0 ? Math.round((totalCommittedMinutes / totalDayMinutes) * 100) : 0;
+
+  const isOverCommitted = totalCommittedMinutes > totalDayMinutes;
+
+  const capacityHeadline = useMemo(() => {
+    if (effectiveFreeMinutes <= 0 && isOverCommitted) {
+      const overMins = totalCommittedMinutes - totalDayMinutes;
+      return `${formatMins(overMins)} over capacity`;
+    }
+    if (effectiveFreeMinutes === 0) return 'Fully planned';
+    return `${formatMins(effectiveFreeMinutes)} free today`;
+  }, [effectiveFreeMinutes, isOverCommitted, totalCommittedMinutes, totalDayMinutes, formatMins]);
+
+  const hasSelections = briefSelectedSet.size > 0;
+
+  const capacitySubline = useMemo(() => {
+    if (isOverCommitted) {
+      const overMins = totalCommittedMinutes - totalDayMinutes;
+      return `${formatMins(totalCommittedMinutes)} planned · ${formatMins(overMins)} over`;
+    }
+    return `${formatMins(totalCommittedMinutes)} planned · ${formatMins(effectiveFreeMinutes)} free`;
+  }, [isOverCommitted, totalCommittedMinutes, totalDayMinutes, effectiveFreeMinutes, formatMins]);
+
+  // Compact summary for collapsed state
+  const capacitySummary = useMemo(() => {
+    return `${formatMins(effectiveFreeMinutes)} free · ${briefSelectedSet.size} priorities`;
+  }, [effectiveFreeMinutes, formatMins, briefSelectedSet.size]);
+
+  // Auto-collapse past time blocks (only if no tasks in them)
+  useEffect(() => {
+    const autoCollapsed: Record<string, boolean> = {};
+    const blocks: Array<{
+      key: string;
+      capacity: typeof capacity.blocks.morning;
+      tasks: TaskItemData[];
+    }> = [
+      { key: 'morning', capacity: capacity.blocks.morning, tasks: tasksByBlock.morning },
+      { key: 'day', capacity: capacity.blocks.day, tasks: tasksByBlock.afternoon },
+      { key: 'evening', capacity: capacity.blocks.evening, tasks: tasksByBlock.evening },
+    ];
+    for (const b of blocks) {
+      if (b.capacity.isPast && b.tasks.length === 0) {
+        autoCollapsed[b.key] = true;
+      }
+    }
+    if (Object.keys(autoCollapsed).length > 0) {
+      setCollapsedBlocks((prev) => ({ ...autoCollapsed, ...prev }));
+    }
+    // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Slotted items per block (tasks with scheduled_start_iso in this block's time window)
   const slottedItemsByBlock = useMemo(() => {
@@ -804,6 +900,24 @@ export function MorningBriefSheet({
   }> | null>(null);
 
   // ─────────────────────────────────────────────────────────────────
+  // PLANNING CARD COLLAPSE STATE
+  // ─────────────────────────────────────────────────────────────────
+  const [planningCardCollapsed, setPlanningCardCollapsed] = useState(false);
+  const togglePlanningCard = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setPlanningCardCollapsed((prev) => !prev);
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────────
+  // TIME BLOCK COLLAPSE STATE
+  // ─────────────────────────────────────────────────────────────────
+  const [collapsedBlocks, setCollapsedBlocks] = useState<Record<string, boolean>>({});
+  const toggleBlockCollapse = useCallback((block: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setCollapsedBlocks((prev) => ({ ...prev, [block]: !prev[block] }));
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────────
   // GAP SLOT PICKER STATE
   // ─────────────────────────────────────────────────────────────────
   const [gapSlotPickerVisible, setGapSlotPickerVisible] = useState(false);
@@ -922,17 +1036,40 @@ export function MorningBriefSheet({
     setQuickActionEvent(null);
   }, []);
 
-  const handleEventRemind = useCallback(async (eventId: string, minutesBefore: number) => {
-    // Uses the same scheduleEventReminder as NowScreenV1
-    setQuickActionEvent(null);
-  }, []);
+  const handleEventRemind = useCallback(
+    async (eventId: string, minutesBefore: number) => {
+      const event = quickActionEvent;
+      if (!event) return;
+
+      // Schedule the actual notification via shared helper
+      const notificationId = await scheduleEventReminder(
+        eventId,
+        event.title || 'Event',
+        event.target_date || '',
+        event.event_time || null,
+        minutesBefore,
+      );
+
+      // Store reminder preferences + notification ID on the note
+      const existingIds = event.notification_ids ?? [];
+      useGremlyStore.getState().updateNote(eventId, {
+        reminder_preferences: { dayBefore: minutesBefore >= 1440, morningOf: false, minutesBefore },
+        ...(notificationId ? { notification_ids: [...existingIds, notificationId] } : {}),
+      });
+
+      setQuickActionEvent(null);
+    },
+    [quickActionEvent],
+  );
 
   const handleOpenFullEvent = useCallback(
     (event: Note) => {
       setQuickActionEvent(null);
-      onKeyDatePress?.(event);
+      overlayController.openEdit({
+        record: { id: event.id, type: 'note' } as any,
+      });
     },
-    [onKeyDatePress],
+    [overlayController],
   );
 
   const handleTaskPress = useCallback((task: TaskItemData) => {
@@ -1195,7 +1332,10 @@ export function MorningBriefSheet({
       ) : (
         <>
           {/* Header */}
-          <MorningBriefHeader targetDate={isTomorrow ? today : undefined} />
+          <MorningBriefHeader
+            targetDate={isTomorrow ? today : undefined}
+            overrideAvailableMinutes={effectiveFreeMinutes}
+          />
 
           {/* Scrollable Content */}
           <ScrollView
@@ -1203,101 +1343,198 @@ export function MorningBriefSheet({
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {/* Capacity Bar (shown when prioritizing) */}
+            {/* ─── PLANNING CARD (only when prioritizing) ─── */}
             {isPrioritizing && (
-              <CapacityBar
-                remainingMinutes={remainingMinutes}
-                totalMinutes={realisticCapacity}
-                lockedCount={briefLockedIds.length}
-                maxLocks={3}
-              />
-            )}
-            {isPrioritizing && missingEstimateCount > 0 && (
-              <Text
-                style={{
-                  fontSize: 11.5,
-                  color: '#C9956C',
-                  fontStyle: 'italic',
-                  paddingHorizontal: 20,
-                  paddingTop: 2,
-                  paddingBottom: 4,
-                  fontFamily: 'Inter-Regular',
-                }}
-              >
-                {missingEstimateCount === 1
-                  ? '1 task needs a time estimate for accurate planning'
-                  : `${missingEstimateCount} tasks need time estimates for accurate planning`}
-              </Text>
-            )}
+              <View style={styles.planningCard}>
+                {/* Title + description */}
+                <Text style={styles.planningCardTitle}>YOUR PRIORITIES</Text>
+                <Text style={styles.planningCardDescription}>
+                  Select what matters, then organize with Gremly or schedule manually
+                </Text>
+                <View style={styles.planningCardDivider} />
 
-            {/* On Your Plate - Flexible/Unassigned Tasks */}
-            <OnYourPlateSection
-              tasks={tasksByBlock.flexible}
-              animatingAssignments={animatingAssignments}
-              onTaskPress={handleTaskPress}
-              onTimePress={handleTimePress}
-              onAddPress={handleAddPress}
-              pendingDrops={todayPendingDrops}
-              isPrioritizing={isPrioritizing}
-              selectedIds={briefSelectedSet}
-              lockedIds={briefLockedSet}
-              onToggleSelect={handleToggleSelect}
-              onToggleLock={handleToggleLock}
-              onAssignPress={handleAssignPress}
-              maxLocks={3}
-            />
-
-            {/* Parked For Later (shown when prioritizing and items deselected) */}
-            {isPrioritizing && parkedTasks.length > 0 && (
-              <ParkedForLaterSection
-                tasks={parkedTasks}
-                onPulse={shouldPulse}
-                onToggleSelect={handleToggleSelect}
-              />
-            )}
-
-            {/* Help Me Organize Button */}
-            <OrganizeButton
-              targetDate={isTomorrow ? today : undefined}
-              isPrioritizing={isPrioritizing}
-              selectedIds={briefSelectedSet}
-              lockedIds={briefLockedSet}
-              isOverCapacity={remainingMinutes < 0}
-              onComplete={(summary, reasoning) => {
-                setOrganizeMessage(summary);
-                if (reasoning && reasoning.length > 0) {
-                  setOrganizeReasoning(reasoning);
-                } else {
-                  setOrganizeReasoning(null);
-                }
-                setTimeout(() => {
-                  setOrganizeMessage(null);
-                  setOrganizeReasoning(null);
-                }, 30000);
-
-                // Save parked items after successful organize
-                if (isPrioritizing) {
-                  setBriefParked(parkedTasks.map((t) => t.id));
-                }
-              }}
-              onError={(error) => {
-                setOrganizeMessage(error);
-                setOrganizeReasoning(null);
-                setTimeout(() => setOrganizeMessage(null), 30000);
-              }}
-              onAnimationStart={handleAnimationStart}
-              onAnimationComplete={handleAnimationComplete}
-            />
-
-            {organizeMessage && (
-              <Animated.View style={[styles.organizeFeedback, { opacity: summaryOpacity }]}>
-                <Text style={styles.organizeMessage}>{organizeMessage}</Text>
-                {organizeReasoning && organizeReasoning.length > 0 && (
-                  <Pressable onPress={() => setShowReasoningModal(true)}>
-                    <Text style={styles.reasoningLink}>Why this plan?</Text>
+                {/* Planning card header — ring + text + add + chevron */}
+                <Pressable onPress={togglePlanningCard} style={styles.planningCardHeader}>
+                  <CapacityRing percentage={dayPercentage} size={48} strokeWidth={4} />
+                  <View style={styles.planningCardTextBlock}>
+                    <Text
+                      style={[
+                        styles.planningCardHeadline,
+                        remainingMinutes < 0 && styles.planningCardHeadlineOver,
+                      ]}
+                    >
+                      {capacityHeadline}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.planningCardSubline,
+                        isOverCommitted && styles.planningCardSublineOver,
+                      ]}
+                    >
+                      {capacitySubline}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={handleAddPress}
+                    style={styles.planningCardAddButton}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    testID="morning-brief-add-task"
+                  >
+                    <Plus size={16} color="#2E5540" />
+                    <Text style={styles.planningCardAddText}>Add</Text>
                   </Pressable>
+                  {planningCardCollapsed ? (
+                    <ChevronDown size={16} color="#888888" />
+                  ) : (
+                    <ChevronUp size={16} color="#888888" />
+                  )}
+                </Pressable>
+
+                {planningCardCollapsed ? (
+                  /* Collapsed — compact single line */
+                  <Text style={styles.planningCardSummary}>{capacitySummary}</Text>
+                ) : (
+                  /* Expanded content */
+                  <>
+                    {missingEstimateCount > 0 && (
+                      <Text style={styles.missingEstimateHint}>
+                        {missingEstimateCount === 1
+                          ? '1 task needs a time estimate for accurate planning'
+                          : `${missingEstimateCount} tasks need time estimates for accurate planning`}
+                      </Text>
+                    )}
+
+                    <OnYourPlateSection
+                      tasks={tasksByBlock.flexible}
+                      animatingAssignments={animatingAssignments}
+                      onTaskPress={handleTaskPress}
+                      onTimePress={handleTimePress}
+                      onAddPress={handleAddPress}
+                      pendingDrops={todayPendingDrops}
+                      isPrioritizing={isPrioritizing}
+                      selectedIds={briefSelectedSet}
+                      lockedIds={briefLockedSet}
+                      onToggleSelect={handleToggleSelect}
+                      onToggleLock={handleToggleLock}
+                      onAssignPress={handleAssignPress}
+                      maxLocks={3}
+                    />
+
+                    {parkedTasks.length > 0 && (
+                      <ParkedForLaterSection
+                        tasks={parkedTasks}
+                        onPulse={shouldPulse}
+                        onToggleSelect={handleToggleSelect}
+                        hasSelections={hasSelections}
+                      />
+                    )}
+
+                    <OrganizeButton
+                      targetDate={isTomorrow ? today : undefined}
+                      isPrioritizing={isPrioritizing}
+                      selectedIds={briefSelectedSet}
+                      lockedIds={briefLockedSet}
+                      isOverCapacity={remainingMinutes < 0}
+                      onComplete={(summary, reasoning) => {
+                        setOrganizeMessage(summary);
+                        if (reasoning && reasoning.length > 0) {
+                          setOrganizeReasoning(reasoning);
+                        } else {
+                          setOrganizeReasoning(null);
+                        }
+                        setTimeout(() => {
+                          setOrganizeMessage(null);
+                          setOrganizeReasoning(null);
+                        }, 30000);
+
+                        // Save parked items after successful organize
+                        if (isPrioritizing) {
+                          setBriefParked(parkedTasks.map((t) => t.id));
+                        }
+
+                        // Auto-collapse planning card after organize
+                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                        setPlanningCardCollapsed(true);
+                      }}
+                      onError={(error) => {
+                        setOrganizeMessage(error);
+                        setOrganizeReasoning(null);
+                        setTimeout(() => setOrganizeMessage(null), 30000);
+                      }}
+                      onAnimationStart={handleAnimationStart}
+                      onAnimationComplete={handleAnimationComplete}
+                    />
+
+                    {organizeMessage && (
+                      <Animated.View style={[styles.organizeFeedback, { opacity: summaryOpacity }]}>
+                        <Text style={styles.organizeMessage}>{organizeMessage}</Text>
+                        {organizeReasoning && organizeReasoning.length > 0 && (
+                          <Pressable onPress={() => setShowReasoningModal(true)}>
+                            <Text style={styles.reasoningLink}>Why this plan?</Text>
+                          </Pressable>
+                        )}
+                      </Animated.View>
+                    )}
+                  </>
                 )}
-              </Animated.View>
+              </View>
+            )}
+
+            {/* Non-prioritizing: render On Your Plate + Organize inline (no card) */}
+            {!isPrioritizing && (
+              <>
+                <OnYourPlateSection
+                  tasks={tasksByBlock.flexible}
+                  animatingAssignments={animatingAssignments}
+                  onTaskPress={handleTaskPress}
+                  onTimePress={handleTimePress}
+                  onAddPress={handleAddPress}
+                  pendingDrops={todayPendingDrops}
+                  isPrioritizing={false}
+                  selectedIds={briefSelectedSet}
+                  lockedIds={briefLockedSet}
+                  onToggleSelect={handleToggleSelect}
+                  onToggleLock={handleToggleLock}
+                  onAssignPress={handleAssignPress}
+                  maxLocks={3}
+                />
+                <OrganizeButton
+                  targetDate={isTomorrow ? today : undefined}
+                  isPrioritizing={false}
+                  selectedIds={briefSelectedSet}
+                  lockedIds={briefLockedSet}
+                  isOverCapacity={remainingMinutes < 0}
+                  onComplete={(summary, reasoning) => {
+                    setOrganizeMessage(summary);
+                    if (reasoning && reasoning.length > 0) {
+                      setOrganizeReasoning(reasoning);
+                    } else {
+                      setOrganizeReasoning(null);
+                    }
+                    setTimeout(() => {
+                      setOrganizeMessage(null);
+                      setOrganizeReasoning(null);
+                    }, 30000);
+                  }}
+                  onError={(error) => {
+                    setOrganizeMessage(error);
+                    setOrganizeReasoning(null);
+                    setTimeout(() => setOrganizeMessage(null), 30000);
+                  }}
+                  onAnimationStart={handleAnimationStart}
+                  onAnimationComplete={handleAnimationComplete}
+                />
+                {organizeMessage && (
+                  <Animated.View style={[styles.organizeFeedback, { opacity: summaryOpacity }]}>
+                    <Text style={styles.organizeMessage}>{organizeMessage}</Text>
+                    {organizeReasoning && organizeReasoning.length > 0 && (
+                      <Pressable onPress={() => setShowReasoningModal(true)}>
+                        <Text style={styles.reasoningLink}>Why this plan?</Text>
+                      </Pressable>
+                    )}
+                  </Animated.View>
+                )}
+              </>
             )}
 
             {/* Reasoning Modal */}
@@ -1327,8 +1564,8 @@ export function MorningBriefSheet({
               </Pressable>
             </Modal>
 
-            {/* Thick divider between On Your Plate and Time Blocks */}
-            <View style={styles.sectionDivider} />
+            {/* ─── SCHEDULE SECTION HEADER ─── */}
+            <Text style={styles.scheduleHeader}>{`${scheduleDayName}\u2019S SCHEDULE`}</Text>
 
             {/* All Day - key date events + break habit awareness card */}
             {(breakHabitsByBlock.allday.length > 0 || keyDatesByBlock.allday.length > 0) && (
@@ -1368,77 +1605,93 @@ export function MorningBriefSheet({
                     <BreakHabitCard names={breakHabitsByBlock.allday} />
                   )}
                 </View>
-                <View style={styles.blockDivider} />
               </>
             )}
 
-            {/* Time Blocks */}
-            <TimeBlockSection
-              capacity={capacity.blocks.morning}
-              events={[]}
-              keyDateEvents={keyDatesByBlock.morning}
-              getSpaceName={getSpaceName}
-              onKeyDatePress={onKeyDatePress}
-              onKeyDateQuickAction={handleEventQuickAction}
-              tasks={tasksByBlock.morning}
-              onTaskPress={handleTaskPress}
-              onTimePress={handleTimePress}
-              hiddenEventIds={hiddenEventIds}
-              dateContext={today}
-              slottedItems={slottedItemsByBlock.morning}
-              onGapSlotPress={(gap) => handleGapSlotPress(gap, 'morning')}
-              onSlottedTaskPress={handleSlottedTaskPress}
-              taskDataById={taskDataById}
-            />
-            {breakHabitsByBlock.morning.length > 0 && (
-              <BreakHabitCard names={breakHabitsByBlock.morning} />
-            )}
+            {/* ─── SCHEDULE TIMELINE ─── */}
+            <View>
+              {/* Time Blocks */}
+              <TimeBlockSection
+                capacity={capacity.blocks.morning}
+                events={[]}
+                keyDateEvents={keyDatesByBlock.morning}
+                getSpaceName={getSpaceName}
+                onKeyDatePress={onKeyDatePress}
+                onKeyDateQuickAction={handleEventQuickAction}
+                tasks={tasksByBlock.morning}
+                onTaskPress={handleTaskPress}
+                onTimePress={handleTimePress}
+                hiddenEventIds={hiddenEventIds}
+                dateContext={today}
+                slottedItems={slottedItemsByBlock.morning}
+                onGapSlotPress={(gap) => handleGapSlotPress(gap, 'morning')}
+                onSlottedTaskPress={handleSlottedTaskPress}
+                taskDataById={taskDataById}
+                collapsed={!!collapsedBlocks['morning']}
+                onToggleCollapse={() => toggleBlockCollapse('morning')}
+                onFreeMinutesCalculated={handleFreeMinutesCalculated}
+              />
+              {breakHabitsByBlock.morning.length > 0 && (
+                <View style={styles.timelineBreakHabit}>
+                  <BreakHabitCard names={breakHabitsByBlock.morning} />
+                </View>
+              )}
 
-            <View style={styles.blockDivider} />
+              <TimeBlockSection
+                capacity={capacity.blocks.day}
+                events={[]}
+                keyDateEvents={keyDatesByBlock.day}
+                getSpaceName={getSpaceName}
+                onKeyDatePress={onKeyDatePress}
+                onKeyDateQuickAction={handleEventQuickAction}
+                tasks={tasksByBlock.afternoon}
+                onTaskPress={handleTaskPress}
+                onTimePress={handleTimePress}
+                hiddenEventIds={hiddenEventIds}
+                dateContext={today}
+                slottedItems={slottedItemsByBlock.afternoon}
+                onGapSlotPress={(gap) => handleGapSlotPress(gap, 'afternoon')}
+                onSlottedTaskPress={handleSlottedTaskPress}
+                taskDataById={taskDataById}
+                collapsed={!!collapsedBlocks['day']}
+                onToggleCollapse={() => toggleBlockCollapse('day')}
+                onFreeMinutesCalculated={handleFreeMinutesCalculated}
+              />
+              {breakHabitsByBlock.afternoon.length > 0 && (
+                <View style={styles.timelineBreakHabit}>
+                  <BreakHabitCard names={breakHabitsByBlock.afternoon} />
+                </View>
+              )}
 
-            <TimeBlockSection
-              capacity={capacity.blocks.day}
-              events={[]}
-              keyDateEvents={keyDatesByBlock.day}
-              getSpaceName={getSpaceName}
-              onKeyDatePress={onKeyDatePress}
-              onKeyDateQuickAction={handleEventQuickAction}
-              tasks={tasksByBlock.afternoon}
-              onTaskPress={handleTaskPress}
-              onTimePress={handleTimePress}
-              hiddenEventIds={hiddenEventIds}
-              dateContext={today}
-              slottedItems={slottedItemsByBlock.afternoon}
-              onGapSlotPress={(gap) => handleGapSlotPress(gap, 'afternoon')}
-              onSlottedTaskPress={handleSlottedTaskPress}
-              taskDataById={taskDataById}
-            />
-            {breakHabitsByBlock.afternoon.length > 0 && (
-              <BreakHabitCard names={breakHabitsByBlock.afternoon} />
-            )}
+              <TimeBlockSection
+                capacity={capacity.blocks.evening}
+                events={[]}
+                keyDateEvents={keyDatesByBlock.evening}
+                getSpaceName={getSpaceName}
+                onKeyDatePress={onKeyDatePress}
+                onKeyDateQuickAction={handleEventQuickAction}
+                tasks={tasksByBlock.evening}
+                onTaskPress={handleTaskPress}
+                onTimePress={handleTimePress}
+                hiddenEventIds={hiddenEventIds}
+                dateContext={today}
+                slottedItems={slottedItemsByBlock.evening}
+                onGapSlotPress={(gap) => handleGapSlotPress(gap, 'evening')}
+                onSlottedTaskPress={handleSlottedTaskPress}
+                taskDataById={taskDataById}
+                collapsed={!!collapsedBlocks['evening']}
+                onToggleCollapse={() => toggleBlockCollapse('evening')}
+                onFreeMinutesCalculated={handleFreeMinutesCalculated}
+              />
+              {breakHabitsByBlock.evening.length > 0 && (
+                <View style={styles.timelineBreakHabit}>
+                  <BreakHabitCard names={breakHabitsByBlock.evening} />
+                </View>
+              )}
+            </View>
 
-            <View style={styles.blockDivider} />
-
-            <TimeBlockSection
-              capacity={capacity.blocks.evening}
-              events={[]}
-              keyDateEvents={keyDatesByBlock.evening}
-              getSpaceName={getSpaceName}
-              onKeyDatePress={onKeyDatePress}
-              onKeyDateQuickAction={handleEventQuickAction}
-              tasks={tasksByBlock.evening}
-              onTaskPress={handleTaskPress}
-              onTimePress={handleTimePress}
-              hiddenEventIds={hiddenEventIds}
-              dateContext={today}
-              slottedItems={slottedItemsByBlock.evening}
-              onGapSlotPress={(gap) => handleGapSlotPress(gap, 'evening')}
-              onSlottedTaskPress={handleSlottedTaskPress}
-              taskDataById={taskDataById}
-            />
-            {breakHabitsByBlock.evening.length > 0 && (
-              <BreakHabitCard names={breakHabitsByBlock.evening} />
-            )}
+            {/* Bottom spacing */}
+            <View style={{ height: 24 }} />
           </ScrollView>
 
           {/* Footer */}
@@ -1506,7 +1759,7 @@ export function MorningBriefSheet({
             onDismiss={handleDismissEvent}
             onEditTime={handleEditEventTime}
             onAddPrepNote={handleAddPrepNote}
-            onLinkTodo={(eventId) => {
+            onLinkTodo={(_eventId) => {
               setQuickActionEvent(null);
             }}
             onRemind={handleEventRemind}
@@ -1529,6 +1782,118 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingTop: 16,
     paddingBottom: 24,
+  },
+  /* ─── Planning Card ─── */
+  planningCard: {
+    backgroundColor: '#FEFDFB',
+    borderRadius: 16,
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 24,
+    paddingTop: 0,
+    paddingBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.03)',
+    overflow: 'hidden',
+  },
+  planningCardTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#222222',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  planningCardDescription: {
+    fontSize: 12,
+    color: '#999999',
+    paddingHorizontal: 16,
+    paddingTop: 2,
+    paddingBottom: 10,
+  },
+  planningCardDivider: {
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    marginHorizontal: 16,
+    marginBottom: 4,
+  },
+  planningCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  planningCardTextBlock: {
+    flex: 1,
+  },
+  planningCardHeadline: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#222222',
+    lineHeight: 18,
+  },
+  planningCardHeadlineOver: {
+    color: '#C27A6B',
+  },
+  planningCardSubline: {
+    fontSize: 12,
+    color: '#888888',
+    lineHeight: 16,
+    marginTop: 1,
+  },
+  planningCardSublineOver: {
+    color: '#C27A6B',
+  },
+  planningCardAddButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#F9F6F1',
+  },
+  planningCardAddText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2E5540',
+    marginLeft: 4,
+  },
+  planningCardSummary: {
+    fontSize: 12,
+    color: '#888888',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  missingEstimateHint: {
+    fontSize: 11.5,
+    color: '#C9956C',
+    fontStyle: 'italic',
+    paddingHorizontal: 16,
+    paddingTop: 2,
+    paddingBottom: 4,
+    fontFamily: 'Inter-Regular',
+  },
+  /* ─── Schedule Header ─── */
+  scheduleHeader: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#888888',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginLeft: 36,
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  /* ─── Timeline ─── */
+  timelineBreakHabit: {
+    paddingLeft: 16,
   },
   blockDivider: {
     height: 3,

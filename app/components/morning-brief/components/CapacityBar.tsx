@@ -83,7 +83,7 @@ export function CapacityBar({ remainingMinutes, totalMinutes, lockedCount }: Cap
 
 const styles = StyleSheet.create({
   container: {
-    marginHorizontal: 18,
+    marginHorizontal: 6,
     paddingTop: 10,
     paddingBottom: 6,
   },

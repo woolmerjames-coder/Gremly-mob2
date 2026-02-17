@@ -121,6 +121,38 @@ describe('hasExternalEventChanged', () => {
     });
     expect(hasExternalEventChanged(note, event)).toBe(true);
   });
+
+  it('returns false for unchanged single-day all-day event', () => {
+    // A single-day all-day event on Mar 10: exclusive end is Mar 11
+    const note = mkNote('google-evt-1', {
+      is_all_day: true,
+      event_time: null,
+      end_time: null,
+      end_date: null, // single day → inclusive end equals start → null
+    });
+    const event = mkExternalEvent({
+      isAllDay: true,
+      startAt: '2026-03-10T00:00:00.000Z',
+      endAt: '2026-03-11T00:00:00.000Z', // exclusive end
+    });
+    expect(hasExternalEventChanged(note, event)).toBe(false);
+  });
+
+  it('returns false for unchanged multi-day all-day event', () => {
+    // A 2-day all-day event on Mar 10-11: exclusive end is Mar 12
+    const note = mkNote('google-evt-1', {
+      is_all_day: true,
+      event_time: null,
+      end_time: null,
+      end_date: '2026-03-11', // inclusive end
+    });
+    const event = mkExternalEvent({
+      isAllDay: true,
+      startAt: '2026-03-10T00:00:00.000Z',
+      endAt: '2026-03-12T00:00:00.000Z', // exclusive end
+    });
+    expect(hasExternalEventChanged(note, event)).toBe(false);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

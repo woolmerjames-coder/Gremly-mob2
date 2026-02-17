@@ -7,12 +7,12 @@
  * - Assigned tasks
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal } from 'react-native';
 import { Sunrise, Sun, Sunset, Calendar, X, ChevronUp, ChevronDown } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { getEffectiveEventTimes, type EventTimeOverride } from '../../../../lib/capacity';
-import type { TimeBlockCapacity, TimeBlock, TimeBlockPreferences } from '../../../../lib/capacity';
+import type { TimeBlockCapacity, TimeBlock } from '../../../../lib/capacity';
 import type { CalendarEvent } from '../../../../lib/calendar/CalendarClient';
 import type { Todo, Habit, Note } from '../../../../lib/types';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
@@ -91,6 +91,12 @@ interface TimeBlockSectionProps {
   onSlottedTaskPress?: (task: SlottedTask) => void;
   /** Lookup map: id → TaskItemData for rendering slotted tasks with TaskItem */
   taskDataById?: Record<string, TaskItemData>;
+  /** Whether this block is collapsed */
+  collapsed?: boolean;
+  /** Called when user taps the header to toggle collapse */
+  onToggleCollapse?: () => void;
+  /** Called when actual free minutes (from gaps) are calculated */
+  onFreeMinutesCalculated?: (block: TimeBlock, freeMinutes: number) => void;
 }
 
 /**
@@ -197,8 +203,11 @@ export function TimeBlockSection({
   onGapSlotPress,
   onSlottedTaskPress,
   taskDataById = {},
+  collapsed = false,
+  onToggleCollapse,
+  onFreeMinutesCalculated,
 }: TimeBlockSectionProps) {
-  const { block, availableMinutes, isPast } = capacity;
+  const { block, isPast } = capacity;
   const config = SECTION_CONFIG[block];
 
   const [timePickerVisible, setTimePickerVisible] = useState(false);
@@ -372,6 +381,37 @@ export function TimeBlockSection({
     return result;
   }, [slottedItems, visibleEvents, keyDateEvents, tasks, slottedIds, capacity, dateContext]);
 
+  // Compute actual free minutes from gap items in the timeline
+  const actualFreeMinutes = useMemo(() => {
+    return unifiedTimeline
+      .filter((item): item is Extract<UnifiedItem, { kind: 'gap' }> => item.kind === 'gap')
+      .reduce((sum, item) => sum + (item.gap.durationMinutes ?? 0), 0);
+  }, [unifiedTimeline]);
+
+  // Surface free minutes to parent
+  useEffect(() => {
+    onFreeMinutesCalculated?.(block, actualFreeMinutes);
+  }, [actualFreeMinutes, block, onFreeMinutesCalculated]);
+
+  // Format time range from capacity
+  const timeRange = `${formatHour(capacity.startHour)} – ${formatHour(capacity.endHour)}`;
+  const availableDisplay = formatAvailable(actualFreeMinutes);
+
+  // Collapsed summary: item count + next item name
+  const collapsedSummary = useMemo(() => {
+    const itemCount = unifiedTimeline.filter((i) => i.kind !== 'gap').length;
+    const firstItem = unifiedTimeline.find((i) => i.kind !== 'gap');
+    let nextLabel = '';
+    if (firstItem) {
+      if (firstItem.kind === 'task') nextLabel = firstItem.task.title;
+      else if (firstItem.kind === 'slotted_task') nextLabel = firstItem.slottedTask.title;
+      else if (firstItem.kind === 'event') nextLabel = firstItem.event.title;
+      else if (firstItem.kind === 'key_date') nextLabel = firstItem.keyDate.title || 'Event';
+    }
+    const countText = itemCount === 1 ? '1 item' : `${itemCount} items`;
+    return nextLabel ? `${countText} · next: ${nextLabel}` : countText;
+  }, [unifiedTimeline]);
+
   if (!config) return null;
 
   const { label, color, Icon } = config;
@@ -402,14 +442,14 @@ export function TimeBlockSection({
     setTimePickerEvent(null);
   };
 
-  // Format time range from capacity
-  const timeRange = `${formatHour(capacity.startHour)} – ${formatHour(capacity.endHour)}`;
-  const availableDisplay = formatAvailable(availableMinutes);
-
   return (
     <View style={[styles.section, isPast && styles.sectionPast]}>
       {/* Section Header */}
-      <View style={styles.sectionHeaderRow}>
+      <Pressable
+        onPress={onToggleCollapse}
+        style={styles.sectionHeaderRow}
+        disabled={!onToggleCollapse}
+      >
         <View style={[styles.sectionHeaderAccent, { backgroundColor: color }]} />
         <Icon size={16} color={isPast ? COLORS.inkMuted : color} style={styles.sectionIcon} />
         <Text style={[styles.sectionHeader, { color: isPast ? COLORS.inkMuted : color }]}>
@@ -421,147 +461,163 @@ export function TimeBlockSection({
         <Text style={styles.availableTime}>
           {isPast ? '· Passed' : `· ${availableDisplay} available`}
         </Text>
-      </View>
+        {onToggleCollapse &&
+          (collapsed ? (
+            <ChevronDown size={14} color={COLORS.inkMuted} style={{ marginLeft: 4 }} />
+          ) : (
+            <ChevronUp size={14} color={COLORS.inkMuted} style={{ marginLeft: 4 }} />
+          ))}
+      </Pressable>
+
+      {/* Collapsed summary */}
+      {collapsed && <Text style={styles.collapsedSummary}>{collapsedSummary}</Text>}
 
       {/* Unified chronological timeline */}
-      {unifiedTimeline.map((item, idx) => {
-        const isLast = idx === unifiedTimeline.length - 1;
-        const nextItem = unifiedTimeline[idx + 1];
-        const showDivider = !isLast && nextItem?.kind !== 'gap';
+      {!collapsed &&
+        unifiedTimeline.map((item, idx) => {
+          const isLast = idx === unifiedTimeline.length - 1;
+          const nextItem = unifiedTimeline[idx + 1];
+          const showDivider = !isLast && nextItem?.kind !== 'gap';
 
-        if (item.kind === 'gap') {
-          return (
-            <GapRow key={`gap-${item.gap.startIso}`} gap={item.gap} onSlotPress={onGapSlotPress} />
-          );
-        }
+          if (item.kind === 'gap') {
+            return (
+              <GapRow
+                key={`gap-${item.gap.startIso}`}
+                gap={item.gap}
+                onSlotPress={onGapSlotPress}
+              />
+            );
+          }
 
-        if (item.kind === 'slotted_task') {
-          const st = item.slottedTask;
-          const taskData = taskDataById[st.id];
-          const timeLabel = formatTimeShort(new Date(st.scheduledStartIso));
-          return (
-            <React.Fragment key={`slotted-${st.id}`}>
-              <View style={styles.slottedTaskRow}>
-                <View style={{ flex: 1 }}>
-                  {taskData ? (
-                    <TaskItem
-                      task={taskData}
-                      onPress={() => onSlottedTaskPress?.(st)}
-                      onTimePress={onTimePress}
-                      showEstimate={true}
-                      dimmed={isPast}
-                    />
-                  ) : (
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        paddingVertical: 12,
-                      }}
-                    >
-                      <Text
-                        style={{ fontSize: 15, color: COLORS.charcoalInk, flex: 1 }}
-                        numberOfLines={1}
+          if (item.kind === 'slotted_task') {
+            const st = item.slottedTask;
+            const taskData = taskDataById[st.id];
+            const timeLabel = formatTimeShort(new Date(st.scheduledStartIso));
+            return (
+              <React.Fragment key={`slotted-${st.id}`}>
+                <View style={styles.slottedTaskRow}>
+                  <View style={{ flex: 1 }}>
+                    {taskData ? (
+                      <TaskItem
+                        task={taskData}
+                        onPress={() => onSlottedTaskPress?.(st)}
+                        onTimePress={onTimePress}
+                        showEstimate={true}
+                        dimmed={isPast}
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          paddingVertical: 12,
+                        }}
                       >
-                        {st.title}
-                      </Text>
-                    </View>
-                  )}
+                        <Text
+                          style={{ fontSize: 15, color: COLORS.charcoalInk, flex: 1 }}
+                          numberOfLines={1}
+                        >
+                          {st.title}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.unifiedTime}>{timeLabel}</Text>
                 </View>
-                <Text style={styles.unifiedTime}>{timeLabel}</Text>
+                {showDivider && <View style={styles.rowDivider} />}
+              </React.Fragment>
+            );
+          }
+
+          if (item.kind === 'event') {
+            const event = item.event;
+            const eventId = getEventId(event);
+            const { startAt: effectiveStart, endAt: effectiveEnd } = getEffectiveEventTimes(
+              event,
+              eventTimeOverrides,
+            );
+            const effectiveMinutes = Math.round(
+              (effectiveEnd.getTime() - effectiveStart.getTime()) / (1000 * 60),
+            );
+            return (
+              <React.Fragment key={eventId}>
+                <Pressable style={styles.unifiedRow} onPress={() => handleEventPress(event)}>
+                  <Calendar size={16} color={COLORS.inkMuted} style={styles.unifiedIcon} />
+                  <Text style={[styles.unifiedTitle, isPast && styles.textMuted]} numberOfLines={1}>
+                    {event.title}
+                  </Text>
+                  <Text style={styles.unifiedDuration}>
+                    {formatDurationCompact(effectiveMinutes)}
+                  </Text>
+                  <Text style={styles.unifiedTime}>{formatTimeShort(effectiveStart)}</Text>
+                </Pressable>
+                {showDivider && <View style={styles.rowDivider} />}
+              </React.Fragment>
+            );
+          }
+
+          if (item.kind === 'key_date') {
+            const keyDate = item.keyDate;
+            const spaceName = getSpaceName?.(keyDate.space_id);
+            const eventTime = keyDate.event_time;
+            const titleText =
+              (keyDate.title || 'Untitled Event') + (spaceName ? ` \u00B7 ${spaceName}` : '');
+            const endTime = keyDate.end_time;
+
+            let durationLabel: string | null = null;
+            if (eventTime && endTime) {
+              const [sh, sm] = eventTime.split(':').map(Number);
+              const [eh, em] = endTime.split(':').map(Number);
+              const durationMins = eh * 60 + em - (sh * 60 + sm);
+              if (durationMins > 0) durationLabel = formatDurationCompact(durationMins);
+            }
+
+            return (
+              <React.Fragment key={keyDate.id}>
+                <Pressable
+                  style={styles.unifiedRow}
+                  onPress={() =>
+                    onKeyDateQuickAction
+                      ? onKeyDateQuickAction(keyDate)
+                      : handleKeyDatePress(keyDate)
+                  }
+                >
+                  <Calendar size={16} color={COLORS.inkMuted} style={styles.unifiedIcon} />
+                  <Text style={[styles.unifiedTitle, isPast && styles.textMuted]} numberOfLines={1}>
+                    {titleText}
+                  </Text>
+                  {durationLabel && <Text style={styles.unifiedDuration}>{durationLabel}</Text>}
+                  {eventTime ? (
+                    <Text style={styles.unifiedTime}>{formatKeyDateTime(eventTime)}</Text>
+                  ) : (
+                    <Text style={styles.unifiedTime}>All day</Text>
+                  )}
+                </Pressable>
+                {showDivider && <View style={styles.rowDivider} />}
+              </React.Fragment>
+            );
+          }
+
+          // kind === 'task' (untimed, at bottom)
+          const task = item.task;
+          return (
+            <React.Fragment key={task.id}>
+              <View style={styles.taskRow}>
+                <TaskItem
+                  task={task}
+                  onPress={onTaskPress}
+                  onTimePress={onTimePress}
+                  showEstimate={true}
+                  dimmed={isPast}
+                />
               </View>
               {showDivider && <View style={styles.rowDivider} />}
             </React.Fragment>
           );
-        }
-
-        if (item.kind === 'event') {
-          const event = item.event;
-          const eventId = getEventId(event);
-          const { startAt: effectiveStart, endAt: effectiveEnd } = getEffectiveEventTimes(
-            event,
-            eventTimeOverrides,
-          );
-          const effectiveMinutes = Math.round(
-            (effectiveEnd.getTime() - effectiveStart.getTime()) / (1000 * 60),
-          );
-          return (
-            <React.Fragment key={eventId}>
-              <Pressable style={styles.unifiedRow} onPress={() => handleEventPress(event)}>
-                <Calendar size={16} color={COLORS.inkMuted} style={styles.unifiedIcon} />
-                <Text style={[styles.unifiedTitle, isPast && styles.textMuted]} numberOfLines={1}>
-                  {event.title}
-                </Text>
-                <Text style={styles.unifiedDuration}>
-                  {formatDurationCompact(effectiveMinutes)}
-                </Text>
-                <Text style={styles.unifiedTime}>{formatTimeShort(effectiveStart)}</Text>
-              </Pressable>
-              {showDivider && <View style={styles.rowDivider} />}
-            </React.Fragment>
-          );
-        }
-
-        if (item.kind === 'key_date') {
-          const keyDate = item.keyDate;
-          const spaceName = getSpaceName?.(keyDate.space_id);
-          const eventTime = keyDate.event_time;
-          const titleText =
-            (keyDate.title || 'Untitled Event') + (spaceName ? ` \u00B7 ${spaceName}` : '');
-          const endTime = keyDate.end_time;
-
-          let durationLabel: string | null = null;
-          if (eventTime && endTime) {
-            const [sh, sm] = eventTime.split(':').map(Number);
-            const [eh, em] = endTime.split(':').map(Number);
-            const durationMins = eh * 60 + em - (sh * 60 + sm);
-            if (durationMins > 0) durationLabel = formatDurationCompact(durationMins);
-          }
-
-          return (
-            <React.Fragment key={keyDate.id}>
-              <Pressable
-                style={styles.unifiedRow}
-                onPress={() =>
-                  onKeyDateQuickAction ? onKeyDateQuickAction(keyDate) : handleKeyDatePress(keyDate)
-                }
-              >
-                <Calendar size={16} color={COLORS.inkMuted} style={styles.unifiedIcon} />
-                <Text style={[styles.unifiedTitle, isPast && styles.textMuted]} numberOfLines={1}>
-                  {titleText}
-                </Text>
-                {durationLabel && <Text style={styles.unifiedDuration}>{durationLabel}</Text>}
-                {eventTime ? (
-                  <Text style={styles.unifiedTime}>{formatKeyDateTime(eventTime)}</Text>
-                ) : (
-                  <Text style={styles.unifiedTime}>All day</Text>
-                )}
-              </Pressable>
-              {showDivider && <View style={styles.rowDivider} />}
-            </React.Fragment>
-          );
-        }
-
-        // kind === 'task' (untimed, at bottom)
-        const task = item.task;
-        return (
-          <React.Fragment key={task.id}>
-            <View style={styles.taskRow}>
-              <TaskItem
-                task={task}
-                onPress={onTaskPress}
-                onTimePress={onTimePress}
-                showEstimate={true}
-                dimmed={isPast}
-              />
-            </View>
-            {showDivider && <View style={styles.rowDivider} />}
-          </React.Fragment>
-        );
-      })}
+        })}
 
       {/* Empty state */}
-      {isEmpty && !isPast && (
+      {!collapsed && isEmpty && !isPast && (
         <View style={styles.emptyRow}>
           <Text style={styles.emptyText}>No events or tasks</Text>
         </View>
@@ -676,7 +732,8 @@ const styles = StyleSheet.create({
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 16,
     paddingTop: 16,
     paddingBottom: 8,
   },
@@ -711,7 +768,8 @@ const styles = StyleSheet.create({
   unifiedRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 16,
     paddingVertical: 12,
   },
   unifiedIcon: {
@@ -737,21 +795,25 @@ const styles = StyleSheet.create({
   slottedTaskRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 16,
   },
   rowDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: '#E8E6E1',
-    marginHorizontal: 16,
+    marginLeft: 16,
+    marginRight: 16,
   },
   textMuted: {
     color: COLORS.inkMuted,
   },
   taskRow: {
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 16,
   },
   emptyRow: {
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 16,
     paddingVertical: 16,
   },
   emptyText: {
@@ -764,6 +826,13 @@ const styles = StyleSheet.create({
     color: COLORS.mossGreen,
     marginLeft: 4,
     textDecorationLine: 'underline',
+  },
+  collapsedSummary: {
+    fontSize: 12,
+    color: '#888888',
+    paddingLeft: 16,
+    paddingRight: 16,
+    paddingBottom: 8,
   },
   editOverlay: {
     flex: 1,

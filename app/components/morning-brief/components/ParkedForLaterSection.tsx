@@ -8,6 +8,8 @@ interface ParkedForLaterSectionProps {
   tasks: TaskItemData[];
   onPulse?: boolean;
   onToggleSelect?: (task: TaskItemData) => void;
+  /** Whether there are selected priorities — controls header copy */
+  hasSelections?: boolean;
 }
 
 function formatTime(minutes: number): string {
@@ -21,8 +23,9 @@ export function ParkedForLaterSection({
   tasks,
   onPulse = false,
   onToggleSelect,
+  hasSelections = false,
 }: ParkedForLaterSectionProps) {
-  const [expanded, setExpanded] = useState(true);
+  const [displayMode, setDisplayMode] = useState<'preview' | 'expanded' | 'collapsed'>('preview');
   const rotateAnim = useMemo(() => new Animated.Value(1), []);
   const pulseAnim = useMemo(() => new Animated.Value(1), []);
 
@@ -44,17 +47,25 @@ export function ParkedForLaterSection({
     }
   }, [onPulse, pulseAnim]);
 
-  const toggleExpanded = () => {
-    const next = !expanded;
+  const toggleDisplay = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpanded(next);
-
-    Animated.timing(rotateAnim, {
-      toValue: next ? 1 : 0,
-      duration: 250,
-      easing: Easing.inOut(Easing.ease),
-      useNativeDriver: true,
-    }).start();
+    if (displayMode === 'collapsed') {
+      setDisplayMode('preview');
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 250,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+    } else {
+      setDisplayMode('collapsed');
+      Animated.timing(rotateAnim, {
+        toValue: 0,
+        duration: 250,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+    }
   };
 
   const chevronRotate = rotateAnim.interpolate({
@@ -67,9 +78,13 @@ export function ParkedForLaterSection({
   return (
     <View style={styles.container}>
       {/* Header */}
-      <Pressable onPress={toggleExpanded} style={styles.header}>
+      <Pressable onPress={toggleDisplay} style={styles.header}>
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-          <Text style={styles.headerText}>{tasks.length} more available</Text>
+          <Text style={styles.headerText}>
+            {hasSelections
+              ? `${tasks.length} more available`
+              : `${tasks.length} todos & habits available`}
+          </Text>
         </Animated.View>
         <View style={styles.spacer} />
         <Animated.View style={{ transform: [{ rotate: chevronRotate }] }}>
@@ -78,9 +93,9 @@ export function ParkedForLaterSection({
       </Pressable>
 
       {/* Expandable content */}
-      {expanded && (
+      {displayMode !== 'collapsed' && (
         <View style={styles.content}>
-          {tasks.map((task) => (
+          {(displayMode === 'preview' ? tasks.slice(0, 3) : tasks).map((task) => (
             <Pressable key={task.id} style={styles.taskRow} onPress={() => onToggleSelect?.(task)}>
               <View style={styles.checkbox} />
               <Text style={styles.taskTitle} numberOfLines={1}>
@@ -91,6 +106,17 @@ export function ParkedForLaterSection({
               )}
             </Pressable>
           ))}
+          {displayMode === 'preview' && tasks.length > 3 && (
+            <Pressable
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setDisplayMode('expanded');
+              }}
+              style={styles.moreRow}
+            >
+              <Text style={styles.moreText}>+{tasks.length - 3} more</Text>
+            </Pressable>
+          )}
           <Text style={styles.footer}>Tap to add to today's plan</Text>
         </View>
       )}
@@ -100,8 +126,8 @@ export function ParkedForLaterSection({
 
 const styles = StyleSheet.create({
   container: {
-    marginHorizontal: 18,
-    marginTop: 14,
+    marginHorizontal: 6,
+    marginTop: 8,
     backgroundColor: 'rgba(0,0,0,0.02)',
     borderRadius: 12,
     overflow: 'hidden',
@@ -159,5 +185,15 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
     fontStyle: 'italic',
     lineHeight: 15,
+  },
+  moreRow: {
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  moreText: {
+    fontSize: 13,
+    fontWeight: '500',
+    fontFamily: 'Inter-Medium',
+    color: '#6A7D76',
   },
 });

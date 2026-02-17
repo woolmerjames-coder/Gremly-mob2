@@ -237,69 +237,71 @@ export function TaskItem({
   // ── Selected: two-line with chips ──
   return (
     <Pressable onPress={handleToggleSelect} style={pStyles.selectedRow}>
-      {/* Line 1 */}
-      <View style={pStyles.line1}>
-        {/* Checked checkbox */}
-        <View style={pStyles.checkboxChecked}>
-          <Check size={9} color="#FFFFFF" strokeWidth={3} />
-        </View>
-        <Text style={pStyles.selectedTitle} numberOfLines={1}>
-          {task.title}
-        </Text>
-        {showEstimate && (
-          <Pressable
-            onPress={() => {
-              if (onTimePress) onTimePress(task);
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={[pStyles.selectedTime, !timeDisplay && pStyles.timeEmpty]}>
-              {timeDisplay ?? '+ time'}
-            </Text>
-          </Pressable>
-        )}
+      {/* Checked checkbox – vertically centred */}
+      <View style={pStyles.checkboxChecked}>
+        <Check size={9} color="#FFFFFF" strokeWidth={3} />
       </View>
+      <View style={pStyles.selectedContent}>
+        {/* Line 1 */}
+        <View style={pStyles.line1}>
+          <Text style={pStyles.selectedTitle} numberOfLines={1}>
+            {task.title}
+          </Text>
+          {showEstimate && (
+            <Pressable
+              onPress={() => {
+                if (onTimePress) onTimePress(task);
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={[pStyles.selectedTime, !timeDisplay && pStyles.timeEmpty]}>
+                {timeDisplay ?? '+ time'}
+              </Text>
+            </Pressable>
+          )}
+        </View>
 
-      {/* Line 2: contextual chips + action chips */}
-      <View style={pStyles.line2}>
-        {/* Contextual chips */}
-        {task.type === 'habit' && (task.streakCount ?? 0) > 0 && (
-          <TaskChip
-            label={`${task.streakCount}-day streak`}
-            active
-            activeColor="#7BAF8B"
-            activeBg="rgba(107,158,126,0.12)"
-          />
-        )}
-        {task.dueStatus === 'overdue' && (
-          <TaskChip
-            label="overdue"
-            active
-            activeColor={COLORS.metaWarm}
-            activeBg="rgba(194,122,107,0.1)"
-          />
-        )}
+        {/* Line 2: contextual chips + action chips */}
+        <View style={pStyles.line2}>
+          {/* Contextual chips */}
+          {task.type === 'habit' && (task.streakCount ?? 0) > 0 && (
+            <TaskChip
+              label={`${task.streakCount}-day streak`}
+              active
+              activeColor="#7BAF8B"
+              activeBg="rgba(107,158,126,0.12)"
+            />
+          )}
+          {task.dueStatus === 'overdue' && (
+            <TaskChip
+              label="overdue"
+              active
+              activeColor={COLORS.metaWarm}
+              activeBg="rgba(194,122,107,0.1)"
+            />
+          )}
 
-        {/* Spacer pushes action chips to right */}
-        <View style={pStyles.chipSpacer} />
+          {/* Spacer pushes action chips to right */}
+          <View style={pStyles.chipSpacer} />
 
-        {/* Action chips */}
-        <TaskChip label={`assign ›`} onPress={handleAssign} />
-        {isLocked ? (
-          <TaskChip
-            label={`\u25C6 locked`}
-            active
-            activeColor={COLORS.mossGreen}
-            activeBg="rgba(46,85,64,0.08)"
-            onPress={handleToggleLock}
-          />
-        ) : (
-          <TaskChip
-            label="lock in"
-            color={canLock ? 'rgba(34,34,34,0.22)' : 'rgba(34,34,34,0.12)'}
-            onPress={canLock ? handleToggleLock : undefined}
-          />
-        )}
+          {/* Action chips */}
+          <TaskChip label={`assign ›`} onPress={handleAssign} />
+          {isLocked ? (
+            <TaskChip
+              label={`\u25C6 locked`}
+              active
+              activeColor={COLORS.mossGreen}
+              activeBg="rgba(46,85,64,0.08)"
+              onPress={handleToggleLock}
+            />
+          ) : (
+            <TaskChip
+              label="lock in"
+              color={canLock ? 'rgba(34,34,34,0.22)' : 'rgba(34,34,34,0.12)'}
+              onPress={canLock ? handleToggleLock : undefined}
+            />
+          )}
+        </View>
       </View>
     </Pressable>
   );
@@ -393,12 +395,17 @@ const pStyles = StyleSheet.create({
 
   /* Selected row */
   selectedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.72)',
     borderWidth: 1,
     borderColor: 'rgba(46,85,64,0.06)',
     borderRadius: 8,
     paddingVertical: 5,
     paddingHorizontal: 12,
+  },
+  selectedContent: {
+    flex: 1,
   },
   line1: {
     flexDirection: 'row',
@@ -436,7 +443,6 @@ const pStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 2.5,
-    marginLeft: 26, // 16 checkbox + 10 margin
     gap: 5,
     flexWrap: 'wrap',
   },

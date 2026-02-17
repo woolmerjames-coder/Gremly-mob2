@@ -26,7 +26,7 @@
 
 import type { CalendarEvent } from './CalendarClient';
 import type { Note } from '../types';
-import { transformCalendarEventToNote } from './transformCalendarEvent';
+import { transformCalendarEventToNote, exclusiveEndToInclusive } from './transformCalendarEvent';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Types
@@ -77,7 +77,9 @@ function extractTime(iso: string): string {
  */
 export function hasExternalEventChanged(note: Note, event: CalendarEvent): boolean {
   const incomingDate = extractDate(event.startAt);
-  const incomingEndDate = extractDate(event.endAt);
+  const rawEndDate = extractDate(event.endAt);
+  // All-day events use exclusive end dates — convert to inclusive for comparison
+  const incomingEndDate = event.isAllDay ? exclusiveEndToInclusive(rawEndDate) : rawEndDate;
   const incomingTime = !event.isAllDay ? extractTime(event.startAt) : null;
   const expectedEndDate = incomingEndDate !== incomingDate ? incomingEndDate : null;
 

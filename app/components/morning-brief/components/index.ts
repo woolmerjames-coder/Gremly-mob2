@@ -28,4 +28,5 @@ export { GapRow } from './GapRow';
 export { SlottedTaskRow } from './SlottedTaskRow';
 export { GapSlotPicker } from './GapSlotPicker';
 export { CapacityBar } from './CapacityBar';
+export { CapacityRing } from './CapacityRing';
 export { ParkedForLaterSection } from './ParkedForLaterSection';
