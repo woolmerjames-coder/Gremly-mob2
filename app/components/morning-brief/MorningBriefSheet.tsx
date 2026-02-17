@@ -491,16 +491,19 @@ export function MorningBriefSheet({
   // CAPACITY GATE DETECTION
   // ─────────────────────────────────────────────────────────────────
   const realisticCapacity = useMemo(() => {
-    // Use calendar-only availability (totalMinutes − calendarMinutes) so the
-    // capacity bar total stays stable regardless of how many tasks are
-    // already assigned to time blocks.
+    // Calendar-free time — same base math the block headers use
     const calendarFree = (block: typeof capacity.blocks.morning) =>
       Math.max(0, block.totalMinutes - block.calendarMinutes);
-    const raw =
+    return (
       calendarFree(capacity.blocks.morning) +
       calendarFree(capacity.blocks.day) +
-      calendarFree(capacity.blocks.evening);
-    return Math.round(raw * 0.85);
+      calendarFree(capacity.blocks.evening)
+    );
+  }, [capacity]);
+
+  // Minutes already placed in time blocks (from the capacity system)
+  const assignedTaskMinutes = useMemo(() => {
+    return capacity.totalTaskMinutes;
   }, [capacity]);
 
   const flexibleTaskMinutes = useMemo(() => {
@@ -508,7 +511,9 @@ export function MorningBriefSheet({
   }, [tasksByBlock.flexible]);
 
   const isPrioritizing =
-    flexibleTaskMinutes > realisticCapacity && tasksByBlock.flexible.length > 3;
+    realisticCapacity > 15
+    && (flexibleTaskMinutes + assignedTaskMinutes) > realisticCapacity
+    && tasksByBlock.flexible.length > 3;
 
   // Memoized Sets for O(1) lookup
   const briefSelectedSet = useMemo(() => new Set(briefSelectedIds), [briefSelectedIds]);
@@ -599,7 +604,7 @@ export function MorningBriefSheet({
       .reduce((sum, t) => sum + (t.estimatedMinutes || 0), 0);
   }, [tasksByBlock.flexible, briefSelectedSet]);
 
-  const remainingMinutes = realisticCapacity - selectedMinutes;
+  const remainingMinutes = realisticCapacity - assignedTaskMinutes - selectedMinutes;
 
   const missingEstimateCount = useMemo(() => {
     return tasksByBlock.flexible.filter((t) => briefSelectedSet.has(t.id) && !t.estimatedMinutes)
