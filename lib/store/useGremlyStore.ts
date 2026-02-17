@@ -36,7 +36,7 @@ import {
   type CalendarProvider,
 } from '../calendar/CalendarClient';
 import { reconcileCalendarEvents } from '../calendar/calendarSync';
-import { DEFAULT_TIME_BLOCK_PREFERENCES } from '../capacity';
+import { DEFAULT_TIME_BLOCK_PREFERENCES, getTimeBlockBoundaries } from '../capacity';
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
 import type { TimeBlockPreferences } from '../capacity';
 
@@ -3395,9 +3395,47 @@ export const useGremlyStore = create<GremlyState>()(
         // ═══════════════════════════════════════════════════════════════════
 
         applyOrganizeAssignments: (assignments) => {
+          // === STEP 1: Validate scheduledStartIso values ===
+          const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
+          const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+          const validatedAssignments = assignments.map((a) => {
+            if (!a.scheduledStartIso) return a;
+
+            const startTime = new Date(a.scheduledStartIso);
+            if (isNaN(startTime.getTime())) {
+              console.warn('[Organize] Invalid scheduledStartIso:', a.scheduledStartIso);
+              return { ...a, scheduledStartIso: undefined };
+            }
+
+            // Reject if in the past (5 min grace)
+            if (startTime < fiveMinAgo) {
+              console.warn('[Organize] Past scheduledStartIso:', a.scheduledStartIso);
+              return { ...a, scheduledStartIso: undefined };
+            }
+
+            // Reject if outside the assigned block's boundaries
+            const bound = boundaries[a.block];
+            if (bound) {
+              const hour = startTime.getHours();
+              if (hour < bound.startHour || hour >= bound.endHour) {
+                console.warn(
+                  '[Organize] Out of block bounds:',
+                  a.scheduledStartIso,
+                  'block:',
+                  a.block,
+                );
+                return { ...a, scheduledStartIso: undefined };
+              }
+            }
+
+            return a;
+          });
+
+          // === STEP 2: Apply assignments to local state ===
           set((state) => {
             const updatedTodos = state.todos.map((todo) => {
-              const assignment = assignments.find((a) => a.taskId === todo.id);
+              const assignment = validatedAssignments.find((a) => a.taskId === todo.id);
               if (assignment) {
                 return {
                   ...todo,
@@ -3411,7 +3449,7 @@ export const useGremlyStore = create<GremlyState>()(
             });
 
             const updatedHabits = state.habits.map((habit) => {
-              const assignment = assignments.find((a) => a.taskId === habit.id);
+              const assignment = validatedAssignments.find((a) => a.taskId === habit.id);
               if (assignment) {
                 return {
                   ...habit,
@@ -3427,22 +3465,148 @@ export const useGremlyStore = create<GremlyState>()(
             return { todos: updatedTodos, habits: updatedHabits };
           });
 
-          // Persist to Supabase
-          const { todos, habits } = get();
-          assignments.forEach((assignment) => {
-            const updatePayload: Record<string, any> = { time_window: assignment.block };
-            if (assignment.scheduledStartIso) {
-              updatePayload.scheduled_start_iso = assignment.scheduledStartIso;
+          // === STEP 3: Fallback — auto-slot tasks missing scheduledStartIso ===
+          const today = getDateService().getCurrentDate();
+          const [year, month, day] = today.split('-').map(Number);
+          const now = new Date();
+
+          // Build occupied time ranges per block
+          const occupiedRanges: Record<string, Array<{ start: number; end: number }>> = {
+            morning: [],
+            day: [],
+            evening: [],
+          };
+
+          // Calendar events → occupied ranges
+          const calendarEvents = get().calendarEvents[today] || [];
+          for (const event of calendarEvents) {
+            if (event.isAllDay) continue;
+            const eStart = new Date(event.startAt);
+            const eEnd = new Date(event.endAt);
+            const startMin = eStart.getHours() * 60 + eStart.getMinutes();
+            const endMin = eEnd.getHours() * 60 + eEnd.getMinutes();
+            for (const [block, bound] of Object.entries(boundaries)) {
+              const blockStart = bound.startHour * 60;
+              const blockEnd = bound.endHour * 60;
+              if (startMin < blockEnd && endMin > blockStart) {
+                occupiedRanges[block].push({
+                  start: Math.max(startMin, blockStart),
+                  end: Math.min(endMin, blockEnd),
+                });
+              }
+            }
+          }
+
+          // Already-slotted tasks → occupied ranges
+          const allTodos = get().todos;
+          const allHabits = get().habits;
+          for (const item of [...allTodos, ...allHabits]) {
+            if (item.scheduled_start_iso) {
+              const s = new Date(item.scheduled_start_iso);
+              const sMin = s.getHours() * 60 + s.getMinutes();
+              const duration = item.time_estimate_minutes || 15;
+              const eMin = sMin + duration;
+              for (const [block, bound] of Object.entries(boundaries)) {
+                if (sMin >= bound.startHour * 60 && sMin < bound.endHour * 60) {
+                  occupiedRanges[block].push({ start: sMin, end: eMin });
+                }
+              }
+            }
+          }
+
+          // Sort occupied ranges per block
+          for (const block of Object.keys(occupiedRanges)) {
+            occupiedRanges[block].sort((a, b) => a.start - b.start);
+          }
+
+          // Find tasks needing slot assignment
+          const needsSlotting = validatedAssignments.filter((a) => !a.scheduledStartIso);
+
+          for (const assignment of needsSlotting) {
+            const block = assignment.block;
+            const bound = boundaries[block];
+            if (!bound) continue;
+
+            const taskDuration = (() => {
+              const todo = allTodos.find((t) => t.id === assignment.taskId);
+              if (todo) return todo.time_estimate_minutes || 15;
+              const habit = allHabits.find((h) => h.id === assignment.taskId);
+              if (habit) return habit.time_estimate_minutes || 15;
+              return 15;
+            })();
+
+            const blockStartMin = Math.max(
+              bound.startHour * 60,
+              now.getHours() * 60 + now.getMinutes(), // Don't schedule in the past
+            );
+            const blockEndMin = bound.endHour * 60;
+
+            // Find first gap that fits
+            const ranges = occupiedRanges[block];
+            let cursor = blockStartMin;
+            let slotFound = false;
+
+            for (const range of ranges) {
+              if (range.start - cursor >= taskDuration) {
+                const startHour = Math.floor(cursor / 60);
+                const startMinute = cursor % 60;
+                const startDate = new Date(year, month - 1, day, startHour, startMinute);
+                const iso = startDate.toISOString();
+
+                const todo = get().todos.find((t) => t.id === assignment.taskId);
+                if (todo) {
+                  get().updateTodo(assignment.taskId, { scheduled_start_iso: iso });
+                } else {
+                  get().updateHabit(assignment.taskId, { scheduled_start_iso: iso });
+                }
+
+                ranges.push({ start: cursor, end: cursor + taskDuration });
+                ranges.sort((a, b) => a.start - b.start);
+                slotFound = true;
+                break;
+              }
+              cursor = Math.max(cursor, range.end);
             }
 
-            const todo = todos.find((t) => t.id === assignment.taskId);
-            if (todo) {
-              get().updateTodo(todo.id, updatePayload);
+            // Check gap after last occupied range
+            if (!slotFound && blockEndMin - cursor >= taskDuration) {
+              const startHour = Math.floor(cursor / 60);
+              const startMinute = cursor % 60;
+              const startDate = new Date(year, month - 1, day, startHour, startMinute);
+              const iso = startDate.toISOString();
+
+              const todo = get().todos.find((t) => t.id === assignment.taskId);
+              if (todo) {
+                get().updateTodo(assignment.taskId, { scheduled_start_iso: iso });
+              } else {
+                get().updateHabit(assignment.taskId, { scheduled_start_iso: iso });
+              }
+
+              ranges.push({ start: cursor, end: cursor + taskDuration });
+              ranges.sort((a, b) => a.start - b.start);
+            }
+            // If no gap found, task stays without a time — shows at bottom of block
+          }
+
+          // === STEP 4: Persist all assignments to Supabase ===
+          const { todos: finalTodos, habits: finalHabits } = get();
+          validatedAssignments.forEach((assignment) => {
+            const matchedTodo = finalTodos.find((t) => t.id === assignment.taskId);
+            if (matchedTodo) {
+              const payload: Record<string, any> = { time_window: assignment.block };
+              if (matchedTodo.scheduled_start_iso) {
+                payload.scheduled_start_iso = matchedTodo.scheduled_start_iso;
+              }
+              get().updateTodo(matchedTodo.id, payload);
               return;
             }
-            const habit = habits.find((h) => h.id === assignment.taskId);
-            if (habit) {
-              get().updateHabit(habit.id, updatePayload);
+            const matchedHabit = finalHabits.find((h) => h.id === assignment.taskId);
+            if (matchedHabit) {
+              const payload: Record<string, any> = { time_window: assignment.block };
+              if (matchedHabit.scheduled_start_iso) {
+                payload.scheduled_start_iso = matchedHabit.scheduled_start_iso;
+              }
+              get().updateHabit(matchedHabit.id, payload);
             }
           });
         },

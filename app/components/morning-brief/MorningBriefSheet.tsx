@@ -514,10 +514,36 @@ export function MorningBriefSheet({
   const totalActualFreeMinutes =
     blockFreeMinutes.morning + blockFreeMinutes.day + blockFreeMinutes.evening;
 
+  // Tasks assigned to a block but NOT positioned in the timeline.
+  // Gap-based free time can't see these, so we subtract them manually.
+  const unslottedBlockMinutes = useMemo(() => {
+    let total = 0;
+    // Check todos assigned to a specific block without a scheduled time
+    for (const todo of todayTodos) {
+      if (todo.time_window && todo.time_window !== 'any' && !todo.scheduled_start_iso) {
+        total += todo.time_estimate_minutes ?? 0;
+      }
+    }
+    // Check habits assigned to a specific block without a scheduled time
+    for (const habit of todayHabits) {
+      if (
+        habit.subtype !== 'break_habit' &&
+        habit.time_window &&
+        habit.time_window !== 'any' &&
+        !habit.scheduled_start_iso
+      ) {
+        total += habit.time_estimate_minutes ?? 0;
+      }
+    }
+    return total;
+  }, [todayTodos, todayHabits]);
+
   // ─────────────────────────────────────────────────────────────────
   // CAPACITY GATE DETECTION
   // ─────────────────────────────────────────────────────────────────
-  const realisticCapacity = totalActualFreeMinutes;
+  const realisticCapacity = useMemo(() => {
+    return Math.max(0, totalActualFreeMinutes - unslottedBlockMinutes);
+  }, [totalActualFreeMinutes, unslottedBlockMinutes]);
 
   const flexibleTaskMinutes = useMemo(() => {
     return tasksByBlock.flexible.reduce((sum, t) => sum + (t.estimatedMinutes || 0), 0);

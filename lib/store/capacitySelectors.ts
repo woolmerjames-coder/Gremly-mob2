@@ -16,10 +16,14 @@ import {
   calculateBlockCapacity,
   getCapacitySummary,
   getMiniSweepGremlyMessage,
-  getTimeBlockBoundaries,
-  type EventTimeOverride,
 } from '../capacity';
-import type { TimeBlock, DayCapacity, TimeBlockCapacity, CapacitySummary } from '../capacity';
+import type {
+  TimeBlock,
+  DayCapacity,
+  TimeBlockCapacity,
+  CapacitySummary,
+  EventTimeOverride,
+} from '../capacity';
 import type { CalendarEvent } from '../calendar/CalendarClient';
 
 // Stable empty array to prevent unnecessary re-renders
@@ -90,88 +94,15 @@ export function useTodayCapacity(): DayCapacity {
   const events = useTodayCalendarEvents();
   const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
   const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
-  const todos = useGremlyStore((s) => s.todos);
-  const habits = useGremlyStore((s) => s.habits);
   const today = useToday();
   const currentHour = useCurrentHour();
 
   return useMemo(() => {
-    // Calculate task minutes per block
+    // Capacity = calendar-free time only. Tasks are NOT subtracted here.
+    // MorningBriefSheet uses gap-based free time (TimeBlockSection callbacks)
+    // which already accounts for positioned tasks. Subtracting tasks here too
+    // would cause double-counting.
     const taskMinutesByBlock = { morning: 0, day: 0, evening: 0 };
-    const countedIds = new Set<string>();
-    const boundaries = getTimeBlockBoundaries(timeBlockPreferences);
-
-    // Sum todos assigned to each block
-    todos
-      .filter((t) => !t.archived && !t.completed_at && t.due_day === today)
-      .forEach((todo) => {
-        const minutes = todo.time_estimate_minutes ?? 0;
-        if (todo.time_window === 'morning') {
-          taskMinutesByBlock.morning += minutes;
-          countedIds.add(todo.id);
-        } else if (todo.time_window === 'day') {
-          taskMinutesByBlock.day += minutes;
-          countedIds.add(todo.id);
-        } else if (todo.time_window === 'evening') {
-          taskMinutesByBlock.evening += minutes;
-          countedIds.add(todo.id);
-        }
-        // 'any' or null = flexible, don't count against specific block
-      });
-
-    // Sum habits assigned to each block
-    habits
-      .filter((h) => {
-        if (h.archived) return false;
-        if (!h.start_date || h.start_date > today) return false;
-        if (h.end_date && h.end_date < today) return false;
-        return true;
-      })
-      .forEach((habit) => {
-        const minutes = habit.time_estimate_minutes ?? 0;
-        if (habit.time_window === 'morning') {
-          taskMinutesByBlock.morning += minutes;
-          countedIds.add(habit.id);
-        } else if (habit.time_window === 'day') {
-          taskMinutesByBlock.day += minutes;
-          countedIds.add(habit.id);
-        } else if (habit.time_window === 'evening') {
-          taskMinutesByBlock.evening += minutes;
-          countedIds.add(habit.id);
-        }
-        // 'any' or null = flexible, don't count against specific block
-      });
-
-    // Also count slotted tasks (scheduled_start_iso) not already counted via time_window
-    const slottedTodos = todos.filter(
-      (t) =>
-        !t.archived &&
-        !t.completed_at &&
-        t.due_day === today &&
-        t.scheduled_start_iso &&
-        !countedIds.has(t.id),
-    );
-    const slottedHabits = habits.filter(
-      (h) =>
-        !h.archived &&
-        h.scheduled_start_iso &&
-        !countedIds.has(h.id) &&
-        (!h.start_date || h.start_date <= today) &&
-        (!h.end_date || h.end_date >= today),
-    );
-
-    for (const item of [...slottedTodos, ...slottedHabits]) {
-      const minutes = item.time_estimate_minutes ?? 0;
-      if (minutes <= 0) continue;
-      const hour = new Date(item.scheduled_start_iso!).getHours();
-      if (hour < boundaries.morning.endHour) {
-        taskMinutesByBlock.morning += minutes;
-      } else if (hour < boundaries.day.endHour) {
-        taskMinutesByBlock.day += minutes;
-      } else {
-        taskMinutesByBlock.evening += minutes;
-      }
-    }
 
     return calculateDayCapacity(
       events,
@@ -181,7 +112,7 @@ export function useTodayCapacity(): DayCapacity {
       taskMinutesByBlock,
       timeBlockPreferences,
     );
-  }, [events, currentHour, today, eventTimeOverrides, todos, habits, timeBlockPreferences]);
+  }, [events, currentHour, today, eventTimeOverrides, timeBlockPreferences]);
 }
 
 /**
@@ -285,8 +216,6 @@ export function useCapacityForDate(date: string): DayCapacity {
   const events = useCalendarEventsForDate(date);
   const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
   const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
-  const todos = useGremlyStore((s) => s.todos);
-  const habits = useGremlyStore((s) => s.habits);
 
   const currentHour = useMemo(() => {
     const today = getDateService().getCurrentDate();
@@ -294,77 +223,8 @@ export function useCapacityForDate(date: string): DayCapacity {
   }, [date]);
 
   return useMemo(() => {
+    // Capacity = calendar-free time only (same rationale as useTodayCapacity).
     const taskMinutesByBlock = { morning: 0, day: 0, evening: 0 };
-    const countedIds = new Set<string>();
-    const boundaries = getTimeBlockBoundaries(timeBlockPreferences);
-
-    todos
-      .filter((t) => !t.archived && !t.completed_at && t.due_day === date)
-      .forEach((todo) => {
-        const minutes = todo.time_estimate_minutes ?? 0;
-        if (todo.time_window === 'morning') {
-          taskMinutesByBlock.morning += minutes;
-          countedIds.add(todo.id);
-        } else if (todo.time_window === 'day') {
-          taskMinutesByBlock.day += minutes;
-          countedIds.add(todo.id);
-        } else if (todo.time_window === 'evening') {
-          taskMinutesByBlock.evening += minutes;
-          countedIds.add(todo.id);
-        }
-      });
-
-    habits
-      .filter((h) => {
-        if (h.archived) return false;
-        if (!h.start_date || h.start_date > date) return false;
-        if (h.end_date && h.end_date < date) return false;
-        return true;
-      })
-      .forEach((habit) => {
-        const minutes = habit.time_estimate_minutes ?? 0;
-        if (habit.time_window === 'morning') {
-          taskMinutesByBlock.morning += minutes;
-          countedIds.add(habit.id);
-        } else if (habit.time_window === 'day') {
-          taskMinutesByBlock.day += minutes;
-          countedIds.add(habit.id);
-        } else if (habit.time_window === 'evening') {
-          taskMinutesByBlock.evening += minutes;
-          countedIds.add(habit.id);
-        }
-      });
-
-    // Also count slotted tasks (scheduled_start_iso) not already counted via time_window
-    const slottedTodos = todos.filter(
-      (t) =>
-        !t.archived &&
-        !t.completed_at &&
-        t.due_day === date &&
-        t.scheduled_start_iso &&
-        !countedIds.has(t.id),
-    );
-    const slottedHabits = habits.filter(
-      (h) =>
-        !h.archived &&
-        h.scheduled_start_iso &&
-        !countedIds.has(h.id) &&
-        (!h.start_date || h.start_date <= date) &&
-        (!h.end_date || h.end_date >= date),
-    );
-
-    for (const item of [...slottedTodos, ...slottedHabits]) {
-      const minutes = item.time_estimate_minutes ?? 0;
-      if (minutes <= 0) continue;
-      const hour = new Date(item.scheduled_start_iso!).getHours();
-      if (hour < boundaries.morning.endHour) {
-        taskMinutesByBlock.morning += minutes;
-      } else if (hour < boundaries.day.endHour) {
-        taskMinutesByBlock.day += minutes;
-      } else {
-        taskMinutesByBlock.evening += minutes;
-      }
-    }
 
     return calculateDayCapacity(
       events,
@@ -374,5 +234,5 @@ export function useCapacityForDate(date: string): DayCapacity {
       taskMinutesByBlock,
       timeBlockPreferences,
     );
-  }, [events, currentHour, date, eventTimeOverrides, todos, habits, timeBlockPreferences]);
+  }, [events, currentHour, date, eventTimeOverrides, timeBlockPreferences]);
 }
