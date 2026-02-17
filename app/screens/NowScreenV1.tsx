@@ -1371,11 +1371,52 @@ function TodayFocusList({
     );
   }, [activeItems, brief, lockedItems]);
 
-  // Group items by time block using brief sequences
+  // Group items by time block using multiple signals (brief sequences, store time_window, scheduled time)
   const { itemsByBlock, breakHabitsByBlock } = useMemo(() => {
     const morningIds = new Set(brief?.morning_sequence?.map((i) => i.id) || []);
     const dayIds = new Set(brief?.day_sequence?.map((i) => i.id) || []);
     const eveningIds = new Set(brief?.evening_sequence?.map((i) => i.id) || []);
+
+    // Build a map of raw time_window values from the store (most up-to-date)
+    const storeTimeWindow = new Map<string, string | null>();
+    for (const t of todos) storeTimeWindow.set(t.id, t.time_window ?? null);
+    for (const h of habits) storeTimeWindow.set(h.id, h.time_window ?? null);
+
+    // Resolve which block an item belongs to using layered signals:
+    // 1. Brief sequences (authoritative if present)
+    // 2. Raw store time_window (set by organize, most reliable)
+    // 3. scheduled_start_iso hour → derive block via getTimeBlockForHour
+    // 4. inferTimeWindow (NowActiveItem.timeWindow + name keywords)
+    const resolveBlock = (item: NowActiveItem): TimeBlock => {
+      // 1. Brief sequences
+      if (morningIds.has(item.id)) return 'morning';
+      if (dayIds.has(item.id)) return 'afternoon';
+      if (eveningIds.has(item.id)) return 'evening';
+
+      // 2. Raw store time_window (handles 'morning', 'day', 'evening')
+      const rawTw = storeTimeWindow.get(item.id);
+      if (rawTw === 'morning') return 'morning';
+      if (rawTw === 'day') return 'afternoon';
+      if (rawTw === 'evening') return 'evening';
+
+      // 3. Derive from scheduled_start_iso
+      const todo = todos.find((t) => t.id === item.id);
+      const habit = habits.find((h) => h.id === item.id);
+      const iso = todo?.scheduled_start_iso || habit?.scheduled_start_iso;
+      if (iso) {
+        const d = new Date(iso);
+        if (!isNaN(d.getTime())) {
+          return getTimeBlockForHour(d.getHours());
+        }
+      }
+
+      // 4. inferTimeWindow fallback (NowActiveItem.timeWindow + name keywords)
+      const tw = inferTimeWindow(item);
+      if (tw === 'morning') return 'morning';
+      if (tw === 'afternoon' || tw === 'midday' || tw === 'day') return 'afternoon';
+      if (tw === 'evening') return 'evening';
+      return 'anytime';
+    };
 
     const grouped: Record<TimeBlock, NowActiveItem[]> = {
       allday: [],
@@ -1396,34 +1437,20 @@ function TodayFocusList({
     for (const item of sortedItems) {
       // Break habits → awareness card (names only, no rows)
       if (item.isBreakHabit) {
-        const tw = inferTimeWindow(item);
-        if (tw === 'morning') breakNames.morning.push(item.name);
-        else if (tw === 'afternoon' || tw === 'midday' || tw === 'day')
-          breakNames.afternoon.push(item.name);
-        else if (tw === 'evening') breakNames.evening.push(item.name);
+        const block = resolveBlock(item);
+        if (block === 'morning') breakNames.morning.push(item.name);
+        else if (block === 'afternoon') breakNames.afternoon.push(item.name);
+        else if (block === 'evening') breakNames.evening.push(item.name);
         else breakNames.allday.push(item.name);
         continue;
       }
 
       // Regular items → rows
-      if (morningIds.has(item.id)) {
-        grouped.morning.push(item);
-      } else if (dayIds.has(item.id)) {
-        grouped.afternoon.push(item);
-      } else if (eveningIds.has(item.id)) {
-        grouped.evening.push(item);
-      } else {
-        const timeWindow = inferTimeWindow(item);
-        if (timeWindow === 'morning') grouped.morning.push(item);
-        else if (timeWindow === 'afternoon' || timeWindow === 'midday' || timeWindow === 'day')
-          grouped.afternoon.push(item);
-        else if (timeWindow === 'evening') grouped.evening.push(item);
-        else grouped.anytime.push(item);
-      }
+      grouped[resolveBlock(item)].push(item);
     }
 
     return { itemsByBlock: grouped, breakHabitsByBlock: breakNames };
-  }, [sortedItems, brief]);
+  }, [sortedItems, brief, todos, habits]);
 
   // Merge events and tasks into chronological lists per block
   const unifiedByBlock = useMemo(() => {
