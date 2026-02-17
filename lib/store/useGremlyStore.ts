@@ -651,6 +651,7 @@ interface GremlyState {
       scheduledStartIso?: string | null;
     }>,
   ) => void;
+  slotUnpositionedTasks: () => void;
 
   // ═══════════════════════════════════════════════════════════════════
   // BULK/UTILITY
@@ -3588,6 +3589,193 @@ export const useGremlyStore = create<GremlyState>()(
             if (matchedHabit) {
               get().updateHabit(taskId, payload);
             }
+          }
+        },
+
+        slotUnpositionedTasks: () => {
+          const today = getDateService().getCurrentDate();
+          const [year, month, day] = today.split('-').map(Number);
+          const now = new Date();
+          const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
+
+          // Build occupied ranges from calendar + all currently slotted tasks
+          const occupiedRanges: Record<string, Array<{ start: number; end: number }>> = {
+            morning: [],
+            day: [],
+            evening: [],
+          };
+
+          const calendarEvents = get().calendarEvents[today] || [];
+          for (const event of calendarEvents) {
+            if (event.isAllDay) continue;
+            const eStart = new Date(event.startAt);
+            const eEnd = new Date(event.endAt);
+            const startMin = eStart.getHours() * 60 + eStart.getMinutes();
+            const endMin = eEnd.getHours() * 60 + eEnd.getMinutes();
+            for (const [block, bound] of Object.entries(boundaries)) {
+              const bStart = bound.startHour * 60;
+              const bEnd = bound.endHour * 60;
+              if (startMin < bEnd && endMin > bStart) {
+                occupiedRanges[block].push({
+                  start: Math.max(startMin, bStart),
+                  end: Math.min(endMin, bEnd),
+                });
+              }
+            }
+          }
+
+          // All currently slotted tasks
+          for (const item of [...get().todos, ...get().habits]) {
+            if (!item.scheduled_start_iso) continue;
+            const s = new Date(item.scheduled_start_iso);
+            const sMin = s.getHours() * 60 + s.getMinutes();
+            const duration = item.time_estimate_minutes || 15;
+            for (const [block, bound] of Object.entries(boundaries)) {
+              if (sMin >= bound.startHour * 60 && sMin < bound.endHour * 60) {
+                occupiedRanges[block].push({ start: sMin, end: sMin + duration });
+              }
+            }
+          }
+
+          for (const block of Object.keys(occupiedRanges)) {
+            occupiedRanges[block].sort((a, b) => a.start - b.start);
+          }
+
+          // Find unpositioned tasks: has time_window but no scheduled_start_iso
+          const unpositioned: Array<{
+            id: string;
+            type: 'todo' | 'habit';
+            block: string;
+            duration: number;
+          }> = [];
+
+          for (const todo of get().todos) {
+            if (todo.archived || todo.completed_at) continue;
+            if (todo.due_day !== today) continue;
+            if (todo.time_window && todo.time_window !== 'any' && !todo.scheduled_start_iso) {
+              unpositioned.push({
+                id: todo.id,
+                type: 'todo',
+                block: todo.time_window,
+                duration: todo.time_estimate_minutes || 15,
+              });
+            }
+          }
+
+          for (const habit of get().habits) {
+            if (habit.archived) continue;
+            if (habit.time_window && habit.time_window !== 'any' && !habit.scheduled_start_iso) {
+              unpositioned.push({
+                id: habit.id,
+                type: 'habit',
+                block: habit.time_window,
+                duration: habit.time_estimate_minutes || 15,
+              });
+            }
+          }
+
+          if (unpositioned.length === 0) return;
+
+          console.log('[SlotUnpositioned] Found', unpositioned.length, 'tasks needing slots');
+
+          // Slot each one using same logic as organize fallback
+          const updates: Record<string, { block: string; scheduledStartIso: string | null }> = {};
+
+          for (const task of unpositioned) {
+            const blockOrder = [
+              task.block,
+              ...['day', 'evening', 'morning'].filter((b) => b !== task.block),
+            ];
+
+            let finalIso: string | null = null;
+            let finalBlock = task.block;
+
+            for (const tryBlock of blockOrder) {
+              const bound = boundaries[tryBlock as keyof typeof boundaries];
+              if (!bound) continue;
+
+              const bStartMin = Math.max(
+                bound.startHour * 60,
+                now.getHours() * 60 + now.getMinutes(),
+              );
+              const bEndMin = bound.endHour * 60;
+              if (bStartMin >= bEndMin) continue;
+
+              const ranges = occupiedRanges[tryBlock];
+              let cursor = bStartMin;
+              let found = false;
+
+              for (const range of ranges) {
+                if (range.start - cursor >= task.duration) {
+                  const h = Math.floor(cursor / 60);
+                  const m = cursor % 60;
+                  finalIso = new Date(year, month - 1, day, h, m).toISOString();
+                  finalBlock = tryBlock;
+                  ranges.push({ start: cursor, end: cursor + task.duration });
+                  ranges.sort((a, b) => a.start - b.start);
+                  found = true;
+                  break;
+                }
+                cursor = Math.max(cursor, range.end);
+              }
+
+              if (!found && bEndMin - cursor >= task.duration) {
+                const h = Math.floor(cursor / 60);
+                const m = cursor % 60;
+                finalIso = new Date(year, month - 1, day, h, m).toISOString();
+                finalBlock = tryBlock;
+                ranges.push({ start: cursor, end: cursor + task.duration });
+                ranges.sort((a, b) => a.start - b.start);
+                found = true;
+              }
+
+              if (found) break;
+            }
+
+            if (finalIso) {
+              updates[task.id] = { block: finalBlock, scheduledStartIso: finalIso };
+              console.log('[SlotUnpositioned] Slotted', task.id, 'at', finalIso, 'in', finalBlock);
+            } else {
+              console.warn('[SlotUnpositioned] No slot found for', task.id);
+            }
+          }
+
+          if (Object.keys(updates).length === 0) return;
+
+          // Single set() call
+          set((state) => ({
+            todos: state.todos.map((t) => {
+              const u = updates[t.id];
+              if (!u) return t;
+              return {
+                ...t,
+                time_window: u.block as Todo['time_window'],
+                scheduled_start_iso: u.scheduledStartIso,
+              };
+            }),
+            habits: state.habits.map((h) => {
+              const u = updates[h.id];
+              if (!u) return h;
+              return {
+                ...h,
+                time_window: u.block as Habit['time_window'],
+                scheduled_start_iso: u.scheduledStartIso,
+              };
+            }),
+          }));
+
+          // Persist
+          for (const [id, u] of Object.entries(updates)) {
+            const payload = {
+              time_window: u.block as Todo['time_window'],
+              scheduled_start_iso: u.scheduledStartIso,
+            };
+            const todo = get().todos.find((t) => t.id === id);
+            if (todo) {
+              get().updateTodo(id, payload);
+              continue;
+            }
+            get().updateHabit(id, payload as Partial<Habit>);
           }
         },
 

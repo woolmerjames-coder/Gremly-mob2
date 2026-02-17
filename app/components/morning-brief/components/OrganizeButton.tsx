@@ -70,6 +70,7 @@ export function OrganizeButton({
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
   const applyOrganizeAssignments = useGremlyStore((s) => s.applyOrganizeAssignments);
+  const slotUnpositionedTasks = useGremlyStore((s) => s.slotUnpositionedTasks);
   const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
   const habitRolling7 = useGremlyStore(selectCompletionsInRolling7Days);
   const habitRolling30 = useGremlyStore(selectCompletionsInRolling30Days);
@@ -238,6 +239,8 @@ export function OrganizeButton({
           if (response.assignments.length > 0) {
             applyOrganizeAssignments(response.assignments);
           }
+          // Slot any overflow/unpositioned tasks the AI missed
+          slotUnpositionedTasks();
 
           console.log('[OrganizeButton] Applied assignments', {
             assigned: response.assignments.length,
