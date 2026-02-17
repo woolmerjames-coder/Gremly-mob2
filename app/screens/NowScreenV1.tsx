@@ -1339,6 +1339,10 @@ function TodayFocusList({
   // Get current time block for highlighting
   const currentTimeBlock = getCurrentTimeBlock();
 
+  // Raw store data for scheduled time lookups
+  const todos = useGremlyStore((s) => s.todos);
+  const habits = useGremlyStore((s) => s.habits);
+
   // Group all event notes by time block
   const eventNotesByBlock = useMemo(() => groupKeyDatesByTimeBlock(eventNotes ?? []), [eventNotes]);
 
@@ -1420,13 +1424,79 @@ function TodayFocusList({
     return { itemsByBlock: grouped, breakHabitsByBlock: breakNames };
   }, [sortedItems, brief]);
 
+  // Merge events and tasks into chronological lists per block
+  const unifiedByBlock = useMemo(() => {
+    const blocks = ['morning', 'afternoon', 'evening', 'anytime', 'allday'] as const;
+    const result: Record<
+      string,
+      Array<{
+        kind: 'event' | 'task';
+        id: string;
+        startMinutes: number | null;
+        event?: Note;
+        item?: NowActiveItem;
+      }>
+    > = {};
+
+    // Helper: get start minutes from a Note's event_time
+    const eventStartMins = (note: Note): number | null => {
+      if (!note.event_time) return null;
+      const [h, m] = note.event_time.split(':').map(Number);
+      return !isNaN(h) ? h * 60 + (m || 0) : null;
+    };
+
+    // Helper: get start minutes from an active item's scheduled time
+    const itemStartMins = (item: NowActiveItem): number | null => {
+      const todo = todos.find((t) => t.id === item.id);
+      const habit = habits.find((h) => h.id === item.id);
+      const iso = todo?.scheduled_start_iso || habit?.scheduled_start_iso;
+      if (!iso) return null;
+      const d = new Date(iso);
+      return d.getHours() * 60 + d.getMinutes();
+    };
+
+    for (const block of blocks) {
+      const entries: (typeof result)[string] = [];
+
+      for (const event of eventNotesByBlock[block]) {
+        entries.push({
+          kind: 'event',
+          id: event.id,
+          startMinutes: eventStartMins(event),
+          event,
+        });
+      }
+
+      for (const item of itemsByBlock[block]) {
+        entries.push({
+          kind: 'task',
+          id: item.id,
+          startMinutes: itemStartMins(item),
+          item,
+        });
+      }
+
+      // Sort: timed items first (chronologically), then untimed
+      entries.sort((a, b) => {
+        if (a.startMinutes != null && b.startMinutes != null) {
+          return a.startMinutes - b.startMinutes;
+        }
+        if (a.startMinutes != null) return -1;
+        if (b.startMinutes != null) return 1;
+        return 0;
+      });
+
+      result[block] = entries;
+    }
+
+    return result;
+  }, [eventNotesByBlock, itemsByBlock, todos, habits]);
+
   // Helper to check if a block should render
-  // Only render if block has items, calendar events, key dates, or break habits
   const shouldRenderBlock = (block: TimeBlock) => {
-    const hasItems = itemsByBlock[block].length > 0;
-    const hasEvents = eventNotesByBlock[block].length > 0;
+    const hasItems = (unifiedByBlock[block]?.length ?? 0) > 0;
     const hasBreakHabits = breakHabitsByBlock[block].length > 0;
-    return hasItems || hasEvents || hasBreakHabits;
+    return hasItems || hasBreakHabits;
   };
 
   // Track which section is first for divider logic
@@ -1485,41 +1555,54 @@ function TodayFocusList({
       {/* All Day section */}
       {shouldRenderBlock('allday') && (
         <TimeBlockSection block="allday" isFirst={getIsFirst()}>
-          {eventNotesByBlock.allday.map((event, index) => (
-            <NowCalendarEventRow
-              key={event.id}
-              eventNote={event}
-              isFirst={index === 0}
-              onPress={() => onEventPress?.(event)}
-              onQuickAction={() => onEventQuickAction?.(event)}
-            />
-          ))}
+          {unifiedByBlock.allday.map((entry, index) =>
+            entry.kind === 'event' ? (
+              <NowCalendarEventRow
+                key={entry.id}
+                eventNote={entry.event}
+                isFirst={index === 0}
+                onPress={() => onEventPress?.(entry.event!)}
+                onQuickAction={() => onEventQuickAction?.(entry.event!)}
+              />
+            ) : (
+              <NowFocusRow
+                key={entry.id}
+                item={entry.item!}
+                isCompleted={false}
+                isLocked={false}
+                isFirst={index === 0}
+                onPress={() => onPressItem?.(entry.item!)}
+                onToggleComplete={() => onToggleComplete?.(entry.item!)}
+              />
+            ),
+          )}
         </TimeBlockSection>
       )}
 
       {/* Morning section */}
       {shouldRenderBlock('morning') && (
         <TimeBlockSection block="morning" isFirst={getIsFirst()}>
-          {eventNotesByBlock.morning.map((event, index) => (
-            <NowCalendarEventRow
-              key={event.id}
-              eventNote={event}
-              isFirst={index === 0 && itemsByBlock.morning.length === 0}
-              onPress={() => onEventPress?.(event)}
-              onQuickAction={() => onEventQuickAction?.(event)}
-            />
-          ))}
-          {itemsByBlock.morning.map((item, index) => (
-            <NowFocusRow
-              key={item.id}
-              item={item}
-              isCompleted={false}
-              isLocked={false}
-              isFirst={index === 0 && eventNotesByBlock.morning.length === 0}
-              onPress={() => onPressItem?.(item)}
-              onToggleComplete={() => onToggleComplete?.(item)}
-            />
-          ))}
+          {unifiedByBlock.morning.map((entry, index) =>
+            entry.kind === 'event' ? (
+              <NowCalendarEventRow
+                key={entry.id}
+                eventNote={entry.event}
+                isFirst={index === 0}
+                onPress={() => onEventPress?.(entry.event!)}
+                onQuickAction={() => onEventQuickAction?.(entry.event!)}
+              />
+            ) : (
+              <NowFocusRow
+                key={entry.id}
+                item={entry.item!}
+                isCompleted={false}
+                isLocked={false}
+                isFirst={index === 0}
+                onPress={() => onPressItem?.(entry.item!)}
+                onToggleComplete={() => onToggleComplete?.(entry.item!)}
+              />
+            ),
+          )}
           {breakHabitsByBlock.morning.length > 0 && (
             <BreakHabitCard names={breakHabitsByBlock.morning} />
           )}
@@ -1529,26 +1612,27 @@ function TodayFocusList({
       {/* Afternoon section */}
       {shouldRenderBlock('afternoon') && (
         <TimeBlockSection block="afternoon" isFirst={getIsFirst()}>
-          {eventNotesByBlock.afternoon.map((event, index) => (
-            <NowCalendarEventRow
-              key={event.id}
-              eventNote={event}
-              isFirst={index === 0 && itemsByBlock.afternoon.length === 0}
-              onPress={() => onEventPress?.(event)}
-              onQuickAction={() => onEventQuickAction?.(event)}
-            />
-          ))}
-          {itemsByBlock.afternoon.map((item, index) => (
-            <NowFocusRow
-              key={item.id}
-              item={item}
-              isCompleted={false}
-              isLocked={false}
-              isFirst={index === 0 && eventNotesByBlock.afternoon.length === 0}
-              onPress={() => onPressItem?.(item)}
-              onToggleComplete={() => onToggleComplete?.(item)}
-            />
-          ))}
+          {unifiedByBlock.afternoon.map((entry, index) =>
+            entry.kind === 'event' ? (
+              <NowCalendarEventRow
+                key={entry.id}
+                eventNote={entry.event}
+                isFirst={index === 0}
+                onPress={() => onEventPress?.(entry.event!)}
+                onQuickAction={() => onEventQuickAction?.(entry.event!)}
+              />
+            ) : (
+              <NowFocusRow
+                key={entry.id}
+                item={entry.item!}
+                isCompleted={false}
+                isLocked={false}
+                isFirst={index === 0}
+                onPress={() => onPressItem?.(entry.item!)}
+                onToggleComplete={() => onToggleComplete?.(entry.item!)}
+              />
+            ),
+          )}
           {breakHabitsByBlock.afternoon.length > 0 && (
             <BreakHabitCard names={breakHabitsByBlock.afternoon} />
           )}
@@ -1558,26 +1642,27 @@ function TodayFocusList({
       {/* Evening section */}
       {shouldRenderBlock('evening') && (
         <TimeBlockSection block="evening" isFirst={getIsFirst()}>
-          {eventNotesByBlock.evening.map((event, index) => (
-            <NowCalendarEventRow
-              key={event.id}
-              eventNote={event}
-              isFirst={index === 0 && itemsByBlock.evening.length === 0}
-              onPress={() => onEventPress?.(event)}
-              onQuickAction={() => onEventQuickAction?.(event)}
-            />
-          ))}
-          {itemsByBlock.evening.map((item, index) => (
-            <NowFocusRow
-              key={item.id}
-              item={item}
-              isCompleted={false}
-              isLocked={false}
-              isFirst={index === 0 && eventNotesByBlock.evening.length === 0}
-              onPress={() => onPressItem?.(item)}
-              onToggleComplete={() => onToggleComplete?.(item)}
-            />
-          ))}
+          {unifiedByBlock.evening.map((entry, index) =>
+            entry.kind === 'event' ? (
+              <NowCalendarEventRow
+                key={entry.id}
+                eventNote={entry.event}
+                isFirst={index === 0}
+                onPress={() => onEventPress?.(entry.event!)}
+                onQuickAction={() => onEventQuickAction?.(entry.event!)}
+              />
+            ) : (
+              <NowFocusRow
+                key={entry.id}
+                item={entry.item!}
+                isCompleted={false}
+                isLocked={false}
+                isFirst={index === 0}
+                onPress={() => onPressItem?.(entry.item!)}
+                onToggleComplete={() => onToggleComplete?.(entry.item!)}
+              />
+            ),
+          )}
           {breakHabitsByBlock.evening.length > 0 && (
             <BreakHabitCard names={breakHabitsByBlock.evening} />
           )}
@@ -1587,26 +1672,27 @@ function TodayFocusList({
       {/* Any time section */}
       {shouldRenderBlock('anytime') && (
         <TimeBlockSection block="anytime" isFirst={getIsFirst()}>
-          {eventNotesByBlock.anytime.map((event, index) => (
-            <NowCalendarEventRow
-              key={event.id}
-              eventNote={event}
-              isFirst={index === 0 && itemsByBlock.anytime.length === 0}
-              onPress={() => onEventPress?.(event)}
-              onQuickAction={() => onEventQuickAction?.(event)}
-            />
-          ))}
-          {itemsByBlock.anytime.map((item, index) => (
-            <NowFocusRow
-              key={item.id}
-              item={item}
-              isCompleted={false}
-              isLocked={false}
-              isFirst={index === 0 && eventNotesByBlock.anytime.length === 0}
-              onPress={() => onPressItem?.(item)}
-              onToggleComplete={() => onToggleComplete?.(item)}
-            />
-          ))}
+          {unifiedByBlock.anytime.map((entry, index) =>
+            entry.kind === 'event' ? (
+              <NowCalendarEventRow
+                key={entry.id}
+                eventNote={entry.event}
+                isFirst={index === 0}
+                onPress={() => onEventPress?.(entry.event!)}
+                onQuickAction={() => onEventQuickAction?.(entry.event!)}
+              />
+            ) : (
+              <NowFocusRow
+                key={entry.id}
+                item={entry.item!}
+                isCompleted={false}
+                isLocked={false}
+                isFirst={index === 0}
+                onPress={() => onPressItem?.(entry.item!)}
+                onToggleComplete={() => onToggleComplete?.(entry.item!)}
+              />
+            ),
+          )}
         </TimeBlockSection>
       )}
 
