@@ -1398,7 +1398,8 @@ function TodayFocusList({
       if (item.isBreakHabit) {
         const tw = inferTimeWindow(item);
         if (tw === 'morning') breakNames.morning.push(item.name);
-        else if (tw === 'afternoon' || tw === 'midday') breakNames.afternoon.push(item.name);
+        else if (tw === 'afternoon' || tw === 'midday' || tw === 'day')
+          breakNames.afternoon.push(item.name);
         else if (tw === 'evening') breakNames.evening.push(item.name);
         else breakNames.allday.push(item.name);
         continue;
@@ -1414,7 +1415,7 @@ function TodayFocusList({
       } else {
         const timeWindow = inferTimeWindow(item);
         if (timeWindow === 'morning') grouped.morning.push(item);
-        else if (timeWindow === 'afternoon' || timeWindow === 'midday')
+        else if (timeWindow === 'afternoon' || timeWindow === 'midday' || timeWindow === 'day')
           grouped.afternoon.push(item);
         else if (timeWindow === 'evening') grouped.evening.push(item);
         else grouped.anytime.push(item);
