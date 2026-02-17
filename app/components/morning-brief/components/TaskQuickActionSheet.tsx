@@ -33,10 +33,10 @@ import {
   Sunset,
   Diamond,
   EyeOff,
-  CalendarX2,
   Bell,
   Clock,
   Check,
+  Undo2,
 } from 'lucide-react-native';
 import type { TaskItemData } from './TaskItem';
 import type { TimeBlock } from '../../../../lib/capacity';
@@ -247,8 +247,15 @@ export function TaskQuickActionSheet({
   if (!task) return null;
 
   const handleBlockPress = (block: TimeBlock) => {
-    // Toggle: tapping the already-selected block deselects
-    setSelectedBlock(selectedBlock === block ? null : block);
+    if (selectedBlock === block) {
+      // User is DESELECTING — unassign the task entirely
+      onAssignBlock(task.id, task.type, 'any', false);
+      onUnschedule?.(task.id, task.type);
+      onClose();
+      return;
+    }
+    // User is selecting a different block
+    setSelectedBlock(block);
   };
 
   const handleSlotPress = (gap: GapSlot) => {
@@ -274,6 +281,8 @@ export function TaskQuickActionSheet({
   };
 
   const handleUnschedule = () => {
+    // Clear both time_window and scheduled_start_iso
+    onAssignBlock(task.id, task.type, 'any', false);
     onUnschedule?.(task.id, task.type);
     onClose();
   };
@@ -419,6 +428,27 @@ export function TaskQuickActionSheet({
 
           <View style={styles.sectionDivider} />
 
+          {/* ── Back to priorities (only for block-assigned or slotted tasks) ── */}
+          {(isSlotted || (currentBlock && currentBlock !== 'any')) && (
+            <>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionRow,
+                  pressed && { backgroundColor: PRESSED_BG },
+                ]}
+                onPress={handleUnschedule}
+              >
+                <View style={styles.actionIcon}>
+                  <Undo2 size={18} color="#C27A6B" />
+                </View>
+                <Text style={[styles.actionLabel, { color: '#C27A6B', fontWeight: '600' }]}>
+                  Back to priorities
+                </Text>
+              </Pressable>
+              <View style={styles.rowDivider} />
+            </>
+          )}
+
           {/* ── Lock-in toggle ── */}
           <View style={styles.actionRow}>
             <View style={styles.actionIcon}>
@@ -449,25 +479,6 @@ export function TaskQuickActionSheet({
                   <Bell size={18} color={SAGE} />
                 </View>
                 <Text style={styles.actionLabel}>Remind me</Text>
-              </Pressable>
-              <View style={styles.rowDivider} />
-            </>
-          )}
-
-          {/* ── Unschedule (only for slotted tasks) ── */}
-          {isSlotted && onUnschedule && (
-            <>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.actionRow,
-                  pressed && { backgroundColor: PRESSED_BG },
-                ]}
-                onPress={handleUnschedule}
-              >
-                <View style={styles.actionIcon}>
-                  <CalendarX2 size={18} color={SAGE} />
-                </View>
-                <Text style={styles.actionLabel}>Remove from time slot</Text>
               </Pressable>
               <View style={styles.rowDivider} />
             </>
