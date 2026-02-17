@@ -3433,6 +3433,7 @@ export const useGremlyStore = create<GremlyState>()(
           });
 
           // === STEP 2: Apply assignments to local state ===
+          // Always write scheduled_start_iso — null clears stale times from previous runs
           set((state) => {
             const updatedTodos = state.todos.map((todo) => {
               const assignment = validatedAssignments.find((a) => a.taskId === todo.id);
@@ -3440,9 +3441,7 @@ export const useGremlyStore = create<GremlyState>()(
                 return {
                   ...todo,
                   time_window: assignment.block,
-                  ...(assignment.scheduledStartIso
-                    ? { scheduled_start_iso: assignment.scheduledStartIso }
-                    : {}),
+                  scheduled_start_iso: assignment.scheduledStartIso || null,
                 };
               }
               return todo;
@@ -3454,9 +3453,7 @@ export const useGremlyStore = create<GremlyState>()(
                 return {
                   ...habit,
                   time_window: assignment.block,
-                  ...(assignment.scheduledStartIso
-                    ? { scheduled_start_iso: assignment.scheduledStartIso }
-                    : {}),
+                  scheduled_start_iso: assignment.scheduledStartIso || null,
                 };
               }
               return habit;
@@ -3521,6 +3518,12 @@ export const useGremlyStore = create<GremlyState>()(
 
           // Find tasks needing slot assignment
           const needsSlotting = validatedAssignments.filter((a) => !a.scheduledStartIso);
+          if (needsSlotting.length > 0) {
+            console.log(
+              '[Organize Fallback] Tasks needing slotting:',
+              needsSlotting.map((a) => ({ taskId: a.taskId, block: a.block })),
+            );
+          }
 
           for (const assignment of needsSlotting) {
             const block = assignment.block;
@@ -3553,6 +3556,15 @@ export const useGremlyStore = create<GremlyState>()(
                 const startDate = new Date(year, month - 1, day, startHour, startMinute);
                 const iso = startDate.toISOString();
 
+                console.log(
+                  '[Organize Fallback] Slotted:',
+                  assignment.taskId,
+                  'at',
+                  iso,
+                  'in',
+                  block,
+                );
+
                 const todo = get().todos.find((t) => t.id === assignment.taskId);
                 if (todo) {
                   get().updateTodo(assignment.taskId, { scheduled_start_iso: iso });
@@ -3575,6 +3587,15 @@ export const useGremlyStore = create<GremlyState>()(
               const startDate = new Date(year, month - 1, day, startHour, startMinute);
               const iso = startDate.toISOString();
 
+              console.log(
+                '[Organize Fallback] Slotted (end):',
+                assignment.taskId,
+                'at',
+                iso,
+                'in',
+                block,
+              );
+
               const todo = get().todos.find((t) => t.id === assignment.taskId);
               if (todo) {
                 get().updateTodo(assignment.taskId, { scheduled_start_iso: iso });
@@ -3584,8 +3605,136 @@ export const useGremlyStore = create<GremlyState>()(
 
               ranges.push({ start: cursor, end: cursor + taskDuration });
               ranges.sort((a, b) => a.start - b.start);
+              slotFound = true;
             }
-            // If no gap found, task stays without a time — shows at bottom of block
+
+            // === Cross-block fallback: if assigned block is full, try other blocks ===
+            if (!slotFound) {
+              const blockOrder: Array<'morning' | 'day' | 'evening'> = (
+                ['day', 'evening', 'morning'] as const
+              ).filter((b) => b !== block);
+
+              for (const altBlock of blockOrder) {
+                const altBound = boundaries[altBlock];
+                if (!altBound) continue;
+
+                const altBlockStartMin = Math.max(
+                  altBound.startHour * 60,
+                  now.getHours() * 60 + now.getMinutes(),
+                );
+                const altBlockEndMin = altBound.endHour * 60;
+                if (altBlockStartMin >= altBlockEndMin) continue; // Block is past
+
+                const altRanges = occupiedRanges[altBlock];
+                let altCursor = altBlockStartMin;
+                let altSlotFound = false;
+
+                for (const range of altRanges) {
+                  if (range.start - altCursor >= taskDuration) {
+                    const sh = Math.floor(altCursor / 60);
+                    const sm = altCursor % 60;
+                    const sd = new Date(year, month - 1, day, sh, sm);
+                    const altIso = sd.toISOString();
+
+                    console.log(
+                      '[Organize Fallback] Cross-block slotted:',
+                      assignment.taskId,
+                      'at',
+                      altIso,
+                      'in',
+                      altBlock,
+                      '(originally',
+                      block,
+                      ')',
+                    );
+
+                    set((state) => ({
+                      todos: state.todos.map((t) =>
+                        t.id === assignment.taskId
+                          ? {
+                              ...t,
+                              time_window: altBlock as Todo['time_window'],
+                              scheduled_start_iso: altIso,
+                            }
+                          : t,
+                      ),
+                      habits: state.habits.map((h) =>
+                        h.id === assignment.taskId
+                          ? {
+                              ...h,
+                              time_window: altBlock as Habit['time_window'],
+                              scheduled_start_iso: altIso,
+                            }
+                          : h,
+                      ),
+                    }));
+
+                    altRanges.push({ start: altCursor, end: altCursor + taskDuration });
+                    altRanges.sort((a, b) => a.start - b.start);
+                    altSlotFound = true;
+                    break;
+                  }
+                  altCursor = Math.max(altCursor, range.end);
+                }
+
+                // Check after last range in alt block
+                if (!altSlotFound && altBlockEndMin - altCursor >= taskDuration) {
+                  const sh = Math.floor(altCursor / 60);
+                  const sm = altCursor % 60;
+                  const sd = new Date(year, month - 1, day, sh, sm);
+                  const altIso = sd.toISOString();
+
+                  console.log(
+                    '[Organize Fallback] Cross-block slotted (end):',
+                    assignment.taskId,
+                    'at',
+                    altIso,
+                    'in',
+                    altBlock,
+                    '(originally',
+                    block,
+                    ')',
+                  );
+
+                  set((state) => ({
+                    todos: state.todos.map((t) =>
+                      t.id === assignment.taskId
+                        ? {
+                            ...t,
+                            time_window: altBlock as Todo['time_window'],
+                            scheduled_start_iso: altIso,
+                          }
+                        : t,
+                    ),
+                    habits: state.habits.map((h) =>
+                      h.id === assignment.taskId
+                        ? {
+                            ...h,
+                            time_window: altBlock as Habit['time_window'],
+                            scheduled_start_iso: altIso,
+                          }
+                        : h,
+                    ),
+                  }));
+
+                  altRanges.push({ start: altCursor, end: altCursor + taskDuration });
+                  altRanges.sort((a, b) => a.start - b.start);
+                  altSlotFound = true;
+                }
+
+                if (altSlotFound) {
+                  slotFound = true;
+                  break;
+                }
+              }
+
+              if (!slotFound) {
+                console.warn(
+                  '[Organize Fallback] No slot found in any block for:',
+                  assignment.taskId,
+                );
+              }
+            }
           }
 
           // === STEP 4: Persist all assignments to Supabase ===
