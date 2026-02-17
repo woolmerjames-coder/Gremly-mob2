@@ -63,6 +63,30 @@ const selectIsInitialized = (state: GremlyState) => state.isInitialized;
 const selectSpaceSuggestions = (state: GremlyState) => state.spaceSuggestions;
 const selectHiddenTodayIds = (state: GremlyState) => state.hiddenTodayIds;
 
+// Morning Brief capacity gate selectors
+const selectBriefSelectedIds = (state: GremlyState) => state.briefSelectedIds;
+const selectBriefLockedIds = (state: GremlyState) => state.briefLockedIds;
+const selectBriefSelectionDate = (state: GremlyState) => state.briefSelectionDate;
+
+/** Returns brief selections for a given date, with staleness check */
+export const selectBriefSelectionsForDate = (date: string) =>
+  createSelector(
+    [selectBriefSelectedIds, selectBriefLockedIds, selectBriefSelectionDate],
+    (
+      selectedIds,
+      lockedIds,
+      selectionDate,
+    ): {
+      selectedIds: Set<string>;
+      lockedIds: Set<string>;
+      isStale: boolean;
+    } => ({
+      selectedIds: new Set(selectedIds),
+      lockedIds: new Set(lockedIds),
+      isStale: selectionDate !== date,
+    }),
+  );
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // HABIT COMPLETION TRACKING
 // ═══════════════════════════════════════════════════════════════════════════════

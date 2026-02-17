@@ -770,8 +770,10 @@ export default function NowScreenV1() {
   const handleKeyDatePress = useCallback(
     (event: Note) => {
       console.log('[NowScreenV1] handleKeyDatePress called:', event.id, event.title);
-      // Navigate back from Morning Brief screen first
-      navigation.goBack();
+      // Navigate back from Morning Brief screen first (if applicable)
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      }
       // Open the overlay after a short delay to allow screen to close
       setTimeout(() => {
         overlayController.openEdit({

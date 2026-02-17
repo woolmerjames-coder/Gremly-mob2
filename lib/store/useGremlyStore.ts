@@ -796,6 +796,16 @@ interface GremlyState {
   /** The date that hiddenTodayIds applies to (for auto-reset) */
   hiddenTodayDate: string | null;
 
+  // Morning Brief capacity gate (ephemeral daily state)
+  /** Task IDs the user selected for today in the Morning Brief prioritization flow */
+  briefSelectedIds: string[];
+  /** Task IDs locked as non-negotiable (max 3) */
+  briefLockedIds: string[];
+  /** The date these selections apply to (for daily reset detection) */
+  briefSelectionDate: string | null;
+  /** IDs of tasks explicitly deselected (parked for later) */
+  parkedForDay: string[];
+
   // Calendar actions
   refreshCalendarConnections: () => Promise<void>;
   fetchCalendarEventsForRange: (startDate: string, endDate: string) => Promise<void>;
@@ -851,6 +861,12 @@ interface GremlyState {
   hideForToday: (id: string, forDate?: string) => void;
   unhideForToday: (id: string) => void;
   clearHiddenToday: () => void;
+  // Morning Brief capacity gate actions
+  setBriefSelections: (selectedIds: string[], lockedIds: string[], date: string) => void;
+  toggleBriefSelection: (taskId: string) => void;
+  toggleBriefLock: (taskId: string) => void;
+  clearBriefSelections: () => void;
+  setBriefParked: (parkedIds: string[]) => void;
   // Gap slotting actions
   slotTaskIntoGap: (id: string, entityType: 'todo' | 'habit', startIso: string) => void;
   unslotTask: (id: string, entityType: 'todo' | 'habit') => void;
@@ -925,6 +941,12 @@ const initialState = {
   },
   hiddenTodayIds: [] as string[],
   hiddenTodayDate: null as string | null,
+
+  // Morning Brief capacity gate
+  briefSelectedIds: [] as string[],
+  briefLockedIds: [] as string[],
+  briefSelectionDate: null as string | null,
+  parkedForDay: [] as string[],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1626,7 +1648,10 @@ export const useGremlyStore = create<GremlyState>()(
               );
 
             if (error) {
-              console.warn('[GremlyStore] markDemoSweepComplete DB write failed (non-blocking):', error.message);
+              console.warn(
+                '[GremlyStore] markDemoSweepComplete DB write failed (non-blocking):',
+                error.message,
+              );
             }
           } catch (e) {
             console.warn('[GremlyStore] markDemoSweepComplete DB exception (non-blocking):', e);
@@ -4707,6 +4732,65 @@ export const useGremlyStore = create<GremlyState>()(
         clearHiddenToday: () => {
           set({ hiddenTodayIds: [], hiddenTodayDate: null });
           AsyncStorage.removeItem(HIDDEN_TODAY_STORAGE_KEY);
+        },
+
+        // ═══════════════════════════════════════════════════════════════════
+        // MORNING BRIEF CAPACITY GATE
+        // Ephemeral daily state for task prioritization flow
+        // ═══════════════════════════════════════════════════════════════════
+
+        setBriefSelections: (selectedIds: string[], lockedIds: string[], date: string) => {
+          set({
+            briefSelectedIds: selectedIds,
+            briefLockedIds: lockedIds.slice(0, 3),
+            briefSelectionDate: date,
+          });
+        },
+
+        toggleBriefSelection: (taskId: string) => {
+          set((state) => {
+            const selected = [...state.briefSelectedIds];
+            const idx = selected.indexOf(taskId);
+            if (idx >= 0) {
+              // Removing from selected — also remove from locked
+              selected.splice(idx, 1);
+              return {
+                briefSelectedIds: selected,
+                briefLockedIds: state.briefLockedIds.filter((id) => id !== taskId),
+              };
+            }
+            return { briefSelectedIds: [...selected, taskId] };
+          });
+        },
+
+        toggleBriefLock: (taskId: string) => {
+          set((state) => {
+            // Only works if task is selected
+            if (!state.briefSelectedIds.includes(taskId)) return state;
+            const locked = [...state.briefLockedIds];
+            const idx = locked.indexOf(taskId);
+            if (idx >= 0) {
+              // Unlock
+              locked.splice(idx, 1);
+              return { briefLockedIds: locked };
+            }
+            // Lock — max 3
+            if (locked.length >= 3) return state;
+            return { briefLockedIds: [...locked, taskId] };
+          });
+        },
+
+        clearBriefSelections: () => {
+          set({
+            briefSelectedIds: [],
+            briefLockedIds: [],
+            briefSelectionDate: null,
+            parkedForDay: [],
+          });
+        },
+
+        setBriefParked: (parkedIds: string[]) => {
+          set({ parkedForDay: parkedIds });
         },
 
         // ═══════════════════════════════════════════════════════════════════
