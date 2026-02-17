@@ -2418,26 +2418,27 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
         if (isHabitBuilderStreaming) {
           console.log('[HabitBuilder:Streaming] Starting SSE stream');
 
-          const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          const openaiRes = await fetch(GEMINI_BASE_URL, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${key}`,
+              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1',
+              model: GEMINI_CHAT_MODEL,
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: 800,
+              max_tokens: 800,
               stream: true,
               tools: [WEB_SEARCH_TOOL],
               tool_choice: 'auto',
+              reasoning_effort: 'none',
             }),
           });
 
           if (!openaiRes.ok) {
             const errText = await openaiRes.text().catch(() => '');
-            console.log('[HabitBuilder:Streaming] OpenAI error', {
+            console.log('[HabitBuilder:Streaming] Gemini error', {
               status: openaiRes.status,
               error: errText,
             });
@@ -2461,6 +2462,10 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
             // Track tool call accumulation
             let toolCalls = [];
 
+            // Output guard: buffer first sentence to strip filler openings
+            let fillerBuffer = '';
+            let fillerFlushed = false;
+
             try {
               // eslint-disable-next-line no-constant-condition
               while (true) {
@@ -2482,8 +2487,20 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
 
                     if (delta) {
                       fullContent += delta;
-                      const sseData = JSON.stringify({ delta, done: false });
-                      await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                      if (!fillerFlushed) {
+                        fillerBuffer += delta;
+                        const hasBreak = /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
+                        if (hasBreak) {
+                          const cleaned = stripFillerOpening(fillerBuffer);
+                          if (cleaned) {
+                            await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                          }
+                          fillerFlushed = true;
+                        }
+                      } else {
+                        const sseData = JSON.stringify({ delta, done: false });
+                        await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                      }
                     }
 
                     // Accumulate tool calls
@@ -2506,6 +2523,15 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                   }
                 }
               }
+
+              // Flush any remaining filler buffer
+              if (!fillerFlushed && fillerBuffer) {
+                const cleaned = stripFillerOpening(fillerBuffer);
+                if (cleaned) {
+                  await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                }
+              }
+              fullContent = stripFillerOpening(fullContent);
 
               // ── Handle web search tool calls ──
               const webSearchCalls = toolCalls.filter(
@@ -2582,24 +2608,28 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                   ];
 
                   // Second streaming call with search results
-                  const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                  const followUpRes = await fetch(GEMINI_BASE_URL, {
                     method: 'POST',
                     headers: {
-                      Authorization: `Bearer ${key}`,
+                      Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                       'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                      model: 'gpt-4.1',
+                      model: GEMINI_CHAT_MODEL,
                       messages: followUpMessages,
                       temperature: 0.7,
-                      max_completion_tokens: 800,
+                      max_tokens: 800,
                       stream: true,
+                      reasoning_effort: 'low',
                     }),
                   });
 
                   // Stream the follow-up response
                   const followUpReader = followUpRes.body.getReader();
                   let followUpBuffer = '';
+
+                  let followUpFillerBuffer = '';
+                  let followUpFillerFlushed = false;
 
                   // eslint-disable-next-line no-constant-condition
                   while (true) {
@@ -2621,15 +2651,36 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                         const delta = json.choices?.[0]?.delta?.content;
                         if (delta) {
                           fullContent += delta;
-                          await writer.write(
-                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                          );
+                          if (!followUpFillerFlushed) {
+                            followUpFillerBuffer += delta;
+                            const hasBreak = /[.?!]\s/.test(followUpFillerBuffer) || followUpFillerBuffer.length > 150;
+                            if (hasBreak) {
+                              const cleaned = stripFillerOpening(followUpFillerBuffer);
+                              if (cleaned) {
+                                await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                              }
+                              followUpFillerFlushed = true;
+                            }
+                          } else {
+                            await writer.write(
+                              encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                            );
+                          }
                         }
                       } catch {
                         // skip
                       }
                     }
                   }
+
+                  // Flush remaining follow-up filler buffer
+                  if (!followUpFillerFlushed && followUpFillerBuffer) {
+                    const cleaned = stripFillerOpening(followUpFillerBuffer);
+                    if (cleaned) {
+                      await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                    }
+                  }
+                  fullContent = stripFillerOpening(fullContent);
 
                   console.log('[HabitBuilder:Streaming] Search complete', {
                     searchCount: successfulSearches.length,
@@ -2689,17 +2740,18 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
 
         // ── NON-STREAMING FALLBACK ──
         try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          const res = await fetch(GEMINI_BASE_URL, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${key}`,
+              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1',
+              model: GEMINI_CHAT_MODEL,
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: 400,
+              max_tokens: 400,
+              reasoning_effort: 'none',
             }),
           });
 
@@ -2714,7 +2766,8 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
             );
           }
 
-          const content = oj?.choices?.[0]?.message?.content ?? '';
+          let content = oj?.choices?.[0]?.message?.content ?? '';
+          content = stripFillerOpening(content);
 
           // Extraction call with full conversation
           const fullConversation = [...messages, { role: 'assistant', content }];
@@ -7616,6 +7669,15 @@ Keep responses concise and scannable for mobile.
 - No markdown headers (#), tables, or code blocks
 - No exclamation marks—keep it calm
 
+=== OPENING LINE RULES ===
+Never start with a compliment or filler ("That's a great question", "Love that idea", "It's smart to think about"). Just respond directly with content.
+
+=== SEARCH BEHAVIOR ===
+When you receive search results, lead with the most specific finding — a study name, a statistic, a concrete recommendation. Never restate generic knowledge that anyone could find. If a source mentions a specific study, percentage, or expert — use it.
+
+WRONG: "Research suggests that meditation can help with focus."
+RIGHT: "A 2023 UCL study found that pairing meditation with an existing habit makes it 2x more likely to stick after 30 days."
+
 === SAVE SUGGESTIONS ===
 Do NOT mention saving in your response text. When your response contains useful content worth saving, append a hidden block AFTER your response.
 
@@ -7660,31 +7722,17 @@ Rules:
       if (isSpaceChatStreaming && isSpaceChatLane) {
         console.log('[SpaceChat:Streaming] Starting SSE stream');
 
-        // Space Chat routing - conservative, default to 4.1
+        // Space Chat - all Gemini Flash (no mini/full split needed, Flash is cheap + good)
         const lastUserMsgSpace = messages.filter((m) => m.role === 'user').pop()?.content || '';
         const msgLowerSpace = lastUserMsgSpace.toLowerCase();
-        const canUseMiniSpace =
-          lastUserMsgSpace.length < 50 &&
-          (lastUserMsgSpace.match(/\?/g) || []).length <= 1 &&
-          messages.filter((m) => m.role === 'user').length < 3 &&
-          !msgLowerSpace.includes('why') &&
-          !msgLowerSpace.includes('how do i') &&
-          !msgLowerSpace.includes('help me') &&
-          !msgLowerSpace.includes('feeling') &&
-          !msgLowerSpace.includes('explain') &&
-          !msgLowerSpace.includes('research');
-
-        const spaceModel = canUseMiniSpace ? 'gpt-4o-mini' : 'gpt-4.1';
         const spaceMaxTokens =
           lastUserMsgSpace.length > 100 ||
           msgLowerSpace.includes('plan') ||
           msgLowerSpace.includes('steps')
             ? 800
             : 600;
-        console.log('[SpaceChat:Streaming] Model routing:', {
-          model: spaceModel,
+        console.log('[SpaceChat:Streaming] Using Gemini Flash', {
           maxTokens: spaceMaxTokens,
-          canUseMini: canUseMiniSpace,
         });
 
         // Create TransformStream early so we can send fetching indicators
@@ -7841,31 +7889,27 @@ Rules:
         }
 
         const openaiPayload = {
-          model: spaceModel,
+          model: GEMINI_CHAT_MODEL,
           messages: spaceChatMessages,
           temperature,
           stream: true,
           tools: [WEB_SEARCH_TOOL],
           tool_choice: 'auto',
+          max_tokens: spaceMaxTokens,
+          reasoning_effort: 'none',
         };
-
-        if (spaceModel === 'gpt-4.1' || spaceModel === 'gpt-4o') {
-          openaiPayload.max_completion_tokens = spaceMaxTokens;
-        } else {
-          openaiPayload.max_tokens = spaceMaxTokens;
-        }
 
         const t0 = Date.now();
 
-        const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        const openaiRes = await fetch(GEMINI_BASE_URL, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${env.GOOGLE_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(openaiPayload),
         });
 
         if (!openaiRes.ok) {
           const errText = await openaiRes.text().catch(() => '');
-          console.log('[SpaceChat:Streaming] OpenAI error', {
+          console.log('[SpaceChat:Streaming] Gemini error', {
             status: openaiRes.status,
             error: errText,
           });
@@ -7879,6 +7923,10 @@ Rules:
 
           // Track tool calls accumulation (array for multiple calls)
           let toolCalls = [];
+
+            // Output guard: buffer first sentence to strip filler openings
+            let fillerBuffer = '';
+            let fillerFlushed = false;
 
           try {
             // eslint-disable-next-line no-constant-condition
@@ -7901,8 +7949,23 @@ Rules:
 
                   if (delta) {
                     fullContent += delta;
-                    const sseData = JSON.stringify({ delta, done: false });
-                    await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                    // Don't stream SAVE comments to client
+                    if (!fullContent.includes('<!--SAVE:')) {
+                      if (!fillerFlushed) {
+                        fillerBuffer += delta;
+                        const hasBreak = /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
+                        if (hasBreak) {
+                          const cleaned = stripFillerOpening(fillerBuffer);
+                          if (cleaned) {
+                            await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                          }
+                          fillerFlushed = true;
+                        }
+                      } else {
+                        const sseData = JSON.stringify({ delta, done: false });
+                        await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                      }
+                    }
                   }
 
                   // Check for tool calls (handle multiple)
@@ -7926,6 +7989,15 @@ Rules:
                 }
               }
             }
+
+            // Flush any remaining filler buffer from main stream
+            if (!fillerFlushed && fillerBuffer) {
+              const cleaned = stripFillerOpening(fillerBuffer);
+              if (cleaned) {
+                await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+              }
+            }
+            fullContent = stripFillerOpening(fullContent);
 
             // Track search metadata
             let sources = undefined;
@@ -8035,18 +8107,19 @@ Rules:
                 ];
 
                 // Second API call for final response - with real streaming
-                const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                const followUpRes = await fetch(GEMINI_BASE_URL, {
                   method: 'POST',
                   headers: {
-                    Authorization: `Bearer ${key}`,
+                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    model: actualModel,
+                    model: GEMINI_CHAT_MODEL,
                     messages: followUpMessages,
                     temperature,
-                    max_completion_tokens: 800,
+                    max_tokens: 800,
                     stream: true,
+                    reasoning_effort: 'low',
                   }),
                 });
 
@@ -8055,6 +8128,9 @@ Rules:
                 const followUpDecoder = new TextDecoder();
                 let followUpBuffer = '';
                 let readerDone = false;
+
+                let followUpFillerBuffer = '';
+                let followUpFillerFlushed = false;
 
                 while (!readerDone) {
                   const result = await followUpReader.read();
@@ -8080,9 +8156,21 @@ Rules:
                       const delta = json.choices?.[0]?.delta?.content;
                       if (delta) {
                         fullContent += delta;
-                        await writer.write(
-                          encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                        );
+                        if (!followUpFillerFlushed) {
+                          followUpFillerBuffer += delta;
+                          const hasBreak = /[.?!]\s/.test(followUpFillerBuffer) || followUpFillerBuffer.length > 150;
+                          if (hasBreak) {
+                            const cleaned = stripFillerOpening(followUpFillerBuffer);
+                            if (cleaned) {
+                              await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                            }
+                            followUpFillerFlushed = true;
+                          }
+                        } else {
+                          await writer.write(
+                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                          );
+                        }
                       }
                     } catch {
                       // Skip malformed JSON
@@ -8101,9 +8189,13 @@ Rules:
                         const delta = json.choices?.[0]?.delta?.content;
                         if (delta) {
                           fullContent += delta;
-                          await writer.write(
-                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                          );
+                          if (!followUpFillerFlushed) {
+                            followUpFillerBuffer += delta;
+                          } else {
+                            await writer.write(
+                              encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                            );
+                          }
                         }
                       } catch {
                         // Skip
@@ -8111,6 +8203,15 @@ Rules:
                     }
                   }
                 }
+
+                // Flush remaining follow-up filler buffer
+                if (!followUpFillerFlushed && followUpFillerBuffer) {
+                  const cleaned = stripFillerOpening(followUpFillerBuffer);
+                  if (cleaned) {
+                    await writer.write(encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`));
+                  }
+                }
+                fullContent = stripFillerOpening(fullContent);
 
                 // Combine all sources
                 sources = successfulSearches.flatMap((sr) =>
@@ -8125,14 +8226,14 @@ Rules:
                 '[SpaceChat:Streaming] Search fallback - responding without search results',
               );
 
-              const fallbackRes = await fetch('https://api.openai.com/v1/chat/completions', {
+              const fallbackRes = await fetch(GEMINI_BASE_URL, {
                 method: 'POST',
                 headers: {
-                  Authorization: `Bearer ${key}`,
+                  Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                  model: actualModel,
+                  model: GEMINI_CHAT_MODEL,
                   messages: [
                     ...messages,
                     {
@@ -8142,7 +8243,8 @@ Rules:
                     },
                   ],
                   temperature,
-                  max_completion_tokens: 600,
+                  max_tokens: 600,
+                  reasoning_effort: 'none',
                 }),
               });
 
@@ -8150,6 +8252,7 @@ Rules:
               fullContent =
                 fallbackData?.choices?.[0]?.message?.content ??
                 'I had trouble searching for that information. Could you try rephrasing your question?';
+              fullContent = stripFillerOpening(fullContent);
 
               // Stream the fallback content
               const words = fullContent.split(' ');
@@ -8230,26 +8333,10 @@ Rules:
       // --- NON-STREAMING (original logic, with web search for space_chat) ---
       const t0NonStream = Date.now();
 
-      // Space Chat routing - conservative, default to 4.1
       const lastUserMsgNonStream = messages.filter((m) => m.role === 'user').pop()?.content || '';
       const msgLowerNonStream = lastUserMsgNonStream.toLowerCase();
-      const canUseMiniNonStream =
-        isSpaceChatLane &&
-        lastUserMsgNonStream.length < 50 &&
-        (lastUserMsgNonStream.match(/\?/g) || []).length <= 1 &&
-        messages.filter((m) => m.role === 'user').length < 3 &&
-        !msgLowerNonStream.includes('why') &&
-        !msgLowerNonStream.includes('how do i') &&
-        !msgLowerNonStream.includes('help me') &&
-        !msgLowerNonStream.includes('feeling') &&
-        !msgLowerNonStream.includes('explain') &&
-        !msgLowerNonStream.includes('research');
 
-      const nonStreamModel = isSpaceChatLane
-        ? canUseMiniNonStream
-          ? 'gpt-4o-mini'
-          : 'gpt-4.1'
-        : actualModel;
+      const nonStreamModel = isSpaceChatLane ? GEMINI_CHAT_MODEL : actualModel;
       const nonStreamMaxTokens = isSpaceChatLane
         ? lastUserMsgNonStream.length > 100 ||
           msgLowerNonStream.includes('plan') ||
@@ -8259,30 +8346,31 @@ Rules:
         : maxTokensValue;
 
       if (isSpaceChatLane) {
-        console.log('[SpaceChat] Model routing:', {
-          model: nonStreamModel,
+        console.log('[SpaceChat] Using Gemini Flash', {
           maxTokens: nonStreamMaxTokens,
-          canUseMini: canUseMiniNonStream,
         });
       }
 
       const openaiPayload = { model: nonStreamModel, messages, temperature, stream: false };
 
-      if (nonStreamModel === 'gpt-4.1' || nonStreamModel === 'gpt-4o') {
+      if (isSpaceChatLane) {
+        openaiPayload.max_tokens = nonStreamMaxTokens;
+        openaiPayload.reasoning_effort = 'none';
+        openaiPayload.tools = [WEB_SEARCH_TOOL];
+        openaiPayload.tool_choice = 'auto';
+      } else if (nonStreamModel === 'gpt-4.1' || nonStreamModel === 'gpt-4o') {
         openaiPayload.max_completion_tokens = nonStreamMaxTokens;
       } else {
         openaiPayload.max_tokens = nonStreamMaxTokens;
       }
 
-      // Add web search tools for space_chat lane
-      if (isSpaceChatLane) {
-        openaiPayload.tools = [WEB_SEARCH_TOOL];
-        openaiPayload.tool_choice = 'auto';
-      }
+      // Use Gemini for Space Chat, OpenAI for everything else (classify, etc.)
+      const nonStreamUrl = isSpaceChatLane ? GEMINI_BASE_URL : 'https://api.openai.com/v1/chat/completions';
+      const nonStreamAuthKey = isSpaceChatLane ? env.GOOGLE_API_KEY : key;
 
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch(nonStreamUrl, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${nonStreamAuthKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(openaiPayload),
       });
 
@@ -8342,17 +8430,18 @@ Rules:
               ];
 
               // Second API call
-              const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+              const followUpRes = await fetch(GEMINI_BASE_URL, {
                 method: 'POST',
                 headers: {
-                  Authorization: `Bearer ${key}`,
+                  Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                  model: actualModel,
+                  model: GEMINI_CHAT_MODEL,
                   messages: followUpMessages,
                   temperature,
-                  max_completion_tokens: 800,
+                  max_tokens: 800,
+                  reasoning_effort: 'low',
                 }),
               });
 
