@@ -30,7 +30,7 @@ interface StepPlanProps {
   onTaskPress: (task: any) => void;
   onTimePress: (task: any) => void;
   onSlottedTaskPress: (task: any) => void;
-  onGapSlotPress: (gap: any, block: string) => void;
+  onGapSlotPress: (gap: any, block: 'morning' | 'afternoon' | 'evening') => void;
   onKeyDatePress?: (event: Note) => void;
   onEventQuickAction: (event: Note) => void;
   onFreeMinutesCalculated: (block: string, mins: number) => void;
