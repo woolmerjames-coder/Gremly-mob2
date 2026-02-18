@@ -564,13 +564,17 @@ export function MorningBriefSheet({
     tasksByBlock.flexible.length > 0 && flexibleTaskMinutes > realisticCapacity;
 
   // ─── Step sequence for MorningBriefStepper ───
-  const stepsNeeded = useMemo<BriefStep[]>(() => {
+  // Lock to initial value so mid-flow state changes (e.g. markMiniSweepCompleted)
+  // don't recompute the array and shift step indices while the user is navigating.
+  const stepsNeededRef = useRef<BriefStep[] | null>(null);
+  if (stepsNeededRef.current === null) {
     const steps: BriefStep[] = ['glance'];
     if (showMiniSweep) steps.push('sweep');
     if (isPrioritizing) steps.push('prioritize');
     steps.push('organize', 'plan');
-    return steps;
-  }, [showMiniSweep, isPrioritizing]);
+    stepsNeededRef.current = steps;
+  }
+  const stepsNeeded = stepsNeededRef.current;
 
   // Memoized Sets for O(1) lookup
   const briefSelectedSet = useMemo(() => new Set(briefSelectedIds), [briefSelectedIds]);

@@ -57,11 +57,19 @@ export function MorningBriefStepper({
 }: StepperProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [fadeAnim] = useState(() => new Animated.Value(1));
+  // Track whether a fade transition is in flight.
+  // 0 = idle, 1 = transitioning.  Using Animated.Value avoids
+  // both useRef (.current flagged by react-hooks/refs) and
+  // direct state-object mutation (flagged by the linter).
+  const [transitionFlag] = useState(() => new Animated.Value(0));
 
   const currentStep = stepsNeeded[currentIndex];
 
   const transitionTo = useCallback(
     (targetIndex: number) => {
+      // eslint-disable-next-line no-underscore-dangle
+      if ((transitionFlag as any).__getValue() !== 0) return;
+      transitionFlag.setValue(1);
       // Fade out
       Animated.timing(fadeAnim, {
         toValue: 0,
@@ -76,10 +84,12 @@ export function MorningBriefStepper({
           duration: 200,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
-        }).start();
+        }).start(() => {
+          transitionFlag.setValue(0);
+        });
       });
     },
-    [fadeAnim],
+    [fadeAnim, transitionFlag],
   );
 
   const advance = useCallback(() => {
