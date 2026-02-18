@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { View, ScrollView, Pressable, StyleSheet } from 'react-native';
+import { View, ScrollView, Pressable, StyleSheet, Text as RNText } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import type { Note } from '../../../lib/types';
@@ -92,8 +92,10 @@ interface DisplayEvent {
   startTime: string | null; // HH:mm or null for all-day
   endTime: string | null;
   isAllDay: boolean;
-  /** Only present for key-date events (pressable) */
+  /** Real Note object for key-date events */
   sourceNote?: Note;
+  /** Synthetic note for calendar events without a real Note */
+  syntheticNote?: Partial<Note>;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -133,6 +135,18 @@ export function StepGlance({
       startTime: e.isAllDay ? null : isoToHHMM(e.startAt),
       endTime: e.isAllDay ? null : isoToHHMM(e.endAt),
       isAllDay: e.isAllDay,
+      syntheticNote: {
+        id: e.id,
+        title: e.title || 'Untitled',
+        event_time: e.isAllDay ? null : isoToHHMM(e.startAt),
+        end_time: e.isAllDay ? null : isoToHHMM(e.endAt),
+        is_all_day: e.isAllDay,
+        subtype: 'event',
+        target_date: null,
+        body: null,
+        space_id: null,
+        archived: false,
+      } as Partial<Note>,
     }));
 
     // De-duplicate by title + start time (synced events may overlap with key dates)
@@ -166,15 +180,15 @@ export function StepGlance({
       <View style={styles.heroArea}>
         {isFullyBooked ? (
           <>
-            <Text style={styles.fullyBookedTitle}>Fully booked today</Text>
-            <Text style={styles.fullyBookedSub}>But you can still shuffle things around</Text>
+            <RNText style={styles.fullyBookedTitle}>Fully booked today</RNText>
+            <RNText style={styles.fullyBookedSub}>But you can still shuffle things around</RNText>
           </>
         ) : (
           <>
-            <Text style={styles.youHave}>You have</Text>
+            <RNText style={styles.youHave}>You have</RNText>
             <View style={styles.heroRow}>
-              <Text style={styles.heroTime}>{freeTimeFormatted}</Text>
-              <Text style={styles.heroRest}> of open time today</Text>
+              <RNText style={styles.heroTime}>{freeTimeFormatted}</RNText>
+              <RNText style={styles.heroRest}> of open time today</RNText>
             </View>
           </>
         )}
@@ -184,23 +198,24 @@ export function StepGlance({
       {hasEvents ? (
         <>
           <Text style={styles.sectionLabel}>TODAY&apos;S SCHEDULE</Text>
-          <Text style={styles.helperText}>Tap a key date to adjust or remove</Text>
+          <Text style={styles.helperText}>Tap any event to adjust or remove</Text>
           <View style={styles.card}>
             {allEvents.map((event, index) => {
               const isLast = index === allEvents.length - 1;
-              const isTappable = !!event.sourceNote;
 
               return (
                 <Pressable
                   key={event.id}
                   style={({ pressed }) => [
                     styles.eventRow,
-                    pressed && isTappable && { backgroundColor: 'rgba(46,85,64,0.04)' },
+                    pressed && { backgroundColor: 'rgba(46,85,64,0.04)' },
                     !isLast && styles.eventRowBorder,
                     event.isAllDay && styles.eventRowAllDay,
                   ]}
-                  onPress={isTappable ? () => onEventQuickAction(event.sourceNote!) : undefined}
-                  disabled={!isTappable}
+                  onPress={() => {
+                    const note = event.sourceNote ?? event.syntheticNote;
+                    if (note) onEventQuickAction(note as Note);
+                  }}
                 >
                   <Text style={[styles.eventTime, event.isAllDay && styles.eventTimeAllDay]}>
                     {event.isAllDay ? 'All day' : formatTimeRange(event.startTime, event.endTime)}
@@ -266,7 +281,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
     flexWrap: 'wrap',
-    paddingRight: 20,
   },
   heroTime: {
     fontSize: 32,
