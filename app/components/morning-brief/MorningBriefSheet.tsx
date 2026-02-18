@@ -40,6 +40,7 @@ import { computeHabitStreak } from '../../../lib/habits/streakUtils';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
 import { useCapacityForDate, useTodayCalendarEvents } from '../../../lib/store/capacitySelectors';
+import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
 import {
   useTodayPendingDrops,
   useEventsForDate,
@@ -1097,6 +1098,27 @@ export function MorningBriefSheet({
     setQuickActionEvent(event);
   }, []);
 
+  const handleCalendarEventAction = useCallback(
+    (calEvent: CalendarEvent) => {
+      const timeLabel = calEvent.isAllDay
+        ? 'All day'
+        : `${calEvent.startAt ? new Date(calEvent.startAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}`;
+
+      Alert.alert(calEvent.title || 'Calendar Event', timeLabel, [
+        { text: 'Keep', style: 'cancel' },
+        {
+          text: 'Hide from today',
+          style: 'destructive',
+          onPress: () => {
+            const hideId = `${calEvent.provider}-${calEvent.providerEventId}`;
+            useGremlyStore.getState().hideCalendarEvent(today, hideId);
+          },
+        },
+      ]);
+    },
+    [today],
+  );
+
   const handleDismissEvent = useCallback((eventId: string) => {
     const now = new Date().toISOString();
     useGremlyStore.getState().updateNote(eventId, {
@@ -1432,6 +1454,7 @@ export function MorningBriefSheet({
             freeMinutes={effectiveFreeMinutes}
             totalEventCount={capacity.totalEventCount}
             onEventQuickAction={handleEventQuickAction}
+            onCalendarEventAction={handleCalendarEventAction}
             onContinue={onContinue}
             onSkipToEnd={onSkipToEnd}
           />

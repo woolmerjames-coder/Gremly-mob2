@@ -29,6 +29,8 @@ interface StepGlanceProps {
   totalEventCount: number;
   /** Callbacks */
   onEventQuickAction: (event: Note) => void;
+  /** Handles action on synced calendar events */
+  onCalendarEventAction: (calEvent: CalendarEvent) => void;
   onContinue: () => void;
   onSkipToEnd: () => void;
 }
@@ -94,8 +96,8 @@ interface DisplayEvent {
   isAllDay: boolean;
   /** Real Note object for key-date events */
   sourceNote?: Note;
-  /** Synthetic note for calendar events without a real Note */
-  syntheticNote?: Partial<Note>;
+  /** Original CalendarEvent for synced events */
+  sourceCalendarEvent?: CalendarEvent;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -109,6 +111,7 @@ export function StepGlance({
   freeMinutes,
   totalEventCount,
   onEventQuickAction,
+  onCalendarEventAction,
   onContinue,
   onSkipToEnd,
 }: StepGlanceProps) {
@@ -135,18 +138,7 @@ export function StepGlance({
       startTime: e.isAllDay ? null : isoToHHMM(e.startAt),
       endTime: e.isAllDay ? null : isoToHHMM(e.endAt),
       isAllDay: e.isAllDay,
-      syntheticNote: {
-        id: e.id,
-        title: e.title || 'Untitled',
-        event_time: e.isAllDay ? null : isoToHHMM(e.startAt),
-        end_time: e.isAllDay ? null : isoToHHMM(e.endAt),
-        is_all_day: e.isAllDay,
-        subtype: 'event',
-        target_date: null,
-        body: null,
-        space_id: null,
-        archived: false,
-      } as Partial<Note>,
+      sourceCalendarEvent: e,
     }));
 
     // De-duplicate by title + start time (synced events may overlap with key dates)
@@ -213,8 +205,11 @@ export function StepGlance({
                     event.isAllDay && styles.eventRowAllDay,
                   ]}
                   onPress={() => {
-                    const note = event.sourceNote ?? event.syntheticNote;
-                    if (note) onEventQuickAction(note as Note);
+                    if (event.sourceNote) {
+                      onEventQuickAction(event.sourceNote);
+                    } else if (event.sourceCalendarEvent) {
+                      onCalendarEventAction(event.sourceCalendarEvent);
+                    }
                   }}
                 >
                   <Text style={[styles.eventTime, event.isAllDay && styles.eventTimeAllDay]}>
