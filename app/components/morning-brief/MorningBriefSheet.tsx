@@ -557,9 +557,7 @@ export function MorningBriefSheet({
   }, [tasksByBlock.flexible]);
 
   const isPrioritizing =
-    realisticCapacity > 15 &&
-    flexibleTaskMinutes > realisticCapacity &&
-    tasksByBlock.flexible.length > 3;
+    tasksByBlock.flexible.length > 0 && flexibleTaskMinutes > realisticCapacity;
 
   // Memoized Sets for O(1) lookup
   const briefSelectedSet = useMemo(() => new Set(briefSelectedIds), [briefSelectedIds]);
