@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { View, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
-import { MoreHorizontal } from 'lucide-react-native';
+import { Calendar } from 'lucide-react-native';
 import type { Note } from '../../../lib/types';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -123,7 +123,7 @@ export function StepGlance({
           <>
             {/* Card header */}
             <View style={styles.cardHeader}>
-              <Text style={styles.cardHeaderIcon}>📅</Text>
+              <Calendar size={16} color={BRAND.colors.mossGreen} />
               <Text style={styles.cardHeaderCount}>
                 {visibleEvents.length} event{visibleEvents.length !== 1 ? 's' : ''}
               </Text>
@@ -144,7 +144,7 @@ export function StepGlance({
                     !isLast && styles.eventRowBorder,
                     isAllDay && styles.eventRowAllDay,
                   ]}
-                  onPress={() => onEventPress?.(event)}
+                  onPress={() => onEventQuickAction(event)}
                 >
                   <Text style={styles.eventTime}>
                     {isAllDay ? 'All day' : formatEventTime(event.event_time)}
@@ -153,13 +153,6 @@ export function StepGlance({
                     {event.title || 'Untitled'}
                   </Text>
                   {duration && <Text style={styles.eventDuration}>{duration}</Text>}
-                  <Pressable
-                    onPress={() => onEventQuickAction(event)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    style={styles.moreBtn}
-                  >
-                    <MoreHorizontal size={16} color="#CCCCCC" />
-                  </Pressable>
                 </Pressable>
               );
             })}
@@ -222,9 +215,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  cardHeaderIcon: {
-    fontSize: 15,
-  },
+
   cardHeaderCount: {
     fontSize: 14,
     fontWeight: '700',
@@ -263,9 +254,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: BRAND.colors.inkMuted,
   },
-  moreBtn: {
-    paddingLeft: 4,
-  },
+
   freeTimeBar: {
     borderTopWidth: 1,
     borderTopColor: BRAND.colors.borderSubtle,
