@@ -1585,7 +1585,7 @@ export function MorningBriefSheet({
             onSkipToEnd={onSkipToEnd}
           />
         )}
-        renderSweep={(onContinue, onSkip) => (
+        renderSweep={(onContinue, onSkip, onBack) => (
           <StepSweep
             rolledOverTodos={rolledOverTodos}
             unscheduledTodos={unscheduledTodos}
@@ -1597,9 +1597,10 @@ export function MorningBriefSheet({
               handleMiniSweepSkip();
               onSkip();
             }}
+            onBack={onBack}
           />
         )}
-        renderPrioritize={(onContinue, onSkip) => (
+        renderPrioritize={(onContinue, onSkip, onBack) => (
           <StepPrioritize
             flexibleTasks={allDayTasks}
             isPrioritizing={isPrioritizing}
@@ -1619,9 +1620,10 @@ export function MorningBriefSheet({
             animatingAssignments={animatingAssignments}
             onContinue={onContinue}
             onSkip={onSkip}
+            onBack={onBack}
           />
         )}
-        renderOrganize={(onContinue, onSkip) => (
+        renderOrganize={(onContinue, onSkip, onBack) => (
           <StepOrganize
             targetDate={isTomorrow ? today : undefined}
             isPrioritizing={isPrioritizing}
@@ -1662,9 +1664,10 @@ export function MorningBriefSheet({
             }}
             onContinue={onContinue}
             onSkip={onSkip}
+            onBack={onBack}
           />
         )}
-        renderPlan={() => (
+        renderPlan={(onBack) => (
           <StepPlan
             capacity={capacity}
             keyDatesByBlock={keyDatesByBlock}
@@ -1690,6 +1693,8 @@ export function MorningBriefSheet({
             onShowReasoning={() => setShowReasoningModal(true)}
             onConfirm={handleComplete}
             isLoading={isSaving}
+            onBack={onBack}
+            showBack={stepsNeeded.length > 1}
           />
         )}
       >

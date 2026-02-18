@@ -9,7 +9,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { View, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../../../ui';
-import { Clock } from 'lucide-react-native';
+import { Clock, ChevronLeft } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { getDateService } from '../../../lib/date';
@@ -27,6 +27,7 @@ interface StepSweepProps {
   unscheduledTodos: Todo[];
   onContinue: () => void;
   onSkip: () => void;
+  onBack?: () => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -38,6 +39,7 @@ export function StepSweep({
   unscheduledTodos,
   onContinue,
   onSkip,
+  onBack,
 }: StepSweepProps) {
   // Calendar-aware Gremly message
   const { gremlyMessage } = useMiniSweepCalendarContext();
@@ -285,15 +287,29 @@ export function StepSweep({
 
       {/* ─── Footer ─── */}
       <View style={styles.footer}>
-        <Pressable
-          style={({ pressed }) => [styles.continueBtn, pressed && { opacity: 0.7 }]}
-          onPress={handleSave}
-          disabled={isSaving}
-        >
-          <Text style={styles.continueBtnText}>
-            {changeCount > 0 ? `Save & continue (${changeCount})` : 'Continue →'}
-          </Text>
-        </Pressable>
+        <View style={styles.footerRow}>
+          {onBack && (
+            <Pressable
+              style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.6 }]}
+              onPress={onBack}
+            >
+              <ChevronLeft size={20} color={BRAND.colors.inkMuted} />
+            </Pressable>
+          )}
+          <Pressable
+            style={({ pressed }) => [
+              styles.continueBtn,
+              onBack ? { flex: 1 } : undefined,
+              pressed && { opacity: 0.7 },
+            ]}
+            onPress={handleSave}
+            disabled={isSaving}
+          >
+            <Text style={styles.continueBtnText}>
+              {changeCount > 0 ? `Save & continue (${changeCount})` : 'Continue →'}
+            </Text>
+          </Pressable>
+        </View>
         <Pressable
           style={({ pressed }) => [styles.skipBtn, pressed && { opacity: 0.5 }]}
           onPress={onSkip}
@@ -432,6 +448,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 8,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  backButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: BRAND.colors.borderSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   continueBtn: {
     backgroundColor: '#E8F0EB',

@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
-import { Check, Lock, Plus, MoreHorizontal } from 'lucide-react-native';
+import { Check, Lock, Plus, MoreHorizontal, ChevronLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import type { TaskItemData } from './components';
 
@@ -74,6 +74,7 @@ interface StepPrioritizeProps {
   animatingAssignments: unknown[] | null;
   onContinue: () => void;
   onSkip: () => void;
+  onBack?: () => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -85,6 +86,7 @@ export function StepPrioritize({
   selectedMinutes,
   totalAvailableMinutes,
   remainingMinutes,
+  isOverCommitted,
   selectedIds,
   lockedIds,
   onToggleSelect,
@@ -92,6 +94,7 @@ export function StepPrioritize({
   onAddPress,
   onContinue,
   onSkip,
+  onBack,
 }: StepPrioritizeProps) {
   const hasTasks = flexibleTasks.length > 0;
   const isOver = remainingMinutes < 0;
@@ -275,12 +278,47 @@ export function StepPrioritize({
 
       {/* ── 4. FOOTER ─────────────────────────────────────────── */}
       <View style={styles.footer}>
-        <Pressable
-          style={({ pressed }) => [styles.continueButton, pressed && { opacity: 0.85 }]}
-          onPress={onContinue}
-        >
-          <Text style={styles.continueText}>Continue →</Text>
-        </Pressable>
+        {/* Back + Continue row */}
+        <View style={styles.footerRow}>
+          {onBack && (
+            <Pressable
+              style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.6 }]}
+              onPress={onBack}
+            >
+              <ChevronLeft size={20} color={BRAND.colors.inkMuted} />
+            </Pressable>
+          )}
+          <Pressable
+            style={({ pressed }) => [
+              styles.continueButton,
+              onBack ? { flex: 1 } : undefined,
+              (selectedCount === 0 || isOverCommitted) && styles.continueButtonDisabled,
+              pressed && !(selectedCount === 0 || isOverCommitted) && { opacity: 0.85 },
+            ]}
+            onPress={onContinue}
+            disabled={selectedCount === 0 || isOverCommitted}
+          >
+            <Text
+              style={[
+                styles.continueText,
+                (selectedCount === 0 || isOverCommitted) && styles.continueTextDisabled,
+              ]}
+            >
+              Continue →
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* Helper text when disabled */}
+        {selectedCount === 0 && (
+          <Text style={styles.helperText}>Select at least one task to continue</Text>
+        )}
+        {selectedCount > 0 && isOverCommitted && (
+          <Text style={styles.helperText}>
+            Over capacity by {formatMins(overAmount)} — remove or shorten tasks
+          </Text>
+        )}
+
         <Pressable
           style={({ pressed }) => [styles.skipPressable, pressed && { opacity: 0.5 }]}
           onPress={onSkip}
@@ -643,6 +681,19 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 4,
   },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  backButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: BRAND.colors.borderSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   continueButton: {
     backgroundColor: BRAND.colors.mossGreen,
     paddingVertical: 16,
@@ -654,10 +705,24 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
+  continueButtonDisabled: {
+    backgroundColor: BRAND.colors.borderSubtle,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   continueText: {
     fontSize: 16,
     fontWeight: '700',
     color: '#FEFDFB',
+  },
+  continueTextDisabled: {
+    color: BRAND.colors.inkMuted,
+  },
+  helperText: {
+    fontSize: 12,
+    color: '#C45B4A',
+    textAlign: 'center',
+    marginTop: 6,
   },
   skipPressable: {
     alignItems: 'center',

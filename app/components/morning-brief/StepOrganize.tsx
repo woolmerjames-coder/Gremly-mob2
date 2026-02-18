@@ -9,6 +9,7 @@
 import React, { useEffect } from 'react';
 import { View, Pressable, Image, StyleSheet } from 'react-native';
 import { Text } from '../../../ui';
+import { ChevronLeft } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import { OrganizeButton } from './components';
 import type { TaskAssignment } from '../../../lib/api/organizeDay';
@@ -43,6 +44,7 @@ interface StepOrganizeProps {
   // Navigation
   onContinue: () => void;
   onSkip: () => void;
+  onBack?: () => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -63,6 +65,7 @@ export function StepOrganize({
   onSaveParked,
   onContinue,
   onSkip,
+  onBack,
 }: StepOrganizeProps) {
   // Auto-skip when there's nothing to organize
   useEffect(() => {
@@ -116,6 +119,16 @@ export function StepOrganize({
       >
         <Text style={styles.skipText}>I'll arrange it myself →</Text>
       </Pressable>
+
+      {/* Back button — bottom-left */}
+      {onBack && (
+        <Pressable
+          style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.6 }]}
+          onPress={onBack}
+        >
+          <ChevronLeft size={20} color={BRAND.colors.inkMuted} />
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -183,6 +196,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: BRAND.colors.inkMuted,
     paddingVertical: 12,
+  },
+  backButton: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: BRAND.colors.borderSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

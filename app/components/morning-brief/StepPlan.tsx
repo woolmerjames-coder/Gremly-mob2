@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../../../ui';
-import { ShieldOff, Calendar, MoreHorizontal } from 'lucide-react-native';
+import { ShieldOff, Calendar, MoreHorizontal, ChevronLeft } from 'lucide-react-native';
+import { BRAND } from '../../../design/brand';
 import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
 import { MorningBriefFooter, TimeBlockSection, type TaskItemData } from './components';
 import type { Note } from '../../../lib/types';
@@ -40,6 +41,8 @@ interface StepPlanProps {
   onShowReasoning?: () => void;
   onConfirm: () => void;
   isLoading: boolean;
+  onBack?: () => void;
+  showBack?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -71,6 +74,8 @@ export function StepPlan({
   onShowReasoning,
   onConfirm,
   isLoading,
+  onBack,
+  showBack,
 }: StepPlanProps) {
   return (
     <>
@@ -224,7 +229,21 @@ export function StepPlan({
       </ScrollView>
 
       {/* Footer */}
-      <MorningBriefFooter onComplete={onConfirm} isLoading={isLoading} />
+      {showBack && onBack ? (
+        <View style={styles.planFooter}>
+          <Pressable
+            style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.6 }]}
+            onPress={onBack}
+          >
+            <ChevronLeft size={20} color={BRAND.colors.inkMuted} />
+          </Pressable>
+          <View style={{ flex: 1 }}>
+            <MorningBriefFooter onComplete={onConfirm} isLoading={isLoading} />
+          </View>
+        </View>
+      ) : (
+        <MorningBriefFooter onComplete={onConfirm} isLoading={isLoading} />
+      )}
     </>
   );
 }
@@ -306,6 +325,20 @@ const styles = StyleSheet.create({
     color: '#2E5540',
     textDecorationLine: 'underline',
     marginTop: 6,
+  },
+  planFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingLeft: 20,
+  },
+  backButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: BRAND.colors.borderSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

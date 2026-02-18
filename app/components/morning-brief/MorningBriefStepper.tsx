@@ -11,10 +11,18 @@ export type BriefStep = 'glance' | 'sweep' | 'prioritize' | 'organize' | 'plan';
 export interface StepperProps {
   stepsNeeded: BriefStep[];
   renderGlance: (onContinue: () => void, onSkipToEnd: () => void) => React.ReactNode;
-  renderSweep: (onContinue: () => void, onSkip: () => void) => React.ReactNode;
-  renderPrioritize: (onContinue: () => void, onSkip: () => void) => React.ReactNode;
-  renderOrganize: (onOrganize: () => void, onSkip: () => void) => React.ReactNode;
-  renderPlan: () => React.ReactNode;
+  renderSweep: (onContinue: () => void, onSkip: () => void, onBack: () => void) => React.ReactNode;
+  renderPrioritize: (
+    onContinue: () => void,
+    onSkip: () => void,
+    onBack: () => void,
+  ) => React.ReactNode;
+  renderOrganize: (
+    onOrganize: () => void,
+    onSkip: () => void,
+    onBack: () => void,
+  ) => React.ReactNode;
+  renderPlan: (onBack: () => void) => React.ReactNode;
   children?: React.ReactNode;
 }
 
@@ -116,6 +124,12 @@ export function MorningBriefStepper({
     }
   }, [currentIndex, stepsNeeded.length, transitionTo]);
 
+  const goBack = useCallback(() => {
+    if (currentIndex > 0) {
+      transitionTo(currentIndex - 1);
+    }
+  }, [currentIndex, transitionTo]);
+
   const skipToEnd = useCallback(() => {
     const planIndex = stepsNeeded.indexOf('plan');
     if (planIndex !== -1) {
@@ -128,13 +142,13 @@ export function MorningBriefStepper({
       case 'glance':
         return renderGlance(advance, skipToEnd);
       case 'sweep':
-        return renderSweep(advance, advance);
+        return renderSweep(advance, advance, goBack);
       case 'prioritize':
-        return renderPrioritize(advance, advance);
+        return renderPrioritize(advance, advance, goBack);
       case 'organize':
-        return renderOrganize(advance, skipToEnd);
+        return renderOrganize(advance, skipToEnd, goBack);
       case 'plan':
-        return renderPlan();
+        return renderPlan(goBack);
       default:
         return null;
     }
