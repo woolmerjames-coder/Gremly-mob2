@@ -5112,8 +5112,12 @@ export const useGremlyStore = create<GremlyState>()(
 
         toggleBriefLock: (taskId: string) => {
           set((state) => {
-            // Only works if task is selected
-            if (!state.briefSelectedIds.includes(taskId)) return state;
+            // Allow locking for selected tasks OR tasks already scheduled into a time slot
+            const isSelected = state.briefSelectedIds.includes(taskId);
+            const isSlotted = [...state.todos, ...state.habits].some(
+              (item) => item.id === taskId && item.scheduled_start_iso,
+            );
+            if (!isSelected && !isSlotted) return state;
             const locked = [...state.briefLockedIds];
             const idx = locked.indexOf(taskId);
             if (idx >= 0) {
