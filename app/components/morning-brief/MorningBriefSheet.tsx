@@ -40,6 +40,7 @@ import { computeHabitStreak } from '../../../lib/habits/streakUtils';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
 import { useCapacityForDate, useCalendarEventsForDate } from '../../../lib/store/capacitySelectors';
+import { calculateRealisticAvailableMinutes } from '../../../lib/capacity';
 import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
 import {
   useTodayPendingDrops,
@@ -205,6 +206,8 @@ export function MorningBriefSheet({
   const removeCommitment = useGremlyStore((s) => s.removeCommitment);
   const saveBrief = useGremlyStore((s) => s.saveBrief);
   const resetDailyAssignments = useGremlyStore((s) => s.resetDailyAssignments);
+  const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? {};
+  const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
 
   // Brief capacity gate state
   const briefSelectedIds = useGremlyStore((s) => s.briefSelectedIds);
@@ -526,50 +529,42 @@ export function MorningBriefSheet({
     };
   }, [todayTodos, todayHabits, transformTodo, transformHabit]);
 
-  // ─── Gap-based free minutes from TimeBlockSection callbacks ───
-  const [blockFreeMinutes, setBlockFreeMinutes] = useState<Record<string, number>>(() => ({
-    morning: capacity.blocks.morning.availableMinutes,
-    day: capacity.blocks.day.availableMinutes,
-    evening: capacity.blocks.evening.availableMinutes,
-  }));
-
-  const handleFreeMinutesCalculated = useCallback((block: string, minutes: number) => {
-    setBlockFreeMinutes((prev) => {
-      if (prev[block] === minutes) return prev;
-      return { ...prev, [block]: minutes };
-    });
-  }, []);
-
-  const totalActualFreeMinutes =
-    blockFreeMinutes.morning + blockFreeMinutes.day + blockFreeMinutes.evening;
-
-  // Tasks assigned to a block but NOT positioned in the timeline.
-  // Gap-based free time can't see these, so we subtract them manually.
-  const unslottedBlockMinutes = useMemo(() => {
-    let total = 0;
-    // Check todos assigned to a specific block without a scheduled time
-    for (const todo of todayTodos) {
-      const eb = todo.daily_block ?? todo.time_window;
-      if (eb && eb !== 'any' && !todo.scheduled_start_iso) {
-        total += todo.time_estimate_minutes ?? 0;
-      }
+  // ─── Single source of truth: realistic free minutes from NOW ───
+  // For today: clips to current time, subtracts calendar events.
+  // For tomorrow: uses full block hours (no time clipping needed).
+  const totalActualFreeMinutes = useMemo(() => {
+    if (isTomorrow) {
+      // Planning tomorrow — use full block availability (no current-time clipping)
+      return capacity.totalAvailableMinutes;
     }
-    // Check habits assigned to a specific block without a scheduled time
-    for (const habit of todayHabits) {
-      const eb = habit.daily_block ?? habit.time_window;
-      if (habit.subtype !== 'break_habit' && eb && eb !== 'any' && !habit.scheduled_start_iso) {
-        total += habit.time_estimate_minutes ?? 0;
-      }
-    }
-    return total;
-  }, [todayTodos, todayHabits]);
+    // Planning today — clip to current time
+    const blocks: Array<'morning' | 'day' | 'evening'> = ['morning', 'day', 'evening'];
+    return blocks.reduce(
+      (sum, block) =>
+        sum +
+        calculateRealisticAvailableMinutes(
+          block,
+          todayCalendarEvents ?? [],
+          today,
+          eventTimeOverrides,
+          timeBlockPreferences,
+        ),
+      0,
+    );
+  }, [
+    isTomorrow,
+    capacity.totalAvailableMinutes,
+    todayCalendarEvents,
+    today,
+    eventTimeOverrides,
+    timeBlockPreferences,
+  ]);
 
   // ─────────────────────────────────────────────────────────────────
   // CAPACITY GATE DETECTION
   // ─────────────────────────────────────────────────────────────────
-  const realisticCapacity = useMemo(() => {
-    return Math.max(0, totalActualFreeMinutes - unslottedBlockMinutes);
-  }, [totalActualFreeMinutes, unslottedBlockMinutes]);
+  // realisticCapacity = actual free time (already accounts for current time + calendar)
+  const realisticCapacity = totalActualFreeMinutes;
 
   const flexibleTaskMinutes = useMemo(() => {
     return tasksByBlock.flexible.reduce((sum, t) => sum + (t.estimatedMinutes || 0), 0);
@@ -1653,7 +1648,7 @@ export function MorningBriefSheet({
             onGapSlotPress={handleGapSlotPress}
             onKeyDatePress={onKeyDatePress}
             onEventQuickAction={handleEventQuickAction}
-            onFreeMinutesCalculated={handleFreeMinutesCalculated}
+            onFreeMinutesCalculated={() => {}}
             getSpaceName={getSpaceName}
             organizeMessage={organizeMessage}
             organizeReasoning={organizeReasoning}
