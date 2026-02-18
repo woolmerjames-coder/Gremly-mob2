@@ -7,10 +7,18 @@
  */
 
 import React, { useEffect, useMemo, useCallback } from 'react';
-import { View, ScrollView, Pressable, StyleSheet, LayoutAnimation, Animated } from 'react-native';
+import {
+  View,
+  ScrollView,
+  Pressable,
+  StyleSheet,
+  LayoutAnimation,
+  Animated,
+  Text as RNText,
+} from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
-import { Check, Lock, Unlock, Plus, Clock } from 'lucide-react-native';
+import { Check, Lock, Plus, MoreHorizontal } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import type { TaskItemData } from './components';
 
@@ -80,10 +88,8 @@ export function StepPrioritize({
   selectedIds,
   lockedIds,
   onToggleSelect,
-  onToggleLock,
   onTaskPress,
   onAddPress,
-  onAssignPress,
   onContinue,
   onSkip,
 }: StepPrioritizeProps) {
@@ -173,14 +179,6 @@ export function StepPrioritize({
     [onTaskPress],
   );
 
-  // ── Lock toggle handler ──────────────────────────────────────────
-  const handleLockToggle = useCallback(
-    (task: TaskItemData) => {
-      onToggleLock(task);
-    },
-    [onToggleLock],
-  );
-
   // ── Animated fill width interpolation ────────────────────────────
   const fillWidth = fillAnim.interpolate({
     inputRange: [0, 1],
@@ -196,7 +194,7 @@ export function StepPrioritize({
       >
         {/* ── 1. TITLE + LIVE SUBTITLE ────────────────────────── */}
         <View style={styles.titleArea}>
-          <Text style={styles.title}>Build your day</Text>
+          <RNText style={styles.title}>Build your day</RNText>
           {selectedCount === 0 ? (
             <Text style={styles.subtitle}>Tap tasks to fill your day</Text>
           ) : (
@@ -255,8 +253,7 @@ export function StepPrioritize({
             isLocked={lockedIds.has(task.id)}
             onToggle={handleToggle}
             onLongPress={handleLongPress}
-            onLockToggle={handleLockToggle}
-            onAssignPress={onAssignPress}
+            onTaskPress={onTaskPress}
           />
         ))}
 
@@ -271,8 +268,7 @@ export function StepPrioritize({
             isLocked={lockedIds.has(task.id)}
             onToggle={handleToggle}
             onLongPress={handleLongPress}
-            onLockToggle={handleLockToggle}
-            onAssignPress={onAssignPress}
+            onTaskPress={onTaskPress}
           />
         ))}
       </ScrollView>
@@ -300,11 +296,11 @@ export function StepPrioritize({
 // TaskRow — unified row for selected and unselected
 // ═══════════════════════════════════════════════════════════════════
 
-/** Map timeWindow to short pill label */
-function blockLabel(tw: TaskItemData['timeWindow']): string | null {
-  if (tw === 'morning') return 'AM';
-  if (tw === 'day') return 'PM';
-  if (tw === 'evening') return 'EVE';
+/** Map timeWindow to readable label */
+function blockName(tw: TaskItemData['timeWindow']): string | null {
+  if (tw === 'morning') return 'Morning';
+  if (tw === 'day') return 'Afternoon';
+  if (tw === 'evening') return 'Evening';
   return null;
 }
 
@@ -314,19 +310,18 @@ function TaskRow({
   isLocked,
   onToggle,
   onLongPress,
-  onLockToggle,
-  onAssignPress,
+  onTaskPress,
 }: {
   task: TaskItemData;
   isSelected: boolean;
   isLocked: boolean;
   onToggle: (t: TaskItemData) => void;
   onLongPress: (t: TaskItemData) => void;
-  onLockToggle: (t: TaskItemData) => void;
-  onAssignPress: (t: TaskItemData) => void;
+  onTaskPress: (t: TaskItemData) => void;
 }) {
   if (isSelected) {
-    const bl = blockLabel(task.timeWindow);
+    const bn = blockName(task.timeWindow);
+    const hasBadges = !!bn || isLocked;
 
     return (
       <Pressable
@@ -352,34 +347,37 @@ function TaskRow({
             {task.type === 'habit' && task.metadata?.label ? (
               <Text style={styles.habitMeta}>{task.metadata.label}</Text>
             ) : null}
-            {isLocked && <Text style={styles.lockedBadge}>Locked</Text>}
           </View>
 
           {/* Time */}
           <Text style={styles.timeText}>{formatPill(task.estimatedMinutes)}</Text>
 
-          {/* Block assignment button */}
-          {bl ? (
-            <Pressable style={styles.blockPill} hitSlop={8} onPress={() => onAssignPress(task)}>
-              <Text style={styles.blockPillText}>{bl}</Text>
-            </Pressable>
-          ) : (
-            <Pressable style={styles.blockButton} hitSlop={8} onPress={() => onAssignPress(task)}>
-              <Clock size={15} color={BRAND.colors.borderSubtle} strokeWidth={2} />
-            </Pressable>
-          )}
-
-          {/* Lock button — always visible */}
-          <Pressable style={styles.lockButton} hitSlop={8} onPress={() => onLockToggle(task)}>
-            {isLocked ? (
-              <View style={styles.lockCircle}>
-                <Lock size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-              </View>
-            ) : (
-              <Unlock size={16} color={BRAND.colors.borderSubtle} strokeWidth={2} />
-            )}
+          {/* ⋯ button — opens TaskQuickActionSheet */}
+          <Pressable
+            style={styles.moreButton}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            onPress={() => onTaskPress(task)}
+          >
+            <MoreHorizontal size={18} color={BRAND.colors.inkMuted} />
           </Pressable>
         </View>
+
+        {/* Inline badges row */}
+        {hasBadges && (
+          <View style={styles.badgeRow}>
+            {bn ? (
+              <View style={styles.blockBadge}>
+                <Text style={styles.blockBadgeText}>{bn}</Text>
+              </View>
+            ) : null}
+            {isLocked ? (
+              <View style={styles.lockBadge}>
+                <Lock size={10} color={BRAND.colors.mossGreen} strokeWidth={2} />
+                <Text style={styles.lockBadgeText}>Locked in</Text>
+              </View>
+            ) : null}
+          </View>
+        )}
       </Pressable>
     );
   }
@@ -423,7 +421,7 @@ const styles = StyleSheet.create({
   // ── Title ───────────────────────────────────────────────────────
   titleArea: {
     paddingHorizontal: 20,
-    marginTop: 12,
+    marginTop: 16,
   },
   title: {
     fontSize: 24,
@@ -496,7 +494,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEFDFB',
     borderRadius: 10,
     overflow: 'hidden',
-    flexDirection: 'row',
     shadowColor: '#000',
     shadowOpacity: 0.02,
     shadowRadius: 6,
@@ -539,48 +536,51 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
     marginTop: 1,
   },
-  lockedBadge: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-    marginTop: 1,
-  },
   timeText: {
     fontSize: 12,
     fontWeight: '600',
     color: BRAND.colors.inkMuted,
-    marginRight: 8,
+    marginRight: 4,
   },
-  blockButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  moreButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
-  blockPill: {
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 6,
-    backgroundColor: 'rgba(46,85,64,0.08)',
-    marginRight: 4,
+  badgeRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: -4,
+    marginBottom: 6,
+    marginLeft: 37,
   },
-  blockPillText: {
+  blockBadge: {
+    paddingVertical: 1,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    backgroundColor: 'rgba(46,85,64,0.06)',
+  },
+  blockBadgeText: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '600',
     color: BRAND.colors.mossGreen,
   },
-  lockButton: {
-    padding: 2,
-  },
-  lockCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(46,85,64,0.08)',
+  lockBadge: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 3,
+    paddingVertical: 1,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    backgroundColor: 'rgba(46,85,64,0.06)',
+  },
+  lockBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
   },
 
   // ── Unselected Row ──────────────────────────────────────────────
