@@ -11,6 +11,7 @@ import { View, Pressable, Image, StyleSheet } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { OrganizeButton } from './components';
+import type { TaskAssignment } from '../../../lib/api/organizeDay';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires -- React Native image import
 const MORNING_BRIEF_GREMLY = require('../../../assets/mascot/morningbriefgremly.png');
@@ -30,7 +31,7 @@ interface StepOrganizeProps {
   // Callbacks
   onOrganizeComplete: (summary: string, reasoning: string[]) => void;
   onOrganizeError: (error: string) => void;
-  onAnimationStart: () => void;
+  onAnimationStart: (assignments: TaskAssignment[]) => void;
   onAnimationComplete: () => void;
 
   // Save parked items after organize

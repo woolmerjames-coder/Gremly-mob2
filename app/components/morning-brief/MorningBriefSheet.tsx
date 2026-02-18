@@ -56,6 +56,8 @@ import { MorningBriefStepper, type BriefStep } from './MorningBriefStepper';
 import { StepGlance } from './StepGlance';
 import { StepSweep } from './StepSweep';
 import { StepPlan } from './StepPlan';
+import { StepPrioritize } from './StepPrioritize';
+import { StepOrganize } from './StepOrganize';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { GlobalEventPopup } from '../../../components/calendar/GlobalEventPopup';
 import EventQuickActionSheet from '../../../components/now/EventQuickActionSheet';
@@ -1425,10 +1427,63 @@ export function MorningBriefSheet({
           />
         )}
         renderPrioritize={(onContinue, onSkip) => (
-          <StepStub label="Prioritize (coming soon)" onContinue={onContinue} />
+          <StepPrioritize
+            flexibleTasks={tasksByBlock.flexible}
+            freeMinutes={effectiveFreeMinutes}
+            totalPlannedMinutes={totalDayMinutes - effectiveFreeMinutes}
+            dayPercentage={dayPercentage}
+            remainingMinutes={remainingMinutes}
+            isOverCommitted={isOverCommitted}
+            selectedIds={briefSelectedSet}
+            lockedIds={briefLockedSet}
+            onToggleSelect={handleToggleSelect}
+            onToggleLock={handleToggleLock}
+            onTaskPress={handleTaskPress}
+            onTimePress={handleTimePress}
+            onAddPress={handleAddPress}
+            onAssignPress={handleAssignPress}
+            pendingDrops={todayPendingDrops}
+            animatingAssignments={animatingAssignments}
+            onContinue={onContinue}
+            onSkip={onSkip}
+          />
         )}
-        renderOrganize={(onOrganize, onSkip) => (
-          <StepStub label="Organize (coming soon)" onContinue={onSkip} />
+        renderOrganize={(onContinue, onSkip) => (
+          <StepOrganize
+            targetDate={isTomorrow ? today : undefined}
+            isPrioritizing={isPrioritizing}
+            selectedIds={briefSelectedSet}
+            lockedIds={briefLockedSet}
+            isOverCapacity={remainingMinutes < 0}
+            onOrganizeComplete={(summary, reasoning) => {
+              setOrganizeMessage(summary);
+              if (reasoning && reasoning.length > 0) {
+                setOrganizeReasoning(reasoning);
+              } else {
+                setOrganizeReasoning(null);
+              }
+              setTimeout(() => {
+                setOrganizeMessage(null);
+                setOrganizeReasoning(null);
+              }, 30000);
+            }}
+            onOrganizeError={(error) => {
+              setOrganizeMessage(error);
+              setOrganizeReasoning(null);
+              setTimeout(() => setOrganizeMessage(null), 30000);
+            }}
+            onAnimationStart={handleAnimationStart}
+            onAnimationComplete={handleAnimationComplete}
+            onSaveParked={() => {
+              if (isPrioritizing) {
+                setBriefParked(parkedTasks.map((t) => t.id));
+              }
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setPlanningCardCollapsed(true);
+            }}
+            onContinue={onContinue}
+            onSkip={onSkip}
+          />
         )}
         renderPlan={() => (
           <StepPlan
@@ -1567,22 +1622,6 @@ export function MorningBriefSheet({
           onOpenFull={handleOpenFullEvent}
         />
       </MorningBriefStepper>
-    </View>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// StepStub — placeholder that auto-advances after a short delay
-// ═══════════════════════════════════════════════════════════════════
-function StepStub({ label, onContinue }: { label: string; onContinue: () => void }) {
-  useEffect(() => {
-    const timer = setTimeout(onContinue, 400);
-    return () => clearTimeout(timer);
-  }, [onContinue]);
-
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <Text style={{ fontSize: 14, color: '#888' }}>{label}</Text>
     </View>
   );
 }
