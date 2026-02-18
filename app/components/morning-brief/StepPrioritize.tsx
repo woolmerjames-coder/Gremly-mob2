@@ -1,31 +1,18 @@
 /**
  * StepPrioritize — "Build Your Day"
  *
- * Visual time-canvas concept: the user assembles their day by
- * tapping tasks. Colored blocks fill a horizontal bar showing
- * how time is being allocated. Two zones: TODAY (selected) and
- * AVAILABLE (unselected).
+ * Clean battery-style capacity meter + slim compact task rows.
+ * Single unified list sorted by type (todos then habits) with
+ * selected items floating to top. Lock icon inline on selected rows.
  */
 
 import React, { useEffect, useMemo, useCallback } from 'react';
 import { View, ScrollView, Pressable, StyleSheet, LayoutAnimation, Animated } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
-import { Plus } from 'lucide-react-native';
+import { Check, Lock, Unlock, Plus } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import type { TaskItemData } from './components';
-
-// ═══════════════════════════════════════════════════════════════════
-// Constants
-// ═══════════════════════════════════════════════════════════════════
-
-const BLOCK_COLORS = [
-  '#2E5540', // mossGreen
-  '#4A7C63', // lighter green
-  '#6B9B7E', // sage
-  '#8FB59E', // light sage
-  '#3D6B50', // forest
-  '#5C8A6E', // fern
-];
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers
@@ -40,7 +27,6 @@ function formatMins(mins: number): string {
   return `${h}h ${m}m`;
 }
 
-/** Short format for pills: "30m", "1h", "1h 15m" */
 function formatPill(mins: number | undefined): string {
   if (!mins || mins <= 0) return '—';
   const h = Math.floor(mins / 60);
@@ -48,6 +34,13 @@ function formatPill(mins: number | undefined): string {
   if (h === 0) return `${m}m`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
+}
+
+/** Meter fill color based on capacity usage */
+function getMeterColor(pct: number): string {
+  if (pct > 1) return '#C45B4A'; // red — over
+  if (pct >= 0.85) return '#E8A838'; // amber — nearing full
+  return BRAND.colors.mossGreen; // green — healthy
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -85,7 +78,9 @@ export function StepPrioritize({
   totalAvailableMinutes,
   remainingMinutes,
   selectedIds,
+  lockedIds,
   onToggleSelect,
+  onToggleLock,
   onTaskPress,
   onAddPress,
   onContinue,
@@ -95,97 +90,101 @@ export function StepPrioritize({
   const isOver = remainingMinutes < 0;
   const overAmount = Math.abs(remainingMinutes);
 
-  // ── Pulse animation for overflow glow ────────────────────────────
+  // ── Meter fill animation ─────────────────────────────────────────
+  const capacity = Math.max(totalAvailableMinutes, 1);
+  const fillPct = selectedMinutes / capacity;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const pulseAnim = useMemo(() => new Animated.Value(0.3), []);
+  const fillAnim = useMemo(() => new Animated.Value(0), []);
 
   useEffect(() => {
-    if (isOver) {
-      const loop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 0.7,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 0.3,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-        ]),
-      );
-      loop.start();
-      return () => loop.stop();
-    } else {
-      pulseAnim.setValue(0);
-    }
-  }, [isOver, pulseAnim]);
+    LayoutAnimation.configureNext({
+      duration: 300,
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+    });
+    Animated.spring(fillAnim, {
+      toValue: Math.min(fillPct, 1),
+      useNativeDriver: false,
+      friction: 12,
+      tension: 60,
+    }).start();
+  }, [fillPct, fillAnim]);
 
-  // ── Split tasks into Today (selected) and Available ──────────────
-  const { todayTasks, availableTasks } = useMemo(() => {
-    const today: TaskItemData[] = [];
-    const available: TaskItemData[] = [];
+  const meterColor = getMeterColor(fillPct);
+
+  // ── Sort tasks: selected first within each type ──────────────────
+  const { todos, habits, showTypeLabels, selectedCount } = useMemo(() => {
+    const td: TaskItemData[] = [];
+    const hb: TaskItemData[] = [];
+    let selCount = 0;
     for (const task of flexibleTasks) {
-      if (selectedIds.has(task.id)) {
-        today.push(task);
-      } else {
-        available.push(task);
-      }
+      if (selectedIds.has(task.id)) selCount++;
+      if (task.type === 'todo') td.push(task);
+      else hb.push(task);
     }
-    return { todayTasks: today, availableTasks: available };
+    // Sort selected first, preserve original order within each group
+    const sortSelected = (a: TaskItemData, b: TaskItemData) => {
+      const aS = selectedIds.has(a.id) ? 0 : 1;
+      const bS = selectedIds.has(b.id) ? 0 : 1;
+      return aS - bS;
+    };
+    td.sort(sortSelected);
+    hb.sort(sortSelected);
+    return {
+      todos: td,
+      habits: hb,
+      showTypeLabels: td.length > 0 && hb.length > 0,
+      selectedCount: selCount,
+    };
   }, [flexibleTasks, selectedIds]);
 
-  // ── Stable color assignment by task ID ───────────────────────────
-  const colorMap = useMemo(() => {
-    const map = new Map<string, string>();
-    let idx = 0;
-    for (const task of flexibleTasks) {
-      if (!map.has(task.id)) {
-        map.set(task.id, BLOCK_COLORS[idx % BLOCK_COLORS.length]);
-        idx++;
-      }
-    }
-    return map;
-  }, [flexibleTasks]);
-
-  // ── Selected count + total time for subtitle ─────────────────────
-  const selectedCount = todayTasks.length;
-  const totalSelectedMins = selectedMinutes;
-
-  // ── Toggle with LayoutAnimation ──────────────────────────────────
+  // ── Toggle handler with LayoutAnimation ──────────────────────────
   const handleToggle = useCallback(
     (task: TaskItemData) => {
+      const isSelected = selectedIds.has(task.id);
+      const isLocked = lockedIds.has(task.id);
+
+      // Locked items can't be deselected — do nothing
+      if (isSelected && isLocked) return;
+
       LayoutAnimation.configureNext({
-        duration: 300,
+        duration: 250,
         create: {
-          type: LayoutAnimation.Types.easeInEaseOut,
-          property: LayoutAnimation.Properties.scaleXY,
-        },
-        update: { type: LayoutAnimation.Types.easeInEaseOut },
-        delete: {
           type: LayoutAnimation.Types.easeInEaseOut,
           property: LayoutAnimation.Properties.opacity,
         },
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
       });
       onToggleSelect(task);
     },
-    [onToggleSelect],
+    [onToggleSelect, selectedIds, lockedIds],
   );
 
-  // ── Available zone sub-labels ────────────────────────────────────
-  const availableTodos = useMemo(
-    () => availableTasks.filter((t) => t.type === 'todo'),
-    [availableTasks],
+  // ── Long press handler with haptic ───────────────────────────────
+  const handleLongPress = useCallback(
+    (task: TaskItemData) => {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch {
+        // haptics unavailable — ignore
+      }
+      onTaskPress(task);
+    },
+    [onTaskPress],
   );
-  const availableHabits = useMemo(
-    () => availableTasks.filter((t) => t.type === 'habit'),
-    [availableTasks],
-  );
-  const showAvailableSubLabels = availableTodos.length > 0 && availableHabits.length > 0;
 
-  // ── Effective capacity for bar (min 1 to avoid division by 0) ──
-  const barCapacity = Math.max(totalAvailableMinutes, selectedMinutes, 1);
+  // ── Lock toggle handler ──────────────────────────────────────────
+  const handleLockToggle = useCallback(
+    (task: TaskItemData) => {
+      onToggleLock(task);
+    },
+    [onToggleLock],
+  );
+
+  // ── Animated fill width interpolation ────────────────────────────
+  const fillWidth = fillAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  });
 
   return (
     <>
@@ -194,78 +193,46 @@ export function StepPrioritize({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── 1. TITLE ────────────────────────────────────────── */}
+        {/* ── 1. TITLE + LIVE SUBTITLE ────────────────────────── */}
         <View style={styles.titleArea}>
           <Text style={styles.title}>Build your day</Text>
           {selectedCount === 0 ? (
-            <Text style={styles.subtitle}>Tap tasks to add them to your day</Text>
+            <Text style={styles.subtitle}>Tap tasks to fill your day</Text>
           ) : (
             <Text style={styles.subtitle}>
               <Text style={styles.subtitleAccent}>{selectedCount}</Text>
-              {` task${selectedCount !== 1 ? 's' : ''} · ${formatMins(totalSelectedMins)}`}
+              {` task${selectedCount !== 1 ? 's' : ''} · `}
+              <Text style={styles.subtitleAccent}>{formatMins(selectedMinutes)}</Text>
             </Text>
           )}
         </View>
 
-        {/* ── 2. TIME CANVAS ──────────────────────────────────── */}
-        <View style={styles.canvas}>
-          {/* Time label row */}
-          <View style={styles.canvasLabelRow}>
-            <Text style={styles.canvasLabelLeft}>
-              Your {formatMins(totalAvailableMinutes)} of free time
-            </Text>
+        {/* ── 2. CAPACITY METER ───────────────────────────────── */}
+        <View style={styles.meterContainer}>
+          <View style={styles.meterLabelRow}>
+            <Text style={styles.meterLabelLeft}>{formatMins(totalAvailableMinutes)} free time</Text>
             {isOver ? (
-              <Text style={styles.canvasLabelOver}>{formatMins(overAmount)} over</Text>
+              <Text style={styles.meterLabelOver}>{formatMins(overAmount)} over</Text>
             ) : (
-              <Text style={styles.canvasLabelRight}>{formatMins(remainingMinutes)} left</Text>
+              <Text style={styles.meterLabelRight}>{formatMins(remainingMinutes)} left</Text>
             )}
           </View>
-
-          {/* THE BAR */}
-          <View style={styles.bar}>
-            {todayTasks.map((task) => {
-              const mins = task.estimatedMinutes || 15;
-              const widthPct = Math.min((mins / barCapacity) * 100, 100);
-              const color = colorMap.get(task.id) || BLOCK_COLORS[0];
-
-              return (
-                <View
-                  key={task.id}
-                  style={[
-                    styles.block,
-                    {
-                      width: `${widthPct}%` as unknown as number,
-                      backgroundColor: color,
-                    },
-                  ]}
-                >
-                  <Text style={styles.blockLabel} numberOfLines={1}>
-                    {task.title}
-                  </Text>
-                </View>
-              );
-            })}
-
-            {/* Overflow glow */}
-            {isOver && (
-              <View style={styles.overflowEdge}>
-                <Animated.View style={[styles.overflowGlow, { opacity: pulseAnim }]} />
-              </View>
-            )}
-          </View>
-
-          {/* Time markers */}
-          <View style={styles.canvasMarkers}>
-            <Text style={styles.markerText}>0</Text>
-            <Text style={styles.markerText}>{formatMins(totalAvailableMinutes)}</Text>
+          <View style={styles.meterTrack}>
+            <Animated.View
+              style={[
+                styles.meterFill,
+                {
+                  width: fillWidth,
+                  backgroundColor: meterColor,
+                },
+              ]}
+            />
           </View>
         </View>
 
-        {/* ── 3. TASK ZONES ───────────────────────────────────── */}
-
-        {/* Zero tasks empty state */}
+        {/* ── 3. TASK LIST ────────────────────────────────────── */}
         {!hasTasks && (
-          <View style={styles.emptyTaskState}>
+          <View style={styles.emptyState}>
             <Pressable
               style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.7 }]}
               onPress={onAddPress}
@@ -276,79 +243,35 @@ export function StepPrioritize({
           </View>
         )}
 
-        {/* TODAY ZONE (selected tasks) */}
-        {todayTasks.length > 0 && (
-          <>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionDotGreen} />
-              <Text style={styles.sectionLabelGreen}>TODAY</Text>
-            </View>
-            {todayTasks.map((task) => {
-              const color = colorMap.get(task.id) || BLOCK_COLORS[0];
-              return (
-                <Pressable
-                  key={task.id}
-                  style={({ pressed }) => [
-                    styles.todayCard,
-                    { borderLeftColor: color },
-                    pressed && { opacity: 0.85 },
-                  ]}
-                  onPress={() => handleToggle(task)}
-                  onLongPress={() => onTaskPress(task)}
-                >
-                  <View style={[styles.todayDot, { backgroundColor: color }]} />
-                  <View style={styles.todayInfo}>
-                    <Text style={styles.todayTitle} numberOfLines={1}>
-                      {task.title}
-                    </Text>
-                    {task.metadata?.label ? (
-                      <Text style={styles.todayMeta}>{task.metadata.label}</Text>
-                    ) : null}
-                  </View>
-                  <View style={styles.timePill}>
-                    <Text style={styles.timePillText}>{formatPill(task.estimatedMinutes)}</Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </>
+        {showTypeLabels && todos.length > 0 && (
+          <Text style={styles.sectionLabel}>TODOS ({todos.length})</Text>
         )}
+        {todos.map((task) => (
+          <TaskRow
+            key={task.id}
+            task={task}
+            isSelected={selectedIds.has(task.id)}
+            isLocked={lockedIds.has(task.id)}
+            onToggle={handleToggle}
+            onLongPress={handleLongPress}
+            onLockToggle={handleLockToggle}
+          />
+        ))}
 
-        {/* AVAILABLE ZONE (unselected tasks) */}
-        {availableTasks.length > 0 && (
-          <>
-            <View style={[styles.sectionHeader, { marginTop: todayTasks.length > 0 ? 16 : 0 }]}>
-              <View style={styles.sectionDotMuted} />
-              <Text style={styles.sectionLabelMuted}>AVAILABLE</Text>
-            </View>
-
-            {showAvailableSubLabels && availableTodos.length > 0 && (
-              <Text style={styles.subLabel}>Todos</Text>
-            )}
-            {availableTodos.map((task) => (
-              <AvailableRow
-                key={task.id}
-                task={task}
-                onToggle={handleToggle}
-                onLongPress={onTaskPress}
-              />
-            ))}
-
-            {showAvailableSubLabels && availableHabits.length > 0 && (
-              <Text style={styles.subLabel}>Habits</Text>
-            )}
-            {availableHabits.map((task) => (
-              <AvailableRow
-                key={task.id}
-                task={task}
-                onToggle={handleToggle}
-                onLongPress={onTaskPress}
-              />
-            ))}
-
-            {/* When only one type exists, render whichever is non-empty already handled above */}
-          </>
+        {showTypeLabels && habits.length > 0 && (
+          <Text style={styles.sectionLabel}>HABITS ({habits.length})</Text>
         )}
+        {habits.map((task) => (
+          <TaskRow
+            key={task.id}
+            task={task}
+            isSelected={selectedIds.has(task.id)}
+            isLocked={lockedIds.has(task.id)}
+            onToggle={handleToggle}
+            onLongPress={handleLongPress}
+            onLockToggle={handleLockToggle}
+          />
+        ))}
       </ScrollView>
 
       {/* ── 4. FOOTER ─────────────────────────────────────────── */}
@@ -371,32 +294,88 @@ export function StepPrioritize({
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// AvailableRow sub-component
+// TaskRow — unified row for selected and unselected
 // ═══════════════════════════════════════════════════════════════════
 
-function AvailableRow({
+function TaskRow({
   task,
+  isSelected,
+  isLocked,
   onToggle,
   onLongPress,
+  onLockToggle,
 }: {
   task: TaskItemData;
+  isSelected: boolean;
+  isLocked: boolean;
   onToggle: (t: TaskItemData) => void;
   onLongPress: (t: TaskItemData) => void;
+  onLockToggle: (t: TaskItemData) => void;
 }) {
+  if (isSelected) {
+    return (
+      <Pressable
+        style={({ pressed }) => [
+          styles.selectedRow,
+          isLocked && styles.selectedRowLocked,
+          pressed && { opacity: 0.85 },
+        ]}
+        onPress={() => onToggle(task)}
+        onLongPress={() => onLongPress(task)}
+      >
+        {/* Checkbox — filled */}
+        <View style={styles.checkboxFilled}>
+          <Check size={14} color="#FFFFFF" strokeWidth={2.5} />
+        </View>
+
+        {/* Title + metadata */}
+        <View style={styles.titleArea_row}>
+          <Text style={styles.selectedTitle} numberOfLines={1}>
+            {task.title}
+          </Text>
+          {task.type === 'habit' && task.metadata?.label ? (
+            <Text style={styles.habitMeta}>{task.metadata.label}</Text>
+          ) : null}
+          {isLocked && <Text style={styles.lockedBadge}>Locked</Text>}
+        </View>
+
+        {/* Time */}
+        <Text style={styles.timeText}>{formatPill(task.estimatedMinutes)}</Text>
+
+        {/* Lock button — always visible */}
+        <Pressable style={styles.lockButton} hitSlop={8} onPress={() => onLockToggle(task)}>
+          {isLocked ? (
+            <View style={styles.lockCircle}>
+              <Lock size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+            </View>
+          ) : (
+            <Unlock size={16} color={BRAND.colors.borderSubtle} strokeWidth={2} />
+          )}
+        </Pressable>
+      </Pressable>
+    );
+  }
+
+  // Unselected row
   return (
     <Pressable
       style={({ pressed }) => [
-        styles.availableRow,
+        styles.unselectedRow,
         pressed && { backgroundColor: 'rgba(46,85,64,0.04)' },
       ]}
       onPress={() => onToggle(task)}
       onLongPress={() => onLongPress(task)}
     >
-      <View style={styles.availableCircle} />
-      <Text style={styles.availableTitle} numberOfLines={1}>
+      {/* Checkbox — empty */}
+      <View style={styles.checkboxEmpty} />
+
+      {/* Title */}
+      <Text style={styles.unselectedTitle} numberOfLines={1}>
         {task.title}
       </Text>
-      <Text style={styles.availableTime}>{formatPill(task.estimatedMinutes)}</Text>
+
+      {/* Time */}
+      <Text style={styles.unselectedTime}>{formatPill(task.estimatedMinutes)}</Text>
     </Pressable>
   );
 }
@@ -427,209 +406,165 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: BRAND.colors.inkMuted,
     marginTop: 4,
+    paddingHorizontal: 0,
   },
   subtitleAccent: {
     fontWeight: '700',
     color: BRAND.colors.mossGreen,
   },
 
-  // ── Time Canvas ─────────────────────────────────────────────────
-  canvas: {
+  // ── Capacity Meter ──────────────────────────────────────────────
+  meterContainer: {
     marginHorizontal: 20,
-    marginTop: 18,
-    marginBottom: 24,
-    backgroundColor: '#F3F1EC',
-    borderRadius: 12,
-    padding: 14,
-    overflow: 'hidden',
+    marginTop: 16,
+    marginBottom: 20,
   },
-  canvasLabelRow: {
+  meterLabelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 6,
   },
-  canvasLabelLeft: {
-    fontSize: 13,
+  meterLabelLeft: {
+    fontSize: 12,
     fontWeight: '500',
     color: BRAND.colors.inkMuted,
   },
-  canvasLabelRight: {
-    fontSize: 13,
+  meterLabelRight: {
+    fontSize: 12,
     fontWeight: '700',
     color: BRAND.colors.mossGreen,
   },
-  canvasLabelOver: {
-    fontSize: 13,
+  meterLabelOver: {
+    fontSize: 12,
     fontWeight: '700',
     color: '#C45B4A',
   },
-  bar: {
-    height: 48,
-    borderRadius: 8,
+  meterTrack: {
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#E8E4DD',
-    flexDirection: 'row',
     overflow: 'hidden',
-    position: 'relative',
   },
-  block: {
+  meterFill: {
     height: '100%',
-    borderRightWidth: 1,
-    borderRightColor: 'rgba(255,255,255,0.3)',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-    overflow: 'hidden',
-  },
-  blockLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  overflowEdge: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    width: 24,
-  },
-  overflowGlow: {
-    flex: 1,
-    backgroundColor: '#C45B4A',
-  },
-  canvasMarkers: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 4,
-  },
-  markerText: {
-    fontSize: 10,
-    color: BRAND.colors.inkMuted,
-    opacity: 0.5,
+    borderRadius: 4,
   },
 
-  // ── Section headers ─────────────────────────────────────────────
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+  // ── Section Labels ──────────────────────────────────────────────
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    color: BRAND.colors.inkMuted,
     paddingHorizontal: 20,
+    marginTop: 14,
     marginBottom: 8,
   },
-  sectionDotGreen: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: BRAND.colors.mossGreen,
-  },
-  sectionLabelGreen: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    color: BRAND.colors.mossGreen,
-  },
-  sectionDotMuted: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: BRAND.colors.borderSubtle,
-  },
-  sectionLabelMuted: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    color: BRAND.colors.inkMuted,
-  },
-  subLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: BRAND.colors.inkMuted,
-    opacity: 0.5,
-    marginLeft: 20,
-    marginBottom: 4,
-    marginTop: 8,
-  },
 
-  // ── Today cards (selected) ──────────────────────────────────────
-  todayCard: {
-    backgroundColor: '#FEFDFB',
-    borderRadius: 12,
-    borderLeftWidth: 3,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+  // ── Selected Row ────────────────────────────────────────────────
+  selectedRow: {
     marginHorizontal: 20,
-    marginBottom: 6,
+    marginBottom: 4,
+    backgroundColor: '#FEFDFB',
+    borderRadius: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: BRAND.colors.mossGreen,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 1 },
     elevation: 1,
   },
-  todayDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 10,
+  selectedRowLocked: {
+    borderLeftWidth: 4,
   },
-  todayInfo: {
+  checkboxFilled: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    backgroundColor: BRAND.colors.mossGreen,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleArea_row: {
     flex: 1,
+    marginLeft: 10,
   },
-  todayTitle: {
-    fontSize: 15,
+  selectedTitle: {
+    fontSize: 14,
     fontWeight: '500',
     color: BRAND.colors.charcoalInk,
   },
-  todayMeta: {
-    fontSize: 12,
+  habitMeta: {
+    fontSize: 11,
     color: BRAND.colors.inkMuted,
-    marginTop: 2,
+    marginTop: 1,
   },
-  timePill: {
-    backgroundColor: 'rgba(46,85,64,0.08)',
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-  },
-  timePillText: {
-    fontSize: 12,
+  lockedBadge: {
+    fontSize: 10,
     fontWeight: '600',
     color: BRAND.colors.mossGreen,
+    marginTop: 1,
+  },
+  timeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: BRAND.colors.inkMuted,
+    marginRight: 8,
+  },
+  lockButton: {
+    padding: 2,
+  },
+  lockCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(46,85,64,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
-  // ── Available rows (unselected) ─────────────────────────────────
-  availableRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+  // ── Unselected Row ──────────────────────────────────────────────
+  unselectedRow: {
     marginHorizontal: 20,
     marginBottom: 4,
+    backgroundColor: 'transparent',
     borderRadius: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: 'transparent',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  availableCircle: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  checkboxEmpty: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    backgroundColor: 'transparent',
     borderWidth: 1.5,
     borderColor: BRAND.colors.borderSubtle,
-    backgroundColor: 'transparent',
-    marginRight: 10,
   },
-  availableTitle: {
+  unselectedTitle: {
     flex: 1,
+    marginLeft: 10,
     fontSize: 14,
     fontWeight: '400',
     color: BRAND.colors.charcoalInk,
-    opacity: 0.65,
+    opacity: 0.7,
   },
-  availableTime: {
+  unselectedTime: {
     fontSize: 12,
     color: BRAND.colors.inkMuted,
     opacity: 0.5,
   },
 
   // ── Empty state ─────────────────────────────────────────────────
-  emptyTaskState: {
+  emptyState: {
     alignItems: 'center',
     paddingVertical: 40,
     paddingHorizontal: 32,
