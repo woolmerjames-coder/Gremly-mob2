@@ -39,7 +39,7 @@ import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlySto
 import { computeHabitStreak } from '../../../lib/habits/streakUtils';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
-import { useCapacityForDate } from '../../../lib/store/capacitySelectors';
+import { useCapacityForDate, useTodayCalendarEvents } from '../../../lib/store/capacitySelectors';
 import {
   useTodayPendingDrops,
   useEventsForDate,
@@ -227,6 +227,7 @@ export function MorningBriefSheet({
   // CAPACITY & CALENDAR DATA
   // ─────────────────────────────────────────────────────────────────
   const capacity = useCapacityForDate(today);
+  const todayCalendarEvents = useTodayCalendarEvents();
 
   // ─────────────────────────────────────────────────────────────────
   // KEY DATE EVENTS (from Notes with subtype='event')
@@ -1426,13 +1427,11 @@ export function MorningBriefSheet({
         renderGlance={(onContinue, onSkipToEnd) => (
           <StepGlance
             events={todayKeyDates}
+            calendarEvents={todayCalendarEvents}
             hiddenEventIds={hiddenEventIds}
-            freeMinutes={totalActualFreeMinutes}
-            eventCount={todayKeyDates.length}
+            freeMinutes={effectiveFreeMinutes}
             totalEventCount={capacity.totalEventCount}
-            hasTasks={allDayTasks.length > 0}
             onEventQuickAction={handleEventQuickAction}
-            onEventPress={onKeyDatePress}
             onContinue={onContinue}
             onSkipToEnd={onSkipToEnd}
           />
