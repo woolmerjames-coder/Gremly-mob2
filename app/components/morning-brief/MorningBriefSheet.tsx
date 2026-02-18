@@ -1221,10 +1221,14 @@ export function MorningBriefSheet({
   );
 
   const handleQuickActionToggleLock = useCallback(
-    (taskId: string, _taskType: 'todo' | 'habit', _lockIn: boolean) => {
-      toggleBriefLock(taskId);
+    async (taskId: string, taskType: 'todo' | 'habit', lockIn: boolean) => {
+      if (lockIn) {
+        await addCommitment(taskId, taskType);
+      } else {
+        await removeCommitment(taskId, taskType);
+      }
     },
-    [toggleBriefLock],
+    [addCommitment, removeCommitment],
   );
 
   const handleQuickActionAssignSlot = useCallback(
@@ -1756,7 +1760,18 @@ export function MorningBriefSheet({
             onUnschedule={handleQuickActionUnschedule}
             onNotToday={handleQuickActionNotToday}
             onToggleLock={handleQuickActionToggleLock}
-            isLocked={quickActionTask ? briefLockedSet.has(quickActionTask.id) : false}
+            isLocked={(() => {
+              if (!quickActionTask) return false;
+              if (quickActionTask.type === 'todo') {
+                const todo = todos.find((t) => t.id === quickActionTask.id);
+                return todo?.commitment === true;
+              }
+              if (quickActionTask.type === 'habit') {
+                const habit = habits.find((h) => h.id === quickActionTask.id);
+                return habit ? isHabitLockedIn(habit) : false;
+              }
+              return false;
+            })()}
             targetDate={isTomorrow ? today : undefined}
             gaps={allGaps}
             blockAvailability={blockAvailability}
