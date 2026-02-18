@@ -1398,6 +1398,7 @@ export function MorningBriefSheet({
             hiddenEventIds={hiddenEventIds}
             freeMinutes={totalActualFreeMinutes}
             eventCount={todayKeyDates.length}
+            totalEventCount={capacity.totalEventCount}
             onEventQuickAction={handleEventQuickAction}
             onEventPress={onKeyDatePress}
             onContinue={onContinue}

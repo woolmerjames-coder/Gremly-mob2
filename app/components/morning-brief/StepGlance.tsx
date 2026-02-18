@@ -14,6 +14,7 @@ interface StepGlanceProps {
   hiddenEventIds: string[];
   freeMinutes: number;
   eventCount: number;
+  totalEventCount: number;
   onEventQuickAction: (event: Note) => void;
   onEventPress?: (event: Note) => void;
   onContinue: () => void;
@@ -88,6 +89,7 @@ export function StepGlance({
   events,
   hiddenEventIds,
   freeMinutes,
+  totalEventCount,
   onEventQuickAction,
   onEventPress,
   onContinue,
@@ -113,7 +115,8 @@ export function StepGlance({
   const totalEventTimeStr = useMemo(() => formatTotalEventTime(visibleEvents), [visibleEvents]);
 
   const freeTimeStr = formatFreeMinutes(freeMinutes);
-  const hasEvents = visibleEvents.length > 0;
+  const hasEvents = visibleEvents.length > 0 || totalEventCount > 0;
+  const moreInCalendar = totalEventCount - visibleEvents.length;
 
   return (
     <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -125,7 +128,7 @@ export function StepGlance({
             <View style={styles.cardHeader}>
               <Calendar size={16} color={BRAND.colors.mossGreen} />
               <Text style={styles.cardHeaderCount}>
-                {visibleEvents.length} event{visibleEvents.length !== 1 ? 's' : ''}
+                {totalEventCount} event{totalEventCount !== 1 ? 's' : ''}
               </Text>
               <Text style={styles.cardHeaderSub}>· {totalEventTimeStr} blocked</Text>
             </View>
@@ -156,6 +159,11 @@ export function StepGlance({
                 </Pressable>
               );
             })}
+
+            {/* More in calendar note */}
+            {moreInCalendar > 0 && (
+              <Text style={styles.moreInCalendar}>+{moreInCalendar} more in your calendar</Text>
+            )}
 
             {/* Free time bar */}
             <View style={styles.freeTimeBar}>
@@ -254,7 +262,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: BRAND.colors.inkMuted,
   },
-
+  moreInCalendar: {
+    fontSize: 13,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center' as const,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderTopWidth: 1,
+    borderTopColor: BRAND.colors.borderSubtle,
+  },
   freeTimeBar: {
     borderTopWidth: 1,
     borderTopColor: BRAND.colors.borderSubtle,
