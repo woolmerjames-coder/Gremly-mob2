@@ -283,6 +283,20 @@ export function MorningBriefSheet({
     [hiddenCalendarEventsByDate, today],
   );
 
+  // Pre-filter calendar events so StepGlance never sees hidden ones
+  const visibleCalendarEvents = useMemo(() => {
+    const hiddenSet = new Set(hiddenEventIds);
+    return (todayCalendarEvents ?? []).filter((e) => !hiddenSet.has(e.id));
+  }, [todayCalendarEvents, hiddenEventIds]);
+
+  // Gate: ensure hidden state has hydrated before rendering Glance
+  const [isGlanceReady, setIsGlanceReady] = useState(false);
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      setIsGlanceReady(true);
+    });
+  }, []);
+
   // ─────────────────────────────────────────────────────────────────
   // HIDDEN TODAY (Not Today - todos/habits hidden for the day)
   // ─────────────────────────────────────────────────────────────────
@@ -1560,8 +1574,9 @@ export function MorningBriefSheet({
         renderGlance={(onContinue, onSkipToEnd) => (
           <StepGlance
             events={todayKeyDates}
-            calendarEvents={todayCalendarEvents}
+            calendarEvents={visibleCalendarEvents}
             hiddenEventIds={hiddenEventIds}
+            isReady={isGlanceReady}
             freeMinutes={effectiveFreeMinutes}
             totalEventCount={capacity.totalEventCount}
             onEventQuickAction={handleEventQuickAction}

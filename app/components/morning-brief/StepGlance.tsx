@@ -27,6 +27,8 @@ interface StepGlanceProps {
   freeMinutes: number;
   /** Total calendar event count (from capacity) */
   totalEventCount: number;
+  /** Whether hidden event data has been loaded */
+  isReady?: boolean;
   /** Callbacks */
   onEventQuickAction: (event: Note) => void;
   /** Handles action on synced calendar events */
@@ -110,6 +112,7 @@ export function StepGlance({
   hiddenEventIds,
   freeMinutes,
   totalEventCount,
+  isReady,
   onEventQuickAction,
   onCalendarEventAction,
   onContinue,
@@ -161,6 +164,11 @@ export function StepGlance({
   const hasEvents = allEvents.length > 0 || totalEventCount > 0;
   const isFullyBooked = freeMinutes <= 0;
   const freeTimeFormatted = formatFreeMinutes(freeMinutes);
+
+  // Gate: wait for hidden state before rendering to prevent flash
+  if (isReady === false) {
+    return <View style={styles.scroll} />;
+  }
 
   return (
     <ScrollView
