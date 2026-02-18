@@ -61,7 +61,9 @@ import { StepPrioritize } from './StepPrioritize';
 import { StepOrganize } from './StepOrganize';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { GlobalEventPopup } from '../../../components/calendar/GlobalEventPopup';
-import EventQuickActionSheet from '../../../components/now/EventQuickActionSheet';
+import EventQuickActionSheet, {
+  type UnifiedEvent,
+} from '../../../components/now/EventQuickActionSheet';
 import { GlobalEventTimePicker } from '../../../components/calendar/GlobalEventTimePicker';
 import { useUnifiedOverlayController } from '../../../hooks/useUnifiedOverlayController';
 import {
@@ -975,6 +977,7 @@ export function MorningBriefSheet({
   // EVENT QUICK ACTION STATE
   // ─────────────────────────────────────────────────────────────────
   const [quickActionEvent, setQuickActionEvent] = useState<Note | null>(null);
+  const [quickActionUnified, setQuickActionUnified] = useState<UnifiedEvent | null>(null);
 
   const [quickActionTask, setQuickActionTask] = useState<TaskItemData | null>(null);
   const [quickActionIsSlotted, setQuickActionIsSlotted] = useState(false);
@@ -1095,39 +1098,54 @@ export function MorningBriefSheet({
   // EVENT QUICK ACTION HANDLERS
   // ─────────────────────────────────────────────────────────────────
   const handleEventQuickAction = useCallback((event: Note) => {
+    setQuickActionUnified(null);
     setQuickActionEvent(event);
   }, []);
 
-  const handleCalendarEventAction = useCallback(
-    (calEvent: CalendarEvent) => {
-      const timeLabel = calEvent.isAllDay
-        ? 'All day'
-        : `${calEvent.startAt ? new Date(calEvent.startAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}`;
+  /** Helper: extract HH:mm from an ISO timestamp */
+  const isoToHHMM = (iso: string): string => {
+    const d = new Date(iso);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
 
-      Alert.alert(calEvent.title || 'Calendar Event', timeLabel, [
-        { text: 'Keep', style: 'cancel' },
-        {
-          text: 'Hide from today',
-          style: 'destructive',
-          onPress: () => {
-            const hideId = `${calEvent.provider}-${calEvent.providerEventId}`;
-            useGremlyStore.getState().hideCalendarEvent(today, hideId);
-          },
-        },
-      ]);
+  const handleCalendarEventQuickAction = useCallback((calEvent: CalendarEvent) => {
+    const unified: UnifiedEvent = {
+      id: `${calEvent.provider}-${calEvent.providerEventId}`,
+      title: calEvent.title || 'Untitled',
+      eventTime: calEvent.isAllDay ? null : isoToHHMM(calEvent.startAt),
+      endTime: calEvent.isAllDay ? null : isoToHHMM(calEvent.endAt),
+      isAllDay: calEvent.isAllDay,
+      sourceType: 'calendar',
+      calendarEvent: calEvent,
+    };
+    setQuickActionEvent(null);
+    setQuickActionUnified(unified);
+  }, []);
+
+  const handleDismissEvent = useCallback(
+    (eventId: string) => {
+      // Calendar event IDs are composite "provider-providerEventId" (not UUIDs)
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        eventId,
+      );
+
+      if (isUUID) {
+        // Note event — archive in Supabase
+        const now = new Date().toISOString();
+        useGremlyStore.getState().updateNote(eventId, {
+          archived: true,
+          archived_reason: 'dismissed_by_user',
+          archived_at: now,
+        });
+      } else {
+        // Calendar event — hide for today
+        useGremlyStore.getState().hideCalendarEvent(today, eventId);
+      }
+      setQuickActionEvent(null);
+      setQuickActionUnified(null);
     },
     [today],
   );
-
-  const handleDismissEvent = useCallback((eventId: string) => {
-    const now = new Date().toISOString();
-    useGremlyStore.getState().updateNote(eventId, {
-      archived: true,
-      archived_reason: 'dismissed_by_user',
-      archived_at: now,
-    });
-    setQuickActionEvent(null);
-  }, []);
 
   const handleEditEventTime = useCallback(
     (eventId: string, startTime: string, endTime: string | null) => {
@@ -1137,6 +1155,7 @@ export function MorningBriefSheet({
         user_edited_fields: [...(quickActionEvent?.user_edited_fields ?? []), 'event_time'],
       });
       setQuickActionEvent(null);
+      setQuickActionUnified(null);
     },
     [quickActionEvent],
   );
@@ -1144,37 +1163,50 @@ export function MorningBriefSheet({
   const handleAddPrepNote = useCallback((eventId: string, body: string) => {
     useGremlyStore.getState().updateNote(eventId, { body });
     setQuickActionEvent(null);
+    setQuickActionUnified(null);
   }, []);
 
   const handleEventRemind = useCallback(
     async (eventId: string, minutesBefore: number) => {
-      const event = quickActionEvent;
-      if (!event) return;
+      // Derive title/date/time from whichever source is active
+      const noteEvent = quickActionEvent;
+      const unified = quickActionUnified;
+      const title = noteEvent?.title || unified?.title || 'Event';
+      const targetDate = noteEvent?.target_date || '';
+      const eventTime = noteEvent?.event_time || unified?.eventTime || null;
 
       // Schedule the actual notification via shared helper
       const notificationId = await scheduleEventReminder(
         eventId,
-        event.title || 'Event',
-        event.target_date || '',
-        event.event_time || null,
+        title,
+        targetDate,
+        eventTime,
         minutesBefore,
       );
 
-      // Store reminder preferences + notification ID on the note
-      const existingIds = event.notification_ids ?? [];
-      useGremlyStore.getState().updateNote(eventId, {
-        reminder_preferences: { dayBefore: minutesBefore >= 1440, morningOf: false, minutesBefore },
-        ...(notificationId ? { notification_ids: [...existingIds, notificationId] } : {}),
-      });
+      // Store reminder preferences on the note (only for note events)
+      if (noteEvent) {
+        const existingIds = noteEvent.notification_ids ?? [];
+        useGremlyStore.getState().updateNote(eventId, {
+          reminder_preferences: {
+            dayBefore: minutesBefore >= 1440,
+            morningOf: false,
+            minutesBefore,
+          },
+          ...(notificationId ? { notification_ids: [...existingIds, notificationId] } : {}),
+        });
+      }
 
       setQuickActionEvent(null);
+      setQuickActionUnified(null);
     },
-    [quickActionEvent],
+    [quickActionEvent, quickActionUnified],
   );
 
   const handleOpenFullEvent = useCallback(
     (event: Note) => {
       setQuickActionEvent(null);
+      setQuickActionUnified(null);
       overlayController.openEdit({
         record: { id: event.id, type: 'note' } as any,
       });
@@ -1454,7 +1486,7 @@ export function MorningBriefSheet({
             freeMinutes={effectiveFreeMinutes}
             totalEventCount={capacity.totalEventCount}
             onEventQuickAction={handleEventQuickAction}
-            onCalendarEventAction={handleCalendarEventAction}
+            onCalendarEventAction={handleCalendarEventQuickAction}
             onContinue={onContinue}
             onSkipToEnd={onSkipToEnd}
           />
@@ -1662,14 +1694,19 @@ export function MorningBriefSheet({
 
         {/* Event Quick Action Sheet */}
         <EventQuickActionSheet
-          visible={!!quickActionEvent}
+          visible={!!quickActionEvent || !!quickActionUnified}
           event={quickActionEvent}
-          onClose={() => setQuickActionEvent(null)}
+          unifiedEvent={quickActionUnified}
+          onClose={() => {
+            setQuickActionEvent(null);
+            setQuickActionUnified(null);
+          }}
           onDismiss={handleDismissEvent}
           onEditTime={handleEditEventTime}
           onAddPrepNote={handleAddPrepNote}
           onLinkTodo={(_eventId) => {
             setQuickActionEvent(null);
+            setQuickActionUnified(null);
           }}
           onRemind={handleEventRemind}
           onOpenFull={handleOpenFullEvent}
