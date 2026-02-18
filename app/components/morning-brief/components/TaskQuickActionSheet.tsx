@@ -518,12 +518,12 @@ export function TaskQuickActionSheet({
             </Pressable>
           )}
 
-          {/* ── Cancel ── */}
+          {/* ── Done ── */}
           <Pressable
             style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.7 }]}
             onPress={onClose}
           >
-            <Text style={styles.cancelBtnText}>Cancel</Text>
+            <Text style={styles.cancelBtnText}>Done</Text>
           </Pressable>
         </View>
       </KeyboardAvoidingView>
