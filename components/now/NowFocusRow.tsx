@@ -94,6 +94,7 @@ interface NowFocusRowProps {
   isCompleted?: boolean;
   isFuture?: boolean;
   isLocked?: boolean;
+  isLockedIn?: boolean;
   isFirst?: boolean;
   isLast?: boolean;
   isOneThing?: boolean;
@@ -121,6 +122,7 @@ export function NowFocusRow({
   isCompleted = false,
   isFuture = false,
   isLocked = false,
+  isLockedIn = false,
   isFirst = false,
   isLast: _isLast = false,
   isOneThing: _isOneThing = false,
@@ -139,10 +141,31 @@ export function NowFocusRow({
     timeBlock,
     'isLocked:',
     isLocked,
+    'isLockedIn:',
+    isLockedIn,
   );
 
   const tokens = useTokens();
   const reducedMotion = useReducedMotion();
+
+  // Inverse card styles for locked-in items
+  const lockedStyles = isLockedIn
+    ? {
+        card: {
+          backgroundColor: '#2E5540',
+          borderRadius: 10,
+          marginHorizontal: 4,
+          marginVertical: 2,
+        } as const,
+        title: { color: '#F9F6F1' } as const,
+        meta: { color: 'rgba(249, 246, 241, 0.7)' } as const,
+        checkbox: { borderColor: 'rgba(249, 246, 241, 0.5)' } as const,
+        checkboxChecked: { backgroundColor: '#F9F6F1', borderColor: '#F9F6F1' } as const,
+        checkmark: { color: '#2E5540' } as const,
+        divider: { backgroundColor: 'rgba(249, 246, 241, 0.15)' } as const,
+        habitMeta: { color: 'rgba(249, 246, 241, 0.7)' } as const,
+      }
+    : null;
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   // Get the full habit from store to access frequency field
   const habits = useGremlyStore((s) => s.habits);
@@ -435,20 +458,29 @@ export function NowFocusRow({
     <Animated.View
       style={[
         styles.rowWrapper,
+        isLockedIn && { backgroundColor: '#2E5540' },
         animationPhase === 'collapsing' ? { height: rowHeight.value, overflow: 'hidden' } : {},
       ]}
       onLayout={handleLayout}
     >
       {/* Completion message - revealed when card slides out */}
-      <Animated.View style={[styles.messageContainer, messageAnimatedStyle]}>
+      <Animated.View
+        style={[
+          styles.messageContainer,
+          isLockedIn && { backgroundColor: '#2E5540' },
+          messageAnimatedStyle,
+        ]}
+      >
         <Image source={GREMLY_FACE} style={styles.gremlyFace} resizeMode="contain" />
-        <Text style={styles.messageText}>{completionMessage}</Text>
+        <Text style={[styles.messageText, isLockedIn && { color: '#F9F6F1' }]}>
+          {completionMessage}
+        </Text>
       </Animated.View>
 
       {/* Main card */}
-      <Animated.View style={[styles.cardContainer, cardAnimatedStyle]}>
+      <Animated.View style={[styles.cardContainer, lockedStyles?.card, cardAnimatedStyle]}>
         {/* Divider line at top (not on first item) */}
-        {!isFirst && <View style={styles.divider} />}
+        {!isFirst && <View style={[styles.divider, lockedStyles?.divider]} />}
 
         <TouchableOpacity style={styles.rowContent} onPress={onPress} activeOpacity={0.7}>
           {/* Left: Title + optional second line */}
@@ -457,16 +489,26 @@ export function NowFocusRow({
               numberOfLines={1}
               style={[
                 styles.title,
+                lockedStyles?.title,
                 (isFuture || isFlexible) && styles.titleDimmed,
                 showStrikethrough && styles.titleCompleted,
               ]}
             >
               {item.name}
             </Text>
-            {secondLineText && (
-              <Text style={styles.metaText} numberOfLines={1}>
-                {secondLineText}
-              </Text>
+            {(secondLineText || isLockedIn) && (
+              <View style={styles.secondLineRow}>
+                {secondLineText && (
+                  <Text style={[styles.metaText, lockedStyles?.meta]} numberOfLines={1}>
+                    {secondLineText}
+                  </Text>
+                )}
+                {isLockedIn && (
+                  <View style={styles.lockedChip}>
+                    <Text style={styles.lockedChipText}>Locked in</Text>
+                  </View>
+                )}
+              </View>
             )}
           </View>
 
@@ -474,13 +516,17 @@ export function NowFocusRow({
           <View style={styles.chips}>
             {/* Habit: frequency label */}
             {item.type === 'habit' && frequencyLabel && (
-              <Text style={styles.habitMeta}>{frequencyLabel}</Text>
+              <Text style={[styles.habitMeta, lockedStyles?.habitMeta]}>{frequencyLabel}</Text>
             )}
 
             {/* Habit: progress (e.g., "5/7 this week") */}
             {item.type === 'habit' && habitMetadata && habitMetadata.label && (
               <Text
-                style={[styles.habitMeta, habitMetadata.icon === 'Flame' && styles.habitMetaStreak]}
+                style={[
+                  styles.habitMeta,
+                  lockedStyles?.habitMeta,
+                  habitMetadata.icon === 'Flame' && !isLockedIn && styles.habitMetaStreak,
+                ]}
               >
                 {habitMetadata.label}
               </Text>
@@ -496,11 +542,13 @@ export function NowFocusRow({
             <Animated.View
               style={[
                 styles.checkbox,
+                lockedStyles?.checkbox,
                 showChecked && styles.checkboxChecked,
+                showChecked && lockedStyles?.checkboxChecked,
                 checkboxAnimatedStyle,
               ]}
             >
-              {showChecked && <Text style={styles.checkmark}>✓</Text>}
+              {showChecked && <Text style={[styles.checkmark, lockedStyles?.checkmark]}>✓</Text>}
             </Animated.View>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -572,6 +620,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999999',
     marginTop: 0,
+  },
+  secondLineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 0,
+  },
+  lockedChip: {
+    backgroundColor: 'rgba(249, 246, 241, 0.2)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  lockedChipText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#F9F6F1',
   },
   chips: {
     flexDirection: 'row',

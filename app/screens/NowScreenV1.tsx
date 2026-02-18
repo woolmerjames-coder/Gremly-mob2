@@ -1346,15 +1346,31 @@ function TodayFocusList({
   // Group all event notes by time block
   const eventNotesByBlock = useMemo(() => groupKeyDatesByTimeBlock(eventNotes ?? []), [eventNotes]);
 
-  // Build flat sorted list: locked items first, then active items sorted by sequence
+  // Build flat sorted list: locked + active items merged, sorted by sequence
   const sortedItems = useMemo(() => {
-    // Create set of locked item IDs
-    const lockedIds = new Set(lockedItems.map((i) => i.id));
+    // Convert locked items to NowActiveItem format so they flow through block grouping
+    const lockedAsActive: NowActiveItem[] = lockedItems.map((item) => ({
+      id: item.id,
+      type: item.type,
+      name: item.name,
+      locked: false as const, // Type compat — tracked via lockedItemIds
+      dueDay: item.dueDay ?? null,
+      cadence: item.cadence,
+      targetPerPeriod: item.targetPerPeriod,
+      frequency: item.frequency,
+      spaceId: item.spaceId ?? null,
+      spaceName: item.spaceName ?? null,
+    }));
 
-    // Filter out locked items from activeItems (they're rendered first)
-    const nonLockedItems = activeItems.filter((i) => !lockedIds.has(i.id));
+    // Merge locked + active, dedup by id
+    const seen = new Set<string>();
+    const allItems = [...lockedAsActive, ...activeItems].filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
 
-    // Sort non-locked items by sequence priority: morning -> day -> evening -> whenever
+    // Sort by sequence priority: morning -> day -> evening -> whenever
     const morningIds = new Set(brief?.morning_sequence?.map((i) => i.id) || []);
     const dayIds = new Set(brief?.day_sequence?.map((i) => i.id) || []);
     const eveningIds = new Set(brief?.evening_sequence?.map((i) => i.id) || []);
@@ -1366,9 +1382,7 @@ function TodayFocusList({
       return 3; // whenever
     };
 
-    return [...nonLockedItems].sort(
-      (a, b) => getSequencePriority(a.id) - getSequencePriority(b.id),
-    );
+    return allItems.sort((a, b) => getSequencePriority(a.id) - getSequencePriority(b.id));
   }, [activeItems, brief, lockedItems]);
 
   // Group items by time block using multiple signals (brief sequences, store time_window, scheduled time)
@@ -1563,23 +1577,6 @@ function TodayFocusList({
         </View>
       )}
 
-      {/* Locked In section */}
-      {lockedItems.length > 0 && (
-        <TimeBlockSection block="locked" isFirst={getIsFirst()}>
-          {lockedItems.map((item, index) => (
-            <NowFocusRow
-              key={item.id}
-              item={item}
-              isCompleted={false}
-              isLocked
-              isFirst={index === 0}
-              onPress={() => onPressItem?.(item)}
-              onToggleComplete={() => onToggleComplete?.(item)}
-            />
-          ))}
-        </TimeBlockSection>
-      )}
-
       {/* All Day section */}
       {shouldRenderBlock('allday') && (
         <TimeBlockSection block="allday" isFirst={getIsFirst()}>
@@ -1598,6 +1595,7 @@ function TodayFocusList({
                 item={entry.item!}
                 isCompleted={false}
                 isLocked={false}
+                isLockedIn={lockedItemIds?.has(entry.id)}
                 isFirst={index === 0}
                 onPress={() => onPressItem?.(entry.item!)}
                 onToggleComplete={() => onToggleComplete?.(entry.item!)}
@@ -1625,6 +1623,7 @@ function TodayFocusList({
                 item={entry.item!}
                 isCompleted={false}
                 isLocked={false}
+                isLockedIn={lockedItemIds?.has(entry.id)}
                 isFirst={index === 0}
                 onPress={() => onPressItem?.(entry.item!)}
                 onToggleComplete={() => onToggleComplete?.(entry.item!)}
@@ -1655,6 +1654,7 @@ function TodayFocusList({
                 item={entry.item!}
                 isCompleted={false}
                 isLocked={false}
+                isLockedIn={lockedItemIds?.has(entry.id)}
                 isFirst={index === 0}
                 onPress={() => onPressItem?.(entry.item!)}
                 onToggleComplete={() => onToggleComplete?.(entry.item!)}
@@ -1685,6 +1685,7 @@ function TodayFocusList({
                 item={entry.item!}
                 isCompleted={false}
                 isLocked={false}
+                isLockedIn={lockedItemIds?.has(entry.id)}
                 isFirst={index === 0}
                 onPress={() => onPressItem?.(entry.item!)}
                 onToggleComplete={() => onToggleComplete?.(entry.item!)}
@@ -1715,6 +1716,7 @@ function TodayFocusList({
                 item={entry.item!}
                 isCompleted={false}
                 isLocked={false}
+                isLockedIn={lockedItemIds?.has(entry.id)}
                 isFirst={index === 0}
                 onPress={() => onPressItem?.(entry.item!)}
                 onToggleComplete={() => onToggleComplete?.(entry.item!)}
