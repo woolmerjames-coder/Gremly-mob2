@@ -1544,7 +1544,7 @@ export function MorningBriefSheet({
       {/* Header — always visible above the stepper */}
       <MorningBriefHeader
         targetDate={isTomorrow ? today : undefined}
-        overrideAvailableMinutes={effectiveFreeMinutes}
+        overrideAvailableMinutes={totalActualFreeMinutes}
       />
 
       <MorningBriefStepper

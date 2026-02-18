@@ -212,25 +212,25 @@ export function StepGlance({
         {/* ── 2. ALL-DAY EVENTS (if any) ────────────────────────── */}
         {hasAllDay && (
           <View style={styles.allDaySection}>
-            {dedupedCalAllDay.map((e) => (
-              <Pressable
-                key={e.id}
-                onPress={() => onCalendarEventAction(e)}
-                style={styles.allDayChip}
-              >
-                <Text style={styles.allDayLabel}>All day</Text>
-                <Text style={styles.allDayTitle} numberOfLines={1}>
-                  {e.title}
-                </Text>
-              </Pressable>
+            {dedupedCalAllDay.map((e, i) => (
+              <React.Fragment key={e.id}>
+                {i > 0 && <View style={styles.allDayDivider} />}
+                <Pressable onPress={() => onCalendarEventAction(e)} style={styles.allDayRow}>
+                  <Text style={styles.allDayTitle} numberOfLines={1}>
+                    {e.title}
+                  </Text>
+                </Pressable>
+              </React.Fragment>
             ))}
-            {dedupedNoteAllDay.map((e) => (
-              <Pressable key={e.id} onPress={() => onEventQuickAction(e)} style={styles.allDayChip}>
-                <Text style={styles.allDayLabel}>All day</Text>
-                <Text style={styles.allDayTitle} numberOfLines={1}>
-                  {e.title || 'Untitled'}
-                </Text>
-              </Pressable>
+            {dedupedNoteAllDay.map((e, i) => (
+              <React.Fragment key={e.id}>
+                {(i > 0 || dedupedCalAllDay.length > 0) && <View style={styles.allDayDivider} />}
+                <Pressable onPress={() => onEventQuickAction(e)} style={styles.allDayRow}>
+                  <Text style={styles.allDayTitle} numberOfLines={1}>
+                    {e.title || 'Untitled'}
+                  </Text>
+                </Pressable>
+              </React.Fragment>
             ))}
           </View>
         )}
@@ -349,30 +349,27 @@ const styles = StyleSheet.create({
 
   // ── All-day events ──────────────────────────────────────────────
   allDaySection: {
-    paddingHorizontal: 16,
+    marginHorizontal: 32,
     marginBottom: 8,
-    gap: 4,
   },
-  allDayChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: 'rgba(46,85,64,0.05)',
-    gap: 8,
-  },
-  allDayLabel: {
-    fontSize: 11,
-    fontWeight: '600',
+  allDaySectionLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
     color: BRAND.colors.inkMuted,
-    fontStyle: 'italic',
+    marginBottom: 2,
+  },
+  allDayRow: {
+    paddingVertical: 5,
+  },
+  allDayDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: BRAND.colors.borderSubtle,
   },
   allDayTitle: {
-    flex: 1,
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
+    color: BRAND.colors.inkMuted,
   },
 
   // ── Sticky Footer ──────────────────────────────────────────────
