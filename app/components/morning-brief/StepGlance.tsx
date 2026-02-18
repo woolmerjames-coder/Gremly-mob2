@@ -184,23 +184,23 @@ export function StepGlance({
       {hasEvents ? (
         <>
           <Text style={styles.sectionLabel}>TODAY&apos;S SCHEDULE</Text>
-          <Text style={styles.helperText}>Tap any event to adjust or remove</Text>
+          <Text style={styles.helperText}>Tap a key date to adjust or remove</Text>
           <View style={styles.card}>
             {allEvents.map((event, index) => {
               const isLast = index === allEvents.length - 1;
+              const isTappable = !!event.sourceNote;
 
               return (
                 <Pressable
                   key={event.id}
                   style={({ pressed }) => [
                     styles.eventRow,
-                    pressed && { backgroundColor: 'rgba(46,85,64,0.04)' },
+                    pressed && isTappable && { backgroundColor: 'rgba(46,85,64,0.04)' },
                     !isLast && styles.eventRowBorder,
                     event.isAllDay && styles.eventRowAllDay,
                   ]}
-                  onPress={() => {
-                    if (event.sourceNote) onEventQuickAction(event.sourceNote);
-                  }}
+                  onPress={isTappable ? () => onEventQuickAction(event.sourceNote!) : undefined}
+                  disabled={!isTappable}
                 >
                   <Text style={[styles.eventTime, event.isAllDay && styles.eventTimeAllDay]}>
                     {event.isAllDay ? 'All day' : formatTimeRange(event.startTime, event.endTime)}
