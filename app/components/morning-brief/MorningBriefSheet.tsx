@@ -219,6 +219,8 @@ export function MorningBriefSheet({
   const toggleBriefSelection = useGremlyStore((s) => s.toggleBriefSelection);
   const toggleBriefLock = useGremlyStore((s) => s.toggleBriefLock);
   const setBriefParked = useGremlyStore((s) => s.setBriefParked);
+  const briefCompletedToday = useGremlyStore((s) => s.briefCompletedToday);
+  const setBriefCompletedToday = useGremlyStore((s) => s.setBriefCompletedToday);
   const habitProgress = useGremlyStore((s) => s.habitProgress);
 
   // ─────────────────────────────────────────────────────────────────
@@ -576,16 +578,25 @@ export function MorningBriefSheet({
   }, [tasksByBlock]);
 
   // ─── Step sequence for MorningBriefStepper ───
+  const hasCompletedToday = useMemo(() => {
+    return briefCompletedToday === today;
+  }, [briefCompletedToday, today]);
+
   // Lock to initial value so mid-flow state changes (e.g. markMiniSweepCompleted)
   // don't recompute the array and shift step indices while the user is navigating.
   const stepsNeededRef = useRef<BriefStep[] | null>(null);
   if (stepsNeededRef.current === null) {
-    const steps: BriefStep[] = ['glance'];
-    if (showMiniSweep) steps.push('sweep');
-    // Always show — user reviews tasks whether or not they fit
-    steps.push('prioritize');
-    steps.push('organize', 'plan');
-    stepsNeededRef.current = steps;
+    // Re-entry: skip straight to plan review
+    if (hasCompletedToday) {
+      stepsNeededRef.current = ['plan'];
+    } else {
+      const steps: BriefStep[] = ['glance'];
+      if (showMiniSweep) steps.push('sweep');
+      // Always show — user reviews tasks whether or not they fit
+      steps.push('prioritize');
+      steps.push('organize', 'plan');
+      stepsNeededRef.current = steps;
+    }
   }
   const stepsNeeded = stepsNeededRef.current;
 
@@ -1376,6 +1387,7 @@ export function MorningBriefSheet({
         evening_sequence: tasksByBlock.evening.map((t) => ({ id: t.id, type: t.type })),
       });
 
+      setBriefCompletedToday(today);
       onComplete?.();
       onClose();
     } catch (error) {
@@ -1394,6 +1406,7 @@ export function MorningBriefSheet({
     isPrioritizing,
     setBriefParked,
     parkedTasks,
+    setBriefCompletedToday,
   ]);
 
   // ─────────────────────────────────────────────────────────────────

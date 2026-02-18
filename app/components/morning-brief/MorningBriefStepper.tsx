@@ -124,7 +124,9 @@ export function MorningBriefStepper({
 
   return (
     <View style={styles.container}>
-      <StepProgressBar current={currentIndex} total={stepsNeeded.length} />
+      {stepsNeeded.length > 1 && (
+        <StepProgressBar current={currentIndex} total={stepsNeeded.length} />
+      )}
       <Animated.View style={[styles.content, { opacity: fadeAnim }]}>{stepContent}</Animated.View>
       {children}
     </View>

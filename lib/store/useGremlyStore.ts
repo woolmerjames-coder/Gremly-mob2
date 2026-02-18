@@ -806,6 +806,9 @@ interface GremlyState {
   briefSelectionDate: string | null;
   /** IDs of tasks explicitly deselected (parked for later) */
   parkedForDay: string[];
+  /** Date the user last completed the brief (for re-entry detection) */
+  briefCompletedToday: string | null;
+  setBriefCompletedToday: (date: string | null) => void;
 
   // Calendar actions
   refreshCalendarConnections: () => Promise<void>;
@@ -948,6 +951,7 @@ const initialState = {
   briefLockedIds: [] as string[],
   briefSelectionDate: null as string | null,
   parkedForDay: [] as string[],
+  briefCompletedToday: null as string | null,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -5142,6 +5146,10 @@ export const useGremlyStore = create<GremlyState>()(
 
         setBriefParked: (parkedIds: string[]) => {
           set({ parkedForDay: parkedIds });
+        },
+
+        setBriefCompletedToday: (date: string | null) => {
+          set({ briefCompletedToday: date });
         },
 
         // ═══════════════════════════════════════════════════════════════════
