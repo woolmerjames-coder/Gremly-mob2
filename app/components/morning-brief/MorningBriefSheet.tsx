@@ -54,6 +54,7 @@ import type { TimeBlock } from '../../../lib/capacity';
 import { MiniSweepGate } from './MiniSweepGate';
 import { MorningBriefStepper, type BriefStep } from './MorningBriefStepper';
 import { StepGlance } from './StepGlance';
+import { StepSweep } from './StepSweep';
 import { StepPlan } from './StepPlan';
 import { NowQuickAddModal } from '../../../components/now/NowQuickAddModal';
 import { GlobalEventPopup } from '../../../components/calendar/GlobalEventPopup';
@@ -1406,10 +1407,10 @@ export function MorningBriefSheet({
           />
         )}
         renderSweep={(onContinue, onSkip) => (
-          <MiniSweepGate
+          <StepSweep
             rolledOverTodos={rolledOverTodos}
             unscheduledTodos={unscheduledTodos}
-            onComplete={() => {
+            onContinue={() => {
               handleMiniSweepComplete();
               onContinue();
             }}
