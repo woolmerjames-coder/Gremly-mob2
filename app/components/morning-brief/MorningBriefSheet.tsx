@@ -39,7 +39,7 @@ import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlySto
 import { computeHabitStreak } from '../../../lib/habits/streakUtils';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
-import { useCapacityForDate, useTodayCalendarEvents } from '../../../lib/store/capacitySelectors';
+import { useCapacityForDate, useCalendarEventsForDate } from '../../../lib/store/capacitySelectors';
 import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
 import {
   useTodayPendingDrops,
@@ -181,15 +181,6 @@ function getDueDateLabel(
   return null; // More than 3 days out — not urgent enough to show
 }
 
-// Helper: does the task name imply a specific time of day?
-function getSemanticBlock(name: string): 'morning' | 'day' | 'evening' | null {
-  const lower = name.toLowerCase();
-  if (/\b(morning|am routine|sunrise|wake|breakfast)\b/.test(lower)) return 'morning';
-  if (/\b(afternoon|lunch|midday)\b/.test(lower)) return 'day';
-  if (/\b(evening|night|bedtime|dinner|sunset|pm routine)\b/.test(lower)) return 'evening';
-  return null;
-}
-
 export function MorningBriefSheet({
   onClose,
   onComplete,
@@ -213,6 +204,7 @@ export function MorningBriefSheet({
   const addCommitment = useGremlyStore((s) => s.addCommitment);
   const removeCommitment = useGremlyStore((s) => s.removeCommitment);
   const saveBrief = useGremlyStore((s) => s.saveBrief);
+  const resetDailyAssignments = useGremlyStore((s) => s.resetDailyAssignments);
 
   // Brief capacity gate state
   const briefSelectedIds = useGremlyStore((s) => s.briefSelectedIds);
@@ -230,7 +222,7 @@ export function MorningBriefSheet({
   // CAPACITY & CALENDAR DATA
   // ─────────────────────────────────────────────────────────────────
   const capacity = useCapacityForDate(today);
-  const todayCalendarEvents = useTodayCalendarEvents();
+  const todayCalendarEvents = useCalendarEventsForDate(today);
 
   // ─────────────────────────────────────────────────────────────────
   // KEY DATE EVENTS (from Notes with subtype='event')
@@ -356,7 +348,7 @@ export function MorningBriefSheet({
         title: todo.name || 'Untitled',
         estimatedMinutes: todo.time_estimate_minutes ?? undefined,
         isLockedIn: todo.commitment === true,
-        timeWindow: (todo.time_window as TaskItemData['timeWindow']) ?? null,
+        timeWindow: ((todo.daily_block ?? todo.time_window) as TaskItemData['timeWindow']) ?? null,
         metadata,
         dueStatus,
       };
@@ -437,7 +429,8 @@ export function MorningBriefSheet({
         title: habit.name || 'Untitled',
         estimatedMinutes: habit.time_estimate_minutes ?? undefined,
         isLockedIn: isHabitLockedIn(habit),
-        timeWindow: (habit.time_window as TaskItemData['timeWindow']) ?? null,
+        timeWindow:
+          ((habit.daily_block ?? habit.time_window) as TaskItemData['timeWindow']) ?? null,
         metadata,
         streakCount,
       };
@@ -465,7 +458,8 @@ export function MorningBriefSheet({
     // Process todos
     todayTodos.forEach((todo) => {
       const task = transformTodo(todo);
-      switch (todo.time_window) {
+      const effectiveBlock = todo.daily_block ?? todo.time_window;
+      switch (effectiveBlock) {
         case 'morning':
           morning.push(task);
           break;
@@ -476,7 +470,7 @@ export function MorningBriefSheet({
           evening.push(task);
           break;
         default:
-          // Items with scheduled_start_iso but time_window 'any'/null
+          // Items with scheduled_start_iso but no block assignment
           // are already visible in the timeline via slottedItemsByBlock.
           // Don't double-show them in priorities.
           if (!todo.scheduled_start_iso) {
@@ -491,7 +485,8 @@ export function MorningBriefSheet({
 
       if (isBreak) {
         // Break habits → awareness card names only
-        switch (habit.time_window) {
+        const effectiveHabitBlock = habit.daily_block ?? habit.time_window;
+        switch (effectiveHabitBlock) {
           case 'morning':
             breakNames.morning.push(habit.name);
             break;
@@ -506,7 +501,8 @@ export function MorningBriefSheet({
         }
       } else {
         const task = transformHabit(habit);
-        switch (habit.time_window) {
+        const effectiveHabitBlock = habit.daily_block ?? habit.time_window;
+        switch (effectiveHabitBlock) {
           case 'morning':
             morning.push(task);
             break;
@@ -553,18 +549,15 @@ export function MorningBriefSheet({
     let total = 0;
     // Check todos assigned to a specific block without a scheduled time
     for (const todo of todayTodos) {
-      if (todo.time_window && todo.time_window !== 'any' && !todo.scheduled_start_iso) {
+      const eb = todo.daily_block ?? todo.time_window;
+      if (eb && eb !== 'any' && !todo.scheduled_start_iso) {
         total += todo.time_estimate_minutes ?? 0;
       }
     }
     // Check habits assigned to a specific block without a scheduled time
     for (const habit of todayHabits) {
-      if (
-        habit.subtype !== 'break_habit' &&
-        habit.time_window &&
-        habit.time_window !== 'any' &&
-        !habit.scheduled_start_iso
-      ) {
+      const eb = habit.daily_block ?? habit.time_window;
+      if (habit.subtype !== 'break_habit' && eb && eb !== 'any' && !habit.scheduled_start_iso) {
         total += habit.time_estimate_minutes ?? 0;
       }
     }
@@ -627,43 +620,17 @@ export function MorningBriefSheet({
   useEffect(() => {
     if (!isSelectionsStale) return;
 
-    // Reset time_window for todos — unless name semantically matches the block
-    const todosToReset = todayTodos.filter((t) => {
-      if (!t.time_window || t.time_window === 'any') return false;
-      const semantic = getSemanticBlock(t.name || '');
-      return semantic !== t.time_window; // Only reset if name doesn't match block
-    });
+    console.log('[MorningBrief] New day detected — resetting daily assignments');
 
-    const habitsToReset = todayHabits.filter((h) => {
-      if (!h.time_window || h.time_window === 'any') return false;
-      const semantic = getSemanticBlock(h.name || '');
-      return semantic !== h.time_window;
-    });
+    // Wipe all daily_block + scheduled_start_iso across all items
+    resetDailyAssignments();
 
-    // Reset lock-ins (always — lock-in is a daily commitment)
+    // Reset lock-ins (daily commitment)
     const lockedTodosToReset = todayTodos.filter((t) => t.commitment === true);
     const lockedHabitsToReset = todayHabits.filter((h) => isHabitLockedIn(h));
-
-    if (
-      todosToReset.length > 0 ||
-      habitsToReset.length > 0 ||
-      lockedTodosToReset.length > 0 ||
-      lockedHabitsToReset.length > 0
-    ) {
-      console.log('[MorningBrief] Daily reset', {
-        blockResets: todosToReset.length + habitsToReset.length,
-        lockResets: lockedTodosToReset.length + lockedHabitsToReset.length,
-      });
-
-      // Reset block assignments
-      todosToReset.forEach((t) => updateTodo(t.id, { time_window: 'any' }));
-      habitsToReset.forEach((h) => updateHabit(h.id, { time_window: 'any' }));
-
-      // Reset lock-ins
-      lockedTodosToReset.forEach((t) => removeCommitment(t.id, 'todo'));
-      lockedHabitsToReset.forEach((h) => removeCommitment(h.id, 'habit'));
-    }
-  }, [isSelectionsStale, todayTodos, todayHabits, updateTodo, updateHabit, removeCommitment]);
+    lockedTodosToReset.forEach((t) => removeCommitment(t.id, 'todo'));
+    lockedHabitsToReset.forEach((h) => removeCommitment(h.id, 'habit'));
+  }, [isSelectionsStale, todayTodos, todayHabits, resetDailyAssignments, removeCommitment]);
 
   // Pre-selection: auto-select tasks up to 72% of realistic capacity when stale
   useEffect(() => {
@@ -1357,11 +1324,11 @@ export function MorningBriefSheet({
           ? (currentTask as (typeof todos)[0]).commitment === true
           : isHabitLockedIn(currentTask as (typeof habits)[0]);
 
-      // Update time_window
+      // Update daily_block (today's scheduling decision — not the permanent preference)
       if (taskType === 'todo') {
-        await updateTodo(taskId, { time_window: timeWindow });
+        await updateTodo(taskId, { daily_block: timeWindow === 'any' ? null : timeWindow });
       } else {
-        await updateHabit(taskId, { time_window: timeWindow });
+        await updateHabit(taskId, { daily_block: timeWindow === 'any' ? null : timeWindow });
       }
 
       // Handle lock-in changes

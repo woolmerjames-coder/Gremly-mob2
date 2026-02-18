@@ -162,6 +162,10 @@ export interface Habit {
   // Preferred time of day for scheduling
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
 
+  /** Today's block assignment — set by Morning Brief / AI organizer, wiped daily.
+   *  Display logic: daily_block ?? time_window = "which block is this in today?" */
+  daily_block?: 'morning' | 'day' | 'evening' | null;
+
   /** ISO timestamp for when this habit is slotted into a specific gap between events */
   scheduled_start_iso?: string | null;
 
@@ -259,6 +263,10 @@ export interface Todo {
 
   // Preferred time of day for scheduling
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
+
+  /** Today's block assignment — set by Morning Brief / AI organizer, wiped daily.
+   *  Display logic: daily_block ?? time_window = "which block is this in today?" */
+  daily_block?: 'morning' | 'day' | 'evening' | null;
 
   /** ISO timestamp for when this todo is slotted into a specific gap between events */
   scheduled_start_iso?: string | null;

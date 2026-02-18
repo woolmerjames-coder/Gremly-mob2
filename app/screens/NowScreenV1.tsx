@@ -130,7 +130,8 @@ function toActiveItem(item: Todo | Habit, spacesMap: Map<string, Space>): NowAct
     spaceName: space?.name ?? null,
     targetPerPeriod: isHabit ? (item as Habit).target_per_period : undefined,
     frequency: isHabit ? (item as Habit).frequency : undefined,
-    timeWindow: (item.time_window as NowActiveItem['timeWindow']) ?? undefined,
+    timeWindow:
+      (item as any).daily_block ?? (item.time_window as NowActiveItem['timeWindow']) ?? undefined,
     isBreakHabit: isHabit ? (item as Habit).subtype === 'break_habit' : false,
   };
 }
@@ -1391,14 +1392,14 @@ function TodayFocusList({
     const dayIds = new Set(brief?.day_sequence?.map((i) => i.id) || []);
     const eveningIds = new Set(brief?.evening_sequence?.map((i) => i.id) || []);
 
-    // Build a map of raw time_window values from the store (most up-to-date)
+    // Build a map of effective block values from the store (daily_block overrides time_window)
     const storeTimeWindow = new Map<string, string | null>();
-    for (const t of todos) storeTimeWindow.set(t.id, t.time_window ?? null);
-    for (const h of habits) storeTimeWindow.set(h.id, h.time_window ?? null);
+    for (const t of todos) storeTimeWindow.set(t.id, t.daily_block ?? t.time_window ?? null);
+    for (const h of habits) storeTimeWindow.set(h.id, h.daily_block ?? h.time_window ?? null);
 
     // Resolve which block an item belongs to using layered signals:
     // 1. Brief sequences (authoritative if present)
-    // 2. Raw store time_window (set by organize, most reliable)
+    // 2. Effective block: daily_block ?? time_window (set by organize, most reliable)
     // 3. scheduled_start_iso hour → derive block via getTimeBlockForHour
     // 4. inferTimeWindow (NowActiveItem.timeWindow + name keywords)
     const resolveBlock = (item: NowActiveItem): TimeBlock => {

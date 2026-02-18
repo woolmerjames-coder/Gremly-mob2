@@ -83,6 +83,7 @@ interface StepPrioritizeProps {
 
 export function StepPrioritize({
   flexibleTasks,
+  isPrioritizing,
   selectedMinutes,
   totalAvailableMinutes,
   remainingMinutes,
@@ -122,12 +123,14 @@ export function StepPrioritize({
   const meterColor = getMeterColor(fillPct);
 
   // ── Sort tasks: selected first within each type ──────────────────
-  const { todos, habits, showTypeLabels, selectedCount } = useMemo(() => {
+  const { todos, habits, showTypeLabels, selectedCount, assignedCount } = useMemo(() => {
     const td: TaskItemData[] = [];
     const hb: TaskItemData[] = [];
     let selCount = 0;
+    let assignCount = 0;
     for (const task of flexibleTasks) {
       if (selectedIds.has(task.id)) selCount++;
+      if (task.timeWindow) assignCount++;
       if (task.type === 'todo') td.push(task);
       else hb.push(task);
     }
@@ -144,6 +147,7 @@ export function StepPrioritize({
       habits: hb,
       showTypeLabels: td.length > 0 && hb.length > 0,
       selectedCount: selCount,
+      assignedCount: assignCount,
     };
   }, [flexibleTasks, selectedIds]);
 
@@ -188,6 +192,27 @@ export function StepPrioritize({
     outputRange: ['0%', '100%'],
   });
 
+  // ── Dynamic subtitle for Mode B (fits) ───────────────────────────
+  const lockedCount = lockedIds.size;
+  const dynamicSubtitle = useMemo(() => {
+    if (isPrioritizing) return null; // Mode A uses static subtitle
+    if (lockedCount > 0 && assignedCount > 0) {
+      return `${lockedCount} locked in · ${assignedCount} assigned to blocks`;
+    }
+    if (lockedCount > 0) {
+      return `${lockedCount} locked in · tap ⋯ to assign blocks`;
+    }
+    if (assignedCount > 0) {
+      return `${assignedCount} assigned to blocks · lock in your must-dos`;
+    }
+    return null; // show static subtitle
+  }, [isPrioritizing, lockedCount, assignedCount]);
+
+  // ── Continue disabled logic ──────────────────────────────────────
+  // Mode A (over capacity): must select > 0 AND not over committed
+  // Mode B (fits): always enabled
+  const isContinueDisabled = isPrioritizing ? selectedCount === 0 || isOverCommitted : false;
+
   return (
     <>
       <ScrollView
@@ -197,40 +222,55 @@ export function StepPrioritize({
       >
         {/* ── 1. TITLE + LIVE SUBTITLE ────────────────────────── */}
         <View style={styles.titleArea}>
-          <RNText style={styles.title}>Build your day</RNText>
-          {selectedCount === 0 ? (
-            <Text style={styles.subtitle}>Tap tasks to fill your day</Text>
+          {isPrioritizing ? (
+            <>
+              <RNText style={styles.title}>Too much on the plate</RNText>
+              <Text style={styles.subtitle}>Deselect what can wait, keep what matters</Text>
+            </>
           ) : (
-            <Text style={styles.subtitle}>
-              <Text style={styles.subtitleAccent}>{selectedCount}</Text>
-              {` task${selectedCount !== 1 ? 's' : ''} · `}
-              <Text style={styles.subtitleAccent}>{formatMins(selectedMinutes)}</Text>
-            </Text>
+            <>
+              <RNText style={styles.titleFits}>Everything fits today</RNText>
+              <Text style={styles.subtitle}>
+                {dynamicSubtitle ??
+                  'Lock in your top priorities or assign tasks to a preferred time of day'}
+              </Text>
+            </>
           )}
         </View>
 
-        {/* ── 2. CAPACITY METER ───────────────────────────────── */}
-        <View style={styles.meterContainer}>
-          <View style={styles.meterLabelRow}>
-            <Text style={styles.meterLabelLeft}>{formatMins(totalAvailableMinutes)} free time</Text>
-            {isOver ? (
-              <Text style={styles.meterLabelOver}>{formatMins(overAmount)} over</Text>
-            ) : (
-              <Text style={styles.meterLabelRight}>{formatMins(remainingMinutes)} left</Text>
-            )}
+        {/* ── 2. CAPACITY METER (Mode A only) / FITS BAR (Mode B) ─ */}
+        {isPrioritizing ? (
+          <View style={styles.meterContainer}>
+            <View style={styles.meterLabelRow}>
+              <Text style={styles.meterLabelLeft}>
+                {formatMins(totalAvailableMinutes)} free time
+              </Text>
+              {isOver ? (
+                <Text style={styles.meterLabelOver}>{formatMins(overAmount)} over</Text>
+              ) : (
+                <Text style={styles.meterLabelRight}>{formatMins(remainingMinutes)} left</Text>
+              )}
+            </View>
+            <View style={styles.meterTrack}>
+              <Animated.View
+                style={[
+                  styles.meterFill,
+                  {
+                    width: fillWidth,
+                    backgroundColor: meterColor,
+                  },
+                ]}
+              />
+            </View>
           </View>
-          <View style={styles.meterTrack}>
-            <Animated.View
-              style={[
-                styles.meterFill,
-                {
-                  width: fillWidth,
-                  backgroundColor: meterColor,
-                },
-              ]}
-            />
+        ) : (
+          <View style={styles.fitsBar}>
+            <Text style={styles.fitsText}>
+              ✓ {selectedCount} task{selectedCount !== 1 ? 's' : ''} · {formatMins(selectedMinutes)}{' '}
+              of {formatMins(totalAvailableMinutes)} free time
+            </Text>
           </View>
-        </View>
+        )}
 
         {/* ── 3. TASK LIST ────────────────────────────────────── */}
         {!hasTasks && (
@@ -292,30 +332,25 @@ export function StepPrioritize({
             style={({ pressed }) => [
               styles.continueButton,
               onBack ? { flex: 1 } : undefined,
-              (selectedCount === 0 || isOverCommitted) && styles.continueButtonDisabled,
-              pressed && !(selectedCount === 0 || isOverCommitted) && { opacity: 0.85 },
+              isContinueDisabled && styles.continueButtonDisabled,
+              pressed && !isContinueDisabled && { backgroundColor: '#AECBB0' },
             ]}
             onPress={onContinue}
-            disabled={selectedCount === 0 || isOverCommitted}
+            disabled={isContinueDisabled}
           >
-            <Text
-              style={[
-                styles.continueText,
-                (selectedCount === 0 || isOverCommitted) && styles.continueTextDisabled,
-              ]}
-            >
+            <Text style={[styles.continueText, isContinueDisabled && styles.continueTextDisabled]}>
               Continue →
             </Text>
           </Pressable>
         </View>
 
-        {/* Helper text when disabled */}
-        {selectedCount === 0 && (
+        {/* Helper text when disabled (Mode A only) */}
+        {isPrioritizing && selectedCount === 0 && (
           <Text style={styles.helperText}>Select at least one task to continue</Text>
         )}
-        {selectedCount > 0 && isOverCommitted && (
+        {isPrioritizing && selectedCount > 0 && isOverCommitted && (
           <Text style={styles.helperText}>
-            Over capacity by {formatMins(overAmount)} — remove or shorten tasks
+            Over capacity by {formatMins(overAmount)} · remove or shorten tasks
           </Text>
         )}
 
@@ -459,22 +494,39 @@ const styles = StyleSheet.create({
   // ── Title ───────────────────────────────────────────────────────
   titleArea: {
     paddingHorizontal: 20,
-    marginTop: 16,
+    marginTop: 20,
   },
   title: {
     fontSize: 24,
     fontWeight: '700',
     color: BRAND.colors.charcoalInk,
   },
+  titleFits: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: BRAND.colors.mossGreen,
+  },
   subtitle: {
     fontSize: 14,
     color: BRAND.colors.inkMuted,
-    marginTop: 4,
-    paddingHorizontal: 0,
+    marginTop: 6,
+    lineHeight: 20,
   },
   subtitleAccent: {
     fontWeight: '700',
     color: BRAND.colors.mossGreen,
+  },
+
+  // ── Fits Bar (Mode B) ───────────────────────────────────────────
+  fitsBar: {
+    paddingHorizontal: 20,
+    marginTop: 10,
+    marginBottom: 16,
+  },
+  fitsText: {
+    fontSize: 13,
+    color: BRAND.colors.mossGreen,
+    fontWeight: '600',
   },
 
   // ── Capacity Meter ──────────────────────────────────────────────
@@ -695,28 +747,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   continueButton: {
-    backgroundColor: BRAND.colors.mossGreen,
-    paddingVertical: 16,
-    borderRadius: 14,
+    backgroundColor: '#BFD8C0',
+    height: 48,
+    borderRadius: 16,
     alignItems: 'center',
-    shadowColor: BRAND.colors.mossGreen,
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    justifyContent: 'center',
   },
   continueButtonDisabled: {
-    backgroundColor: BRAND.colors.borderSubtle,
-    shadowOpacity: 0,
-    elevation: 0,
+    backgroundColor: '#E8E6E1',
   },
   continueText: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#FEFDFB',
+    fontWeight: '600',
+    color: '#2E5540',
   },
   continueTextDisabled: {
-    color: BRAND.colors.inkMuted,
+    color: '#B0AEA8',
   },
   helperText: {
     fontSize: 12,

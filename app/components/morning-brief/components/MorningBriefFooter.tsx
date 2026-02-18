@@ -40,10 +40,11 @@ export function MorningBriefFooter({
           </Pressable>
         )}
         <Pressable
-          style={[
+          style={({ pressed }) => [
             styles.button,
             isLoading && styles.buttonDisabled,
             showLockIn && styles.buttonFlex,
+            pressed && !isLoading && { backgroundColor: '#D9E8DD' },
           ]}
           onPress={onComplete}
           disabled={isLoading}
@@ -70,7 +71,7 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    backgroundColor: '#2E5540',
+    backgroundColor: '#E8F0EB',
     borderRadius: BRAND.radius.md,
     paddingVertical: 16,
     alignItems: 'center',
@@ -84,7 +85,7 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#2E5540',
   },
   lockInButton: {
     flexDirection: 'row',

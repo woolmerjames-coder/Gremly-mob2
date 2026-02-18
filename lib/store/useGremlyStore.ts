@@ -644,6 +644,9 @@ interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   // ORGANIZE DAY (AI-powered task assignments)
   // ═══════════════════════════════════════════════════════════════════
+  /** Wipe all ephemeral daily assignments (daily_block + scheduled_start_iso).
+   *  Called when Morning Brief detects a new day. */
+  resetDailyAssignments: () => void;
   applyOrganizeAssignments: (
     assignments: Array<{
       taskId: string;
@@ -3399,6 +3402,44 @@ export const useGremlyStore = create<GremlyState>()(
         // ORGANIZE DAY (AI-powered task assignments)
         // ═══════════════════════════════════════════════════════════════════
 
+        resetDailyAssignments: () => {
+          const todosToReset = get().todos.filter(
+            (t) => t.daily_block != null || t.scheduled_start_iso != null,
+          );
+          const habitsToReset = get().habits.filter(
+            (h) => h.daily_block != null || h.scheduled_start_iso != null,
+          );
+
+          if (todosToReset.length === 0 && habitsToReset.length === 0) return;
+
+          console.log('[Store] resetDailyAssignments', {
+            todos: todosToReset.length,
+            habits: habitsToReset.length,
+          });
+
+          // Batch update Zustand state
+          set((state) => ({
+            todos: state.todos.map((t) =>
+              t.daily_block != null || t.scheduled_start_iso != null
+                ? { ...t, daily_block: null, scheduled_start_iso: null }
+                : t,
+            ),
+            habits: state.habits.map((h) =>
+              h.daily_block != null || h.scheduled_start_iso != null
+                ? { ...h, daily_block: null, scheduled_start_iso: null }
+                : h,
+            ),
+          }));
+
+          // Persist to Supabase (non-blocking)
+          for (const t of todosToReset) {
+            get().updateTodo(t.id, { daily_block: null, scheduled_start_iso: null });
+          }
+          for (const h of habitsToReset) {
+            get().updateHabit(h.id, { daily_block: null, scheduled_start_iso: null });
+          }
+        },
+
         applyOrganizeAssignments: (assignments) => {
           const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
           const today = getDateService().getCurrentDate();
@@ -3562,7 +3603,7 @@ export const useGremlyStore = create<GremlyState>()(
               if (!fa) return todo;
               return {
                 ...todo,
-                time_window: fa.block as Todo['time_window'],
+                daily_block: fa.block as Todo['daily_block'],
                 scheduled_start_iso: fa.scheduledStartIso,
               };
             }),
@@ -3571,7 +3612,7 @@ export const useGremlyStore = create<GremlyState>()(
               if (!fa) return habit;
               return {
                 ...habit,
-                time_window: fa.block as Habit['time_window'],
+                daily_block: fa.block as Habit['daily_block'],
                 scheduled_start_iso: fa.scheduledStartIso,
               };
             }),
@@ -3580,7 +3621,7 @@ export const useGremlyStore = create<GremlyState>()(
           // === PHASE 5: Persist to Supabase (non-blocking, no UI impact) ===
           const { todos: finalTodos, habits: finalHabits } = get();
           for (const [taskId, fa] of Object.entries(finalAssignments)) {
-            const payload: Record<string, any> = { time_window: fa.block };
+            const payload: Record<string, any> = { daily_block: fa.block };
             if (fa.scheduledStartIso) {
               payload.scheduled_start_iso = fa.scheduledStartIso;
             }
@@ -3656,11 +3697,12 @@ export const useGremlyStore = create<GremlyState>()(
           for (const todo of get().todos) {
             if (todo.archived || todo.completed_at) continue;
             if (todo.due_day !== today) continue;
-            if (todo.time_window && todo.time_window !== 'any' && !todo.scheduled_start_iso) {
+            const eb = todo.daily_block ?? todo.time_window;
+            if (eb && eb !== 'any' && !todo.scheduled_start_iso) {
               unpositioned.push({
                 id: todo.id,
                 type: 'todo',
-                block: todo.time_window,
+                block: eb,
                 duration: todo.time_estimate_minutes || 15,
               });
             }
@@ -3668,11 +3710,12 @@ export const useGremlyStore = create<GremlyState>()(
 
           for (const habit of get().habits) {
             if (habit.archived) continue;
-            if (habit.time_window && habit.time_window !== 'any' && !habit.scheduled_start_iso) {
+            const eb = habit.daily_block ?? habit.time_window;
+            if (eb && eb !== 'any' && !habit.scheduled_start_iso) {
               unpositioned.push({
                 id: habit.id,
                 type: 'habit',
-                block: habit.time_window,
+                block: eb,
                 duration: habit.time_estimate_minutes || 15,
               });
             }
@@ -3753,7 +3796,7 @@ export const useGremlyStore = create<GremlyState>()(
               if (!u) return t;
               return {
                 ...t,
-                time_window: u.block as Todo['time_window'],
+                daily_block: u.block as Todo['daily_block'],
                 scheduled_start_iso: u.scheduledStartIso,
               };
             }),
@@ -3762,7 +3805,7 @@ export const useGremlyStore = create<GremlyState>()(
               if (!u) return h;
               return {
                 ...h,
-                time_window: u.block as Habit['time_window'],
+                daily_block: u.block as Habit['daily_block'],
                 scheduled_start_iso: u.scheduledStartIso,
               };
             }),
@@ -3771,7 +3814,7 @@ export const useGremlyStore = create<GremlyState>()(
           // Persist
           for (const [id, u] of Object.entries(updates)) {
             const payload = {
-              time_window: u.block as Todo['time_window'],
+              daily_block: u.block as Todo['daily_block'],
               scheduled_start_iso: u.scheduledStartIso,
             };
             const todo = get().todos.find((t) => t.id === id);
@@ -4464,16 +4507,29 @@ export const useGremlyStore = create<GremlyState>()(
             );
 
             // Group events by date (YYYY-MM-DD from startAt)
-            const eventsByDate: Record<string, CalendarEvent[]> = { ...get().calendarEvents };
+            // Start fresh for the fetched range but keep events outside it
+            const prev = get().calendarEvents;
+            const eventsByDate: Record<string, CalendarEvent[]> = {};
+
+            // Keep only events whose date key falls OUTSIDE the fetched range
+            for (const [dateKey, dateEvents] of Object.entries(prev)) {
+              if (dateKey < startDate || dateKey > endDate) {
+                eventsByDate[dateKey] = dateEvents;
+              }
+            }
 
             for (const event of events) {
               if (event.isAllDay) {
-                // All-day events span from startAt to endAt (exclusive).
-                // Add the event to every date it occupies.
-                const start = new Date(event.startAt);
-                const end = new Date(event.endAt);
-                const cursor = new Date(start);
-                while (cursor < end) {
+                // All-day events: use the date portion of the ISO string directly
+                // to avoid UTC→local timezone shift (e.g. "2026-02-18T00:00:00Z"
+                // becomes Feb 17 in PST when parsed via new Date()).
+                const startStr = event.startAt.split('T')[0]; // "YYYY-MM-DD"
+                const endStr = event.endAt.split('T')[0]; // "YYYY-MM-DD" (exclusive)
+
+                // Add the event to every date from start to end (exclusive)
+                const cursor = new Date(startStr + 'T12:00:00'); // noon avoids DST edge
+                const endDate = new Date(endStr + 'T12:00:00');
+                while (cursor < endDate) {
                   const dateKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
                   const existing = eventsByDate[dateKey] || [];
                   const alreadyExists = existing.some((e) => e.id === event.id);

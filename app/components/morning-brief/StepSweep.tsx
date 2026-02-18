@@ -300,7 +300,7 @@ export function StepSweep({
             style={({ pressed }) => [
               styles.continueBtn,
               onBack ? { flex: 1 } : undefined,
-              pressed && { opacity: 0.7 },
+              pressed && { backgroundColor: '#AECBB0' },
             ]}
             onPress={handleSave}
             disabled={isSaving}
@@ -331,6 +331,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
+    paddingTop: 12,
     paddingBottom: 20,
   },
   /* ─── Header ─── */
@@ -463,15 +464,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   continueBtn: {
-    backgroundColor: '#E8F0EB',
-    paddingVertical: 15,
-    borderRadius: 14,
+    backgroundColor: '#BFD8C0',
+    height: 48,
+    borderRadius: 16,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   continueBtnText: {
     fontSize: 16,
     fontWeight: '600',
-    color: BRAND.colors.mossGreen,
+    color: '#2E5540',
   },
   skipBtn: {
     paddingVertical: 12,

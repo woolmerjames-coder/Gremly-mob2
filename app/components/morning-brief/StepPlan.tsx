@@ -4,7 +4,7 @@ import { Text } from '../../../ui';
 import { ShieldOff, Calendar, MoreHorizontal, ChevronLeft } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
-import { MorningBriefFooter, TimeBlockSection, type TaskItemData } from './components';
+import { TimeBlockSection, type TaskItemData } from './components';
 import type { Note } from '../../../lib/types';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -229,21 +229,27 @@ export function StepPlan({
       </ScrollView>
 
       {/* Footer */}
-      {showBack && onBack ? (
-        <View style={styles.planFooter}>
+      <View style={styles.footerRow}>
+        {showBack && onBack && (
           <Pressable
-            style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.6 }]}
+            style={({ pressed }) => [styles.backCircle, pressed && { opacity: 0.6 }]}
             onPress={onBack}
           >
-            <ChevronLeft size={20} color={BRAND.colors.inkMuted} />
+            <ChevronLeft size={20} color={BRAND.colors.charcoalInk} />
           </Pressable>
-          <View style={{ flex: 1 }}>
-            <MorningBriefFooter onComplete={onConfirm} isLoading={isLoading} />
-          </View>
-        </View>
-      ) : (
-        <MorningBriefFooter onComplete={onConfirm} isLoading={isLoading} />
-      )}
+        )}
+        <Pressable
+          style={({ pressed }) => [
+            styles.looksGoodButton,
+            isLoading && { opacity: 0.6 },
+            pressed && !isLoading && { backgroundColor: '#AECBB0' },
+          ]}
+          onPress={onConfirm}
+          disabled={isLoading}
+        >
+          <Text style={styles.looksGoodText}>{isLoading ? 'Saving...' : 'Looks good'}</Text>
+        </Pressable>
+      </View>
     </>
   );
 }
@@ -326,19 +332,35 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     marginTop: 6,
   },
-  planFooter: {
+  footerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingLeft: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: BRAND.colors.borderSubtle,
   },
-  backButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: BRAND.colors.borderSubtle,
+  backCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#E8E6E1',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  looksGoodButton: {
+    flex: 1,
+    backgroundColor: '#BFD8C0',
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  looksGoodText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2E5540',
   },
 });
 

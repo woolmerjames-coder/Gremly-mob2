@@ -242,7 +242,7 @@ export function StepGlance({
       {/* ── 3. FOOTER ─────────────────────────────────────────── */}
       <View style={styles.footer}>
         <Pressable
-          style={({ pressed }) => [styles.primaryButton, pressed && { opacity: 0.85 }]}
+          style={({ pressed }) => [styles.primaryButton, pressed && { backgroundColor: '#AECBB0' }]}
           onPress={onContinue}
         >
           <Text style={styles.primaryButtonText}>Continue →</Text>
@@ -273,6 +273,7 @@ const styles = StyleSheet.create({
   // ── Hero ────────────────────────────────────────────────────────
   heroArea: {
     paddingHorizontal: 20,
+    marginTop: 16,
     marginBottom: 20,
   },
   youHave: {
@@ -384,20 +385,16 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   primaryButton: {
-    backgroundColor: BRAND.colors.mossGreen,
-    paddingVertical: 16,
-    borderRadius: 14,
+    backgroundColor: '#BFD8C0',
+    height: 48,
+    borderRadius: 16,
     alignItems: 'center',
-    shadowColor: BRAND.colors.mossGreen,
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    justifyContent: 'center',
   },
   primaryButtonText: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#FEFDFB',
+    fontWeight: '600',
+    color: '#2E5540',
   },
   skipPressable: {
     alignItems: 'center',
