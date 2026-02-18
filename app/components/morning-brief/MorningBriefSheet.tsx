@@ -1441,9 +1441,8 @@ export function MorningBriefSheet({
           <StepPrioritize
             flexibleTasks={allDayTasks}
             isPrioritizing={isPrioritizing}
-            freeMinutes={effectiveFreeMinutes}
-            totalPlannedMinutes={totalDayMinutes - effectiveFreeMinutes}
-            dayPercentage={dayPercentage}
+            selectedMinutes={selectedMinutes}
+            totalAvailableMinutes={realisticCapacity}
             remainingMinutes={remainingMinutes}
             isOverCommitted={isOverCommitted}
             selectedIds={briefSelectedSet}

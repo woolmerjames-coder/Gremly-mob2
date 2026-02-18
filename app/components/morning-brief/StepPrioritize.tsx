@@ -38,9 +38,8 @@ interface StepPrioritizeProps {
   isPrioritizing: boolean;
 
   // Capacity data
-  freeMinutes: number;
-  totalPlannedMinutes: number;
-  dayPercentage: number;
+  selectedMinutes: number;
+  totalAvailableMinutes: number;
   remainingMinutes: number;
   isOverCommitted: boolean;
 
@@ -72,9 +71,8 @@ interface StepPrioritizeProps {
 export function StepPrioritize({
   flexibleTasks,
   isPrioritizing,
-  freeMinutes,
-  totalPlannedMinutes,
-  dayPercentage,
+  selectedMinutes,
+  totalAvailableMinutes,
   remainingMinutes,
   animatingAssignments,
   pendingDrops,
@@ -100,12 +98,12 @@ export function StepPrioritize({
         <View style={styles.headerArea}>
           {isPrioritizing ? (
             <>
-              <Text style={styles.title}>More to do than time to do it</Text>
-              <Text style={styles.subtitle}>Pick what matters most today</Text>
+              <Text style={styles.title}>What matters most today?</Text>
+              <Text style={styles.subtitle}>Pick your priorities for today</Text>
             </>
           ) : (
             <>
-              <Text style={styles.title}>Here's what's on your plate</Text>
+              <Text style={styles.title}>Here’s what’s on your plate</Text>
               <Text style={styles.subtitle}>Select what you want to tackle today</Text>
             </>
           )}
@@ -114,7 +112,15 @@ export function StepPrioritize({
         {/* Capacity bar — only when over capacity */}
         {isPrioritizing && (
           <View style={styles.capacityBar}>
-            <CapacityRing percentage={dayPercentage} size={44} strokeWidth={3.5} />
+            <CapacityRing
+              percentage={
+                totalAvailableMinutes > 0
+                  ? Math.round((selectedMinutes / totalAvailableMinutes) * 100)
+                  : 0
+              }
+              size={44}
+              strokeWidth={3.5}
+            />
             <View style={styles.capacityText}>
               <Text
                 style={[
@@ -122,12 +128,14 @@ export function StepPrioritize({
                   remainingMinutes < 0 && styles.capacityHeadlineOver,
                 ]}
               >
-                {remainingMinutes >= 0
-                  ? `${formatMins(remainingMinutes)} free`
-                  : `${formatMins(Math.abs(remainingMinutes))} over capacity`}
+                {formatMins(selectedMinutes)} of {formatMins(totalAvailableMinutes)} planned
               </Text>
-              <Text style={styles.capacitySubline}>
-                {formatMins(totalPlannedMinutes)} planned · {formatMins(freeMinutes)} available
+              <Text
+                style={[styles.capacitySubline, remainingMinutes < 0 && styles.capacitySublineOver]}
+              >
+                {remainingMinutes >= 0
+                  ? `${formatMins(remainingMinutes)} still free`
+                  : `${formatMins(Math.abs(remainingMinutes))} over`}
               </Text>
             </View>
           </View>
@@ -223,6 +231,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: BRAND.colors.inkMuted,
     marginTop: 1,
+  },
+  capacitySublineOver: {
+    color: '#C45B4A',
   },
   footer: {
     paddingHorizontal: 20,
