@@ -148,22 +148,17 @@ export function NowFocusRow({
   const tokens = useTokens();
   const reducedMotion = useReducedMotion();
 
-  // Inverse card styles for locked-in items
+  // Sage mist card styles for locked-in items
   const lockedStyles = isLockedIn
     ? {
-        card: {
-          backgroundColor: '#2E5540',
-          borderRadius: 10,
-          marginHorizontal: 4,
-          marginVertical: 2,
-        } as const,
-        title: { color: '#F9F6F1' } as const,
-        meta: { color: 'rgba(249, 246, 241, 0.7)' } as const,
-        checkbox: { borderColor: 'rgba(249, 246, 241, 0.5)' } as const,
-        checkboxChecked: { backgroundColor: '#F9F6F1', borderColor: '#F9F6F1' } as const,
-        checkmark: { color: '#2E5540' } as const,
-        divider: { backgroundColor: 'rgba(249, 246, 241, 0.15)' } as const,
-        habitMeta: { color: 'rgba(249, 246, 241, 0.7)' } as const,
+        card: { backgroundColor: '#E8F0EB' } as const,
+        title: { color: '#2E5540' } as const,
+        meta: { color: 'rgba(46, 85, 64, 0.7)' } as const,
+        checkbox: { borderColor: 'rgba(46, 85, 64, 0.4)' } as const,
+        checkboxChecked: { backgroundColor: '#2E5540', borderColor: '#2E5540' } as const,
+        checkmark: { color: '#FFFFFF' } as const,
+        divider: { backgroundColor: 'rgba(46, 85, 64, 0.12)' } as const,
+        habitMeta: { color: 'rgba(46, 85, 64, 0.7)' } as const,
       }
     : null;
   const habitProgress = useGremlyStore((s) => s.habitProgress);
@@ -458,7 +453,7 @@ export function NowFocusRow({
     <Animated.View
       style={[
         styles.rowWrapper,
-        isLockedIn && { backgroundColor: '#2E5540' },
+        isLockedIn && { backgroundColor: '#E8F0EB' },
         animationPhase === 'collapsing' ? { height: rowHeight.value, overflow: 'hidden' } : {},
       ]}
       onLayout={handleLayout}
@@ -467,12 +462,12 @@ export function NowFocusRow({
       <Animated.View
         style={[
           styles.messageContainer,
-          isLockedIn && { backgroundColor: '#2E5540' },
+          isLockedIn && { backgroundColor: '#E8F0EB' },
           messageAnimatedStyle,
         ]}
       >
         <Image source={GREMLY_FACE} style={styles.gremlyFace} resizeMode="contain" />
-        <Text style={[styles.messageText, isLockedIn && { color: '#F9F6F1' }]}>
+        <Text style={[styles.messageText, isLockedIn && { color: '#2E5540' }]}>
           {completionMessage}
         </Text>
       </Animated.View>
@@ -627,16 +622,17 @@ const styles = StyleSheet.create({
     marginTop: 0,
   },
   lockedChip: {
-    backgroundColor: 'rgba(249, 246, 241, 0.2)',
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 4,
+    backgroundColor: 'rgba(46, 85, 64, 0.12)',
+    paddingHorizontal: 5,
+    paddingVertical: 0,
+    borderRadius: 3,
     marginLeft: 6,
   },
   lockedChipText: {
     fontSize: 10,
     fontWeight: '600',
-    color: '#F9F6F1',
+    color: '#2E5540',
+    lineHeight: 14,
   },
   chips: {
     flexDirection: 'row',
