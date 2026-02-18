@@ -34,6 +34,9 @@ interface StepPrioritizeProps {
   // Task data
   flexibleTasks: TaskItemData[];
 
+  // Mode flag — controls messaging, not visibility
+  isPrioritizing: boolean;
+
   // Capacity data
   freeMinutes: number;
   totalPlannedMinutes: number;
@@ -68,6 +71,7 @@ interface StepPrioritizeProps {
 
 export function StepPrioritize({
   flexibleTasks,
+  isPrioritizing,
   freeMinutes,
   totalPlannedMinutes,
   dayPercentage,
@@ -92,28 +96,46 @@ export function StepPrioritize({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Step header */}
+        {/* Step header — messaging depends on capacity */}
         <View style={styles.headerArea}>
-          <Text style={styles.title}>Not everything fits today</Text>
-          <Text style={styles.subtitle}>Select priorities — tap a task to assign to a block</Text>
+          {isPrioritizing ? (
+            <>
+              <Text style={styles.title}>Not everything fits today</Text>
+              <Text style={styles.subtitle}>
+                Deselect what can wait — tap a task to assign to a block
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.title}>Your tasks for today</Text>
+              <Text style={styles.subtitle}>
+                Lock in your top priorities, or let Gremly suggest an order next
+              </Text>
+            </>
+          )}
         </View>
 
-        {/* Capacity bar */}
-        <View style={styles.capacityBar}>
-          <CapacityRing percentage={dayPercentage} size={44} strokeWidth={3.5} />
-          <View style={styles.capacityText}>
-            <Text
-              style={[styles.capacityHeadline, remainingMinutes < 0 && styles.capacityHeadlineOver]}
-            >
-              {remainingMinutes >= 0
-                ? `${formatMins(remainingMinutes)} free`
-                : `${formatMins(Math.abs(remainingMinutes))} over capacity`}
-            </Text>
-            <Text style={styles.capacitySubline}>
-              {formatMins(totalPlannedMinutes)} planned · {formatMins(freeMinutes)} available
-            </Text>
+        {/* Capacity bar — only when over capacity */}
+        {isPrioritizing && (
+          <View style={styles.capacityBar}>
+            <CapacityRing percentage={dayPercentage} size={44} strokeWidth={3.5} />
+            <View style={styles.capacityText}>
+              <Text
+                style={[
+                  styles.capacityHeadline,
+                  remainingMinutes < 0 && styles.capacityHeadlineOver,
+                ]}
+              >
+                {remainingMinutes >= 0
+                  ? `${formatMins(remainingMinutes)} free`
+                  : `${formatMins(Math.abs(remainingMinutes))} over capacity`}
+              </Text>
+              <Text style={styles.capacitySubline}>
+                {formatMins(totalPlannedMinutes)} planned · {formatMins(freeMinutes)} available
+              </Text>
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Task selection list */}
         <OnYourPlateSection
@@ -124,6 +146,7 @@ export function StepPrioritize({
           onAddPress={onAddPress}
           pendingDrops={pendingDrops}
           isPrioritizing={true}
+          showAll
           selectedIds={selectedIds}
           lockedIds={lockedIds}
           onToggleSelect={onToggleSelect}

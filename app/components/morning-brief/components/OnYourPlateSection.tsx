@@ -41,6 +41,8 @@ interface OnYourPlateSectionProps {
   pendingDrops?: PendingDrop[];
   // Prioritization mode props
   isPrioritizing?: boolean;
+  /** When true, show all tasks regardless of selection state */
+  showAll?: boolean;
   selectedIds?: Set<string>;
   lockedIds?: Set<string>;
   onToggleSelect?: (task: TaskItemData) => void;
@@ -86,6 +88,7 @@ export function OnYourPlateSection({
   pendingDrops = [],
   // Prioritization props
   isPrioritizing = false,
+  showAll = false,
   selectedIds,
   lockedIds,
   onToggleSelect,
@@ -98,19 +101,19 @@ export function OnYourPlateSection({
   // Split tasks into habits and todos for sub-sections
   const habitTasks = useMemo(() => {
     const habits = tasks.filter((t) => t.type === 'habit');
-    if (isPrioritizing && selectedIds) {
+    if (isPrioritizing && selectedIds && !showAll) {
       return habits.filter((t) => selectedIds.has(t.id));
     }
     return habits;
-  }, [tasks, isPrioritizing, selectedIds]);
+  }, [tasks, isPrioritizing, selectedIds, showAll]);
 
   const todoTasks = useMemo(() => {
     const todos = tasks.filter((t) => t.type === 'todo');
-    if (isPrioritizing && selectedIds) {
+    if (isPrioritizing && selectedIds && !showAll) {
       return todos.filter((t) => selectedIds.has(t.id));
     }
     return todos;
-  }, [tasks, isPrioritizing, selectedIds]);
+  }, [tasks, isPrioritizing, selectedIds, showAll]);
 
   // In prioritization mode, row press toggles selection instead of opening picker
   const handleRowPress = isPrioritizing && onToggleSelect ? onToggleSelect : onTaskPress;

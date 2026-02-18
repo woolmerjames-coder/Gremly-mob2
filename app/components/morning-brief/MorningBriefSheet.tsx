@@ -572,7 +572,8 @@ export function MorningBriefSheet({
   if (stepsNeededRef.current === null) {
     const steps: BriefStep[] = ['glance'];
     if (showMiniSweep) steps.push('sweep');
-    if (isPrioritizing) steps.push('prioritize');
+    // Always show — user reviews tasks whether or not they fit
+    steps.push('prioritize');
     steps.push('organize', 'plan');
     stepsNeededRef.current = steps;
   }
@@ -1429,6 +1430,7 @@ export function MorningBriefSheet({
         renderPrioritize={(onContinue, onSkip) => (
           <StepPrioritize
             flexibleTasks={tasksByBlock.flexible}
+            isPrioritizing={isPrioritizing}
             freeMinutes={effectiveFreeMinutes}
             totalPlannedMinutes={totalDayMinutes - effectiveFreeMinutes}
             dayPercentage={dayPercentage}
