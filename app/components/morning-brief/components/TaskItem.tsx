@@ -209,8 +209,13 @@ export function TaskItem({
     if (onAssignPress) onAssignPress(task);
   };
 
-  // ── Deselected: ghosted single line ──
+  // ── Deselected: fully readable single line ──
   if (!isSelected) {
+    const blockLabel =
+      task.timeWindow && task.timeWindow !== 'any'
+        ? task.timeWindow.charAt(0).toUpperCase() + task.timeWindow.slice(1)
+        : null;
+
     return (
       <Pressable onPress={handleToggleSelect} style={pStyles.deselectedRow}>
         {/* Unchecked checkbox */}
@@ -218,6 +223,11 @@ export function TaskItem({
         <Text style={pStyles.deselectedTitle} numberOfLines={1}>
           {task.title}
         </Text>
+        {blockLabel && (
+          <View style={pStyles.blockBadge}>
+            <Text style={pStyles.blockBadgeText}>{blockLabel}</Text>
+          </View>
+        )}
         {showEstimate && (
           <Pressable
             onPress={() => {
@@ -235,6 +245,11 @@ export function TaskItem({
   }
 
   // ── Selected: two-line with chips ──
+  const selectedBlockLabel =
+    task.timeWindow && task.timeWindow !== 'any'
+      ? task.timeWindow.charAt(0).toUpperCase() + task.timeWindow.slice(1)
+      : null;
+
   return (
     <Pressable onPress={handleToggleSelect} style={pStyles.selectedRow}>
       {/* Checked checkbox – vertically centred */}
@@ -263,6 +278,15 @@ export function TaskItem({
 
         {/* Line 2: contextual chips + action chips */}
         <View style={pStyles.line2}>
+          {/* Block badge */}
+          {selectedBlockLabel && (
+            <TaskChip
+              label={selectedBlockLabel}
+              active
+              activeColor="#6B7C8A"
+              activeBg="rgba(107,124,138,0.10)"
+            />
+          )}
           {/* Contextual chips */}
           {task.type === 'habit' && (task.streakCount ?? 0) > 0 && (
             <TaskChip
@@ -369,28 +393,41 @@ const pStyles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 3.5,
     paddingHorizontal: 12,
-    opacity: 0.32,
+    opacity: 1,
   },
   checkboxUnchecked: {
     width: 16,
     height: 16,
     borderRadius: 4,
     borderWidth: 1.5,
-    borderColor: 'rgba(34,34,34,0.14)',
+    borderColor: 'rgba(34,34,34,0.25)',
     backgroundColor: 'transparent',
     marginRight: 10,
   },
   deselectedTitle: {
     flex: 1,
     fontSize: 13.5,
-    color: COLORS.inkSoft,
+    color: COLORS.charcoalInk,
     fontFamily: 'Inter-Regular',
   },
   deselectedTime: {
     fontSize: 12,
-    color: COLORS.inkMuted,
+    color: COLORS.charcoalInk,
     marginLeft: 8,
     fontFamily: 'Inter-Regular',
+  },
+  blockBadge: {
+    backgroundColor: 'rgba(46,85,64,0.08)',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    marginLeft: 6,
+  },
+  blockBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#6B7C8A',
+    textTransform: 'capitalize',
   },
 
   /* Selected row */

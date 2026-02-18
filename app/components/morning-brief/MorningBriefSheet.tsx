@@ -565,6 +565,16 @@ export function MorningBriefSheet({
   const isPrioritizing =
     tasksByBlock.flexible.length > 0 && flexibleTaskMinutes > realisticCapacity;
 
+  // Combined list of ALL tasks for the day (assigned + unassigned)
+  const allDayTasks = useMemo(() => {
+    return [
+      ...tasksByBlock.morning,
+      ...tasksByBlock.afternoon,
+      ...tasksByBlock.evening,
+      ...tasksByBlock.flexible,
+    ];
+  }, [tasksByBlock]);
+
   // ─── Step sequence for MorningBriefStepper ───
   // Lock to initial value so mid-flow state changes (e.g. markMiniSweepCompleted)
   // don't recompute the array and shift step indices while the user is navigating.
@@ -1429,7 +1439,7 @@ export function MorningBriefSheet({
         )}
         renderPrioritize={(onContinue, onSkip) => (
           <StepPrioritize
-            flexibleTasks={tasksByBlock.flexible}
+            flexibleTasks={allDayTasks}
             isPrioritizing={isPrioritizing}
             freeMinutes={effectiveFreeMinutes}
             totalPlannedMinutes={totalDayMinutes - effectiveFreeMinutes}

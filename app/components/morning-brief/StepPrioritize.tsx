@@ -100,17 +100,13 @@ export function StepPrioritize({
         <View style={styles.headerArea}>
           {isPrioritizing ? (
             <>
-              <Text style={styles.title}>Not everything fits today</Text>
-              <Text style={styles.subtitle}>
-                Deselect what can wait — tap a task to assign to a block
-              </Text>
+              <Text style={styles.title}>More to do than time to do it</Text>
+              <Text style={styles.subtitle}>Pick what matters most today</Text>
             </>
           ) : (
             <>
-              <Text style={styles.title}>Your tasks for today</Text>
-              <Text style={styles.subtitle}>
-                Lock in your top priorities, or let Gremly suggest an order next
-              </Text>
+              <Text style={styles.title}>Here's what's on your plate</Text>
+              <Text style={styles.subtitle}>Select what you want to tackle today</Text>
             </>
           )}
         </View>
@@ -188,6 +184,7 @@ const styles = StyleSheet.create({
   },
   headerArea: {
     paddingHorizontal: 20,
+    marginTop: 12,
     marginBottom: 14,
   },
   title: {
