@@ -5,11 +5,10 @@
  * free time and today's schedule at a glance. Not a data table.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { View, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
-import { ChevronDown, ChevronUp } from 'lucide-react-native';
 import type { Note } from '../../../lib/types';
 import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
 
@@ -111,8 +110,6 @@ export function StepGlance({
   onContinue,
   onSkipToEnd,
 }: StepGlanceProps) {
-  const [expanded, setExpanded] = useState(false);
-
   // ── Merge key dates + calendar events into unified list ──────────
   const allEvents = useMemo<DisplayEvent[]>(() => {
     const hiddenSet = new Set(hiddenEventIds);
@@ -155,12 +152,6 @@ export function StepGlance({
     });
   }, [events, calendarEvents, hiddenEventIds]);
 
-  // ── Collapsed vs expanded ───────────────────────────────────────
-  const INITIAL_VISIBLE = 4;
-  const hasMore = allEvents.length > INITIAL_VISIBLE;
-  const visibleEvents = expanded ? allEvents : allEvents.slice(0, INITIAL_VISIBLE);
-  const hiddenCount = allEvents.length - INITIAL_VISIBLE;
-
   const hasEvents = allEvents.length > 0 || totalEventCount > 0;
   const isFullyBooked = freeMinutes <= 0;
   const freeTimeFormatted = formatFreeMinutes(freeMinutes);
@@ -180,11 +171,11 @@ export function StepGlance({
           </>
         ) : (
           <>
-            <Text style={styles.greeting}>You have</Text>
-            <Text style={styles.heroLine}>
+            <Text style={styles.youHave}>You have</Text>
+            <View style={styles.heroRow}>
               <Text style={styles.heroTime}>{freeTimeFormatted}</Text>
-              {' of open time today'}
-            </Text>
+              <Text style={styles.heroRest}> of open time today</Text>
+            </View>
           </>
         )}
       </View>
@@ -193,20 +184,18 @@ export function StepGlance({
       {hasEvents ? (
         <>
           <Text style={styles.sectionLabel}>TODAY&apos;S SCHEDULE</Text>
+          <Text style={styles.helperText}>Tap any event to adjust or remove</Text>
           <View style={styles.card}>
-            {visibleEvents.map((event, index) => {
-              const isLast = index === visibleEvents.length - 1 && !hasMore;
-              const isLastVisible = index === visibleEvents.length - 1;
+            {allEvents.map((event, index) => {
+              const isLast = index === allEvents.length - 1;
 
               return (
                 <Pressable
                   key={event.id}
-                  style={[
+                  style={({ pressed }) => [
                     styles.eventRow,
-                    (!isLast || (hasMore && !expanded)) && !isLastVisible
-                      ? styles.eventRowBorder
-                      : null,
-                    isLastVisible && (hasMore || expanded) && styles.eventRowBorder,
+                    pressed && { backgroundColor: 'rgba(46,85,64,0.04)' },
+                    !isLast && styles.eventRowBorder,
                     event.isAllDay && styles.eventRowAllDay,
                   ]}
                   onPress={() => {
@@ -222,20 +211,6 @@ export function StepGlance({
                 </Pressable>
               );
             })}
-
-            {/* +X more / Show less toggle */}
-            {hasMore && (
-              <Pressable style={styles.moreRow} onPress={() => setExpanded((v) => !v)}>
-                <Text style={styles.moreText}>
-                  {expanded ? 'Show less' : `+${hiddenCount} more in your calendar`}
-                </Text>
-                {expanded ? (
-                  <ChevronUp size={14} color={BRAND.colors.mossGreen} />
-                ) : (
-                  <ChevronDown size={14} color={BRAND.colors.mossGreen} />
-                )}
-              </Pressable>
-            )}
           </View>
         </>
       ) : (
@@ -282,20 +257,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 20,
   },
-  greeting: {
+  youHave: {
     fontSize: 14,
     color: BRAND.colors.inkMuted,
     marginBottom: 2,
   },
-  heroLine: {
-    fontSize: 18,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    flexWrap: 'wrap',
+    paddingRight: 20,
   },
   heroTime: {
     fontSize: 32,
     fontWeight: '800',
     color: BRAND.colors.mossGreen,
+  },
+  heroRest: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
   },
   fullyBookedTitle: {
     fontSize: 20,
@@ -315,8 +296,14 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     color: BRAND.colors.inkMuted,
     textTransform: 'uppercase',
-    marginBottom: 10,
+    marginBottom: 4,
     paddingHorizontal: 20,
+  },
+  helperText: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+    paddingHorizontal: 20,
+    marginBottom: 8,
   },
 
   // ── Events card ─────────────────────────────────────────────────
@@ -355,22 +342,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
     color: BRAND.colors.charcoalInk,
-  },
-
-  // ── +X more row ─────────────────────────────────────────────────
-  moreRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderTopWidth: 1,
-    borderTopColor: BRAND.colors.borderSubtle,
-  },
-  moreText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
   },
 
   // ── Empty schedule ──────────────────────────────────────────────
