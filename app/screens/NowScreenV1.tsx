@@ -751,10 +751,10 @@ export default function NowScreenV1() {
   );
 
   const handleOpenFullEvent = useCallback(
-    (event: Note) => {
+    (eventId: string) => {
       setQuickActionEvent(null);
       overlayController.openEdit({
-        record: { id: event.id, type: 'note' } as any,
+        record: { id: eventId, type: 'note' } as any,
       });
     },
     [overlayController],

@@ -91,7 +91,7 @@ export interface EventQuickActionSheetProps {
   onAddPrepNote: (eventId: string, note: string) => void;
   onLinkTodo: (eventId: string) => void;
   onRemind: (eventId: string, minutesBefore: number) => void;
-  onOpenFull: (event: Note) => void;
+  onOpenFull: (eventId: string) => void;
 }
 
 type ExpandedRow = 'editTime' | 'prepNote' | 'remind' | null;
@@ -142,8 +142,6 @@ export default function EventQuickActionSheet({
     }
     return start;
   }, [displayEvent]);
-
-  const isNoteEvent = displayEvent?.sourceType === 'note';
 
   const collapse = useCallback(() => {
     setExpanded(null);
@@ -234,8 +232,8 @@ export default function EventQuickActionSheet({
   }, [displayEvent, onDismiss, handleClose]);
 
   const handleOpenFull = useCallback(() => {
-    if (!displayEvent?.note) return;
-    onOpenFull(displayEvent.note);
+    if (!displayEvent) return;
+    onOpenFull(displayEvent.id);
     handleClose();
   }, [displayEvent, onOpenFull, handleClose]);
 
@@ -300,80 +298,73 @@ export default function EventQuickActionSheet({
             </>
           )}
 
-          {/* ── Note-only actions ── */}
-          {isNoteEvent && (
-            <>
-              {/* ── Edit Time ── */}
-              <ActionRow
-                icon={<Clock size={18} color={SAGE} />}
-                label="Edit time"
-                rightDetail={timeLabel}
-                onPress={handleEditTimePress}
-              />
-              {expanded === 'editTime' && (
-                <EventTimePicker
-                  visible={showTimePicker}
-                  eventId={displayEvent.id}
-                  eventTitle={displayEvent.title}
-                  originalStartAt={hhmmToISO(displayEvent.eventTime)}
-                  originalEndAt={hhmmToISO(displayEvent.endTime)}
-                  currentOverride={null}
-                  onClose={handleTimePickerClose}
-                  onSave={handleTimePickerSave}
-                  onReset={() => {}}
-                />
-              )}
-              <View style={styles.rowDivider} />
-
-              {/* ── Add Prep Note ── */}
-              <ActionRow
-                icon={<StickyNote size={18} color={SAGE} />}
-                label="Add prep note"
-                rightDetail={displayEvent.note?.body ? 'Edit' : undefined}
-                onPress={handlePrepNotePress}
-              />
-              {expanded === 'prepNote' && (
-                <View style={styles.inlineExpand}>
-                  <TextInput
-                    style={styles.prepInput}
-                    placeholder="e.g. Bring Q4 deck"
-                    placeholderTextColor={MUTED}
-                    maxLength={200}
-                    autoFocus
-                    value={prepText}
-                    onChangeText={setPrepText}
-                    returnKeyType="done"
-                    onSubmitEditing={handleSavePrepNote}
-                  />
-                  <Pressable
-                    style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.7 }]}
-                    onPress={handleSavePrepNote}
-                  >
-                    <Text style={styles.saveBtnText}>Save</Text>
-                  </Pressable>
-                </View>
-              )}
-              <View style={styles.rowDivider} />
-
-              {/* ── Link a Todo ── */}
-              <ActionRow
-                icon={<Link2 size={18} color={SAGE} />}
-                label="Link a todo"
-                onPress={handleLinkTodo}
-              />
-              <View style={styles.rowDivider} />
-            </>
+          {/* ── Edit Time ── */}
+          <ActionRow
+            icon={<Clock size={18} color={SAGE} />}
+            label="Edit time"
+            rightDetail={timeLabel}
+            onPress={handleEditTimePress}
+          />
+          {expanded === 'editTime' && (
+            <EventTimePicker
+              visible={showTimePicker}
+              eventId={displayEvent.id}
+              eventTitle={displayEvent.title}
+              originalStartAt={hhmmToISO(displayEvent.eventTime)}
+              originalEndAt={hhmmToISO(displayEvent.endTime)}
+              currentOverride={null}
+              onClose={handleTimePickerClose}
+              onSave={handleTimePickerSave}
+              onReset={() => {}}
+            />
           )}
+          <View style={styles.rowDivider} />
 
-          {/* ── Footer: open full details (note events only) ── */}
-          {isNoteEvent && (
-            <Pressable
-              style={({ pressed }) => [styles.footerBtn, pressed && { opacity: 0.7 }]}
-              onPress={handleOpenFull}
-            >
-              <Text style={styles.footerBtnText}>Open full details</Text>
-            </Pressable>
+          {/* ── Add Prep Note ── */}
+          <ActionRow
+            icon={<StickyNote size={18} color={SAGE} />}
+            label="Add prep note"
+            rightDetail={displayEvent.note?.body ? 'Edit' : undefined}
+            onPress={handlePrepNotePress}
+          />
+          {expanded === 'prepNote' && (
+            <View style={styles.inlineExpand}>
+              <TextInput
+                style={styles.prepInput}
+                placeholder="e.g. Bring Q4 deck"
+                placeholderTextColor={MUTED}
+                maxLength={200}
+                autoFocus
+                value={prepText}
+                onChangeText={setPrepText}
+                returnKeyType="done"
+                onSubmitEditing={handleSavePrepNote}
+              />
+              <Pressable
+                style={({ pressed }) => [styles.saveBtn, pressed && { opacity: 0.7 }]}
+                onPress={handleSavePrepNote}
+              >
+                <Text style={styles.saveBtnText}>Save</Text>
+              </Pressable>
+            </View>
           )}
+          <View style={styles.rowDivider} />
+
+          {/* ── Link a Todo ── */}
+          <ActionRow
+            icon={<Link2 size={18} color={SAGE} />}
+            label="Link a todo"
+            onPress={handleLinkTodo}
+          />
+          <View style={styles.rowDivider} />
+
+          {/* ── Footer: open full details ── */}
+          <Pressable
+            style={({ pressed }) => [styles.footerBtn, pressed && { opacity: 0.7 }]}
+            onPress={handleOpenFull}
+          >
+            <Text style={styles.footerBtnText}>Open full details</Text>
+          </Pressable>
         </View>
       </KeyboardAvoidingView>
 

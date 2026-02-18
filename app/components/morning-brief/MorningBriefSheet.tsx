@@ -1122,6 +1122,39 @@ export function MorningBriefSheet({
     setQuickActionUnified(unified);
   }, []);
 
+  /** Check if an event ID is a calendar composite key (not a Supabase UUID) */
+  const isCalendarEventId = useCallback((eventId: string): boolean => {
+    return !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId);
+  }, []);
+
+  /** Promote a calendar event to a persisted Note so note-only actions work */
+  const promoteCalendarEventToNote = useCallback(
+    async (eventId: string): Promise<Note | null> => {
+      try {
+        const unified = quickActionUnified;
+        if (!unified) return null;
+
+        const newNote = await useGremlyStore.getState().createNote({
+          title: unified.title || 'Untitled',
+          subtype: 'event',
+          event_time: unified.eventTime ?? null,
+          end_time: unified.endTime ?? null,
+          is_all_day: unified.isAllDay,
+          target_date: today,
+        });
+
+        // Also hide the original calendar event so it doesn't appear twice
+        useGremlyStore.getState().hideCalendarEvent(today, eventId);
+
+        return newNote;
+      } catch (err) {
+        console.error('[MorningBrief] promoteCalendarEventToNote failed:', err);
+        return null;
+      }
+    },
+    [quickActionUnified, today],
+  );
+
   const handleDismissEvent = useCallback(
     (eventId: string) => {
       // Calendar event IDs are composite "provider-providerEventId" (not UUIDs)
@@ -1148,8 +1181,18 @@ export function MorningBriefSheet({
   );
 
   const handleEditEventTime = useCallback(
-    (eventId: string, startTime: string, endTime: string | null) => {
-      useGremlyStore.getState().updateNote(eventId, {
+    async (eventId: string, startTime: string, endTime: string | null) => {
+      let noteId = eventId;
+      if (isCalendarEventId(eventId)) {
+        const note = await promoteCalendarEventToNote(eventId);
+        if (!note) {
+          setQuickActionEvent(null);
+          setQuickActionUnified(null);
+          return;
+        }
+        noteId = note.id;
+      }
+      useGremlyStore.getState().updateNote(noteId, {
         event_time: startTime,
         end_time: endTime,
         user_edited_fields: [...(quickActionEvent?.user_edited_fields ?? []), 'event_time'],
@@ -1157,14 +1200,27 @@ export function MorningBriefSheet({
       setQuickActionEvent(null);
       setQuickActionUnified(null);
     },
-    [quickActionEvent],
+    [quickActionEvent, isCalendarEventId, promoteCalendarEventToNote],
   );
 
-  const handleAddPrepNote = useCallback((eventId: string, body: string) => {
-    useGremlyStore.getState().updateNote(eventId, { body });
-    setQuickActionEvent(null);
-    setQuickActionUnified(null);
-  }, []);
+  const handleAddPrepNote = useCallback(
+    async (eventId: string, body: string) => {
+      let noteId = eventId;
+      if (isCalendarEventId(eventId)) {
+        const note = await promoteCalendarEventToNote(eventId);
+        if (!note) {
+          setQuickActionEvent(null);
+          setQuickActionUnified(null);
+          return;
+        }
+        noteId = note.id;
+      }
+      useGremlyStore.getState().updateNote(noteId, { body });
+      setQuickActionEvent(null);
+      setQuickActionUnified(null);
+    },
+    [isCalendarEventId, promoteCalendarEventToNote],
+  );
 
   const handleEventRemind = useCallback(
     async (eventId: string, minutesBefore: number) => {
@@ -1172,7 +1228,7 @@ export function MorningBriefSheet({
       const noteEvent = quickActionEvent;
       const unified = quickActionUnified;
       const title = noteEvent?.title || unified?.title || 'Event';
-      const targetDate = noteEvent?.target_date || '';
+      const targetDate = noteEvent?.target_date || today;
       const eventTime = noteEvent?.event_time || unified?.eventTime || null;
 
       // Schedule the actual notification via shared helper
@@ -1195,23 +1251,46 @@ export function MorningBriefSheet({
           },
           ...(notificationId ? { notification_ids: [...existingIds, notificationId] } : {}),
         });
+      } else if (isCalendarEventId(eventId)) {
+        // For calendar events, promote to a Note so we can persist reminder prefs
+        const note = await promoteCalendarEventToNote(eventId);
+        if (note && notificationId) {
+          useGremlyStore.getState().updateNote(note.id, {
+            reminder_preferences: {
+              dayBefore: minutesBefore >= 1440,
+              morningOf: false,
+              minutesBefore,
+            },
+            notification_ids: [notificationId],
+          });
+        }
       }
 
       setQuickActionEvent(null);
       setQuickActionUnified(null);
     },
-    [quickActionEvent, quickActionUnified],
+    [quickActionEvent, quickActionUnified, today, isCalendarEventId, promoteCalendarEventToNote],
   );
 
   const handleOpenFullEvent = useCallback(
-    (event: Note) => {
+    async (eventId: string) => {
+      let noteId = eventId;
+      if (isCalendarEventId(eventId)) {
+        const note = await promoteCalendarEventToNote(eventId);
+        if (!note) {
+          setQuickActionEvent(null);
+          setQuickActionUnified(null);
+          return;
+        }
+        noteId = note.id;
+      }
       setQuickActionEvent(null);
       setQuickActionUnified(null);
       overlayController.openEdit({
-        record: { id: event.id, type: 'note' } as any,
+        record: { id: noteId, type: 'note' } as any,
       });
     },
-    [overlayController],
+    [overlayController, isCalendarEventId, promoteCalendarEventToNote],
   );
 
   const handleTaskPress = useCallback((task: TaskItemData) => {
@@ -1704,7 +1783,10 @@ export function MorningBriefSheet({
           onDismiss={handleDismissEvent}
           onEditTime={handleEditEventTime}
           onAddPrepNote={handleAddPrepNote}
-          onLinkTodo={(_eventId) => {
+          onLinkTodo={async (_eventId) => {
+            if (isCalendarEventId(_eventId)) {
+              await promoteCalendarEventToNote(_eventId);
+            }
             setQuickActionEvent(null);
             setQuickActionUnified(null);
           }}
