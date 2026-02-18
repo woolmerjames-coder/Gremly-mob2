@@ -20,6 +20,8 @@ interface StepPlanProps {
     evening: TaskItemData[];
     flexible: TaskItemData[];
   };
+  /** Flexible tasks committed for today (filtered by selection when prioritizing) */
+  anytimeTasks: TaskItemData[];
   slottedItemsByBlock: Record<string, any[]>;
   breakHabitsByBlock: Record<string, string[]>;
   collapsedBlocks: Record<string, boolean>;
@@ -53,6 +55,7 @@ export function StepPlan({
   capacity,
   keyDatesByBlock,
   tasksByBlock,
+  anytimeTasks,
   slottedItemsByBlock,
   breakHabitsByBlock,
   collapsedBlocks,
@@ -224,6 +227,41 @@ export function StepPlan({
           )}
         </View>
 
+        {/* ─── ANYTIME (unassigned committed tasks) ─── */}
+        {anytimeTasks.length > 0 && (
+          <View style={styles.anytimeSection}>
+            <View style={styles.anytimeHeader}>
+              <View style={[styles.alldayBar, { backgroundColor: BRAND.colors.inkMuted }]} />
+              <Text style={styles.anytimeLabel}>ANYTIME</Text>
+            </View>
+            {anytimeTasks.map((task) => (
+              <Pressable
+                key={task.id}
+                style={({ pressed }) => [
+                  styles.anytimeRow,
+                  pressed && { backgroundColor: 'rgba(46,85,64,0.04)' },
+                ]}
+                onPress={() => onTaskPress(task)}
+              >
+                <View style={styles.anytimeDot} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.anytimeTitle} numberOfLines={1}>
+                    {task.title}
+                  </Text>
+                  {task.estimatedMinutes ? (
+                    <Text style={styles.anytimeEst}>{task.estimatedMinutes}m</Text>
+                  ) : null}
+                </View>
+                {task.spaceName ? (
+                  <Text style={styles.anytimeSpace} numberOfLines={1}>
+                    {task.spaceName}
+                  </Text>
+                ) : null}
+              </Pressable>
+            ))}
+          </View>
+        )}
+
         {/* Bottom spacing */}
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -361,6 +399,55 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#2E5540',
+  },
+
+  // ── Anytime section ─────────────────────────────────────────────
+  anytimeSection: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 4,
+  },
+  anytimeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 8,
+    gap: 6,
+  },
+  anytimeLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    color: BRAND.colors.inkMuted,
+  },
+  anytimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    gap: 10,
+  },
+  anytimeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: BRAND.colors.inkMuted,
+    opacity: 0.4,
+  },
+  anytimeTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  anytimeEst: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+    marginTop: 1,
+  },
+  anytimeSpace: {
+    fontSize: 11,
+    color: BRAND.colors.inkMuted,
+    maxWidth: 80,
   },
 });
 

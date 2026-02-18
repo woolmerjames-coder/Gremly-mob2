@@ -532,6 +532,14 @@ export function MorningBriefSheet({
   // ─── Single source of truth: realistic free minutes from NOW ───
   // For today: clips to current time, subtracts calendar events.
   // For tomorrow: uses full block hours (no time clipping needed).
+
+  // All-day events don't occupy specific time slots — filter them out
+  // before calculating block-level free time, or they consume 100%.
+  const timedCalendarEvents = useMemo(
+    () => (todayCalendarEvents ?? []).filter((e) => !e.isAllDay),
+    [todayCalendarEvents],
+  );
+
   const totalActualFreeMinutes = useMemo(() => {
     if (isTomorrow) {
       // Planning tomorrow — use full block availability (no current-time clipping)
@@ -544,7 +552,7 @@ export function MorningBriefSheet({
         sum +
         calculateRealisticAvailableMinutes(
           block,
-          todayCalendarEvents ?? [],
+          timedCalendarEvents,
           today,
           eventTimeOverrides,
           timeBlockPreferences,
@@ -554,7 +562,7 @@ export function MorningBriefSheet({
   }, [
     isTomorrow,
     capacity.totalAvailableMinutes,
-    todayCalendarEvents,
+    timedCalendarEvents,
     today,
     eventTimeOverrides,
     timeBlockPreferences,
@@ -685,6 +693,14 @@ export function MorningBriefSheet({
   const parkedTasks = useMemo(() => {
     if (!isPrioritizing) return [];
     return tasksByBlock.flexible.filter((t) => !briefSelectedSet.has(t.id));
+  }, [isPrioritizing, tasksByBlock.flexible, briefSelectedSet]);
+
+  // Anytime tasks for Plan screen: flexible items the user committed to today.
+  // - If not prioritizing, ALL flexible tasks fit → show them all.
+  // - If prioritizing, show only selected ones (unselected are "parked").
+  const planAnytimeTasks = useMemo(() => {
+    if (!isPrioritizing) return tasksByBlock.flexible;
+    return tasksByBlock.flexible.filter((t) => briefSelectedSet.has(t.id));
   }, [isPrioritizing, tasksByBlock.flexible, briefSelectedSet]);
 
   // Pulse detection: fire when parked count increases
@@ -1539,8 +1555,9 @@ export function MorningBriefSheet({
             calendarEvents={visibleCalendarEvents}
             hiddenEventIds={hiddenEventIds}
             isReady={isGlanceReady}
-            freeMinutes={effectiveFreeMinutes}
+            freeMinutes={totalActualFreeMinutes}
             totalEventCount={capacity.totalEventCount}
+            eventMinutes={capacity.totalCalendarMinutes}
             onEventQuickAction={handleEventQuickAction}
             onCalendarEventAction={handleCalendarEventQuickAction}
             onContinue={onContinue}
@@ -1634,6 +1651,7 @@ export function MorningBriefSheet({
             capacity={capacity}
             keyDatesByBlock={keyDatesByBlock}
             tasksByBlock={tasksByBlock}
+            anytimeTasks={planAnytimeTasks}
             slottedItemsByBlock={slottedItemsByBlock}
             breakHabitsByBlock={breakHabitsByBlock}
             collapsedBlocks={collapsedBlocks}
