@@ -12,6 +12,7 @@ import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { OnYourPlateSection, type TaskItemData } from './components';
 import { CapacityRing } from './components/CapacityRing';
+import { Plus } from 'lucide-react-native';
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers
@@ -87,6 +88,9 @@ export function StepPrioritize({
   onContinue,
   onSkip,
 }: StepPrioritizeProps) {
+  const hasTasks = flexibleTasks.length > 0;
+  const isFullyBooked = totalAvailableMinutes <= 0 && hasTasks;
+
   return (
     <>
       <ScrollView
@@ -96,27 +100,39 @@ export function StepPrioritize({
       >
         {/* Step header — messaging depends on capacity */}
         <View style={styles.headerArea}>
-          {isPrioritizing ? (
+          {!hasTasks ? (
+            <>
+              <Text style={styles.title}>Nothing on the list yet</Text>
+              <Text style={styles.subtitle}>Drop something in Mind Drop or tap + to add</Text>
+            </>
+          ) : isFullyBooked ? (
+            <>
+              <Text style={styles.title}>Your day is fully booked</Text>
+              <Text style={styles.subtitle}>Pick what still needs to happen</Text>
+            </>
+          ) : isPrioritizing ? (
             <>
               <Text style={styles.title}>What matters most today?</Text>
               <Text style={styles.subtitle}>Pick your priorities for today</Text>
             </>
           ) : (
             <>
-              <Text style={styles.title}>Here’s what’s on your plate</Text>
+              <Text style={styles.title}>Here's what's on your plate</Text>
               <Text style={styles.subtitle}>Select what you want to tackle today</Text>
             </>
           )}
         </View>
 
-        {/* Capacity bar — only when over capacity */}
-        {isPrioritizing && (
+        {/* Capacity bar — when prioritizing or fully booked */}
+        {(isPrioritizing || isFullyBooked) && (
           <View style={styles.capacityBar}>
             <CapacityRing
               percentage={
-                totalAvailableMinutes > 0
-                  ? Math.round((selectedMinutes / totalAvailableMinutes) * 100)
-                  : 0
+                isFullyBooked
+                  ? 100
+                  : totalAvailableMinutes > 0
+                    ? Math.round((selectedMinutes / totalAvailableMinutes) * 100)
+                    : 0
               }
               size={44}
               strokeWidth={3.5}
@@ -125,39 +141,61 @@ export function StepPrioritize({
               <Text
                 style={[
                   styles.capacityHeadline,
-                  remainingMinutes < 0 && styles.capacityHeadlineOver,
+                  (remainingMinutes < 0 || isFullyBooked) && styles.capacityHeadlineOver,
                 ]}
               >
-                {formatMins(selectedMinutes)} of {formatMins(totalAvailableMinutes)} planned
+                {isFullyBooked
+                  ? 'No free time today'
+                  : `${formatMins(selectedMinutes)} of ${formatMins(totalAvailableMinutes)} planned`}
               </Text>
               <Text
-                style={[styles.capacitySubline, remainingMinutes < 0 && styles.capacitySublineOver]}
+                style={[
+                  styles.capacitySubline,
+                  (remainingMinutes < 0 || isFullyBooked) && styles.capacitySublineOver,
+                ]}
               >
-                {remainingMinutes >= 0
-                  ? `${formatMins(remainingMinutes)} still free`
-                  : `${formatMins(Math.abs(remainingMinutes))} over`}
+                {isFullyBooked
+                  ? 'Fully booked'
+                  : remainingMinutes >= 0
+                    ? `${formatMins(remainingMinutes)} still free`
+                    : `${formatMins(Math.abs(remainingMinutes))} over`}
               </Text>
             </View>
           </View>
         )}
 
+        {/* Zero tasks empty state */}
+        {!hasTasks && (
+          <View style={styles.emptyTaskState}>
+            <Pressable
+              style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.7 }]}
+              onPress={onAddPress}
+            >
+              <Plus size={20} color={BRAND.colors.mossGreen} />
+              <Text style={styles.addButtonText}>Add a task</Text>
+            </Pressable>
+          </View>
+        )}
+
         {/* Task selection list */}
-        <OnYourPlateSection
-          tasks={flexibleTasks}
-          animatingAssignments={animatingAssignments}
-          onTaskPress={onTaskPress}
-          onTimePress={onTimePress}
-          onAddPress={onAddPress}
-          pendingDrops={pendingDrops}
-          isPrioritizing={true}
-          showAll
-          selectedIds={selectedIds}
-          lockedIds={lockedIds}
-          onToggleSelect={onToggleSelect}
-          onToggleLock={onToggleLock}
-          onAssignPress={onAssignPress}
-          maxLocks={3}
-        />
+        {hasTasks && (
+          <OnYourPlateSection
+            tasks={flexibleTasks}
+            animatingAssignments={animatingAssignments}
+            onTaskPress={onTaskPress}
+            onTimePress={onTimePress}
+            onAddPress={onAddPress}
+            pendingDrops={pendingDrops}
+            isPrioritizing={true}
+            showAll
+            selectedIds={selectedIds}
+            lockedIds={lockedIds}
+            onToggleSelect={onToggleSelect}
+            onToggleLock={onToggleLock}
+            onAssignPress={onAssignPress}
+            maxLocks={3}
+          />
+        )}
       </ScrollView>
 
       {/* Footer */}
@@ -234,6 +272,25 @@ const styles = StyleSheet.create({
   },
   capacitySublineOver: {
     color: '#C45B4A',
+  },
+  emptyTaskState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 32,
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#E8F0EB',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+  },
+  addButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
   },
   footer: {
     paddingHorizontal: 20,

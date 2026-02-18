@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, StyleSheet, Animated, Easing } from 'react-native';
+import { View, StyleSheet, Animated, Easing, Platform, KeyboardAvoidingView } from 'react-native';
 import { BRAND } from '../../../design/brand';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -57,6 +57,7 @@ export function MorningBriefStepper({
 }: StepperProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [fadeAnim] = useState(() => new Animated.Value(1));
+  const [slideAnim] = useState(() => new Animated.Value(0));
   // Track whether a fade transition is in flight.
   // 0 = idle, 1 = transitioning.  Using Animated.Value avoids
   // both useRef (.current flagged by react-hooks/refs) and
@@ -70,21 +71,38 @@ export function MorningBriefStepper({
       // eslint-disable-next-line no-underscore-dangle
       if ((transitionFlag as any).__getValue() !== 0) return;
       transitionFlag.setValue(1);
-      // Fade out
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 150,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start(() => {
-        setCurrentIndex(targetIndex);
-        // Fade in
+      // Fade out + slide up
+      Animated.parallel([
         Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
+          toValue: 0,
+          duration: 150,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
-        }).start(() => {
+        }),
+        Animated.timing(slideAnim, {
+          toValue: -8,
+          duration: 150,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        setCurrentIndex(targetIndex);
+        slideAnim.setValue(8);
+        // Fade in + slide down to 0
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 200,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(slideAnim, {
+            toValue: 0,
+            duration: 200,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
           transitionFlag.setValue(0);
         });
       });
@@ -123,13 +141,20 @@ export function MorningBriefStepper({
   })();
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+    >
       {stepsNeeded.length > 1 && (
         <StepProgressBar current={currentIndex} total={stepsNeeded.length} />
       )}
-      <Animated.View style={[styles.content, { opacity: fadeAnim }]}>{stepContent}</Animated.View>
+      <Animated.View
+        style={[styles.content, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}
+      >
+        {stepContent}
+      </Animated.View>
       {children}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

@@ -1430,6 +1430,7 @@ export function MorningBriefSheet({
             freeMinutes={totalActualFreeMinutes}
             eventCount={todayKeyDates.length}
             totalEventCount={capacity.totalEventCount}
+            hasTasks={allDayTasks.length > 0}
             onEventQuickAction={handleEventQuickAction}
             onEventPress={onKeyDatePress}
             onContinue={onContinue}
@@ -1479,6 +1480,12 @@ export function MorningBriefSheet({
             selectedIds={briefSelectedSet}
             lockedIds={briefLockedSet}
             isOverCapacity={remainingMinutes < 0}
+            hasTasksToOrganize={
+              briefSelectedSet.size > 0 ||
+              tasksByBlock.morning.length > 0 ||
+              tasksByBlock.afternoon.length > 0 ||
+              tasksByBlock.evening.length > 0
+            }
             onOrganizeComplete={(summary, reasoning) => {
               setOrganizeMessage(summary);
               if (reasoning && reasoning.length > 0) {

@@ -15,6 +15,7 @@ interface StepGlanceProps {
   freeMinutes: number;
   eventCount: number;
   totalEventCount: number;
+  hasTasks: boolean;
   onEventQuickAction: (event: Note) => void;
   onEventPress?: (event: Note) => void;
   onContinue: () => void;
@@ -90,6 +91,7 @@ export function StepGlance({
   hiddenEventIds,
   freeMinutes,
   totalEventCount,
+  hasTasks,
   onEventQuickAction,
   onEventPress,
   onContinue,
@@ -117,68 +119,88 @@ export function StepGlance({
   const freeTimeStr = formatFreeMinutes(freeMinutes);
   const hasEvents = visibleEvents.length > 0 || totalEventCount > 0;
   const moreInCalendar = totalEventCount - visibleEvents.length;
+  const isFullyBooked = freeMinutes <= 0;
+  const isClearDay = !hasEvents && !hasTasks;
 
   return (
     <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-      {/* Events card */}
-      <View style={styles.card}>
-        {hasEvents ? (
-          <>
-            {/* Card header */}
-            <View style={styles.cardHeader}>
-              <Calendar size={16} color={BRAND.colors.mossGreen} />
-              <Text style={styles.cardHeaderCount}>
-                {totalEventCount} event{totalEventCount !== 1 ? 's' : ''}
-              </Text>
-              <Text style={styles.cardHeaderSub}>· {totalEventTimeStr} blocked</Text>
-            </View>
-
-            {/* Event rows */}
-            {visibleEvents.map((event, index) => {
-              const isLast = index === visibleEvents.length - 1;
-              const duration = computeEventDuration(event);
-              const isAllDay = event.is_all_day;
-
-              return (
-                <Pressable
-                  key={event.id}
-                  style={[
-                    styles.eventRow,
-                    !isLast && styles.eventRowBorder,
-                    isAllDay && styles.eventRowAllDay,
-                  ]}
-                  onPress={() => onEventQuickAction(event)}
-                >
-                  <Text style={styles.eventTime}>
-                    {isAllDay ? 'All day' : formatEventTime(event.event_time)}
-                  </Text>
-                  <Text style={styles.eventTitle} numberOfLines={1}>
-                    {event.title || 'Untitled'}
-                  </Text>
-                  {duration && <Text style={styles.eventDuration}>{duration}</Text>}
-                </Pressable>
-              );
-            })}
-
-            {/* More in calendar note */}
-            {moreInCalendar > 0 && (
-              <Text style={styles.moreInCalendar}>+{moreInCalendar} more in your calendar</Text>
-            )}
-
-            {/* Free time bar */}
-            <View style={styles.freeTimeBar}>
-              <Text style={styles.freeTimeValue}>{freeTimeStr}</Text>
-              <Text style={styles.freeTimeLabel}>free today</Text>
-            </View>
-          </>
-        ) : (
-          /* Zero events empty state */
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>No meetings today</Text>
-            <Text style={styles.emptySub}>{freeTimeStr} free to work with 🌿</Text>
+      {isClearDay ? (
+        /* Zero events AND zero tasks — relaxed empty state */
+        <View style={styles.card}>
+          <View style={styles.clearDayState}>
+            <Text style={styles.clearDayTitle}>A clear day ahead</Text>
+            <Text style={styles.clearDaySub}>
+              Nothing scheduled. Enjoy the open space, or add something to work on.
+            </Text>
           </View>
-        )}
-      </View>
+        </View>
+      ) : (
+        /* Events card */
+        <View style={styles.card}>
+          {hasEvents ? (
+            <>
+              {/* Card header */}
+              <View style={styles.cardHeader}>
+                <Calendar size={16} color={BRAND.colors.mossGreen} />
+                <Text style={styles.cardHeaderCount}>
+                  {totalEventCount} event{totalEventCount !== 1 ? 's' : ''}
+                </Text>
+                <Text style={styles.cardHeaderSub}>· {totalEventTimeStr} blocked</Text>
+              </View>
+
+              {/* Event rows */}
+              {visibleEvents.map((event, index) => {
+                const isLast = index === visibleEvents.length - 1;
+                const duration = computeEventDuration(event);
+                const isAllDay = event.is_all_day;
+
+                return (
+                  <Pressable
+                    key={event.id}
+                    style={[
+                      styles.eventRow,
+                      !isLast && styles.eventRowBorder,
+                      isAllDay && styles.eventRowAllDay,
+                    ]}
+                    onPress={() => onEventQuickAction(event)}
+                  >
+                    <Text style={styles.eventTime}>
+                      {isAllDay ? 'All day' : formatEventTime(event.event_time)}
+                    </Text>
+                    <Text style={styles.eventTitle} numberOfLines={1}>
+                      {event.title || 'Untitled'}
+                    </Text>
+                    {duration && <Text style={styles.eventDuration}>{duration}</Text>}
+                  </Pressable>
+                );
+              })}
+
+              {/* More in calendar note */}
+              {moreInCalendar > 0 && (
+                <Text style={styles.moreInCalendar}>+{moreInCalendar} more in your calendar</Text>
+              )}
+
+              {/* Free time bar */}
+              <View style={styles.freeTimeBar}>
+                {isFullyBooked ? (
+                  <Text style={styles.freeTimeFullyBooked}>Fully booked today</Text>
+                ) : (
+                  <>
+                    <Text style={styles.freeTimeValue}>{freeTimeStr}</Text>
+                    <Text style={styles.freeTimeLabel}>free today</Text>
+                  </>
+                )}
+              </View>
+            </>
+          ) : (
+            /* Zero events empty state */
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>No meetings today</Text>
+              <Text style={styles.emptySub}>{freeTimeStr} free to work with 🌿</Text>
+            </View>
+          )}
+        </View>
+      )}
 
       {/* Footer */}
       <View style={styles.footer}>
@@ -290,6 +312,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: BRAND.colors.mossGreen,
+  },
+  freeTimeFullyBooked: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.inkMuted,
+  },
+  clearDayState: {
+    alignItems: 'center',
+    padding: 32,
+  },
+  clearDayTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+  },
+  clearDaySub: {
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginTop: 6,
+    maxWidth: 260,
   },
   emptyState: {
     alignItems: 'center',

@@ -6,7 +6,7 @@
  * loading state, spinner, and API call.
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Pressable, Image, StyleSheet } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
@@ -27,6 +27,9 @@ interface StepOrganizeProps {
   selectedIds: Set<string>;
   lockedIds: Set<string>;
   isOverCapacity: boolean;
+
+  // Auto-skip when nothing to organize
+  hasTasksToOrganize: boolean;
 
   // Callbacks
   onOrganizeComplete: (summary: string, reasoning: string[]) => void;
@@ -52,6 +55,7 @@ export function StepOrganize({
   selectedIds,
   lockedIds,
   isOverCapacity,
+  hasTasksToOrganize,
   onOrganizeComplete,
   onOrganizeError,
   onAnimationStart,
@@ -60,6 +64,13 @@ export function StepOrganize({
   onContinue,
   onSkip,
 }: StepOrganizeProps) {
+  // Auto-skip when there's nothing to organize
+  useEffect(() => {
+    if (!hasTasksToOrganize) {
+      onContinue();
+    }
+  }, [hasTasksToOrganize, onContinue]);
+
   return (
     <View style={styles.container}>
       {/* Mascot */}
