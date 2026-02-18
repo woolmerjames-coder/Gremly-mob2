@@ -10,7 +10,7 @@ import React, { useEffect, useMemo, useCallback } from 'react';
 import { View, ScrollView, Pressable, StyleSheet, LayoutAnimation, Animated } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
-import { Check, Lock, Unlock, Plus } from 'lucide-react-native';
+import { Check, Lock, Unlock, Plus, Clock } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import type { TaskItemData } from './components';
 
@@ -83,6 +83,7 @@ export function StepPrioritize({
   onToggleLock,
   onTaskPress,
   onAddPress,
+  onAssignPress,
   onContinue,
   onSkip,
 }: StepPrioritizeProps) {
@@ -255,6 +256,7 @@ export function StepPrioritize({
             onToggle={handleToggle}
             onLongPress={handleLongPress}
             onLockToggle={handleLockToggle}
+            onAssignPress={onAssignPress}
           />
         ))}
 
@@ -270,6 +272,7 @@ export function StepPrioritize({
             onToggle={handleToggle}
             onLongPress={handleLongPress}
             onLockToggle={handleLockToggle}
+            onAssignPress={onAssignPress}
           />
         ))}
       </ScrollView>
@@ -297,6 +300,14 @@ export function StepPrioritize({
 // TaskRow — unified row for selected and unselected
 // ═══════════════════════════════════════════════════════════════════
 
+/** Map timeWindow to short pill label */
+function blockLabel(tw: TaskItemData['timeWindow']): string | null {
+  if (tw === 'morning') return 'AM';
+  if (tw === 'day') return 'PM';
+  if (tw === 'evening') return 'EVE';
+  return null;
+}
+
 function TaskRow({
   task,
   isSelected,
@@ -304,6 +315,7 @@ function TaskRow({
   onToggle,
   onLongPress,
   onLockToggle,
+  onAssignPress,
 }: {
   task: TaskItemData;
   isSelected: boolean;
@@ -311,47 +323,63 @@ function TaskRow({
   onToggle: (t: TaskItemData) => void;
   onLongPress: (t: TaskItemData) => void;
   onLockToggle: (t: TaskItemData) => void;
+  onAssignPress: (t: TaskItemData) => void;
 }) {
   if (isSelected) {
+    const bl = blockLabel(task.timeWindow);
+
     return (
       <Pressable
-        style={({ pressed }) => [
-          styles.selectedRow,
-          isLocked && styles.selectedRowLocked,
-          pressed && { opacity: 0.85 },
-        ]}
+        style={({ pressed }) => [styles.selectedRow, pressed && { opacity: 0.85 }]}
         onPress={() => onToggle(task)}
         onLongPress={() => onLongPress(task)}
       >
-        {/* Checkbox — filled */}
-        <View style={styles.checkboxFilled}>
-          <Check size={14} color="#FFFFFF" strokeWidth={2.5} />
-        </View>
+        {/* Straight accent bar */}
+        <View style={[styles.accentBar, isLocked && styles.accentBarLocked]} />
 
-        {/* Title + metadata */}
-        <View style={styles.titleArea_row}>
-          <Text style={styles.selectedTitle} numberOfLines={1}>
-            {task.title}
-          </Text>
-          {task.type === 'habit' && task.metadata?.label ? (
-            <Text style={styles.habitMeta}>{task.metadata.label}</Text>
-          ) : null}
-          {isLocked && <Text style={styles.lockedBadge}>Locked</Text>}
-        </View>
+        {/* Row content */}
+        <View style={styles.rowContent}>
+          {/* Checkbox — filled */}
+          <View style={styles.checkboxFilled}>
+            <Check size={14} color="#FFFFFF" strokeWidth={2.5} />
+          </View>
 
-        {/* Time */}
-        <Text style={styles.timeText}>{formatPill(task.estimatedMinutes)}</Text>
+          {/* Title + metadata */}
+          <View style={styles.titleArea_row}>
+            <Text style={styles.selectedTitle} numberOfLines={1}>
+              {task.title}
+            </Text>
+            {task.type === 'habit' && task.metadata?.label ? (
+              <Text style={styles.habitMeta}>{task.metadata.label}</Text>
+            ) : null}
+            {isLocked && <Text style={styles.lockedBadge}>Locked</Text>}
+          </View>
 
-        {/* Lock button — always visible */}
-        <Pressable style={styles.lockButton} hitSlop={8} onPress={() => onLockToggle(task)}>
-          {isLocked ? (
-            <View style={styles.lockCircle}>
-              <Lock size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
-            </View>
+          {/* Time */}
+          <Text style={styles.timeText}>{formatPill(task.estimatedMinutes)}</Text>
+
+          {/* Block assignment button */}
+          {bl ? (
+            <Pressable style={styles.blockPill} hitSlop={8} onPress={() => onAssignPress(task)}>
+              <Text style={styles.blockPillText}>{bl}</Text>
+            </Pressable>
           ) : (
-            <Unlock size={16} color={BRAND.colors.borderSubtle} strokeWidth={2} />
+            <Pressable style={styles.blockButton} hitSlop={8} onPress={() => onAssignPress(task)}>
+              <Clock size={15} color={BRAND.colors.borderSubtle} strokeWidth={2} />
+            </Pressable>
           )}
-        </Pressable>
+
+          {/* Lock button — always visible */}
+          <Pressable style={styles.lockButton} hitSlop={8} onPress={() => onLockToggle(task)}>
+            {isLocked ? (
+              <View style={styles.lockCircle}>
+                <Lock size={16} color={BRAND.colors.mossGreen} strokeWidth={2} />
+              </View>
+            ) : (
+              <Unlock size={16} color={BRAND.colors.borderSubtle} strokeWidth={2} />
+            )}
+          </Pressable>
+        </View>
       </Pressable>
     );
   }
@@ -467,20 +495,27 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     backgroundColor: '#FEFDFB',
     borderRadius: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: BRAND.colors.mossGreen,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    overflow: 'hidden',
     flexDirection: 'row',
-    alignItems: 'center',
     shadowColor: '#000',
     shadowOpacity: 0.02,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 1 },
     elevation: 1,
   },
-  selectedRowLocked: {
-    borderLeftWidth: 4,
+  accentBar: {
+    width: 3,
+    backgroundColor: BRAND.colors.mossGreen,
+  },
+  accentBarLocked: {
+    width: 4,
+  },
+  rowContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
   },
   checkboxFilled: {
     width: 22,
@@ -516,6 +551,26 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
     marginRight: 8,
   },
+  blockButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  blockPill: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    backgroundColor: 'rgba(46,85,64,0.08)',
+    marginRight: 4,
+  },
+  blockPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: BRAND.colors.mossGreen,
+  },
   lockButton: {
     padding: 2,
   },
@@ -534,8 +589,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     backgroundColor: 'transparent',
     borderRadius: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: 'transparent',
     paddingVertical: 10,
     paddingHorizontal: 12,
     flexDirection: 'row',
