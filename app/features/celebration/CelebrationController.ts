@@ -29,6 +29,7 @@ class CelebrationController {
   private pendingBatch: CelebrationEvent[] = [];
   private batchTimer?: NodeJS.Timeout;
   private unsubscribe?: () => void;
+  private _suppressAgeUp = false;
 
   // Microcopy pool (rotate to avoid repetition)
   private microMessages = [
@@ -204,6 +205,16 @@ class CelebrationController {
    * @param age - The age to display in the modal
    */
   showAgeUpCelebration(age: number): void {
+    if (this._suppressAgeUp) {
+      if (__DEV__) {
+        console.log(
+          '[Celebration] Age-up celebration SUPPRESSED (sweep screen active) for age:',
+          age,
+        );
+      }
+      return;
+    }
+
     const payload: CelebrationPayload = {
       kind: 'age_up',
       age,
@@ -213,6 +224,13 @@ class CelebrationController {
 
     if (__DEV__) {
       console.log('[Celebration] Age-up celebration triggered for age:', age);
+    }
+  }
+
+  suppressAgeUpCelebration(suppress: boolean): void {
+    this._suppressAgeUp = suppress;
+    if (__DEV__) {
+      console.log('[Celebration] Age-up suppression:', suppress ? 'ON' : 'OFF');
     }
   }
 
