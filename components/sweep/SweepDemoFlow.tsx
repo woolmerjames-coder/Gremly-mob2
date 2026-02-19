@@ -10,14 +10,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import {
-  View,
-  StyleSheet,
-  Image,
-  TouchableOpacity,
-  SafeAreaView,
-  Dimensions,
-} from 'react-native';
+import { View, StyleSheet, Image, TouchableOpacity, SafeAreaView, Dimensions } from 'react-native';
 import Reanimated, { FadeIn, FadeInUp, FadeOut } from 'react-native-reanimated';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
@@ -34,7 +27,9 @@ import type {
   SweepNoteRow,
 } from '../../lib/sweep/types';
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_CELEBRATE = require('../../assets/mascot/sweepcomplete.png');
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -226,7 +221,12 @@ function demoMeta(candidate: SweepCandidate): SweepCardMeta {
   return {
     typeChip: candidate.kind === 'todo' ? 'Todo' : 'Note',
     todoStatus: candidate.kind === 'todo' ? 'unscheduled' : null,
-    logSubtype: candidate.kind === 'note' ? ((candidate.raw as SweepNoteRow).subtype === 'idea' ? 'idea' : 'general') : null,
+    logSubtype:
+      candidate.kind === 'note'
+        ? (candidate.raw as SweepNoteRow).subtype === 'idea'
+          ? 'idea'
+          : 'general'
+        : null,
     habitStatus: null,
     isNew: true,
     resurfacingDate: null,
@@ -301,9 +301,7 @@ export function SweepDemoFlow({ onComplete, returnsToMindDrop = false }: SweepDe
             Each evening, Gremly shows you everything you dropped during the day, one card at a
             time. You decide what to schedule, keep, or let go.
           </Text>
-          <Text style={styles.introCallout}>
-            Let's try it with a few example items.
-          </Text>
+          <Text style={styles.introCallout}>Let's try it with a few example items.</Text>
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={() => {
@@ -327,7 +325,8 @@ export function SweepDemoFlow({ onComplete, returnsToMindDrop = false }: SweepDe
           <Image source={GREMLY_CELEBRATE} style={styles.mascot} resizeMode="contain" />
           <Text style={styles.heading}>That's the Sweep!</Text>
           <Text style={styles.subtext}>
-            Every evening, I'll gather your tasks, ideas, and thoughts and help you decide what's next.{'\n\n'}The more you drop during the day, the better I get.
+            Every evening, I'll gather your tasks, ideas, and thoughts and help you decide what's
+            next.{'\n\n'}The more you drop during the day, the better I get.
           </Text>
           <TouchableOpacity
             style={styles.primaryButton}
@@ -404,7 +403,8 @@ export function SweepDemoFlow({ onComplete, returnsToMindDrop = false }: SweepDe
           <View style={styles.coachCard}>
             <Text style={styles.coachTitle}>How the Sweep works</Text>
             <Text style={styles.coachBody}>
-              Pick an option on the right, then swipe right to schedule or keep it.{'\n\n'}Or swipe left to let it go.
+              Pick an option on the right, then swipe right to schedule or keep it.{'\n\n'}Or swipe
+              left to let it go.
             </Text>
             <TouchableOpacity
               style={styles.coachButton}

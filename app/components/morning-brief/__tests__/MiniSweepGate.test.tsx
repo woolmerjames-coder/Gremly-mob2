@@ -63,6 +63,7 @@ function makeTodo(overrides: Partial<Todo> = {}): Todo {
     archived: false,
     ai_placed: false,
     tags: [],
+    daily_block: null,
     ...overrides,
   } as Todo;
 }
@@ -136,7 +137,9 @@ describe('MiniSweepGate', () => {
         />,
       );
 
-      expect(screen.getByText('Clear day ahead. Good time to make progress on these.')).toBeTruthy();
+      expect(
+        screen.getByText('Clear day ahead. Good time to make progress on these.'),
+      ).toBeTruthy();
     });
 
     it('renders rolled over section when items exist', () => {

@@ -39,7 +39,7 @@ describe('FirstDropSpotlight', () => {
     it('displays the main speech text', () => {
       const { getByText } = render(<FirstDropSpotlight visible={true} onDismiss={jest.fn()} />);
 
-      expect(getByText(/Could be a task, a worry, a random idea/i)).toBeTruthy();
+      expect(getByText(/A task, a worry, an idea/i)).toBeTruthy();
     });
 
     it('displays the hint text', () => {

@@ -106,10 +106,10 @@ describe('OnboardingScreen Notification Setup', () => {
       expect(getByText('Evening sweep')).toBeTruthy();
     });
 
-    it('renders the "Don\'t remind me" toggle', () => {
+    it('renders the settings hint text', () => {
       const { getByText } = render(<OnboardingScreen />);
 
-      expect(getByText("Don't remind me")).toBeTruthy();
+      expect(getByText(/adjust times|turn off reminders|Settings/i)).toBeTruthy();
     });
 
     it('renders ritual explanation rows', () => {

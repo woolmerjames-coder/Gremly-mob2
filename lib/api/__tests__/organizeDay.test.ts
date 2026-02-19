@@ -643,6 +643,116 @@ describe('buildOrganizeDayRequest', () => {
       }
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // lockedIds support
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('lockedIds', () => {
+    it('marks task as locked when its id is in lockedIds set', () => {
+      const todo = makeTodo({ id: 'todo-locked', due_day: today });
+
+      const result = buildOrganizeDayRequest({
+        todos: [todo],
+        habits: [],
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+        lockedIds: new Set(['todo-locked']),
+      });
+
+      expect(result.tasks[0].locked).toBe(true);
+    });
+
+    it('does not mark task as locked when not in lockedIds set', () => {
+      const todo = makeTodo({ id: 'todo-free', due_day: today });
+
+      const result = buildOrganizeDayRequest({
+        todos: [todo],
+        habits: [],
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+        lockedIds: new Set(['other-id']),
+      });
+
+      expect(result.tasks[0].locked).toBeFalsy();
+    });
+
+    it('works with empty lockedIds set', () => {
+      const todo = makeTodo({ id: 'todo-1', due_day: today });
+
+      const result = buildOrganizeDayRequest({
+        todos: [todo],
+        habits: [],
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+        lockedIds: new Set(),
+      });
+
+      expect(result.tasks[0].locked).toBeFalsy();
+    });
+
+    it('works when lockedIds is undefined', () => {
+      const todo = makeTodo({ id: 'todo-1', due_day: today });
+
+      const result = buildOrganizeDayRequest({
+        todos: [todo],
+        habits: [],
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+        // no lockedIds
+      });
+
+      expect(result.tasks[0].locked).toBeFalsy();
+    });
+
+    it('locks habits when in lockedIds set', () => {
+      const habit = makeHabit({ id: 'habit-locked', start_date: '2025-01-01' });
+
+      const result = buildOrganizeDayRequest({
+        todos: [],
+        habits: [habit],
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+        lockedIds: new Set(['habit-locked']),
+      });
+
+      expect(result.tasks[0].locked).toBe(true);
+    });
+
+    it('mixes locked and unlocked tasks', () => {
+      const t1 = makeTodo({ id: 'locked-todo', due_day: today });
+      const t2 = makeTodo({ id: 'free-todo', due_day: today });
+      const h1 = makeHabit({ id: 'locked-habit', start_date: '2025-01-01' });
+
+      const result = buildOrganizeDayRequest({
+        todos: [t1, t2],
+        habits: [h1],
+        calendarEvents: [],
+        capacity: makeDayCapacity(),
+        today,
+        currentHour,
+        lockedIds: new Set(['locked-todo', 'locked-habit']),
+      });
+
+      const lockedTodo = result.tasks.find((t) => t.id === 'locked-todo');
+      const freeTodo = result.tasks.find((t) => t.id === 'free-todo');
+      const lockedHabit = result.tasks.find((t) => t.id === 'locked-habit');
+
+      expect(lockedTodo?.locked).toBe(true);
+      expect(freeTodo?.locked).toBeFalsy();
+      expect(lockedHabit?.locked).toBe(true);
+    });
+  });
 });
 
 describe('organizeDay API', () => {

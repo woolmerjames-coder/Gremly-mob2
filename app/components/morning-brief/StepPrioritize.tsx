@@ -75,15 +75,12 @@ interface StepPrioritizeProps {
 
 export function StepPrioritize({
   flexibleTasks,
-  _isPrioritizing,
   selectedMinutes,
   totalAvailableMinutes,
   remainingMinutes,
-  _isOverCommitted,
   selectedIds,
   lockedIds,
   onToggleSelect,
-  _onTaskPress,
   onAddPress,
   onSkipTask,
   onGremlyPick,
