@@ -127,8 +127,8 @@ export default function RootNavigator() {
     return 'Tabs';
   }, [onboardingCompletedAt]);
 
-  // Show loading screen while auth or store is initializing
-  if (loading || (user && !isInitialized)) {
+  // Only block rendering if we have no cached user at all (first launch or logged out)
+  if (loading && !user) {
     return <LoadingScreen />;
   }
 

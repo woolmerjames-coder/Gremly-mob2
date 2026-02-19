@@ -81,99 +81,76 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let mounted = true;
 
     async function initAuth() {
+      const INIT_TIMEOUT_MS = 3000;
+
       try {
         if (FLAGS.REPO_BACKEND === 'memory') {
           if (mounted) setLoading(false);
           return;
         }
 
-        let hasCachedSession = false;
+        // Step 1: Restore cached session from AsyncStorage (local, always fast)
         const storedSession = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
+        let hasCachedSession = false;
+
         if (storedSession && mounted) {
           try {
-            const parsedSession = JSON.parse(storedSession);
-            setSession(parsedSession);
-            setUser(parsedSession.user);
+            const parsed = JSON.parse(storedSession);
+            setSession(parsed);
+            setUser(parsed.user);
             hasCachedSession = true;
           } catch (e) {
-            console.error('Failed to parse stored session:', e);
-            await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+            console.warn('[AuthProvider] Corrupt cached session, ignoring');
           }
         }
 
-        // If offline and we have a cached session, skip getSession() to avoid hanging
+        // Step 2: Wait for NetworkStatus to have an accurate reading
+        await networkStatus.ready();
+
+        // Step 3: If offline with a cached session, render immediately from cache
         if (!networkStatus.isConnected && hasCachedSession) {
-          console.log(
-            '[AuthProvider] Offline with cached session — skipping getSession(), rendering from cache',
-          );
-          return;
-        }
-
-        // Race getSession() against an 8-second timeout to prevent indefinite hangs
-        const GET_SESSION_TIMEOUT_MS = 8000;
-        let currentSession: Awaited<
-          ReturnType<typeof supabase.auth.getSession>
-        >['data']['session'] = null;
-        let sessionError: Awaited<ReturnType<typeof supabase.auth.getSession>>['error'] = null;
-
-        try {
-          const result = await Promise.race([
-            supabase.auth.getSession(),
-            new Promise<never>((_, reject) =>
-              setTimeout(
-                () => reject(new Error('getSession() timed out after 8s')),
-                GET_SESSION_TIMEOUT_MS,
-              ),
-            ),
-          ]);
-          currentSession = result.data.session;
-          sessionError = result.error;
-        } catch (timeoutErr) {
-          if (hasCachedSession) {
-            console.warn(
-              '[AuthProvider] getSession() timed out but cached session exists — rendering from cache',
-            );
-            return;
-          }
-          sessionError = {
-            message: (timeoutErr as Error).message,
-            name: 'AuthApiError',
-            status: 0,
-          } as any;
-        }
-
-        if (sessionError) {
-          console.error('Auth session error:', sessionError);
-          if (mounted) setError(sessionError.message);
-        } else if (currentSession && mounted) {
-          setSession(currentSession);
-          setUser(currentSession.user);
-          await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(currentSession));
-          // Set CalendarClient token for calendar API calls
-          calendarClient.setSupabaseToken(currentSession.access_token);
           if (__DEV__)
-            console.log('[AuthProvider] Session restored, user.id:', currentSession.user.id);
-          // Register for push notifications on session restore
-          try {
-            const pushToken = await registerForPushNotifications();
-            if (pushToken) {
-              await savePushToken(currentSession.user.id, pushToken);
-              console.log(
-                '[AuthProvider] Push notification registration successful (session restore)',
-              );
-            }
-          } catch (pushError) {
-            console.log(
-              '[AuthProvider] Push notification registration failed (session restore):',
-              pushError,
-            );
-          }
-        } else if (!currentSession && mounted) {
-          if (__DEV__) console.log('[AuthProvider] No session found, awaiting Google sign-in');
+            console.log('[AuthProvider] Offline + cached session — rendering from cache');
+          return; // finally block sets loading = false
         }
-      } catch (err) {
-        console.error('Auth initialization error:', err);
-        if (mounted) setError(err instanceof Error ? err.message : 'Authentication failed');
+
+        // Step 4: Online path
+        if (hasCachedSession) {
+          // We already have a session to show — getSession is best-effort, don't block the user
+          try {
+            const sessionPromise = supabase.auth.getSession();
+            const timeoutPromise = new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('Session fetch timed out')), INIT_TIMEOUT_MS),
+            );
+            const result = await Promise.race([sessionPromise, timeoutPromise]);
+            const freshSession = result.data?.session ?? null;
+            if (result.error) {
+              console.error('[AuthProvider] getSession error:', result.error);
+            }
+            if (freshSession && mounted) {
+              setSession(freshSession);
+              setUser(freshSession.user);
+              await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(freshSession));
+            }
+          } catch (e) {
+            if (__DEV__)
+              console.warn('[AuthProvider] getSession timed out or failed, using cached session');
+          }
+        } else {
+          // No cached session — must authenticate or show login screen
+          try {
+            const { data, error } = await supabase.auth.getSession();
+            if (error) throw error;
+            if (data.session && mounted) {
+              setSession(data.session);
+              setUser(data.session.user);
+              await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.session));
+            }
+          } catch (e) {
+            console.error('[AuthProvider] No cache and getSession failed:', e);
+            if (mounted) setError(e instanceof Error ? e.message : 'Unable to authenticate');
+          }
+        }
       } finally {
         if (mounted) setLoading(false);
       }

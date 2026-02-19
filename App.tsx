@@ -31,7 +31,6 @@ import celebrationController from './app/features/celebration/CelebrationControl
 import AgeUpCelebrationModal from './components/ritual/AgeUpCelebrationModal';
 import { GlobalEventPopup } from './components/calendar/GlobalEventPopup';
 import { GlobalEventTimePicker } from './components/calendar/GlobalEventTimePicker';
-import { networkStatus } from './lib/network/NetworkStatus';
 import { initOfflineSync } from './lib/network/offlineSync';
 
 // Prevent the splash screen from auto-hiding before app is ready
@@ -48,11 +47,9 @@ export default function App() {
     age: 0,
   });
 
-  // Start network monitoring and offline sync
+  // Start offline sync
   useEffect(() => {
-    networkStatus.start();
     initOfflineSync();
-    return () => networkStatus.stop();
   }, []);
 
   // Subscribe to age-up celebration events
