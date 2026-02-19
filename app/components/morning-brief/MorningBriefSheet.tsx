@@ -621,7 +621,7 @@ export function MorningBriefSheet({
     if (hasCompletedToday) {
       stepsNeededRef.current = ['plan'];
     } else {
-      const steps: BriefStep[] = ['glance'];
+      const steps: BriefStep[] = [];
       if (showMiniSweep) steps.push('sweep');
       // Always show — user reviews tasks whether or not they fit
       steps.push('prioritize');
@@ -1656,21 +1656,7 @@ export function MorningBriefSheet({
 
       <MorningBriefStepper
         stepsNeeded={stepsNeeded}
-        renderGlance={(onContinue, onSkipToEnd) => (
-          <StepGlance
-            events={todayKeyDates}
-            calendarEvents={visibleCalendarEvents}
-            hiddenEventIds={hiddenEventIds}
-            isReady={isGlanceReady}
-            freeMinutes={totalActualFreeMinutes}
-            totalEventCount={capacity.totalEventCount}
-            eventMinutes={capacity.totalCalendarMinutes}
-            onEventQuickAction={handleEventQuickAction}
-            onCalendarEventAction={handleCalendarEventQuickAction}
-            onContinue={onContinue}
-            onSkipToEnd={onSkipToEnd}
-          />
-        )}
+        renderGlance={() => null}
         renderSweep={(onContinue, onSkip, onBack) => (
           <StepSweep
             rolledOverTodos={rolledOverTodos}
@@ -1708,6 +1694,16 @@ export function MorningBriefSheet({
             onContinue={onContinue}
             onSkip={onSkip}
             onBack={onBack}
+            calendarEvents={visibleCalendarEvents}
+            keyDateEvents={todayKeyDates}
+            hiddenEventIds={hiddenEventIds}
+            eventTimeOverrides={eventTimeOverrides}
+            eventMinutes={capacity.totalCalendarMinutes}
+            totalEventCount={capacity.totalEventCount}
+            timeBlockPreferences={timeBlockPreferences}
+            onCalendarEventAction={handleCalendarEventQuickAction}
+            onEventQuickAction={handleEventQuickAction}
+            dateContext={today}
           />
         )}
         renderOrganize={(onContinue, onSkip, onBack, onShowCelebration) => (
