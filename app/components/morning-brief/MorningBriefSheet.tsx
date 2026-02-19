@@ -221,6 +221,13 @@ export function MorningBriefSheet({
   const setBriefCompletedToday = useGremlyStore((s) => s.setBriefCompletedToday);
   const habitProgress = useGremlyStore((s) => s.habitProgress);
 
+  // Snapshot brief state on mount for rollback if user exits without completing
+  const initialBriefState = useRef({
+    selectedIds: briefSelectedIds,
+    lockedIds: briefLockedIds,
+    selectionDate: briefSelectionDate,
+  });
+
   // ─────────────────────────────────────────────────────────────────
   // CAPACITY & CALENDAR DATA
   // ─────────────────────────────────────────────────────────────────
@@ -1625,12 +1632,26 @@ export function MorningBriefSheet({
   // RENDER
   // ─────────────────────────────────────────────────────────────────
 
+  // Exit handler: rollback brief state to pre-open snapshot, then close
+  const handleExit = useCallback(() => {
+    const snap = initialBriefState.current;
+    if (snap.selectionDate === today) {
+      // Restore original selections for today
+      setBriefSelections(snap.selectedIds, snap.lockedIds, snap.selectionDate);
+    } else {
+      // Stale date — clear everything
+      setBriefSelections([], [], today);
+    }
+    onClose();
+  }, [today, setBriefSelections, onClose]);
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header — always visible above the stepper */}
       <MorningBriefHeader
         targetDate={isTomorrow ? today : undefined}
         overrideAvailableMinutes={totalActualFreeMinutes}
+        onExit={!hasCompletedToday ? handleExit : undefined}
       />
 
       <MorningBriefStepper

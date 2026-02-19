@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
+import { Rocket } from 'lucide-react-native';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const MORNING_BRIEF_GREMLY = require('../../../assets/mascot/morningbriefgremly.png');
@@ -264,8 +265,11 @@ export function MorningBriefStepper({
             <Animated.View
               style={{ opacity: celebrationFade, transform: [{ scale: celebrationScale }] }}
             >
-              <Text style={styles.celebrationTitle}>All done!</Text>
-              <Text style={styles.celebrationSubtitle}>Time to kill it 💪</Text>
+              <Text style={styles.celebrationTitle}>You're locked in.</Text>
+              <View style={styles.celebrationSubRow}>
+                <Text style={styles.celebrationSubtitle}>LFG</Text>
+                <Rocket size={18} color={BRAND.colors.textSecondary} style={{ marginLeft: 6 }} />
+              </View>
             </Animated.View>
           </View>
         </Animated.View>
@@ -322,11 +326,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 42,
   },
+  celebrationSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
   celebrationSubtitle: {
     fontSize: 18,
     color: '#2E5540',
     opacity: 0.7,
-    marginTop: 8,
     textAlign: 'center',
     lineHeight: 26,
   },

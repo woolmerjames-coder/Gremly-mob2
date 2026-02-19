@@ -311,10 +311,13 @@ export function StepOrganize({
     // Fire the API call now that the overlay is visible
     const runOrganize = async () => {
       try {
-        const filteredTodos =
-          isPrioritizing && selectedIds ? todos.filter((t) => selectedIds.has(t.id)) : todos;
-        const filteredHabits =
-          isPrioritizing && selectedIds ? habits.filter((h) => selectedIds.has(h.id)) : habits;
+        const hasExplicitSelections = selectedIds && selectedIds.size > 0;
+        const filteredTodos = hasExplicitSelections
+          ? todos.filter((t) => selectedIds.has(t.id))
+          : todos;
+        const filteredHabits = hasExplicitSelections
+          ? habits.filter((h) => selectedIds.has(h.id))
+          : habits;
 
         const request = buildOrganizeDayRequest({
           todos: filteredTodos,
@@ -606,12 +609,6 @@ export function StepOrganize({
             <Text style={styles.skipButtonText}>I'll arrange it myself →</Text>
           </Pressable>
         </View>
-        <Pressable
-          style={({ pressed }) => [styles.exitPressable, pressed && { opacity: 0.5 }]}
-          onPress={onSkip}
-        >
-          <Text style={styles.exitText}>Exit</Text>
-        </Pressable>
       </View>
 
       {/* ── FULLSCREEN ORGANIZING OVERLAY ────────────────────── */}

@@ -187,11 +187,14 @@ export function OrganizeButton({
     startProgressAnimation();
 
     try {
-      // When prioritizing, only send selected tasks
-      const filteredTodos =
-        isPrioritizing && selectedIds ? todos.filter((t) => selectedIds.has(t.id)) : todos;
-      const filteredHabits =
-        isPrioritizing && selectedIds ? habits.filter((h) => selectedIds.has(h.id)) : habits;
+      // When the user has explicitly selected tasks, only send those
+      const hasExplicitSelections = selectedIds && selectedIds.size > 0;
+      const filteredTodos = hasExplicitSelections
+        ? todos.filter((t) => selectedIds.has(t.id))
+        : todos;
+      const filteredHabits = hasExplicitSelections
+        ? habits.filter((h) => selectedIds.has(h.id))
+        : habits;
 
       const request = buildOrganizeDayRequest({
         todos: filteredTodos,
