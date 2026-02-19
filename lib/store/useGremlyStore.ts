@@ -972,6 +972,11 @@ export const useGremlyStore = create<GremlyState>()(
         // ═══════════════════════════════════════════════════════════════════
 
         initialize: async (userId: string) => {
+          if (__DEV__)
+            console.log(
+              '[GremlyStore] onboardingCompletedAt at init start:',
+              get().onboardingCompletedAt,
+            );
           // Already fully initialized for this user — just background refresh
           if (get().isInitialized && get().userId === userId) {
             get()
@@ -8438,6 +8443,11 @@ export const useGremlyStore = create<GremlyState>()(
 
         // Merge persisted state with fresh initial state
         merge: (persistedState: any, currentState: GremlyState) => {
+          if (__DEV__)
+            console.log(
+              '[MMKV merge] onboardingCompletedAt from persisted:',
+              persistedState?.onboardingCompletedAt,
+            );
           if (!persistedState) return currentState;
           return {
             ...currentState,

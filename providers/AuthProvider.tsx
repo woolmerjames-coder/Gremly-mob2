@@ -67,9 +67,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           console.error('[AuthProvider] Failed to initialize store:', error);
         }
-      } else {
-        reset();
       }
+      // Don't reset() here — user is null during initial auth loading,
+      // and reset() would clobber MMKV-persisted state (onboardingCompletedAt, etc.).
+      // reset() is called explicitly on sign-out via onAuthStateChange instead.
     };
     initializeStore();
   }, [user?.id, initialize, reset]);

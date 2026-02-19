@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Image, StyleSheet, Dimensions } from 'react-native';
 import Animated, { SlideOutUp, Easing } from 'react-native-reanimated';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -118,8 +118,27 @@ export default function RootNavigator() {
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
   const isInitialized = useGremlyStore((s) => s.isInitialized);
 
+  // Wait for MMKV hydration so onboardingCompletedAt is available from persisted state
+  const [hasHydrated, setHasHydrated] = useState(useGremlyStore.persist.hasHydrated());
+
+  useEffect(() => {
+    if (hasHydrated) return;
+    const unsub = useGremlyStore.persist.onFinishHydration(() => {
+      setHasHydrated(true);
+    });
+    return unsub;
+  }, [hasHydrated]);
+
   // Recover any pending drops from previous session
   useDropRecovery();
+
+  if (__DEV__)
+    console.log(
+      '[RootNav] onboardingCompletedAt:',
+      onboardingCompletedAt,
+      'hasHydrated:',
+      hasHydrated,
+    );
 
   // Determine initial route based on onboarding status
   const initialRouteName = useMemo(() => {
@@ -127,8 +146,8 @@ export default function RootNavigator() {
     return 'Tabs';
   }, [onboardingCompletedAt]);
 
-  // Only block rendering if we have no cached user at all (first launch or logged out)
-  if (loading && !user) {
+  // Block rendering until MMKV hydration completes (near-instant) and we have auth state
+  if (!hasHydrated || (loading && !user)) {
     return <LoadingScreen />;
   }
 
