@@ -39,6 +39,14 @@ interface OrganizeButtonProps {
   onAnimationComplete?: () => void;
   /** Target date in YYYY-MM-DD format. Defaults to today. */
   targetDate?: string;
+  /** Whether the capacity gate is active */
+  isPrioritizing?: boolean;
+  /** IDs of tasks the user has selected when prioritizing */
+  selectedIds?: Set<string>;
+  /** IDs of tasks the user has locked when prioritizing */
+  lockedIds?: Set<string>;
+  /** True when remaining capacity is negative */
+  isOverCapacity?: boolean;
 }
 
 export function OrganizeButton({
@@ -47,6 +55,10 @@ export function OrganizeButton({
   onAnimationStart,
   onAnimationComplete,
   targetDate,
+  isPrioritizing,
+  selectedIds,
+  lockedIds,
+  isOverCapacity,
 }: OrganizeButtonProps) {
   const [phase, setPhase] = useState<OrganizePhase>('idle');
 
@@ -58,6 +70,7 @@ export function OrganizeButton({
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
   const applyOrganizeAssignments = useGremlyStore((s) => s.applyOrganizeAssignments);
+  const slotUnpositionedTasks = useGremlyStore((s) => s.slotUnpositionedTasks);
   const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
   const habitRolling7 = useGremlyStore(selectCompletionsInRolling7Days);
   const habitRolling30 = useGremlyStore(selectCompletionsInRolling30Days);
@@ -127,10 +140,14 @@ export function OrganizeButton({
     return todayTodos.length + activeHabits.length;
   }, [todos, habits, today]);
 
-  // Don't show if nothing to organize
-  if (unassignedCount === 0) {
+  // Don't show if nothing to organize (skip check when prioritizing — button shows disabled states)
+  if (unassignedCount === 0 && !isPrioritizing) {
     return null;
   }
+
+  // Disabled states when prioritizing
+  const isDisabled = isPrioritizing && (isOverCapacity || (selectedIds && selectedIds.size === 0));
+  const disabledText = isOverCapacity ? 'Park some items to continue' : 'Select some tasks first';
 
   const startProgressAnimation = () => {
     progressAnimRef.current.setValue(0);
@@ -165,14 +182,20 @@ export function OrganizeButton({
   };
 
   const handlePress = async () => {
-    if (phase !== 'idle') return;
+    if (phase !== 'idle' || isDisabled) return;
 
     startProgressAnimation();
 
     try {
+      // When prioritizing, only send selected tasks
+      const filteredTodos =
+        isPrioritizing && selectedIds ? todos.filter((t) => selectedIds.has(t.id)) : todos;
+      const filteredHabits =
+        isPrioritizing && selectedIds ? habits.filter((h) => selectedIds.has(h.id)) : habits;
+
       const request = buildOrganizeDayRequest({
-        todos,
-        habits,
+        todos: filteredTodos,
+        habits: filteredHabits,
         calendarEvents,
         capacity,
         today,
@@ -180,6 +203,7 @@ export function OrganizeButton({
         hiddenTodayIds,
         habitRolling7,
         habitRolling30,
+        lockedIds: isPrioritizing ? lockedIds : undefined,
       });
 
       console.log('[OrganizeButton] Sending request', {
@@ -215,6 +239,8 @@ export function OrganizeButton({
           if (response.assignments.length > 0) {
             applyOrganizeAssignments(response.assignments);
           }
+          // Slot any overflow/unpositioned tasks the AI missed
+          slotUnpositionedTasks();
 
           console.log('[OrganizeButton] Applied assignments', {
             assigned: response.assignments.length,
@@ -251,13 +277,30 @@ export function OrganizeButton({
             source={require('../../../../assets/buttonforHP.png')}
             style={[styles.buttonIcon, { transform: [{ scale: pulseAnimRef.current }] }]}
           />
-          <Text style={styles.text}>Organizing...</Text>
+          <Text style={styles.text}>Organizing your day...</Text>
         </View>
       </View>
     );
   }
 
+  // Disabled state when prioritizing and over capacity or no selection
+  if (isPrioritizing && isDisabled) {
+    return (
+      <View style={styles.disabledButton}>
+        <Text style={styles.disabledText}>{disabledText}</Text>
+      </View>
+    );
+  }
+
   // Default idle button
+  if (isPrioritizing) {
+    return (
+      <Pressable style={styles.button} onPress={handlePress} disabled={phase !== 'idle'}>
+        <Text style={styles.text}>{'✦ Organize my day'}</Text>
+      </Pressable>
+    );
+  }
+
   return (
     <Pressable style={styles.button} onPress={handlePress} disabled={phase !== 'idle'}>
       <Image source={require('../../../../assets/buttonforHP.png')} style={styles.buttonIcon} />
@@ -275,7 +318,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 16,
     borderRadius: 8,
-    marginHorizontal: 16,
+    marginHorizontal: 6,
     marginTop: 12,
     marginBottom: 8,
     gap: 8,
@@ -299,7 +342,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 16,
     borderRadius: 8,
-    marginHorizontal: 16,
+    marginHorizontal: 6,
     marginTop: 12,
     marginBottom: 8,
     overflow: 'hidden',
@@ -319,5 +362,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     zIndex: 1,
+  },
+  disabledButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(194,122,107,0.1)',
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginHorizontal: 6,
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  disabledText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#C27A6B',
   },
 });

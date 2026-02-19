@@ -7,8 +7,17 @@
 export { MorningBriefHeader } from './MorningBriefHeader';
 export { MorningBriefFooter } from './MorningBriefFooter';
 export { GremlySummary } from './GremlySummary';
-export { TaskItem, AnimatedTaskItem, type TaskItemData } from './TaskItem';
-export { TimeBlockPicker } from './TimeBlockPicker';
+export {
+  TaskItem,
+  AnimatedTaskItem,
+  type TaskItemData,
+  type TaskPrioritizationProps,
+} from './TaskItem';
+export {
+  TaskQuickActionSheet,
+  type TaskQuickActionSheetProps,
+  type GapSlot,
+} from './TaskQuickActionSheet';
 export { TimeBlockSection } from './TimeBlockSection';
 export { OnYourPlateSection } from './OnYourPlateSection';
 export { TodaysKeyDatesSection } from './TodaysKeyDatesSection';
@@ -18,3 +27,7 @@ export { OrganizeButton } from './OrganizeButton';
 export { GapRow } from './GapRow';
 export { SlottedTaskRow } from './SlottedTaskRow';
 export { GapSlotPicker } from './GapSlotPicker';
+export { CapacityBar } from './CapacityBar';
+export { CapacityRing } from './CapacityRing';
+export { ParkedForLaterSection } from './ParkedForLaterSection';
+export { GlanceTimelineBlock, GlanceOpenWindows } from './GlanceTimelineBlock';

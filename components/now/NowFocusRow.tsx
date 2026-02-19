@@ -24,19 +24,9 @@ import { useTokens } from '../../design/makeStyles';
 import { useReducedMotion } from '../../design/animations';
 import { triggerMedium } from '../../lib/haptics';
 import type { NowLockedItem, NowActiveItem, NowFutureItem } from '../../lib/now/nowTypes';
-import { Flame, RotateCcw, RefreshCw, Calendar } from 'lucide-react-native';
 import { computeHabitMetadata } from '../../lib/today/hooks/useHabitMetadata';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { BRAND } from '../../design/brand';
 import { getFrequencyLabel } from '../../lib/sweep/habitHelpers';
-
-// Icon map for habit metadata
-const MetadataIconMap = {
-  Flame,
-  RotateCcw,
-  RefreshCw,
-  Calendar,
-} as const;
 
 // Gremly face icon for completion messages
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -104,6 +94,7 @@ interface NowFocusRowProps {
   isCompleted?: boolean;
   isFuture?: boolean;
   isLocked?: boolean;
+  isLockedIn?: boolean;
   isFirst?: boolean;
   isLast?: boolean;
   isOneThing?: boolean;
@@ -131,6 +122,7 @@ export function NowFocusRow({
   isCompleted = false,
   isFuture = false,
   isLocked = false,
+  isLockedIn = false,
   isFirst = false,
   isLast: _isLast = false,
   isOneThing: _isOneThing = false,
@@ -149,10 +141,26 @@ export function NowFocusRow({
     timeBlock,
     'isLocked:',
     isLocked,
+    'isLockedIn:',
+    isLockedIn,
   );
 
   const tokens = useTokens();
   const reducedMotion = useReducedMotion();
+
+  // Sage mist card styles for locked-in items
+  const lockedStyles = isLockedIn
+    ? {
+        card: { backgroundColor: '#E8F0EB' } as const,
+        title: { color: '#2E5540' } as const,
+        meta: { color: 'rgba(46, 85, 64, 0.7)' } as const,
+        checkbox: { borderColor: 'rgba(46, 85, 64, 0.4)' } as const,
+        checkboxChecked: { backgroundColor: '#2E5540', borderColor: '#2E5540' } as const,
+        checkmark: { color: '#FFFFFF' } as const,
+        divider: { backgroundColor: 'rgba(46, 85, 64, 0.12)' } as const,
+        habitMeta: { color: 'rgba(46, 85, 64, 0.7)' } as const,
+      }
+    : null;
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   // Get the full habit from store to access frequency field
   const habits = useGremlyStore((s) => s.habits);
@@ -165,11 +173,29 @@ export function NowFocusRow({
   // Look up the full todo from the store to get time_estimate_minutes
   const fullTodo = item.type === 'todo' ? todos.find((t) => t.id === item.id) : null;
 
-  // Compute time estimate label for todos
-  const timeEstimateLabel = React.useMemo(() => {
-    if (item.type !== 'todo' || !fullTodo) return null;
-    return formatTimeEstimate(fullTodo.time_estimate_minutes);
-  }, [item.type, fullTodo]);
+  // Scheduled time and estimate for second-line display
+  const scheduledStartIso = fullTodo?.scheduled_start_iso || fullHabit?.scheduled_start_iso || null;
+  const timeEstimateMinutes =
+    fullTodo?.time_estimate_minutes || fullHabit?.time_estimate_minutes || null;
+
+  // Compute second-line text: scheduled time range or estimate
+  const secondLineText = React.useMemo(() => {
+    if (scheduledStartIso) {
+      const start = new Date(scheduledStartIso);
+      const durationMins = timeEstimateMinutes || 15;
+      const end = new Date(start.getTime() + durationMins * 60 * 1000);
+      const fmt = (d: Date) =>
+        d.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+        });
+      return `${fmt(start)} – ${fmt(end)}`;
+    }
+    if (timeEstimateMinutes) {
+      return `~${formatTimeEstimate(timeEstimateMinutes)}`;
+    }
+    return null;
+  }, [scheduledStartIso, timeEstimateMinutes]);
 
   // Compute frequency label using centralized helper from habitHelpers
   const frequencyLabel = React.useMemo(() => {
@@ -203,8 +229,6 @@ export function NowFocusRow({
       return null;
     }
   }, [item, habitProgress, fullHabit]);
-
-  const MetadataIcon = habitMetadata ? MetadataIconMap[habitMetadata.icon] : null;
 
   // Check if this is a flexible weekly habit (should be dimmed)
   const isFlexible =
@@ -429,68 +453,78 @@ export function NowFocusRow({
     <Animated.View
       style={[
         styles.rowWrapper,
+        isLockedIn && { backgroundColor: '#E8F0EB' },
         animationPhase === 'collapsing' ? { height: rowHeight.value, overflow: 'hidden' } : {},
       ]}
       onLayout={handleLayout}
     >
       {/* Completion message - revealed when card slides out */}
-      <Animated.View style={[styles.messageContainer, messageAnimatedStyle]}>
+      <Animated.View
+        style={[
+          styles.messageContainer,
+          isLockedIn && { backgroundColor: '#E8F0EB' },
+          messageAnimatedStyle,
+        ]}
+      >
         <Image source={GREMLY_FACE} style={styles.gremlyFace} resizeMode="contain" />
-        <Text style={styles.messageText}>{completionMessage}</Text>
+        <Text style={[styles.messageText, isLockedIn && { color: '#2E5540' }]}>
+          {completionMessage}
+        </Text>
       </Animated.View>
 
       {/* Main card */}
-      <Animated.View style={[styles.cardContainer, cardAnimatedStyle]}>
+      <Animated.View style={[styles.cardContainer, lockedStyles?.card, cardAnimatedStyle]}>
         {/* Divider line at top (not on first item) */}
-        {!isFirst && <View style={styles.divider} />}
+        {!isFirst && <View style={[styles.divider, lockedStyles?.divider]} />}
 
         <TouchableOpacity style={styles.rowContent} onPress={onPress} activeOpacity={0.7}>
-          {/* Left: Title only - gets maximum space */}
+          {/* Left: Title + optional second line */}
           <View style={styles.leftContent}>
             <Text
               numberOfLines={1}
               style={[
                 styles.title,
+                lockedStyles?.title,
                 (isFuture || isFlexible) && styles.titleDimmed,
                 showStrikethrough && styles.titleCompleted,
               ]}
             >
               {item.name}
             </Text>
+            {(secondLineText || isLockedIn) && (
+              <View style={styles.secondLineRow}>
+                {secondLineText && (
+                  <Text style={[styles.metaText, lockedStyles?.meta]} numberOfLines={1}>
+                    {secondLineText}
+                  </Text>
+                )}
+                {isLockedIn && (
+                  <View style={styles.lockedChip}>
+                    <Text style={styles.lockedChipText}>Locked in</Text>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
 
-          {/* Middle: Chips - positioned next to checkbox */}
+          {/* Middle: Habit metadata as plain text */}
           <View style={styles.chips}>
-            {/* Todo: time estimate chip - only show if estimate exists */}
-            {item.type === 'todo' && timeEstimateLabel && (
-              <View style={[styles.chip, styles.chipTodo]}>
-                <Text style={styles.chipText}>~{timeEstimateLabel}</Text>
-              </View>
-            )}
-
-            {/* Habit: frequency chip */}
+            {/* Habit: frequency label */}
             {item.type === 'habit' && frequencyLabel && (
-              <View style={[styles.chip, styles.chipHabit]}>
-                <Text style={styles.chipText}>{frequencyLabel}</Text>
-              </View>
+              <Text style={[styles.habitMeta, lockedStyles?.habitMeta]}>{frequencyLabel}</Text>
             )}
 
-            {/* Habit: progress chip (e.g., "5/7 this week") */}
+            {/* Habit: progress (e.g., "5/7 this week") */}
             {item.type === 'habit' && habitMetadata && habitMetadata.label && (
-              <View style={[styles.chip, styles.chipHabit]}>
-                {MetadataIcon && (
-                  <MetadataIcon
-                    size={11}
-                    color={habitMetadata.icon === 'Flame' ? '#D4A017' : '#666'}
-                    style={styles.chipIcon}
-                  />
-                )}
-                <Text
-                  style={[styles.chipText, habitMetadata.icon === 'Flame' && styles.chipTextStreak]}
-                >
-                  {habitMetadata.label}
-                </Text>
-              </View>
+              <Text
+                style={[
+                  styles.habitMeta,
+                  lockedStyles?.habitMeta,
+                  habitMetadata.icon === 'Flame' && !isLockedIn && styles.habitMetaStreak,
+                ]}
+              >
+                {habitMetadata.label}
+              </Text>
             )}
           </View>
 
@@ -503,11 +537,13 @@ export function NowFocusRow({
             <Animated.View
               style={[
                 styles.checkbox,
+                lockedStyles?.checkbox,
                 showChecked && styles.checkboxChecked,
+                showChecked && lockedStyles?.checkboxChecked,
                 checkboxAnimatedStyle,
               ]}
             >
-              {showChecked && <Text style={styles.checkmark}>✓</Text>}
+              {showChecked && <Text style={[styles.checkmark, lockedStyles?.checkmark]}>✓</Text>}
             </Animated.View>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -575,36 +611,40 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
     opacity: 0.5,
   },
+  metaText: {
+    fontSize: 12,
+    color: '#999999',
+    marginTop: 0,
+  },
+  secondLineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 0,
+  },
+  lockedChip: {
+    backgroundColor: 'rgba(46, 85, 64, 0.12)',
+    paddingHorizontal: 5,
+    paddingVertical: 0,
+    borderRadius: 3,
+    marginLeft: 6,
+  },
+  lockedChipText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#2E5540',
+    lineHeight: 14,
+  },
   chips: {
     flexDirection: 'row',
     gap: 6,
     marginLeft: 'auto',
   },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.05)', // Muted gray - informational, not attention-grabbing
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 3,
-    gap: 3,
-  },
-  chipTodo: {
-    // No override - use base muted style
-  },
-  chipHabit: {
-    // No override - use base muted style
-  },
-  chipIcon: {
-    marginRight: 2,
-  },
-  chipText: {
-    fontSize: 10,
+  habitMeta: {
+    fontSize: 11,
+    color: '#999999',
     fontWeight: '500',
-    color: '#555555', // Darker gray for better contrast
-    lineHeight: 12,
   },
-  chipTextStreak: {
+  habitMetaStreak: {
     color: '#D4A017',
   },
   checkboxTouchArea: {

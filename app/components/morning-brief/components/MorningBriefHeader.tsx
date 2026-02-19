@@ -33,9 +33,14 @@ const COLORS = {
 interface MorningBriefHeaderProps {
   /** Target date in YYYY-MM-DD format. When set, shows that date's info instead of today. */
   targetDate?: string;
+  /** Override available minutes with gap-based calculation from parent */
+  overrideAvailableMinutes?: number;
 }
 
-export function MorningBriefHeader({ targetDate }: MorningBriefHeaderProps) {
+export function MorningBriefHeader({
+  targetDate,
+  overrideAvailableMinutes,
+}: MorningBriefHeaderProps) {
   const isCustomDate = !!targetDate;
   const effectiveDate = targetDate ?? getDateService().getCurrentDate();
   const capacity = useCapacityForDate(effectiveDate);
@@ -58,7 +63,7 @@ export function MorningBriefHeader({ targetDate }: MorningBriefHeaderProps) {
 
   // Stats
   const eventCount = capacity.totalEventCount;
-  const availableTime = formatDuration(capacity.totalAvailableMinutes);
+  const availableTime = formatDuration(overrideAvailableMinutes ?? capacity.totalAvailableMinutes);
 
   return (
     <View style={styles.container}>

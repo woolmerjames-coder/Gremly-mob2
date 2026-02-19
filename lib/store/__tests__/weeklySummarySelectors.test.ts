@@ -144,24 +144,29 @@ describe('weekly summary selectors', () => {
       expect(selectPastSummaries(state)).toEqual([]);
     });
 
-    it('excludes current week from past summaries', () => {
+    it('returns all summaries including current week (alias for selectAllSummaries)', () => {
       const current = makeSummary({ week_start_date: '2025-12-15' });
       const past = makeSummary({ week_start_date: '2025-12-08' });
       const state = makeState({ weeklySummaries: [current, past] });
       const result = selectPastSummaries(state);
-      expect(result).toHaveLength(1);
-      expect(result[0].week_start_date).toBe('2025-12-08');
+      expect(result).toHaveLength(2);
+      // Sorted newest first
+      expect(result[0].week_start_date).toBe('2025-12-15');
+      expect(result[1].week_start_date).toBe('2025-12-08');
     });
 
-    it('returns all non-current summaries', () => {
+    it('returns all summaries sorted newest first', () => {
       const summaries = [
-        makeSummary({ week_start_date: '2025-12-15' }), // Current - excluded
+        makeSummary({ week_start_date: '2025-12-15' }),
         makeSummary({ week_start_date: '2025-12-08' }),
         makeSummary({ week_start_date: '2025-12-01' }),
         makeSummary({ week_start_date: '2025-11-24' }),
       ];
       const state = makeState({ weeklySummaries: summaries });
-      expect(selectPastSummaries(state)).toHaveLength(3);
+      const result = selectPastSummaries(state);
+      expect(result).toHaveLength(4);
+      expect(result[0].week_start_date).toBe('2025-12-15');
+      expect(result[3].week_start_date).toBe('2025-11-24');
     });
   });
 

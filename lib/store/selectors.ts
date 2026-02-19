@@ -63,6 +63,30 @@ const selectIsInitialized = (state: GremlyState) => state.isInitialized;
 const selectSpaceSuggestions = (state: GremlyState) => state.spaceSuggestions;
 const selectHiddenTodayIds = (state: GremlyState) => state.hiddenTodayIds;
 
+// Morning Brief capacity gate selectors
+const selectBriefSelectedIds = (state: GremlyState) => state.briefSelectedIds;
+const selectBriefLockedIds = (state: GremlyState) => state.briefLockedIds;
+const selectBriefSelectionDate = (state: GremlyState) => state.briefSelectionDate;
+
+/** Returns brief selections for a given date, with staleness check */
+export const selectBriefSelectionsForDate = (date: string) =>
+  createSelector(
+    [selectBriefSelectedIds, selectBriefLockedIds, selectBriefSelectionDate],
+    (
+      selectedIds,
+      lockedIds,
+      selectionDate,
+    ): {
+      selectedIds: Set<string>;
+      lockedIds: Set<string>;
+      isStale: boolean;
+    } => ({
+      selectedIds: new Set(selectedIds),
+      lockedIds: new Set(lockedIds),
+      isStale: selectionDate !== date,
+    }),
+  );
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // HABIT COMPLETION TRACKING
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2458,14 +2482,16 @@ export const selectCurrentWeekSummary = createSelector(
   },
 );
 
-/** Past summaries (all except current week), newest first */
-export const selectPastSummaries = createSelector(
+/** All summaries, newest first (includes current week) */
+export const selectAllSummaries = createSelector(
   [selectWeeklySummaries],
   (summaries): WeeklySummary[] => {
-    const monday = getMondayDayString();
-    return summaries.filter((s) => s.week_start_date !== monday);
+    return [...summaries].sort((a, b) => b.week_start_date.localeCompare(a.week_start_date));
   },
 );
+
+/** @deprecated Use selectAllSummaries — kept as alias for backward compatibility */
+export const selectPastSummaries = selectAllSummaries;
 
 /**
  * Should the weekly summary banner be shown?

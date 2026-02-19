@@ -151,9 +151,9 @@ describe('CalendarScreen', () => {
       expect(queryByText(/Nothing scheduled/i)).toBeTruthy();
     });
 
-    it('shows plant emoji in empty state', () => {
+    it('shows empty state subtext', () => {
       const { queryByText } = render(<CalendarScreen />);
-      expect(queryByText('🌿')).toBeTruthy();
+      expect(queryByText(/Enjoy the open day/i)).toBeTruthy();
     });
   });
 

@@ -21,10 +21,17 @@ const BOTTOM_CLEAR_ZONE = 220;
 
 interface FirstDropSpotlightProps {
   visible: boolean;
+  mode?: 'pre-drop' | 'post-drop';
   onDismiss: () => void;
+  onShowSweepDemo?: () => void;
 }
 
-export default function FirstDropSpotlight({ visible, onDismiss }: FirstDropSpotlightProps) {
+export default function FirstDropSpotlight({
+  visible,
+  mode = 'pre-drop',
+  onDismiss,
+  onShowSweepDemo,
+}: FirstDropSpotlightProps) {
   const insets = useSafeAreaInsets();
 
   if (!visible) return null;
@@ -39,17 +46,38 @@ export default function FirstDropSpotlight({ visible, onDismiss }: FirstDropSpot
       pointerEvents="box-none"
     >
       {/* Overlay covering top portion only */}
-      <Pressable style={[styles.overlay, { height: overlayHeight }]} onPress={onDismiss} />
+      <Pressable
+        style={[styles.overlay, { height: overlayHeight }]}
+        onPress={mode === 'pre-drop' ? onDismiss : undefined}
+      />
 
       {/* Gremly + Speech - positioned 1/3 down the screen */}
       <View style={[styles.contentContainer, { top: overlayHeight * 0.4 }]}>
         <Image source={GREMLY_MASCOT} style={styles.mascot} resizeMode="contain" />
         <View style={styles.speechBubble}>
-          <Text style={styles.speechText}>
-            Drop your first thought! Could be a task, a worry, a random idea, something to buy,
-            someone to call...
-          </Text>
-          <Text style={styles.hintText}>Tap anywhere or start typing</Text>
+          {mode === 'pre-drop' ? (
+            <>
+              <Text style={styles.speechText}>
+                Drop your first thought! A task, a worry, an idea, something you keep forgetting —
+                anything. I'll sort it out later.
+              </Text>
+              <Text style={styles.hintText}>Tap anywhere or start typing</Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.speechText}>
+                Nice! That's your first drop. Want me to show you how the Sweep works?
+              </Text>
+              <View style={styles.buttonRow}>
+                <Pressable style={styles.primaryButton} onPress={onShowSweepDemo}>
+                  <Text style={styles.primaryButtonText}>Show me</Text>
+                </Pressable>
+                <Pressable style={styles.secondaryLink} onPress={onDismiss}>
+                  <Text style={styles.secondaryLinkText}>Maybe later</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
         </View>
       </View>
     </Reanimated.View>
@@ -101,5 +129,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: BRAND.colors.inkMuted,
     marginTop: 8,
+  },
+  buttonRow: {
+    marginTop: 16,
+    gap: 4,
+  },
+  primaryButton: {
+    backgroundColor: BRAND.colors.mossGreen,
+    paddingVertical: 12,
+    borderRadius: BRAND.radius.md,
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 15,
+    color: '#FFFFFF',
+  },
+  secondaryLink: {
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  secondaryLinkText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
   },
 });

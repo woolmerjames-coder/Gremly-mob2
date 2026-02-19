@@ -118,6 +118,14 @@
  * - Save detection in responses (notes, checklists)
  * - Space promotion detection for complex tasks
  * - Streaming and non-streaming support
+ *
+ * v5.0 (2026-02-16):
+ * - UPGRADED: organize-day now uses Anthropic Sonnet 4.5 (was gpt-4o-mini)
+ * - NEW: Prompt caching on static scheduling rules for ~90% input cost savings
+ * - NEW: Expanded context support: userPatterns, spacePriorities, habitContext, recentCompletions
+ * - NEW: Daily usage limit (5/day per user via KV)
+ * - IMPROVED: ADHD-aware scheduling rules (quick wins, transition costs, streak protection)
+ * - IMPROVED: max_tokens 1200 → 4096 for larger task sets
  */
 
 import { getSessionContext } from './context/sessionContext.js';
@@ -1078,6 +1086,44 @@ Rules:
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
+ * Strip filler/compliment openings from AI responses.
+ * Runs on buffered first sentence before streaming to client.
+ * This is a lightweight output guard — catches patterns regardless of prompt wording.
+ */
+function stripFillerOpening(text) {
+  const fillerPatterns = [
+    // Compliment openers
+    /^that'?s a (?:great|really great|super|fantastic|wonderful|excellent) (?:question|task|idea|goal|focus|habit|start|one)[.!,]*\s*/i,
+    /^great (?:question|task|idea|goal|focus|habit|start|one)[.!,]*\s*/i,
+    /^good (?:question|thinking|one)[.!,]*\s*/i,
+    /^love (?:that|this|it)[.!,]*\s*/i,
+    /^what a great (?:question|idea|goal)[.!,]*\s*/i,
+    /^i love that you'?re (?:asking|thinking about|working on)[^.!]*[.!,]*\s*/i,
+    /^that'?s (?:really |so )?(?:smart|clever|thoughtful|interesting)[.!,]*\s*/i,
+    /^(?:oh |ah )?(?:what a |that's a )?(?:really |super )?great (?:question|one)[.!,]*\s*/i,
+    // Transitional filler openers
+    /^and it'?s (?:smart|wise|good|great|helpful) to [^.!]{0,60}[.!]\s*/i,
+    /^it'?s (?:smart|wise|good|great|a good idea|a great idea|helpful) to [^.!]{0,60}[.!]\s*/i,
+    /^it makes sense to [^.!]{0,60}[.!]\s*/i,
+    /^(?:that's|it's) (?:a )?(?:really )?(?:great|good|smart|important) (?:question|idea|goal|thing to think about|thing to consider)[.!,]*\s*/i,
+    /^you'?re (?:right|smart|wise) to (?:ask|think about|consider|want)[^.!]*[.!,]*\s*/i,
+    /^(?:absolutely|definitely)[.!,]+\s*/i,
+  ];
+
+  for (const pattern of fillerPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const stripped = text.slice(match[0].length);
+      if (stripped.length > 0) {
+        return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+      }
+      return stripped;
+    }
+  }
+  return text;
+}
+
+/**
  * Execute a web search using Tavily API
  *
  * @param {string} query - The search query
@@ -1088,7 +1134,7 @@ Rules:
  * @returns {Promise<Object|null>} Formatted search results or null on error
  */
 async function executeTavilySearch(query, apiKey, options = {}) {
-  const maxResults = options.maxResults ?? 5;
+  const maxResults = options.maxResults ?? 3;
   const searchDepth = options.searchDepth ?? 'basic';
   const includeImages = options.includeImages ?? false;
 
@@ -1103,7 +1149,7 @@ async function executeTavilySearch(query, apiKey, options = {}) {
         query: query,
         search_depth: searchDepth,
         max_results: maxResults,
-        include_answer: false,
+        include_answer: true,
         include_raw_content: false,
         include_images: includeImages,
       }),
@@ -1125,7 +1171,7 @@ async function executeTavilySearch(query, apiKey, options = {}) {
       index: index + 1,
       title: result.title || '',
       url: result.url || '',
-      snippet: (result.content || '').substring(0, 300),
+      snippet: (result.content || '').substring(0, 1000),
     }));
 
     // Get images if available (Tavily returns these separately)
@@ -1141,6 +1187,7 @@ async function executeTavilySearch(query, apiKey, options = {}) {
 
     return {
       query: query,
+      answer: data.answer || null,
       results: results,
       images: images,
     };
@@ -1148,6 +1195,42 @@ async function executeTavilySearch(query, apiKey, options = {}) {
     console.error('[Tavily] Search error:', error);
     return null;
   }
+}
+
+/**
+ * Format Tavily search results into a readable brief for the LLM.
+ * Instead of raw JSON, gives the model a structured brief that's
+ * easy to cite from — the approach used by Perplexity/ChatGPT Browse.
+ */
+function formatSearchBrief(tavilyResult) {
+  if (!tavilyResult || !tavilyResult.results) return JSON.stringify(tavilyResult);
+
+  let brief = '';
+
+  // Lead with the synthesized answer if available
+  if (tavilyResult.answer) {
+    brief += `SYNTHESIZED ANSWER: ${tavilyResult.answer}\n\n`;
+  }
+
+  brief += 'SOURCES:\n\n';
+
+  for (const result of tavilyResult.results) {
+    // Extract domain name for easy citation
+    let domain = '';
+    try {
+      domain = new URL(result.url).hostname.replace('www.', '');
+    } catch {
+      domain = result.url;
+    }
+
+    brief += `[${result.title}] (${domain})\n`;
+    brief += `${result.snippet}\n\n`;
+  }
+
+  brief +=
+    'INSTRUCTIONS: Use the specific findings, statistics, and expert names from these sources in your response. Cite sources by name (e.g. "according to Headspace" or "a study cited by Withinmeditation found"). Do not give generic advice — only share what these sources specifically say.';
+
+  return brief;
 }
 
 /**
@@ -1334,15 +1417,18 @@ function extractUrlsFromText(text) {
 // OPENAI FUNCTION TOOL DEFINITIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const GEMINI_CHAT_MODEL = 'gemini-2.5-flash';
+
 const WEB_SEARCH_TOOL = {
   type: 'function',
   function: {
     name: 'web_search',
     description: `Search the web for current, factual information. The current date is ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.
 
-IMPORTANT: When searching for events, deadlines, or time-sensitive information, ALWAYS include the relevant year (2026) in your search query to get current results.
+DEFAULT TO SEARCHING. If there is ANY chance that current, specific information would improve your answer, search first. The cost of an unnecessary search is near zero. The cost of giving generic advice when specific information exists is high.
 
-USE this tool when:
+ALWAYS search for:
 - Health, fitness, supplements, medications, medical information
 - Product recommendations or comparisons
 - How-to guides, tutorials, best practices
@@ -1353,8 +1439,9 @@ USE this tool when:
 - Technology, apps, tools, software recommendations
 - Upcoming events, races, conferences, deadlines
 - Any topic where up-to-date external sources would improve the answer
+- ANY question where you're about to write "you might want to", "consider looking into", "some people find", or "it depends on" — search instead of hedging
 
-DO NOT use for:
+DO NOT search for:
 - Questions about the user's own tasks, habits, notes, or personal data
 - Emotional support or reflection conversations
 - Simple factual questions you can confidently answer (math, definitions, historical facts)
@@ -2123,6 +2210,11 @@ Help this person shape a habit through real conversation. You need to understand
 
 These should emerge naturally, not get collected like form fields.
 
+WRONG opening: "That's a great focus! Let's shape that into something concrete."
+RIGHT opening: "So a daily run — are you thinking mornings, or whenever you can fit it in?"
+
+Jump straight into the conversation. Never compliment their idea first.
+
 === READING THE ROOM ===
 Before responding, identify what mode the user is in:
 
@@ -2154,6 +2246,15 @@ RIGHT: [Search "ADHD habit stacking morning routine", then give specific finding
 
 WRONG: "You might want to look into habit stacking"
 RIGHT: [Search, then] "Research shows pairing a new habit with an existing routine — like right after brushing your teeth — makes it 2-3x more likely to stick for people with ADHD."
+
+NEVER SEARCH — just respond directly:
+- Simple answers: dates ("Next Monday"), frequencies ("3 times a week"), confirmations ("yes", "lock it in")
+- Emotional support: "I feel bad about this", "I keep failing"
+- Opinion/preference: "what do you think", "which is better for me"
+- Clarifications: "actually I meant...", "no, more like..."
+- Anything where the user is giving YOU information, not asking for it
+
+SOURCE QUALITY: When you get search results, prefer authoritative sources — research journals, established fitness/health organizations, recognized expert sites. Ignore results from social media (Facebook, Reddit, TikTok), generic lifestyle blogs, and low-quality aggregators. If the only sources are low-quality, use your own knowledge instead and don't cite them.
 
 Never give generic advice when you could search and give specific, evidence-based advice. This is what makes you more useful than a basic chatbot.
 
@@ -2196,6 +2297,18 @@ Frame as a choice: "Gremly has [feature] — you could [action]. Or [alternative
 SUGGEST when the habit overlaps with a Gremly feature. It's more achievable because the tool is already in their pocket.
 DON'T FORCE when the habit is external (running, reading, cooking, etc.). Build it cleanly. You CAN mention complementary features as a bonus — e.g., "use Mind Drop after each run to log how it felt" — but keep focus on the habit they came to build.
 
+=== CONVERSATION MEMORY ===
+Every response you send must reflect EVERYTHING the user has shared so far in the conversation — their experience level, goals, constraints, preferences, context, and motivation. Re-read the full message history before each response.
+
+If a user said they're experienced, don't give beginner advice later.
+If they mentioned a specific goal, reference it in your suggestions.
+If they shared constraints (time, injuries, other activities), factor them into every recommendation.
+
+This is especially critical for tips after lock-in. The tips phase is NOT a fresh start — it's a continuation. A user who shared 5 messages of context should get tips that reflect all 5 messages, not generic starter advice.
+
+WRONG: User says "intermediate runner, training for sub-1:45 half" → tips suggest "start with 15-minute jogs"
+RIGHT: User says "intermediate runner, training for sub-1:45 half" → tips reference their race goal, training balance, and experience level
+
 === HOW TO HAVE THE CONVERSATION ===
 
 **Understand the person, then move.**
@@ -2221,13 +2334,15 @@ If they share something personal, engage with it briefly — then steer back to 
 - Match their energy — if they're brief, be brief back
 - Use em-dashes, not semicolons
 - When asking a question with options, give 2-3 options max, not 4+
-- Never start with a compliment ("Love it", "Great focus", "That's relatable"). Just respond.
+- NEVER start with a compliment, affirmation, or transitional filler. This is critical.
+  WRONG: "Nice!", "Love it!", "That's a great habit!", "That's relatable.", "And that makes sense."
+  RIGHT: Jump straight to content — a question, a suggestion, or a reflection on what they said.
 
 === WHAT NOT TO DO ===
 - Never give health or medical advice
 - Never guilt or pressure ("You should really...")
 - Never ask multiple questions in one message
-- Never say "That's a great focus/goal/choice" — just respond naturally
+- Never open with affirmations or filler: "That's a great focus", "Nice—", "Love that", "That makes sense", "And that's totally valid". These waste the user's screen space. Jump to content.
 - Never reference app features (Mind Drop, Evening Sweep, Spaces)
 - Never suggest "tracking streaks" (against product philosophy)
 - Never give generic meta-advice when you could search and answer
@@ -2248,10 +2363,14 @@ When the user confirms (sends "Lock it in" or similar), respond in TWO parts:
 That's it. Don't generate tips yet. Wait for them to say yes.
 
 === IF THEY WANT TIPS ===
-If the user says yes, generate a **personalized habit kit**:
+If the user says yes, generate a **personalized habit kit**.
+
+CRITICAL: Re-read the ENTIRE conversation before generating tips. Your tips must reflect everything the user told you — their experience level, goals, constraints, schedule, and motivation. Generic tips are a failure state. If the user gave you rich context, your tips should be impossible to generate without that context.
+
+Rules:
 - **2-3 tips max**, each 1-2 sentences
-- Habit stacking, first-day plan, ADHD-friendly friction reduction, or realistic obstacle handling — pick the 2-3 most relevant, not all of them
-- Use **web_search** if real research would help
+- Pick the 2-3 most relevant from: habit stacking, first-day plan, ADHD-friendly friction reduction, realistic obstacle handling, or something specific to THEIR situation
+- Use **web_search** if real research would help — but tailor the search query to their specific context, not generic terms
 - Format with **bold** label + short sentence. Total under 100 words.
 
 Do NOT mention saving — the app shows a save button automatically.
@@ -2342,26 +2461,27 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
         if (isHabitBuilderStreaming) {
           console.log('[HabitBuilder:Streaming] Starting SSE stream');
 
-          const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          const openaiRes = await fetch(GEMINI_BASE_URL, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${key}`,
+              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1',
+              model: GEMINI_CHAT_MODEL,
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: 800,
+              max_tokens: 800,
               stream: true,
               tools: [WEB_SEARCH_TOOL],
               tool_choice: 'auto',
+              reasoning_effort: 'none',
             }),
           });
 
           if (!openaiRes.ok) {
             const errText = await openaiRes.text().catch(() => '');
-            console.log('[HabitBuilder:Streaming] OpenAI error', {
+            console.log('[HabitBuilder:Streaming] Gemini error', {
               status: openaiRes.status,
               error: errText,
             });
@@ -2385,6 +2505,10 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
             // Track tool call accumulation
             let toolCalls = [];
 
+            // Output guard: buffer first sentence to strip filler openings
+            let fillerBuffer = '';
+            let fillerFlushed = false;
+
             try {
               // eslint-disable-next-line no-constant-condition
               while (true) {
@@ -2406,8 +2530,24 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
 
                     if (delta) {
                       fullContent += delta;
-                      const sseData = JSON.stringify({ delta, done: false });
-                      await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                      if (!fillerFlushed) {
+                        fillerBuffer += delta;
+                        const hasBreak = /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
+                        if (hasBreak) {
+                          const cleaned = stripFillerOpening(fillerBuffer);
+                          if (cleaned) {
+                            await writer.write(
+                              encoder.encode(
+                                `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                              ),
+                            );
+                          }
+                          fillerFlushed = true;
+                        }
+                      } else {
+                        const sseData = JSON.stringify({ delta, done: false });
+                        await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                      }
                     }
 
                     // Accumulate tool calls
@@ -2430,6 +2570,17 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                   }
                 }
               }
+
+              // Flush any remaining filler buffer
+              if (!fillerFlushed && fillerBuffer) {
+                const cleaned = stripFillerOpening(fillerBuffer);
+                if (cleaned) {
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                  );
+                }
+              }
+              fullContent = stripFillerOpening(fullContent);
 
               // ── Handle web search tool calls ──
               const webSearchCalls = toolCalls.filter(
@@ -2496,7 +2647,7 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                   const toolResultMessages = successfulSearches.map((sr) => ({
                     role: 'tool',
                     tool_call_id: sr.toolCallId,
-                    content: JSON.stringify(sr.results),
+                    content: formatSearchBrief(sr.results),
                   }));
 
                   const followUpMessages = [
@@ -2506,24 +2657,28 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                   ];
 
                   // Second streaming call with search results
-                  const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                  const followUpRes = await fetch(GEMINI_BASE_URL, {
                     method: 'POST',
                     headers: {
-                      Authorization: `Bearer ${key}`,
+                      Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                       'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                      model: 'gpt-4.1',
+                      model: GEMINI_CHAT_MODEL,
                       messages: followUpMessages,
                       temperature: 0.7,
-                      max_completion_tokens: 800,
+                      max_tokens: 800,
                       stream: true,
+                      reasoning_effort: 'low',
                     }),
                   });
 
                   // Stream the follow-up response
                   const followUpReader = followUpRes.body.getReader();
                   let followUpBuffer = '';
+
+                  let followUpFillerBuffer = '';
+                  let followUpFillerFlushed = false;
 
                   // eslint-disable-next-line no-constant-condition
                   while (true) {
@@ -2545,15 +2700,46 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                         const delta = json.choices?.[0]?.delta?.content;
                         if (delta) {
                           fullContent += delta;
-                          await writer.write(
-                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                          );
+                          if (!followUpFillerFlushed) {
+                            followUpFillerBuffer += delta;
+                            const hasBreak =
+                              /[.?!]\s/.test(followUpFillerBuffer) ||
+                              followUpFillerBuffer.length > 150;
+                            if (hasBreak) {
+                              const cleaned = stripFillerOpening(followUpFillerBuffer);
+                              if (cleaned) {
+                                await writer.write(
+                                  encoder.encode(
+                                    `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                  ),
+                                );
+                              }
+                              followUpFillerFlushed = true;
+                            }
+                          } else {
+                            await writer.write(
+                              encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                            );
+                          }
                         }
                       } catch {
                         // skip
                       }
                     }
                   }
+
+                  // Flush remaining follow-up filler buffer
+                  if (!followUpFillerFlushed && followUpFillerBuffer) {
+                    const cleaned = stripFillerOpening(followUpFillerBuffer);
+                    if (cleaned) {
+                      await writer.write(
+                        encoder.encode(
+                          `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                        ),
+                      );
+                    }
+                  }
+                  fullContent = stripFillerOpening(fullContent);
 
                   console.log('[HabitBuilder:Streaming] Search complete', {
                     searchCount: successfulSearches.length,
@@ -2613,17 +2799,18 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
 
         // ── NON-STREAMING FALLBACK ──
         try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          const res = await fetch(GEMINI_BASE_URL, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${key}`,
+              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1',
+              model: GEMINI_CHAT_MODEL,
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: 400,
+              max_tokens: 400,
+              reasoning_effort: 'none',
             }),
           });
 
@@ -2638,7 +2825,8 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
             );
           }
 
-          const content = oj?.choices?.[0]?.message?.content ?? '';
+          let content = oj?.choices?.[0]?.message?.content ?? '';
+          content = stripFillerOpening(content);
 
           // Extraction call with full conversation
           const fullConversation = [...messages, { role: 'assistant', content }];
@@ -2709,6 +2897,35 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
           entityContextParts.push(`Additional notes: "${entity.notes.substring(0, 300)}"`);
         if (entity.is_favorite) entityContextParts.push(`Marked as favorite`);
 
+        // Habit completion stats
+        if (entity.habitStats) {
+          const hs = entity.habitStats;
+          entityContextParts.push(`\n--- Habit Progress ---`);
+          entityContextParts.push(
+            `Completions last 7 days: ${hs.completionsLast7Days} of ${hs.targetPerWeek} target`,
+          );
+          entityContextParts.push(
+            `Completion rate (7-day): ${Math.round(hs.completionRate7Day * 100)}%`,
+          );
+          if (hs.completionsLast14Days !== undefined) {
+            entityContextParts.push(`Completions last 14 days: ${hs.completionsLast14Days}`);
+          }
+          if (hs.currentStreak > 0) {
+            entityContextParts.push(`Current streak: ${hs.currentStreak} days`);
+          }
+          if (hs.daysSinceLastCompletion !== null && hs.daysSinceLastCompletion !== undefined) {
+            if (hs.daysSinceLastCompletion === 0) entityContextParts.push(`Last completed: today`);
+            else if (hs.daysSinceLastCompletion === 1)
+              entityContextParts.push(`Last completed: yesterday`);
+            else entityContextParts.push(`Last completed: ${hs.daysSinceLastCompletion} days ago`);
+          } else {
+            entityContextParts.push(`Never completed yet`);
+          }
+          entityContextParts.push(
+            `Use this data to personalize your response — acknowledge consistency ("you've been crushing it"), identify gaps ("it's been a few days"), or calibrate advice accordingly. Never shame gaps.`,
+          );
+        }
+
         const entityContext = entityContextParts.join('\n');
 
         // Build sweep context if present
@@ -2726,6 +2943,55 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
           if (sweepContext.is_overdue) sweepParts.push(`This item is overdue.`);
           if (sweepParts.length > 0) {
             sweepContextStr = `\n\n=== SWEEP CONTEXT ===\n${sweepParts.join('\n')}`;
+          }
+        }
+
+        // Build sibling context if present
+        let siblingContextStr = '';
+        if (body.siblingContext) {
+          const sc = body.siblingContext;
+
+          if (sc.sameSpace && sc.sameSpace.length > 0) {
+            siblingContextStr += `\n\n=== OTHER ITEMS IN THIS SPACE ===\n`;
+            siblingContextStr += sc.sameSpace
+              .map((item) => {
+                let line = `- ${item.type}: "${item.title}"`;
+                if (item.frequency) line += ` (${item.frequency})`;
+                if (item.last_completed_at) {
+                  const daysAgo = Math.floor(
+                    (Date.now() - new Date(item.last_completed_at).getTime()) / 86400000,
+                  );
+                  line +=
+                    daysAgo === 0
+                      ? ' — done today'
+                      : daysAgo === 1
+                        ? ' — done yesterday'
+                        : ` — last done ${daysAgo}d ago`;
+                }
+                return line;
+              })
+              .join('\n');
+            siblingContextStr += `\nWhen giving advice, reference these sibling items by name. For habit stacking, suggest pairing with a sibling habit they already do consistently rather than generic examples like "brushing your teeth".\n`;
+          }
+
+          if (sc.otherHabits && sc.otherHabits.length > 0) {
+            siblingContextStr += `\n=== USER'S OTHER ACTIVE HABITS ===\n`;
+            siblingContextStr += sc.otherHabits
+              .map((h) => {
+                let line = `- "${h.title}" (${h.frequency})`;
+                if (h.completionsLast7Days !== undefined)
+                  line += ` — ${h.completionsLast7Days}/7 days last week`;
+                if (h.time_window && h.time_window !== 'any') line += ` — prefers ${h.time_window}`;
+                return line;
+              })
+              .join('\n');
+            siblingContextStr += `\nReference these when relevant. If the user is consistent with another habit, suggest stacking. If they struggle with multiple habits, acknowledge the load.\n`;
+          }
+
+          if (sc.recentCompletions && sc.recentCompletions.length > 0) {
+            siblingContextStr += `\n=== RECENTLY COMPLETED TASKS ===\n`;
+            siblingContextStr += sc.recentCompletions.map((t) => `- "${t.title}"`).join('\n');
+            siblingContextStr += `\nThe user has momentum. Reference these for confidence when appropriate — "you knocked out X recently, this is smaller than that."\n`;
           }
         }
 
@@ -2761,6 +3027,13 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
           month: 'long',
           day: 'numeric',
         });
+
+        // Time of day for contextual suggestions
+        const clientTime = body.currentTime ? new Date(body.currentTime) : new Date();
+        const clientHour = clientTime.getHours();
+        const timeOfDay = clientHour < 12 ? 'morning' : clientHour < 17 ? 'afternoon' : 'evening';
+        const timeStr = `${clientHour}:${String(clientTime.getMinutes()).padStart(2, '0')}`;
+
         const entityChatSystemPrompt = `You are Gremly—an AI-powered thinking partner helping someone work through a specific item in their productivity app.
 
 === WHO YOU ARE ===
@@ -2783,42 +3056,6 @@ For sensitive topics (someone feeling down, mental health, medical questions):
 - Be warm and curious: "That sounds really hard. Want to talk about what's going on?"
 - Only suggest professional help if they ask, or if it's clearly affecting their life.
 
-=== CURRENT DATE ===
-Today is ${currentDate}. Use this for any time-relative queries.
-
-=== THE ITEM YOU'RE HELPING WITH ===
-${entityContext}${sweepContextStr}${presetInstruction}
-
-=== GREMLY PRODUCT PHILOSOPHY ===
-These principles shape your advice:
-- **No shame-based tracking**: We use rolling windows, not streaks. Never suggest "tracking streaks" or guilt someone about gaps.
-- **ADHD-friendly by design**: Small actions beat big plans. Lower friction, not higher expectations.
-- **Capture first, organize later**: Mind Drop exists so thoughts don't get lost. Don't add complexity.
-- **Meet people where they are**: Not everyone wants a system. Some just want to get one thing done.
-
-=== READING THE ROOM ===
-
-Before responding, identify what mode the user is in:
-
-**EMOTIONAL** — grief, frustration, overwhelm, anxiety
-- Signals: "since [person] died", "disaster", "mess", "can't face", "been putting off for months"
-- Response: Acknowledge the feeling first. One sentence of warmth before any practical suggestion. Don't rush to fix.
-
-**EXPLORATORY** — uncertain, thinking out loud, not ready for action
-- Signals: "I think...", "maybe...", "not sure...", "I want to but...", "help me think through"
-- Response: Ask a question. Help them clarify. Don't create checklists or action plans.
-
-**RESEARCH-NEEDED** — wants information, not a framework
-- Signals: travel planning, gift ideas, "what should I know", "what should I look for", "what should I consider", "help me find", product recommendations, comparisons, health questions, "how do I", any task where real-world information would help
-- Response: SEARCH IMMEDIATELY. Do not give generic frameworks or criteria lists — search and give specific answers with the reasoning embedded. "What should I look for in X" means "find me good options and tell me why they're good."
-
-WRONG: "When buying an air purifier, consider these factors: Room size, CADR ratings..."
-RIGHT: [Search, then] "The Coway Airmega and Levoit Core 400S are top-rated for bedrooms because they're quiet and have strong HEPA filtration."
-
-**ACTION-READY** — clear task, just needs help executing
-- Signals: "break this down", "what are the steps", "how do I do this"
-- Response: Give clear, specific steps. Offer to save as checklist.
-
 === CRITICAL: SEARCH BEHAVIOR ===
 
 You have web search. Use it PROACTIVELY for:
@@ -2833,8 +3070,97 @@ RIGHT: [Search immediately, return actual weather data and specific hotel names]
 
 Never give meta-advice. If you could answer better by searching, search.
 
+RULE: If you find yourself about to write a sentence containing "you might want to", "consider looking into", "some people find", or "it depends on" — STOP and search instead. Never give generic advice when you could search and give a specific, evidence-based answer.
+
+=== WHEN TO SEARCH vs NOT SEARCH ===
+
+ALWAYS SEARCH:
+- "based on research", "what does the science say", "best way to"
+- Product recommendations, comparisons, "what should I buy/use"
+- Travel planning, event planning, gift ideas
+- Health, fitness, nutrition, medical questions
+- Any question where specific data or current info beats generic advice
+
+NEVER SEARCH — just respond directly:
+- "help me break this down" — use the entity context, create steps
+- Emotional support — "I feel bad", "I keep avoiding this", "I'm overwhelmed"
+- "what do you think" — they want your perspective, not web results
+- Simple planning — "what order should I do these in"
+- Motivation — "I don't feel like doing this today"
+- Follow-up on previous advice — "tell me more about that"
+
+When you receive search results, DO NOT just restate common knowledge that anyone could find. Lead with the most specific, surprising, or data-backed finding from the results. If a source mentions a specific study, statistic, percentage, or expert name — use it. "Research suggests" is lazy. "A 2023 study in the British Journal of Health Psychology found that..." is what makes search valuable.
+
+=== CURRENT DATE & TIME ===
+Today is ${currentDate}. It's currently ${timeOfDay} (${timeStr}). If suggesting the user do something now, consider the time — don't suggest starting a workout at 11pm or a morning routine in the evening.
+
+=== THE ITEM YOU'RE HELPING WITH ===
+${entityContext}${sweepContextStr}${siblingContextStr}${presetInstruction}
+
+=== GREMLY PRODUCT PHILOSOPHY ===
+These principles shape your advice:
+- **No shame-based tracking**: We use rolling windows, not streaks. Never suggest "tracking streaks" or guilt someone about gaps.
+- **ADHD-friendly by design**: Small actions beat big plans. Lower friction, not higher expectations.
+- **Capture first, organize later**: Mind Drop exists so thoughts don't get lost. Don't add complexity.
+- **Meet people where they are**: Not everyone wants a system. Some just want to get one thing done.
+
+=== CONVERSATION CONTINUITY ===
+If the message history shows previous conversations with this user about 
+this item, build on what was discussed. Examples:
+- "Last time we talked about [strategy] — how's that been going?"
+- "You mentioned [concern] before — has anything changed?"
+- "Building on what we discussed — here's a next step."
+Don't repeat previous advice verbatim. Evolve it.
+If this is the first message (empty history), skip this entirely.
+
+=== READING THE ROOM ===
+
+Before responding, identify what mode the user is in:
+
+**EMOTIONAL** — grief, frustration, overwhelm, anxiety
+- Signals: "since [person] died", "disaster", "mess", "can't face", "been putting off for months"
+- Acknowledge the feeling first. One sentence of warmth + one question max. 20-50 words. Don't rush to fix.
+
+**EXPLORATORY** — uncertain, thinking out loud, not ready for action
+- Signals: "I think...", "maybe...", "not sure...", "I want to but...", "help me think through"
+- Ask a question. Help them clarify. Don't create checklists or action plans. 30-60 words.
+
+**RESEARCH-NEEDED** — wants information, not a framework
+- Signals: travel planning, gift ideas, "what should I know", comparisons, health questions, "how do I", "based on research", any task where real-world information would help
+- SEARCH IMMEDIATELY using web_search. Do not write a single word of response before searching. When you get results back, lead with the most specific finding — a study name, a statistic, a concrete recommendation. 80-150 words.
+
+**ACTION-READY** — clear task, just needs help executing
+- Signals: "break this down", "what are the steps", "how do I do this"
+- Give clear, specific steps. Don't ask permission — just do it. 40-120 words. Bullets for 3+ steps.
+
+=== EXAMPLE EXCHANGES ===
+
+These show exactly how Gremly responds. Match this voice.
+
+User asks about sticking with a habit (RESEARCH-NEEDED):
+[Search first, then respond:]
+"Habit stacking has the strongest evidence — a UCL study found linking a new habit to an existing routine makes it about 2x more likely to stick after 30 days. Since yours is daily, try anchoring it right after something you already do every morning, like brushing your teeth. The first two weeks are the hardest — after that it gets much easier."
+
+User asks to break down a task (ACTION-READY):
+"Here's how I'd break this down:
+- **Pick your launch date** and work backwards
+- **List the non-negotiables** — what absolutely must ship vs nice-to-have
+- **Set weekly milestones** — one deliverable per week keeps momentum
+Want me to save this as a checklist?"
+
+User shares they keep avoiding something (EMOTIONAL):
+"That avoidance feeling is heavy — and totally normal when something keeps sitting there. What's making this one feel hard to start right now?"
+
+User asks for best time of day (RESEARCH-NEEDED):
+[Search first, then respond:]
+"Morning tends to win for meditation — a 2022 study in Frontiers in Psychology found morning meditators had 35% higher consistency over 8 weeks compared to evening. Your body's cortisol is naturally higher in the morning, which actually helps with focus during meditation."
+
+User asks a vague question (EXPLORATORY):
+"What's pulling you toward this right now — is there something specific you're trying to solve, or more of a general feeling?"
+
 === TONE & FORMAT ===
-- Brief: 40-100 words typical (mobile UI)
+- Length varies by mode (see above) — emotional is shortest, research is longest
+- This is a MOBILE UI — every word must earn its place
 - One **bold** phrase per response max
 - Bullets only for 3+ items, max 4 bullets
 - No headers (#), no tables, no code blocks
@@ -2857,7 +3183,6 @@ Almost never suggest creating a Space. Only if ALL true:
 === NEVER DO ===
 - Suggest "tracking streaks" (against product philosophy)
 - Give meta-advice like "research X" when you could search and answer
-- Use exclamation marks
 - Lecture or be preachy
 - Ask multiple questions in one response
 - Ignore emotional signals to jump straight to logistics
@@ -3011,25 +3336,18 @@ Almost never suggest creating a Space. Only if ALL true:
             );
           }
 
-          const routing = getModelAndTokens({
-            preset,
-            userMessage: lastUserMsg,
-            messageCount: messages.length,
-            entityType: entity?.type,
-          });
-          console.log('[EntityChat:Streaming] Model routing:', routing);
-
-          const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          const openaiRes = await fetch(GEMINI_BASE_URL, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${key}`,
+              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: routing.model,
+              model: GEMINI_CHAT_MODEL,
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: routing.maxTokens,
+              max_tokens: 800,
+              reasoning_effort: 'none',
               stream: true,
               tools: [WEB_SEARCH_TOOL],
               tool_choice: 'auto',
@@ -3053,6 +3371,10 @@ Almost never suggest creating a Space. Only if ALL true:
             let buffer = '';
             let fullContent = '';
             let searchImages = [];
+
+            // Output guard: buffer first sentence to strip filler openings
+            let fillerBuffer = '';
+            let fillerFlushed = false;
 
             // Track tool call accumulation - support multiple tool calls
             let toolCalls = []; // Array of { id, name, arguments }
@@ -3081,8 +3403,27 @@ Almost never suggest creating a Space. Only if ALL true:
                       fullContent += delta;
                       // Don't stream SAVE comments to client
                       if (!fullContent.includes('<!--SAVE:')) {
-                        const sseData = JSON.stringify({ delta, done: false });
-                        await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                        if (!fillerFlushed) {
+                          // Buffer first sentence for filler stripping
+                          fillerBuffer += delta;
+                          // Flush once we have a sentence boundary or enough content
+                          const hasBreak =
+                            /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
+                          if (hasBreak) {
+                            const cleaned = stripFillerOpening(fillerBuffer);
+                            if (cleaned) {
+                              await writer.write(
+                                encoder.encode(
+                                  `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                ),
+                              );
+                            }
+                            fillerFlushed = true;
+                          }
+                        } else {
+                          const sseData = JSON.stringify({ delta, done: false });
+                          await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                        }
                       }
                     }
 
@@ -3111,6 +3452,19 @@ Almost never suggest creating a Space. Only if ALL true:
                   }
                 }
               }
+
+              // Flush any remaining filler buffer from main stream
+              if (!fillerFlushed && fillerBuffer) {
+                const cleaned = stripFillerOpening(fillerBuffer);
+                if (cleaned) {
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                  );
+                }
+              }
+
+              // Clean fullContent to match what was streamed
+              fullContent = stripFillerOpening(fullContent);
 
               // Track search metadata
               let sources = undefined;
@@ -3214,7 +3568,7 @@ Almost never suggest creating a Space. Only if ALL true:
                   const toolResultMessages = successfulSearches.map((sr) => ({
                     role: 'tool',
                     tool_call_id: sr.toolCallId,
-                    content: JSON.stringify(sr.results),
+                    content: formatSearchBrief(sr.results),
                   }));
 
                   const followUpMessages = [
@@ -3228,17 +3582,24 @@ Almost never suggest creating a Space. Only if ALL true:
                   ];
 
                   // Second API call for final response - with real streaming
-                  const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                  // Tell client to discard any pre-search text that was already streamed
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ reset: true, done: false })}\n\n`),
+                  );
+                  fullContent = '';
+
+                  const followUpRes = await fetch(GEMINI_BASE_URL, {
                     method: 'POST',
                     headers: {
-                      Authorization: `Bearer ${key}`,
+                      Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                       'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                      model: 'gpt-4.1',
+                      model: GEMINI_CHAT_MODEL,
                       messages: followUpMessages,
                       temperature: 0.7,
-                      max_completion_tokens: 800,
+                      max_tokens: 800,
+                      reasoning_effort: 'low',
                       stream: true,
                     }),
                   });
@@ -3248,6 +3609,10 @@ Almost never suggest creating a Space. Only if ALL true:
                   const followUpDecoder = new TextDecoder();
                   let followUpBuffer = '';
                   let readerDone = false;
+
+                  // Output guard: buffer first sentence to strip filler openings
+                  let followUpFillerBuffer = '';
+                  let followUpFillerFlushed = false;
 
                   while (!readerDone) {
                     const result = await followUpReader.read();
@@ -3273,9 +3638,27 @@ Almost never suggest creating a Space. Only if ALL true:
                         const delta = json.choices?.[0]?.delta?.content;
                         if (delta) {
                           fullContent += delta;
-                          await writer.write(
-                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                          );
+                          if (!followUpFillerFlushed) {
+                            followUpFillerBuffer += delta;
+                            const hasBreak =
+                              /[.?!]\s/.test(followUpFillerBuffer) ||
+                              followUpFillerBuffer.length > 150;
+                            if (hasBreak) {
+                              const cleaned = stripFillerOpening(followUpFillerBuffer);
+                              if (cleaned) {
+                                await writer.write(
+                                  encoder.encode(
+                                    `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                  ),
+                                );
+                              }
+                              followUpFillerFlushed = true;
+                            }
+                          } else {
+                            await writer.write(
+                              encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                            );
+                          }
                         }
                       } catch {
                         // Skip malformed JSON
@@ -3294,9 +3677,15 @@ Almost never suggest creating a Space. Only if ALL true:
                           const delta = json.choices?.[0]?.delta?.content;
                           if (delta) {
                             fullContent += delta;
-                            await writer.write(
-                              encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                            );
+                            if (!followUpFillerFlushed) {
+                              followUpFillerBuffer += delta;
+                            } else {
+                              await writer.write(
+                                encoder.encode(
+                                  `data: ${JSON.stringify({ delta, done: false })}\n\n`,
+                                ),
+                              );
+                            }
                           }
                         } catch {
                           // Skip
@@ -3304,6 +3693,21 @@ Almost never suggest creating a Space. Only if ALL true:
                       }
                     }
                   }
+
+                  // Flush any remaining filler buffer at end of stream
+                  if (!followUpFillerFlushed && followUpFillerBuffer) {
+                    const cleaned = stripFillerOpening(followUpFillerBuffer);
+                    if (cleaned) {
+                      await writer.write(
+                        encoder.encode(
+                          `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                        ),
+                      );
+                    }
+                  }
+
+                  // Clean fullContent to match what was streamed
+                  fullContent = stripFillerOpening(fullContent);
 
                   // Combine all sources
                   sources = successfulSearches.flatMap((sr) =>
@@ -3338,14 +3742,14 @@ Almost never suggest creating a Space. Only if ALL true:
                   '[EntityChat:Streaming] Search fallback - responding without search results',
                 );
 
-                const fallbackRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                const fallbackRes = await fetch(GEMINI_BASE_URL, {
                   method: 'POST',
                   headers: {
-                    Authorization: `Bearer ${key}`,
+                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    model: 'gpt-4.1',
+                    model: GEMINI_CHAT_MODEL,
                     messages: [
                       ...openaiMessages,
                       {
@@ -3355,7 +3759,8 @@ Almost never suggest creating a Space. Only if ALL true:
                       },
                     ],
                     temperature: 0.7,
-                    max_completion_tokens: 600,
+                    max_tokens: 600,
+                    reasoning_effort: 'none',
                   }),
                 });
 
@@ -3363,6 +3768,7 @@ Almost never suggest creating a Space. Only if ALL true:
                 fullContent =
                   fallbackData?.choices?.[0]?.message?.content ??
                   'I had trouble searching for that information. Could you try rephrasing your question?';
+                fullContent = stripFillerOpening(fullContent);
 
                 // Stream the fallback content
                 const words = fullContent.split(' ');
@@ -3450,28 +3856,19 @@ Almost never suggest creating a Space. Only if ALL true:
         // =========================
         // NON-STREAMING ENTITY CHAT
         // =========================
-        // Determine optimal model and tokens for this query
-        const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
-        const routing = getModelAndTokens({
-          preset,
-          userMessage: lastUserMsg,
-          messageCount: messages.length,
-          entityType: entity?.type,
-        });
-        console.log('[EntityChat] Model routing:', routing);
-
         try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          const res = await fetch(GEMINI_BASE_URL, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${key}`,
+              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: routing.model,
+              model: GEMINI_CHAT_MODEL,
               messages: openaiMessages,
               temperature: 0.7,
-              max_completion_tokens: routing.maxTokens,
+              max_tokens: 800,
+              reasoning_effort: 'none',
               tools: [WEB_SEARCH_TOOL],
               tool_choice: 'auto',
             }),
@@ -3528,22 +3925,23 @@ Almost never suggest creating a Space. Only if ALL true:
                   {
                     role: 'tool',
                     tool_call_id: toolCall.id,
-                    content: JSON.stringify(searchResults),
+                    content: formatSearchBrief(searchResults),
                   },
                 ];
 
                 // Second API call
-                const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                const followUpRes = await fetch(GEMINI_BASE_URL, {
                   method: 'POST',
                   headers: {
-                    Authorization: `Bearer ${key}`,
+                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    model: 'gpt-4.1',
+                    model: GEMINI_CHAT_MODEL,
                     messages: followUpMessages,
                     temperature: 0.7,
-                    max_completion_tokens: 800,
+                    max_tokens: 800,
+                    reasoning_effort: 'low',
                   }),
                 });
 
@@ -3570,6 +3968,7 @@ Almost never suggest creating a Space. Only if ALL true:
 
           // Use cleaned content (without suggestion block) for display
           content = cleanContent;
+          content = stripFillerOpening(content);
 
           // Detect space promotion suggestion
           const promotion = detectSpacePromotion(content, messages.length);
@@ -3919,22 +4318,61 @@ Return ONLY valid JSON, no explanation:
         };
       }
 
-      // =========================
-      // === ORGANIZE DAY (v1.0) ===
+      // === ORGANIZE DAY (v2.0) ===
       // AI-powered task scheduling for Morning Brief
-      // Assigns unscheduled tasks to time blocks based on:
-      // - Available time per block
-      // - Task estimates and due dates
-      // - Calendar context
-      // - Smart placement rules
+      // UPGRADED: Anthropic Sonnet 4.5 (was gpt-4o-mini)
+      // - Prompt caching on static scheduling rules (~90% input cost reduction on cache hits)
+      // - Expanded context: user patterns, space priorities, habit streaks, completion history
+      // - Daily usage limit (configurable, default 5/day)
+      // - Better multi-constraint reasoning for 20-50+ tasks
       // =========================
       if (type === 'organize-day') {
         const tasks = Array.isArray(body.tasks) ? body.tasks : [];
         const calendarEvents = Array.isArray(body.calendarEvents) ? body.calendarEvents : [];
         const blocks = body.blocks || {};
         const currentHour = body.currentHour ?? new Date().getHours();
+        const userId = body.userId || null;
+        const timezone = body.timezone || 'America/Los_Angeles';
 
-        // Validation
+        // === Expanded context (new in v2.0) ===
+        const userPatterns = body.userPatterns || null;
+        const spacePriorities = body.spacePriorities || null;
+        const habitContext = body.habitContext || null;
+        const recentCompletions = body.recentCompletions || null;
+
+        // === Daily usage limit ===
+        const DAILY_ORGANIZE_LIMIT = 5;
+
+        if (userId && env.CORTEX_KV) {
+          try {
+            // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+            const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(
+              new Date(),
+            );
+            const limitKey = `organize-limit:${userId}:${today}`;
+            const currentCount = parseInt((await env.CORTEX_KV.get(limitKey)) || '0', 10);
+
+            if (currentCount >= DAILY_ORGANIZE_LIMIT) {
+              return j({
+                error: 'daily_limit_reached',
+                limit: DAILY_ORGANIZE_LIMIT,
+                assignments: [],
+                overflow: [],
+                reasoning: [],
+                summary: `You've organized ${DAILY_ORGANIZE_LIMIT} times today. Trust your plan — you've got this.`,
+                latency_ms: 0,
+              });
+            }
+
+            await env.CORTEX_KV.put(limitKey, String(currentCount + 1), { expirationTtl: 172800 });
+          } catch (kvErr) {
+            console.log('[organize-day] KV limit check failed, proceeding', {
+              error: String(kvErr),
+            });
+          }
+        }
+
+        // === Validation ===
         if (tasks.length === 0) {
           return j({
             assignments: [],
@@ -3945,7 +4383,6 @@ Return ONLY valid JSON, no explanation:
           });
         }
 
-        // Filter to only unassigned, unlocked tasks
         const tasksToAssign = tasks.filter((t) => !t.isLockedIn && !t.currentBlock);
 
         if (tasksToAssign.length === 0) {
@@ -3958,24 +4395,36 @@ Return ONLY valid JSON, no explanation:
           });
         }
 
-        // Build context strings for the prompt
+        // === Build task context ===
         const taskList = tasksToAssign
           .map((t) => {
             const parts = [`- ${t.id}: "${t.title}"`];
             parts.push(`  total_minutes: ${t.totalMinutes || t.estimateMinutes || 30}`);
             parts.push(`  energy: ${t.energyType || 'administrative'}`);
             parts.push(`  type: ${t.type || 'todo'}`);
-            // Include tags if available (comma-separated)
             if (t.tags && Array.isArray(t.tags) && t.tags.length > 0) {
               parts.push(`  tags: ${t.tags.slice(0, 5).join(', ')}`);
             }
             if (t.timeWindowPreference) {
               parts.push(`  prefers: ${t.timeWindowPreference}`);
             }
+            if (t.dueDate) {
+              parts.push(`  due: ${t.dueDate}`);
+            }
+            if (t.priority) {
+              parts.push(`  priority: ${t.priority}`);
+            }
+            if (t.spaceName) {
+              parts.push(`  space: ${t.spaceName}`);
+            }
+            if (t.locked) {
+              parts.push(`  locked: true`);
+            }
             return parts.join('\n');
           })
           .join('\n');
 
+        // === Build calendar context ===
         const calendarContext =
           calendarEvents.length > 0
             ? calendarEvents
@@ -3983,6 +4432,7 @@ Return ONLY valid JSON, no explanation:
                 .join('\n')
             : 'No calendar events today.';
 
+        // === Build block capacity context ===
         const formatGaps = (gaps) =>
           (gaps || [])
             .map(
@@ -3991,81 +4441,155 @@ Return ONLY valid JSON, no explanation:
             )
             .join('\n');
 
-        const blockContext = `Morning: ${blocks.morning?.realisticAvailableMinutes ?? blocks.morning?.availableMinutes ?? 0} min
+        // Calendar-only availability: block total minus calendar events only
+        // This ensures task assignments don't shrink reported capacity
+        const calendarFreeMinutes = (block) => {
+          if (!block) return 0;
+          const total = ((block.endHour ?? 0) - (block.startHour ?? 0)) * 60;
+          // Gaps give us the actual free windows so sum those
+          const gapTotal = (block.gaps || []).reduce((sum, g) => sum + (g.durationMinutes || 0), 0);
+          return gapTotal || block.realisticAvailableMinutes || block.availableMinutes || 0;
+        };
+
+        const blockContext = `Morning: ${calendarFreeMinutes(blocks.morning)} min available
 ${formatGaps(blocks.morning?.gaps)}
-Afternoon: ${blocks.day?.realisticAvailableMinutes ?? blocks.day?.availableMinutes ?? 0} min
+Day: ${calendarFreeMinutes(blocks.day)} min available
 ${formatGaps(blocks.day?.gaps)}
-Evening: ${blocks.evening?.realisticAvailableMinutes ?? blocks.evening?.availableMinutes ?? 0} min
+Evening: ${calendarFreeMinutes(blocks.evening)} min available
 ${formatGaps(blocks.evening?.gaps)}`;
 
-        const organizePrompt = `You are a task scheduler. Place tasks into time blocks to create a calm, focused day.
+        // === Build expanded context sections (new in v2.0) ===
+        let expandedContext = '';
 
-=== TIME ===
-Current hour: ${currentHour}:00
-Past blocks are unavailable.
+        if (userPatterns) {
+          expandedContext += `\n=== USER PATTERNS ===\n`;
+          if (userPatterns.peakFocusTime)
+            expandedContext += `Peak focus time: ${userPatterns.peakFocusTime}\n`;
+          if (userPatterns.avgCompletionRate != null)
+            expandedContext += `Avg daily completion rate: ${Math.round(userPatterns.avgCompletionRate * 100)}%\n`;
+          if (userPatterns.commonSkipTimes)
+            expandedContext += `Common skip times: ${userPatterns.commonSkipTimes}\n`;
+          if (userPatterns.preferredTaskOrder)
+            expandedContext += `Preferred order: ${userPatterns.preferredTaskOrder}\n`;
+        }
 
-=== CALENDAR ===
-${calendarContext}
+        if (spacePriorities && spacePriorities.length > 0) {
+          expandedContext += `\n=== SPACE PRIORITIES ===\n`;
+          expandedContext +=
+            spacePriorities
+              .map(
+                (s) =>
+                  `- ${s.name}: priority ${s.priority}${s.taskCount ? ` (${s.taskCount} tasks)` : ''}`,
+              )
+              .join('\n') + '\n';
+        }
 
-=== CAPACITY ===
-${blockContext}
-Use max 85% of each block.
-Gaps are free time between calendar events within each block.
+        if (habitContext && habitContext.length > 0) {
+          expandedContext += `\n=== HABIT CONTEXT ===\n`;
+          expandedContext +=
+            habitContext
+              .map((h) => {
+                const parts = [`- "${h.title}"`];
+                if (h.currentStreak) parts.push(`streak: ${h.currentStreak} days`);
+                if (h.bestTime) parts.push(`best time: ${h.bestTime}`);
+                if (h.lastCompleted) parts.push(`last: ${h.lastCompleted}`);
+                return parts.join(', ');
+              })
+              .join('\n') + '\n';
+        }
 
-=== TASKS ===
-${taskList}
+        if (recentCompletions && recentCompletions.length > 0) {
+          expandedContext += `\n=== RECENT COMPLETIONS (last 3 days) ===\n`;
+          expandedContext +=
+            recentCompletions
+              .slice(0, 15)
+              .map(
+                (c) => `- "${c.title}" → ${c.block}${c.completedAt ? ` at ${c.completedAt}` : ''}`,
+              )
+              .join('\n') + '\n';
+        }
 
-Each task includes:
-- id, title
-- total_minutes (includes prep/cooldown, use for capacity)
-- energy: deep_focus | administrative | physical | social | quick
-- type: todo | habit
-- tags: topical labels (work, health, finance, creative, etc.)
-- prefers: time_window_preference if set
+        // === Static system prompt (cached) ===
+        const ORGANIZE_SYSTEM_PROMPT = `You are a task scheduler for a productivity app called Gremly. Your job is to place tasks into time blocks to create a calm, focused, achievable day.
+
+You are scheduling for real humans who may have ADHD or executive function challenges. This means:
+- Overscheduling causes anxiety and paralysis. Leave breathing room.
+- Transitions between very different tasks are cognitively expensive.
+- Starting the day with a quick win builds momentum.
+- Ending the day with low-energy tasks prevents evening overwhelm.
+- Habits that have active streaks should be protected — don't let them slip.
 
 === SCHEDULING RULES ===
-1. Never schedule tasks in past blocks
-2. Never exceed 85% of block capacity
-3. Respect time_window_preference when set
-4. Use energy types to shape task sequencing and flow
-5. Place deep_focus tasks in the longest uninterrupted gap
-6. Group tasks with shared tags to reduce context switching
-7. Avoid stacking physical or social tasks back-to-back
-8. Spread habits across blocks — avoid clustering
+1. Never schedule tasks in past blocks (check current hour).
+2. Aim for 85-95% of block capacity. Fill gaps thoroughly — it's better to schedule a task and let the user adjust than to overflow it when there's clearly room. Every assigned task must land in a specific gap.
+3. Respect time_window_preference when set — this is a user commitment.
+4. Use energy types to shape sequencing:
+   - deep_focus: longest uninterrupted gap, ideally morning
+   - administrative: batch together, any block
+   - physical: avoid stacking back-to-back, avoid immediately after meals
+   - social: avoid stacking, respect energy cost
+   - quick: use as buffer between heavier tasks, or to start a block
+5. Group tasks with shared tags or spaces to reduce context switching.
+6. Spread habits across blocks — never cluster them all in one block.
+7. Tasks due today get priority placement. Overdue tasks get highest.
+8. If a user pattern indicates peak focus time, place deep_focus tasks there.
+9. If habit context shows a best time, honor it.
+10. If recent completions show a pattern (user always does X in morning), follow it.
+11. LOCKED PRIORITIES: Tasks marked locked:true MUST be scheduled — never overflow them. Place locked tasks FIRST, then fill remaining capacity with unlocked tasks. If a locked task has a time preference, honor it strictly.
 
-=== GAP SLOTTING ===
-When a block has gaps listed under CAPACITY, you MAY assign a task to a
-specific gap by including "scheduledStartIso" — the ISO-8601 start time
-within that gap. Rules:
-- The task's total_minutes must fit inside the gap
-- "scheduledStartIso" must fall on or after the gap start and leave
-  enough room before the gap end
-- Only slot a task if there is a gap that fits; otherwise just assign
-  the block and omit scheduledStartIso
-- Prefer slotting deep_focus tasks into longer gaps
+=== TIME SLOT ASSIGNMENT (REQUIRED) ===
+Every assigned task MUST include a "scheduledStartIso" — the ISO-8601 start time within one of the block's gaps. This is NOT optional.
 
-=== GROUPING PRINCIPLES ===
-- Tasks sharing tags (e.g. "work", "finance") benefit from being adjacent
-- Similar energy types flow better together
-- Habits should feel integrated, not front-loaded
-- Reduce mental overhead by minimizing topic jumps
+Rules:
+1. Look at the gaps listed under each block in CAPACITY. Each gap has a start, end, and duration.
+2. Pick a gap where the task's total_minutes fits entirely.
+3. Set scheduledStartIso to a time ON or AFTER the gap start, leaving enough room before the gap end for the full task.
+4. Round scheduledStartIso to the nearest 5-minute mark (e.g. :00, :05, :10 …).
+5. Do NOT double-book — track remaining gap time as you assign tasks and split gaps accordingly.
+6. Prefer placing deep_focus tasks in the longest available gap.
+7. Prefer placing quick tasks in short gaps or as transitions between heavier tasks.
+8. If no gap can fit a task, overflow it — do NOT assign without a valid scheduledStartIso.
+9. scheduledStartIso MUST be in the future — never before the current time shown in the TIME section.
+10. Use ISO-8601 format with timezone offset, e.g. "2025-01-15T09:30:00-05:00".
 
-=== OUTPUT ===
-JSON only, no markdown:
+=== OVERFLOW RULES ===
+If tasks won't fit, overflow them. This is NOT failure — it's realistic planning.
+- Overflow the lowest-priority, non-due-today tasks first.
+- Never overflow an overdue task unless there is literally zero capacity.
+- Never overflow a habit with an active streak unless capacity is truly zero.
+- Overflow reason should be encouraging, not guilt-inducing.
+
+CRITICAL: Only overflow tasks when blocks are genuinely full. If a block has 60+ minutes of unscheduled time, you MUST place more tasks there before overflowing anything. Count your assignments against capacity as you go. Users feel frustrated when they see empty time blocks alongside overflowed tasks.
+
+=== OUTPUT FORMAT ===
+Respond with ONLY valid JSON. No markdown, no backticks, no explanation outside the JSON.
 {
-  "assignments": [{ "taskId": "...", "block": "morning|day|evening", "reason": "5-10 words", "scheduledStartIso": "ISO time or omit" }],
-  "overflow": [{ "taskId": "...", "reason": "5-10 words" }],
-  "reasoning": ["Pattern or decision 1", "Pattern 2", "Pattern 3 if needed"],
+  "assignments": [
+    {
+      "taskId": "...",
+      "block": "morning|day|evening",  // IMPORTANT: use "day" for afternoon, never "afternoon"
+      "reason": "5-10 words",
+      "scheduledStartIso": "2025-01-15T09:30:00-05:00"  // REQUIRED ISO-8601 start time
+    }
+  ],
+  "overflow": [
+    {
+      "taskId": "...",
+      "reason": "5-10 encouraging words"
+    }
+  ],
+  "reasoning": ["Pattern or decision 1", "Pattern 2", "Pattern 3"],
   "summary": "One calm sentence about the plan"
 }
 
 === REASONING GUIDELINES ===
 Provide 2-4 short bullets explaining your approach. Focus on:
-- Grouping patterns (e.g. "Batched your work tasks together")
-- Energy flow (e.g. "Put focus work in the morning when you're fresh")
-- Habit placement (e.g. "Spread your habits throughout the day")
-- Preference respect (e.g. "Honored your morning preference for the gym")
-- Gap usage (e.g. "Slotted your deep work into the 90-min morning window")
+- Grouping patterns ("Batched your work tasks together")
+- Energy flow ("Put focus work in the morning when you're fresh")
+- Habit placement ("Spread your habits throughout the day")
+- Preference respect ("Honored your morning preference for the gym")
+- Gap usage ("Slotted your deep work into the 90-min morning window")
+- Pattern following ("You usually journal in the evening, so kept it there")
 
 Do NOT mention in reasoning:
 - Specific minute counts or capacity numbers
@@ -4073,35 +4597,99 @@ Do NOT mention in reasoning:
 - Energy type names (use plain language like "heavier tasks" or "quick wins")
 - Technical terms
 
+=== SCHEDULING WALKTHROUGH ===
+Follow these steps IN ORDER:
+1. Read all gaps for each block. Note their start, end, and available minutes.
+2. Place LOCKED tasks first — they must be scheduled. Honor their time preferences.
+3. Place overdue and due-today tasks next, fitting them into appropriate gaps.
+4. Place remaining tasks by priority and energy fit, filling gaps as you go.
+5. After each placement, subtract the task's total_minutes from the gap. If the gap is partially used, split it into the remaining segment.
+6. When no gap can fit a task, overflow it with an encouraging reason.
+7. Double-check: every assignment has a valid scheduledStartIso that falls inside a gap and is in the future.
+
 Keep the tone warm and reassuring — like a helpful friend explaining the plan.`;
+
+        // === Dynamic user message ===
+        const currentIso = new Date().toISOString();
+        const userMessage = `=== TIME ===
+Current time: ${currentIso}
+Current hour: ${currentHour}:00
+Timezone: ${timezone}
+Do NOT schedule any task before the current time.
+Past blocks are unavailable.
+
+=== CALENDAR ===
+${calendarContext}
+
+=== CAPACITY ===
+${blockContext}
+
+=== TASKS (${tasksToAssign.length} to schedule) ===
+${taskList}
+
+Each task includes:
+- id, title
+- total_minutes (includes prep/cooldown, use for capacity math)
+- energy: deep_focus | administrative | physical | social | quick
+- type: todo | habit
+- tags: topical labels (work, health, finance, creative, etc.)
+- prefers: time_window_preference if set
+- due: due date if set
+- priority: priority level if set
+- space: which life domain this belongs to
+- locked (boolean) — true if the user has committed to completing this task today. Prioritize scheduling these.
+${expandedContext}
+Schedule these tasks now. Respond with ONLY valid JSON.`;
+
+        // === API Call ===
+        const anthropicKey = env.ANTHROPIC_API_KEY;
+        if (!anthropicKey) {
+          console.log('[organize-day] ANTHROPIC_API_KEY not configured');
+          return j({ error: 'anthropic_key_not_configured' }, 500);
+        }
 
         const t0 = Date.now();
 
         try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
+
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
+            signal: controller.signal,
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${key}`,
               'Content-Type': 'application/json',
+              'x-api-key': anthropicKey,
+              'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [{ role: 'system', content: organizePrompt }],
-              temperature: 0.2,
-              max_tokens: 1200,
-              response_format: { type: 'json_object' },
+              model: 'claude-sonnet-4-5-20250929',
+              max_tokens: 4096,
+              system: [
+                {
+                  type: 'text',
+                  text: ORGANIZE_SYSTEM_PROMPT,
+                  cache_control: { type: 'ephemeral' },
+                },
+              ],
+              messages: [{ role: 'user', content: userMessage }],
             }),
           });
 
-          const oj = await res.json();
           const latency = Date.now() - t0;
+          clearTimeout(timeoutId);
 
           if (!res.ok) {
-            console.log('[organize-day] API error', { error: oj.error, latency_ms: latency });
+            const errText = await res.text();
+            console.log('[organize-day] Anthropic API error', {
+              status: res.status,
+              latency_ms: latency,
+              error: errText.substring(0, 300),
+            });
             return j(
               {
                 error: 'organize_failed',
-                detail: oj.error?.message,
+                detail: errText.substring(0, 200),
                 assignments: [],
                 overflow: tasksToAssign.map((t) => ({ taskId: t.id, reason: 'AI unavailable' })),
                 reasoning: [],
@@ -4112,7 +4700,18 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
             );
           }
 
-          const rawContent = oj?.choices?.[0]?.message?.content ?? '';
+          const anthropicResponse = await res.json();
+          const rawContent = anthropicResponse.content?.[0]?.text || '';
+
+          // Log cache performance
+          const usage = anthropicResponse.usage || {};
+          console.log('[organize-day] Anthropic usage', {
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
+            cache_read_input_tokens: usage.cache_read_input_tokens || 0,
+            latency_ms: latency,
+          });
 
           let parsed = safeParseJson(rawContent);
 
@@ -4131,12 +4730,23 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
             );
           }
 
-          // Validate and extract
+          // === Validate and extract ===
           const validBlocks = ['morning', 'day', 'evening'];
           const taskIds = new Set(tasksToAssign.map((t) => t.id));
           const assignedIds = new Set();
 
+          // Normalize block names — AI may output "afternoon" instead of "day"
+          const normalizeBlock = (block) => {
+            if (!block) return block;
+            const lower = block.toLowerCase().trim();
+            if (lower === 'afternoon' || lower === 'day') return 'day';
+            if (lower === 'morning') return 'morning';
+            if (lower === 'evening' || lower === 'night') return 'evening';
+            return block;
+          };
+
           const assignments = (Array.isArray(parsed.assignments) ? parsed.assignments : [])
+            .map((a) => ({ ...a, block: normalizeBlock(a.block) }))
             .filter((a) => {
               if (!taskIds.has(a.taskId)) return false;
               if (!validBlocks.includes(a.block)) return false;
@@ -4144,12 +4754,36 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
               assignedIds.add(a.taskId);
               return true;
             })
-            .map((a) => ({
-              taskId: a.taskId,
-              block: a.block,
-              reason: String(a.reason || '').substring(0, 50),
-              ...(a.scheduledStartIso ? { scheduledStartIso: String(a.scheduledStartIso) } : {}),
-            }));
+            .map((a) => {
+              const result = {
+                taskId: a.taskId,
+                block: a.block,
+                reason: String(a.reason || '').substring(0, 80),
+              };
+              if (a.scheduledStartIso) {
+                const iso = String(a.scheduledStartIso);
+                const parsed_date = new Date(iso);
+                if (!isNaN(parsed_date.getTime())) {
+                  // Drop scheduledStartIso if it's in the past
+                  if (parsed_date.getTime() > Date.now()) {
+                    result.scheduledStartIso = iso;
+                  } else {
+                    console.log('[organize-day] Dropped past scheduledStartIso', {
+                      taskId: a.taskId,
+                      iso,
+                    });
+                  }
+                } else {
+                  console.log('[organize-day] Invalid scheduledStartIso', {
+                    taskId: a.taskId,
+                    iso,
+                  });
+                }
+              } else {
+                console.log('[organize-day] Missing scheduledStartIso', { taskId: a.taskId });
+              }
+              return result;
+            });
 
           const overflowIds = new Set();
           const overflow = (Array.isArray(parsed.overflow) ? parsed.overflow : [])
@@ -4162,7 +4796,7 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
             })
             .map((o) => ({
               taskId: o.taskId,
-              reason: String(o.reason || '').substring(0, 50),
+              reason: String(o.reason || '').substring(0, 80),
             }));
 
           // Catch any unaccounted tasks
@@ -4174,17 +4808,19 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
 
           const summary =
             typeof parsed.summary === 'string' && parsed.summary.length > 0
-              ? parsed.summary.substring(0, 150)
+              ? parsed.summary.substring(0, 200)
               : `Scheduled ${assignments.length} of ${tasksToAssign.length} tasks.`;
 
           const reasoning = Array.isArray(parsed.reasoning)
-            ? parsed.reasoning.map((r) => String(r).substring(0, 150)).slice(0, 4)
+            ? parsed.reasoning.map((r) => String(r).substring(0, 200)).slice(0, 5)
             : [];
 
           console.log('[organize-day] Success', {
             assigned: assignments.length,
             overflow: overflow.length,
+            total_tasks: tasksToAssign.length,
             latency_ms: latency,
+            cached: (usage.cache_read_input_tokens || 0) > 0,
           });
 
           return j({
@@ -4193,9 +4829,29 @@ Keep the tone warm and reassuring — like a helpful friend explaining the plan.
             reasoning,
             summary,
             latency_ms: latency,
+            _debug: {
+              model: 'claude-sonnet-4-5',
+              cached: (usage.cache_read_input_tokens || 0) > 0,
+              input_tokens: usage.input_tokens,
+              output_tokens: usage.output_tokens,
+            },
           });
         } catch (err) {
           const latency = Date.now() - t0;
+          if (err.name === 'AbortError') {
+            console.log('[organize-day] Request timed out', { latency_ms: latency });
+            return j(
+              {
+                error: 'timeout',
+                assignments: [],
+                overflow: tasksToAssign.map((t) => ({ taskId: t.id, reason: 'Timed out' })),
+                reasoning: [],
+                summary: 'Took too long — tasks left flexible.',
+                latency_ms: latency,
+              },
+              200,
+            );
+          }
           console.log('[organize-day] Error', { error: String(err), latency_ms: latency });
           return j(
             {
@@ -7363,6 +8019,34 @@ Keep responses concise and scannable for mobile.
 - No markdown headers (#), tables, or code blocks
 - No exclamation marks—keep it calm
 
+=== OPENING LINE RULES ===
+Never start with a compliment or filler ("That's a great question", "Love that idea", "It's smart to think about"). Just respond directly with content.
+
+=== SEARCH BEHAVIOR ===
+
+You have web search. Use it PROACTIVELY for:
+- Health, fitness, nutrition, wellness questions
+- Product recommendations, comparisons, "what should I buy/use"
+- Travel planning, event planning, gift ideas
+- "Based on research", "what does the science say", "best way to"
+- Any question where specific data or current info beats generic advice
+
+WRONG: "Some people find it helpful to set a specific time"
+RIGHT: [Search first, then respond with specific findings]
+
+WRONG: "You might want to look into meal prepping"
+RIGHT: [Search "simple meal prep strategies for beginners", then give specific recommendations]
+
+NEVER SEARCH — just respond directly:
+- "help me break this down" — use the space context, create steps
+- Emotional support — "I feel bad", "I keep avoiding this", "I'm overwhelmed"
+- "what do you think" — they want your perspective, not web results
+- Simple planning — "what order should I do these in"
+- Motivation — "I don't feel like doing this today"
+- Follow-up on previous advice — "tell me more about that"
+
+When you receive search results, lead with the most specific finding — a study name, a statistic, a concrete recommendation. Never restate generic knowledge. "Research suggests" is lazy. "A 2023 study found that..." is what makes search valuable.
+
 === SAVE SUGGESTIONS ===
 Do NOT mention saving in your response text. When your response contains useful content worth saving, append a hidden block AFTER your response.
 
@@ -7407,31 +8091,17 @@ Rules:
       if (isSpaceChatStreaming && isSpaceChatLane) {
         console.log('[SpaceChat:Streaming] Starting SSE stream');
 
-        // Space Chat routing - conservative, default to 4.1
+        // Space Chat - all Gemini Flash (no mini/full split needed, Flash is cheap + good)
         const lastUserMsgSpace = messages.filter((m) => m.role === 'user').pop()?.content || '';
         const msgLowerSpace = lastUserMsgSpace.toLowerCase();
-        const canUseMiniSpace =
-          lastUserMsgSpace.length < 50 &&
-          (lastUserMsgSpace.match(/\?/g) || []).length <= 1 &&
-          messages.filter((m) => m.role === 'user').length < 3 &&
-          !msgLowerSpace.includes('why') &&
-          !msgLowerSpace.includes('how do i') &&
-          !msgLowerSpace.includes('help me') &&
-          !msgLowerSpace.includes('feeling') &&
-          !msgLowerSpace.includes('explain') &&
-          !msgLowerSpace.includes('research');
-
-        const spaceModel = canUseMiniSpace ? 'gpt-4o-mini' : 'gpt-4.1';
         const spaceMaxTokens =
           lastUserMsgSpace.length > 100 ||
           msgLowerSpace.includes('plan') ||
           msgLowerSpace.includes('steps')
             ? 800
             : 600;
-        console.log('[SpaceChat:Streaming] Model routing:', {
-          model: spaceModel,
+        console.log('[SpaceChat:Streaming] Using Gemini Flash', {
           maxTokens: spaceMaxTokens,
-          canUseMini: canUseMiniSpace,
         });
 
         // Create TransformStream early so we can send fetching indicators
@@ -7532,8 +8202,17 @@ Rules:
           }
         }
 
+        // Time of day for contextual suggestions
+        const scClientTime = body.currentTime ? new Date(body.currentTime) : new Date();
+        const scClientHour = scClientTime.getHours();
+        const scTimeOfDay =
+          scClientHour < 12 ? 'morning' : scClientHour < 17 ? 'afternoon' : 'evening';
+        const scTimeStr = `${scClientHour}:${String(scClientTime.getMinutes()).padStart(2, '0')}`;
+
         // Build context injection for space chat
         let spaceContextInjection = '';
+
+        spaceContextInjection += `\n=== CURRENT TIME ===\nIt's currently ${scTimeOfDay} (${scTimeStr}). If suggesting the user do something now, consider the time — don't suggest starting a workout at 11pm or a morning routine in the evening.\n`;
 
         // Get age guidance using both time and data signals
         const spaceAgeInfo = getAgeGuidance(
@@ -7588,31 +8267,30 @@ Rules:
         }
 
         const openaiPayload = {
-          model: spaceModel,
+          model: GEMINI_CHAT_MODEL,
           messages: spaceChatMessages,
           temperature,
           stream: true,
           tools: [WEB_SEARCH_TOOL],
           tool_choice: 'auto',
+          max_tokens: spaceMaxTokens,
+          reasoning_effort: 'none',
         };
-
-        if (spaceModel === 'gpt-4.1' || spaceModel === 'gpt-4o') {
-          openaiPayload.max_completion_tokens = spaceMaxTokens;
-        } else {
-          openaiPayload.max_tokens = spaceMaxTokens;
-        }
 
         const t0 = Date.now();
 
-        const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        const openaiRes = await fetch(GEMINI_BASE_URL, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+          headers: {
+            Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
           body: JSON.stringify(openaiPayload),
         });
 
         if (!openaiRes.ok) {
           const errText = await openaiRes.text().catch(() => '');
-          console.log('[SpaceChat:Streaming] OpenAI error', {
+          console.log('[SpaceChat:Streaming] Gemini error', {
             status: openaiRes.status,
             error: errText,
           });
@@ -7626,6 +8304,10 @@ Rules:
 
           // Track tool calls accumulation (array for multiple calls)
           let toolCalls = [];
+
+          // Output guard: buffer first sentence to strip filler openings
+          let fillerBuffer = '';
+          let fillerFlushed = false;
 
           try {
             // eslint-disable-next-line no-constant-condition
@@ -7648,8 +8330,27 @@ Rules:
 
                   if (delta) {
                     fullContent += delta;
-                    const sseData = JSON.stringify({ delta, done: false });
-                    await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                    // Don't stream SAVE comments to client
+                    if (!fullContent.includes('<!--SAVE:')) {
+                      if (!fillerFlushed) {
+                        fillerBuffer += delta;
+                        const hasBreak = /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
+                        if (hasBreak) {
+                          const cleaned = stripFillerOpening(fillerBuffer);
+                          if (cleaned) {
+                            await writer.write(
+                              encoder.encode(
+                                `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                              ),
+                            );
+                          }
+                          fillerFlushed = true;
+                        }
+                      } else {
+                        const sseData = JSON.stringify({ delta, done: false });
+                        await writer.write(encoder.encode(`data: ${sseData}\n\n`));
+                      }
+                    }
                   }
 
                   // Check for tool calls (handle multiple)
@@ -7673,6 +8374,17 @@ Rules:
                 }
               }
             }
+
+            // Flush any remaining filler buffer from main stream
+            if (!fillerFlushed && fillerBuffer) {
+              const cleaned = stripFillerOpening(fillerBuffer);
+              if (cleaned) {
+                await writer.write(
+                  encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                );
+              }
+            }
+            fullContent = stripFillerOpening(fullContent);
 
             // Track search metadata
             let sources = undefined;
@@ -7768,7 +8480,7 @@ Rules:
                 const toolResultMessages = successfulSearches.map((sr) => ({
                   role: 'tool',
                   tool_call_id: sr.toolCallId,
-                  content: JSON.stringify(sr.results),
+                  content: formatSearchBrief(sr.results),
                 }));
 
                 const followUpMessages = [
@@ -7782,18 +8494,19 @@ Rules:
                 ];
 
                 // Second API call for final response - with real streaming
-                const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                const followUpRes = await fetch(GEMINI_BASE_URL, {
                   method: 'POST',
                   headers: {
-                    Authorization: `Bearer ${key}`,
+                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    model: actualModel,
+                    model: GEMINI_CHAT_MODEL,
                     messages: followUpMessages,
                     temperature,
-                    max_completion_tokens: 800,
+                    max_tokens: 800,
                     stream: true,
+                    reasoning_effort: 'low',
                   }),
                 });
 
@@ -7802,6 +8515,9 @@ Rules:
                 const followUpDecoder = new TextDecoder();
                 let followUpBuffer = '';
                 let readerDone = false;
+
+                let followUpFillerBuffer = '';
+                let followUpFillerFlushed = false;
 
                 while (!readerDone) {
                   const result = await followUpReader.read();
@@ -7827,9 +8543,27 @@ Rules:
                       const delta = json.choices?.[0]?.delta?.content;
                       if (delta) {
                         fullContent += delta;
-                        await writer.write(
-                          encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                        );
+                        if (!followUpFillerFlushed) {
+                          followUpFillerBuffer += delta;
+                          const hasBreak =
+                            /[.?!]\s/.test(followUpFillerBuffer) ||
+                            followUpFillerBuffer.length > 150;
+                          if (hasBreak) {
+                            const cleaned = stripFillerOpening(followUpFillerBuffer);
+                            if (cleaned) {
+                              await writer.write(
+                                encoder.encode(
+                                  `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                ),
+                              );
+                            }
+                            followUpFillerFlushed = true;
+                          }
+                        } else {
+                          await writer.write(
+                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                          );
+                        }
                       }
                     } catch {
                       // Skip malformed JSON
@@ -7848,9 +8582,13 @@ Rules:
                         const delta = json.choices?.[0]?.delta?.content;
                         if (delta) {
                           fullContent += delta;
-                          await writer.write(
-                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                          );
+                          if (!followUpFillerFlushed) {
+                            followUpFillerBuffer += delta;
+                          } else {
+                            await writer.write(
+                              encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                            );
+                          }
                         }
                       } catch {
                         // Skip
@@ -7858,6 +8596,19 @@ Rules:
                     }
                   }
                 }
+
+                // Flush remaining follow-up filler buffer
+                if (!followUpFillerFlushed && followUpFillerBuffer) {
+                  const cleaned = stripFillerOpening(followUpFillerBuffer);
+                  if (cleaned) {
+                    await writer.write(
+                      encoder.encode(
+                        `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                      ),
+                    );
+                  }
+                }
+                fullContent = stripFillerOpening(fullContent);
 
                 // Combine all sources
                 sources = successfulSearches.flatMap((sr) =>
@@ -7872,14 +8623,14 @@ Rules:
                 '[SpaceChat:Streaming] Search fallback - responding without search results',
               );
 
-              const fallbackRes = await fetch('https://api.openai.com/v1/chat/completions', {
+              const fallbackRes = await fetch(GEMINI_BASE_URL, {
                 method: 'POST',
                 headers: {
-                  Authorization: `Bearer ${key}`,
+                  Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                  model: actualModel,
+                  model: GEMINI_CHAT_MODEL,
                   messages: [
                     ...messages,
                     {
@@ -7889,7 +8640,8 @@ Rules:
                     },
                   ],
                   temperature,
-                  max_completion_tokens: 600,
+                  max_tokens: 600,
+                  reasoning_effort: 'none',
                 }),
               });
 
@@ -7897,6 +8649,7 @@ Rules:
               fullContent =
                 fallbackData?.choices?.[0]?.message?.content ??
                 'I had trouble searching for that information. Could you try rephrasing your question?';
+              fullContent = stripFillerOpening(fullContent);
 
               // Stream the fallback content
               const words = fullContent.split(' ');
@@ -7977,26 +8730,10 @@ Rules:
       // --- NON-STREAMING (original logic, with web search for space_chat) ---
       const t0NonStream = Date.now();
 
-      // Space Chat routing - conservative, default to 4.1
       const lastUserMsgNonStream = messages.filter((m) => m.role === 'user').pop()?.content || '';
       const msgLowerNonStream = lastUserMsgNonStream.toLowerCase();
-      const canUseMiniNonStream =
-        isSpaceChatLane &&
-        lastUserMsgNonStream.length < 50 &&
-        (lastUserMsgNonStream.match(/\?/g) || []).length <= 1 &&
-        messages.filter((m) => m.role === 'user').length < 3 &&
-        !msgLowerNonStream.includes('why') &&
-        !msgLowerNonStream.includes('how do i') &&
-        !msgLowerNonStream.includes('help me') &&
-        !msgLowerNonStream.includes('feeling') &&
-        !msgLowerNonStream.includes('explain') &&
-        !msgLowerNonStream.includes('research');
 
-      const nonStreamModel = isSpaceChatLane
-        ? canUseMiniNonStream
-          ? 'gpt-4o-mini'
-          : 'gpt-4.1'
-        : actualModel;
+      const nonStreamModel = isSpaceChatLane ? GEMINI_CHAT_MODEL : actualModel;
       const nonStreamMaxTokens = isSpaceChatLane
         ? lastUserMsgNonStream.length > 100 ||
           msgLowerNonStream.includes('plan') ||
@@ -8006,30 +8743,36 @@ Rules:
         : maxTokensValue;
 
       if (isSpaceChatLane) {
-        console.log('[SpaceChat] Model routing:', {
-          model: nonStreamModel,
+        console.log('[SpaceChat] Using Gemini Flash', {
           maxTokens: nonStreamMaxTokens,
-          canUseMini: canUseMiniNonStream,
         });
       }
 
       const openaiPayload = { model: nonStreamModel, messages, temperature, stream: false };
 
-      if (nonStreamModel === 'gpt-4.1' || nonStreamModel === 'gpt-4o') {
+      if (isSpaceChatLane) {
+        openaiPayload.max_tokens = nonStreamMaxTokens;
+        openaiPayload.reasoning_effort = 'none';
+        openaiPayload.tools = [WEB_SEARCH_TOOL];
+        openaiPayload.tool_choice = 'auto';
+      } else if (nonStreamModel === 'gpt-4.1' || nonStreamModel === 'gpt-4o') {
         openaiPayload.max_completion_tokens = nonStreamMaxTokens;
       } else {
         openaiPayload.max_tokens = nonStreamMaxTokens;
       }
 
-      // Add web search tools for space_chat lane
-      if (isSpaceChatLane) {
-        openaiPayload.tools = [WEB_SEARCH_TOOL];
-        openaiPayload.tool_choice = 'auto';
-      }
+      // Use Gemini for Space Chat, OpenAI for everything else (classify, etc.)
+      const nonStreamUrl = isSpaceChatLane
+        ? GEMINI_BASE_URL
+        : 'https://api.openai.com/v1/chat/completions';
+      const nonStreamAuthKey = isSpaceChatLane ? env.GOOGLE_API_KEY : key;
 
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch(nonStreamUrl, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${nonStreamAuthKey}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(openaiPayload),
       });
 
@@ -8084,22 +8827,23 @@ Rules:
                 {
                   role: 'tool',
                   tool_call_id: toolCall.id,
-                  content: JSON.stringify(searchResults),
+                  content: formatSearchBrief(searchResults),
                 },
               ];
 
               // Second API call
-              const followUpRes = await fetch('https://api.openai.com/v1/chat/completions', {
+              const followUpRes = await fetch(GEMINI_BASE_URL, {
                 method: 'POST',
                 headers: {
-                  Authorization: `Bearer ${key}`,
+                  Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                  model: actualModel,
+                  model: GEMINI_CHAT_MODEL,
                   messages: followUpMessages,
                   temperature,
-                  max_completion_tokens: 800,
+                  max_tokens: 800,
+                  reasoning_effort: 'low',
                 }),
               });
 

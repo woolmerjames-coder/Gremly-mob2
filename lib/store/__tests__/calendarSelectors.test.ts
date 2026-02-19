@@ -4,10 +4,7 @@
  */
 
 import { renderHook } from '@testing-library/react-native';
-import {
-  useCalendarItemsForDate,
-  useDatesWithItems,
-} from '../calendarSelectors';
+import { useCalendarItemsForDate, useDatesWithItems } from '../calendarSelectors';
 import { resetDateService, createDateService } from '../../date';
 import { useGremlyStore } from '../useGremlyStore';
 import type { Todo, Habit, Note, Space } from '../../types';
@@ -103,6 +100,8 @@ function setupMockStore(data: {
   notes?: Note[];
   spaces?: Space[];
   calendarEvents?: Record<string, unknown[]>;
+  hiddenCalendarEventsByDate?: Record<string, string[]>;
+  eventTimeOverrides?: Record<string, unknown>;
 }) {
   mockUseGremlyStore.mockImplementation((selector: any) => {
     const state = {
@@ -111,6 +110,8 @@ function setupMockStore(data: {
       notes: data.notes || [],
       spaces: data.spaces || [],
       calendarEvents: data.calendarEvents || {},
+      hiddenCalendarEventsByDate: data.hiddenCalendarEventsByDate || {},
+      eventTimeOverrides: data.eventTimeOverrides || {},
     };
     return selector(state);
   });

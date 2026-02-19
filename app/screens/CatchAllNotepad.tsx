@@ -128,6 +128,8 @@ import {
   getGremlySpeech,
   getGreetingSpeech,
   getEmptyStateSpeech,
+  getFirstVisitSpeech,
+  getPostFirstDropSpeech,
   type SpeechContext,
 } from '../../lib/speech/gremlySpeech';
 import {
@@ -148,7 +150,7 @@ import MascotIcon from '../../components/MascotIcon';
 import RitualProgressIndicator from '../../components/ritual/RitualProgressIndicator';
 import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
-import FirstDropSpotlight from '../../components/onboarding/FirstDropSpotlight';
+
 import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
 import {
   filterAndNormalizeTags,
@@ -5563,11 +5565,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const [showRitualProgress, setShowRitualProgress] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [showFirstDropSpotlight, setShowFirstDropSpotlight] = useState(false);
+  const [showSweepDemoPrompt, setShowSweepDemoPrompt] = useState(false);
   const [gremlySpeech, setGremlySpeech] = useState<string | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSpeechRef = useRef<string | null>(null);
+  const hasShownGreetingRef = useRef(false);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
   // Photo drop: Track if current submission has photos (for classification default to log-general)
   const currentSubmissionHasPhotosRef = useRef(false);
@@ -5588,14 +5591,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     };
   }, []);
 
-  // Show first drop spotlight for new users
-  useEffect(() => {
-    if (onboardingCompletedAt && !firstDropCompletedAt) {
-      // Small delay to let layout settle
-      const timer = setTimeout(() => setShowFirstDropSpotlight(true), 600);
-      return () => clearTimeout(timer);
-    }
-  }, [onboardingCompletedAt, firstDropCompletedAt]);
+
 
   // Track keyboard visibility to adjust bottom padding
   useEffect(() => {
@@ -5615,7 +5611,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Helper to show Gremly speech bubble with auto-dismiss
   const showGremlySpeech = useCallback((message: string, durationMs = 3500) => {
-    // console.log('[Gremly Speech] showGremlySpeech called:', { message, durationMs });
+    if (showSweepDemoPrompt) return; // Don't auto-dismiss during demo prompt
     if (gremlySpeechTimeoutRef.current) {
       clearTimeout(gremlySpeechTimeoutRef.current);
     }
@@ -5625,17 +5621,30 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // console.log('[Gremly Speech] Auto-dismissing speech bubble');
       setGremlySpeech(null);
     }, durationMs);
-  }, []);
+  }, [showSweepDemoPrompt]);
 
-  // Show a contextual greeting on mount
+  // Show a contextual greeting on mount (or first-visit onboarding speech)
   useEffect(() => {
+    // Don't overwrite post-drop prompt
+    if (showSweepDemoPrompt) return;
+    // Only show greeting once (mount)
+    if (hasShownGreetingRef.current) return;
+
     // Delay slightly so the animation is visible
     const timer = setTimeout(() => {
-      const greeting = getGreetingSpeech();
-      showGremlySpeech(greeting.message, greeting.duration);
+      if (hasShownGreetingRef.current || showSweepDemoPrompt) return;
+      hasShownGreetingRef.current = true;
+      if (!firstDropCompletedAt) {
+        const speech = getFirstVisitSpeech();
+        setGremlySpeech(speech.message);
+        // Don't auto-dismiss — keep it visible until user interacts
+      } else {
+        const greeting = getGreetingSpeech();
+        showGremlySpeech(greeting.message, greeting.duration);
+      }
     }, 500);
     return () => clearTimeout(timer);
-  }, [showGremlySpeech]);
+  }, [showGremlySpeech, firstDropCompletedAt, showSweepDemoPrompt]);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pulseScale] = useState(() => new Animated.Value(1));
@@ -5659,13 +5668,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     // Keep recent drops visible so users can watch cards update in real-time
   }, []);
 
-  // Auto-dismiss spotlight when user focuses input or starts typing
-  useEffect(() => {
-    if (showFirstDropSpotlight && (isInputFocused || note.length > 0)) {
-      setShowFirstDropSpotlight(false);
-      markFirstDropComplete();
-    }
-  }, [showFirstDropSpotlight, isInputFocused, note.length, markFirstDropComplete]);
+
 
   // PanResponder for swipe-down-to-dismiss-keyboard gesture
   const panResponder = React.useRef(
@@ -7900,8 +7903,19 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       const result = await handleMindDropSubmit();
       setIsSubmitting(false);
 
-      // Show speech based on classification result using full getGremlySpeech logic
-      if (result.createdDetails?.length > 0) {
+      // First-drop override: show post-drop sweep prompt instead of normal speech
+      if (!firstDropCompletedAt) {
+        // Clear any pending auto-dismiss timer so the post-drop speech persists
+        if (gremlySpeechTimeoutRef.current) {
+          clearTimeout(gremlySpeechTimeoutRef.current);
+          gremlySpeechTimeoutRef.current = null;
+        }
+        const speech = getPostFirstDropSpeech();
+        setGremlySpeech(speech.message);
+        setShowSweepDemoPrompt(true);
+        markFirstDropComplete();
+      } else if (result.createdDetails?.length > 0) {
+        // Show speech based on classification result using full getGremlySpeech logic
         const detail = result.createdDetails[0];
         const uiKind = detail.kind === 'note' ? 'log' : detail.kind;
 
@@ -7924,7 +7938,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           dueDate,
           mode: 'auto',
           dropsToday: storeDropsToday + 1,
-          isFirstDrop: !firstDropCompletedAt,
+          isFirstDrop: false,
           hasPhotos: pendingPhotoUris.length > 0,
           isReturningUser:
             storeLastDropTime != null && Date.now() - storeLastDropTime > 24 * 60 * 60 * 1000,
@@ -8053,19 +8067,32 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         resetState();
         setIsSubmitting(false);
 
-        // Show optimistic speech based on heuristic bucket
-        const heuristicResult = heuristicClassify(effectiveText, {
-          hasAttachments: hasPhotos,
-          spaceId: null,
-        });
-        const probableKind = heuristicResult.bucket;
-        const optimisticSpeech =
-          probableKind === 'todo'
-            ? 'Added as a task.'
-            : probableKind === 'habit'
-              ? 'Habit saved.'
-              : 'Thought saved.';
-        showGremlySpeech(optimisticSpeech);
+        // First-drop override: show post-drop sweep prompt instead of normal speech
+        if (!firstDropCompletedAt) {
+          // Clear any pending auto-dismiss timer so the post-drop speech persists
+          if (gremlySpeechTimeoutRef.current) {
+            clearTimeout(gremlySpeechTimeoutRef.current);
+            gremlySpeechTimeoutRef.current = null;
+          }
+          const speech = getPostFirstDropSpeech();
+          setGremlySpeech(speech.message);
+          setShowSweepDemoPrompt(true);
+          markFirstDropComplete();
+        } else {
+          // Show optimistic speech based on heuristic bucket
+          const heuristicResult = heuristicClassify(effectiveText, {
+            hasAttachments: hasPhotos,
+            spaceId: null,
+          });
+          const probableKind = heuristicResult.bucket;
+          const optimisticSpeech =
+            probableKind === 'todo'
+              ? 'Added as a task.'
+              : probableKind === 'habit'
+                ? 'Habit saved.'
+                : 'Thought saved.';
+          showGremlySpeech(optimisticSpeech);
+        }
 
         submitLockRef.current = false;
         lastSubmittedTextRef.current = effectiveText;
@@ -8107,7 +8134,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       // Generate contextual speech based on classification result
       console.log('[Gremly Speech] finalResult.createdDetails:', finalResult.createdDetails);
-      if (finalResult.createdDetails?.length > 0) {
+      // First-drop override: show post-drop sweep prompt instead of normal speech
+      if (!firstDropCompletedAt) {
+        // Clear any pending auto-dismiss timer so the post-drop speech persists
+        if (gremlySpeechTimeoutRef.current) {
+          clearTimeout(gremlySpeechTimeoutRef.current);
+          gremlySpeechTimeoutRef.current = null;
+        }
+        const speech = getPostFirstDropSpeech();
+        setGremlySpeech(speech.message);
+        setShowSweepDemoPrompt(true);
+        markFirstDropComplete();
+      } else if (finalResult.createdDetails?.length > 0) {
         const detail = finalResult.createdDetails[0];
         const uiKind = detail.kind === 'note' ? 'log' : detail.kind;
 
@@ -8130,7 +8168,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           dueDate,
           mode: (finalResult.decisionMode as string) ?? 'auto',
           dropsToday: storeDropsToday + 1,
-          isFirstDrop: !firstDropCompletedAt,
+          isFirstDrop: false,
           hasPhotos: currentSubmissionHasPhotosRef.current,
           isReturningUser:
             storeLastDropTime != null && Date.now() - storeLastDropTime > 24 * 60 * 60 * 1000,
@@ -8387,10 +8425,51 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               >
                 <View style={styles.gremlyMessageBackdrop}>
                   <TypewriterText
+                    key={gremlySpeech}
                     text={gremlySpeech}
                     style={styles.gremlyMessage}
                     duration={1400}
                   />
+                  {showSweepDemoPrompt && (
+                    <View style={{
+                      flexDirection: 'row',
+                      justifyContent: 'center',
+                      gap: 12,
+                      marginTop: 12,
+                    }}>
+                      <Pressable
+                        onPress={() => {
+                          setShowSweepDemoPrompt(false);
+                          setGremlySpeech(null);
+                          navigation.navigate('Sweep', { demoMode: true } as any);
+                        }}
+                        style={{
+                          backgroundColor: c.mossGreen,
+                          paddingVertical: 8,
+                          paddingHorizontal: 16,
+                          borderRadius: 8,
+                        }}
+                      >
+                        <Text style={{ fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF' }}>
+                          Show me
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          setShowSweepDemoPrompt(false);
+                          setGremlySpeech(null);
+                        }}
+                        style={{
+                          paddingVertical: 8,
+                          paddingHorizontal: 16,
+                        }}
+                      >
+                        <Text style={{ fontFamily: 'Inter-Regular', fontSize: 13, color: c.mutedText }}>
+                          Maybe later
+                        </Text>
+                      </Pressable>
+                    </View>
+                  )}
                 </View>
               </Reanimated.View>
             )}
@@ -8626,13 +8705,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="minddrop" />
 
-      <FirstDropSpotlight
-        visible={showFirstDropSpotlight}
-        onDismiss={() => {
-          setShowFirstDropSpotlight(false);
-          markFirstDropComplete();
-        }}
-      />
+
 
       <Modal
         transparent

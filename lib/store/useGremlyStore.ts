@@ -36,7 +36,7 @@ import {
   type CalendarProvider,
 } from '../calendar/CalendarClient';
 import { reconcileCalendarEvents } from '../calendar/calendarSync';
-import { DEFAULT_TIME_BLOCK_PREFERENCES } from '../capacity';
+import { DEFAULT_TIME_BLOCK_PREFERENCES, getTimeBlockBoundaries } from '../capacity';
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
 import type { TimeBlockPreferences } from '../capacity';
 
@@ -478,6 +478,7 @@ interface GremlyState {
   onboardingCompletedAt: string | null;
   accountCreatedAt: string | null;
   firstDropCompletedAt: string | null;
+  demoSweepCompletedAt: string | null;
   firstTodayVisitCompletedAt: string | null;
   todayRitualDay: string | null;
   todayDropsCount: number;
@@ -495,6 +496,7 @@ interface GremlyState {
   setOnboardingCompletedAt: (timestamp: string) => Promise<void>;
   markOnboardingComplete: () => Promise<void>;
   markFirstDropComplete: () => Promise<void>;
+  markDemoSweepComplete: () => Promise<void>;
   markFirstTodayVisitComplete: () => Promise<void>;
   refreshRitualProgress: () => Promise<void>;
 
@@ -642,6 +644,9 @@ interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   // ORGANIZE DAY (AI-powered task assignments)
   // ═══════════════════════════════════════════════════════════════════
+  /** Wipe all ephemeral daily assignments (daily_block + scheduled_start_iso).
+   *  Called when Morning Brief detects a new day. */
+  resetDailyAssignments: () => void;
   applyOrganizeAssignments: (
     assignments: Array<{
       taskId: string;
@@ -649,6 +654,7 @@ interface GremlyState {
       scheduledStartIso?: string | null;
     }>,
   ) => void;
+  slotUnpositionedTasks: () => void;
 
   // ═══════════════════════════════════════════════════════════════════
   // BULK/UTILITY
@@ -794,6 +800,19 @@ interface GremlyState {
   /** The date that hiddenTodayIds applies to (for auto-reset) */
   hiddenTodayDate: string | null;
 
+  // Morning Brief capacity gate (ephemeral daily state)
+  /** Task IDs the user selected for today in the Morning Brief prioritization flow */
+  briefSelectedIds: string[];
+  /** Task IDs locked as non-negotiable (max 3) */
+  briefLockedIds: string[];
+  /** The date these selections apply to (for daily reset detection) */
+  briefSelectionDate: string | null;
+  /** IDs of tasks explicitly deselected (parked for later) */
+  parkedForDay: string[];
+  /** Date the user last completed the brief (for re-entry detection) */
+  briefCompletedToday: string | null;
+  setBriefCompletedToday: (date: string | null) => void;
+
   // Calendar actions
   refreshCalendarConnections: () => Promise<void>;
   fetchCalendarEventsForRange: (startDate: string, endDate: string) => Promise<void>;
@@ -849,6 +868,12 @@ interface GremlyState {
   hideForToday: (id: string, forDate?: string) => void;
   unhideForToday: (id: string) => void;
   clearHiddenToday: () => void;
+  // Morning Brief capacity gate actions
+  setBriefSelections: (selectedIds: string[], lockedIds: string[], date: string) => void;
+  toggleBriefSelection: (taskId: string) => void;
+  toggleBriefLock: (taskId: string) => void;
+  clearBriefSelections: () => void;
+  setBriefParked: (parkedIds: string[]) => void;
   // Gap slotting actions
   slotTaskIntoGap: (id: string, entityType: 'todo' | 'habit', startIso: string) => void;
   unslotTask: (id: string, entityType: 'todo' | 'habit') => void;
@@ -893,6 +918,7 @@ const initialState = {
   onboardingCompletedAt: null as string | null,
   accountCreatedAt: null as string | null,
   firstDropCompletedAt: null as string | null,
+  demoSweepCompletedAt: null as string | null,
   firstTodayVisitCompletedAt: null as string | null,
   todayRitualDay: null as string | null,
   todayDropsCount: 0,
@@ -922,6 +948,13 @@ const initialState = {
   },
   hiddenTodayIds: [] as string[],
   hiddenTodayDate: null as string | null,
+
+  // Morning Brief capacity gate
+  briefSelectedIds: [] as string[],
+  briefLockedIds: [] as string[],
+  briefSelectionDate: null as string | null,
+  parkedForDay: [] as string[],
+  briefCompletedToday: null as string | null,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1026,7 +1059,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1152,6 +1185,7 @@ export const useGremlyStore = create<GremlyState>()(
               onboardingCompletedAt: effectiveOnboardingCompleted,
               accountCreatedAt: (cortexPrefs?.created_at as string) ?? null,
               firstDropCompletedAt: (cortexPrefs?.first_drop_completed_at as string) ?? null,
+              demoSweepCompletedAt: (cortexPrefs?.demo_sweep_completed_at as string) ?? null,
               firstTodayVisitCompletedAt:
                 (cortexPrefs?.first_today_visit_completed_at as string) ?? null,
               todayRitualDay: ritualDay,
@@ -1272,6 +1306,7 @@ export const useGremlyStore = create<GremlyState>()(
             dayBoundaryHour: 0,
             onboardingCompletedAt: null,
             accountCreatedAt: null,
+            demoSweepCompletedAt: null,
             todayRitualDay: null,
             todayDropsCount: 0,
             todaySweepsCount: 0,
@@ -1599,6 +1634,36 @@ export const useGremlyStore = create<GremlyState>()(
 
           set({ firstDropCompletedAt: now });
           console.log('[GremlyStore] First drop marked complete');
+        },
+
+        markDemoSweepComplete: async () => {
+          const userId = get().userId;
+          if (!userId) return;
+
+          const now = new Date().toISOString();
+
+          // Set local state first — don't block UX on DB write
+          set({ demoSweepCompletedAt: now });
+          console.log('[GremlyStore] Demo sweep marked complete');
+
+          // Best-effort persist to Supabase
+          try {
+            const { error } = await supabase
+              .from('cortex_preferences')
+              .upsert(
+                { owner_id: userId, demo_sweep_completed_at: now, updated_at: now },
+                { onConflict: 'owner_id' },
+              );
+
+            if (error) {
+              console.warn(
+                '[GremlyStore] markDemoSweepComplete DB write failed (non-blocking):',
+                error.message,
+              );
+            }
+          } catch (e) {
+            console.warn('[GremlyStore] markDemoSweepComplete DB exception (non-blocking):', e);
+          }
         },
 
         markFirstTodayVisitComplete: async () => {
@@ -3337,57 +3402,428 @@ export const useGremlyStore = create<GremlyState>()(
         // ORGANIZE DAY (AI-powered task assignments)
         // ═══════════════════════════════════════════════════════════════════
 
+        resetDailyAssignments: () => {
+          const todosToReset = get().todos.filter(
+            (t) => t.daily_block != null || t.scheduled_start_iso != null,
+          );
+          const habitsToReset = get().habits.filter(
+            (h) => h.daily_block != null || h.scheduled_start_iso != null,
+          );
+
+          if (todosToReset.length === 0 && habitsToReset.length === 0) return;
+
+          console.log('[Store] resetDailyAssignments', {
+            todos: todosToReset.length,
+            habits: habitsToReset.length,
+          });
+
+          // Batch update Zustand state
+          set((state) => ({
+            todos: state.todos.map((t) =>
+              t.daily_block != null || t.scheduled_start_iso != null
+                ? { ...t, daily_block: null, scheduled_start_iso: null }
+                : t,
+            ),
+            habits: state.habits.map((h) =>
+              h.daily_block != null || h.scheduled_start_iso != null
+                ? { ...h, daily_block: null, scheduled_start_iso: null }
+                : h,
+            ),
+          }));
+
+          // Persist to Supabase (non-blocking)
+          for (const t of todosToReset) {
+            get().updateTodo(t.id, { daily_block: null, scheduled_start_iso: null });
+          }
+          for (const h of habitsToReset) {
+            get().updateHabit(h.id, { daily_block: null, scheduled_start_iso: null });
+          }
+        },
+
         applyOrganizeAssignments: (assignments) => {
-          set((state) => {
-            const updatedTodos = state.todos.map((todo) => {
-              const assignment = assignments.find((a) => a.taskId === todo.id);
-              if (assignment) {
-                return {
-                  ...todo,
-                  time_window: assignment.block,
-                  ...(assignment.scheduledStartIso
-                    ? { scheduled_start_iso: assignment.scheduledStartIso }
-                    : {}),
-                };
-              }
-              return todo;
-            });
+          const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
+          const today = getDateService().getCurrentDate();
+          const [year, month, day] = today.split('-').map(Number);
+          const now = new Date();
+          const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
 
-            const updatedHabits = state.habits.map((habit) => {
-              const assignment = assignments.find((a) => a.taskId === habit.id);
-              if (assignment) {
-                return {
-                  ...habit,
-                  time_window: assignment.block,
-                  ...(assignment.scheduledStartIso
-                    ? { scheduled_start_iso: assignment.scheduledStartIso }
-                    : {}),
-                };
+          // === PHASE 1: Validate all scheduledStartIso values ===
+          const validatedAssignments = assignments.map((a) => {
+            if (!a.scheduledStartIso) return { ...a, scheduledStartIso: null as string | null };
+            const startTime = new Date(a.scheduledStartIso);
+            if (isNaN(startTime.getTime()))
+              return { ...a, scheduledStartIso: null as string | null };
+            if (startTime < fiveMinAgo) return { ...a, scheduledStartIso: null as string | null };
+            const bound = boundaries[a.block];
+            if (bound) {
+              const hour = startTime.getHours();
+              if (hour < bound.startHour || hour >= bound.endHour) {
+                return { ...a, scheduledStartIso: null as string | null };
               }
-              return habit;
-            });
-
-            return { todos: updatedTodos, habits: updatedHabits };
+            }
+            return a;
           });
 
-          // Persist to Supabase
-          const { todos, habits } = get();
-          assignments.forEach((assignment) => {
-            const updatePayload: Record<string, any> = { time_window: assignment.block };
-            if (assignment.scheduledStartIso) {
-              updatePayload.scheduled_start_iso = assignment.scheduledStartIso;
+          // === PHASE 2: Build occupied ranges (calendar + non-reassigned tasks) ===
+          const assignedTaskIds = new Set(validatedAssignments.map((a) => a.taskId));
+          const occupiedRanges: Record<string, Array<{ start: number; end: number }>> = {
+            morning: [],
+            day: [],
+            evening: [],
+          };
+
+          // Calendar events
+          const calendarEvents = get().calendarEvents[today] || [];
+          for (const event of calendarEvents) {
+            if (event.isAllDay) continue;
+            const eStart = new Date(event.startAt);
+            const eEnd = new Date(event.endAt);
+            const startMin = eStart.getHours() * 60 + eStart.getMinutes();
+            const endMin = eEnd.getHours() * 60 + eEnd.getMinutes();
+            for (const [block, bound] of Object.entries(boundaries)) {
+              const bStart = bound.startHour * 60;
+              const bEnd = bound.endHour * 60;
+              if (startMin < bEnd && endMin > bStart) {
+                occupiedRanges[block].push({
+                  start: Math.max(startMin, bStart),
+                  end: Math.min(endMin, bEnd),
+                });
+              }
+            }
+          }
+
+          // Existing slotted tasks NOT being reassigned
+          for (const item of [...get().todos, ...get().habits]) {
+            if (assignedTaskIds.has(item.id)) continue;
+            if (!item.scheduled_start_iso) continue;
+            const s = new Date(item.scheduled_start_iso);
+            const sMin = s.getHours() * 60 + s.getMinutes();
+            const duration = item.time_estimate_minutes || 15;
+            for (const [block, bound] of Object.entries(boundaries)) {
+              if (sMin >= bound.startHour * 60 && sMin < bound.endHour * 60) {
+                occupiedRanges[block].push({ start: sMin, end: sMin + duration });
+              }
+            }
+          }
+
+          // Sort ranges
+          for (const block of Object.keys(occupiedRanges)) {
+            occupiedRanges[block].sort((a, b) => a.start - b.start);
+          }
+
+          // === PHASE 3: Resolve times for ALL assignments ===
+          const finalAssignments: Record<
+            string,
+            { block: string; scheduledStartIso: string | null }
+          > = {};
+          const allTodos = get().todos;
+          const allHabits = get().habits;
+
+          for (const assignment of validatedAssignments) {
+            const taskId = assignment.taskId;
+            let finalBlock: string = assignment.block;
+            let finalIso: string | null = assignment.scheduledStartIso || null;
+
+            if (finalIso) {
+              // AI provided valid time — use it, register in occupied
+              const s = new Date(finalIso);
+              const sMin = s.getHours() * 60 + s.getMinutes();
+              const todo = allTodos.find((t) => t.id === taskId);
+              const habit = allHabits.find((h) => h.id === taskId);
+              const duration = todo?.time_estimate_minutes || habit?.time_estimate_minutes || 15;
+              occupiedRanges[finalBlock].push({ start: sMin, end: sMin + duration });
+              occupiedRanges[finalBlock].sort((a, b) => a.start - b.start);
+            } else {
+              // Need fallback slotting
+              const todo = allTodos.find((t) => t.id === taskId);
+              const habit = allHabits.find((h) => h.id === taskId);
+              const taskDuration =
+                todo?.time_estimate_minutes || habit?.time_estimate_minutes || 15;
+
+              // Try assigned block first, then others
+              const blockOrder = [
+                finalBlock,
+                ...['day', 'evening', 'morning'].filter((b) => b !== finalBlock),
+              ];
+
+              for (const tryBlock of blockOrder) {
+                const bound = boundaries[tryBlock as keyof typeof boundaries];
+                if (!bound) continue;
+
+                const bStartMin = Math.max(
+                  bound.startHour * 60,
+                  now.getHours() * 60 + now.getMinutes(),
+                );
+                const bEndMin = bound.endHour * 60;
+                if (bStartMin >= bEndMin) continue;
+
+                const ranges = occupiedRanges[tryBlock];
+                let cursor = bStartMin;
+                let found = false;
+
+                for (const range of ranges) {
+                  if (range.start - cursor >= taskDuration) {
+                    const h = Math.floor(cursor / 60);
+                    const m = cursor % 60;
+                    finalIso = new Date(year, month - 1, day, h, m).toISOString();
+                    finalBlock = tryBlock;
+                    ranges.push({ start: cursor, end: cursor + taskDuration });
+                    ranges.sort((a, b) => a.start - b.start);
+                    found = true;
+                    break;
+                  }
+                  cursor = Math.max(cursor, range.end);
+                }
+
+                if (!found && bEndMin - cursor >= taskDuration) {
+                  const h = Math.floor(cursor / 60);
+                  const m = cursor % 60;
+                  finalIso = new Date(year, month - 1, day, h, m).toISOString();
+                  finalBlock = tryBlock;
+                  ranges.push({ start: cursor, end: cursor + taskDuration });
+                  ranges.sort((a, b) => a.start - b.start);
+                  found = true;
+                }
+
+                if (found) break;
+              }
+
+              if (!finalIso) {
+                console.warn('[Organize] No slot found in any block for:', taskId);
+              }
             }
 
-            const todo = todos.find((t) => t.id === assignment.taskId);
+            finalAssignments[taskId] = { block: finalBlock, scheduledStartIso: finalIso };
+          }
+
+          // === PHASE 4: ONE set() call with everything resolved ===
+          set((state) => ({
+            todos: state.todos.map((todo) => {
+              const fa = finalAssignments[todo.id];
+              if (!fa) return todo;
+              return {
+                ...todo,
+                daily_block: fa.block as Todo['daily_block'],
+                scheduled_start_iso: fa.scheduledStartIso,
+              };
+            }),
+            habits: state.habits.map((habit) => {
+              const fa = finalAssignments[habit.id];
+              if (!fa) return habit;
+              return {
+                ...habit,
+                daily_block: fa.block as Habit['daily_block'],
+                scheduled_start_iso: fa.scheduledStartIso,
+              };
+            }),
+          }));
+
+          // === PHASE 5: Persist to Supabase (non-blocking, no UI impact) ===
+          const { todos: finalTodos, habits: finalHabits } = get();
+          for (const [taskId, fa] of Object.entries(finalAssignments)) {
+            const payload: Record<string, any> = { daily_block: fa.block };
+            if (fa.scheduledStartIso) {
+              payload.scheduled_start_iso = fa.scheduledStartIso;
+            }
+            const matchedTodo = finalTodos.find((t) => t.id === taskId);
+            if (matchedTodo) {
+              get().updateTodo(taskId, payload);
+              continue;
+            }
+            const matchedHabit = finalHabits.find((h) => h.id === taskId);
+            if (matchedHabit) {
+              get().updateHabit(taskId, payload);
+            }
+          }
+        },
+
+        slotUnpositionedTasks: () => {
+          const today = getDateService().getCurrentDate();
+          const [year, month, day] = today.split('-').map(Number);
+          const now = new Date();
+          const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
+
+          // Build occupied ranges from calendar + all currently slotted tasks
+          const occupiedRanges: Record<string, Array<{ start: number; end: number }>> = {
+            morning: [],
+            day: [],
+            evening: [],
+          };
+
+          const calendarEvents = get().calendarEvents[today] || [];
+          for (const event of calendarEvents) {
+            if (event.isAllDay) continue;
+            const eStart = new Date(event.startAt);
+            const eEnd = new Date(event.endAt);
+            const startMin = eStart.getHours() * 60 + eStart.getMinutes();
+            const endMin = eEnd.getHours() * 60 + eEnd.getMinutes();
+            for (const [block, bound] of Object.entries(boundaries)) {
+              const bStart = bound.startHour * 60;
+              const bEnd = bound.endHour * 60;
+              if (startMin < bEnd && endMin > bStart) {
+                occupiedRanges[block].push({
+                  start: Math.max(startMin, bStart),
+                  end: Math.min(endMin, bEnd),
+                });
+              }
+            }
+          }
+
+          // All currently slotted tasks
+          for (const item of [...get().todos, ...get().habits]) {
+            if (!item.scheduled_start_iso) continue;
+            const s = new Date(item.scheduled_start_iso);
+            const sMin = s.getHours() * 60 + s.getMinutes();
+            const duration = item.time_estimate_minutes || 15;
+            for (const [block, bound] of Object.entries(boundaries)) {
+              if (sMin >= bound.startHour * 60 && sMin < bound.endHour * 60) {
+                occupiedRanges[block].push({ start: sMin, end: sMin + duration });
+              }
+            }
+          }
+
+          for (const block of Object.keys(occupiedRanges)) {
+            occupiedRanges[block].sort((a, b) => a.start - b.start);
+          }
+
+          // Find unpositioned tasks: has time_window but no scheduled_start_iso
+          const unpositioned: Array<{
+            id: string;
+            type: 'todo' | 'habit';
+            block: string;
+            duration: number;
+          }> = [];
+
+          for (const todo of get().todos) {
+            if (todo.archived || todo.completed_at) continue;
+            if (todo.due_day !== today) continue;
+            const eb = todo.daily_block ?? todo.time_window;
+            if (eb && eb !== 'any' && !todo.scheduled_start_iso) {
+              unpositioned.push({
+                id: todo.id,
+                type: 'todo',
+                block: eb,
+                duration: todo.time_estimate_minutes || 15,
+              });
+            }
+          }
+
+          for (const habit of get().habits) {
+            if (habit.archived) continue;
+            const eb = habit.daily_block ?? habit.time_window;
+            if (eb && eb !== 'any' && !habit.scheduled_start_iso) {
+              unpositioned.push({
+                id: habit.id,
+                type: 'habit',
+                block: eb,
+                duration: habit.time_estimate_minutes || 15,
+              });
+            }
+          }
+
+          if (unpositioned.length === 0) return;
+
+          console.log('[SlotUnpositioned] Found', unpositioned.length, 'tasks needing slots');
+
+          // Slot each one using same logic as organize fallback
+          const updates: Record<string, { block: string; scheduledStartIso: string | null }> = {};
+
+          for (const task of unpositioned) {
+            const blockOrder = [
+              task.block,
+              ...['day', 'evening', 'morning'].filter((b) => b !== task.block),
+            ];
+
+            let finalIso: string | null = null;
+            let finalBlock = task.block;
+
+            for (const tryBlock of blockOrder) {
+              const bound = boundaries[tryBlock as keyof typeof boundaries];
+              if (!bound) continue;
+
+              const bStartMin = Math.max(
+                bound.startHour * 60,
+                now.getHours() * 60 + now.getMinutes(),
+              );
+              const bEndMin = bound.endHour * 60;
+              if (bStartMin >= bEndMin) continue;
+
+              const ranges = occupiedRanges[tryBlock];
+              let cursor = bStartMin;
+              let found = false;
+
+              for (const range of ranges) {
+                if (range.start - cursor >= task.duration) {
+                  const h = Math.floor(cursor / 60);
+                  const m = cursor % 60;
+                  finalIso = new Date(year, month - 1, day, h, m).toISOString();
+                  finalBlock = tryBlock;
+                  ranges.push({ start: cursor, end: cursor + task.duration });
+                  ranges.sort((a, b) => a.start - b.start);
+                  found = true;
+                  break;
+                }
+                cursor = Math.max(cursor, range.end);
+              }
+
+              if (!found && bEndMin - cursor >= task.duration) {
+                const h = Math.floor(cursor / 60);
+                const m = cursor % 60;
+                finalIso = new Date(year, month - 1, day, h, m).toISOString();
+                finalBlock = tryBlock;
+                ranges.push({ start: cursor, end: cursor + task.duration });
+                ranges.sort((a, b) => a.start - b.start);
+                found = true;
+              }
+
+              if (found) break;
+            }
+
+            if (finalIso) {
+              updates[task.id] = { block: finalBlock, scheduledStartIso: finalIso };
+              console.log('[SlotUnpositioned] Slotted', task.id, 'at', finalIso, 'in', finalBlock);
+            } else {
+              console.warn('[SlotUnpositioned] No slot found for', task.id);
+            }
+          }
+
+          if (Object.keys(updates).length === 0) return;
+
+          // Single set() call
+          set((state) => ({
+            todos: state.todos.map((t) => {
+              const u = updates[t.id];
+              if (!u) return t;
+              return {
+                ...t,
+                daily_block: u.block as Todo['daily_block'],
+                scheduled_start_iso: u.scheduledStartIso,
+              };
+            }),
+            habits: state.habits.map((h) => {
+              const u = updates[h.id];
+              if (!u) return h;
+              return {
+                ...h,
+                daily_block: u.block as Habit['daily_block'],
+                scheduled_start_iso: u.scheduledStartIso,
+              };
+            }),
+          }));
+
+          // Persist
+          for (const [id, u] of Object.entries(updates)) {
+            const payload = {
+              daily_block: u.block as Todo['daily_block'],
+              scheduled_start_iso: u.scheduledStartIso,
+            };
+            const todo = get().todos.find((t) => t.id === id);
             if (todo) {
-              get().updateTodo(todo.id, updatePayload);
-              return;
+              get().updateTodo(id, payload);
+              continue;
             }
-            const habit = habits.find((h) => h.id === assignment.taskId);
-            if (habit) {
-              get().updateHabit(habit.id, updatePayload);
-            }
-          });
+            get().updateHabit(id, payload as Partial<Habit>);
+          }
         },
 
         // ═══════════════════════════════════════════════════════════════════
@@ -4071,27 +4507,55 @@ export const useGremlyStore = create<GremlyState>()(
             );
 
             // Group events by date (YYYY-MM-DD from startAt)
-            const eventsByDate: Record<string, CalendarEvent[]> = { ...get().calendarEvents };
+            // Start fresh for the fetched range but keep events outside it
+            const prev = get().calendarEvents;
+            const eventsByDate: Record<string, CalendarEvent[]> = {};
+
+            // Keep only events whose date key falls OUTSIDE the fetched range
+            for (const [dateKey, dateEvents] of Object.entries(prev)) {
+              if (dateKey < startDate || dateKey > endDate) {
+                eventsByDate[dateKey] = dateEvents;
+              }
+            }
 
             for (const event of events) {
-              // Extract local date from UTC datetime
-              // Worker returns ISO strings with Z suffix (UTC), new Date() converts to local
-              const eventDate = new Date(event.startAt);
-              const dateKey = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
-              console.log(
-                '[GremlyStore] Event:',
-                event.title,
-                'startAt:',
-                event.startAt,
-                '-> dateKey:',
-                dateKey,
-              );
+              if (event.isAllDay) {
+                // All-day events: use the date portion of the ISO string directly
+                // to avoid UTC→local timezone shift (e.g. "2026-02-18T00:00:00Z"
+                // becomes Feb 17 in PST when parsed via new Date()).
+                const startStr = event.startAt.split('T')[0]; // "YYYY-MM-DD"
+                const endStr = event.endAt.split('T')[0]; // "YYYY-MM-DD" (exclusive)
 
-              const existing = eventsByDate[dateKey] || [];
-              // Avoid duplicates by checking event ID
-              const alreadyExists = existing.some((e) => e.id === event.id);
-              if (!alreadyExists) {
-                eventsByDate[dateKey] = [...existing, event];
+                // Add the event to every date from start to end (exclusive)
+                const cursor = new Date(startStr + 'T12:00:00'); // noon avoids DST edge
+                const endDate = new Date(endStr + 'T12:00:00');
+                while (cursor < endDate) {
+                  const dateKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
+                  const existing = eventsByDate[dateKey] || [];
+                  const alreadyExists = existing.some((e) => e.id === event.id);
+                  if (!alreadyExists) {
+                    eventsByDate[dateKey] = [...existing, event];
+                  }
+                  cursor.setDate(cursor.getDate() + 1);
+                }
+              } else {
+                // Timed events: group by local start date
+                const eventDate = new Date(event.startAt);
+                const dateKey = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
+                console.log(
+                  '[GremlyStore] Event:',
+                  event.title,
+                  'startAt:',
+                  event.startAt,
+                  '-> dateKey:',
+                  dateKey,
+                );
+
+                const existing = eventsByDate[dateKey] || [];
+                const alreadyExists = existing.some((e) => e.id === event.id);
+                if (!alreadyExists) {
+                  eventsByDate[dateKey] = [...existing, event];
+                }
               }
             }
 
@@ -4675,6 +5139,73 @@ export const useGremlyStore = create<GremlyState>()(
         clearHiddenToday: () => {
           set({ hiddenTodayIds: [], hiddenTodayDate: null });
           AsyncStorage.removeItem(HIDDEN_TODAY_STORAGE_KEY);
+        },
+
+        // ═══════════════════════════════════════════════════════════════════
+        // MORNING BRIEF CAPACITY GATE
+        // Ephemeral daily state for task prioritization flow
+        // ═══════════════════════════════════════════════════════════════════
+
+        setBriefSelections: (selectedIds: string[], lockedIds: string[], date: string) => {
+          set({
+            briefSelectedIds: selectedIds,
+            briefLockedIds: lockedIds.slice(0, 3),
+            briefSelectionDate: date,
+          });
+        },
+
+        toggleBriefSelection: (taskId: string) => {
+          set((state) => {
+            const selected = [...state.briefSelectedIds];
+            const idx = selected.indexOf(taskId);
+            if (idx >= 0) {
+              // Removing from selected — also remove from locked
+              selected.splice(idx, 1);
+              return {
+                briefSelectedIds: selected,
+                briefLockedIds: state.briefLockedIds.filter((id) => id !== taskId),
+              };
+            }
+            return { briefSelectedIds: [...selected, taskId] };
+          });
+        },
+
+        toggleBriefLock: (taskId: string) => {
+          set((state) => {
+            // Allow locking for selected tasks OR tasks already scheduled into a time slot
+            const isSelected = state.briefSelectedIds.includes(taskId);
+            const isSlotted = [...state.todos, ...state.habits].some(
+              (item) => item.id === taskId && item.scheduled_start_iso,
+            );
+            if (!isSelected && !isSlotted) return state;
+            const locked = [...state.briefLockedIds];
+            const idx = locked.indexOf(taskId);
+            if (idx >= 0) {
+              // Unlock
+              locked.splice(idx, 1);
+              return { briefLockedIds: locked };
+            }
+            // Lock — max 3
+            if (locked.length >= 3) return state;
+            return { briefLockedIds: [...locked, taskId] };
+          });
+        },
+
+        clearBriefSelections: () => {
+          set({
+            briefSelectedIds: [],
+            briefLockedIds: [],
+            briefSelectionDate: null,
+            parkedForDay: [],
+          });
+        },
+
+        setBriefParked: (parkedIds: string[]) => {
+          set({ parkedForDay: parkedIds });
+        },
+
+        setBriefCompletedToday: (date: string | null) => {
+          set({ briefCompletedToday: date });
         },
 
         // ═══════════════════════════════════════════════════════════════════
@@ -7896,6 +8427,7 @@ export const useGremlyStore = create<GremlyState>()(
           onboardingCompletedAt: state.onboardingCompletedAt,
           accountCreatedAt: state.accountCreatedAt,
           firstDropCompletedAt: state.firstDropCompletedAt,
+          demoSweepCompletedAt: state.demoSweepCompletedAt,
           firstTodayVisitCompletedAt: state.firstTodayVisitCompletedAt,
           todayRitualDay: state.todayRitualDay,
           todayDropsCount: state.todayDropsCount,

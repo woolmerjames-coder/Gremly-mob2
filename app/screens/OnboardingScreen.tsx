@@ -15,7 +15,6 @@ import {
   FlatList,
   NativeSyntheticEvent,
   NativeScrollEvent,
-  Switch,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useNotificationPreferences } from '../../hooks/useNotificationPreferences';
@@ -98,17 +97,13 @@ function RitualRows() {
 function NotificationSetup({
   morningTime,
   eveningTime,
-  notificationsEnabled,
   onMorningTimeChange,
   onEveningTimeChange,
-  onToggleNotifications,
 }: {
   morningTime: Date;
   eveningTime: Date;
-  notificationsEnabled: boolean;
   onMorningTimeChange: (date: Date) => void;
   onEveningTimeChange: (date: Date) => void;
-  onToggleNotifications: (enabled: boolean) => void;
 }) {
   return (
     <View style={notifStyles.container}>
@@ -118,12 +113,8 @@ function NotificationSetup({
       <Text style={notifStyles.sectionTitle}>When should I remind you?</Text>
 
       {/* Morning reminder */}
-      <View style={[notifStyles.timeRow, !notificationsEnabled && notifStyles.timeRowDisabled]}>
-        <Text
-          style={[notifStyles.timeLabel, !notificationsEnabled && notifStyles.timeLabelDisabled]}
-        >
-          Morning check-in
-        </Text>
+      <View style={notifStyles.timeRow}>
+        <Text style={notifStyles.timeLabel}>Morning check-in</Text>
         <DateTimePicker
           value={morningTime}
           mode="time"
@@ -131,17 +122,12 @@ function NotificationSetup({
           onChange={(event, date) => {
             if (date) onMorningTimeChange(date);
           }}
-          disabled={!notificationsEnabled}
         />
       </View>
 
       {/* Evening reminder */}
-      <View style={[notifStyles.timeRow, !notificationsEnabled && notifStyles.timeRowDisabled]}>
-        <Text
-          style={[notifStyles.timeLabel, !notificationsEnabled && notifStyles.timeLabelDisabled]}
-        >
-          Evening sweep
-        </Text>
+      <View style={notifStyles.timeRow}>
+        <Text style={notifStyles.timeLabel}>Evening sweep</Text>
         <DateTimePicker
           value={eveningTime}
           mode="time"
@@ -149,20 +135,10 @@ function NotificationSetup({
           onChange={(event, date) => {
             if (date) onEveningTimeChange(date);
           }}
-          disabled={!notificationsEnabled}
         />
       </View>
 
-      {/* Opt-out toggle */}
-      <View style={notifStyles.toggleRow}>
-        <Text style={notifStyles.toggleLabel}>Don't remind me</Text>
-        <Switch
-          value={!notificationsEnabled}
-          onValueChange={(value) => onToggleNotifications(!value)}
-          trackColor={{ false: BRAND.colors.borderSubtle, true: BRAND.colors.mossGreen }}
-          thumbColor={BRAND.colors.surface}
-        />
-      </View>
+      <Text style={notifStyles.settingsHint}>You can adjust times or turn off reminders in Settings.</Text>
     </View>
   );
 }
@@ -198,29 +174,18 @@ const notifStyles = StyleSheet.create({
     borderRadius: BRAND.radius.md,
     marginBottom: 6,
   },
-  timeRowDisabled: {
-    opacity: 0.5,
-  },
   timeLabel: {
     fontFamily: 'Inter-Regular',
     fontSize: 15,
     color: BRAND.colors.charcoalInk,
   },
-  timeLabelDisabled: {
-    color: BRAND.colors.inkMuted,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 4,
-    marginTop: 2,
-  },
-  toggleLabel: {
+  settingsHint: {
     fontFamily: 'Inter-Regular',
-    fontSize: 13,
+    fontSize: 12,
     color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginTop: 8,
+    paddingHorizontal: 4,
   },
 });
 
@@ -231,20 +196,16 @@ interface OnboardingStepViewProps {
   step: OnboardingStep;
   morningTime?: Date;
   eveningTime?: Date;
-  notificationsEnabled?: boolean;
   onMorningTimeChange?: (date: Date) => void;
   onEveningTimeChange?: (date: Date) => void;
-  onToggleNotifications?: (enabled: boolean) => void;
 }
 
 function OnboardingStepView({
   step,
   morningTime,
   eveningTime,
-  notificationsEnabled,
   onMorningTimeChange,
   onEveningTimeChange,
-  onToggleNotifications,
 }: OnboardingStepViewProps) {
   return (
     <View style={styles.stepContainer}>
@@ -284,15 +245,12 @@ function OnboardingStepView({
         morningTime &&
         eveningTime &&
         onMorningTimeChange &&
-        onEveningTimeChange &&
-        onToggleNotifications && (
+        onEveningTimeChange && (
           <NotificationSetup
             morningTime={morningTime}
             eveningTime={eveningTime}
-            notificationsEnabled={notificationsEnabled ?? true}
             onMorningTimeChange={onMorningTimeChange}
             onEveningTimeChange={onEveningTimeChange}
-            onToggleNotifications={onToggleNotifications}
           />
         )}
 
@@ -329,7 +287,6 @@ export default function OnboardingScreen() {
     date.setHours(21, 0, 0, 0);
     return date;
   });
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const hasInitializedFromPrefs = useRef(false);
 
   // Sync local state when preferences load (only once)
@@ -340,8 +297,6 @@ export default function OnboardingScreen() {
       setMorningTime(notificationPrefs.morningTime);
       // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional sync from async-loaded prefs
       setEveningTime(notificationPrefs.eveningTime);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional sync from async-loaded prefs
-      setNotificationsEnabled(notificationPrefs.morningEnabled || notificationPrefs.eveningEnabled);
     }
   }, [notificationPrefs]);
 
@@ -351,9 +306,9 @@ export default function OnboardingScreen() {
 
     try {
       await saveNotificationPrefs({
-        morningEnabled: notificationsEnabled,
+        morningEnabled: true,
         morningTime: morningTime,
-        eveningEnabled: notificationsEnabled,
+        eveningEnabled: true,
         eveningTime: eveningTime,
         weeklyEnabled: notificationPrefs.weeklyEnabled,
         weeklyTime: notificationPrefs.weeklyTime,
@@ -364,7 +319,7 @@ export default function OnboardingScreen() {
     } catch (err) {
       console.error('[Onboarding] Failed to save notification preferences:', err);
     }
-  }, [notificationPrefs, notificationsEnabled, morningTime, eveningTime, saveNotificationPrefs]);
+  }, [notificationPrefs, morningTime, eveningTime, saveNotificationPrefs]);
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -416,14 +371,12 @@ export default function OnboardingScreen() {
           step={item}
           morningTime={morningTime}
           eveningTime={eveningTime}
-          notificationsEnabled={notificationsEnabled}
           onMorningTimeChange={setMorningTime}
           onEveningTimeChange={setEveningTime}
-          onToggleNotifications={setNotificationsEnabled}
         />
       </View>
     ),
-    [morningTime, eveningTime, notificationsEnabled],
+    [morningTime, eveningTime],
   );
 
   const isLastStep = currentStep === ONBOARDING_STEPS.length - 1;

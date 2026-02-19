@@ -16,9 +16,14 @@ import {
   calculateBlockCapacity,
   getCapacitySummary,
   getMiniSweepGremlyMessage,
-  type EventTimeOverride,
 } from '../capacity';
-import type { TimeBlock, DayCapacity, TimeBlockCapacity, CapacitySummary } from '../capacity';
+import type {
+  TimeBlock,
+  DayCapacity,
+  TimeBlockCapacity,
+  CapacitySummary,
+  EventTimeOverride,
+} from '../capacity';
 import type { CalendarEvent } from '../calendar/CalendarClient';
 
 // Stable empty array to prevent unnecessary re-renders
@@ -89,49 +94,15 @@ export function useTodayCapacity(): DayCapacity {
   const events = useTodayCalendarEvents();
   const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
   const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
-  const todos = useGremlyStore((s) => s.todos);
-  const habits = useGremlyStore((s) => s.habits);
   const today = useToday();
   const currentHour = useCurrentHour();
 
   return useMemo(() => {
-    // Calculate task minutes per block
+    // Capacity = calendar-free time only. Tasks are NOT subtracted here.
+    // MorningBriefSheet uses gap-based free time (TimeBlockSection callbacks)
+    // which already accounts for positioned tasks. Subtracting tasks here too
+    // would cause double-counting.
     const taskMinutesByBlock = { morning: 0, day: 0, evening: 0 };
-
-    // Sum todos assigned to each block
-    todos
-      .filter((t) => !t.archived && !t.completed_at && t.due_day === today)
-      .forEach((todo) => {
-        const minutes = todo.time_estimate_minutes ?? 0;
-        if (todo.time_window === 'morning') {
-          taskMinutesByBlock.morning += minutes;
-        } else if (todo.time_window === 'day') {
-          taskMinutesByBlock.day += minutes;
-        } else if (todo.time_window === 'evening') {
-          taskMinutesByBlock.evening += minutes;
-        }
-        // 'any' or null = flexible, don't count against specific block
-      });
-
-    // Sum habits assigned to each block
-    habits
-      .filter((h) => {
-        if (h.archived) return false;
-        if (!h.start_date || h.start_date > today) return false;
-        if (h.end_date && h.end_date < today) return false;
-        return true;
-      })
-      .forEach((habit) => {
-        const minutes = habit.time_estimate_minutes ?? 0;
-        if (habit.time_window === 'morning') {
-          taskMinutesByBlock.morning += minutes;
-        } else if (habit.time_window === 'day') {
-          taskMinutesByBlock.day += minutes;
-        } else if (habit.time_window === 'evening') {
-          taskMinutesByBlock.evening += minutes;
-        }
-        // 'any' or null = flexible, don't count against specific block
-      });
 
     return calculateDayCapacity(
       events,
@@ -141,7 +112,7 @@ export function useTodayCapacity(): DayCapacity {
       taskMinutesByBlock,
       timeBlockPreferences,
     );
-  }, [events, currentHour, today, eventTimeOverrides, todos, habits, timeBlockPreferences]);
+  }, [events, currentHour, today, eventTimeOverrides, timeBlockPreferences]);
 }
 
 /**
@@ -245,8 +216,6 @@ export function useCapacityForDate(date: string): DayCapacity {
   const events = useCalendarEventsForDate(date);
   const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? EMPTY_TIME_OVERRIDES;
   const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
-  const todos = useGremlyStore((s) => s.todos);
-  const habits = useGremlyStore((s) => s.habits);
 
   const currentHour = useMemo(() => {
     const today = getDateService().getCurrentDate();
@@ -254,38 +223,8 @@ export function useCapacityForDate(date: string): DayCapacity {
   }, [date]);
 
   return useMemo(() => {
+    // Capacity = calendar-free time only (same rationale as useTodayCapacity).
     const taskMinutesByBlock = { morning: 0, day: 0, evening: 0 };
-
-    todos
-      .filter((t) => !t.archived && !t.completed_at && t.due_day === date)
-      .forEach((todo) => {
-        const minutes = todo.time_estimate_minutes ?? 0;
-        if (todo.time_window === 'morning') {
-          taskMinutesByBlock.morning += minutes;
-        } else if (todo.time_window === 'day') {
-          taskMinutesByBlock.day += minutes;
-        } else if (todo.time_window === 'evening') {
-          taskMinutesByBlock.evening += minutes;
-        }
-      });
-
-    habits
-      .filter((h) => {
-        if (h.archived) return false;
-        if (!h.start_date || h.start_date > date) return false;
-        if (h.end_date && h.end_date < date) return false;
-        return true;
-      })
-      .forEach((habit) => {
-        const minutes = habit.time_estimate_minutes ?? 0;
-        if (habit.time_window === 'morning') {
-          taskMinutesByBlock.morning += minutes;
-        } else if (habit.time_window === 'day') {
-          taskMinutesByBlock.day += minutes;
-        } else if (habit.time_window === 'evening') {
-          taskMinutesByBlock.evening += minutes;
-        }
-      });
 
     return calculateDayCapacity(
       events,
@@ -295,5 +234,5 @@ export function useCapacityForDate(date: string): DayCapacity {
       taskMinutesByBlock,
       timeBlockPreferences,
     );
-  }, [events, currentHour, date, eventTimeOverrides, todos, habits, timeBlockPreferences]);
+  }, [events, currentHour, date, eventTimeOverrides, timeBlockPreferences]);
 }

@@ -91,6 +91,8 @@ describe('transformCalendarEventToNote — create', () => {
     expect(result.event_time).toBeNull();
     expect(result.end_time).toBeNull();
     expect(result.is_all_day).toBe(true);
+    // Single-day all-day event: exclusive end (Mar 6) → inclusive end (Mar 5) = same as start → null
+    expect(result.end_date).toBeNull();
   });
 
   it('sets end_date for multi-day events', () => {
@@ -104,6 +106,23 @@ describe('transformCalendarEventToNote — create', () => {
 
     expect(result.target_date).toBe('2026-03-05');
     expect(result.end_date).toBe('2026-03-07');
+  });
+
+  it('converts exclusive end to inclusive for multi-day all-day events', () => {
+    // A 2-day all-day event on Mar 5-6 has exclusive end = Mar 7
+    const result = transformCalendarEventToNote(
+      mkEvent({
+        isAllDay: true,
+        startAt: '2026-03-05T00:00:00.000Z',
+        endAt: '2026-03-07T00:00:00.000Z', // exclusive end
+      }),
+      'user-1',
+    );
+
+    expect(result.target_date).toBe('2026-03-05');
+    // Inclusive end should be Mar 6 (not Mar 7)
+    expect(result.end_date).toBe('2026-03-06');
+    expect(result.is_all_day).toBe(true);
   });
 
   it('sets end_date to null for same-day events', () => {

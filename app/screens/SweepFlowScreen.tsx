@@ -85,6 +85,7 @@ import type {
 } from '../../lib/sweep/types';
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import { SweepCard } from '../../components/sweep/SweepCard';
+import { SweepDemoFlow } from '../../components/sweep/SweepDemoFlow';
 import { SweepGremlyHeader } from '../../components/sweep/SweepGremlyHeader';
 import { SweepMultiSplitStep } from '../../components/sweep/SweepMultiSplitStep';
 import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionTransition';
@@ -3089,6 +3090,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const route = useRoute<RouteProp<RootStackParamList, 'Sweep'>>();
   const initialStep = __DEV__ ? (route.params?.initialStep ?? 0) : 0;
   const initialCardIndex = __DEV__ ? route.params?.initialCardIndex : undefined;
+  const demoMode = route.params?.demoMode === true;
 
   // Debug logging for DEV mode step jumping
   if (__DEV__) {
@@ -3102,6 +3104,8 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   }
 
   const { user } = useAuth();
+  const demoSweepCompletedAt = useGremlyStore((s) => s.demoSweepCompletedAt);
+
   const [step, setStep] = useState<number>(initialStep);
 
   // Check if user has locked items for lock-in checkpoint (including completed ones for celebration)
@@ -3757,6 +3761,21 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       navigation.goBack();
     }
   }, [step, navigation]);
+
+  // ── Demo: show for ANY user who hasn't completed the demo yet ──
+  if (!demoSweepCompletedAt) {
+    return (
+      <SweepDemoFlow
+        onComplete={() => {
+          if (demoMode) {
+            navigation.goBack();
+          }
+          // else: do nothing — Zustand re-render handles the transition
+        }}
+        returnsToMindDrop={demoMode}
+      />
+    );
+  }
 
   return (
     <>

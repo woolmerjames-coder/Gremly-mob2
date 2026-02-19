@@ -8,7 +8,7 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { Text } from '../../ui';
-import { Calendar, Clock, MapPin, MoreHorizontal } from 'lucide-react-native';
+import { Calendar, MoreHorizontal } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import type { CalendarItem } from '../../lib/store/calendarSelectors';
 import type { Note } from '../../lib/types';
@@ -86,7 +86,6 @@ export function NowCalendarEventRow({
 
   const timeRangeText = formatTimeRange(normalized.time, normalized.endTime);
   const isAllDay = normalized.isAllDay;
-  const showChips = !isAllDay;
 
   return (
     <View style={styles.container}>
@@ -109,25 +108,11 @@ export function NowCalendarEventRow({
             {normalized.title}
           </Text>
 
-          {/* Meta row: time and location (hidden for all-day events) */}
-          {showChips && (
-            <View style={styles.metaRow}>
-              {/* Time chip */}
-              <View style={styles.chip}>
-                <Clock size={10} color={BRAND.colors.inkSubtle} />
-                <Text style={styles.chipText}>{timeRangeText}</Text>
-              </View>
-
-              {/* Location chip */}
-              {normalized.location && (
-                <View style={styles.chip}>
-                  <MapPin size={10} color={BRAND.colors.inkSubtle} />
-                  <Text style={styles.chipText} numberOfLines={1}>
-                    {normalized.location}
-                  </Text>
-                </View>
-              )}
-            </View>
+          {/* Time range (hidden for all-day events) */}
+          {!isAllDay && (
+            <Text style={styles.metaText} numberOfLines={1}>
+              {timeRangeText}
+            </Text>
           )}
         </View>
 
@@ -164,7 +149,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 6,
     paddingHorizontal: 12,
-    minHeight: 36,
   },
   pressed: {
     opacity: 0.7,
@@ -172,32 +156,17 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     justifyContent: 'center',
-    gap: 2,
+    gap: 0,
   },
   title: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '500',
     color: BRAND.colors.charcoalInk,
   },
-  metaRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 5,
-    paddingVertical: 0,
-    borderRadius: 3,
-    backgroundColor: 'rgba(0, 0, 0, 0.04)',
-  },
-  chipText: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: BRAND.colors.inkSubtle,
-    maxWidth: 120,
+  metaText: {
+    fontSize: 12,
+    color: '#999999',
+    marginTop: 0,
   },
   quickActionButton: {
     width: 32,

@@ -267,11 +267,13 @@ describe('useGremlyStore actions', () => {
       expect(actionBehavior.localStateUpdate).toBe('Synchronous via Zustand set()');
     });
 
-    it('correctly updates todo time_window in state mutation', () => {
+    it('correctly updates todo daily_block in state mutation', () => {
       // Test the pure transformation logic that set() applies
+      // NOTE: applyOrganizeAssignments writes to `daily_block` (ephemeral per-day),
+      // NOT `time_window` (permanent user preference).
       const todos = [
-        makeTodo({ id: 'todo-1', time_window: null }),
-        makeTodo({ id: 'todo-2', time_window: 'day' }),
+        makeTodo({ id: 'todo-1', daily_block: null } as any),
+        makeTodo({ id: 'todo-2', daily_block: 'day' } as any),
       ];
 
       const assignments = [
@@ -283,19 +285,19 @@ describe('useGremlyStore actions', () => {
       const updatedTodos = todos.map((todo) => {
         const assignment = assignments.find((a) => a.taskId === todo.id);
         if (assignment) {
-          return { ...todo, time_window: assignment.block };
+          return { ...todo, daily_block: assignment.block };
         }
         return todo;
       });
 
-      expect(updatedTodos[0].time_window).toBe('morning');
-      expect(updatedTodos[1].time_window).toBe('evening');
+      expect((updatedTodos[0] as any).daily_block).toBe('morning');
+      expect((updatedTodos[1] as any).daily_block).toBe('evening');
     });
 
-    it('correctly updates habit time_window in state mutation', () => {
+    it('correctly updates habit daily_block in state mutation', () => {
       const habits = [
-        makeHabit({ id: 'habit-1', time_window: null }),
-        makeHabit({ id: 'habit-2', time_window: 'any' }),
+        makeHabit({ id: 'habit-1', daily_block: null } as any),
+        makeHabit({ id: 'habit-2', daily_block: 'any' } as any),
       ];
 
       const assignments = [
@@ -306,19 +308,19 @@ describe('useGremlyStore actions', () => {
       const updatedHabits = habits.map((habit) => {
         const assignment = assignments.find((a) => a.taskId === habit.id);
         if (assignment) {
-          return { ...habit, time_window: assignment.block };
+          return { ...habit, daily_block: assignment.block };
         }
         return habit;
       });
 
-      expect(updatedHabits[0].time_window).toBe('morning');
-      expect(updatedHabits[1].time_window).toBe('day');
+      expect((updatedHabits[0] as any).daily_block).toBe('morning');
+      expect((updatedHabits[1] as any).daily_block).toBe('day');
     });
 
     it('leaves unassigned items unchanged', () => {
       const todos = [
-        makeTodo({ id: 'todo-1', time_window: 'day' }),
-        makeTodo({ id: 'todo-2', time_window: null }),
+        makeTodo({ id: 'todo-1', daily_block: 'day' } as any),
+        makeTodo({ id: 'todo-2', daily_block: null } as any),
       ];
 
       const assignments = [
@@ -328,13 +330,13 @@ describe('useGremlyStore actions', () => {
       const updatedTodos = todos.map((todo) => {
         const assignment = assignments.find((a) => a.taskId === todo.id);
         if (assignment) {
-          return { ...todo, time_window: assignment.block };
+          return { ...todo, daily_block: assignment.block };
         }
         return todo;
       });
 
-      expect(updatedTodos[0].time_window).toBe('day'); // unchanged
-      expect(updatedTodos[1].time_window).toBe('evening'); // updated
+      expect((updatedTodos[0] as any).daily_block).toBe('day'); // unchanged
+      expect((updatedTodos[1] as any).daily_block).toBe('evening'); // updated
     });
 
     it('handles empty assignments array gracefully', async () => {
@@ -350,8 +352,8 @@ describe('useGremlyStore actions', () => {
     });
 
     // Integration tests that need proper mock setup
-    it.todo('persists todo time_window to Supabase');
-    it.todo('persists habit time_window to Supabase');
+    it.todo('persists todo daily_block to Supabase');
+    it.todo('persists habit daily_block to Supabase');
     it.todo('rolls back on persistence failure');
   });
 

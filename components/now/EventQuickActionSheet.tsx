@@ -20,7 +20,23 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Clock, StickyNote, Link2, Bell, EyeOff } from 'lucide-react-native';
 import type { Note } from '../../lib/types';
+import type { CalendarEvent } from '../../lib/calendar/CalendarClient';
 import { EventTimePicker } from '../../app/components/morning-brief/components/EventTimePicker';
+
+/* ─── unified event type ─── */
+
+export interface UnifiedEvent {
+  id: string;
+  title: string;
+  eventTime: string | null; // HH:mm
+  endTime: string | null; // HH:mm
+  isAllDay: boolean;
+  sourceType: 'note' | 'calendar';
+  /** Original Note object (only for sourceType 'note') */
+  note?: Note;
+  /** Original CalendarEvent (only for sourceType 'calendar') */
+  calendarEvent?: CalendarEvent;
+}
 
 /* ─── constants ─── */
 
@@ -54,18 +70,6 @@ function formatTime12(hhmm: string): string {
   return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
-/** Build a display string like "8:00 AM – 8:30 AM" or "All day" */
-function buildTimeLabel(event: Note): string {
-  if (event.is_all_day) return 'All day';
-  if (!event.event_time) return '';
-  const start = formatTime12(event.event_time);
-  if (event.end_time) {
-    const end = formatTime12(event.end_time);
-    return `${start} – ${end}`;
-  }
-  return start;
-}
-
 /** Convert "HH:mm" to an ISO string on today's date */
 function hhmmToISO(hhmm: string | null | undefined): string | null {
   if (!hhmm) return null;
@@ -80,13 +84,14 @@ function hhmmToISO(hhmm: string | null | undefined): string | null {
 export interface EventQuickActionSheetProps {
   visible: boolean;
   event: Note | null;
+  unifiedEvent?: UnifiedEvent | null;
   onClose: () => void;
   onDismiss: (eventId: string) => void;
   onEditTime: (eventId: string, startTime: string, endTime: string | null) => void;
   onAddPrepNote: (eventId: string, note: string) => void;
   onLinkTodo: (eventId: string) => void;
   onRemind: (eventId: string, minutesBefore: number) => void;
-  onOpenFull: (event: Note) => void;
+  onOpenFull: (eventId: string) => void;
 }
 
 type ExpandedRow = 'editTime' | 'prepNote' | 'remind' | null;
@@ -96,6 +101,7 @@ type ExpandedRow = 'editTime' | 'prepNote' | 'remind' | null;
 export default function EventQuickActionSheet({
   visible,
   event,
+  unifiedEvent,
   onClose,
   onDismiss,
   onEditTime,
@@ -109,7 +115,33 @@ export default function EventQuickActionSheet({
   const [prepText, setPrepText] = useState('');
   const [showTimePicker, setShowTimePicker] = useState(false);
 
-  const timeLabel = useMemo(() => (event ? buildTimeLabel(event) : ''), [event]);
+  // Derive a display object from whichever source is available
+  const displayEvent = useMemo(() => {
+    if (unifiedEvent) return unifiedEvent;
+    if (event)
+      return {
+        id: event.id,
+        title: event.title || 'Untitled',
+        eventTime: event.event_time ?? null,
+        endTime: event.end_time ?? null,
+        isAllDay: !!event.is_all_day,
+        sourceType: 'note' as const,
+        note: event,
+      };
+    return null;
+  }, [unifiedEvent, event]);
+
+  const timeLabel = useMemo(() => {
+    if (!displayEvent) return '';
+    if (displayEvent.isAllDay) return 'All day';
+    if (!displayEvent.eventTime) return '';
+    const start = formatTime12(displayEvent.eventTime);
+    if (displayEvent.endTime) {
+      const end = formatTime12(displayEvent.endTime);
+      return `${start} – ${end}`;
+    }
+    return start;
+  }, [displayEvent]);
 
   const collapse = useCallback(() => {
     setExpanded(null);
@@ -125,6 +157,12 @@ export default function EventQuickActionSheet({
   /* row handlers */
 
   const handleEditTimePress = useCallback(() => {
+    console.log(
+      '[EventSheet] Edit time pressed, expanded=',
+      expanded,
+      'displayEvent=',
+      displayEvent?.id,
+    );
     if (expanded === 'editTime') {
       collapse();
       return;
@@ -132,21 +170,21 @@ export default function EventQuickActionSheet({
     collapse();
     setShowTimePicker(true);
     setExpanded('editTime');
-  }, [expanded, collapse]);
+  }, [expanded, collapse, displayEvent]);
 
   const handleTimePickerSave = useCallback(
     (_eventId: string, startISO: string, endISO: string) => {
-      if (!event) return;
+      if (!displayEvent) return;
       // Extract HH:mm from the ISO strings
       const startDate = new Date(startISO);
       const endDate = new Date(endISO);
       const fmt = (d: Date) =>
         `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-      onEditTime(event.id, fmt(startDate), fmt(endDate));
+      onEditTime(displayEvent.id, fmt(startDate), fmt(endDate));
       setShowTimePicker(false);
       setExpanded(null);
     },
-    [event, onEditTime],
+    [displayEvent, onEditTime],
   );
 
   const handleTimePickerClose = useCallback(() => {
@@ -155,20 +193,32 @@ export default function EventQuickActionSheet({
   }, []);
 
   const handlePrepNotePress = useCallback(() => {
+    console.log(
+      '[EventSheet] Prep note pressed, expanded=',
+      expanded,
+      'displayEvent=',
+      displayEvent?.id,
+    );
     if (expanded === 'prepNote') {
       collapse();
       return;
     }
     collapse();
     setExpanded('prepNote');
-    setPrepText(event?.body ?? '');
-  }, [expanded, collapse, event]);
+    setPrepText(displayEvent?.note?.body ?? '');
+  }, [expanded, collapse, displayEvent]);
 
   const handleSavePrepNote = useCallback(() => {
-    if (!event || !prepText.trim()) return;
-    onAddPrepNote(event.id, prepText.trim());
+    console.log(
+      '[EventSheet] Save prep note pressed, hasDisplay=',
+      !!displayEvent,
+      'text=',
+      prepText?.slice(0, 30),
+    );
+    if (!displayEvent || !prepText.trim()) return;
+    onAddPrepNote(displayEvent.id, prepText.trim());
     collapse();
-  }, [event, prepText, onAddPrepNote, collapse]);
+  }, [displayEvent, prepText, onAddPrepNote, collapse]);
 
   const handleRemindPress = useCallback(() => {
     if (expanded === 'remind') {
@@ -181,31 +231,44 @@ export default function EventQuickActionSheet({
 
   const handleRemindChip = useCallback(
     (minutes: number) => {
-      if (!event) return;
-      onRemind(event.id, minutes);
+      if (!displayEvent) return;
+      onRemind(displayEvent.id, minutes);
       collapse();
     },
-    [event, onRemind, collapse],
+    [displayEvent, onRemind, collapse],
   );
 
   const handleLinkTodo = useCallback(() => {
-    if (!event) return;
-    onLinkTodo(event.id);
-  }, [event, onLinkTodo]);
+    console.log('[EventSheet] Link todo pressed, displayEvent=', displayEvent?.id);
+    if (!displayEvent) return;
+    onLinkTodo(displayEvent.id);
+  }, [displayEvent, onLinkTodo]);
 
   const handleDismiss = useCallback(() => {
-    if (!event) return;
-    onDismiss(event.id);
+    console.log(
+      '[EventSheet] Hide/dismiss pressed, displayEvent=',
+      displayEvent?.id,
+      'sourceType=',
+      displayEvent?.sourceType,
+    );
+    if (!displayEvent) return;
+    onDismiss(displayEvent.id);
     handleClose();
-  }, [event, onDismiss, handleClose]);
+  }, [displayEvent, onDismiss, handleClose]);
 
   const handleOpenFull = useCallback(() => {
-    if (!event) return;
-    onOpenFull(event);
+    console.log(
+      '[EventSheet] Open full pressed, displayEvent=',
+      displayEvent?.id,
+      'sourceType=',
+      displayEvent?.sourceType,
+    );
+    if (!displayEvent) return;
+    onOpenFull(displayEvent.id);
     handleClose();
-  }, [event, onOpenFull, handleClose]);
+  }, [displayEvent, onOpenFull, handleClose]);
 
-  if (!event) return null;
+  if (!displayEvent) return null;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
@@ -226,11 +289,45 @@ export default function EventQuickActionSheet({
           {/* event header */}
           <View style={styles.header}>
             <Text style={styles.headerTitle} numberOfLines={1}>
-              {event.title ?? 'Untitled event'}
+              {displayEvent.title}
             </Text>
             <Text style={styles.headerSubtitle}>{timeLabel}</Text>
           </View>
           <View style={styles.headerDivider} />
+
+          {/* ── Dismiss (always shown) ── */}
+          <ActionRow
+            icon={<EyeOff size={18} color={DANGER_MUTED} />}
+            label="Hide from today"
+            labelColor={DANGER_MUTED}
+            onPress={handleDismiss}
+          />
+          <View style={styles.rowDivider} />
+
+          {/* ── Remind Me (shown when event has a time) ── */}
+          {displayEvent.eventTime && (
+            <>
+              <ActionRow
+                icon={<Bell size={18} color={SAGE} />}
+                label="Remind me"
+                onPress={handleRemindPress}
+              />
+              {expanded === 'remind' && (
+                <View style={styles.chipRow}>
+                  {REMIND_OPTIONS.map((opt) => (
+                    <Pressable
+                      key={opt.minutes}
+                      style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+                      onPress={() => handleRemindChip(opt.minutes)}
+                    >
+                      <Text style={styles.chipText}>{opt.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+              <View style={styles.rowDivider} />
+            </>
+          )}
 
           {/* ── Edit Time ── */}
           <ActionRow
@@ -242,10 +339,10 @@ export default function EventQuickActionSheet({
           {expanded === 'editTime' && (
             <EventTimePicker
               visible={showTimePicker}
-              eventId={event.id}
-              eventTitle={event.title ?? 'Untitled event'}
-              originalStartAt={hhmmToISO(event.event_time)}
-              originalEndAt={hhmmToISO(event.end_time)}
+              eventId={displayEvent.id}
+              eventTitle={displayEvent.title}
+              originalStartAt={hhmmToISO(displayEvent.eventTime)}
+              originalEndAt={hhmmToISO(displayEvent.endTime)}
               currentOverride={null}
               onClose={handleTimePickerClose}
               onSave={handleTimePickerSave}
@@ -258,7 +355,7 @@ export default function EventQuickActionSheet({
           <ActionRow
             icon={<StickyNote size={18} color={SAGE} />}
             label="Add prep note"
-            rightDetail={event.body ? 'Edit' : undefined}
+            rightDetail={displayEvent.note?.body ? 'Edit' : undefined}
             onPress={handlePrepNotePress}
           />
           {expanded === 'prepNote' && (
@@ -292,36 +389,7 @@ export default function EventQuickActionSheet({
           />
           <View style={styles.rowDivider} />
 
-          {/* ── Remind Me ── */}
-          <ActionRow
-            icon={<Bell size={18} color={SAGE} />}
-            label="Remind me"
-            onPress={handleRemindPress}
-          />
-          {expanded === 'remind' && (
-            <View style={styles.chipRow}>
-              {REMIND_OPTIONS.map((opt) => (
-                <Pressable
-                  key={opt.minutes}
-                  style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
-                  onPress={() => handleRemindChip(opt.minutes)}
-                >
-                  <Text style={styles.chipText}>{opt.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
-          <View style={styles.rowDivider} />
-
-          {/* ── Dismiss ── */}
-          <ActionRow
-            icon={<EyeOff size={18} color={DANGER_MUTED} />}
-            label="Dismiss from today"
-            labelColor={DANGER_MUTED}
-            onPress={handleDismiss}
-          />
-
-          {/* ── Footer ── */}
+          {/* ── Footer: open full details ── */}
           <Pressable
             style={({ pressed }) => [styles.footerBtn, pressed && { opacity: 0.7 }]}
             onPress={handleOpenFull}

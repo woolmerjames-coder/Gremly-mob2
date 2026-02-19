@@ -1,10 +1,9 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Lock, Sunrise, Sun, Sunset, Clock, ShieldOff } from 'lucide-react-native';
+import { Sunrise, Sun, Sunset, Clock, ShieldOff } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 
 const SECTION_CONFIG: Record<string, { label: string; color: string; Icon: LucideIcon }> = {
-  locked: { label: 'LOCKED IN', color: '#6B8F71', Icon: Lock },
   allday: { label: 'ALL DAY', color: '#8B7E74', Icon: ShieldOff },
   morning: { label: 'MORNING', color: '#D4A574', Icon: Sunrise },
   afternoon: { label: 'AFTERNOON', color: '#C9956C', Icon: Sun },
@@ -13,7 +12,7 @@ const SECTION_CONFIG: Record<string, { label: string; color: string; Icon: Lucid
 };
 
 interface TimeBlockSectionProps {
-  block: 'locked' | 'allday' | 'morning' | 'afternoon' | 'evening' | 'anytime';
+  block: 'allday' | 'morning' | 'afternoon' | 'evening' | 'anytime';
   isFirst?: boolean;
   calendarHint?: React.ReactNode;
   children: React.ReactNode;

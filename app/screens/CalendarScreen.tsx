@@ -787,7 +787,6 @@ export default function CalendarScreen() {
           !blockHasContent('anytime') &&
           completedItems.length === 0 && (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>🌿</Text>
               <Text style={styles.emptyTitle}>Nothing scheduled</Text>
               <Text style={styles.emptySubtext}>Enjoy the open day</Text>
               {!hasCalendarConnected && (
@@ -915,10 +914,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 80,
-  },
-  emptyEmoji: {
-    fontSize: 48,
-    marginBottom: 16,
   },
   emptyTitle: {
     fontSize: 18,

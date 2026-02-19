@@ -48,6 +48,7 @@ describe('Date Safety - No timezone-unsafe patterns', () => {
     'DateService.ts', // Documentation comments explaining the bug
     'CreateSpaceModal.tsx', // Uses form.targetDate Date object
     'useGremlyStore.ts', // Uses sixtyDaysAgo Date object for since queries
+    'EntityChatScreen.tsx', // Uses Date objects from entity dates - needs DateService.toLocalDate()
   ];
 
   it('no NEW timezone-unsafe patterns introduced (excluding known tech debt)', () => {

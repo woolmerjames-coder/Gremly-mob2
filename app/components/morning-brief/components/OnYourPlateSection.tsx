@@ -5,11 +5,15 @@
  * Tasks here can be tapped to assign to a time block.
  * Styled to match CalendarScreen section patterns.
  * Supports exit animations when tasks are being organized.
+ *
+ * When isPrioritizing is true, enters "prioritization mode":
+ * - Tasks show checkboxes and two-line selected state
+ * - Tapping a row toggles selection
+ * - Selected items sort to top within each sub-section
  */
 
-import React, { useState, useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
-import { Plus, Clock } from 'lucide-react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { AnimatedTaskItem, type TaskItemData } from './TaskItem';
 import type { PendingDrop } from '../../../../lib/store/useGremlyStore';
 
@@ -23,9 +27,6 @@ const COLORS = {
   surface: '#FFFFFF',
 };
 
-// Section color for "anytime/flexible" - matches CalendarScreen SECTION_CONFIG
-const SECTION_COLOR = '#999999';
-
 interface AnimatingAssignment {
   taskId: string;
   block: string;
@@ -38,6 +39,16 @@ interface OnYourPlateSectionProps {
   onTimePress?: (task: TaskItemData) => void;
   onAddPress: () => void;
   pendingDrops?: PendingDrop[];
+  // Prioritization mode props
+  isPrioritizing?: boolean;
+  /** When true, show all tasks regardless of selection state */
+  showAll?: boolean;
+  selectedIds?: Set<string>;
+  lockedIds?: Set<string>;
+  onToggleSelect?: (task: TaskItemData) => void;
+  onToggleLock?: (task: TaskItemData) => void;
+  onAssignPress?: (task: TaskItemData) => void;
+  maxLocks?: number;
 }
 
 /**
@@ -73,54 +84,62 @@ export function OnYourPlateSection({
   animatingAssignments,
   onTaskPress,
   onTimePress,
-  onAddPress,
+  onAddPress: _onAddPress,
   pendingDrops = [],
+  // Prioritization props
+  isPrioritizing = false,
+  showAll = false,
+  selectedIds,
+  lockedIds,
+  onToggleSelect,
+  onToggleLock,
+  onAssignPress,
+  maxLocks = 3,
 }: OnYourPlateSectionProps) {
   const count = tasks.length + pendingDrops.length;
 
   // Split tasks into habits and todos for sub-sections
-  const habitTasks = tasks.filter((t) => t.type === 'habit');
-  const todoTasks = tasks.filter((t) => t.type === 'todo');
+  const habitTasks = useMemo(() => {
+    const habits = tasks.filter((t) => t.type === 'habit');
+    if (isPrioritizing && selectedIds && !showAll) {
+      return habits.filter((t) => selectedIds.has(t.id));
+    }
+    return habits;
+  }, [tasks, isPrioritizing, selectedIds, showAll]);
+
+  const todoTasks = useMemo(() => {
+    const todos = tasks.filter((t) => t.type === 'todo');
+    if (isPrioritizing && selectedIds && !showAll) {
+      return todos.filter((t) => selectedIds.has(t.id));
+    }
+    return todos;
+  }, [tasks, isPrioritizing, selectedIds, showAll]);
+
+  // In prioritization mode, row press toggles selection instead of opening picker
+  const handleRowPress = isPrioritizing && onToggleSelect ? onToggleSelect : onTaskPress;
+
+  // Shared prioritization props for TaskItem
+  const lockCount = lockedIds?.size ?? 0;
+
+  // Selected count for empty-state check
+  const selectedCount = isPrioritizing && selectedIds ? selectedIds.size : 0;
+
+  // Merge habits + todos into a flat list (no sub-section headers)
+  const allTasks = useMemo(() => {
+    return [...habitTasks, ...todoTasks];
+  }, [habitTasks, todoTasks]);
 
   return (
     <View style={styles.container}>
-      {/* Section Header - matches CalendarScreen pattern */}
-      <View style={styles.sectionHeaderRow}>
-        <View style={[styles.sectionHeaderAccent, { backgroundColor: SECTION_COLOR }]} />
-        <Clock size={16} color={SECTION_COLOR} style={styles.sectionIcon} />
-        <Text style={[styles.sectionHeader, { color: SECTION_COLOR }]}>ON YOUR PLATE</Text>
-        <Text style={styles.countBadge}>{count} flexible</Text>
-
-        {/* Add Button */}
-        <Pressable
-          style={styles.addButton}
-          onPress={onAddPress}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          testID="morning-brief-add-task"
-        >
-          <Plus size={16} color={COLORS.mossGreen} />
-          <Text style={styles.addText}>Add</Text>
-        </Pressable>
-      </View>
-
-      {/* Instructions */}
-      {count > 0 && (
-        <Text style={styles.instructions}>Tap to assign to a time block, or leave flexible</Text>
-      )}
-
       {/* Pending Drops - Processing cards from store */}
       {pendingDrops.map((drop) => (
         <PendingDropRow key={drop.localId} drop={drop} />
       ))}
 
-      {/* Habits Sub-section */}
-      {habitTasks.length > 0 && (
-        <>
-          <View style={styles.subSectionHeader}>
-            <Text style={styles.subSectionTitle}>Habits</Text>
-            <Text style={styles.subSectionCount}>{habitTasks.length}</Text>
-          </View>
-          {habitTasks.map((task, index) => {
+      {/* Flat task list (no sub-section headers) */}
+      {allTasks.length > 0 && (
+        <View style={isPrioritizing ? styles.prioritizingList : undefined}>
+          {allTasks.map((task, index) => {
             const animationIndex =
               animatingAssignments?.findIndex((a) => a.taskId === task.id) ?? -1;
             const isAnimatingOut = animationIndex >= 0;
@@ -128,53 +147,41 @@ export function OnYourPlateSection({
             return (
               <View
                 key={task.id}
-                style={[styles.taskWrapper, index < habitTasks.length - 1 && styles.taskBorder]}
+                style={[
+                  isPrioritizing ? styles.taskWrapperPrioritizing : styles.taskWrapper,
+                  !isPrioritizing && index < allTasks.length - 1 && styles.taskBorder,
+                ]}
               >
                 <AnimatedTaskItem
                   task={task}
-                  onPress={onTaskPress}
+                  onPress={handleRowPress}
                   onTimePress={onTimePress}
                   isAnimatingOut={isAnimatingOut}
                   animationDelay={animationIndex * 150}
+                  isPrioritizing={isPrioritizing}
+                  isSelected={selectedIds?.has(task.id)}
+                  isLocked={lockedIds?.has(task.id)}
+                  lockCount={lockCount}
+                  maxLocks={maxLocks}
+                  onToggleSelect={onToggleSelect}
+                  onToggleLock={onToggleLock}
+                  onAssignPress={onAssignPress}
                 />
               </View>
             );
           })}
-        </>
+        </View>
       )}
 
-      {/* To-dos Sub-section */}
-      {todoTasks.length > 0 && (
-        <>
-          <View style={styles.subSectionHeader}>
-            <Text style={styles.subSectionTitle}>To-dos</Text>
-            <Text style={styles.subSectionCount}>{todoTasks.length}</Text>
-          </View>
-          {todoTasks.map((task, index) => {
-            const animationIndex =
-              animatingAssignments?.findIndex((a) => a.taskId === task.id) ?? -1;
-            const isAnimatingOut = animationIndex >= 0;
-
-            return (
-              <View
-                key={task.id}
-                style={[styles.taskWrapper, index < todoTasks.length - 1 && styles.taskBorder]}
-              >
-                <AnimatedTaskItem
-                  task={task}
-                  onPress={onTaskPress}
-                  onTimePress={onTimePress}
-                  isAnimatingOut={isAnimatingOut}
-                  animationDelay={animationIndex * 150}
-                />
-              </View>
-            );
-          })}
-        </>
+      {/* Empty State — prioritizing with nothing selected */}
+      {isPrioritizing && selectedCount === 0 && pendingDrops.length === 0 && (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyPrompt}>What do you want to tackle today?</Text>
+        </View>
       )}
 
-      {/* Empty State */}
-      {count === 0 && (
+      {/* Empty State — no tasks at all */}
+      {count === 0 && !isPrioritizing && (
         <View style={styles.emptyState}>
           <Text style={styles.emptyText}>
             Nothing to organize. Add a task or check your time blocks below.
@@ -187,81 +194,21 @@ export function OnYourPlateSection({
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 8,
-    paddingBottom: 16,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    marginTop: 0,
     paddingBottom: 8,
-  },
-  sectionHeaderAccent: {
-    width: 3,
-    height: 16,
-    borderRadius: 1.5,
-    marginRight: 10,
-  },
-  sectionIcon: {
-    marginRight: 6,
-  },
-  sectionHeader: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    flex: 1,
-  },
-  countBadge: {
-    fontSize: 12,
-    color: COLORS.inkMuted,
-    marginRight: 12,
-  },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    backgroundColor: COLORS.linenCream,
-  },
-  addText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.mossGreen,
-    marginLeft: 4,
-  },
-  instructions: {
-    fontSize: 13,
-    color: COLORS.inkMuted,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    fontStyle: 'italic',
   },
   taskWrapper: {
     marginHorizontal: 16,
   },
+  taskWrapperPrioritizing: {
+    marginBottom: 2,
+  },
+  prioritizingList: {
+    marginHorizontal: 14,
+  },
   taskBorder: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.divider,
-  },
-  subSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 4,
-  },
-  subSectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#999999',
-    letterSpacing: 0.3,
-  },
-  subSectionCount: {
-    fontSize: 12,
-    color: '#999999',
-    marginLeft: 6,
   },
   emptyState: {
     paddingVertical: 24,
@@ -272,6 +219,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.inkMuted,
     textAlign: 'center',
+    lineHeight: 20,
+  },
+  emptyPrompt: {
+    fontSize: 14,
+    color: '#999999',
+    textAlign: 'center',
+    fontStyle: 'italic',
     lineHeight: 20,
   },
   pendingDropRow: {

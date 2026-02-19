@@ -69,27 +69,36 @@ describe('OrganizeButton behavior documentation', () => {
   describe('unassigned task counting', () => {
     it('documents filtering logic', () => {
       // Tasks counted as "unassigned" if:
+      // Note: daily_block is the ephemeral per-day assignment field.
+      // time_window is the permanent user preference — not used for organize filtering.
       const isUnassigned = (task: any) =>
         !task.archived &&
         !task.completed_at &&
         task.due_day === 'today' &&
-        (!task.time_window || task.time_window === 'any');
+        (!task.daily_block || task.daily_block === 'any');
 
       const assignedTask = {
         archived: false,
         completed_at: null,
         due_day: 'today',
-        time_window: 'morning',
+        daily_block: 'morning',
       };
       const unassignedTask = {
         archived: false,
         completed_at: null,
         due_day: 'today',
-        time_window: null,
+        daily_block: null,
+      };
+      const anyBlockTask = {
+        archived: false,
+        completed_at: null,
+        due_day: 'today',
+        daily_block: 'any',
       };
 
       expect(isUnassigned(assignedTask)).toBe(false);
       expect(isUnassigned(unassignedTask)).toBe(true);
+      expect(isUnassigned(anyBlockTask)).toBe(true);
     });
   });
 

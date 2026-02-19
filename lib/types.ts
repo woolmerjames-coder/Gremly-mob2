@@ -162,6 +162,10 @@ export interface Habit {
   // Preferred time of day for scheduling
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
 
+  /** Today's block assignment — set by Morning Brief / AI organizer, wiped daily.
+   *  Display logic: daily_block ?? time_window = "which block is this in today?" */
+  daily_block?: 'morning' | 'day' | 'evening' | null;
+
   /** ISO timestamp for when this habit is slotted into a specific gap between events */
   scheduled_start_iso?: string | null;
 
@@ -259,6 +263,10 @@ export interface Todo {
 
   // Preferred time of day for scheduling
   time_window?: 'any' | 'morning' | 'day' | 'evening' | null;
+
+  /** Today's block assignment — set by Morning Brief / AI organizer, wiped daily.
+   *  Display logic: daily_block ?? time_window = "which block is this in today?" */
+  daily_block?: 'morning' | 'day' | 'evening' | null;
 
   /** ISO timestamp for when this todo is slotted into a specific gap between events */
   scheduled_start_iso?: string | null;
@@ -954,6 +962,16 @@ export interface EntityChatRequest {
     replacement_text?: string;
     mood?: string[];
     is_favorite?: boolean;
+    // Habit completion stats (only present for habits)
+    habitStats?: {
+      completionsLast7Days: number;
+      completionsLast14Days: number;
+      targetPerWeek: number;
+      currentStreak: number;
+      lastCompletedAt: string | null;
+      daysSinceLastCompletion: number | null;
+      completionRate7Day: number; // 0.0 to 1.0
+    };
   };
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   preset?: EntityChatPreset;
@@ -963,6 +981,27 @@ export interface EntityChatRequest {
     is_overdue: boolean;
   };
   accountCreatedAt?: string | null;
+  currentTime?: string; // ISO timestamp of when message was sent
+  siblingContext?: {
+    sameSpace?: Array<{
+      type: 'todo' | 'habit' | 'note';
+      title: string;
+      frequency?: string;
+      completed_at?: string;
+      last_completed_at?: string;
+    }>;
+    otherHabits?: Array<{
+      title: string;
+      frequency: string;
+      last_completed_at?: string;
+      time_window?: string;
+      completionsLast7Days?: number;
+    }>;
+    recentCompletions?: Array<{
+      title: string;
+      completed_at: string;
+    }>;
+  };
 }
 
 /**

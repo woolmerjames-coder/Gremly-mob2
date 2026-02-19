@@ -421,6 +421,7 @@ export function callSpaceChatStreaming(
       spaceId: opts.spaceId,
       chatId: opts.chatId,
       userId: opts.userId,
+      currentTime: new Date().toISOString(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -1283,6 +1284,7 @@ export interface EntityChatStreamingCallbacks {
   onError: (error: Error) => void;
   onSearching?: (query: string) => void;
   onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
+  onReset?: () => void;
 }
 
 /**
@@ -1357,6 +1359,13 @@ export function callEntityChatStreaming(
       // Handle fetching event
       if (data.fetching !== undefined) {
         callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
+        return;
+      }
+
+      // Handle reset — clear accumulated content (e.g., before search follow-up)
+      if (data.reset) {
+        fullContent = '';
+        callbacks.onReset?.();
         return;
       }
 

@@ -60,6 +60,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
       isLoading: false,
       gremlyAge: 5,
       totalSweepCount: 10,
+      demoSweepCompletedAt: '2025-01-01T00:00:00Z',
       updateTodo: () => Promise.resolve(undefined),
       archiveTodo: () => Promise.resolve(undefined),
       updateNote: () => Promise.resolve(undefined),
@@ -86,6 +87,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
   mockUseGremlyStore.getState = () => ({
     gremlyAge: 5,
     totalSweepCount: 10,
+    demoSweepCompletedAt: '2025-01-01T00:00:00Z',
     incrementSweepCount: () => Promise.resolve({ didAgeUp: false, newAge: 5 }),
     setSweepPreferences: () => {},
     updateTodo: () => Promise.resolve(undefined),

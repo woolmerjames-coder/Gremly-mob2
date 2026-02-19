@@ -127,6 +127,13 @@ function makeState(
     lastSweepCompletedAt: string | null;
     sweepStreak: number;
     totalSweepCount: number;
+    // Morning Brief fields
+    briefSelectedIds: string[];
+    briefLockedIds: string[];
+    briefSelectionDate: string | null;
+    briefCompletedToday: string | null;
+    eventTimeOverrides: Record<string, unknown>;
+    hiddenCalendarEventsByDate: Record<string, string[]>;
   }> = {},
 ) {
   return {
@@ -149,6 +156,13 @@ function makeState(
     lastSweepCompletedAt: null,
     sweepStreak: 0,
     totalSweepCount: 0,
+    // Morning Brief fields
+    briefSelectedIds: [],
+    briefLockedIds: [],
+    briefSelectionDate: null,
+    briefCompletedToday: null,
+    eventTimeOverrides: {},
+    hiddenCalendarEventsByDate: {},
     ...overrides,
   };
 }
