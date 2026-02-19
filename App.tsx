@@ -59,7 +59,12 @@ export default function App() {
         if (__DEV__) {
           console.log('[App] Age-up celebration received, showing modal for age:', payload.age);
         }
-        setAgeUpState({ visible: true, age: payload.age });
+        // Always dismiss keyboard first (no-op if not visible).
+        // Short delay lets the keyboard animate away so the modal isn't obscured.
+        Keyboard.dismiss();
+        setTimeout(() => {
+          setAgeUpState({ visible: true, age: payload.age! });
+        }, 300);
       }
     });
     return unsubscribe;
