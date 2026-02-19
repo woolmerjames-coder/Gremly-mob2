@@ -972,11 +972,6 @@ export const useGremlyStore = create<GremlyState>()(
         // ═══════════════════════════════════════════════════════════════════
 
         initialize: async (userId: string) => {
-          if (__DEV__)
-            console.log(
-              '[GremlyStore] onboardingCompletedAt at init start:',
-              get().onboardingCompletedAt,
-            );
           // Already fully initialized for this user — just background refresh
           if (get().isInitialized && get().userId === userId) {
             get()

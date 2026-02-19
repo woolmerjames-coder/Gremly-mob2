@@ -132,14 +132,6 @@ export default function RootNavigator() {
   // Recover any pending drops from previous session
   useDropRecovery();
 
-  if (__DEV__)
-    console.log(
-      '[RootNav] onboardingCompletedAt:',
-      onboardingCompletedAt,
-      'hasHydrated:',
-      hasHydrated,
-    );
-
   // Determine initial route based on onboarding status
   const initialRouteName = useMemo(() => {
     if (!onboardingCompletedAt) return 'Onboarding';
