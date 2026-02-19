@@ -268,7 +268,7 @@ export function MorningBriefStepper({
               <Text style={styles.celebrationTitle}>You're locked in.</Text>
               <View style={styles.celebrationSubRow}>
                 <Text style={styles.celebrationSubtitle}>LFG</Text>
-                <Rocket size={18} color={BRAND.colors.textSecondary} style={{ marginLeft: 6 }} />
+                <Rocket size={18} color={'#2E5540'} style={{ marginLeft: 6 }} />
               </View>
             </Animated.View>
           </View>

@@ -81,6 +81,7 @@ export function StepPrioritize({
   selectedIds,
   lockedIds,
   onToggleSelect,
+  onTimePress,
   onAddPress,
   onSkipTask,
   onGremlyPick,
@@ -254,7 +255,20 @@ export function StepPrioritize({
                 <Text style={styles.chipName} numberOfLines={2}>
                   {t.title}
                 </Text>
-                <Text style={styles.chipTime}>{fmt(t.estimatedMinutes || 0)}</Text>
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onTimePress(t);
+                  }}
+                  hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                  style={({ pressed }) => pressed && { opacity: 0.5 }}
+                >
+                  {t.estimatedMinutes ? (
+                    <Text style={styles.chipTime}>{fmt(t.estimatedMinutes)}</Text>
+                  ) : (
+                    <Text style={[styles.chipTime, { opacity: 0.6 }]}>—</Text>
+                  )}
+                </Pressable>
                 {!lockedIds.has(t.id) && <X size={11} color={BRAND.colors.inkMuted} />}
               </Pressable>
             ))}
@@ -355,7 +369,17 @@ export function StepPrioritize({
             )}
 
             {/* Time */}
-            <Text style={styles.taskTime}>{fmt(task.estimatedMinutes || 0)}</Text>
+            <Pressable
+              onPress={() => onTimePress(task)}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+              style={({ pressed }) => pressed && { opacity: 0.5 }}
+            >
+              {task.estimatedMinutes ? (
+                <Text style={styles.taskTime}>{fmt(task.estimatedMinutes)}</Text>
+              ) : (
+                <Text style={styles.taskTimeAdd}>+ time</Text>
+              )}
+            </Pressable>
 
             {/* Skip button */}
             <Pressable
@@ -585,6 +609,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: BRAND.colors.inkMuted,
     fontVariant: ['tabular-nums'],
+  },
+  taskTimeAdd: {
+    fontSize: 11,
+    color: BRAND.colors.mossGreen,
+    fontWeight: '500',
+    opacity: 0.7,
   },
   skipIcon: {
     width: 28,
