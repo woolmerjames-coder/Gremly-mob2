@@ -354,9 +354,10 @@ export function MorningBriefSheet({
         timeWindow: ((todo.daily_block ?? todo.time_window) as TaskItemData['timeWindow']) ?? null,
         metadata,
         dueStatus,
+        spaceName: getSpaceName(todo.space_id),
       };
     },
-    [today],
+    [today, getSpaceName],
   );
 
   // ─────────────────────────────────────────────────────────────────
@@ -436,9 +437,18 @@ export function MorningBriefSheet({
           ((habit.daily_block ?? habit.time_window) as TaskItemData['timeWindow']) ?? null,
         metadata,
         streakCount,
+        spaceName: getSpaceName(habit.space_id),
       };
     },
-    [habitCompletedToday, habitLastCompletion, habitRolling7, habitRolling30, today, habitProgress],
+    [
+      habitCompletedToday,
+      habitLastCompletion,
+      habitRolling7,
+      habitRolling30,
+      today,
+      habitProgress,
+      getSpaceName,
+    ],
   );
 
   // Pending drops from store - shows loading cards while pipeline runs
@@ -618,6 +628,12 @@ export function MorningBriefSheet({
   const briefSelectedSet = useMemo(() => new Set(briefSelectedIds), [briefSelectedIds]);
   const briefLockedSet = useMemo(() => new Set(briefLockedIds), [briefLockedIds]);
   const isSelectionsStale = briefSelectionDate !== today;
+
+  // Tasks the user committed to in Prioritize (for Organize screen)
+  const committedTasks = useMemo(
+    () => allDayTasks.filter((t) => briefSelectedSet.has(t.id)),
+    [allDayTasks, briefSelectedSet],
+  );
 
   // Reset daily assignments on new day
   useEffect(() => {
@@ -1101,6 +1117,12 @@ export function MorningBriefSheet({
   };
 
   const handleCalendarEventQuickAction = useCallback((calEvent: CalendarEvent) => {
+    console.log(
+      '[MBSheet] handleCalendarEventQuickAction called, provider=',
+      calEvent.provider,
+      'id=',
+      calEvent.providerEventId,
+    );
     const unified: UnifiedEvent = {
       id: `${calEvent.provider}-${calEvent.providerEventId}`,
       title: calEvent.title || 'Untitled',
@@ -1124,6 +1146,12 @@ export function MorningBriefSheet({
     async (eventId: string): Promise<Note | null> => {
       try {
         const unified = quickActionUnified;
+        console.log(
+          '[MBSheet] promoteCalendarEventToNote called, eventId=',
+          eventId,
+          'hasUnified=',
+          !!unified,
+        );
         if (!unified) return null;
 
         const newNote = await useGremlyStore.getState().createNote({
@@ -1149,6 +1177,7 @@ export function MorningBriefSheet({
 
   const handleDismissEvent = useCallback(
     (eventId: string) => {
+      console.log('[MBSheet] handleDismissEvent called, eventId=', eventId);
       // Calendar event IDs are composite "provider-providerEventId" (not UUIDs)
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         eventId,
@@ -1174,6 +1203,14 @@ export function MorningBriefSheet({
 
   const handleEditEventTime = useCallback(
     async (eventId: string, startTime: string, endTime: string | null) => {
+      console.log(
+        '[MBSheet] handleEditEventTime called, eventId=',
+        eventId,
+        'start=',
+        startTime,
+        'end=',
+        endTime,
+      );
       let noteId = eventId;
       if (isCalendarEventId(eventId)) {
         const note = await promoteCalendarEventToNote(eventId);
@@ -1197,6 +1234,12 @@ export function MorningBriefSheet({
 
   const handleAddPrepNote = useCallback(
     async (eventId: string, body: string) => {
+      console.log(
+        '[MBSheet] handleAddPrepNote called, eventId=',
+        eventId,
+        'body=',
+        body?.slice(0, 30),
+      );
       let noteId = eventId;
       if (isCalendarEventId(eventId)) {
         const note = await promoteCalendarEventToNote(eventId);
@@ -1216,6 +1259,12 @@ export function MorningBriefSheet({
 
   const handleEventRemind = useCallback(
     async (eventId: string, minutesBefore: number) => {
+      console.log(
+        '[MBSheet] handleEventRemind called, eventId=',
+        eventId,
+        'minutes=',
+        minutesBefore,
+      );
       // Derive title/date/time from whichever source is active
       const noteEvent = quickActionEvent;
       const unified = quickActionUnified;
@@ -1266,6 +1315,7 @@ export function MorningBriefSheet({
 
   const handleOpenFullEvent = useCallback(
     async (eventId: string) => {
+      console.log('[MBSheet] handleOpenFullEvent called, eventId=', eventId);
       let noteId = eventId;
       if (isCalendarEventId(eventId)) {
         const note = await promoteCalendarEventToNote(eventId);
@@ -1306,15 +1356,51 @@ export function MorningBriefSheet({
 
   const handleToggleLock = useCallback(
     (task: TaskItemData) => {
+      const taskType = task.type as 'todo' | 'habit';
+      const currentTask =
+        taskType === 'todo'
+          ? todayTodos.find((t) => t.id === task.id)
+          : todayHabits.find((h) => h.id === task.id);
+
+      if (!currentTask) return;
+
+      const wasLockedIn =
+        taskType === 'todo'
+          ? (currentTask as (typeof todos)[0]).commitment === true
+          : isHabitLockedIn(currentTask as (typeof habits)[0]);
+
+      // Toggle the brief lock state (visual)
       toggleBriefLock(task.id);
+
+      // Toggle the actual commitment (persistence)
+      if (wasLockedIn) {
+        removeCommitment(task.id, taskType);
+      } else {
+        addCommitment(task.id, taskType);
+      }
     },
-    [toggleBriefLock],
+    [toggleBriefLock, todayTodos, todayHabits, todos, habits, addCommitment, removeCommitment],
   );
 
   const handleAssignPress = useCallback((task: TaskItemData) => {
     setQuickActionTask(task);
     setQuickActionIsSlotted(false);
   }, []);
+
+  const handleAssignBlock = useCallback(
+    async (
+      taskId: string,
+      taskType: 'todo' | 'habit',
+      block: 'morning' | 'day' | 'evening' | null,
+    ) => {
+      if (taskType === 'todo') {
+        await updateTodo(taskId, { daily_block: block });
+      } else {
+        await updateHabit(taskId, { daily_block: block });
+      }
+    },
+    [updateTodo, updateHabit],
+  );
 
   const handleAssign = useCallback(
     async (
@@ -1595,6 +1681,7 @@ export function MorningBriefSheet({
             onTimePress={handleTimePress}
             onAddPress={handleAddPress}
             onAssignPress={handleAssignPress}
+            onSkipTask={() => {}}
             pendingDrops={todayPendingDrops}
             animatingAssignments={animatingAssignments}
             onContinue={onContinue}
@@ -1602,13 +1689,16 @@ export function MorningBriefSheet({
             onBack={onBack}
           />
         )}
-        renderOrganize={(onContinue, onSkip, onBack) => (
+        renderOrganize={(onContinue, onSkip, onBack, onShowCelebration) => (
           <StepOrganize
             targetDate={isTomorrow ? today : undefined}
             isPrioritizing={isPrioritizing}
             selectedIds={briefSelectedSet}
             lockedIds={briefLockedSet}
             isOverCapacity={remainingMinutes < 0}
+            committedTasks={committedTasks}
+            onToggleLock={handleToggleLock}
+            onAssignBlock={handleAssignBlock}
             hasTasksToOrganize={
               briefSelectedSet.size > 0 ||
               tasksByBlock.morning.length > 0 ||
@@ -1642,6 +1732,7 @@ export function MorningBriefSheet({
               setPlanningCardCollapsed(true);
             }}
             onContinue={onContinue}
+            onShowCelebration={onShowCelebration}
             onSkip={onSkip}
             onBack={onBack}
           />
@@ -1784,6 +1875,12 @@ export function MorningBriefSheet({
           onEditTime={handleEditEventTime}
           onAddPrepNote={handleAddPrepNote}
           onLinkTodo={async (_eventId) => {
+            console.log(
+              '[MBSheet] onLinkTodo called, eventId=',
+              _eventId,
+              'isCalendar=',
+              isCalendarEventId(_eventId),
+            );
             if (isCalendarEventId(_eventId)) {
               await promoteCalendarEventToNote(_eventId);
             }

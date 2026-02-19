@@ -157,6 +157,12 @@ export default function EventQuickActionSheet({
   /* row handlers */
 
   const handleEditTimePress = useCallback(() => {
+    console.log(
+      '[EventSheet] Edit time pressed, expanded=',
+      expanded,
+      'displayEvent=',
+      displayEvent?.id,
+    );
     if (expanded === 'editTime') {
       collapse();
       return;
@@ -164,7 +170,7 @@ export default function EventQuickActionSheet({
     collapse();
     setShowTimePicker(true);
     setExpanded('editTime');
-  }, [expanded, collapse]);
+  }, [expanded, collapse, displayEvent]);
 
   const handleTimePickerSave = useCallback(
     (_eventId: string, startISO: string, endISO: string) => {
@@ -187,6 +193,12 @@ export default function EventQuickActionSheet({
   }, []);
 
   const handlePrepNotePress = useCallback(() => {
+    console.log(
+      '[EventSheet] Prep note pressed, expanded=',
+      expanded,
+      'displayEvent=',
+      displayEvent?.id,
+    );
     if (expanded === 'prepNote') {
       collapse();
       return;
@@ -197,6 +209,12 @@ export default function EventQuickActionSheet({
   }, [expanded, collapse, displayEvent]);
 
   const handleSavePrepNote = useCallback(() => {
+    console.log(
+      '[EventSheet] Save prep note pressed, hasDisplay=',
+      !!displayEvent,
+      'text=',
+      prepText?.slice(0, 30),
+    );
     if (!displayEvent || !prepText.trim()) return;
     onAddPrepNote(displayEvent.id, prepText.trim());
     collapse();
@@ -221,17 +239,30 @@ export default function EventQuickActionSheet({
   );
 
   const handleLinkTodo = useCallback(() => {
+    console.log('[EventSheet] Link todo pressed, displayEvent=', displayEvent?.id);
     if (!displayEvent) return;
     onLinkTodo(displayEvent.id);
   }, [displayEvent, onLinkTodo]);
 
   const handleDismiss = useCallback(() => {
+    console.log(
+      '[EventSheet] Hide/dismiss pressed, displayEvent=',
+      displayEvent?.id,
+      'sourceType=',
+      displayEvent?.sourceType,
+    );
     if (!displayEvent) return;
     onDismiss(displayEvent.id);
     handleClose();
   }, [displayEvent, onDismiss, handleClose]);
 
   const handleOpenFull = useCallback(() => {
+    console.log(
+      '[EventSheet] Open full pressed, displayEvent=',
+      displayEvent?.id,
+      'sourceType=',
+      displayEvent?.sourceType,
+    );
     if (!displayEvent) return;
     onOpenFull(displayEvent.id);
     handleClose();

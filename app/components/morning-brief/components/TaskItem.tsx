@@ -47,6 +47,8 @@ export interface TaskItemData {
   streakCount?: number;
   /** Due status — used for contextual chips in prioritization mode */
   dueStatus?: 'overdue' | 'today' | 'tomorrow' | null;
+  /** Resolved space name for filtering/display */
+  spaceName?: string;
 }
 
 export interface TaskPrioritizationProps {

@@ -1,12 +1,12 @@
 /**
- * StepPrioritize — "Build Your Day"
+ * StepPrioritize — "What matters today?"
  *
- * Clean battery-style capacity meter + slim compact task rows.
- * Single unified list sorted by type (todos then habits) with
- * selected items floating to top. Lock icon inline on selected rows.
+ * Fast binary triage: tap to add tasks to today's plan, skip what can wait.
+ * Selected items show as compact chips at top with a capacity bar.
+ * Filters by type (Todos/Habits) and Space.
  */
 
-import React, { useEffect, useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import {
   View,
   ScrollView,
@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
-import { Check, Lock, Plus, MoreHorizontal, ChevronLeft } from 'lucide-react-native';
+import { Plus, X, Minus, Sparkles, Repeat } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import type { TaskItemData } from './components';
 
@@ -26,7 +26,7 @@ import type { TaskItemData } from './components';
 // Helpers
 // ═══════════════════════════════════════════════════════════════════
 
-function formatMins(mins: number): string {
+function fmt(mins: number): string {
   if (mins <= 0) return '0m';
   const h = Math.floor(mins / 60);
   const m = mins % 60;
@@ -35,20 +35,10 @@ function formatMins(mins: number): string {
   return `${h}h ${m}m`;
 }
 
-function formatPill(mins: number | undefined): string {
-  if (!mins || mins <= 0) return '—';
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
-}
-
-/** Meter fill color based on capacity usage */
 function getMeterColor(pct: number): string {
-  if (pct > 1) return '#C45B4A'; // red — over
-  if (pct >= 0.85) return '#E8A838'; // amber — nearing full
-  return BRAND.colors.mossGreen; // green — healthy
+  if (pct > 1) return '#C45B4A';
+  if (pct >= 0.85) return '#E8A838';
+  return BRAND.colors.mossGreen;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -70,6 +60,8 @@ interface StepPrioritizeProps {
   onTimePress: (task: TaskItemData) => void;
   onAddPress: () => void;
   onAssignPress: (task: TaskItemData) => void;
+  onSkipTask: (taskId: string) => void;
+  onGremlyPick?: () => void;
   pendingDrops: unknown[];
   animatingAssignments: unknown[] | null;
   onContinue: () => void;
@@ -83,35 +75,34 @@ interface StepPrioritizeProps {
 
 export function StepPrioritize({
   flexibleTasks,
-  isPrioritizing,
+  _isPrioritizing,
   selectedMinutes,
   totalAvailableMinutes,
   remainingMinutes,
-  isOverCommitted,
+  _isOverCommitted,
   selectedIds,
   lockedIds,
   onToggleSelect,
-  onTaskPress,
+  _onTaskPress,
   onAddPress,
+  onSkipTask,
+  onGremlyPick,
   onContinue,
   onSkip,
   onBack,
 }: StepPrioritizeProps) {
-  const hasTasks = flexibleTasks.length > 0;
-  const isOver = remainingMinutes < 0;
-  const overAmount = Math.abs(remainingMinutes);
+  const [activeType, setActiveType] = useState<'all' | 'todo' | 'habit'>('all');
+  const [activeSpace, setActiveSpace] = useState<string>('All');
+  const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set());
 
-  // ── Meter fill animation ─────────────────────────────────────────
+  // ── Meter ─────────────────────────────────────────────────────
   const capacity = Math.max(totalAvailableMinutes, 1);
   const fillPct = selectedMinutes / capacity;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const fillAnim = useMemo(() => new Animated.Value(0), []);
+  const isOver = remainingMinutes < 0;
 
   useEffect(() => {
-    LayoutAnimation.configureNext({
-      duration: 300,
-      update: { type: LayoutAnimation.Types.easeInEaseOut },
-    });
     Animated.spring(fillAnim, {
       toValue: Math.min(fillPct, 1),
       useNativeDriver: false,
@@ -120,46 +111,48 @@ export function StepPrioritize({
     }).start();
   }, [fillPct, fillAnim]);
 
+  const fillWidth = fillAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  });
   const meterColor = getMeterColor(fillPct);
 
-  // ── Sort tasks: selected first within each type ──────────────────
-  const { todos, habits, showTypeLabels, selectedCount, assignedCount } = useMemo(() => {
-    const td: TaskItemData[] = [];
-    const hb: TaskItemData[] = [];
-    let selCount = 0;
-    let assignCount = 0;
-    for (const task of flexibleTasks) {
-      if (selectedIds.has(task.id)) selCount++;
-      if (task.timeWindow) assignCount++;
-      if (task.type === 'todo') td.push(task);
-      else hb.push(task);
+  // ── Split committed vs available ──────────────────────────────
+  const committedTasks = useMemo(
+    () => flexibleTasks.filter((t) => selectedIds.has(t.id)),
+    [flexibleTasks, selectedIds],
+  );
+
+  const totalTaskMinutes = useMemo(
+    () => flexibleTasks.reduce((s, t) => s + (t.estimatedMinutes || 0), 0),
+    [flexibleTasks],
+  );
+
+  // Available spaces (from non-committed, non-skipped tasks)
+  const spaces = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of flexibleTasks) {
+      if (selectedIds.has(t.id) || skippedIds.has(t.id)) continue;
+      if (t.spaceName) s.add(t.spaceName);
     }
-    // Sort selected first, preserve original order within each group
-    const sortSelected = (a: TaskItemData, b: TaskItemData) => {
-      const aS = selectedIds.has(a.id) ? 0 : 1;
-      const bS = selectedIds.has(b.id) ? 0 : 1;
-      return aS - bS;
-    };
-    td.sort(sortSelected);
-    hb.sort(sortSelected);
-    return {
-      todos: td,
-      habits: hb,
-      showTypeLabels: td.length > 0 && hb.length > 0,
-      selectedCount: selCount,
-      assignedCount: assignCount,
-    };
-  }, [flexibleTasks, selectedIds]);
+    return [...s].sort();
+  }, [flexibleTasks, selectedIds, skippedIds]);
 
-  // ── Toggle handler with LayoutAnimation ──────────────────────────
-  const handleToggle = useCallback(
+  // Filtered available tasks
+  const availableTasks = useMemo(() => {
+    return flexibleTasks.filter((t) => {
+      if (selectedIds.has(t.id)) return false;
+      if (skippedIds.has(t.id)) return false;
+      if (activeType === 'todo' && t.type !== 'todo') return false;
+      if (activeType === 'habit' && t.type !== 'habit') return false;
+      if (activeSpace !== 'All' && t.spaceName !== activeSpace) return false;
+      return true;
+    });
+  }, [flexibleTasks, selectedIds, skippedIds, activeType, activeSpace]);
+
+  // ── Handlers ──────────────────────────────────────────────────
+  const handleAdd = useCallback(
     (task: TaskItemData) => {
-      const isSelected = selectedIds.has(task.id);
-      const isLocked = lockedIds.has(task.id);
-
-      // Locked items can't be deselected — do nothing
-      if (isSelected && isLocked) return;
-
       LayoutAnimation.configureNext({
         duration: 250,
         create: {
@@ -170,312 +163,268 @@ export function StepPrioritize({
       });
       onToggleSelect(task);
     },
-    [onToggleSelect, selectedIds, lockedIds],
+    [onToggleSelect],
   );
 
-  // ── Long press handler with haptic ───────────────────────────────
-  const handleLongPress = useCallback(
+  const handleRemove = useCallback(
     (task: TaskItemData) => {
-      try {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      } catch {
-        // haptics unavailable — ignore
-      }
-      onTaskPress(task);
+      const isLocked = lockedIds.has(task.id);
+      if (isLocked) return; // Can't remove locked items
+      LayoutAnimation.configureNext({
+        duration: 250,
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+      });
+      onToggleSelect(task);
     },
-    [onTaskPress],
+    [onToggleSelect, lockedIds],
   );
 
-  // ── Animated fill width interpolation ────────────────────────────
-  const fillWidth = fillAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0%', '100%'],
-  });
+  const handleSkip = useCallback(
+    (task: TaskItemData) => {
+      LayoutAnimation.configureNext({
+        duration: 200,
+        delete: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          property: LayoutAnimation.Properties.opacity,
+        },
+      });
+      setSkippedIds((prev) => new Set([...prev, task.id]));
+      onSkipTask(task.id);
+    },
+    [onSkipTask],
+  );
 
-  // ── Dynamic subtitle for Mode B (fits) ───────────────────────────
-  const lockedCount = lockedIds.size;
-  const dynamicSubtitle = useMemo(() => {
-    if (isPrioritizing) return null; // Mode A uses static subtitle
-    if (lockedCount > 0 && assignedCount > 0) {
-      return `${lockedCount} locked in · ${assignedCount} assigned to blocks`;
-    }
-    if (lockedCount > 0) {
-      return `${lockedCount} locked in · tap ⋯ to assign blocks`;
-    }
-    if (assignedCount > 0) {
-      return `${assignedCount} assigned to blocks · lock in your must-dos`;
-    }
-    return null; // show static subtitle
-  }, [isPrioritizing, lockedCount, assignedCount]);
+  const handleUndoSkips = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSkippedIds(new Set());
+  }, []);
 
-  // ── Continue disabled logic ──────────────────────────────────────
-  // Mode A (over capacity): must select > 0 AND not over committed
-  // Mode B (fits): always enabled
-  const isContinueDisabled = isPrioritizing ? selectedCount === 0 || isOverCommitted : false;
+  const handleGremlyPick = useCallback(() => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {
+      /* haptics unavailable */
+    }
+    onGremlyPick?.();
+  }, [onGremlyPick]);
+
+  // ── Continue logic ────────────────────────────────────────────
+  const hasSelections = committedTasks.length > 0;
 
   return (
-    <>
+    <View style={styles.wrapper}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── 1. TITLE + LIVE SUBTITLE ────────────────────────── */}
+        {/* ── 1. HEADLINE ─────────────────────────────────────── */}
         <View style={styles.titleArea}>
-          {isPrioritizing ? (
-            <>
-              <RNText style={styles.title}>Too much on the plate</RNText>
-              <Text style={styles.subtitle}>Deselect what can wait, keep what matters</Text>
-            </>
-          ) : (
-            <>
-              <RNText style={styles.titleFits}>Everything fits today</RNText>
-              <Text style={styles.subtitle}>
-                {dynamicSubtitle ??
-                  'Lock in your top priorities or assign tasks to a preferred time of day'}
-              </Text>
-            </>
+          <RNText style={styles.title}>What matters today?</RNText>
+          <RNText style={styles.subtitle}>
+            {flexibleTasks.length} tasks · {fmt(totalTaskMinutes)} estimated
+          </RNText>
+        </View>
+
+        {/* ── 2. CAPACITY BAR ─────────────────────────────────── */}
+        <View style={styles.meterContainer}>
+          <View style={styles.meterLabelRow}>
+            <Text style={styles.meterLabelLeft}>
+              {selectedMinutes > 0 ? `${fmt(selectedMinutes)} selected` : 'None selected'}
+            </Text>
+            <Text style={[styles.meterLabelRight, isOver && styles.meterLabelOver]}>
+              {isOver
+                ? `${fmt(Math.abs(remainingMinutes))} over`
+                : `${fmt(totalAvailableMinutes)} available`}
+            </Text>
+          </View>
+          <View style={styles.meterTrack}>
+            <Animated.View
+              style={[styles.meterFill, { width: fillWidth, backgroundColor: meterColor }]}
+            />
+          </View>
+        </View>
+
+        {/* ── 3. COMMITTED CHIPS ──────────────────────────────── */}
+        {committedTasks.length > 0 && (
+          <View style={styles.chipContainer}>
+            {committedTasks.map((t) => (
+              <Pressable
+                key={t.id}
+                onPress={() => handleRemove(t)}
+                style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={styles.chipName} numberOfLines={2}>
+                  {t.title}
+                </Text>
+                <Text style={styles.chipTime}>{fmt(t.estimatedMinutes || 0)}</Text>
+                {!lockedIds.has(t.id) && <X size={11} color={BRAND.colors.inkMuted} />}
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        {/* ── 4. GREMLY SUGGEST (when nothing selected) ───────── */}
+        {committedTasks.length === 0 && onGremlyPick && (
+          <Pressable
+            style={({ pressed }) => [styles.gremlyPickButton, pressed && { opacity: 0.7 }]}
+            onPress={handleGremlyPick}
+          >
+            <Sparkles size={16} color={BRAND.colors.mossGreen} />
+            <Text style={styles.gremlyPickText}>Let Gremly pick for me</Text>
+          </Pressable>
+        )}
+
+        {/* ── 5. DIVIDER ──────────────────────────────────────── */}
+        <View style={styles.divider} />
+
+        {/* ── 6. FILTER BAR ───────────────────────────────────── */}
+        <View style={styles.filterBar}>
+          {/* Left: type filters */}
+          <View style={styles.filterGroup}>
+            {(['all', 'todo', 'habit'] as const).map((t) => (
+              <Pressable
+                key={t}
+                onPress={() => setActiveType(t)}
+                style={[styles.filterChip, activeType === t && styles.filterChipActive]}
+              >
+                <Text
+                  style={[styles.filterChipText, activeType === t && styles.filterChipTextActive]}
+                >
+                  {t === 'all' ? 'All' : t === 'todo' ? 'Todos' : 'Habits'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.filterDivider} />
+
+          {/* Right: space filters */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.spaceScroll}>
+            <View style={styles.filterGroup}>
+              {spaces.map((s) => (
+                <Pressable
+                  key={s}
+                  onPress={() => setActiveSpace(activeSpace === s ? 'All' : s)}
+                  style={[styles.filterChip, activeSpace === s && styles.filterChipActive]}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      activeSpace === s && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {s}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+
+        {/* ── 7. SECTION HEADER ───────────────────────────────── */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionLabel}>EVERYTHING ELSE ({availableTasks.length})</Text>
+          {skippedIds.size > 0 && (
+            <Pressable onPress={handleUndoSkips}>
+              <Text style={styles.undoSkipsText}>Undo skips ({skippedIds.size})</Text>
+            </Pressable>
           )}
         </View>
 
-        {/* ── 2. CAPACITY METER (Mode A only) / FITS BAR (Mode B) ─ */}
-        {isPrioritizing ? (
-          <View style={styles.meterContainer}>
-            <View style={styles.meterLabelRow}>
-              <Text style={styles.meterLabelLeft}>
-                {formatMins(totalAvailableMinutes)} free time
+        {/* ── 8. TASK LIST ────────────────────────────────────── */}
+        {availableTasks.map((task) => (
+          <View key={task.id} style={styles.taskRow}>
+            {/* Add button */}
+            <Pressable
+              style={({ pressed }) => [styles.addIcon, pressed && { backgroundColor: '#D6E5D9' }]}
+              onPress={() => handleAdd(task)}
+            >
+              <Plus size={13} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+            </Pressable>
+
+            {/* Name (tap to add) */}
+            <Pressable style={styles.taskNameArea} onPress={() => handleAdd(task)}>
+              <Text style={styles.taskName} numberOfLines={1}>
+                {task.title}
               </Text>
-              {isOver ? (
-                <Text style={styles.meterLabelOver}>{formatMins(overAmount)} over</Text>
-              ) : (
-                <Text style={styles.meterLabelRight}>{formatMins(remainingMinutes)} left</Text>
-              )}
-            </View>
-            <View style={styles.meterTrack}>
-              <Animated.View
-                style={[
-                  styles.meterFill,
-                  {
-                    width: fillWidth,
-                    backgroundColor: meterColor,
-                  },
-                ]}
-              />
-            </View>
+            </Pressable>
+
+            {/* Habit badge */}
+            {task.type === 'habit' && (
+              <View style={styles.habitBadge}>
+                <Repeat size={9} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+              </View>
+            )}
+
+            {/* Time */}
+            <Text style={styles.taskTime}>{fmt(task.estimatedMinutes || 0)}</Text>
+
+            {/* Skip button */}
+            <Pressable
+              style={({ pressed }) => [styles.skipIcon, pressed && { backgroundColor: '#F0EEEA' }]}
+              onPress={() => handleSkip(task)}
+            >
+              <Minus size={13} color={BRAND.colors.inkMuted} strokeWidth={2} />
+            </Pressable>
           </View>
-        ) : (
-          <View style={styles.fitsBar}>
-            <Text style={styles.fitsText}>
-              ✓ {selectedCount} task{selectedCount !== 1 ? 's' : ''} · {formatMins(selectedMinutes)}{' '}
-              of {formatMins(totalAvailableMinutes)} free time
+        ))}
+
+        {availableTasks.length === 0 && (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>
+              {skippedIds.size > 0 ? 'All remaining tasks skipped' : 'All tasks added'}
             </Text>
           </View>
         )}
 
-        {/* ── 3. TASK LIST ────────────────────────────────────── */}
-        {!hasTasks && (
-          <View style={styles.emptyState}>
-            <Pressable
-              style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.7 }]}
-              onPress={onAddPress}
-            >
-              <Plus size={20} color={BRAND.colors.mossGreen} />
-              <Text style={styles.addButtonText}>Add a task</Text>
-            </Pressable>
-          </View>
-        )}
+        {/* ── 9. REASSURANCE ──────────────────────────────────── */}
+        <Text style={styles.reassurance}>Skipped tasks will come back in your next sweep</Text>
 
-        {showTypeLabels && todos.length > 0 && (
-          <Text style={styles.sectionLabel}>TODOS ({todos.length})</Text>
-        )}
-        {todos.map((task) => (
-          <TaskRow
-            key={task.id}
-            task={task}
-            isSelected={selectedIds.has(task.id)}
-            isLocked={lockedIds.has(task.id)}
-            onToggle={handleToggle}
-            onLongPress={handleLongPress}
-            onTaskPress={onTaskPress}
-          />
-        ))}
-
-        {showTypeLabels && habits.length > 0 && (
-          <Text style={styles.sectionLabel}>HABITS ({habits.length})</Text>
-        )}
-        {habits.map((task) => (
-          <TaskRow
-            key={task.id}
-            task={task}
-            isSelected={selectedIds.has(task.id)}
-            isLocked={lockedIds.has(task.id)}
-            onToggle={handleToggle}
-            onLongPress={handleLongPress}
-            onTaskPress={onTaskPress}
-          />
-        ))}
+        {/* Spacer for footer */}
+        <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* ── 4. FOOTER ─────────────────────────────────────────── */}
-      <View style={styles.footer}>
-        {/* Back + Continue row */}
+      {/* ── 10. STICKY FOOTER ─────────────────────────────────── */}
+      <View style={styles.stickyFooter}>
         <View style={styles.footerRow}>
-          {onBack && (
-            <Pressable
-              style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.6 }]}
-              onPress={onBack}
-            >
-              <ChevronLeft size={20} color={BRAND.colors.inkMuted} />
-            </Pressable>
-          )}
+          {/* Quick add */}
+          <Pressable
+            style={({ pressed }) => [styles.quickAddButton, pressed && { opacity: 0.7 }]}
+            onPress={onAddPress}
+          >
+            <Plus size={22} color={BRAND.colors.mossGreen} />
+          </Pressable>
+
+          {/* Continue */}
           <Pressable
             style={({ pressed }) => [
               styles.continueButton,
-              onBack ? { flex: 1 } : undefined,
-              isContinueDisabled && styles.continueButtonDisabled,
-              pressed && !isContinueDisabled && { backgroundColor: '#AECBB0' },
+              !hasSelections && styles.continueButtonDisabled,
+              pressed && hasSelections && { backgroundColor: '#AECBB0' },
             ]}
-            onPress={onContinue}
-            disabled={isContinueDisabled}
+            onPress={hasSelections ? onContinue : undefined}
+            disabled={!hasSelections}
           >
-            <Text style={[styles.continueText, isContinueDisabled && styles.continueTextDisabled]}>
-              Continue →
+            <Text style={[styles.continueText, !hasSelections && styles.continueTextDisabled]}>
+              {hasSelections ? `Continue with ${committedTasks.length} →` : 'Pick at least one →'}
             </Text>
           </Pressable>
         </View>
 
-        {/* Helper text when disabled (Mode A only) */}
-        {isPrioritizing && selectedCount === 0 && (
-          <Text style={styles.helperText}>Select at least one task to continue</Text>
-        )}
-        {isPrioritizing && selectedCount > 0 && isOverCommitted && (
-          <Text style={styles.helperText}>
-            Over capacity by {formatMins(overAmount)} · remove or shorten tasks
-          </Text>
-        )}
-
-        <Pressable
-          style={({ pressed }) => [styles.skipPressable, pressed && { opacity: 0.5 }]}
-          onPress={onSkip}
-        >
-          <Text style={styles.skipText}>Skip · keep all</Text>
-        </Pressable>
+        {/* Back / Skip row */}
+        <View style={styles.footerSecondary}>
+          {onBack && (
+            <Pressable style={({ pressed }) => [pressed && { opacity: 0.5 }]} onPress={onBack}>
+              <Text style={styles.footerLink}>← Back</Text>
+            </Pressable>
+          )}
+          <Pressable style={({ pressed }) => [pressed && { opacity: 0.5 }]} onPress={onSkip}>
+            <Text style={styles.footerLink}>Skip · keep all</Text>
+          </Pressable>
+        </View>
       </View>
-    </>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// TaskRow — unified row for selected and unselected
-// ═══════════════════════════════════════════════════════════════════
-
-/** Map timeWindow to readable label */
-function blockName(tw: TaskItemData['timeWindow']): string | null {
-  if (tw === 'morning') return 'Morning';
-  if (tw === 'day') return 'Afternoon';
-  if (tw === 'evening') return 'Evening';
-  return null;
-}
-
-function TaskRow({
-  task,
-  isSelected,
-  isLocked,
-  onToggle,
-  onLongPress,
-  onTaskPress,
-}: {
-  task: TaskItemData;
-  isSelected: boolean;
-  isLocked: boolean;
-  onToggle: (t: TaskItemData) => void;
-  onLongPress: (t: TaskItemData) => void;
-  onTaskPress: (t: TaskItemData) => void;
-}) {
-  if (isSelected) {
-    const bn = blockName(task.timeWindow);
-    const hasBadges = !!bn || isLocked;
-
-    return (
-      <Pressable
-        style={({ pressed }) => [styles.selectedRow, pressed && { opacity: 0.85 }]}
-        onPress={() => onToggle(task)}
-        onLongPress={() => onLongPress(task)}
-      >
-        {/* Straight accent bar */}
-        <View style={[styles.accentBar, isLocked && styles.accentBarLocked]} />
-
-        {/* Row content */}
-        <View style={styles.rowContent}>
-          {/* Checkbox — filled */}
-          <View style={styles.checkboxFilled}>
-            <Check size={14} color="#FFFFFF" strokeWidth={2.5} />
-          </View>
-
-          {/* Title + metadata */}
-          <View style={styles.titleArea_row}>
-            <Text style={styles.selectedTitle} numberOfLines={1}>
-              {task.title}
-            </Text>
-            {task.type === 'habit' && task.metadata?.label ? (
-              <Text style={styles.habitMeta}>{task.metadata.label}</Text>
-            ) : null}
-          </View>
-
-          {/* Time */}
-          <Text style={styles.timeText}>{formatPill(task.estimatedMinutes)}</Text>
-
-          {/* ⋯ button — opens TaskQuickActionSheet */}
-          <Pressable
-            style={styles.moreButton}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            onPress={() => onTaskPress(task)}
-          >
-            <MoreHorizontal size={18} color={BRAND.colors.inkMuted} />
-          </Pressable>
-        </View>
-
-        {/* Inline badges row */}
-        {hasBadges && (
-          <View style={styles.badgeRow}>
-            {bn ? (
-              <View style={styles.blockBadge}>
-                <Text style={styles.blockBadgeText}>{bn}</Text>
-              </View>
-            ) : null}
-            {isLocked ? (
-              <View style={styles.lockBadge}>
-                <Lock size={10} color={BRAND.colors.mossGreen} strokeWidth={2} />
-                <Text style={styles.lockBadgeText}>Locked in</Text>
-              </View>
-            ) : null}
-          </View>
-        )}
-      </Pressable>
-    );
-  }
-
-  // Unselected row
-  return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.unselectedRow,
-        pressed && { backgroundColor: 'rgba(46,85,64,0.04)' },
-      ]}
-      onPress={() => onToggle(task)}
-      onLongPress={() => onLongPress(task)}
-    >
-      {/* Checkbox — empty */}
-      <View style={styles.checkboxEmpty} />
-
-      {/* Title */}
-      <Text style={styles.unselectedTitle} numberOfLines={1}>
-        {task.title}
-      </Text>
-
-      {/* Time */}
-      <Text style={styles.unselectedTime}>{formatPill(task.estimatedMinutes)}</Text>
-    </Pressable>
+    </View>
   );
 }
 
@@ -484,300 +433,233 @@ function TaskRow({
 // ═══════════════════════════════════════════════════════════════════
 
 const styles = StyleSheet.create({
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 16,
-  },
+  wrapper: { flex: 1 },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 8 },
 
-  // ── Title ───────────────────────────────────────────────────────
-  titleArea: {
-    paddingHorizontal: 20,
-    marginTop: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: BRAND.colors.charcoalInk,
-  },
-  titleFits: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: BRAND.colors.mossGreen,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-    marginTop: 6,
-    lineHeight: 20,
-  },
-  subtitleAccent: {
-    fontWeight: '700',
-    color: BRAND.colors.mossGreen,
-  },
+  // Title
+  titleArea: { paddingHorizontal: 20, marginTop: 16 },
+  title: { fontSize: 22, fontWeight: '700', color: BRAND.colors.charcoalInk },
+  subtitle: { fontSize: 13, color: BRAND.colors.inkMuted, marginTop: 4 },
 
-  // ── Fits Bar (Mode B) ───────────────────────────────────────────
-  fitsBar: {
-    paddingHorizontal: 20,
-    marginTop: 10,
-    marginBottom: 16,
-  },
-  fitsText: {
-    fontSize: 13,
-    color: BRAND.colors.mossGreen,
-    fontWeight: '600',
-  },
+  // Meter
+  meterContainer: { marginHorizontal: 20, marginTop: 12, marginBottom: 4 },
+  meterLabelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
+  meterLabelLeft: { fontSize: 11, fontWeight: '600', color: BRAND.colors.mossGreen },
+  meterLabelRight: { fontSize: 11, fontWeight: '600', color: BRAND.colors.inkMuted },
+  meterLabelOver: { color: '#C45B4A' },
+  meterTrack: { height: 5, borderRadius: 3, backgroundColor: '#E8E4DD', overflow: 'hidden' },
+  meterFill: { height: '100%', borderRadius: 3 },
 
-  // ── Capacity Meter ──────────────────────────────────────────────
-  meterContainer: {
-    marginHorizontal: 20,
-    marginTop: 16,
-    marginBottom: 20,
-  },
-  meterLabelRow: {
+  // Committed chips
+  chipContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 4,
     justifyContent: 'space-between',
-    marginBottom: 6,
   },
-  meterLabelLeft: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: BRAND.colors.inkMuted,
-  },
-  meterLabelRight: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: BRAND.colors.mossGreen,
-  },
-  meterLabelOver: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#C45B4A',
-  },
-  meterTrack: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#E8E4DD',
-    overflow: 'hidden',
-  },
-  meterFill: {
-    height: '100%',
-    borderRadius: 4,
-  },
-
-  // ── Section Labels ──────────────────────────────────────────────
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    color: BRAND.colors.inkMuted,
-    paddingHorizontal: 20,
-    marginTop: 14,
-    marginBottom: 8,
-  },
-
-  // ── Selected Row ────────────────────────────────────────────────
-  selectedRow: {
-    marginHorizontal: 20,
-    marginBottom: 4,
-    backgroundColor: '#FEFDFB',
-    borderRadius: 10,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.02,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
-  },
-  accentBar: {
-    width: 3,
-    backgroundColor: BRAND.colors.mossGreen,
-  },
-  accentBarLocked: {
-    width: 4,
-  },
-  rowContent: {
-    flex: 1,
+  chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  checkboxFilled: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    backgroundColor: BRAND.colors.mossGreen,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  titleArea_row: {
-    flex: 1,
-    marginLeft: 10,
-  },
-  selectedTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  habitMeta: {
-    fontSize: 11,
-    color: BRAND.colors.inkMuted,
-    marginTop: 1,
-  },
-  timeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: BRAND.colors.inkMuted,
-    marginRight: 4,
-  },
-  moreButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: -4,
-    marginBottom: 6,
-    marginLeft: 37,
-  },
-  blockBadge: {
-    paddingVertical: 1,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-    backgroundColor: 'rgba(46,85,64,0.06)',
-  },
-  blockBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-  },
-  lockBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingVertical: 1,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-    backgroundColor: 'rgba(46,85,64,0.06)',
-  },
-  lockBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: BRAND.colors.mossGreen,
-  },
-
-  // ── Unselected Row ──────────────────────────────────────────────
-  unselectedRow: {
-    marginHorizontal: 20,
-    marginBottom: 4,
-    backgroundColor: 'transparent',
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  checkboxEmpty: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: BRAND.colors.borderSubtle,
-  },
-  unselectedTitle: {
-    flex: 1,
-    marginLeft: 10,
-    fontSize: 14,
-    fontWeight: '400',
-    color: BRAND.colors.charcoalInk,
-    opacity: 0.7,
-  },
-  unselectedTime: {
-    fontSize: 12,
-    color: BRAND.colors.inkMuted,
-    opacity: 0.5,
-  },
-
-  // ── Empty state ─────────────────────────────────────────────────
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 32,
-  },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    gap: 4,
+    paddingVertical: 3,
+    paddingLeft: 10,
+    paddingRight: 8,
+    borderRadius: 8,
     backgroundColor: '#E8F0EB',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D6E5D9',
+    width: '48.5%',
   },
-  addButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
+  chipName: {
+    fontSize: 11,
+    fontWeight: '500',
     color: BRAND.colors.mossGreen,
+    flex: 1,
+    flexShrink: 1,
+    lineHeight: 14,
   },
+  chipTime: { fontSize: 10, color: BRAND.colors.inkMuted },
 
-  // ── Footer ──────────────────────────────────────────────────────
-  footer: {
+  // Gremly pick
+  gremlyPickButton: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#FEFDFB',
+    borderWidth: 1.5,
+    borderColor: '#D6E5D9',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  gremlyPickText: { fontSize: 13, fontWeight: '600', color: BRAND.colors.mossGreen },
+
+  // Divider
+  divider: { height: 1, backgroundColor: '#E8E6E1', marginHorizontal: 20, marginTop: 10 },
+
+  // Filters
+  filterBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 10,
     paddingBottom: 4,
   },
-  footerRow: {
+  filterGroup: { flexDirection: 'row', gap: 4 },
+  filterDivider: {
+    width: 1,
+    height: 16,
+    backgroundColor: '#E8E6E1',
+    marginHorizontal: 4,
+  },
+  spaceScroll: { flexShrink: 1, marginLeft: 8 },
+  filterChip: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  filterChipActive: {
+    backgroundColor: '#E8F0EB',
+    borderColor: '#D6E5D9',
+  },
+  filterChipText: { fontSize: 11, fontWeight: '500', color: BRAND.colors.inkMuted },
+  filterChipTextActive: { fontWeight: '700', color: BRAND.colors.mossGreen },
+
+  // Section header
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 2,
+  },
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+    color: BRAND.colors.inkMuted,
+  },
+  undoSkipsText: { fontSize: 10, color: BRAND.colors.mossGreen, fontWeight: '600' },
+
+  // Task row
+  taskRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    gap: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E8E6E1',
   },
-  backButton: {
+  addIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: '#D6E5D9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taskNameArea: { flex: 1, minWidth: 0 },
+  taskName: {
+    fontSize: 13,
+    color: BRAND.colors.charcoalInk,
+    opacity: 0.85,
+  },
+  habitBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    backgroundColor: '#E8F0EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taskTime: {
+    fontSize: 11,
+    color: BRAND.colors.inkMuted,
+    fontVariant: ['tabular-nums'],
+  },
+  skipIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: '#E8E6E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Empty
+  emptyState: { padding: 24, alignItems: 'center' },
+  emptyText: { fontSize: 13, color: BRAND.colors.inkMuted },
+
+  // Reassurance
+  reassurance: {
+    fontSize: 11,
+    color: BRAND.colors.inkMuted,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 16,
+  },
+
+  // Sticky footer
+  stickyFooter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+    backgroundColor: BRAND.colors.linenCream ?? '#F9F6F1',
+    shadowColor: '#F9F6F1',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 1,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  footerRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  quickAddButton: {
     width: 48,
     height: 48,
     borderRadius: 14,
-    backgroundColor: BRAND.colors.borderSubtle,
+    backgroundColor: '#FEFDFB',
+    borderWidth: 1.5,
+    borderColor: '#E8E6E1',
     alignItems: 'center',
     justifyContent: 'center',
   },
   continueButton: {
-    backgroundColor: '#BFD8C0',
+    flex: 1,
     height: 48,
     borderRadius: 16,
+    backgroundColor: '#BFD8C0',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  continueButtonDisabled: {
-    backgroundColor: '#E8E6E1',
+  continueButtonDisabled: { backgroundColor: '#E8E6E1' },
+  continueText: { fontSize: 16, fontWeight: '600', color: '#2E5540' },
+  continueTextDisabled: { color: '#B0AEA8' },
+  footerSecondary: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 24,
+    paddingTop: 8,
   },
-  continueText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2E5540',
-  },
-  continueTextDisabled: {
-    color: '#B0AEA8',
-  },
-  helperText: {
-    fontSize: 12,
-    color: '#C45B4A',
-    textAlign: 'center',
-    marginTop: 6,
-  },
-  skipPressable: {
-    alignItems: 'center',
-  },
-  skipText: {
+  footerLink: {
     fontSize: 13,
     color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-    paddingVertical: 14,
+    paddingVertical: 6,
   },
 });
 
