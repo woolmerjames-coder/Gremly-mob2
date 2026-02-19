@@ -196,19 +196,19 @@ function groupKeyDatesByTimeBlock(keyDates: Note[]): Record<TimeBlock, Note[]> {
   };
 
   for (const event of keyDates) {
-    if (event.is_all_day) {
+    if (event.is_all_day || !event.event_time) {
+      // Match Morning Brief behavior: all-day events AND events
+      // without a specific time both show under ALL DAY
       grouped.allday.push(event);
-    } else if (event.event_time) {
+    } else {
       const [hourStr] = event.event_time.split(':');
       const hour = parseInt(hourStr, 10);
       if (!isNaN(hour)) {
         const block = getTimeBlockForHour(hour);
         grouped[block].push(event);
       } else {
-        grouped.anytime.push(event);
+        grouped.allday.push(event);
       }
-    } else {
-      grouped.anytime.push(event);
     }
   }
 
@@ -1470,6 +1470,8 @@ function TodayFocusList({
   // Merge events and tasks into chronological lists per block
   const unifiedByBlock = useMemo(() => {
     const blocks = ['morning', 'afternoon', 'evening', 'anytime', 'allday'] as const;
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
     const result: Record<
       string,
       Array<{
@@ -1529,7 +1531,26 @@ function TodayFocusList({
         return 0;
       });
 
-      result[block] = entries;
+      result[block] = entries.filter((entry) => {
+        // Only filter calendar events — tasks always stay
+        if (entry.kind !== 'event' || !entry.event) return true;
+        const event = entry.event;
+
+        // All-day events stay visible all day
+        if (event.is_all_day) return true;
+
+        // If event has an end_time, check if it has already passed
+        if (event.end_time) {
+          const [eh, em] = event.end_time.split(':').map(Number);
+          if (!isNaN(eh)) {
+            const endMinutes = eh * 60 + (em || 0);
+            return endMinutes > nowMinutes;
+          }
+        }
+
+        // No end_time available — keep it visible (can't determine when it ends)
+        return true;
+      });
     }
 
     return result;
