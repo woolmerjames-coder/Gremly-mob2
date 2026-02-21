@@ -238,23 +238,46 @@ describe('AgeUpCelebrationModal', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('haptic feedback', () => {
-    it('triggers celebration haptic when modal becomes visible', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('triggers escalating haptic pattern when modal becomes visible', () => {
+      // The component calls triggerAgeUpHapticPattern() which uses expo-haptics
+      // directly (Haptics.impactAsync) on a timer-based schedule, not
+      // haptics.triggerCelebration from lib/haptics.
+      // The first light tap fires at 0ms via setTimeout.
+      const ExpoHaptics = require('expo-haptics');
       render(<AgeUpCelebrationModal {...defaultProps} visible={true} />);
-      expect(haptics.triggerCelebration).toHaveBeenCalled();
+      // Flush all scheduled haptic timers (pattern runs 0–3000ms)
+      jest.advanceTimersByTime(3100);
+      expect(ExpoHaptics.impactAsync).toHaveBeenCalled();
     });
 
     it('does not trigger haptic when modal is not visible', () => {
+      const ExpoHaptics = require('expo-haptics');
+      ExpoHaptics.impactAsync.mockClear();
       render(<AgeUpCelebrationModal {...defaultProps} visible={false} />);
-      expect(haptics.triggerCelebration).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(3100);
+      expect(ExpoHaptics.impactAsync).not.toHaveBeenCalled();
     });
 
     it('triggers haptic only once per visibility change', () => {
+      const ExpoHaptics = require('expo-haptics');
+      ExpoHaptics.impactAsync.mockClear();
       const { rerender } = render(<AgeUpCelebrationModal {...defaultProps} visible={true} />);
-      expect(haptics.triggerCelebration).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(3100);
+      const callCount = ExpoHaptics.impactAsync.mock.calls.length;
+      expect(callCount).toBeGreaterThan(0);
 
-      // Re-render with same visible state should not trigger again
+      // Re-render with same visible state should not trigger more haptics
+      ExpoHaptics.impactAsync.mockClear();
       rerender(<AgeUpCelebrationModal {...defaultProps} visible={true} newAge={6} />);
-      expect(haptics.triggerCelebration).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(3100);
+      expect(ExpoHaptics.impactAsync).not.toHaveBeenCalled();
     });
   });
 

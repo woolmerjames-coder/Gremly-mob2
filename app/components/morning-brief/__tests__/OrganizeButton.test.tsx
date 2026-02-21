@@ -170,11 +170,12 @@ describe('OrganizeButton integration tests', () => {
     });
 
     it('sends ALL items when selectedIds is undefined/null', () => {
-      const selectedIds: Set<string> | undefined = undefined;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const selectedIds: any = undefined;
       const hasExplicitSelections = selectedIds && selectedIds.size > 0;
 
       const filteredTodos = hasExplicitSelections
-        ? allTodos.filter((t) => (selectedIds as Set<string>).has(t.id))
+        ? allTodos.filter((t) => selectedIds.has(t.id))
         : allTodos;
 
       expect(hasExplicitSelections).toBeFalsy();
