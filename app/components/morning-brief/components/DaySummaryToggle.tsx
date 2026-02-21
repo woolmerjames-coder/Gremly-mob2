@@ -1,15 +1,14 @@
 /**
  * DaySummaryToggle
  *
- * Two side-by-side summary cards acting as a tab toggle
- * between the calendar view and the task/prioritize view.
- * Both cards are always visible — active card gets a filled background.
+ * Two side-by-side cards matching the Today-page card style.
+ * Each card has two rows: icon + title + chevron, then a subtitle.
  */
 
 import React from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { Text } from '../../../../ui';
-import { Calendar } from 'lucide-react-native';
+import { Calendar, CircleCheckBig, ChevronRight } from 'lucide-react-native';
 import { BRAND } from '../../../../design/brand';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -19,9 +18,8 @@ import { BRAND } from '../../../../design/brand';
 export interface DaySummaryToggleProps {
   eventCount: number;
   freeMinutes: number;
-  selectedMinutes: number;
-  totalAvailableMinutes: number;
-  remainingMinutes: number;
+  todoCount: number;
+  habitCount: number;
   activeTab: 'calendar' | 'tasks';
   onTabChange: (tab: 'calendar' | 'tasks') => void;
 }
@@ -38,13 +36,6 @@ function fmt(minutes: number): string {
   return `${h}h ${m}m`;
 }
 
-function getQualitativeMessage(ratio: number): string {
-  if (ratio > 1.0) return "That's a lot — trim some?";
-  if (ratio >= 0.85) return 'Tight but doable';
-  if (ratio >= 0.5) return 'Looking good';
-  return 'Plenty of room';
-}
-
 // ═══════════════════════════════════════════════════════════════════
 // Component
 // ═══════════════════════════════════════════════════════════════════
@@ -52,15 +43,11 @@ function getQualitativeMessage(ratio: number): string {
 export function DaySummaryToggle({
   eventCount,
   freeMinutes,
-  selectedMinutes,
-  totalAvailableMinutes,
+  todoCount,
+  habitCount,
   activeTab,
   onTabChange,
 }: DaySummaryToggleProps) {
-  const ratio = totalAvailableMinutes > 0 ? selectedMinutes / totalAvailableMinutes : 0;
-  const isOver = ratio > 1.0;
-  const message = getQualitativeMessage(ratio);
-
   const calendarActive = activeTab === 'calendar';
   const tasksActive = activeTab === 'tasks';
 
@@ -68,31 +55,53 @@ export function DaySummaryToggle({
     <View style={styles.row}>
       {/* LEFT CARD — Calendar */}
       <Pressable
-        style={({ pressed }) => [
-          styles.card,
-          calendarActive ? styles.cardActive : styles.cardInactive,
-          pressed && { opacity: 0.7 },
-        ]}
+        style={[styles.card, calendarActive ? styles.cardActive : styles.cardInactive]}
         onPress={() => onTabChange('calendar')}
       >
-        <View style={styles.cardContent}>
-          <Calendar size={14} color={BRAND.colors.inkMuted} />
-          <Text style={styles.calendarText}>
-            {eventCount} event{eventCount !== 1 ? 's' : ''} · {fmt(freeMinutes)} free
+        <View style={styles.topRow}>
+          <Calendar
+            size={16}
+            color={calendarActive ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+          />
+          <Text
+            style={[
+              styles.title,
+              { color: calendarActive ? BRAND.colors.charcoalInk : BRAND.colors.inkMuted },
+            ]}
+          >
+            Calendar
           </Text>
+          <ChevronRight size={14} color={BRAND.colors.inkMuted} />
         </View>
+        <Text style={styles.subtitle}>
+          {eventCount} event{eventCount !== 1 ? 's' : ''} · {fmt(freeMinutes)} free
+        </Text>
       </Pressable>
 
-      {/* RIGHT CARD — Tasks qualitative */}
+      {/* RIGHT CARD — Tasks */}
       <Pressable
-        style={({ pressed }) => [
-          styles.card,
-          tasksActive ? styles.cardActive : styles.cardInactive,
-          pressed && { opacity: 0.7 },
-        ]}
+        style={[styles.card, tasksActive ? styles.cardActive : styles.cardInactive]}
         onPress={() => onTabChange('tasks')}
       >
-        <Text style={[styles.taskMessage, isOver && styles.taskMessageOver]}>{message}</Text>
+        <View style={styles.topRow}>
+          <CircleCheckBig
+            size={16}
+            color={tasksActive ? BRAND.colors.mossGreen : BRAND.colors.inkMuted}
+          />
+          <Text
+            style={[
+              styles.title,
+              { color: tasksActive ? BRAND.colors.charcoalInk : BRAND.colors.inkMuted },
+            ]}
+          >
+            Tasks
+          </Text>
+          <ChevronRight size={14} color={BRAND.colors.inkMuted} />
+        </View>
+        <Text style={styles.subtitle}>
+          {todoCount} todo{todoCount !== 1 ? 's' : ''}, {habitCount} habit
+          {habitCount !== 1 ? 's' : ''}
+        </Text>
       </Pressable>
     </View>
   );
@@ -106,41 +115,44 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     gap: 8,
-    paddingHorizontal: 20,
-    marginBottom: 12,
+    marginHorizontal: 20,
+    marginTop: 12,
+    marginBottom: 14,
   },
   card: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    justifyContent: 'center',
   },
   cardActive: {
-    backgroundColor: '#E8F0EB',
+    backgroundColor: '#FFFFFF',
     borderColor: '#D6E5D9',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   cardInactive: {
-    backgroundColor: '#FEFDFB',
+    backgroundColor: '#F5F2ED',
     borderColor: '#E8E6E1',
+    opacity: 0.6,
   },
-  cardContent: {
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
   },
-  calendarText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: BRAND.colors.charcoalInk,
-  },
-  taskMessage: {
-    fontSize: 12,
+  title: {
+    flex: 1,
+    fontSize: 14,
     fontWeight: '600',
-    color: BRAND.colors.mossGreen,
+    marginLeft: 8,
   },
-  taskMessageOver: {
-    color: '#C45B4A',
+  subtitle: {
+    fontSize: 12,
+    color: BRAND.colors.inkMuted,
+    marginTop: 4,
   },
 });

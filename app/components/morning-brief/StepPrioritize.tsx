@@ -164,6 +164,27 @@ export function StepPrioritize({
     return [...s].sort();
   }, [flexibleTasks, selectedIds, skippedIds]);
 
+  // Task type counts for DaySummaryToggle
+  const todoCount = useMemo(
+    () => flexibleTasks.filter((t) => t.type === 'todo').length,
+    [flexibleTasks],
+  );
+  const habitCount = useMemo(
+    () => flexibleTasks.filter((t) => t.type === 'habit').length,
+    [flexibleTasks],
+  );
+
+  // Contextual one-liner
+  const contextLine = useMemo(() => {
+    if (totalAvailableMinutes <= 60) return 'Packed day — be ruthless with what makes the cut';
+    if (totalEventCount === 0) return 'Nothing on the calendar. The day is yours.';
+    if (totalEventCount <= 2 && totalAvailableMinutes > 360)
+      return `Only ${totalEventCount} event${totalEventCount !== 1 ? 's' : ''} today. Go big.`;
+    if (totalAvailableMinutes > 480) return "Tons of room — don't hold back";
+    if (totalAvailableMinutes > 240) return 'Solid amount of free time. Pick what counts.';
+    return 'Busy day — keep your list tight';
+  }, [totalAvailableMinutes, totalEventCount]);
+
   // Filtered available tasks
   const availableTasks = useMemo(() => {
     return flexibleTasks.filter((t) => {
@@ -330,17 +351,17 @@ export function StepPrioritize({
         showsVerticalScrollIndicator={false}
       >
         {/* ── 1. DAY SUMMARY TOGGLE ──────────────────────────── */}
-        <View style={{ marginTop: 12 }}>
-          <DaySummaryToggle
-            eventCount={totalEventCount}
-            freeMinutes={totalAvailableMinutes}
-            selectedMinutes={selectedMinutes}
-            totalAvailableMinutes={totalAvailableMinutes}
-            remainingMinutes={remainingMinutes}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-          />
-        </View>
+        <DaySummaryToggle
+          eventCount={totalEventCount}
+          freeMinutes={totalAvailableMinutes}
+          todoCount={todoCount}
+          habitCount={habitCount}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
+
+        {/* ── 1b. CONTEXTUAL LINE ────────────────────────────── */}
+        <Text style={styles.contextLine}>{contextLine}</Text>
 
         {/* ── 2. SEGMENTED CAPACITY BAR ───────────────────────── */}
         <SegmentedCapacityBar
@@ -604,19 +625,28 @@ export function StepPrioritize({
           </Pressable>
 
           {/* Continue */}
-          <Pressable
-            style={({ pressed }) => [
-              styles.continueButton,
-              !hasSelections && styles.continueButtonDisabled,
-              pressed && hasSelections && { backgroundColor: '#AECBB0' },
-            ]}
-            onPress={hasSelections ? onContinue : undefined}
-            disabled={!hasSelections}
-          >
-            <Text style={[styles.continueText, !hasSelections && styles.continueTextDisabled]}>
-              {hasSelections ? `Continue with ${committedTasks.length} →` : 'Pick at least one →'}
-            </Text>
-          </Pressable>
+          {activeTab === 'calendar' ? (
+            <Pressable
+              style={({ pressed }) => [styles.continueButtonCalendar, pressed && { opacity: 0.7 }]}
+              onPress={() => setActiveTab('tasks')}
+            >
+              <Text style={styles.continueText}>Pick your tasks →</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [
+                styles.continueButton,
+                !hasSelections && styles.continueButtonDisabled,
+                pressed && hasSelections && { backgroundColor: '#AECBB0' },
+              ]}
+              onPress={hasSelections ? onContinue : undefined}
+              disabled={!hasSelections}
+            >
+              <Text style={[styles.continueText, !hasSelections && styles.continueTextDisabled]}>
+                {hasSelections ? `Continue with ${committedTasks.length} →` : 'Pick at least one →'}
+              </Text>
+            </Pressable>
+          )}
         </View>
 
         {/* Back / Skip row */}
@@ -804,6 +834,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // Context line
+  contextLine: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 20,
+  },
+
   // Empty
   emptyState: { padding: 24, alignItems: 'center' },
   emptyText: { fontSize: 13, color: BRAND.colors.inkMuted },
@@ -849,6 +889,16 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 16,
     backgroundColor: '#BFD8C0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  continueButtonCalendar: {
+    flex: 1,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: '#FEFDFB',
+    borderWidth: 1.5,
+    borderColor: '#D6E5D9',
     alignItems: 'center',
     justifyContent: 'center',
   },

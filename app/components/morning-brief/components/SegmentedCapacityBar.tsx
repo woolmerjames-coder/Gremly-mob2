@@ -155,7 +155,13 @@ export function SegmentedCapacityBar({
 
       {/* Labels */}
       <Text style={styles.labels}>
-        {fmt(eventMinutes)} events · {fmt(todoMinutes)} todos · {fmt(habitMinutes)} habits
+        {(() => {
+          const parts: string[] = [];
+          if (eventMinutes > 0) parts.push(`${fmt(eventMinutes)} events`);
+          if (todoMinutes > 0) parts.push(`${fmt(todoMinutes)} todos`);
+          if (habitMinutes > 0) parts.push(`${fmt(habitMinutes)} habits`);
+          return parts.join(' · ') || 'Nothing selected';
+        })()}
       </Text>
     </View>
   );
@@ -171,8 +177,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   track: {
-    height: 6,
-    borderRadius: 3,
+    height: 7,
+    borderRadius: 3.5,
     backgroundColor: '#E8E4DD',
     overflow: 'hidden',
   },
