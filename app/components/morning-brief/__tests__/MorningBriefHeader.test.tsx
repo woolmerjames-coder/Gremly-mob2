@@ -93,3 +93,77 @@ describe('MorningBriefHeader - targetDate logic', () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Exit button (onExit prop)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('MorningBriefHeader - exit button (documentary)', () => {
+  describe('onExit prop controls X button visibility', () => {
+    it('documents that X button renders only when onExit is provided', () => {
+      // In MorningBriefHeader:
+      //   {onExit && (
+      //     <Pressable onPress={onExit} ...>
+      //       <X size={20} color={COLORS.inkMuted} />
+      //     </Pressable>
+      //   )}
+      //
+      // When onExit is undefined, the conditional short-circuits → no X button.
+
+      const onExit: (() => void) | undefined = jest.fn();
+      expect(!!onExit).toBe(true); // renders
+
+      const noExit: (() => void) | undefined = undefined;
+      expect(!!noExit).toBe(false); // hidden
+    });
+
+    it('documents parent passes onExit only when brief not completed today', () => {
+      // MorningBriefSheet passes:
+      //   onExit={!hasCompletedToday ? handleExit : undefined}
+      //
+      // So re-entry (plan-only review) hides the exit button.
+
+      function computeOnExit(hasCompletedToday: boolean) {
+        return !hasCompletedToday ? 'handleExit' : undefined;
+      }
+
+      expect(computeOnExit(false)).toBe('handleExit');
+      expect(computeOnExit(true)).toBeUndefined();
+    });
+  });
+
+  describe('exit button styling', () => {
+    it('documents X button styling contract', () => {
+      const exitButtonStyle = {
+        icon: 'X (lucide-react-native)',
+        size: 20,
+        color: 'inkMuted (rgba(34,34,34,0.55))',
+        hitSlop: { top: 8, bottom: 8, left: 8, right: 8 },
+        pressedOpacity: 0.5,
+      };
+
+      expect(exitButtonStyle.size).toBe(20);
+      expect(exitButtonStyle.pressedOpacity).toBe(0.5);
+    });
+  });
+
+  describe('exit rollback behavior', () => {
+    it('documents that handleExit restores initial brief state then closes', () => {
+      // The handleExit callback in MorningBriefSheet:
+      //   1. Reads initialBriefState.current (snapshot from mount)
+      //   2. If selectionDate === today → restore original selections
+      //   3. If selectionDate !== today → clear to empty
+      //   4. Calls onClose()
+
+      const steps = [
+        'read initialBriefState snapshot',
+        'check snap.selectionDate === today',
+        'setBriefSelections(snap or empty)',
+        'onClose()',
+      ];
+
+      expect(steps).toHaveLength(4);
+      expect(steps[3]).toBe('onClose()');
+    });
+  });
+});

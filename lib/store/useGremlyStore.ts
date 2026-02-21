@@ -8438,6 +8438,11 @@ export const useGremlyStore = create<GremlyState>()(
 
         // Merge persisted state with fresh initial state
         merge: (persistedState: any, currentState: GremlyState) => {
+          if (__DEV__)
+            console.log(
+              '[MMKV merge] onboardingCompletedAt from persisted:',
+              persistedState?.onboardingCompletedAt,
+            );
           if (!persistedState) return currentState;
           return {
             ...currentState,

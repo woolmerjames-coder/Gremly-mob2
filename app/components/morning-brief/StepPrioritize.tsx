@@ -20,7 +20,13 @@ import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { Plus, X, Minus, Sparkles, Repeat } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { getDateService } from '../../../lib/date';
 import type { TaskItemData } from './components';
+import { DaySummaryToggle } from './components/DaySummaryToggle';
+import { SegmentedCapacityBar } from './components/SegmentedCapacityBar';
+import { GlanceTimelineBlock, GlanceOpenWindows } from './components/GlanceTimelineBlock';
+import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
+import type { Note } from '../../../lib/types';
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers
@@ -67,6 +73,17 @@ interface StepPrioritizeProps {
   onContinue: () => void;
   onSkip: () => void;
   onBack?: () => void;
+  // Calendar/Glance embedded view props
+  calendarEvents?: CalendarEvent[];
+  keyDateEvents?: Note[];
+  hiddenEventIds?: string[];
+  eventTimeOverrides?: Record<string, any>;
+  eventMinutes?: number;
+  totalEventCount?: number;
+  timeBlockPreferences?: any;
+  onCalendarEventAction?: (event: CalendarEvent) => void;
+  onEventQuickAction?: (event: Note) => void;
+  dateContext?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -81,16 +98,28 @@ export function StepPrioritize({
   selectedIds,
   lockedIds,
   onToggleSelect,
+  onTimePress,
   onAddPress,
   onSkipTask,
   onGremlyPick,
   onContinue,
   onSkip,
   onBack,
+  calendarEvents,
+  keyDateEvents,
+  hiddenEventIds,
+  eventTimeOverrides,
+  eventMinutes = 0,
+  totalEventCount = 0,
+  timeBlockPreferences,
+  onCalendarEventAction,
+  onEventQuickAction,
+  dateContext,
 }: StepPrioritizeProps) {
   const [activeType, setActiveType] = useState<'all' | 'todo' | 'habit'>('all');
   const [activeSpace, setActiveSpace] = useState<string>('All');
   const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<'calendar' | 'tasks'>('tasks');
 
   // ── Meter ─────────────────────────────────────────────────────
   const capacity = Math.max(totalAvailableMinutes, 1);
@@ -134,6 +163,27 @@ export function StepPrioritize({
     }
     return [...s].sort();
   }, [flexibleTasks, selectedIds, skippedIds]);
+
+  // Task type counts for DaySummaryToggle
+  const todoCount = useMemo(
+    () => flexibleTasks.filter((t) => t.type === 'todo').length,
+    [flexibleTasks],
+  );
+  const habitCount = useMemo(
+    () => flexibleTasks.filter((t) => t.type === 'habit').length,
+    [flexibleTasks],
+  );
+
+  // Contextual one-liner
+  const contextLine = useMemo(() => {
+    if (totalAvailableMinutes <= 60) return 'Packed day — be ruthless with what makes the cut';
+    if (totalEventCount === 0) return 'Nothing on the calendar. The day is yours.';
+    if (totalEventCount <= 2 && totalAvailableMinutes > 360)
+      return `Only ${totalEventCount} event${totalEventCount !== 1 ? 's' : ''} today. Go big.`;
+    if (totalAvailableMinutes > 480) return "Tons of room — don't hold back";
+    if (totalAvailableMinutes > 240) return 'Solid amount of free time. Pick what counts.';
+    return 'Busy day — keep your list tight';
+  }, [totalAvailableMinutes, totalEventCount]);
 
   // Filtered available tasks
   const availableTasks = useMemo(() => {
@@ -208,6 +258,91 @@ export function StepPrioritize({
   // ── Continue logic ────────────────────────────────────────────
   const hasSelections = committedTasks.length > 0;
 
+  // ── Habit minutes for segmented bar ───────────────────────────
+  const habitMinutes = useMemo(
+    () =>
+      committedTasks
+        .filter((t) => t.type === 'habit')
+        .reduce((s, t) => s + (t.estimatedMinutes || 0), 0),
+    [committedTasks],
+  );
+
+  // Todo-only minutes (selected todos, not habits)
+  const todoOnlyMinutes = selectedMinutes - habitMinutes;
+
+  // ── Calendar view data (mirrors StepGlance logic) ────────────
+  const currentMinute = useMemo(() => {
+    const now = getDateService().now();
+    return now.getHours() * 60 + now.getMinutes();
+  }, []);
+
+  const visibleCalEvents = useMemo(() => {
+    if (!calendarEvents) return [];
+    const hiddenSet = new Set(hiddenEventIds ?? []);
+    return calendarEvents.filter(
+      (e) => !hiddenSet.has(e.id) && !hiddenSet.has(`${e.provider}-${e.providerEventId}`),
+    );
+  }, [calendarEvents, hiddenEventIds]);
+
+  const visibleKeyDates = useMemo(() => {
+    const hiddenSet = new Set(hiddenEventIds ?? []);
+    return (keyDateEvents ?? []).filter((e) => !hiddenSet.has(e.id));
+  }, [keyDateEvents, hiddenEventIds]);
+
+  const { dedupedCalAllDay, dedupedNoteAllDay } = useMemo(() => {
+    const calAllDay = visibleCalEvents.filter((e) => e.isAllDay);
+    const noteAllDay = visibleKeyDates.filter((e) => !!e.is_all_day || !e.event_time);
+    const calTitles = new Set(calAllDay.map((e) => (e.title || '').toLowerCase().trim()));
+    const uniqueNotes = noteAllDay.filter(
+      (n) => !calTitles.has((n.title || '').toLowerCase().trim()),
+    );
+    return { dedupedCalAllDay: calAllDay, dedupedNoteAllDay: uniqueNotes };
+  }, [visibleCalEvents, visibleKeyDates]);
+
+  const hasAllDay = dedupedCalAllDay.length > 0 || dedupedNoteAllDay.length > 0;
+
+  const blocks = useMemo(() => {
+    if (!timeBlockPreferences) return [];
+    return [
+      {
+        key: 'morning' as const,
+        startHour: timeBlockPreferences.morning.startHour,
+        endHour: timeBlockPreferences.morning.endHour,
+      },
+      {
+        key: 'day' as const,
+        startHour: timeBlockPreferences.day.startHour,
+        endHour: timeBlockPreferences.day.endHour,
+      },
+      {
+        key: 'evening' as const,
+        startHour: timeBlockPreferences.evening.startHour,
+        endHour: timeBlockPreferences.evening.endHour,
+      },
+    ];
+  }, [timeBlockPreferences]);
+
+  const keyDatesByBlock = useMemo(() => {
+    const calTitles = new Set(
+      (visibleCalEvents ?? []).map((e) => (e.title || '').toLowerCase().trim()),
+    );
+    const result: Record<string, Note[]> = { morning: [], day: [], evening: [] };
+    for (const note of visibleKeyDates) {
+      if (note.is_all_day || !note.event_time) continue;
+      if (calTitles.has((note.title || '').toLowerCase().trim())) continue;
+      const [h] = note.event_time.split(':').map(Number);
+      for (const block of blocks) {
+        if (h >= block.startHour && h < block.endHour) {
+          result[block.key].push(note);
+          break;
+        }
+      }
+    }
+    return result;
+  }, [visibleKeyDates, visibleCalEvents, blocks]);
+
+  const today = dateContext ?? getDateService().getCurrentDate();
+
   return (
     <View style={styles.wrapper}>
       <ScrollView
@@ -215,168 +350,264 @@ export function StepPrioritize({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── 1. HEADLINE ─────────────────────────────────────── */}
-        <View style={styles.titleArea}>
-          <RNText style={styles.title}>What matters today?</RNText>
-          <RNText style={styles.subtitle}>
-            {flexibleTasks.length} tasks · {fmt(totalTaskMinutes)} estimated
-          </RNText>
-        </View>
+        {/* ── 1. DAY SUMMARY TOGGLE ──────────────────────────── */}
+        <DaySummaryToggle
+          eventCount={totalEventCount}
+          freeMinutes={totalAvailableMinutes}
+          todoCount={todoCount}
+          habitCount={habitCount}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
 
-        {/* ── 2. CAPACITY BAR ─────────────────────────────────── */}
-        <View style={styles.meterContainer}>
-          <View style={styles.meterLabelRow}>
-            <Text style={styles.meterLabelLeft}>
-              {selectedMinutes > 0 ? `${fmt(selectedMinutes)} selected` : 'None selected'}
-            </Text>
-            <Text style={[styles.meterLabelRight, isOver && styles.meterLabelOver]}>
-              {isOver
-                ? `${fmt(Math.abs(remainingMinutes))} over`
-                : `${fmt(totalAvailableMinutes)} available`}
-            </Text>
-          </View>
-          <View style={styles.meterTrack}>
-            <Animated.View
-              style={[styles.meterFill, { width: fillWidth, backgroundColor: meterColor }]}
-            />
-          </View>
-        </View>
+        {/* ── 1b. CONTEXTUAL LINE ────────────────────────────── */}
+        <Text style={styles.contextLine}>{contextLine}</Text>
 
-        {/* ── 3. COMMITTED CHIPS ──────────────────────────────── */}
-        {committedTasks.length > 0 && (
-          <View style={styles.chipContainer}>
-            {committedTasks.map((t) => (
-              <Pressable
-                key={t.id}
-                onPress={() => handleRemove(t)}
-                style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
-              >
-                <Text style={styles.chipName} numberOfLines={2}>
-                  {t.title}
-                </Text>
-                <Text style={styles.chipTime}>{fmt(t.estimatedMinutes || 0)}</Text>
-                {!lockedIds.has(t.id) && <X size={11} color={BRAND.colors.inkMuted} />}
-              </Pressable>
-            ))}
-          </View>
-        )}
+        {/* ── 2. SEGMENTED CAPACITY BAR ───────────────────────── */}
+        <SegmentedCapacityBar
+          eventMinutes={eventMinutes}
+          todoMinutes={Math.max(todoOnlyMinutes, 0)}
+          habitMinutes={habitMinutes}
+          totalDayMinutes={eventMinutes + totalAvailableMinutes}
+        />
 
-        {/* ── 4. GREMLY SUGGEST (when nothing selected) ───────── */}
-        {committedTasks.length === 0 && onGremlyPick && (
-          <Pressable
-            style={({ pressed }) => [styles.gremlyPickButton, pressed && { opacity: 0.7 }]}
-            onPress={handleGremlyPick}
-          >
-            <Sparkles size={16} color={BRAND.colors.mossGreen} />
-            <Text style={styles.gremlyPickText}>Let Gremly pick for me</Text>
-          </Pressable>
-        )}
-
-        {/* ── 5. DIVIDER ──────────────────────────────────────── */}
-        <View style={styles.divider} />
-
-        {/* ── 6. FILTER BAR ───────────────────────────────────── */}
-        <View style={styles.filterBar}>
-          {/* Left: type filters */}
-          <View style={styles.filterGroup}>
-            {(['all', 'todo', 'habit'] as const).map((t) => (
-              <Pressable
-                key={t}
-                onPress={() => setActiveType(t)}
-                style={[styles.filterChip, activeType === t && styles.filterChipActive]}
-              >
-                <Text
-                  style={[styles.filterChipText, activeType === t && styles.filterChipTextActive]}
-                >
-                  {t === 'all' ? 'All' : t === 'todo' ? 'Todos' : 'Habits'}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <View style={styles.filterDivider} />
-
-          {/* Right: space filters */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.spaceScroll}>
-            <View style={styles.filterGroup}>
-              {spaces.map((s) => (
-                <Pressable
-                  key={s}
-                  onPress={() => setActiveSpace(activeSpace === s ? 'All' : s)}
-                  style={[styles.filterChip, activeSpace === s && styles.filterChipActive]}
-                >
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      activeSpace === s && styles.filterChipTextActive,
-                    ]}
-                  >
-                    {s}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </ScrollView>
-        </View>
-
-        {/* ── 7. SECTION HEADER ───────────────────────────────── */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionLabel}>EVERYTHING ELSE ({availableTasks.length})</Text>
-          {skippedIds.size > 0 && (
-            <Pressable onPress={handleUndoSkips}>
-              <Text style={styles.undoSkipsText}>Undo skips ({skippedIds.size})</Text>
-            </Pressable>
-          )}
-        </View>
-
-        {/* ── 8. TASK LIST ────────────────────────────────────── */}
-        {availableTasks.map((task) => (
-          <View key={task.id} style={styles.taskRow}>
-            {/* Add button */}
-            <Pressable
-              style={({ pressed }) => [styles.addIcon, pressed && { backgroundColor: '#D6E5D9' }]}
-              onPress={() => handleAdd(task)}
-            >
-              <Plus size={13} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
-            </Pressable>
-
-            {/* Name (tap to add) */}
-            <Pressable style={styles.taskNameArea} onPress={() => handleAdd(task)}>
-              <Text style={styles.taskName} numberOfLines={1}>
-                {task.title}
-              </Text>
-            </Pressable>
-
-            {/* Habit badge */}
-            {task.type === 'habit' && (
-              <View style={styles.habitBadge}>
-                <Repeat size={9} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+        {/* ── CALENDAR TAB ────────────────────────────────────── */}
+        {activeTab === 'calendar' && (
+          <View>
+            {/* All-day events */}
+            {hasAllDay && (
+              <View style={styles.allDaySection}>
+                {dedupedCalAllDay.map((e, i) => (
+                  <React.Fragment key={e.id}>
+                    {i > 0 && <View style={styles.allDayDivider} />}
+                    <Pressable onPress={() => onCalendarEventAction?.(e)} style={styles.allDayRow}>
+                      <Text style={styles.allDayTitle} numberOfLines={1}>
+                        {e.title}
+                      </Text>
+                    </Pressable>
+                  </React.Fragment>
+                ))}
+                {dedupedNoteAllDay.map((e, i) => (
+                  <React.Fragment key={e.id}>
+                    {(i > 0 || dedupedCalAllDay.length > 0) && (
+                      <View style={styles.allDayDivider} />
+                    )}
+                    <Pressable onPress={() => onEventQuickAction?.(e)} style={styles.allDayRow}>
+                      <Text style={styles.allDayTitle} numberOfLines={1}>
+                        {e.title || 'Untitled'}
+                      </Text>
+                    </Pressable>
+                  </React.Fragment>
+                ))}
               </View>
             )}
 
-            {/* Time */}
-            <Text style={styles.taskTime}>{fmt(task.estimatedMinutes || 0)}</Text>
+            {/* Timeline blocks */}
+            {blocks.map((block) => (
+              <GlanceTimelineBlock
+                key={block.key}
+                block={block.key}
+                startHour={block.startHour}
+                endHour={block.endHour}
+                calendarEvents={visibleCalEvents}
+                keyDateEvents={keyDatesByBlock[block.key]}
+                currentMinute={currentMinute}
+                eventTimeOverrides={eventTimeOverrides ?? {}}
+                onCalendarEventPress={onCalendarEventAction ?? (() => {})}
+                onKeyDatePress={onEventQuickAction ?? (() => {})}
+                dateContext={today}
+              />
+            ))}
 
-            {/* Skip button */}
-            <Pressable
-              style={({ pressed }) => [styles.skipIcon, pressed && { backgroundColor: '#F0EEEA' }]}
-              onPress={() => handleSkip(task)}
-            >
-              <Minus size={13} color={BRAND.colors.inkMuted} strokeWidth={2} />
-            </Pressable>
-          </View>
-        ))}
-
-        {availableTasks.length === 0 && (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>
-              {skippedIds.size > 0 ? 'All remaining tasks skipped' : 'All tasks added'}
-            </Text>
+            {/* Open windows */}
+            {blocks.length > 0 && (
+              <GlanceOpenWindows
+                calendarEvents={visibleCalEvents}
+                keyDateEvents={visibleKeyDates}
+                eventTimeOverrides={eventTimeOverrides ?? {}}
+                blocks={blocks}
+                currentMinute={currentMinute}
+              />
+            )}
           </View>
         )}
 
-        {/* ── 9. REASSURANCE ──────────────────────────────────── */}
-        <Text style={styles.reassurance}>Skipped tasks will come back in your next sweep</Text>
+        {/* ── TASKS TAB ───────────────────────────────────────── */}
+        {activeTab === 'tasks' && (
+          <View>
+            {/* ── 3. COMMITTED CHIPS ──────────────────────────────── */}
+            {committedTasks.length > 0 && (
+              <View style={styles.chipContainer}>
+                {committedTasks.map((t) => (
+                  <Pressable
+                    key={t.id}
+                    onPress={() => handleRemove(t)}
+                    style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+                  >
+                    <Text style={styles.chipName} numberOfLines={2}>
+                      {t.title}
+                    </Text>
+                    <Pressable
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        onTimePress(t);
+                      }}
+                      hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                      style={({ pressed }) => pressed && { opacity: 0.5 }}
+                    >
+                      {t.estimatedMinutes ? (
+                        <Text style={styles.chipTime}>{fmt(t.estimatedMinutes)}</Text>
+                      ) : (
+                        <Text style={[styles.chipTime, { opacity: 0.6 }]}>—</Text>
+                      )}
+                    </Pressable>
+                    {!lockedIds.has(t.id) && <X size={11} color={BRAND.colors.inkMuted} />}
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            {/* ── 4. GREMLY SUGGEST (when nothing selected) ───────── */}
+            {committedTasks.length === 0 && onGremlyPick && (
+              <Pressable
+                style={({ pressed }) => [styles.gremlyPickButton, pressed && { opacity: 0.7 }]}
+                onPress={handleGremlyPick}
+              >
+                <Sparkles size={16} color={BRAND.colors.mossGreen} />
+                <Text style={styles.gremlyPickText}>Let Gremly pick for me</Text>
+              </Pressable>
+            )}
+
+            {/* ── 5. DIVIDER ──────────────────────────────────────── */}
+            <View style={styles.divider} />
+
+            {/* ── 6. FILTER BAR ───────────────────────────────────── */}
+            <View style={styles.filterBar}>
+              {/* Left: type filters */}
+              <View style={styles.filterGroup}>
+                {(['all', 'todo', 'habit'] as const).map((t) => (
+                  <Pressable
+                    key={t}
+                    onPress={() => setActiveType(t)}
+                    style={[styles.filterChip, activeType === t && styles.filterChipActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterChipText,
+                        activeType === t && styles.filterChipTextActive,
+                      ]}
+                    >
+                      {t === 'all' ? 'All' : t === 'todo' ? 'Todos' : 'Habits'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={styles.filterDivider} />
+
+              {/* Right: space filters */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.spaceScroll}
+              >
+                <View style={styles.filterGroup}>
+                  {spaces.map((s) => (
+                    <Pressable
+                      key={s}
+                      onPress={() => setActiveSpace(activeSpace === s ? 'All' : s)}
+                      style={[styles.filterChip, activeSpace === s && styles.filterChipActive]}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          activeSpace === s && styles.filterChipTextActive,
+                        ]}
+                      >
+                        {s}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+
+            {/* ── 7. SECTION HEADER ───────────────────────────────── */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionLabel}>EVERYTHING ELSE ({availableTasks.length})</Text>
+              {skippedIds.size > 0 && (
+                <Pressable onPress={handleUndoSkips}>
+                  <Text style={styles.undoSkipsText}>Undo skips ({skippedIds.size})</Text>
+                </Pressable>
+              )}
+            </View>
+
+            {/* ── 8. TASK LIST ────────────────────────────────────── */}
+            {availableTasks.map((task) => (
+              <View key={task.id} style={styles.taskRow}>
+                {/* Add button */}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.addIcon,
+                    pressed && { backgroundColor: '#D6E5D9' },
+                  ]}
+                  onPress={() => handleAdd(task)}
+                >
+                  <Plus size={13} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+                </Pressable>
+
+                {/* Name (tap to add) */}
+                <Pressable style={styles.taskNameArea} onPress={() => handleAdd(task)}>
+                  <Text style={styles.taskName} numberOfLines={1}>
+                    {task.title}
+                  </Text>
+                </Pressable>
+
+                {/* Habit badge */}
+                {task.type === 'habit' && (
+                  <View style={styles.habitBadge}>
+                    <Repeat size={9} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
+                  </View>
+                )}
+
+                {/* Time */}
+                <Pressable
+                  onPress={() => onTimePress(task)}
+                  hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                  style={({ pressed }) => pressed && { opacity: 0.5 }}
+                >
+                  {task.estimatedMinutes ? (
+                    <Text style={styles.taskTime}>{fmt(task.estimatedMinutes)}</Text>
+                  ) : (
+                    <Text style={styles.taskTimeAdd}>+ time</Text>
+                  )}
+                </Pressable>
+
+                {/* Skip button */}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.skipIcon,
+                    pressed && { backgroundColor: '#F0EEEA' },
+                  ]}
+                  onPress={() => handleSkip(task)}
+                >
+                  <Minus size={13} color={BRAND.colors.inkMuted} strokeWidth={2} />
+                </Pressable>
+              </View>
+            ))}
+
+            {availableTasks.length === 0 && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>
+                  {skippedIds.size > 0 ? 'All remaining tasks skipped' : 'All tasks added'}
+                </Text>
+              </View>
+            )}
+
+            {/* ── 9. REASSURANCE ──────────────────────────────────── */}
+            <Text style={styles.reassurance}>Skipped tasks will come back in your next sweep</Text>
+          </View>
+        )}
 
         {/* Spacer for footer */}
         <View style={{ height: 100 }} />
@@ -394,19 +625,28 @@ export function StepPrioritize({
           </Pressable>
 
           {/* Continue */}
-          <Pressable
-            style={({ pressed }) => [
-              styles.continueButton,
-              !hasSelections && styles.continueButtonDisabled,
-              pressed && hasSelections && { backgroundColor: '#AECBB0' },
-            ]}
-            onPress={hasSelections ? onContinue : undefined}
-            disabled={!hasSelections}
-          >
-            <Text style={[styles.continueText, !hasSelections && styles.continueTextDisabled]}>
-              {hasSelections ? `Continue with ${committedTasks.length} →` : 'Pick at least one →'}
-            </Text>
-          </Pressable>
+          {activeTab === 'calendar' ? (
+            <Pressable
+              style={({ pressed }) => [styles.continueButtonCalendar, pressed && { opacity: 0.7 }]}
+              onPress={() => setActiveTab('tasks')}
+            >
+              <Text style={styles.continueText}>Pick your tasks →</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [
+                styles.continueButton,
+                !hasSelections && styles.continueButtonDisabled,
+                pressed && hasSelections && { backgroundColor: '#AECBB0' },
+              ]}
+              onPress={hasSelections ? onContinue : undefined}
+              disabled={!hasSelections}
+            >
+              <Text style={[styles.continueText, !hasSelections && styles.continueTextDisabled]}>
+                {hasSelections ? `Continue with ${committedTasks.length} →` : 'Pick at least one →'}
+              </Text>
+            </Pressable>
+          )}
         </View>
 
         {/* Back / Skip row */}
@@ -434,19 +674,11 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 8 },
 
-  // Title
-  titleArea: { paddingHorizontal: 20, marginTop: 16 },
-  title: { fontSize: 22, fontWeight: '700', color: BRAND.colors.charcoalInk },
-  subtitle: { fontSize: 13, color: BRAND.colors.inkMuted, marginTop: 4 },
-
-  // Meter
-  meterContainer: { marginHorizontal: 20, marginTop: 12, marginBottom: 4 },
-  meterLabelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
-  meterLabelLeft: { fontSize: 11, fontWeight: '600', color: BRAND.colors.mossGreen },
-  meterLabelRight: { fontSize: 11, fontWeight: '600', color: BRAND.colors.inkMuted },
-  meterLabelOver: { color: '#C45B4A' },
-  meterTrack: { height: 5, borderRadius: 3, backgroundColor: '#E8E4DD', overflow: 'hidden' },
-  meterFill: { height: '100%', borderRadius: 3 },
+  // All-day events (calendar tab)
+  allDaySection: { marginHorizontal: 32, marginBottom: 8 },
+  allDayRow: { paddingVertical: 5 },
+  allDayDivider: { height: StyleSheet.hairlineWidth, backgroundColor: BRAND.colors.borderSubtle },
+  allDayTitle: { fontSize: 12, fontWeight: '500', color: BRAND.colors.inkMuted },
 
   // Committed chips
   chipContainer: {
@@ -586,6 +818,12 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
     fontVariant: ['tabular-nums'],
   },
+  taskTimeAdd: {
+    fontSize: 11,
+    color: BRAND.colors.mossGreen,
+    fontWeight: '500',
+    opacity: 0.7,
+  },
   skipIcon: {
     width: 28,
     height: 28,
@@ -594,6 +832,16 @@ const styles = StyleSheet.create({
     borderColor: '#E8E6E1',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // Context line
+  contextLine: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 20,
   },
 
   // Empty
@@ -641,6 +889,16 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 16,
     backgroundColor: '#BFD8C0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  continueButtonCalendar: {
+    flex: 1,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: '#FEFDFB',
+    borderWidth: 1.5,
+    borderColor: '#D6E5D9',
     alignItems: 'center',
     justifyContent: 'center',
   },

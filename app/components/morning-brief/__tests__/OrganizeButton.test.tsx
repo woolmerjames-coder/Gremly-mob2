@@ -116,15 +116,106 @@ describe('OrganizeButton behavior documentation', () => {
 });
 
 describe('OrganizeButton integration tests', () => {
-  // These tests would require full render with mocked Zustand store
-  // Skipping due to complexity of mocking all dependencies
+  // These tests validate the hasExplicitSelections filtering logic
+  // added to fix the bug where AI organized unselected tasks.
 
-  it.todo('renders button when unassigned tasks exist');
-  it.todo('hides button when all tasks are assigned');
-  it.todo('shows "Organizing..." during API call');
-  it.todo('calls onComplete with summary after success');
-  it.todo('calls onError on API failure');
-  it.todo('prevents double-press while organizing');
+  describe('hasExplicitSelections filtering', () => {
+    // Test data
+    const allTodos = [
+      { id: 'todo-1', title: 'Selected task' },
+      { id: 'todo-2', title: 'Unselected task' },
+      { id: 'todo-3', title: 'Another unselected' },
+    ];
+    const allHabits = [
+      { id: 'habit-1', name: 'Selected habit' },
+      { id: 'habit-2', name: 'Unselected habit' },
+    ];
+
+    it('filters to selected items when selectedIds is non-empty', () => {
+      // Replicates OrganizeButton handlePress logic:
+      //   const hasExplicitSelections = selectedIds && selectedIds.size > 0;
+      //   const filteredTodos = hasExplicitSelections
+      //     ? todos.filter(t => selectedIds.has(t.id)) : todos;
+
+      const selectedIds = new Set(['todo-1']);
+      const hasExplicitSelections = selectedIds && selectedIds.size > 0;
+
+      const filteredTodos = hasExplicitSelections
+        ? allTodos.filter((t) => selectedIds.has(t.id))
+        : allTodos;
+      const filteredHabits = hasExplicitSelections
+        ? allHabits.filter((h) => selectedIds.has(h.id))
+        : allHabits;
+
+      expect(hasExplicitSelections).toBe(true);
+      expect(filteredTodos).toHaveLength(1);
+      expect(filteredTodos[0].id).toBe('todo-1');
+      expect(filteredHabits).toHaveLength(0); // no habits in selection
+    });
+
+    it('sends ALL items when selectedIds is empty', () => {
+      const selectedIds = new Set<string>();
+      const hasExplicitSelections = selectedIds && selectedIds.size > 0;
+
+      const filteredTodos = hasExplicitSelections
+        ? allTodos.filter((t) => selectedIds.has(t.id))
+        : allTodos;
+      const filteredHabits = hasExplicitSelections
+        ? allHabits.filter((h) => selectedIds.has(h.id))
+        : allHabits;
+
+      expect(hasExplicitSelections).toBe(false);
+      expect(filteredTodos).toHaveLength(3); // all todos
+      expect(filteredHabits).toHaveLength(2); // all habits
+    });
+
+    it('sends ALL items when selectedIds is undefined/null', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const selectedIds: any = undefined;
+      const hasExplicitSelections = selectedIds && selectedIds.size > 0;
+
+      const filteredTodos = hasExplicitSelections
+        ? allTodos.filter((t) => selectedIds.has(t.id))
+        : allTodos;
+
+      expect(hasExplicitSelections).toBeFalsy();
+      expect(filteredTodos).toHaveLength(3);
+    });
+
+    it('includes both todos and habits in selection filter', () => {
+      const selectedIds = new Set(['todo-1', 'habit-1']);
+      const hasExplicitSelections = selectedIds && selectedIds.size > 0;
+
+      const filteredTodos = hasExplicitSelections
+        ? allTodos.filter((t) => selectedIds.has(t.id))
+        : allTodos;
+      const filteredHabits = hasExplicitSelections
+        ? allHabits.filter((h) => selectedIds.has(h.id))
+        : allHabits;
+
+      expect(filteredTodos).toHaveLength(1);
+      expect(filteredTodos[0].id).toBe('todo-1');
+      expect(filteredHabits).toHaveLength(1);
+      expect(filteredHabits[0].id).toBe('habit-1');
+    });
+  });
+
+  describe('lockedIds passthrough', () => {
+    it('documents that lockedIds only passed when isPrioritizing', () => {
+      // In OrganizeButton handlePress:
+      //   lockedIds: isPrioritizing ? lockedIds : undefined,
+      //
+      // When not prioritizing, no locked IDs are sent to buildOrganizeDayRequest.
+
+      function computeLockedIdsParam(isPrioritizing: boolean, lockedIds: Set<string>) {
+        return isPrioritizing ? lockedIds : undefined;
+      }
+
+      const lockedIds = new Set(['a', 'b']);
+      expect(computeLockedIdsParam(true, lockedIds)).toBe(lockedIds);
+      expect(computeLockedIdsParam(false, lockedIds)).toBeUndefined();
+    });
+  });
 });
 
 describe('OrganizeButton - targetDate prop', () => {

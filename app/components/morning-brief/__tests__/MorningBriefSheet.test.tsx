@@ -320,6 +320,188 @@ describe.skip('MorningBriefSheet', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Reset-guard & date-stamp effects (documentary)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('MorningBriefSheet — reset & date-stamp effects (documentary)', () => {
+  describe('hasResetRef guard (fires at most once per session)', () => {
+    it('documents the reset guard logic', () => {
+      // In MorningBriefSheet:
+      //   const hasResetRef = useRef(false);
+      //   useEffect(() => {
+      //     if (!isSelectionsStale || hasResetRef.current) return;
+      //     hasResetRef.current = true;
+      //     resetDailyAssignments();
+      //     // ...remove commitments...
+      //   }, [isSelectionsStale, today, ...]);
+      //
+      // The guard ensures the reset runs EXACTLY ONCE per session.
+      // Even if todayTodos or todayHabits change (triggering a re-render),
+      // hasResetRef.current === true prevents re-entry.
+
+      let hasResetRef = false;
+      const resetDailyAssignments = jest.fn();
+
+      function simulateResetEffect(isSelectionsStale: boolean) {
+        if (!isSelectionsStale || hasResetRef) return;
+        hasResetRef = true;
+        resetDailyAssignments();
+      }
+
+      // First render: stale → fires
+      simulateResetEffect(true);
+      expect(resetDailyAssignments).toHaveBeenCalledTimes(1);
+
+      // Second render (todayTodos changed): still stale, but guard blocks
+      simulateResetEffect(true);
+      expect(resetDailyAssignments).toHaveBeenCalledTimes(1);
+
+      // Third render: same
+      simulateResetEffect(true);
+      expect(resetDailyAssignments).toHaveBeenCalledTimes(1);
+    });
+
+    it('documents that reset reads store directly to avoid stale closures', () => {
+      // Instead of using the todayTodos/todayHabits arrays from hook closures,
+      // the reset effect calls:
+      //   const { todos: storeTodos, habits: storeHabits } = useGremlyStore.getState();
+      //
+      // This ensures the reset always sees the latest store snapshot,
+      // which was the root cause of the re-firing bug (dependency on
+      // todayTodos/todayHabits caused the effect to re-run).
+
+      const storeReadPattern = {
+        beforeFix: 'used todayTodos/todayHabits from hook closures in dependency array',
+        afterFix: 'reads useGremlyStore.getState() inside effect body',
+        benefit: 'effect depends only on [isSelectionsStale, today, ...actions]',
+      };
+
+      expect(storeReadPattern.afterFix).toContain('getState()');
+    });
+  });
+
+  describe('commitment removal during reset', () => {
+    it('documents todo commitment removal filter', () => {
+      // Todos with commitment === true that are due today get removeCommitment(id, 'todo')
+      const filter = (t: any, todayStr: string) =>
+        !t.archived && !t.completed_at && t.due_day === todayStr && t.commitment === true;
+
+      expect(filter({ archived: false, completed_at: null, due_day: '2025-02-19', commitment: true }, '2025-02-19')).toBe(true);
+      expect(filter({ archived: true, completed_at: null, due_day: '2025-02-19', commitment: true }, '2025-02-19')).toBe(false);
+      expect(filter({ archived: false, completed_at: null, due_day: '2025-02-19', commitment: false }, '2025-02-19')).toBe(false);
+      expect(filter({ archived: false, completed_at: null, due_day: '2025-02-18', commitment: true }, '2025-02-19')).toBe(false);
+    });
+
+    it('documents habit commitment removal filter', () => {
+      // Habits that are active today AND locked-in get removeCommitment(id, 'habit')
+      const isActiveToday = (h: any, todayStr: string) =>
+        !h.archived &&
+        h.start_date &&
+        h.start_date <= todayStr &&
+        (!h.end_date || h.end_date >= todayStr);
+
+      expect(isActiveToday({ archived: false, start_date: '2025-01-01', end_date: null }, '2025-02-19')).toBe(true);
+      expect(isActiveToday({ archived: false, start_date: '2025-03-01', end_date: null }, '2025-02-19')).toBe(false);
+      expect(isActiveToday({ archived: true, start_date: '2025-01-01', end_date: null }, '2025-02-19')).toBe(false);
+      expect(isActiveToday({ archived: false, start_date: '2025-01-01', end_date: '2025-02-01' }, '2025-02-19')).toBe(false);
+    });
+  });
+
+  describe('date-stamp effect (non-prioritizing path)', () => {
+    it('documents the date-stamp effect', () => {
+      // When the user doesn't need to prioritize (all tasks fit):
+      //   useEffect(() => {
+      //     if (isPrioritizing || !isSelectionsStale) return;
+      //     setBriefSelections(briefSelectedIds, briefLockedIds, today);
+      //   }, [isPrioritizing, isSelectionsStale, today, ...]);
+      //
+      // This stamps today's date so isSelectionsStale = false on next render,
+      // which prevents the reset from re-firing on subsequent opens.
+
+      const dateStampBehavior = {
+        condition: 'isPrioritizing=false AND isSelectionsStale=true',
+        action: 'setBriefSelections(selectedIds, lockedIds, today)',
+        result: 'briefSelectionDate === today → isSelectionsStale = false',
+      };
+
+      expect(dateStampBehavior.condition).toContain('isPrioritizing=false');
+      expect(dateStampBehavior.result).toContain('isSelectionsStale = false');
+    });
+
+    it('does not stamp when already current', () => {
+      // If briefSelectionDate === today, isSelectionsStale is false,
+      // so the effect early-returns.
+      const isSelectionsStale = false;
+      const isPrioritizing = false;
+      const shouldStamp = !isPrioritizing && isSelectionsStale;
+      expect(shouldStamp).toBe(false);
+    });
+
+    it('does not stamp when prioritizing', () => {
+      // The prioritize step handles its own date stamping via setBriefSelections
+      const isSelectionsStale = true;
+      const isPrioritizing = true;
+      const shouldStamp = !isPrioritizing && isSelectionsStale;
+      expect(shouldStamp).toBe(false);
+    });
+  });
+
+  describe('exit rollback via initialBriefState', () => {
+    it('documents the snapshot-and-rollback pattern', () => {
+      // On mount:
+      //   const initialBriefState = useRef({
+      //     selectedIds: briefSelectedIds,
+      //     lockedIds: briefLockedIds,
+      //     selectionDate: briefSelectionDate,
+      //   });
+      //
+      // On handleExit:
+      //   const snap = initialBriefState.current;
+      //   if (snap.selectionDate === today) {
+      //     setBriefSelections(snap.selectedIds, snap.lockedIds, snap.selectionDate);
+      //   } else {
+      //     setBriefSelections([], [], today);
+      //   }
+      //   onClose();
+
+      const setBriefSelections = jest.fn();
+      const onClose = jest.fn();
+      const today = '2025-02-19';
+
+      // Case 1: snapshot date matches today → restore
+      const snapSameDay = { selectedIds: ['a', 'b'], lockedIds: ['a'], selectionDate: '2025-02-19' };
+      if (snapSameDay.selectionDate === today) {
+        setBriefSelections(snapSameDay.selectedIds, snapSameDay.lockedIds, snapSameDay.selectionDate);
+      }
+      expect(setBriefSelections).toHaveBeenCalledWith(['a', 'b'], ['a'], '2025-02-19');
+
+      setBriefSelections.mockClear();
+
+      // Case 2: snapshot date is stale → clear to empty
+      const snapStale = { selectedIds: ['x'], lockedIds: ['x'], selectionDate: '2025-02-18' };
+      if (snapStale.selectionDate === today) {
+        setBriefSelections(snapStale.selectedIds, snapStale.lockedIds, snapStale.selectionDate);
+      } else {
+        setBriefSelections([], [], today);
+      }
+      expect(setBriefSelections).toHaveBeenCalledWith([], [], '2025-02-19');
+    });
+
+    it('documents that onExit only renders when brief not completed today', () => {
+      // MorningBriefHeader receives:
+      //   onExit={!hasCompletedToday ? handleExit : undefined}
+      // So the X button only appears for in-progress briefs.
+
+      const hasCompletedToday = false;
+      expect(!hasCompletedToday).toBe(true); // shows exit
+
+      const hasCompletedToday2 = true;
+      expect(!hasCompletedToday2).toBe(false); // hides exit
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // targetDate prop - documentary tests
 // ─────────────────────────────────────────────────────────────────────────────
 

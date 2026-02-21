@@ -273,12 +273,6 @@ export function StepGlance({
         >
           <Text style={styles.primaryButtonText}>Continue →</Text>
         </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.skipPressable, pressed && { opacity: 0.5 }]}
-          onPress={onSkipToEnd}
-        >
-          <Text style={styles.skipText}>Skip to schedule</Text>
-        </Pressable>
       </View>
     </View>
   );

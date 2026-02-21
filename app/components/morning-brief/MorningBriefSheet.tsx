@@ -221,6 +221,16 @@ export function MorningBriefSheet({
   const setBriefCompletedToday = useGremlyStore((s) => s.setBriefCompletedToday);
   const habitProgress = useGremlyStore((s) => s.habitProgress);
 
+  // Guard: prevent reset effect from re-firing within the same session
+  const hasResetRef = useRef(false);
+
+  // Snapshot brief state on mount for rollback if user exits without completing
+  const initialBriefState = useRef({
+    selectedIds: briefSelectedIds,
+    lockedIds: briefLockedIds,
+    selectionDate: briefSelectionDate,
+  });
+
   // ─────────────────────────────────────────────────────────────────
   // CAPACITY & CALENDAR DATA
   // ─────────────────────────────────────────────────────────────────
@@ -614,7 +624,7 @@ export function MorningBriefSheet({
     if (hasCompletedToday) {
       stepsNeededRef.current = ['plan'];
     } else {
-      const steps: BriefStep[] = ['glance'];
+      const steps: BriefStep[] = [];
       if (showMiniSweep) steps.push('sweep');
       // Always show — user reviews tasks whether or not they fit
       steps.push('prioritize');
@@ -635,21 +645,49 @@ export function MorningBriefSheet({
     [allDayTasks, briefSelectedSet],
   );
 
-  // Reset daily assignments on new day
+  // Reset daily assignments on new day (fires at most once per session)
   useEffect(() => {
-    if (!isSelectionsStale) return;
+    if (!isSelectionsStale || hasResetRef.current) return;
 
+    hasResetRef.current = true;
     console.log('[MorningBrief] New day detected — resetting daily assignments');
 
     // Wipe all daily_block + scheduled_start_iso across all items
     resetDailyAssignments();
 
-    // Reset lock-ins (daily commitment)
-    const lockedTodosToReset = todayTodos.filter((t) => t.commitment === true);
-    const lockedHabitsToReset = todayHabits.filter((h) => isHabitLockedIn(h));
-    lockedTodosToReset.forEach((t) => removeCommitment(t.id, 'todo'));
-    lockedHabitsToReset.forEach((h) => removeCommitment(h.id, 'habit'));
-  }, [isSelectionsStale, todayTodos, todayHabits, resetDailyAssignments, removeCommitment]);
+    // Reset lock-ins (daily commitment) — read directly from store to avoid stale closure
+    const { todos: storeTodos, habits: storeHabits } = useGremlyStore.getState();
+    const todayStr = today;
+    storeTodos
+      .filter(
+        (t) => !t.archived && !t.completed_at && t.due_day === todayStr && t.commitment === true,
+      )
+      .forEach((t) => removeCommitment(t.id, 'todo'));
+    storeHabits
+      .filter(
+        (h) =>
+          !h.archived &&
+          h.start_date &&
+          h.start_date <= todayStr &&
+          (!h.end_date || h.end_date >= todayStr),
+      )
+      .filter((h) => isHabitLockedIn(h))
+      .forEach((h) => removeCommitment(h.id, 'habit'));
+  }, [isSelectionsStale, today, resetDailyAssignments, removeCommitment]);
+
+  // Stamp the date when not prioritizing so isSelectionsStale clears
+  useEffect(() => {
+    if (isPrioritizing || !isSelectionsStale) return;
+    // Not prioritizing (all tasks fit) — stamp the date so reset stops firing
+    setBriefSelections(briefSelectedIds, briefLockedIds, today);
+  }, [
+    isPrioritizing,
+    isSelectionsStale,
+    today,
+    briefSelectedIds,
+    briefLockedIds,
+    setBriefSelections,
+  ]);
 
   // Pre-selection: auto-select tasks up to 72% of realistic capacity when stale
   useEffect(() => {
@@ -1625,31 +1663,31 @@ export function MorningBriefSheet({
   // RENDER
   // ─────────────────────────────────────────────────────────────────
 
+  // Exit handler: rollback brief state to pre-open snapshot, then close
+  const handleExit = useCallback(() => {
+    const snap = initialBriefState.current;
+    if (snap.selectionDate === today) {
+      // Restore original selections for today
+      setBriefSelections(snap.selectedIds, snap.lockedIds, snap.selectionDate);
+    } else {
+      // Stale date — clear everything
+      setBriefSelections([], [], today);
+    }
+    onClose();
+  }, [today, setBriefSelections, onClose]);
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header — always visible above the stepper */}
       <MorningBriefHeader
         targetDate={isTomorrow ? today : undefined}
         overrideAvailableMinutes={totalActualFreeMinutes}
+        onExit={!hasCompletedToday ? handleExit : undefined}
       />
 
       <MorningBriefStepper
         stepsNeeded={stepsNeeded}
-        renderGlance={(onContinue, onSkipToEnd) => (
-          <StepGlance
-            events={todayKeyDates}
-            calendarEvents={visibleCalendarEvents}
-            hiddenEventIds={hiddenEventIds}
-            isReady={isGlanceReady}
-            freeMinutes={totalActualFreeMinutes}
-            totalEventCount={capacity.totalEventCount}
-            eventMinutes={capacity.totalCalendarMinutes}
-            onEventQuickAction={handleEventQuickAction}
-            onCalendarEventAction={handleCalendarEventQuickAction}
-            onContinue={onContinue}
-            onSkipToEnd={onSkipToEnd}
-          />
-        )}
+        renderGlance={() => null}
         renderSweep={(onContinue, onSkip, onBack) => (
           <StepSweep
             rolledOverTodos={rolledOverTodos}
@@ -1687,6 +1725,16 @@ export function MorningBriefSheet({
             onContinue={onContinue}
             onSkip={onSkip}
             onBack={onBack}
+            calendarEvents={visibleCalendarEvents}
+            keyDateEvents={todayKeyDates}
+            hiddenEventIds={hiddenEventIds}
+            eventTimeOverrides={eventTimeOverrides}
+            eventMinutes={capacity.totalCalendarMinutes}
+            totalEventCount={capacity.totalEventCount}
+            timeBlockPreferences={timeBlockPreferences}
+            onCalendarEventAction={handleCalendarEventQuickAction}
+            onEventQuickAction={handleEventQuickAction}
+            dateContext={today}
           />
         )}
         renderOrganize={(onContinue, onSkip, onBack, onShowCelebration) => (

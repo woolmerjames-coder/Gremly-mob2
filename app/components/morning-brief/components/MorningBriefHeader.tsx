@@ -35,11 +35,14 @@ interface MorningBriefHeaderProps {
   targetDate?: string;
   /** Override available minutes with gap-based calculation from parent */
   overrideAvailableMinutes?: number;
+  /** Called when the user taps the exit (X) button. When provided, renders the exit button. */
+  onExit?: () => void;
 }
 
 export function MorningBriefHeader({
   targetDate,
   overrideAvailableMinutes,
+  onExit,
 }: MorningBriefHeaderProps) {
   const isCustomDate = !!targetDate;
   const effectiveDate = targetDate ?? getDateService().getCurrentDate();
@@ -93,6 +96,15 @@ export function MorningBriefHeader({
           source={require('../../../../assets/mascot/morningbriefgremly.png')}
           style={styles.headerMascot}
         />
+        {onExit && (
+          <Pressable
+            onPress={onExit}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={({ pressed }) => [styles.exitButton, pressed && { opacity: 0.5 }]}
+          >
+            <X size={20} color={COLORS.inkMuted} />
+          </Pressable>
+        )}
       </View>
 
       {/* Hidden Items Popup - shows hidden events and hidden tasks */}
@@ -285,6 +297,13 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     marginLeft: 12,
+  },
+  exitButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
   },
   title: {
     fontSize: 24,

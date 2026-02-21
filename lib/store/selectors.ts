@@ -1976,7 +1976,15 @@ export const selectRecentNotes = createSelector(
   [selectNotes, (_state: GremlyState, limit: number) => limit],
   (notes, limit) =>
     notes
-      .filter((n) => !n.archived)
+      .filter((n) => {
+        // Exclude archived notes
+        if (n.archived) return false;
+        // Exclude calendar-synced event notes — these were auto-imported,
+        // not user-dropped, and don't belong in the MindDrop inbox.
+        // Native Gremly events (external_source == null) still appear.
+        if (n.subtype === 'event' && n.external_source != null) return false;
+        return true;
+      })
       .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
       .slice(0, limit),
 );

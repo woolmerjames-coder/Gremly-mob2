@@ -32,7 +32,8 @@ import { Video, ResizeMode } from 'expo-av';
 import { Text } from '../../ui';
 import { Sparkles } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
-import { triggerCelebration, triggerLight } from '../../lib/haptics';
+import { triggerLight } from '../../lib/haptics';
+import * as Haptics from 'expo-haptics';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -44,6 +45,51 @@ interface AgeUpCelebrationModalProps {
   visible: boolean;
   newAge: number;
   onDismiss: () => void;
+}
+
+/**
+ * Escalating celebration haptic pattern (~3 seconds).
+ * Builds from soft taps → medium hits → heavy finale burst.
+ * Returns a cleanup function to cancel if modal is dismissed early.
+ */
+function triggerAgeUpHapticPattern(): () => void {
+  const timers: NodeJS.Timeout[] = [];
+  const schedule = (fn: () => void, ms: number) => {
+    timers.push(setTimeout(fn, ms));
+  };
+
+  const light = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const medium = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  const heavy = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+  const success = () => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+  // Phase 1: Soft drumroll (0–1s) — light taps, ~200ms apart
+  schedule(light, 0);
+  schedule(light, 200);
+  schedule(light, 400);
+  schedule(light, 600);
+  schedule(light, 800);
+
+  // Phase 2: Building intensity (1–2s) — medium hits, ~150ms apart
+  schedule(medium, 1000);
+  schedule(medium, 1150);
+  schedule(medium, 1300);
+  schedule(medium, 1450);
+  schedule(medium, 1600);
+  schedule(medium, 1750);
+  schedule(medium, 1900);
+
+  // Phase 3: Climax burst (2–3s) — heavy + success notification
+  schedule(heavy, 2100);
+  schedule(heavy, 2250);
+  schedule(heavy, 2400);
+  schedule(success, 2600);
+  schedule(heavy, 2800);
+  schedule(success, 3000);
+
+  return () => {
+    timers.forEach(clearTimeout);
+  };
 }
 
 /**
@@ -193,6 +239,7 @@ export default function AgeUpCelebrationModal({
   const message = getMilestoneMessage(newAge);
   const isClosingRef = useRef(false);
   const hasAnimatedInRef = useRef(false);
+  const hapticCleanupRef = useRef<(() => void) | null>(null);
 
   // Animation shared values
   const backdropOpacity = useSharedValue(0);
@@ -253,8 +300,8 @@ export default function AgeUpCelebrationModal({
       cardTranslateY.value = SCREEN_HEIGHT;
       cardScale.value = 0.9;
 
-      // Trigger celebration haptic pattern (fires during the green backdrop pause)
-      triggerCelebration();
+      // Trigger escalating celebration haptic pattern (fires during the green backdrop pause)
+      hapticCleanupRef.current = triggerAgeUpHapticPattern();
 
       // Start entrance animation after a frame
       requestAnimationFrame(() => {
@@ -264,13 +311,29 @@ export default function AgeUpCelebrationModal({
 
     if (!visible) {
       hasAnimatedInRef.current = false;
+      if (hapticCleanupRef.current) {
+        hapticCleanupRef.current();
+        hapticCleanupRef.current = null;
+      }
     }
+
+    return () => {
+      if (hapticCleanupRef.current) {
+        hapticCleanupRef.current();
+        hapticCleanupRef.current = null;
+      }
+    };
   }, [visible, animateIn, backdropOpacity, cardTranslateY, cardScale]);
 
   // Handle dismiss
   const handleDismiss = useCallback(() => {
     if (isClosingRef.current) return;
     isClosingRef.current = true;
+
+    if (hapticCleanupRef.current) {
+      hapticCleanupRef.current();
+      hapticCleanupRef.current = null;
+    }
 
     if (__DEV__) {
       console.log('[AgeUpCelebrationModal] Starting exit animation');

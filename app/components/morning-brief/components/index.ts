@@ -31,3 +31,5 @@ export { CapacityBar } from './CapacityBar';
 export { CapacityRing } from './CapacityRing';
 export { ParkedForLaterSection } from './ParkedForLaterSection';
 export { GlanceTimelineBlock, GlanceOpenWindows } from './GlanceTimelineBlock';
+export { DaySummaryToggle, type DaySummaryToggleProps } from './DaySummaryToggle';
+export { SegmentedCapacityBar, type SegmentedCapacityBarProps } from './SegmentedCapacityBar';

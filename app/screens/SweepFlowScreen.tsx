@@ -91,6 +91,7 @@ import { SweepMultiSplitStep } from '../../components/sweep/SweepMultiSplitStep'
 import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionTransition';
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
+import celebrationController from '../../app/features/celebration/CelebrationController';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { OverlayComponent } from '../../components/overlay';
 import {
@@ -3105,6 +3106,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
   const { user } = useAuth();
   const demoSweepCompletedAt = useGremlyStore((s) => s.demoSweepCompletedAt);
+
+  // Suppress the global age-up modal while sweep screen is active.
+  // The sweep has its own local AgeUpCelebrationModal shown post-summary.
+  useEffect(() => {
+    celebrationController.suppressAgeUpCelebration(true);
+    return () => celebrationController.suppressAgeUpCelebration(false);
+  }, []);
 
   const [step, setStep] = useState<number>(initialStep);
 

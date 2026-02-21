@@ -3,41 +3,41 @@ import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 type NetworkListener = (isConnected: boolean) => void;
 
 class NetworkStatusManager {
-  private _isConnected = true;
-  private _listeners = new Set<NetworkListener>();
-  private _unsubscribe: (() => void) | null = null;
+  public isConnected = true; // optimistic default
+  private _readyPromise: Promise<void>;
+  private _subscribers = new Set<NetworkListener>();
 
-  start(): void {
-    if (this._unsubscribe) return;
+  constructor() {
+    // Eagerly fetch current state so isConnected is accurate ASAP
+    this._readyPromise = NetInfo.fetch().then((state: NetInfoState) => {
+      this._update(state.isConnected ?? false);
+    });
 
-    this._unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
-      const connected = state.isConnected === true && state.isInternetReachable !== false;
-
-      if (connected === this._isConnected) return;
-
-      this._isConnected = connected;
-      console.log(connected ? '[Network] 🟢 Online' : '[Network] 🔴 Offline');
-
-      for (const listener of this._listeners) {
-        listener(connected);
-      }
+    // Listen for ongoing changes
+    NetInfo.addEventListener((state: NetInfoState) => {
+      this._update(state.isConnected ?? false);
     });
   }
 
-  stop(): void {
-    this._unsubscribe?.();
-    this._unsubscribe = null;
+  /** Resolves once the initial NetInfo.fetch() completes */
+  ready(): Promise<void> {
+    return this._readyPromise;
   }
 
-  get isConnected(): boolean {
-    return this._isConnected;
-  }
-
-  subscribe(listener: NetworkListener): () => void {
-    this._listeners.add(listener);
+  subscribe(callback: NetworkListener): () => void {
+    this._subscribers.add(callback);
     return () => {
-      this._listeners.delete(listener);
+      this._subscribers.delete(callback);
     };
+  }
+
+  private _update(connected: boolean): void {
+    if (connected === this.isConnected) return;
+    this.isConnected = connected;
+    console.log(connected ? '[Network] 🟢 Online' : '[Network] 🔴 Offline');
+    for (const cb of this._subscribers) {
+      cb(connected);
+    }
   }
 }
 
