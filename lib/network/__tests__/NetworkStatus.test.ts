@@ -1,19 +1,28 @@
 /**
  * Tests for NetworkStatusManager — the singleton that tracks
  * online/offline state via @react-native-community/netinfo.
+ *
+ * The manager auto-subscribes to NetInfo in its constructor
+ * (no start/stop lifecycle). It exposes:
+ *   - isConnected (boolean, optimistic default = true)
+ *   - ready() → Promise<void> (resolves after initial fetch)
+ *   - subscribe(cb) → unsubscribe function
  */
 
-// Reset the module between tests so each test gets a fresh singleton
 let networkStatus: typeof import('../NetworkStatus').networkStatus;
 let mockAddEventListener: jest.Mock;
 
 beforeEach(() => {
   jest.resetModules();
-  // Re-import to get a fresh singleton
-  networkStatus = require('../NetworkStatus').networkStatus;
-  // Get fresh mock reference
+
+  // Get fresh mock references BEFORE requiring the module
+  // (constructor runs on require and calls addEventListener)
   const NetInfo = require('@react-native-community/netinfo').default;
   mockAddEventListener = NetInfo.addEventListener as jest.Mock;
+  mockAddEventListener.mockClear();
+
+  // Re-import to get a fresh singleton — constructor auto-subscribes
+  networkStatus = require('../NetworkStatus').networkStatus;
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -21,27 +30,25 @@ beforeEach(() => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('NetworkStatusManager', () => {
-  it('defaults to connected', () => {
+  it('defaults to connected (optimistic)', () => {
     expect(networkStatus.isConnected).toBe(true);
   });
 
-  it('start() subscribes to NetInfo', () => {
-    networkStatus.start();
+  it('auto-subscribes to NetInfo in the constructor', () => {
+    // Constructor ran during require — should already be subscribed
     expect(mockAddEventListener).toHaveBeenCalledTimes(1);
   });
 
-  it('start() is idempotent (only subscribes once)', () => {
-    networkStatus.start();
-    networkStatus.start();
+  it('constructor subscription is a single listener (no duplicates on re-require)', () => {
+    // Each fresh require creates one new singleton that subscribes once
     expect(mockAddEventListener).toHaveBeenCalledTimes(1);
   });
 
   it('fires listeners when connectivity changes', () => {
     const listener = jest.fn();
     networkStatus.subscribe(listener);
-    networkStatus.start();
 
-    // Grab the callback registered with NetInfo
+    // Grab the callback registered with NetInfo by the constructor
     const netInfoCb = mockAddEventListener.mock.calls[0][0];
 
     // Go offline
@@ -58,11 +65,10 @@ describe('NetworkStatusManager', () => {
   it('de-duplicates — does NOT fire when state is unchanged', () => {
     const listener = jest.fn();
     networkStatus.subscribe(listener);
-    networkStatus.start();
 
     const netInfoCb = mockAddEventListener.mock.calls[0][0];
 
-    // Already connected, fire connected again → no listener call
+    // Already connected (default), fire connected again → no listener call
     netInfoCb({ isConnected: true, isInternetReachable: true });
     expect(listener).not.toHaveBeenCalled();
   });
@@ -70,7 +76,6 @@ describe('NetworkStatusManager', () => {
   it('subscribe() returns an unsubscribe function', () => {
     const listener = jest.fn();
     const unsub = networkStatus.subscribe(listener);
-    networkStatus.start();
 
     const netInfoCb = mockAddEventListener.mock.calls[0][0];
 
@@ -80,20 +85,14 @@ describe('NetworkStatusManager', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it('stop() cleans up the NetInfo subscription', () => {
-    const mockUnsub = jest.fn();
-    mockAddEventListener.mockReturnValue(mockUnsub);
-
-    networkStatus.start();
-    networkStatus.stop();
-
-    expect(mockUnsub).toHaveBeenCalledTimes(1);
+  it('ready() resolves after initial NetInfo.fetch()', async () => {
+    // The global mock resolves NetInfo.fetch() with { isConnected: true }
+    await expect(networkStatus.ready()).resolves.toBeUndefined();
   });
 
   it('treats isInternetReachable=null as not-offline (connected)', () => {
     const listener = jest.fn();
     networkStatus.subscribe(listener);
-    networkStatus.start();
 
     const netInfoCb = mockAddEventListener.mock.calls[0][0];
 
