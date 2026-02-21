@@ -4,7 +4,8 @@
  * Tests for the stepper orchestrator that manages step transitions,
  * progress bar, and celebration overlay for the Morning Brief flow.
  *
- * Step flow: glance → sweep → prioritize → organize → plan
+ * Current production flow: sweep → prioritize → organize → plan
+ * (glance was merged into StepPrioritize; stepper still supports it for legacy compat)
  */
 
 import React from 'react';
@@ -140,10 +141,11 @@ function makeRenderPlan(content = 'plan-content'): StepRenderFn<[(() => void) | 
 type StepRenderFn<T extends any[]> = (...args: T) => React.ReactNode;
 
 describe('MorningBriefStepper', () => {
-  const allSteps: BriefStep[] = ['glance', 'sweep', 'prioritize', 'organize', 'plan'];
+  // Production flow no longer includes 'glance' — it was merged into StepPrioritize
+  const prodSteps: BriefStep[] = ['sweep', 'prioritize', 'organize', 'plan'];
 
   const defaultProps = {
-    stepsNeeded: allSteps,
+    stepsNeeded: prodSteps,
     renderGlance: makeRenderGlance(),
     renderSweep: makeRenderSweep(),
     renderPrioritize: makeRenderPrioritize(),
@@ -161,23 +163,22 @@ describe('MorningBriefStepper', () => {
   });
 
   describe('initial rendering', () => {
-    it('renders the first step (glance) by default', () => {
+    it('renders the first step (sweep) by default', () => {
       const { getByText } = render(<MorningBriefStepper {...defaultProps} />);
-      expect(getByText('glance-content')).toBeTruthy();
+      expect(getByText('sweep-content')).toBeTruthy();
     });
 
     it('renders progress bar', () => {
       const { getByText } = render(<MorningBriefStepper {...defaultProps} />);
-      // Progress bar is rendered as part of the stepper
-      expect(getByText('glance-content')).toBeTruthy();
+      expect(getByText('sweep-content')).toBeTruthy();
     });
 
-    it('starts at prioritize when glance and sweep are not needed', () => {
+    it('starts at prioritize when sweep is not needed', () => {
       const { getByText, queryByText } = render(
         <MorningBriefStepper {...defaultProps} stepsNeeded={['prioritize', 'organize', 'plan']} />,
       );
       expect(getByText('prioritize-content')).toBeTruthy();
-      expect(queryByText('glance-content')).toBeNull();
+      expect(queryByText('sweep-content')).toBeNull();
     });
 
     it('renders only plan when it is the only step', () => {
@@ -189,25 +190,20 @@ describe('MorningBriefStepper', () => {
   });
 
   describe('step advancement', () => {
-    it('advances from glance to sweep on continue', async () => {
+    it('advances from sweep to prioritize on continue', async () => {
       const { getByText, getByLabelText } = render(<MorningBriefStepper {...defaultProps} />);
 
-      expect(getByText('glance-content')).toBeTruthy();
+      expect(getByText('sweep-content')).toBeTruthy();
       await act(async () => {
-        fireEvent.press(getByLabelText('glance-continue'));
+        fireEvent.press(getByLabelText('sweep-continue'));
       });
       await flushAnimations();
 
-      expect(getByText('sweep-content')).toBeTruthy();
+      expect(getByText('prioritize-content')).toBeTruthy();
     });
 
     it('advances through all steps sequentially', async () => {
       const { getByText, getByLabelText } = render(<MorningBriefStepper {...defaultProps} />);
-
-      // glance -> sweep
-      fireEvent.press(getByLabelText('glance-continue'));
-      await flushAnimations();
-      expect(getByText('sweep-content')).toBeTruthy();
 
       // sweep -> prioritize
       fireEvent.press(getByLabelText('sweep-continue'));
@@ -227,24 +223,27 @@ describe('MorningBriefStepper', () => {
   });
 
   describe('back navigation', () => {
-    it('navigates back from sweep to glance', async () => {
+    it('navigates back from prioritize to sweep', async () => {
       const { getByText, getByLabelText } = render(<MorningBriefStepper {...defaultProps} />);
 
-      // Advance to sweep
-      fireEvent.press(getByLabelText('glance-continue'));
+      // Advance to prioritize
+      fireEvent.press(getByLabelText('sweep-continue'));
       await flushAnimations();
-      expect(getByText('sweep-content')).toBeTruthy();
+      expect(getByText('prioritize-content')).toBeTruthy();
 
       // Go back
-      fireEvent.press(getByLabelText('sweep-back'));
+      fireEvent.press(getByLabelText('prioritize-back'));
       await flushAnimations();
-      expect(getByText('glance-content')).toBeTruthy();
+      expect(getByText('sweep-content')).toBeTruthy();
     });
   });
 
   describe('skip to end', () => {
-    it('jumps to plan when skip-to-end is pressed from glance', async () => {
-      const { getByText, getByLabelText } = render(<MorningBriefStepper {...defaultProps} />);
+    it('jumps to plan when skip-to-end is pressed from glance (legacy)', async () => {
+      const allStepsLegacy: BriefStep[] = ['glance', 'sweep', 'prioritize', 'organize', 'plan'];
+      const { getByText, getByLabelText } = render(
+        <MorningBriefStepper {...defaultProps} stepsNeeded={allStepsLegacy} />,
+      );
 
       fireEvent.press(getByLabelText('glance-skip-to-end'));
       await flushAnimations();
@@ -254,23 +253,48 @@ describe('MorningBriefStepper', () => {
   });
 
   describe('step subsets', () => {
-    it('skips sweep when not in stepsNeeded', async () => {
+    it('skips organize when not in stepsNeeded', async () => {
       const { getByText, getByLabelText, queryByText } = render(
         <MorningBriefStepper
           {...defaultProps}
-          stepsNeeded={['glance', 'prioritize', 'organize', 'plan']}
+          stepsNeeded={['sweep', 'prioritize', 'plan']}
         />,
       );
 
-      // Start at glance
-      expect(getByText('glance-content')).toBeTruthy();
+      // Start at sweep
+      expect(getByText('sweep-content')).toBeTruthy();
 
-      // Continue should go straight to prioritize (skip sweep)
-      fireEvent.press(getByLabelText('glance-continue'));
+      // sweep -> prioritize
+      fireEvent.press(getByLabelText('sweep-continue'));
+      await flushAnimations();
+      expect(getByText('prioritize-content')).toBeTruthy();
+
+      // prioritize -> plan (skips organize)
+      fireEvent.press(getByLabelText('prioritize-continue'));
+      await flushAnimations();
+      expect(getByText('plan-content')).toBeTruthy();
+      expect(queryByText('organize-content')).toBeNull();
+    });
+  });
+
+  describe('celebration overlay', () => {
+    it('shows celebration with "You\'re locked in." and "LFG" copy', async () => {
+      const { getByText, getByLabelText } = render(<MorningBriefStepper {...defaultProps} />);
+
+      // Advance to organize
+      fireEvent.press(getByLabelText('sweep-continue'));
+      await flushAnimations();
+      fireEvent.press(getByLabelText('prioritize-continue'));
       await flushAnimations();
 
-      expect(getByText('prioritize-content')).toBeTruthy();
-      expect(queryByText('sweep-content')).toBeNull();
+      // Trigger celebration
+      await act(async () => {
+        fireEvent.press(getByLabelText('organize-celebrate'));
+      });
+      await flushAnimations();
+
+      expect(getByText("You're locked in.")).toBeTruthy();
+      expect(getByText('LFG')).toBeTruthy();
     });
   });
 });

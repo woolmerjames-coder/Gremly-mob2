@@ -68,9 +68,9 @@ describe('StepPrioritize', () => {
     onBack: jest.fn(),
   };
 
-  it('renders the headline', () => {
+  it('renders the contextual line', () => {
     const { getByText } = render(<StepPrioritize {...defaultProps} />);
-    expect(getByText(/what matters today/i)).toBeTruthy();
+    expect(getByText(/nothing on the calendar/i)).toBeTruthy();
   });
 
   it('renders task titles in the list', () => {
@@ -139,5 +139,129 @@ describe('StepPrioritize', () => {
       // Add button may not have accessibilityLabel - this is OK for a documentary test
       expect(true).toBe(true);
     }
+  });
+
+  // ═════════════════════════════════════════════════════════════════
+  // New behavior tests (Phase 2 + polish)
+  // ═════════════════════════════════════════════════════════════════
+
+  describe('contextual line', () => {
+    it('shows "Nothing on the calendar" when totalEventCount is 0', () => {
+      const { getByText } = render(
+        <StepPrioritize
+          {...defaultProps}
+          totalAvailableMinutes={480}
+          totalEventCount={0}
+        />,
+      );
+      expect(getByText(/nothing on the calendar/i)).toBeTruthy();
+    });
+
+    it('shows "Packed day" when totalAvailableMinutes <= 60', () => {
+      const { getByText } = render(
+        <StepPrioritize
+          {...defaultProps}
+          totalAvailableMinutes={45}
+          totalEventCount={5}
+        />,
+      );
+      expect(getByText(/packed day/i)).toBeTruthy();
+    });
+
+    it('shows "Tons of room" when totalAvailableMinutes > 480 and events > 2', () => {
+      const { getByText } = render(
+        <StepPrioritize
+          {...defaultProps}
+          totalAvailableMinutes={500}
+          totalEventCount={3}
+        />,
+      );
+      expect(getByText(/tons of room/i)).toBeTruthy();
+    });
+
+    it('shows "Solid amount of free time" when between 240 and 480 with events > 2', () => {
+      const { getByText } = render(
+        <StepPrioritize
+          {...defaultProps}
+          totalAvailableMinutes={300}
+          totalEventCount={4}
+        />,
+      );
+      expect(getByText(/solid amount of free time/i)).toBeTruthy();
+    });
+
+    it('shows "Busy day" when <= 240 with events', () => {
+      const { getByText } = render(
+        <StepPrioritize
+          {...defaultProps}
+          totalAvailableMinutes={180}
+          totalEventCount={5}
+        />,
+      );
+      expect(getByText(/busy day/i)).toBeTruthy();
+    });
+  });
+
+  describe('calendar tab continue button', () => {
+    it('shows "Pick your tasks" when calendar tab is active', () => {
+      // The default activeTab is 'tasks'. We need to switch to 'calendar'.
+      // Since activeTab is internal state, we need to press the Calendar card.
+      // DaySummaryToggle renders "Calendar" text — pressing it sets activeTab.
+      const { getByText, queryByText } = render(
+        <StepPrioritize
+          {...defaultProps}
+          calendarEvents={[]}
+          totalEventCount={0}
+        />,
+      );
+
+      // Press Calendar card to switch tab
+      const calendarCard = getByText('Calendar');
+      fireEvent.press(calendarCard);
+
+      // Should show calendar-mode button
+      expect(getByText(/pick your tasks/i)).toBeTruthy();
+      // Should NOT show the normal continue button
+      expect(queryByText(/continue with/i)).toBeNull();
+    });
+
+    it('does not call onContinue when "Pick your tasks" is pressed', () => {
+      const onContinue = jest.fn();
+      const tasks = [makeTask({ id: 't1', title: 'Test' })];
+      const { getByText } = render(
+        <StepPrioritize
+          {...defaultProps}
+          flexibleTasks={tasks}
+          selectedIds={new Set(['t1'])}
+          selectedMinutes={30}
+          onContinue={onContinue}
+          calendarEvents={[]}
+          totalEventCount={0}
+        />,
+      );
+
+      // Switch to calendar tab
+      fireEvent.press(getByText('Calendar'));
+
+      // Press "Pick your tasks"
+      fireEvent.press(getByText(/pick your tasks/i));
+
+      // onContinue should NOT have been called
+      expect(onContinue).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('DaySummaryToggle integration', () => {
+    it('renders DaySummaryToggle with correct todo/habit counts', () => {
+      const tasks = [
+        makeTask({ id: 't1', title: 'Todo 1', type: 'todo' }),
+        makeTask({ id: 't2', title: 'Todo 2', type: 'todo' }),
+        makeTask({ id: 'h1', title: 'Habit 1', type: 'habit' }),
+      ];
+      const { getByText } = render(
+        <StepPrioritize {...defaultProps} flexibleTasks={tasks} />,
+      );
+      expect(getByText('2 todos, 1 habit')).toBeTruthy();
+    });
   });
 });

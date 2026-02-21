@@ -1,14 +1,12 @@
 /**
  * StepGlance Tests
  *
- * Tests the Step 1 "Morning Greeting Card" of the Morning Brief flow.
- * StepGlance reads timeBlockPreferences and eventTimeOverrides from store.
+ * SKIPPED: StepGlance is no longer rendered in production flow.
+ * The 'glance' step was removed from stepsNeeded and its calendar view
+ * was merged into StepPrioritize as a tab toggle (activeTab === 'calendar').
  *
- * Covers:
- * - Rendering free-time / event-time stats
- * - Callback wiring (onContinue, onSkipToEnd)
- * - Empty state with no events
- * - Calendar event display
+ * The component still exists for backward compatibility but is dead code.
+ * These tests are preserved but skipped to document the original contract.
  */
 
 import React from 'react';
@@ -45,7 +43,7 @@ jest.mock('../../../../lib/date', () => ({
 
 import { StepGlance } from '../StepGlance';
 
-describe('StepGlance', () => {
+describe.skip('StepGlance (dead code — glance merged into StepPrioritize)', () => {
   const defaultProps = {
     events: [],
     calendarEvents: [],
