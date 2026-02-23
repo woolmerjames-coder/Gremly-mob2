@@ -1165,11 +1165,25 @@ export interface WeeklySummaryMagicMoment {
   connectedItems?: string[];
 }
 
+export interface WeeklySummaryRecommendation {
+  trigger: string; // short snake_case pattern identifier e.g. 'fitness_travel_drop'
+  text: string; // the recommendation text shown to user, MAX 20 words
+  actionType: 'create_todo' | 'create_habit' | 'tip';
+  actionLabel: string; // button label e.g. 'Create habit', 'Add to today', 'Got it'
+  prefill?: {
+    name?: string;
+    frequency?: string; // habits only, e.g. 'daily', '3x per week'
+    time_window?: 'morning' | 'day' | 'evening' | null;
+    due_day?: string; // todos only, YYYY-MM-DD
+  };
+}
+
 export interface WeeklySummaryContent {
   weeklyCommentary: string;
   highlightMoment: WeeklySummaryHighlight;
   magicMoments?: WeeklySummaryMagicMoment[];
   insights: WeeklySummaryInsight[];
+  recommendations?: WeeklySummaryRecommendation[];
   weekAhead: WeeklySummaryWeekAhead;
   weekType?: string;
   keyThemes: string[];

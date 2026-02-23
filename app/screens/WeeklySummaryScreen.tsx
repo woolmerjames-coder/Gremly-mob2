@@ -58,6 +58,8 @@ import {
   ChevronUp,
   ChevronLeft,
   Wand2,
+  Zap,
+  Plus,
 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useCurrentWeekSummary } from '../../lib/store/selectors';
@@ -70,6 +72,7 @@ import type {
   WeeklySummaryContent,
   WeeklySummaryInsight,
   WeeklySummaryMagicMoment,
+  WeeklySummaryRecommendation,
 } from '../../lib/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -113,6 +116,7 @@ type CardType =
   | { type: 'magicMoments'; moments: WeeklySummaryMagicMoment[]; weekType?: string }
   | { type: 'insightsStack'; insights: WeeklySummaryInsight[] }
   | { type: 'insight'; insight: WeeklySummaryInsight; index: number }
+  | { type: 'recommends'; recommendations: WeeklySummaryRecommendation[] }
   | { type: 'weekAhead'; content: WeeklySummaryContent };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,10 +191,7 @@ function MoodOpenerCard({ mood, weekType }: { mood: string; weekType?: string })
           {mood}
         </Animated.Text>
         {weekType ? (
-          <Animated.Text
-            entering={FadeIn.duration(400).delay(700)}
-            style={moodStyles.weekTypeText}
-          >
+          <Animated.Text entering={FadeIn.duration(400).delay(700)} style={moodStyles.weekTypeText}>
             {weekType}
           </Animated.Text>
         ) : null}
@@ -856,9 +857,7 @@ function InsightsStackCard({
             </View>
             <View style={stackStyles.textContainer}>
               <Text style={stackStyles.insightHeadline}>{insight.headline}</Text>
-              <Text style={stackStyles.insightBody} numberOfLines={3}>
-                {insight.body}
-              </Text>
+              <Text style={stackStyles.insightBody}>{insight.body}</Text>
               {insight.isActionable && insight.actionLabel ? (
                 <Pressable
                   onPress={() => handleInsightAction(insight)}
@@ -1344,6 +1343,169 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
           </View>
         </>
       ) : null}
+    </Animated.View>
+  );
+}
+
+const recStyles = StyleSheet.create({
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  title: { fontSize: 22, fontFamily: 'PlusJakartaSans-Bold', color: WS.text },
+  subtitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: WS.textSubtle,
+    marginBottom: 20,
+    fontStyle: 'italic',
+  },
+  recRow: {
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: WS.divider,
+  },
+  recRowLast: { borderBottomWidth: 0 },
+  recText: {
+    fontSize: 15,
+    fontFamily: 'Inter-Regular',
+    color: WS.sageDark,
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  recActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  primaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: WS.sage,
+  },
+  primaryBtnText: { fontSize: 13, fontFamily: 'Inter-Medium', color: WS.sageDark },
+  dismissBtn: { paddingVertical: 8, paddingHorizontal: 10 },
+  dismissText: { fontSize: 13, fontFamily: 'Inter-Regular', color: WS.textMuted },
+  doneChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(191, 216, 192, 0.2)',
+  },
+  doneText: { fontSize: 13, fontFamily: 'Inter-Medium', color: WS.sageDark },
+  emptyState: {
+    fontSize: 15,
+    fontFamily: 'Inter-Regular',
+    color: WS.textMuted,
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 22,
+  },
+});
+
+function GremlyRecommendsCard({
+  recommendations,
+  navigation,
+}: {
+  recommendations: WeeklySummaryRecommendation[];
+  navigation: NativeStackNavigationProp<RootStackParamList>;
+}) {
+  const addTodo = useGremlyStore((s) => s.addTodo);
+  const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+
+  const markDone = useCallback((trigger: string) => {
+    triggerSuccess();
+    setDoneIds((prev) => new Set([...prev, trigger]));
+  }, []);
+
+  const dismiss = useCallback((trigger: string) => {
+    triggerLight();
+    setDismissedIds((prev) => new Set([...prev, trigger]));
+  }, []);
+
+  const handleAction = useCallback(
+    async (rec: WeeklySummaryRecommendation) => {
+      triggerLight();
+      if (rec.actionType === 'create_todo') {
+        try {
+          const ds = getDateService();
+          const today = ds.getCurrentDate();
+          await addTodo({
+            name: rec.prefill?.name ?? rec.text,
+            title: rec.prefill?.name ?? rec.text,
+            due_day: rec.prefill?.due_day ?? today,
+            time_window: rec.prefill?.time_window ?? null,
+            origin: 'weekly_recap',
+          } as any);
+          markDone(rec.trigger);
+        } catch (e) {
+          console.warn('[GremlyRecommends] Failed to create todo:', e);
+        }
+      } else if (rec.actionType === 'create_habit') {
+        navigation.navigate('HabitBuilder', { prefill: rec.prefill?.name ?? rec.text } as any);
+        markDone(rec.trigger);
+      } else {
+        dismiss(rec.trigger);
+      }
+    },
+    [addTodo, navigation, markDone, dismiss],
+  );
+
+  const visibleRecs = recommendations.filter((r) => !dismissedIds.has(r.trigger));
+
+  return (
+    <Animated.View entering={FadeInUp.duration(300).delay(100)} style={wsStyles.card}>
+      <View style={recStyles.headerRow}>
+        <Zap size={20} color={WS.golden} strokeWidth={2} />
+        <Text style={recStyles.title}>Gremly Suggests</Text>
+      </View>
+      <Text style={recStyles.subtitle}>Based on your week's patterns</Text>
+      {visibleRecs.length === 0 ? (
+        <Text style={recStyles.emptyState}>Nothing to act on — solid week.</Text>
+      ) : (
+        visibleRecs.map((rec, i) => {
+          const isDone = doneIds.has(rec.trigger);
+          const isLast = i === visibleRecs.length - 1;
+          return (
+            <Animated.View
+              key={rec.trigger}
+              entering={FadeInUp.duration(200).delay(100 + i * 80)}
+              style={[recStyles.recRow, isLast && recStyles.recRowLast]}
+            >
+              <Text style={recStyles.recText}>{rec.text}</Text>
+              <View style={recStyles.recActions}>
+                {isDone ? (
+                  <View style={recStyles.doneChip}>
+                    <Check size={13} color={WS.sageDark} strokeWidth={2.5} />
+                    <Text style={recStyles.doneText}>Done</Text>
+                  </View>
+                ) : rec.actionType === 'tip' ? (
+                  <Pressable
+                    onPress={() => dismiss(rec.trigger)}
+                    style={({ pressed }) => [recStyles.primaryBtn, pressed && { opacity: 0.8 }]}
+                  >
+                    <Text style={recStyles.primaryBtnText}>{rec.actionLabel}</Text>
+                  </Pressable>
+                ) : (
+                  <>
+                    <Pressable
+                      onPress={() => handleAction(rec)}
+                      style={({ pressed }) => [recStyles.primaryBtn, pressed && { opacity: 0.8 }]}
+                    >
+                      <Plus size={13} color={WS.sageDark} strokeWidth={2.5} />
+                      <Text style={recStyles.primaryBtnText}>{rec.actionLabel}</Text>
+                    </Pressable>
+                    <Pressable onPress={() => dismiss(rec.trigger)} style={recStyles.dismissBtn}>
+                      <Text style={recStyles.dismissText}>Skip</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
+            </Animated.View>
+          );
+        })
+      )}
     </Animated.View>
   );
 }
@@ -1903,6 +2065,12 @@ export default function WeeklySummaryScreen() {
       result.push({ type: 'insight', insight: staleInsight, index: 0 });
     }
 
+    // Gremly Recommends — only if AI generated any
+    const recommendations = content.recommendations ?? [];
+    if (recommendations.length > 0) {
+      result.push({ type: 'recommends', recommendations });
+    }
+
     // 5. Week Ahead
     result.push({ type: 'weekAhead', content });
     return result;
@@ -2025,9 +2193,7 @@ export default function WeeklySummaryScreen() {
               contentContainerStyle={wsStyles.cardScrollContent}
               showsVerticalScrollIndicator={false}
             >
-              {item.type === 'mood' && (
-                <MoodOpenerCard mood={item.mood} weekType={item.weekType} />
-              )}
+              {item.type === 'mood' && <MoodOpenerCard mood={item.mood} weekType={item.weekType} />}
               {item.type === 'weekInReview' && (
                 <WeekInReviewCard
                   content={item.content}
@@ -2047,6 +2213,12 @@ export default function WeeklySummaryScreen() {
               )}
               {item.type === 'insight' && item.insight.type !== 'stale_cleanup' && (
                 <InsightCard insight={item.insight} index={item.index} navigation={navigation} />
+              )}
+              {item.type === 'recommends' && (
+                <GremlyRecommendsCard
+                  recommendations={item.recommendations}
+                  navigation={navigation}
+                />
               )}
               {item.type === 'weekAhead' && <WeekAheadCard content={item.content} />}
             </ScrollView>

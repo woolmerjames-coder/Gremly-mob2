@@ -85,23 +85,41 @@ export default {
       const sk = env.SUPABASE_SERVICE_KEY;
       const headers = { apikey: sk, Authorization: `Bearer ${sk}` };
 
-      const [noteEventsRes, calEventsRes, externalEventsRes, noteEventsThisWeekRes] = await Promise.all([
-        fetch(`${sb}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&select=id,title,target_date,end_date,date,event_time,location,is_all_day,space_id,created_at&order=target_date.desc&limit=50`, { headers }),
-        fetch(`${sb}/rest/v1/user_calendar_events?owner_id=eq.${userId}&select=id,title,event_date,event_time,duration_minutes,space_id,notes,source,created_at&order=event_date.desc&limit=50`, { headers }),
-        fetch(`${sb}/rest/v1/events?user_id=eq.${userId}&select=id,kind,payload_json,created_at&order=created_at.desc&limit=30`, { headers }),
-        fetch(`${sb}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&or=(and(target_date.gte.2026-02-16,target_date.lte.2026-02-22),and(target_date.gte.2026-02-23,target_date.lte.2026-03-01))&select=id,title,target_date,end_date,date,event_time,location,is_all_day,space_id,created_at&order=target_date.asc`, { headers }),
-      ]);
+      const [noteEventsRes, calEventsRes, externalEventsRes, noteEventsThisWeekRes] =
+        await Promise.all([
+          fetch(
+            `${sb}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&select=id,title,target_date,end_date,date,event_time,location,is_all_day,space_id,created_at&order=target_date.desc&limit=50`,
+            { headers },
+          ),
+          fetch(
+            `${sb}/rest/v1/user_calendar_events?owner_id=eq.${userId}&select=id,title,event_date,event_time,duration_minutes,space_id,notes,source,created_at&order=event_date.desc&limit=50`,
+            { headers },
+          ),
+          fetch(
+            `${sb}/rest/v1/events?user_id=eq.${userId}&select=id,kind,payload_json,created_at&order=created_at.desc&limit=30`,
+            { headers },
+          ),
+          fetch(
+            `${sb}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&or=(and(target_date.gte.2026-02-16,target_date.lte.2026-02-22),and(target_date.gte.2026-02-23,target_date.lte.2026-03-01))&select=id,title,target_date,end_date,date,event_time,location,is_all_day,space_id,created_at&order=target_date.asc`,
+            { headers },
+          ),
+        ]);
 
       const noteEvents = noteEventsRes.ok ? await noteEventsRes.json() : [];
       const calEvents = calEventsRes.ok ? await calEventsRes.json() : [];
       const externalEvents = externalEventsRes.ok ? await externalEventsRes.json() : [];
-      const noteEventsThisAndNext = noteEventsThisWeekRes.ok ? await noteEventsThisWeekRes.json() : [];
+      const noteEventsThisAndNext = noteEventsThisWeekRes.ok
+        ? await noteEventsThisWeekRes.json()
+        : [];
 
       return jsonResponse({
         noteEvents: { count: noteEvents.length, rows: noteEvents },
         userCalendarEvents: { count: calEvents.length, rows: calEvents },
         externalEvents: { count: externalEvents.length, rows: externalEvents },
-        noteEventsThisAndNextWeek: { count: noteEventsThisAndNext.length, rows: noteEventsThisAndNext },
+        noteEventsThisAndNextWeek: {
+          count: noteEventsThisAndNext.length,
+          rows: noteEventsThisAndNext,
+        },
       });
     }
 
@@ -314,7 +332,9 @@ async function sendScheduledNotifications(env) {
           );
 
           // Step 2b: Storyteller pass (Sonnet)
-          console.log(`[WeeklySummary] Step 2b: Running storyteller pass (Sonnet) for ${user.user_id}`);
+          console.log(
+            `[WeeklySummary] Step 2b: Running storyteller pass (Sonnet) for ${user.user_id}`,
+          );
           aiResponse = await generateWeeklySummary(env, payload, analysisBrief);
           console.log(
             `[WeeklySummary] Step 2b complete: AI response received. Keys: ${Object.keys(aiResponse).join(', ')}`,
@@ -1213,22 +1233,20 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
   }));
 
   const thisWeekEventsFlat = deduplicateEvents(
-    [...noteEventsMappedThisWeek, ...userCalendarEventsMappedThisWeek]
-      .sort((a, b) => {
-        const dateA = a.date ? new Date(a.date).getTime() : 0;
-        const dateB = b.date ? new Date(b.date).getTime() : 0;
-        return dateA - dateB;
-      }),
+    [...noteEventsMappedThisWeek, ...userCalendarEventsMappedThisWeek].sort((a, b) => {
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      return dateA - dateB;
+    }),
   );
 
   // Merge all NEXT WEEK event sources, dedup, and group by day
   const upcomingEventsFlat = deduplicateEvents(
-    [...externalEvents, ...noteEventsMappedNext, ...userCalendarEventsMappedNext]
-      .sort((a, b) => {
-        const dateA = a.date ? new Date(a.date).getTime() : 0;
-        const dateB = b.date ? new Date(b.date).getTime() : 0;
-        return dateA - dateB;
-      }),
+    [...externalEvents, ...noteEventsMappedNext, ...userCalendarEventsMappedNext].sort((a, b) => {
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      return dateA - dateB;
+    }),
   );
 
   // Group events by day so the analyst can see the full week structure
@@ -1659,6 +1677,20 @@ OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
     ],
     "totalEventCount": 0
   },
+  "recommendations": [
+    {
+      "trigger": "string — short snake_case pattern identifier (e.g., 'fitness_travel_drop', 'stale_work_tasks', 'sleep_deprivation_repeat')",
+      "text": "string — MAX 20 words. Direct, actionable, warm. Written as a suggestion not a command.",
+      "actionType": "create_todo | create_habit | tip",
+      "actionLabel": "string — button label (e.g., 'Create habit', 'Add to today', 'Got it')",
+      "prefill": {
+        "name": "string — pre-filled name for the todo or habit",
+        "frequency": "string | null — for habits only (e.g., 'daily', '3x per week')",
+        "time_window": "morning | day | evening | null",
+        "due_day": "string | null — YYYY-MM-DD, for todos only, usually tomorrow or next Monday"
+      }
+    }
+  ],
   "weekType": "string — use analyst's weekType.classification as base, refine if needed",
   "keyThemes": ["string — 3-5 themes"],
   "mood": "string — overall tone of the week"
