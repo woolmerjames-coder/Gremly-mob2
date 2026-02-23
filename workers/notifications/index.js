@@ -1132,6 +1132,7 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
   // Deduplicate helper — many calendar syncs create duplicate note events
   // Also filters out noise: "Canceled:" events, other people's OOO/PTO blocks
   const OOO_PATTERN = /\b(out of office|ooo|pto|on leave|on vacation|holiday)\b/i;
+  const THIRD_PARTY_APPT_PATTERN = /^[A-Z][a-z]+ ?[A-Z]?\.?[-–]\s*(doctor|dentist|appt|appointment|checkup|check.up|physio|therapy|therapist|vet)\b/i;
   function deduplicateEvents(events) {
     const seen = new Set();
     return events.filter((e) => {
@@ -1140,6 +1141,8 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
       if (title.toLowerCase().startsWith('canceled:')) return false;
       // Filter out other people's OOO/PTO blocks (no spaceName = calendar sync artifact)
       if (OOO_PATTERN.test(title) && !e.space_id && !e.spaceName) return false;
+      // Filter out third-party medical appointments (e.g. "Sarah - dentist")
+      if (THIRD_PARTY_APPT_PATTERN.test(title)) return false;
       const key = `${title.toLowerCase()}|${e.date || e.target_date || e.event_date || ''}`;
       if (seen.has(key)) return false;
       seen.add(key);
