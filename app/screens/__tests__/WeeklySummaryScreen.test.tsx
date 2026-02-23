@@ -21,6 +21,13 @@ jest.mock('@react-navigation/native', () => ({
   }),
 }));
 
+jest.mock('../../../hooks/useMindDropSubmit', () => ({
+  useMindDropSubmit: () => ({
+    submit: jest.fn().mockResolvedValue({ success: true, dropId: 'drop-1' }),
+    isSubmitting: false,
+  }),
+}));
+
 jest.mock('../../../lib/store/useGremlyStore', () => {
   const markSummaryViewed = jest.fn();
   const markSummaryFlowCompleted = jest.fn().mockResolvedValue(undefined);
@@ -76,8 +83,23 @@ const mockContent = {
     busyDayWarnings: [{ day: 'Wednesday', comment: '4 events stacked' }],
     totalEventCount: 5,
   },
+  magicMoments: [
+    {
+      title: 'Shipped the API',
+      body: 'Biggest milestone this quarter.',
+      date: '2025-12-17',
+      connectedItems: ['task-1'],
+    },
+    {
+      title: 'Morning run streak',
+      body: '5 days in a row.',
+      date: '2025-12-19',
+    },
+  ],
   keyThemes: ['shipping', 'focus'],
   mood: 'motivated',
+  weekType: 'a productive week',
+  weekTypeShort: 'productive',
 };
 
 const mockSummary = {
@@ -179,6 +201,9 @@ jest.mock('lucide-react-native', () => {
     Lock: createIcon('Lock'),
     ChevronDown: createIcon('ChevronDown'),
     ChevronUp: createIcon('ChevronUp'),
+    Wand2: createIcon('Wand2'),
+    Zap: createIcon('Zap'),
+    Plus: createIcon('Plus'),
   };
 });
 
@@ -242,5 +267,34 @@ describe('WeeklySummaryScreen', () => {
     await waitFor(() => {
       expect(mockMarkViewed).toHaveBeenCalledWith('summary-1');
     });
+  });
+
+  it('renders the Moments card title', () => {
+    const { getByText } = render(<WeeklySummaryScreen />);
+    expect(getByText('Moments')).toBeTruthy();
+  });
+
+  it('renders magic moment titles from mock data', () => {
+    const { getByText } = render(<WeeklySummaryScreen />);
+    expect(getByText('Shipped the API')).toBeTruthy();
+    expect(getByText('Morning run streak')).toBeTruthy();
+  });
+
+  it('renders stat tile values', () => {
+    const { getByText } = render(<WeeklySummaryScreen />);
+    // todosCompleted = 12
+    expect(getByText('12')).toBeTruthy();
+  });
+
+  it('does not render the recommends card when commented out', () => {
+    const { queryByText } = render(<WeeklySummaryScreen />);
+    // GremlyRecommendsCard header text should not appear
+    expect(queryByText('Gremly Suggests')).toBeNull();
+  });
+
+  it('renders weekTypeShort label when provided', () => {
+    const { getAllByText } = render(<WeeklySummaryScreen />);
+    // weekTypeShort 'productive' appears in the progress dots header (may also match a theme pill)
+    expect(getAllByText('productive').length).toBeGreaterThanOrEqual(1);
   });
 });

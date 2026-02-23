@@ -393,4 +393,57 @@ describe('buildTrendContext', () => {
     expect(result!.rollingTrends.habitConsistencyTrend).toBe('stable');
     expect(result!.rollingTrends.captureToSweepTrend).toBe('stable');
   });
+
+  // ── Newer insight types ──────────────────────────────────────────────────
+
+  it('tallies life_event and week_rhythm insight types in frequency map', () => {
+    mockGetState.mockReturnValue({
+      weeklySummaries: [
+        makeSummary({
+          week_start_date: '2025-12-01',
+          content: {
+            weeklyCommentary: 'W1',
+            highlightMoment: { title: 'H', reason: 'R', gremlyComment: 'G' },
+            insights: [
+              { type: 'life_event', headline: 'Birthday week', body: 'Celebrations', isActionable: false },
+              { type: 'week_rhythm', headline: 'Slow start', body: 'Energy built through the week', isActionable: false },
+            ],
+            weekAhead: {
+              introduction: '',
+              highlights: [],
+              busyDayWarnings: [],
+              totalEventCount: 0,
+            },
+            keyThemes: [],
+            mood: 'neutral',
+          },
+        }),
+        makeSummary({
+          week_start_date: '2025-12-08',
+          content: {
+            weeklyCommentary: 'W2',
+            highlightMoment: { title: 'H', reason: 'R', gremlyComment: 'G' },
+            insights: [
+              { type: 'life_event', headline: 'Travel week', body: 'On the road', isActionable: false },
+              { type: 'stale_cleanup', headline: 'H', body: 'B', isActionable: true },
+            ],
+            weekAhead: {
+              introduction: '',
+              highlights: [],
+              busyDayWarnings: [],
+              totalEventCount: 0,
+            },
+            keyThemes: [],
+            mood: 'neutral',
+          },
+        }),
+      ],
+    });
+    const result = buildTrendContext();
+    expect(result!.rollingTrends.insightFrequency).toEqual({
+      life_event: 2,
+      week_rhythm: 1,
+      stale_cleanup: 1,
+    });
+  });
 });

@@ -31,12 +31,23 @@ function makeContent(overrides: Partial<WeeklySummaryContent> = {}): WeeklySumma
   return {
     weeklyCommentary: 'Good week overall.',
     highlightMoment: { title: 'Big Win', reason: 'Completed project', gremlyComment: 'Amazing!' },
+    magicMoments: [
+      { title: 'Shipped API', body: 'Major milestone.', date: '2025-12-17', connectedItems: ['task-1'] },
+    ],
     insights: [
       {
         type: 'productivity_pattern',
         headline: 'Morning person',
         body: 'You do best in AM',
         isActionable: false,
+      },
+    ],
+    recommendations: [
+      {
+        trigger: 'exercise_drop',
+        text: 'Add a 15-min stretch',
+        actionType: 'create_habit' as const,
+        actionLabel: 'Create habit',
       },
     ],
     weekAhead: {
@@ -47,6 +58,8 @@ function makeContent(overrides: Partial<WeeklySummaryContent> = {}): WeeklySumma
     },
     keyThemes: ['focus', 'deep work'],
     mood: 'motivated',
+    weekType: 'a deep-focus week',
+    weekTypeShort: 'deep focus',
     ...overrides,
   };
 }
@@ -342,6 +355,35 @@ describe('weekly summary selectors', () => {
       const result = selectWeeklySummaryForChatContext(state);
       expect(result).toContain('Team Retreat');
       expect(result).toContain('Wednesday');
+    });
+
+    it('does not crash when magicMoments and recommendations are present', () => {
+      const state = makeState({
+        weeklySummaries: [
+          makeSummary({
+            week_start_date: '2025-12-15',
+            content: makeContent({
+              magicMoments: [
+                { title: 'Big moment', body: 'Story', date: '2025-12-18' },
+              ],
+              recommendations: [
+                {
+                  trigger: 'sleep',
+                  text: 'Go to bed earlier',
+                  actionType: 'tip' as const,
+                  actionLabel: 'Got it',
+                },
+              ],
+              weekType: 'a productive week',
+              weekTypeShort: 'productive',
+            }),
+          }),
+        ],
+      });
+      // Should still produce a valid context string without crashing
+      const result = selectWeeklySummaryForChatContext(state);
+      expect(result).not.toBeNull();
+      expect(typeof result).toBe('string');
     });
   });
 });
