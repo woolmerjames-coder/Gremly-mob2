@@ -1110,13 +1110,16 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
   }
 
   // Deduplicate helper — many calendar syncs create duplicate note events
-  // Also filters out "Canceled:" events which are pure noise from calendar syncs
+  // Also filters out noise: "Canceled:" events, other people's OOO/PTO blocks
+  const OOO_PATTERN = /\b(out of office|ooo|pto|on leave|on vacation|holiday)\b/i;
   function deduplicateEvents(events) {
     const seen = new Set();
     return events.filter((e) => {
       const title = (e.title || '').trim();
       // Filter out canceled events entirely — they're noise
       if (title.toLowerCase().startsWith('canceled:')) return false;
+      // Filter out other people's OOO/PTO blocks (no spaceName = calendar sync artifact)
+      if (OOO_PATTERN.test(title) && !e.space_id && !e.spaceName) return false;
       const key = `${title.toLowerCase()}|${e.date || e.target_date || e.event_date || ''}`;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -1616,7 +1619,7 @@ Your job: Take the analysis and turn it into a compelling, personal narrative. A
 OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
 
 {
-  "weeklyCommentary": "string — 2-4 sentences weaving together the user's week. Lead with the STORY (life events, experiences) not metrics. Use the analyst's weekTimeline for narrative flow. Be specific to this person's data. Never generic.",
+  "weeklyCommentary": "string — 2-3 sentences, MAX 60 words. Lead with the STORY, not metrics. Be specific to this person's data. Never generic.",
   "highlightMoment": {
     "title": "string — the moment that defined this week",
     "reason": "string — why this mattered to their life",
@@ -1632,8 +1635,8 @@ OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
   "insights": [
     {
       "type": "stale_cleanup | capture_ratio | productivity_pattern | space_activity | balance | habit_observation | journal_encouragement | life_event | week_rhythm",
-      "headline": "string — short, conversational",
-      "body": "string — 1-2 sentence explanation",
+      "headline": "string — MAX 8 words, punchy",
+      "body": "string — ONE sentence, MAX 25 words",
       "isActionable": true | false,
       "actionLabel": "string | null",
       "actionType": "string | null",
@@ -1641,7 +1644,7 @@ OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
     }
   ],
   "weekAhead": {
-    "introduction": "string — Gremly's week-ahead comment. Reference what's coming up and how it connects to this week's story. ONLY reference events the analyst tagged as FUTURE.",
+    "introduction": "string — MAX 30 words. What's coming up + one connection to this week's story. ONLY reference FUTURE events.",
     "highlights": [
       {
         "eventTitle": "string",
@@ -1681,6 +1684,14 @@ WEEK AHEAD — CRITICAL RULES:
 - For tier 2 events (importance 4-6): Count in totalEventCount.
 - For tier 3 (importance 1-3, recurring): Just count in totalEventCount.
 - Reference the analyst's busyDays and conflictsOrWarnings for busy day warnings.
+
+WORD BUDGET (STRICT — count your words):
+- weeklyCommentary: MAX 60 words (2-3 tight sentences)
+- Each insight headline: MAX 8 words
+- Each insight body: MAX 25 words (ONE sentence)
+- weekAhead.introduction: MAX 30 words
+- Each highlight prepNudge/context: MAX 20 words
+- mood: 2-4 words (e.g., "accomplished but depleted", "quietly productive")
 
 BEHAVIORAL RULES:
 - Pick 2-4 insights. Never pad.

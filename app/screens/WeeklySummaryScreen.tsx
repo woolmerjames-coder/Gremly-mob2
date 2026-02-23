@@ -108,8 +108,10 @@ const WS_CARD_SHADOW = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type CardType =
+  | { type: 'mood'; mood: string; weekType?: string }
   | { type: 'weekInReview'; content: WeeklySummaryContent }
   | { type: 'magicMoments'; moments: WeeklySummaryMagicMoment[]; weekType?: string }
+  | { type: 'insightsStack'; insights: WeeklySummaryInsight[] }
   | { type: 'insight'; insight: WeeklySummaryInsight; index: number }
   | { type: 'weekAhead'; content: WeeklySummaryContent };
 
@@ -127,6 +129,77 @@ function formatShortDate(dateStr: string): string {
   } catch {
     return dateStr;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mood Opener card — first screen, single line, fortune-cookie feel
+// ─────────────────────────────────────────────────────────────────────────────
+
+const moodStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    minHeight: 280,
+  },
+  weekLabel: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: WS.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    marginBottom: 16,
+  },
+  moodText: {
+    fontSize: 28,
+    fontFamily: 'PlusJakartaSans-Bold',
+    color: WS.sageDark,
+    textAlign: 'center',
+    lineHeight: 38,
+    letterSpacing: -0.5,
+  },
+  weekTypeText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: WS.textSubtle,
+    textAlign: 'center',
+    marginTop: 16,
+    fontStyle: 'italic',
+  },
+  swipeHint: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: WS.textMuted,
+    textAlign: 'center',
+    marginTop: 32,
+  },
+});
+
+function MoodOpenerCard({ mood, weekType }: { mood: string; weekType?: string }) {
+  return (
+    <Animated.View entering={FadeIn.duration(600)} style={wsStyles.card}>
+      <View style={moodStyles.container}>
+        <Animated.Text entering={FadeIn.duration(400).delay(200)} style={moodStyles.weekLabel}>
+          This week felt
+        </Animated.Text>
+        <Animated.Text entering={FadeInUp.duration(500).delay(400)} style={moodStyles.moodText}>
+          {mood}
+        </Animated.Text>
+        {weekType ? (
+          <Animated.Text
+            entering={FadeIn.duration(400).delay(700)}
+            style={moodStyles.weekTypeText}
+          >
+            {weekType}
+          </Animated.Text>
+        ) : null}
+        <Animated.Text entering={FadeIn.duration(300).delay(1000)} style={moodStyles.swipeHint}>
+          Swipe to see your week →
+        </Animated.Text>
+      </View>
+    </Animated.View>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -371,9 +444,6 @@ function WeekInReviewCard({
           ))}
         </View>
       )}
-
-      {/* Mood */}
-      {content.mood ? <Text style={wirStyles.mood}>Mood: {content.mood ?? ''}</Text> : null}
     </Animated.View>
   );
 }
@@ -670,6 +740,137 @@ function InsightCard({
           </Pressable>
         </Animated.View>
       ) : null}
+    </Animated.View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Insights Stack card — all non-stale insights on one compact card
+// ─────────────────────────────────────────────────────────────────────────────
+
+const stackStyles = StyleSheet.create({
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 22,
+    fontFamily: 'PlusJakartaSans-Bold',
+    color: WS.text,
+  },
+  insightRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 14,
+    gap: 12,
+  },
+  insightRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: WS.divider,
+  },
+  iconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  textContainer: {
+    flex: 1,
+  },
+  insightHeadline: {
+    fontSize: 15,
+    fontFamily: 'PlusJakartaSans-SemiBold',
+    color: WS.text,
+    marginBottom: 3,
+  },
+  insightBody: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: WS.textSubtle,
+    lineHeight: 20,
+  },
+  actionChip: {
+    alignSelf: 'flex-start',
+    marginTop: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: WS.sageLight,
+  },
+  actionChipText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: WS.sageDark,
+  },
+});
+
+function InsightsStackCard({
+  insights,
+  navigation,
+}: {
+  insights: WeeklySummaryInsight[];
+  navigation: NativeStackNavigationProp<RootStackParamList>;
+}) {
+  const handleInsightAction = useCallback(
+    (ins: WeeklySummaryInsight) => {
+      triggerLight();
+      switch (ins.actionType) {
+        case 'open_cleanup':
+        case 'open_sweep':
+          navigation.navigate('Sweep');
+          break;
+        case 'open_habits':
+          navigation.navigate('Habits');
+          break;
+        default:
+          break;
+      }
+    },
+    [navigation],
+  );
+
+  return (
+    <Animated.View entering={FadeInUp.duration(300).delay(100)} style={wsStyles.card}>
+      <View style={stackStyles.headerRow}>
+        <Lightbulb size={20} color={WS.periwinkle} strokeWidth={2} />
+        <Text style={stackStyles.title}>Patterns</Text>
+      </View>
+
+      {insights.map((insight, i) => {
+        const style = INSIGHT_STYLE[insight.type] ?? DEFAULT_INSIGHT_STYLE;
+        const IconComponent = INSIGHT_ICON_MAP[insight.type] ?? Sparkles;
+        const isLast = i === insights.length - 1;
+
+        return (
+          <Animated.View
+            key={`${insight.type}-${i}`}
+            entering={FadeInUp.duration(200).delay(100 + i * 80)}
+            style={[stackStyles.insightRow, !isLast && stackStyles.insightRowBorder]}
+          >
+            <View style={[stackStyles.iconContainer, { backgroundColor: style.bg }]}>
+              <IconComponent size={18} color={style.accent} strokeWidth={2} />
+            </View>
+            <View style={stackStyles.textContainer}>
+              <Text style={stackStyles.insightHeadline}>{insight.headline}</Text>
+              <Text style={stackStyles.insightBody} numberOfLines={3}>
+                {insight.body}
+              </Text>
+              {insight.isActionable && insight.actionLabel ? (
+                <Pressable
+                  onPress={() => handleInsightAction(insight)}
+                  style={({ pressed }) => [stackStyles.actionChip, pressed && { opacity: 0.7 }]}
+                >
+                  <Text style={stackStyles.actionChipText}>{insight.actionLabel}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </Animated.View>
+        );
+      })}
     </Animated.View>
   );
 }
@@ -1676,15 +1877,33 @@ export default function WeeklySummaryScreen() {
   const cards = useMemo((): CardType[] => {
     if (!content) return [];
     const result: CardType[] = [];
+
+    // 1. Mood opener — the fortune cookie
+    if (content.mood) {
+      result.push({ type: 'mood', mood: content.mood, weekType: content.weekType });
+    }
+
+    // 2. Week in Review
     result.push({ type: 'weekInReview', content });
-    // Magic Moments card — only if AI returned any
+
+    // 3. Magic Moments card — only if AI returned any
     const moments = content.magicMoments ?? [];
     if (moments.length > 0) {
       result.push({ type: 'magicMoments', moments, weekType: content.weekType });
     }
-    content.insights.forEach((insight, i) => {
-      result.push({ type: 'insight', insight, index: i });
-    });
+
+    // 4. Split insights: stale_cleanup gets its own card, everything else stacks
+    const staleInsight = content.insights.find((i) => i.type === 'stale_cleanup');
+    const nonStaleInsights = content.insights.filter((i) => i.type !== 'stale_cleanup');
+
+    if (nonStaleInsights.length > 0) {
+      result.push({ type: 'insightsStack', insights: nonStaleInsights });
+    }
+    if (staleInsight) {
+      result.push({ type: 'insight', insight: staleInsight, index: 0 });
+    }
+
+    // 5. Week Ahead
     result.push({ type: 'weekAhead', content });
     return result;
   }, [content]);
@@ -1806,6 +2025,9 @@ export default function WeeklySummaryScreen() {
               contentContainerStyle={wsStyles.cardScrollContent}
               showsVerticalScrollIndicator={false}
             >
+              {item.type === 'mood' && (
+                <MoodOpenerCard mood={item.mood} weekType={item.weekType} />
+              )}
               {item.type === 'weekInReview' && (
                 <WeekInReviewCard
                   content={item.content}
@@ -1816,6 +2038,9 @@ export default function WeeklySummaryScreen() {
               )}
               {item.type === 'magicMoments' && (
                 <MagicMomentsCard moments={item.moments} weekType={item.weekType} />
+              )}
+              {item.type === 'insightsStack' && (
+                <InsightsStackCard insights={item.insights} navigation={navigation} />
               )}
               {item.type === 'insight' && item.insight.type === 'stale_cleanup' && (
                 <StaleCleanupCard insight={item.insight} />
