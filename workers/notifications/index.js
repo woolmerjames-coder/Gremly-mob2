@@ -1509,6 +1509,13 @@ OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
       "narrative_value": "string — why this connection matters for the user's story"
     }
   ],
+  "behavioralFingerprints": [
+    {
+      "pattern": "string — e.g., 'weekend_sprinter', 'stress_skips_exercise', 'deep_focus_high_output'",
+      "evidence": "string — what data supports this",
+      "isNovel": true|false
+    }
+  ],
   "habitAnalysis": {
     "streakStatus": [
       {
@@ -1574,6 +1581,10 @@ ANALYSIS RULES:
 - The magicMomentCandidates should only include genuinely interesting moments (score 7+). Include the enrichmentHint so the storyteller knows what world knowledge to apply.
 - For anomalies, compare against trendContext if available. A sudden drop in completions during a travel week is expected, not anomalous.
 - Be honest about quiet weeks. If nothing stands out, say so. Don't manufacture significance.
+- Look for behavioral correlations across entity types: journal sentiment vs completion rate, habit completion vs day of week, space activity vs output quality. Name the pattern concisely if you find one.
+- If completions cluster in the last 2 days of the week, flag pattern: 'weekend_sprinter'.
+- If journal entries mentioning stress/fatigue correlate with skipped habits the same day, flag pattern: 'stress_skips_exercise'.
+- If a single space has both highest activity and highest completion rate, flag pattern: 'deep_focus_[spaceName]'.
 - weekAheadBrief.keyEvents MUST include the highest-scoring events from across ALL days of the week, not just the first day. If Tuesday has a flight and Friday has travel, both MUST appear.`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1650,7 +1661,8 @@ OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
     {
       "title": "string — short, evocative title",
       "body": "string — 1-3 sentences. THIS is where you add real-world knowledge. For travel: mention the destination's character, weather this time of year, time zone differences, local highlights. For milestones: what it means in the bigger picture. For personal events: the human significance. Be specific and genuinely interesting — like a well-traveled friend sharing a tip.",
-      "connectedItems": ["string — titles of related items from the analyst's crossReferences"]
+      "connectedItems": ["string — titles of related items from the analyst's crossReferences"],
+      "date": "YYYY-MM-DD — the date this moment occurred, from the analyst's weekTimeline or eventAnalysis. Required."
     }
   ],
   "insights": [
@@ -1695,6 +1707,7 @@ OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
     }
   ],
   "weekType": "string — use analyst's weekType.classification as base, refine if needed",
+  "weekTypeShort": "string — 2-3 word compressed version of weekType for use as a persistent label throughout the recap (e.g., 'Honeymoon Sprint', 'Deep Focus', 'Recovery Week')",
   "keyThemes": ["string — 3-5 themes"],
   "mood": "string — overall tone of the week"
 }
@@ -1729,6 +1742,8 @@ WORD BUDGET (STRICT — count your words):
 - mood: 2-4 words (e.g., "accomplished but depleted", "quietly productive")
 
 BEHAVIORAL RULES:
+- DEDUPLICATION RULE: Insights must surface observations NOT already covered in weeklyCommentary or magicMoments. If the narrative already mentions running dropped or sleep deprivation, do not repeat those as insights. Insights should add new information the user hasn't seen yet in the recap.
+- Use analysisBrief.behavioralFingerprints to add one insight of type 'productivity_pattern' or 'balance' if a novel fingerprint is found. Frame it warmly: "You're a weekend sprinter — 11 of 15 todos cleared Thursday–Friday." This is the 'wow it knows me' moment.
 - Pick 2-4 insights. Never pad.
 - Use the analyst's anomalies to inform insights — if something is unusual, it might be worth noting.
 - Stale cleanup only when analyst says severity is medium or high.
@@ -1738,7 +1753,8 @@ BEHAVIORAL RULES:
 TREND CONTEXT RULES:
 - Only reference prior weeks when a pattern spans 2+ weeks.
 - Never open with "last week you also..."
-- Use insightFrequency to avoid repeating the same insight type.`;
+- Use insightFrequency to avoid repeating the same insight type.
+- If trendContext includes a week from the same period last month or last year with a similar weekType, add one sentence to weeklyCommentary connecting them: "Three weeks ago you also had a travel disruption — you recovered faster this time." Only do this if the connection is genuine and specific.`;
 
   // Build a focused payload for Sonnet — analyst brief + essential raw data
   const storytellerPayload = {

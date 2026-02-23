@@ -1163,6 +1163,7 @@ export interface WeeklySummaryMagicMoment {
   title: string;
   body: string;
   connectedItems?: string[];
+  date?: string; // YYYY-MM-DD — the date this moment occurred
 }
 
 export interface WeeklySummaryRecommendation {
@@ -1186,6 +1187,7 @@ export interface WeeklySummaryContent {
   recommendations?: WeeklySummaryRecommendation[];
   weekAhead: WeeklySummaryWeekAhead;
   weekType?: string;
+  weekTypeShort?: string;
   keyThemes: string[];
   mood: string;
 }
