@@ -72,10 +72,24 @@ function makeValidContent() {
   return {
     weeklyCommentary: 'Great week!',
     highlightMoment: { title: 'Test', reason: 'Notable', gremlyComment: 'Nice!' },
+    magicMoments: [
+      { title: 'Breakthrough', body: 'Solved the hard bug.', date: '2025-12-16', connectedItems: ['todo-1'] },
+    ],
     insights: [],
+    recommendations: [
+      {
+        trigger: 'morning_energy',
+        text: 'Try a morning walk before work',
+        actionType: 'create_habit',
+        actionLabel: 'Create habit',
+        prefill: { name: 'Morning walk', frequency: 'daily', time_window: 'morning' },
+      },
+    ],
     weekAhead: { introduction: 'Next week...', highlights: [], busyDayWarnings: [], totalEventCount: 0 },
     keyThemes: ['productive'],
     mood: 'focused',
+    weekType: 'a focused week',
+    weekTypeShort: 'focused',
   };
 }
 
@@ -253,6 +267,41 @@ describe('generateWeeklySummary', () => {
 
     const saved = mockSaveWeeklySummary.mock.calls[0][0];
     expect(saved.stats_snapshot.todosCompleted).toBe(5);
+  });
+
+  it('preserves magicMoments through save round-trip', async () => {
+    const content = makeValidContent();
+    mockFetch.mockResolvedValue({ ok: true, json: async () => content });
+
+    await generateWeeklySummary();
+
+    const saved = mockSaveWeeklySummary.mock.calls[0][0];
+    expect(saved.content.magicMoments).toHaveLength(1);
+    expect(saved.content.magicMoments[0].title).toBe('Breakthrough');
+    expect(saved.content.magicMoments[0].date).toBe('2025-12-16');
+  });
+
+  it('preserves weekType and weekTypeShort through save round-trip', async () => {
+    const content = makeValidContent();
+    mockFetch.mockResolvedValue({ ok: true, json: async () => content });
+
+    await generateWeeklySummary();
+
+    const saved = mockSaveWeeklySummary.mock.calls[0][0];
+    expect(saved.content.weekType).toBe('a focused week');
+    expect(saved.content.weekTypeShort).toBe('focused');
+  });
+
+  it('preserves recommendations through save round-trip', async () => {
+    const content = makeValidContent();
+    mockFetch.mockResolvedValue({ ok: true, json: async () => content });
+
+    await generateWeeklySummary();
+
+    const saved = mockSaveWeeklySummary.mock.calls[0][0];
+    expect(saved.content.recommendations).toHaveLength(1);
+    expect(saved.content.recommendations[0].trigger).toBe('morning_energy');
+    expect(saved.content.recommendations[0].actionType).toBe('create_habit');
   });
 
   // ── Edge: missing cortexUrl ───────────────────────────────────────────
