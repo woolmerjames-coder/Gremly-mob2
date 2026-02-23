@@ -55,6 +55,56 @@ export default {
       return await handleBackfillWeekly(env, url);
     }
 
+    // DELETE /delete-summary?user_id=...&week_start_date=YYYY-MM-DD
+    if (url.pathname === '/delete-summary' && request.method === 'DELETE') {
+      const userId = url.searchParams.get('user_id');
+      const weekStart = url.searchParams.get('week_start_date');
+      if (!userId || !weekStart) {
+        return jsonResponse({ error: 'Missing user_id or week_start_date' }, 400);
+      }
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/weekly_summaries?user_id=eq.${userId}&week_start_date=eq.${weekStart}`,
+        {
+          method: 'DELETE',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            Prefer: 'return=representation',
+          },
+        },
+      );
+      const deleted = res.ok ? await res.json() : [];
+      return jsonResponse({ deleted: deleted.length, weekStart });
+    }
+
+    // GET /debug-events?user_id=...  — temporary audit endpoint
+    if (url.pathname === '/debug-events') {
+      const userId = url.searchParams.get('user_id');
+      if (!userId) return jsonResponse({ error: 'Missing user_id' }, 400);
+      const sb = env.SUPABASE_URL;
+      const sk = env.SUPABASE_SERVICE_KEY;
+      const headers = { apikey: sk, Authorization: `Bearer ${sk}` };
+
+      const [noteEventsRes, calEventsRes, externalEventsRes, noteEventsThisWeekRes] = await Promise.all([
+        fetch(`${sb}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&select=id,title,target_date,end_date,date,event_time,location,is_all_day,space_id,created_at&order=target_date.desc&limit=50`, { headers }),
+        fetch(`${sb}/rest/v1/user_calendar_events?owner_id=eq.${userId}&select=id,title,event_date,event_time,duration_minutes,space_id,notes,source,created_at&order=event_date.desc&limit=50`, { headers }),
+        fetch(`${sb}/rest/v1/events?user_id=eq.${userId}&select=id,kind,payload_json,created_at&order=created_at.desc&limit=30`, { headers }),
+        fetch(`${sb}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&or=(and(target_date.gte.2026-02-16,target_date.lte.2026-02-22),and(target_date.gte.2026-02-23,target_date.lte.2026-03-01))&select=id,title,target_date,end_date,date,event_time,location,is_all_day,space_id,created_at&order=target_date.asc`, { headers }),
+      ]);
+
+      const noteEvents = noteEventsRes.ok ? await noteEventsRes.json() : [];
+      const calEvents = calEventsRes.ok ? await calEventsRes.json() : [];
+      const externalEvents = externalEventsRes.ok ? await externalEventsRes.json() : [];
+      const noteEventsThisAndNext = noteEventsThisWeekRes.ok ? await noteEventsThisWeekRes.json() : [];
+
+      return jsonResponse({
+        noteEvents: { count: noteEvents.length, rows: noteEvents },
+        userCalendarEvents: { count: calEvents.length, rows: calEvents },
+        externalEvents: { count: externalEvents.length, rows: externalEvents },
+        noteEventsThisAndNextWeek: { count: noteEventsThisAndNext.length, rows: noteEventsThisAndNext },
+      });
+    }
+
     return new Response('Gremly Notification Worker v3. Use /test to trigger manually.', {
       status: 200,
     });
@@ -254,13 +304,20 @@ async function sendScheduledNotifications(env) {
           throw payloadErr;
         }
 
-        // Step 2: Generate AI summary
-        console.log(`[WeeklySummary] Step 2: Calling Anthropic API for ${user.user_id}`);
+        // Step 2a: Analyst pass (Haiku)
+        console.log(`[WeeklySummary] Step 2a: Running analyst pass (Haiku) for ${user.user_id}`);
         let aiResponse;
         try {
-          aiResponse = await generateWeeklySummary(env, payload);
+          const analysisBrief = await runAnalystPass(env, payload);
           console.log(
-            `[WeeklySummary] Step 2 complete: AI response received. Keys: ${Object.keys(aiResponse).join(', ')}`,
+            `[WeeklySummary] Step 2a complete: Analyst brief received. Keys: ${Object.keys(analysisBrief).join(', ')}`,
+          );
+
+          // Step 2b: Storyteller pass (Sonnet)
+          console.log(`[WeeklySummary] Step 2b: Running storyteller pass (Sonnet) for ${user.user_id}`);
+          aiResponse = await generateWeeklySummary(env, payload, analysisBrief);
+          console.log(
+            `[WeeklySummary] Step 2b complete: AI response received. Keys: ${Object.keys(aiResponse).join(', ')}`,
           );
         } catch (aiErr) {
           console.error(
@@ -445,11 +502,18 @@ async function handleBackfillWeekly(env, url) {
         `[Backfill] Step 1 complete for ${userId}. weekStart=${payload.weekStartDate}, weekEnd=${payload.weekEndDate}, todosCompleted=${payload.stats.todosCompleted}`,
       );
 
-      // Step 2: Generate AI summary
-      console.log(`[Backfill] Step 2: Calling Anthropic API for ${userId}`);
-      const aiResponse = await generateWeeklySummary(env, payload);
+      // Step 2a: Analyst pass (Haiku)
+      console.log(`[Backfill] Step 2a: Running analyst pass (Haiku) for ${userId}`);
+      const analysisBrief = await runAnalystPass(env, payload);
       console.log(
-        `[Backfill] Step 2 complete for ${userId}. Keys: ${Object.keys(aiResponse).join(', ')}`,
+        `[Backfill] Step 2a complete for ${userId}. Analyst keys: ${Object.keys(analysisBrief).join(', ')}`,
+      );
+
+      // Step 2b: Storyteller pass (Sonnet)
+      console.log(`[Backfill] Step 2b: Running storyteller pass (Sonnet) for ${userId}`);
+      const aiResponse = await generateWeeklySummary(env, payload, analysisBrief);
+      console.log(
+        `[Backfill] Step 2b complete for ${userId}. Keys: ${Object.keys(aiResponse).join(', ')}`,
       );
 
       // Step 3: Delete existing summary (if any) then save to Supabase
@@ -1045,6 +1109,17 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
     spaceNameMap[s.id] = s.name;
   }
 
+  // Deduplicate helper — many calendar syncs create duplicate note events
+  function deduplicateEvents(events) {
+    const seen = new Set();
+    return events.filter((e) => {
+      const key = `${(e.title || '').toLowerCase().trim()}|${e.date || e.target_date || e.event_date || ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   // Upcoming events — parse payload_json (external calendar events)
   const externalEvents = upcomingEvents
     .map((e) => {
@@ -1115,26 +1190,24 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
     isAllDay: !event.event_time,
   }));
 
-  const thisWeekEvents = [...noteEventsMappedThisWeek, ...userCalendarEventsMappedThisWeek]
-    .sort((a, b) => {
-      const dateA = a.date ? new Date(a.date).getTime() : 0;
-      const dateB = b.date ? new Date(b.date).getTime() : 0;
-      return dateA - dateB;
-    })
-    .slice(0, 30);
+  const thisWeekEvents = deduplicateEvents(
+    [...noteEventsMappedThisWeek, ...userCalendarEventsMappedThisWeek]
+      .sort((a, b) => {
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        return dateA - dateB;
+      }),
+  ).slice(0, 50);
 
   // Merge all NEXT WEEK event sources and sort by date ascending
-  const upcomingEventsForAI = [
-    ...externalEvents,
-    ...noteEventsMappedNext,
-    ...userCalendarEventsMappedNext,
-  ]
-    .sort((a, b) => {
-      const dateA = a.date ? new Date(a.date).getTime() : 0;
-      const dateB = b.date ? new Date(b.date).getTime() : 0;
-      return dateA - dateB;
-    })
-    .slice(0, 30);
+  const upcomingEventsForAI = deduplicateEvents(
+    [...externalEvents, ...noteEventsMappedNext, ...userCalendarEventsMappedNext]
+      .sort((a, b) => {
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        return dateA - dateB;
+      }),
+  ).slice(0, 50);
 
   // Recent journal excerpts
   const recentJournalExcerpts = journalEntries.slice(0, 5).map((j) => ({
@@ -1304,32 +1377,221 @@ function buildTrendContextFromPriorSummaries(priorSummaries, currentStats) {
 // =============================================================================
 
 /**
- * Call the Anthropic API to generate the weekly summary.
- * Uses the same prompt structure as the cortex Worker endpoint.
+ * STAGE 1: Analyst pass using Haiku.
+ * Performs thorough cross-analysis of the raw payload:
+ * - Event importance ranking
+ * - Timeline reconstruction
+ * - Journal ↔ event threading
+ * - Habit pattern analysis
+ * - Space activity mapping
+ * - Stale item severity
+ * - Week-type classification
+ * - Anomaly detection
+ * - Strict past/future boundary enforcement
  *
  * @param {object} env - Worker env with ANTHROPIC_API_KEY
- * @param {object} payload - The aggregated payload from buildServerSidePayload
- * @returns {object} Parsed JSON matching the spec's Section 8.3 response schema
+ * @param {object} payload - Raw aggregated payload from buildServerSidePayload
+ * @returns {object} Structured analysis brief for the storyteller
  */
-async function generateWeeklySummary(env, payload) {
-  const systemPrompt = `You are Gremly, a warm and perceptive life companion. You are generating a weekly summary for a user. Your voice is conversational, specific, and human — like a thoughtful friend who notices what actually matters in someone's life, not a productivity dashboard.
+async function runAnalystPass(env, payload) {
+  const analystPrompt = `You are a meticulous data analyst for a personal productivity app called Gremly. Your ONLY job is to deeply analyze a user's weekly data and produce a structured analysis brief. You are NOT writing the user-facing summary — a separate AI will do that using your analysis. Be thorough, precise, and show your reasoning.
 
-Your primary job: Tell the story of this person's week. Tasks completed and habits tracked are supporting details — the real narrative is what they experienced, what they're preparing for, and how the pieces of their life connect.
+CRITICAL DATE BOUNDARIES:
+- THIS WEEK (PAST — already happened): ${payload.weekStartDate} to ${payload.weekEndDate}
+- NEXT WEEK (FUTURE — upcoming): Use upcomingEvents dates
+- NEVER conflate past and future. If an event's date falls within this week's range, it is PAST. If it falls after ${payload.weekEndDate}, it is FUTURE.
+- Events in thisWeekEvents are ALWAYS past. Events in upcomingEvents are ALWAYS future.
 
-OUTPUT FORMAT: Respond ONLY with valid JSON matching this exact schema. No markdown, no backticks, no preamble.
+OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
 
 {
-  "weeklyCommentary": "string — 2-4 sentences weaving together the user's week into a narrative. Lead with what actually happened in their life (events, trips, milestones) and how their tasks/habits supported it. Be specific to their data. Never generic.",
+  "weekTimeline": {
+    "narrative": "string — 3-5 sentence chronological reconstruction of what happened this week, day by day based on events + completions + journal entries. Focus on the STORY, not the metrics.",
+    "significantDays": [
+      {
+        "date": "YYYY-MM-DD",
+        "dayName": "Monday|Tuesday|...",
+        "whatHappened": "string — key events/actions that day",
+        "significance": "routine | notable | significant | milestone"
+      }
+    ]
+  },
+  "eventAnalysis": {
+    "thisWeekEvents": [
+      {
+        "title": "string",
+        "date": "YYYY-MM-DD",
+        "temporalBucket": "PAST",
+        "importanceScore": 1-10,
+        "importanceReason": "string — why this score",
+        "category": "travel | work_meeting | personal | social | health | deadline | milestone | admin | recurring",
+        "isRecurring": true|false,
+        "spaceName": "string | null",
+        "connectedJournalExcerpt": "string | null — matching journal text if found",
+        "connectedTodos": ["string — titles of related completed tasks"],
+        "connectedHabits": ["string — related habit names"]
+      }
+    ],
+    "nextWeekEvents": [
+      {
+        "title": "string",
+        "date": "YYYY-MM-DD",
+        "temporalBucket": "FUTURE",
+        "importanceScore": 1-10,
+        "importanceReason": "string",
+        "category": "string",
+        "isRecurring": true|false,
+        "spaceName": "string | null",
+        "threadFromThisWeek": "string | null — how this connects to something that happened this week",
+        "prepSuggestion": "string | null — practical prep the user might want to do"
+      }
+    ]
+  },
+  "crossReferences": [
+    {
+      "connection": "string — description of the connection",
+      "items": ["string — titles of connected items"],
+      "strength": "weak | moderate | strong",
+      "narrative_value": "string — why this connection matters for the user's story"
+    }
+  ],
+  "habitAnalysis": {
+    "streakStatus": [
+      {
+        "habitName": "string",
+        "daysCompleted": 0,
+        "targetDays": 0,
+        "pattern": "string — e.g., 'maintained through travel', 'dropped mid-week', 'weekend warrior'",
+        "notable": true|false
+      }
+    ],
+    "overallConsistency": "string — one-sentence habit summary"
+  },
+  "spaceInsights": [
+    {
+      "spaceName": "string",
+      "activity": "string — what happened in this space",
+      "eventConnection": "string | null — events tied to this space"
+    }
+  ],
+  "todoPatterns": {
+    "velocity": "string — fast completions, procrastinated, batch cleared, steady",
+    "notableCompletions": ["string — titles of todos that seem important based on timing/context"],
+    "staleItemSeverity": "none | low | medium | high",
+    "staleItemNote": "string | null — if relevant, which stale items matter and why"
+  },
+  "weekType": {
+    "classification": "string — 2-4 words (e.g., 'travel prep week', 'deep focus', 'winding down')",
+    "evidence": "string — why this classification",
+    "dominantTheme": "string"
+  },
+  "anomalies": [
+    {
+      "observation": "string — what's unusual compared to trend data or typical week patterns",
+      "significance": "low | medium | high"
+    }
+  ],
+  "magicMomentCandidates": [
+    {
+      "title": "string — suggested moment title",
+      "why": "string — why this deserves a magic moment",
+      "connectedItems": ["string"],
+      "enrichmentHint": "string — what real-world knowledge could make this richer (e.g., 'Tokyo late-Feb weather', 'LAX to Cancun flight duration', 'half marathon training context')"
+    }
+  ],
+  "weekAheadBrief": {
+    "busyDays": ["string — days with 3+ events"],
+    "keyEvents": ["string — the 2-5 most important upcoming events by importance score"],
+    "conflictsOrWarnings": ["string — scheduling issues or things to watch out for"]
+  }
+}
+
+ANALYSIS RULES:
+- Classify EVERY event in thisWeekEvents and upcomingEvents. Don't skip any.
+- For importance scoring: 1-3 = routine (recurring meetings, admin). 4-6 = notable (one-off meetings, deadlines). 7-10 = significant (travel, milestones, personal events, life changes).
+- Events with a space_id (especially non-work spaces) are often more personally significant.
+- Events titled "Canceled: ..." should be scored 1 and flagged as canceled.
+- Look for threads: if this week has "packing" or "prep" todos and next week has a flight, connect them.
+- For journal excerpts, try to match them to events by date proximity and keyword overlap.
+- The magicMomentCandidates should only include genuinely interesting moments (score 7+). Include the enrichmentHint so the storyteller knows what world knowledge to apply.
+- For anomalies, compare against trendContext if available. A sudden drop in completions during a travel week is expected, not anomalous.
+- Be honest about quiet weeks. If nothing stands out, say so. Don't manufacture significance.`;
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 3000,
+      system: analystPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: `Analyze this user's weekly data thoroughly. Produce the structured analysis brief.\n\n${JSON.stringify(payload, null, 2)}`,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Analyst pass (Haiku) error: ${response.status} — ${errText}`);
+  }
+
+  const data = await response.json();
+  const text = data.content
+    ?.map((block) => (block.type === 'text' ? block.text : ''))
+    .filter(Boolean)
+    .join('');
+
+  if (!text) {
+    throw new Error('Analyst pass returned empty response');
+  }
+
+  const cleaned = text.replace(/```json\n?|```\n?/g, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.error('[Analyst] Failed to parse JSON, using raw text as fallback');
+    return { rawAnalysis: cleaned };
+  }
+}
+
+/**
+ * STAGE 2: Storyteller pass using Sonnet.
+ * Receives the analyst brief + key raw data and writes the user-facing summary.
+ * Focuses on narrative voice, contextual enrichment, and magic moments.
+ *
+ * @param {object} env - Worker env with ANTHROPIC_API_KEY
+ * @param {object} payload - Raw payload (for stats and raw data access)
+ * @param {object} analysisBrief - Structured analysis from the analyst pass
+ * @returns {object} Parsed JSON matching the weekly summary content schema
+ */
+async function generateWeeklySummary(env, payload, analysisBrief) {
+  const systemPrompt = `You are Gremly, a warm and perceptive life companion. You are generating a weekly summary for a user based on a pre-analyzed data brief from an analyst AI plus key raw data. Your voice is conversational, specific, and human — like a thoughtful friend who notices what actually matters in someone's life.
+
+An analyst has already done the heavy lifting: event classification, cross-referencing, importance scoring, and timeline reconstruction. Trust the analyst's temporal classifications — if it says an event is PAST, it happened. If it says FUTURE, it hasn't happened yet. NEVER put a PAST event in the Week Ahead section.
+
+Your job: Take the analysis and turn it into a compelling, personal narrative. Add your own world knowledge to make magic moments genuinely enriching.
+
+OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
+
+{
+  "weeklyCommentary": "string — 2-4 sentences weaving together the user's week. Lead with the STORY (life events, experiences) not metrics. Use the analyst's weekTimeline for narrative flow. Be specific to this person's data. Never generic.",
   "highlightMoment": {
-    "title": "string — the item or moment that defined this week (could be an event, an accomplishment, or a turning point)",
-    "reason": "string — why this mattered to their life, not just their task list",
-    "gremlyComment": "string — one-liner with genuine warmth from Gremly"
+    "title": "string — the moment that defined this week",
+    "reason": "string — why this mattered to their life",
+    "gremlyComment": "string — one-liner with genuine warmth"
   },
   "magicMoments": [
     {
       "title": "string — short, evocative title",
-      "body": "string — 1-2 sentences of contextual color. Add real-world knowledge when it enriches the moment (e.g., destination details, seasonal context, what an achievement means). Never forced — only when genuinely interesting.",
-      "connectedItems": ["string — titles of related events, journal entries, or tasks that form the thread"]
+      "body": "string — 1-3 sentences. THIS is where you add real-world knowledge. For travel: mention the destination's character, weather this time of year, time zone differences, local highlights. For milestones: what it means in the bigger picture. For personal events: the human significance. Be specific and genuinely interesting — like a well-traveled friend sharing a tip.",
+      "connectedItems": ["string — titles of related items from the analyst's crossReferences"]
     }
   ],
   "insights": [
@@ -1338,20 +1600,20 @@ OUTPUT FORMAT: Respond ONLY with valid JSON matching this exact schema. No markd
       "headline": "string — short, conversational",
       "body": "string — 1-2 sentence explanation",
       "isActionable": true | false,
-      "actionLabel": "string | null — CTA button text if actionable",
-      "actionType": "string | null — what the CTA triggers",
+      "actionLabel": "string | null",
+      "actionType": "string | null",
       "staleItemIds": ["string"] | null
     }
   ],
   "weekAhead": {
-    "introduction": "string — Gremly's week-ahead comment that naturally references what's coming up and how it connects to the story of this week",
+    "introduction": "string — Gremly's week-ahead comment. Reference what's coming up and how it connects to this week's story. ONLY reference events the analyst tagged as FUTURE.",
     "highlights": [
       {
         "eventTitle": "string",
         "day": "string — e.g., 'Thursday'",
         "time": "string | null",
-        "context": "string | null — journal/note connection or contextual enrichment",
-        "prepNudge": "string | null"
+        "context": "string | null — use the analyst's threadFromThisWeek + your world knowledge",
+        "prepNudge": "string | null — use analyst's prepSuggestion as inspiration, add your own flavor"
       }
     ],
     "busyDayWarnings": [
@@ -1359,47 +1621,56 @@ OUTPUT FORMAT: Respond ONLY with valid JSON matching this exact schema. No markd
     ],
     "totalEventCount": 0
   },
-  "weekType": "string — a 2-4 word characterization of this week's overall shape (e.g., 'travel week', 'deep focus week', 'recovery & reset', 'milestone week', 'creative burst', 'balanced grind')",
-  "keyThemes": ["string — 3-5 high-level themes"],
-  "mood": "string — overall tone/mood of the week"
+  "weekType": "string — use analyst's weekType.classification as base, refine if needed",
+  "keyThemes": ["string — 3-5 themes"],
+  "mood": "string — overall tone of the week"
 }
 
-CONTEXTUAL INTELLIGENCE — "MAGIC MOMENTS":
-- Scan thisWeekEvents and upcomingEvents for signals of importance: travel (flights, trips, destinations), celebrations, deadlines, health milestones, social gatherings, launches, moves, conferences, etc.
-- When you detect something meaningful, add contextual color using your world knowledge. Examples: destination weather/culture, what a conference is known for, what a milestone means for someone's journey, time zone differences for travel, seasonal relevance.
-- Cross-reference events with journal excerpts, completed tasks, and spaces. If someone journaled about packing and has a "Flight to Tokyo" event, connect those dots naturally.
-- Return 0-4 magicMoments. ZERO is perfectly fine if nothing warrants it. Never manufacture moments — they should feel like genuine observations a perceptive friend would make.
-- Magic moments are about the HUMAN story, not the task list. "You knocked out 12 tasks" is not a magic moment. "You wrapped up loose ends before taking off for Japan — that's the kind of intentional prep that makes travel stress-free" IS one.
+CONTEXTUAL ENRICHMENT GUIDELINES:
+- For travel destinations: Include specifics! Weather in late February, local time vs home time, neighborhoods worth exploring, airport tips, cultural context. Be the friend who's been there.
+- For flights: Mention approximate flight duration, time zone math ("you'll land mid-afternoon local time"), jet lag considerations for long-haul.
+- For milestones (half marathons, launches, birthdays): What it means in the journey, what to expect, practical encouragement.
+- For seasonal context: What time of year means for the destination or activity.
+- NEVER make up specific facts you're unsure about. If you don't know the weather in a specific place, don't guess specific temperatures. Stick to what you know confidently.
 
-WEEK IN REVIEW (weeklyCommentary):
-- Start with what happened in the user's life this week, drawing from thisWeekEvents, journal excerpts, and completed tasks.
-- Weave task/habit data into the life narrative rather than leading with productivity metrics.
-- If thisWeekEvents contains travel, milestones, or other notable events, those should anchor the narrative.
-- If it was a quiet week with mostly routine tasks, acknowledge that honestly — "a solid week of heads-down execution" is fine.
+MAGIC MOMENTS:
+- Use the analyst's magicMomentCandidates as your starting point. The analyst has identified WHY something is interesting + what enrichment hints to use.
+- Return 0-4 moments. Zero is fine. Never force them.
+- These should feel like a perceptive friend's observations, not a travel brochure.
 
-WEEK AHEAD:
-- For upcomingEvents, classify into tiers: Tier 1 (signal: user-created, one-off, journal-connected, travel, milestones) gets highlighted with contextual enrichment. Tier 2 (recurring, standard) gets counted in totalEventCount.
-- Add contextual prep suggestions when genuinely useful (e.g., "might want to check carry-on rules" for international flights, "good time to prep talking points" for a big meeting).
-- Connect upcoming events to this week's events when there's a natural thread (e.g., this week had packing → next week has the flight).
-
-WEEK TYPE:
-- Detect the overall shape of the week from the data. Was it dominated by travel? Creative output? Deep focus? Recovery? A mix?
-- This should feel natural and accurate, not forced. If nothing stands out, "steady week" is fine.
+WEEK AHEAD — CRITICAL RULES:
+- ONLY include events the analyst classified as temporalBucket: "FUTURE" in nextWeekEvents.
+- NEVER mention events from thisWeekEvents in the Week Ahead section — those already happened.
+- Use the analyst's keyEvents from weekAheadBrief for the highlights.
+- For tier 1 events (importance 7+): Full highlight with context and prep nudge.
+- For tier 2 events (importance 4-6): Count in totalEventCount.
+- For tier 3 (importance 1-3, recurring): Just count in totalEventCount.
+- Reference the analyst's busyDays and conflictsOrWarnings for busy day warnings.
 
 BEHAVIORAL RULES:
-- Pick 2-4 insights maximum. If only 1 is genuinely useful, return 1. Never pad.
-- Stale item cleanup is one possible insight, not guaranteed. Only surface when 3+ items are older than 2 weeks.
-- Commentary must be specific to this user's data. Never say "great week" if nothing was completed.
+- Pick 2-4 insights. Never pad.
+- Use the analyst's anomalies to inform insights — if something is unusual, it might be worth noting.
+- Stale cleanup only when analyst says severity is medium or high.
 - Frame positively but honestly. Quiet weeks get acknowledged, not manufactured enthusiasm.
-- Gracefully handle sparse data. Week 1 with 3 items should still produce a useful summary.
-- NEVER pattern-match on specific event types (don't always call out travel, don't always call out deadlines). Detect what's ACTUALLY important in THIS specific week.
+- Use the analyst's habitAnalysis for any habit observations.
 
-TREND CONTEXT RULES (when trendContext is present):
+TREND CONTEXT RULES:
 - Only reference prior weeks when a pattern spans 2+ weeks.
-- Never open with "last week you also..." — weave history into forward-looking observations.
-- If the user acted on a prior recommendation, acknowledge it.
-- Never repeat the same insight verbatim. Escalate framing or suggest a different action.
-- Use insightFrequency to avoid fatigue. If an insight fired 3+ weeks, reframe or skip.`;
+- Never open with "last week you also..."
+- Use insightFrequency to avoid repeating the same insight type.`;
+
+  // Build a focused payload for Sonnet — analyst brief + essential raw data
+  const storytellerPayload = {
+    analysisBrief,
+    weekStartDate: payload.weekStartDate,
+    weekEndDate: payload.weekEndDate,
+    stats: payload.stats,
+    recentJournalExcerpts: payload.recentJournalExcerpts,
+    trendContext: payload.trendContext,
+    completedTodos: payload.completedTodos?.slice(0, 15),
+    staleItems: payload.staleItems,
+    spaceActivity: payload.spaceActivity,
+  };
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -1410,12 +1681,12 @@ TREND CONTEXT RULES (when trendContext is present):
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 2000,
+      max_tokens: 2500,
       system: systemPrompt,
       messages: [
         {
           role: 'user',
-          content: `Here is the user's weekly data. Generate their weekly summary.\n\n${JSON.stringify(payload, null, 2)}`,
+          content: `Here is the analyst's structured analysis brief and the user's key data. Generate their weekly summary.\n\n${JSON.stringify(storytellerPayload, null, 2)}`,
         },
       ],
     }),
