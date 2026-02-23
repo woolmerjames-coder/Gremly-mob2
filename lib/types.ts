@@ -1133,7 +1133,9 @@ export interface WeeklySummaryInsight {
     | 'space_activity'
     | 'balance'
     | 'habit_observation'
-    | 'journal_encouragement';
+    | 'journal_encouragement'
+    | 'life_event'
+    | 'week_rhythm';
   headline: string;
   body: string;
   isActionable: boolean;
@@ -1157,11 +1159,19 @@ export interface WeeklySummaryWeekAhead {
   totalEventCount: number;
 }
 
+export interface WeeklySummaryMagicMoment {
+  title: string;
+  body: string;
+  connectedItems?: string[];
+}
+
 export interface WeeklySummaryContent {
   weeklyCommentary: string;
   highlightMoment: WeeklySummaryHighlight;
+  magicMoments?: WeeklySummaryMagicMoment[];
   insights: WeeklySummaryInsight[];
   weekAhead: WeeklySummaryWeekAhead;
+  weekType?: string;
   keyThemes: string[];
   mood: string;
 }

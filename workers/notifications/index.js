@@ -47,6 +47,14 @@ export default {
       }
     }
 
+    // ── Temporary backfill endpoint ──────────────────────────────────────
+    // POST /backfill-weekly
+    // Generates + saves + pushes weekly summaries for ALL weekly-enabled users.
+    // Does NOT update weekly_last_sent. Does NOT check day/time windows.
+    if (url.pathname === '/backfill-weekly' && request.method === 'POST') {
+      return await handleBackfillWeekly(env, url);
+    }
+
     return new Response('Gremly Notification Worker v3. Use /test to trigger manually.', {
       status: 200,
     });
@@ -230,20 +238,59 @@ async function sendScheduledNotifications(env) {
 
       try {
         // Step 1: Build payload
-        const payload = await buildServerSidePayload(env, user.user_id, user.timezone);
+        console.log(`[WeeklySummary] Step 1: Starting payload build for ${user.user_id}`);
+        let payload;
+        try {
+          payload = await buildServerSidePayload(env, user.user_id, user.timezone);
+          console.log(
+            `[WeeklySummary] Step 1 complete: Payload built successfully. Keys: ${Object.keys(payload).join(', ')}`,
+          );
+        } catch (payloadErr) {
+          console.error(
+            `[WeeklySummary] Step 1 FAILED (buildServerSidePayload) for ${user.user_id}:`,
+            payloadErr.message,
+            payloadErr.stack || payloadErr,
+          );
+          throw payloadErr;
+        }
 
         // Step 2: Generate AI summary
-        const aiResponse = await generateWeeklySummary(env, payload);
+        console.log(`[WeeklySummary] Step 2: Calling Anthropic API for ${user.user_id}`);
+        let aiResponse;
+        try {
+          aiResponse = await generateWeeklySummary(env, payload);
+          console.log(
+            `[WeeklySummary] Step 2 complete: AI response received. Keys: ${Object.keys(aiResponse).join(', ')}`,
+          );
+        } catch (aiErr) {
+          console.error(
+            `[WeeklySummary] Step 2 FAILED (generateWeeklySummary) for ${user.user_id}:`,
+            aiErr.message,
+            aiErr.stack || aiErr,
+          );
+          throw aiErr;
+        }
 
         // Step 3: Save to Supabase
-        await saveWeeklySummary(
-          env,
-          user.user_id,
-          payload.weekStartDate,
-          payload.weekEndDate,
-          aiResponse,
-          payload,
-        );
+        console.log(`[WeeklySummary] Step 3: Saving to Supabase for ${user.user_id}`);
+        try {
+          await saveWeeklySummary(
+            env,
+            user.user_id,
+            payload.weekStartDate,
+            payload.weekEndDate,
+            aiResponse,
+            payload,
+          );
+          console.log(`[WeeklySummary] Step 3 complete: Saved successfully for ${user.user_id}`);
+        } catch (saveErr) {
+          console.error(
+            `[WeeklySummary] Step 3 FAILED (saveWeeklySummary) for ${user.user_id}:`,
+            saveErr.message,
+            saveErr.stack || saveErr,
+          );
+          throw saveErr;
+        }
 
         // Step 4: Send push notification with dynamic body
         const firstSentence = aiResponse.weeklyCommentary?.split(/[.!]/)[0]?.trim() || '';
@@ -274,6 +321,7 @@ async function sendScheduledNotifications(env) {
         console.error(
           `[Notifications] Weekly generation failed for ${user.user_id}:`,
           genErr.message,
+          genErr.stack || genErr,
         );
 
         // Fallback: send notification with generic body
@@ -298,6 +346,11 @@ async function sendScheduledNotifications(env) {
           console.log(`[Notifications] Weekly fallback notification sent for ${user.user_id}`);
           return { success: true, user_id: user.user_id };
         } catch (fallbackErr) {
+          console.error(
+            `[WeeklySummary] Fallback notification ALSO failed for ${user.user_id}:`,
+            fallbackErr.message,
+            fallbackErr.stack || fallbackErr,
+          );
           return { success: false, user_id: user.user_id, error: fallbackErr.message };
         }
       }
@@ -316,6 +369,141 @@ async function sendScheduledNotifications(env) {
   }
 
   return { sent, errors: errors.length, prefsCount: prefs.length, tokensCount: tokens.length };
+}
+
+// =============================================================================
+// Backfill: one-time weekly summary generation for all weekly-enabled users
+// =============================================================================
+
+async function handleBackfillWeekly(env, url) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const supabaseKey = env.SUPABASE_SERVICE_KEY;
+  const targetUserId = url.searchParams.get('user_id');
+  const targetDate = url.searchParams.get('target_date'); // YYYY-MM-DD, e.g. last Sunday
+
+  if (!supabaseUrl || !supabaseKey) {
+    return jsonResponse({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_KEY' }, 500);
+  }
+
+  console.log(
+    `[Backfill] Starting weekly summary backfill${targetUserId ? ` for user ${targetUserId}` : ' for all weekly-enabled users'}${targetDate ? ` (target_date: ${targetDate})` : ''}`,
+  );
+
+  // 1. Get users with weekly_enabled = true (optionally filtered to one user)
+  const userFilter = targetUserId ? `&user_id=eq.${targetUserId}` : '';
+  const prefsRes = await fetch(
+    `${supabaseUrl}/rest/v1/notification_preferences?weekly_enabled=eq.true${userFilter}&select=user_id,timezone`,
+    {
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+      },
+    },
+  );
+
+  if (!prefsRes.ok) {
+    const errText = await prefsRes.text();
+    console.error('[Backfill] Failed to fetch preferences:', errText);
+    return jsonResponse({ error: `Failed to fetch preferences: ${errText}` }, 500);
+  }
+
+  const users = await prefsRes.json();
+  console.log(`[Backfill] Found ${users.length} weekly-enabled users`);
+
+  // 2. Get push tokens for lookup
+  const tokensRes = await fetch(`${supabaseUrl}/rest/v1/push_tokens?select=user_id,token`, {
+    headers: {
+      apikey: supabaseKey,
+      Authorization: `Bearer ${supabaseKey}`,
+    },
+  });
+
+  const tokens = tokensRes.ok ? await tokensRes.json() : [];
+  const tokenMap = {};
+  for (const t of tokens) {
+    tokenMap[t.user_id] = t.token;
+  }
+
+  // 3. Process each user sequentially to stay within CPU limits
+  let generated = 0;
+  const errors = [];
+
+  for (const user of users) {
+    const userId = user.user_id;
+    const timezone = user.timezone || 'America/Los_Angeles';
+    const token = tokenMap[userId];
+
+    console.log(`[Backfill] Processing ${userId} (tz: ${timezone}, hasToken: ${!!token})`);
+
+    try {
+      // Step 1: Build payload (with optional date override for backfilling past weeks)
+      console.log(
+        `[Backfill] Step 1: Building payload for ${userId}${targetDate ? ` (target_date: ${targetDate})` : ''}`,
+      );
+      const payload = await buildServerSidePayload(env, userId, timezone, targetDate);
+      console.log(
+        `[Backfill] Step 1 complete for ${userId}. weekStart=${payload.weekStartDate}, weekEnd=${payload.weekEndDate}, todosCompleted=${payload.stats.todosCompleted}`,
+      );
+
+      // Step 2: Generate AI summary
+      console.log(`[Backfill] Step 2: Calling Anthropic API for ${userId}`);
+      const aiResponse = await generateWeeklySummary(env, payload);
+      console.log(
+        `[Backfill] Step 2 complete for ${userId}. Keys: ${Object.keys(aiResponse).join(', ')}`,
+      );
+
+      // Step 3: Delete existing summary (if any) then save to Supabase
+      console.log(`[Backfill] Step 3: Saving to Supabase for ${userId}`);
+      // Delete first to avoid unique constraint violation
+      await fetch(
+        `${supabaseUrl}/rest/v1/weekly_summaries?user_id=eq.${userId}&week_start_date=eq.${payload.weekStartDate}`,
+        {
+          method: 'DELETE',
+          headers: {
+            apikey: supabaseKey,
+            Authorization: `Bearer ${supabaseKey}`,
+          },
+        },
+      );
+      await saveWeeklySummary(
+        env,
+        userId,
+        payload.weekStartDate,
+        payload.weekEndDate,
+        aiResponse,
+        payload,
+      );
+      console.log(`[Backfill] Step 3 complete: Saved for ${userId}`);
+
+      // Step 4: Send push notification (if user has a token)
+      if (token) {
+        const firstSentence = aiResponse.weeklyCommentary?.split(/[.!]/)[0]?.trim() || '';
+        const body = firstSentence ? `${firstSentence}.` : 'Your weekly summary is ready.';
+        await sendExpoPush(token, 'Your week in review is ready ✨', body, 'weekly_summary');
+        console.log(`[Backfill] Push sent for ${userId}`);
+      } else {
+        console.log(`[Backfill] No push token for ${userId}, summary saved but no notification`);
+      }
+
+      generated++;
+    } catch (err) {
+      console.error(`[Backfill] FAILED for ${userId}:`, err.message, err.stack || err);
+      errors.push({ user_id: userId, error: err.message });
+    }
+  }
+
+  const result = { generated, failed: errors.length, total: users.length, errors };
+  console.log(
+    `[Backfill] Complete: ${generated} generated, ${errors.length} failed out of ${users.length}`,
+  );
+  return jsonResponse(result, 200);
+}
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data, null, 2), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
 
 // =============================================================================
@@ -465,7 +653,7 @@ async function sendExpoPush(token, title, body, notificationType) {
  * @param {string} timezone - The user's timezone string (e.g., 'America/Los_Angeles')
  * @returns {object} The payload matching the spec's Section 8.2 schema
  */
-async function buildServerSidePayload(env, userId, timezone) {
+async function buildServerSidePayload(env, userId, timezone, dateOverride = null) {
   const supabaseUrl = env.SUPABASE_URL;
   const supabaseKey = env.SUPABASE_SERVICE_KEY;
   const headers = {
@@ -475,7 +663,8 @@ async function buildServerSidePayload(env, userId, timezone) {
   };
 
   // Compute week boundaries in user's timezone
-  const now = new Date();
+  // dateOverride allows generating for a specific date (e.g. last Sunday for backfill)
+  const now = dateOverride ? new Date(dateOverride + 'T12:00:00Z') : new Date();
   const { weekStart, weekEnd, prevWeekStart, prevWeekEnd, nextWeekStart, nextWeekEnd } =
     computeWeekBoundaries(now, timezone);
 
@@ -495,38 +684,42 @@ async function buildServerSidePayload(env, userId, timezone) {
   const [
     completedTodosThisWeek,
     completedTodosLastWeek,
+    todosCreatedThisWeek,
     activeHabits,
     habitProgressThisWeek,
     journalEntries,
-    notesCaptured,
+    ideasCapturedThisWeek,
     staleItems,
     spaces,
     upcomingEvents,
     priorSummaries,
-    allItemsThisWeek,
-    mindDropsThisWeek,
-    noteEvents,
-    userCalendarEvents,
+    todoLockIns,
+    habitLockIns,
+    todoMindDrops,
+    habitMindDrops,
+    noteMindDrops,
+    noteEventsNextWeek,
+    userCalendarEventsNextWeek,
+    noteEventsThisWeek,
+    userCalendarEventsThisWeek,
   ] = await Promise.all([
-    // 1. Completed todos this week
+    // 1. Completed todos this week (from the TODOS table)
     query(
-      'habits',
+      'todos',
       [
         `owner_id=eq.${userId}`,
-        `subtype=eq.todo`,
         `completed_at=not.is.null`,
         `completed_at=gte.${weekStart}`,
         `completed_at=lte.${weekEnd}`,
-        `select=id,title,completed_at,created_at,archived,space_id`,
+        `select=id,name,title,completed_at,created_at,archived,space_id,due_date,due_day`,
       ].join('&'),
     ),
 
     // 2. Completed todos last week (for comparison)
     query(
-      'habits',
+      'todos',
       [
         `owner_id=eq.${userId}`,
-        `subtype=eq.todo`,
         `completed_at=not.is.null`,
         `completed_at=gte.${prevWeekStart}`,
         `completed_at=lte.${prevWeekEnd}`,
@@ -534,18 +727,29 @@ async function buildServerSidePayload(env, userId, timezone) {
       ].join('&'),
     ),
 
-    // 3. Active habits (not archived)
+    // 3. Todos created this week
+    query(
+      'todos',
+      [
+        `owner_id=eq.${userId}`,
+        `created_at=gte.${weekStart}`,
+        `created_at=lte.${weekEnd}`,
+        `select=id`,
+      ].join('&'),
+    ),
+
+    // 4. Active habits (not archived, subtype=start_habit)
     query(
       'habits',
       [
         `owner_id=eq.${userId}`,
-        `subtype=eq.habit`,
+        `subtype=eq.start_habit`,
         `archived=eq.false`,
         `select=id,name,title,cadence,target_per_period,days_active,last_checked_in_at,space_id`,
       ].join('&'),
     ),
 
-    // 4. Habit check-ins this week (from habit_progress)
+    // 5. Habit check-ins this week (from habit_progress)
     query(
       'habit_progress',
       [
@@ -556,7 +760,7 @@ async function buildServerSidePayload(env, userId, timezone) {
       ].join('&'),
     ),
 
-    // 5. Journal entries this week
+    // 6. Journal entries this week
     query(
       'notes',
       [
@@ -570,37 +774,36 @@ async function buildServerSidePayload(env, userId, timezone) {
       ].join('&'),
     ),
 
-    // 6. Notes/ideas captured this week (non-journal)
+    // 7. Ideas captured this week (notes with subtype=idea only)
     query(
       'notes',
       [
         `owner_id=eq.${userId}`,
-        `subtype=neq.journal`,
+        `subtype=eq.idea`,
         `created_at=gte.${weekStart}`,
         `created_at=lte.${weekEnd}`,
         `select=id,title,created_at,space_id`,
       ].join('&'),
     ),
 
-    // 7. Stale items: todos not completed, not archived, created > 14 days ago
+    // 8. Stale items: todos not completed, not archived, created > 14 days ago
     query(
-      'habits',
+      'todos',
       [
         `owner_id=eq.${userId}`,
-        `subtype=eq.todo`,
         `completed_at=is.null`,
         `archived=eq.false`,
         `created_at=lte.${new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()}`,
-        `select=id,title,created_at,updated_at,space_id`,
+        `select=id,name,title,created_at,updated_at,space_id`,
         `order=created_at.asc`,
         `limit=20`,
       ].join('&'),
     ),
 
-    // 8. User's spaces
+    // 9. User's spaces
     query('spaces', [`owner_id=eq.${userId}`, `select=id,name`].join('&')),
 
-    // 9. Upcoming events (next week)
+    // 10. Upcoming events (next week)
     query(
       'events',
       [
@@ -611,7 +814,7 @@ async function buildServerSidePayload(env, userId, timezone) {
       ].join('&'),
     ),
 
-    // 10. Prior weekly summaries (for trend context, last 4)
+    // 11. Prior weekly summaries (for trend context, last 4)
     query(
       'weekly_summaries',
       [
@@ -623,18 +826,43 @@ async function buildServerSidePayload(env, userId, timezone) {
       ].join('&'),
     ),
 
-    // 11. All items touched this week (for lock-ins)
+    // 12. Todo lock-ins this week
+    query(
+      'todos',
+      [
+        `owner_id=eq.${userId}`,
+        `locked_in_at=not.is.null`,
+        `locked_in_at=gte.${weekStart}`,
+        `locked_in_at=lte.${weekEnd}`,
+        `select=id`,
+      ].join('&'),
+    ),
+
+    // 13. Habit lock-ins this week
     query(
       'habits',
       [
         `owner_id=eq.${userId}`,
-        `subtype=eq.todo`,
-        `or=(completed_at.gte.${weekStart},locked_in_at.gte.${weekStart})`,
-        `select=id,completed_at,locked_in,locked_in_at`,
+        `locked_in_at=not.is.null`,
+        `locked_in_at=gte.${weekStart}`,
+        `locked_in_at=lte.${weekEnd}`,
+        `select=id`,
       ].join('&'),
     ),
 
-    // 12. Mind drops this week
+    // 14. Mind drops from todos this week
+    query(
+      'todos',
+      [
+        `owner_id=eq.${userId}`,
+        `drop_id=not.is.null`,
+        `created_at=gte.${weekStart}`,
+        `created_at=lte.${weekEnd}`,
+        `select=id,drop_id,completed_at,archived`,
+      ].join('&'),
+    ),
+
+    // 15. Mind drops from habits this week
     query(
       'habits',
       [
@@ -642,30 +870,68 @@ async function buildServerSidePayload(env, userId, timezone) {
         `drop_id=not.is.null`,
         `created_at=gte.${weekStart}`,
         `created_at=lte.${weekEnd}`,
-        `select=id,drop_id,completed_at`,
+        `select=id,drop_id,last_completed_at,archived,last_checked_in_at`,
       ].join('&'),
     ),
 
-    // 13. Note events (subtype='event') for the upcoming week
+    // 16. Mind drops from notes this week
+    query(
+      'notes',
+      [
+        `owner_id=eq.${userId}`,
+        `drop_id=not.is.null`,
+        `created_at=gte.${weekStart}`,
+        `created_at=lte.${weekEnd}`,
+        `select=id,drop_id,archived,swept_at,subtype`,
+      ].join('&'),
+    ),
+
+    // 17. Note events (subtype='event') for the upcoming week
+    // Use nested AND within OR for proper date range filtering in PostgREST
     query(
       'notes',
       [
         `owner_id=eq.${userId}`,
         `subtype=eq.event`,
         `archived=eq.false`,
-        `or=(date.gte.${nextWeekStart},date.lte.${nextWeekEnd},target_date.gte.${nextWeekStart},target_date.lte.${nextWeekEnd})`,
-        `select=id,title,date,target_date,space_id,subtype`,
+        `or=(and(target_date.gte.${nextWeekStart.split('T')[0]},target_date.lte.${nextWeekEnd.split('T')[0]}),and(date.gte.${nextWeekStart.split('T')[0]},date.lte.${nextWeekEnd.split('T')[0]}))`,
+        `select=id,title,date,target_date,end_date,space_id,subtype,event_time,location,is_all_day`,
       ].join('&'),
     ),
 
-    // 14. User calendar events for the upcoming week
+    // 18. User calendar events for the upcoming week
     query(
       'user_calendar_events',
       [
         `owner_id=eq.${userId}`,
         `event_date=gte.${nextWeekStart.split('T')[0]}`,
         `event_date=lte.${nextWeekEnd.split('T')[0]}`,
-        `select=id,title,event_date,event_time,space_id`,
+        `select=id,title,event_date,event_time,duration_minutes,space_id,notes`,
+      ].join('&'),
+    ),
+
+    // ── THIS WEEK'S EVENTS (for Week In Review context) ──
+
+    // 19. Note events that happened THIS week
+    query(
+      'notes',
+      [
+        `owner_id=eq.${userId}`,
+        `subtype=eq.event`,
+        `archived=eq.false`,
+        `or=(and(target_date.gte.${weekStart.split('T')[0]},target_date.lte.${weekEnd.split('T')[0]}),and(date.gte.${weekStart.split('T')[0]},date.lte.${weekEnd.split('T')[0]}))`,
+        `select=id,title,date,target_date,end_date,space_id,subtype,event_time,location,is_all_day`,
+      ].join('&'),
+    ),
+
+    // 20. User calendar events that happened THIS week
+    query(
+      'user_calendar_events',
+      [
+        `owner_id=eq.${userId}`,
+        `event_date=gte.${weekStart.split('T')[0]}`,
+        `event_date=lte.${weekEnd.split('T')[0]}`,
+        `select=id,title,event_date,event_time,duration_minutes,space_id,notes`,
       ].join('&'),
     ),
   ]);
@@ -675,14 +941,21 @@ async function buildServerSidePayload(env, userId, timezone) {
   const todosCompleted = completedTodosThisWeek.length;
   const todosCompletedLastWeek = completedTodosLastWeek.length;
 
-  // Lock-ins this week
-  const lockIns = allItemsThisWeek.filter(
-    (i) => i.locked_in && i.locked_in_at && i.locked_in_at >= weekStart,
-  ).length;
+  // Lock-ins this week (from both todos and habits)
+  const lockIns = todoLockIns.length + habitLockIns.length;
 
-  // Mind drops
-  const mindDropsCreated = mindDropsThisWeek.length;
-  const mindDropsSwept = mindDropsThisWeek.filter((d) => d.completed_at != null).length;
+  // Mind drops (from all three tables)
+  const allMindDrops = [...todoMindDrops, ...habitMindDrops, ...noteMindDrops];
+  const mindDropsCreated = allMindDrops.length;
+  const mindDropsSwept = allMindDrops.filter((d) => {
+    if (d.archived) return true;
+    if (d.completed_at != null) return true; // todo completed
+    if (d.last_completed_at != null) return true; // habit completed
+    if (d.last_checked_in_at != null) return true; // habit checked in
+    if (d.swept_at != null) return true; // note swept
+    if (d.subtype === 'journal') return true; // journal = intentional capture
+    return false;
+  }).length;
 
   // Completions by day of week and time block
   const completionsByDay = {};
@@ -737,7 +1010,7 @@ async function buildServerSidePayload(env, userId, timezone) {
   for (const s of spaces) {
     spaceMap[s.id] = { spaceName: s.name, itemCount: 0, lastInteraction: null };
   }
-  for (const item of [...completedTodosThisWeek, ...notesCaptured]) {
+  for (const item of [...completedTodosThisWeek, ...ideasCapturedThisWeek]) {
     const sid = item.space_id;
     if (sid && spaceMap[sid]) {
       spaceMap[sid].itemCount++;
@@ -751,7 +1024,7 @@ async function buildServerSidePayload(env, userId, timezone) {
 
   // Completed todos for AI highlight selection
   const completedTodosForAI = completedTodosThisWeek.map((t) => ({
-    title: t.title,
+    title: t.title || t.name,
     completedAt: t.completed_at,
     createdAt: t.created_at,
     wasOverdue: false,
@@ -760,7 +1033,7 @@ async function buildServerSidePayload(env, userId, timezone) {
   // Stale items for insights
   const staleItemsForAI = staleItems.map((item) => ({
     id: item.id,
-    title: item.title,
+    title: item.title || item.name,
     type: 'todo',
     createdAt: item.created_at,
     lastTouchedAt: item.updated_at || item.created_at,
@@ -789,35 +1062,73 @@ async function buildServerSidePayload(env, userId, timezone) {
     })
     .slice(0, 30);
 
-  // Note events (subtype='event') — user-created events stored in notes table
-  const noteEventsMapped = noteEvents.map((note) => ({
+  // Note events (subtype='event') — NEXT WEEK events stored in notes table
+  const noteEventsMappedNext = noteEventsNextWeek.map((note) => ({
     title: note.title,
-    date: note.date || note.target_date,
-    startTime: null,
+    date: note.target_date || note.date,
+    startTime: note.event_time || null,
+    location: note.location || null,
     source: 'gremly',
     spaceName: note.space_id ? spaceNameMap[note.space_id] || null : null,
-    isAllDay: true,
+    isAllDay: note.is_all_day !== false && !note.event_time,
+    isMultiDay: !!(note.end_date && note.end_date !== (note.target_date || note.date)),
+    endDate: note.end_date || null,
     isRecurring: false,
     isUserCreated: true,
-    hasGremlyInteraction: false,
-    linkedTodoCount: 0,
   }));
 
-  // User calendar events — user-created calendar events
-  const userCalendarEventsMapped = userCalendarEvents.map((event) => ({
+  // User calendar events — NEXT WEEK calendar events
+  const userCalendarEventsMappedNext = userCalendarEventsNextWeek.map((event) => ({
     title: event.title,
     date: event.event_date,
     startTime: event.event_time || null,
+    durationMinutes: event.duration_minutes || null,
+    notes: event.notes || null,
     source: 'gremly',
+    spaceName: event.space_id ? spaceNameMap[event.space_id] || null : null,
     isAllDay: !event.event_time,
     isRecurring: false,
     isUserCreated: true,
-    hasGremlyInteraction: false,
-    linkedTodoCount: 0,
   }));
 
-  // Merge all event sources and sort by date ascending
-  const upcomingEventsForAI = [...externalEvents, ...noteEventsMapped, ...userCalendarEventsMapped]
+  // --- THIS WEEK events (for "Week In Review" context) ---
+  const noteEventsMappedThisWeek = noteEventsThisWeek.map((note) => ({
+    title: note.title,
+    date: note.target_date || note.date,
+    startTime: note.event_time || null,
+    location: note.location || null,
+    source: 'gremly',
+    spaceName: note.space_id ? spaceNameMap[note.space_id] || null : null,
+    isAllDay: note.is_all_day !== false && !note.event_time,
+    isMultiDay: !!(note.end_date && note.end_date !== (note.target_date || note.date)),
+    endDate: note.end_date || null,
+  }));
+
+  const userCalendarEventsMappedThisWeek = userCalendarEventsThisWeek.map((event) => ({
+    title: event.title,
+    date: event.event_date,
+    startTime: event.event_time || null,
+    durationMinutes: event.duration_minutes || null,
+    notes: event.notes || null,
+    source: 'gremly',
+    spaceName: event.space_id ? spaceNameMap[event.space_id] || null : null,
+    isAllDay: !event.event_time,
+  }));
+
+  const thisWeekEvents = [...noteEventsMappedThisWeek, ...userCalendarEventsMappedThisWeek]
+    .sort((a, b) => {
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      return dateA - dateB;
+    })
+    .slice(0, 30);
+
+  // Merge all NEXT WEEK event sources and sort by date ascending
+  const upcomingEventsForAI = [
+    ...externalEvents,
+    ...noteEventsMappedNext,
+    ...userCalendarEventsMappedNext,
+  ]
     .sort((a, b) => {
       const dateA = a.date ? new Date(a.date).getTime() : 0;
       const dateB = b.date ? new Date(b.date).getTime() : 0;
@@ -832,7 +1143,7 @@ async function buildServerSidePayload(env, userId, timezone) {
   }));
 
   // Recent notes titles
-  const recentNotesTitles = notesCaptured.slice(0, 10).map((n) => n.title);
+  const recentNotesTitles = ideasCapturedThisWeek.slice(0, 10).map((n) => n.title);
 
   // Trend context from prior summaries
   const trendContext = buildTrendContextFromPriorSummaries(priorSummaries, {
@@ -847,12 +1158,12 @@ async function buildServerSidePayload(env, userId, timezone) {
     weekEndDate: weekEnd.split('T')[0],
     stats: {
       todosCompleted,
-      todosCreated: completedTodosThisWeek.length + staleItems.length,
+      todosCreated: todosCreatedThisWeek.length,
       todosCompletedLastWeek,
       habitsTracked,
       journalEntries: journalEntries.length,
       lockIns,
-      ideasCaptured: notesCaptured.length,
+      ideasCaptured: ideasCapturedThisWeek.length,
       mindDropsCreated,
       mindDropsSwept,
     },
@@ -862,6 +1173,7 @@ async function buildServerSidePayload(env, userId, timezone) {
     completionsByDay,
     completionsByTimeBlock,
     upcomingEvents: upcomingEventsForAI,
+    thisWeekEvents,
     upcomingTodos: [],
     recentJournalExcerpts,
     recentNotesTitles,
@@ -1000,20 +1312,29 @@ function buildTrendContextFromPriorSummaries(priorSummaries, currentStats) {
  * @returns {object} Parsed JSON matching the spec's Section 8.3 response schema
  */
 async function generateWeeklySummary(env, payload) {
-  const systemPrompt = `You are Gremly, a warm and encouraging productivity companion. You are generating a weekly summary for a user. Your voice is conversational, specific, and supportive — like a thoughtful friend reviewing the week together, not an analyst presenting a report.
+  const systemPrompt = `You are Gremly, a warm and perceptive life companion. You are generating a weekly summary for a user. Your voice is conversational, specific, and human — like a thoughtful friend who notices what actually matters in someone's life, not a productivity dashboard.
+
+Your primary job: Tell the story of this person's week. Tasks completed and habits tracked are supporting details — the real narrative is what they experienced, what they're preparing for, and how the pieces of their life connect.
 
 OUTPUT FORMAT: Respond ONLY with valid JSON matching this exact schema. No markdown, no backticks, no preamble.
 
 {
-  "weeklyCommentary": "string — 2-3 sentences weaving together the user's week into a narrative. Be specific to their data. Never generic.",
+  "weeklyCommentary": "string — 2-4 sentences weaving together the user's week into a narrative. Lead with what actually happened in their life (events, trips, milestones) and how their tasks/habits supported it. Be specific to their data. Never generic.",
   "highlightMoment": {
-    "title": "string — the item or moment that was the biggest win",
-    "reason": "string — why this mattered",
-    "gremlyComment": "string — one-liner celebration from Gremly"
+    "title": "string — the item or moment that defined this week (could be an event, an accomplishment, or a turning point)",
+    "reason": "string — why this mattered to their life, not just their task list",
+    "gremlyComment": "string — one-liner with genuine warmth from Gremly"
   },
+  "magicMoments": [
+    {
+      "title": "string — short, evocative title",
+      "body": "string — 1-2 sentences of contextual color. Add real-world knowledge when it enriches the moment (e.g., destination details, seasonal context, what an achievement means). Never forced — only when genuinely interesting.",
+      "connectedItems": ["string — titles of related events, journal entries, or tasks that form the thread"]
+    }
+  ],
   "insights": [
     {
-      "type": "stale_cleanup | capture_ratio | productivity_pattern | space_activity | balance | habit_observation | journal_encouragement",
+      "type": "stale_cleanup | capture_ratio | productivity_pattern | space_activity | balance | habit_observation | journal_encouragement | life_event | week_rhythm",
       "headline": "string — short, conversational",
       "body": "string — 1-2 sentence explanation",
       "isActionable": true | false,
@@ -1023,13 +1344,13 @@ OUTPUT FORMAT: Respond ONLY with valid JSON matching this exact schema. No markd
     }
   ],
   "weekAhead": {
-    "introduction": "string — Gremly's week-ahead comment",
+    "introduction": "string — Gremly's week-ahead comment that naturally references what's coming up and how it connects to the story of this week",
     "highlights": [
       {
         "eventTitle": "string",
         "day": "string — e.g., 'Thursday'",
         "time": "string | null",
-        "context": "string | null — journal/note connection",
+        "context": "string | null — journal/note connection or contextual enrichment",
         "prepNudge": "string | null"
       }
     ],
@@ -1038,18 +1359,40 @@ OUTPUT FORMAT: Respond ONLY with valid JSON matching this exact schema. No markd
     ],
     "totalEventCount": 0
   },
+  "weekType": "string — a 2-4 word characterization of this week's overall shape (e.g., 'travel week', 'deep focus week', 'recovery & reset', 'milestone week', 'creative burst', 'balanced grind')",
   "keyThemes": ["string — 3-5 high-level themes"],
   "mood": "string — overall tone/mood of the week"
 }
 
+CONTEXTUAL INTELLIGENCE — "MAGIC MOMENTS":
+- Scan thisWeekEvents and upcomingEvents for signals of importance: travel (flights, trips, destinations), celebrations, deadlines, health milestones, social gatherings, launches, moves, conferences, etc.
+- When you detect something meaningful, add contextual color using your world knowledge. Examples: destination weather/culture, what a conference is known for, what a milestone means for someone's journey, time zone differences for travel, seasonal relevance.
+- Cross-reference events with journal excerpts, completed tasks, and spaces. If someone journaled about packing and has a "Flight to Tokyo" event, connect those dots naturally.
+- Return 0-4 magicMoments. ZERO is perfectly fine if nothing warrants it. Never manufacture moments — they should feel like genuine observations a perceptive friend would make.
+- Magic moments are about the HUMAN story, not the task list. "You knocked out 12 tasks" is not a magic moment. "You wrapped up loose ends before taking off for Japan — that's the kind of intentional prep that makes travel stress-free" IS one.
+
+WEEK IN REVIEW (weeklyCommentary):
+- Start with what happened in the user's life this week, drawing from thisWeekEvents, journal excerpts, and completed tasks.
+- Weave task/habit data into the life narrative rather than leading with productivity metrics.
+- If thisWeekEvents contains travel, milestones, or other notable events, those should anchor the narrative.
+- If it was a quiet week with mostly routine tasks, acknowledge that honestly — "a solid week of heads-down execution" is fine.
+
+WEEK AHEAD:
+- For upcomingEvents, classify into tiers: Tier 1 (signal: user-created, one-off, journal-connected, travel, milestones) gets highlighted with contextual enrichment. Tier 2 (recurring, standard) gets counted in totalEventCount.
+- Add contextual prep suggestions when genuinely useful (e.g., "might want to check carry-on rules" for international flights, "good time to prep talking points" for a big meeting).
+- Connect upcoming events to this week's events when there's a natural thread (e.g., this week had packing → next week has the flight).
+
+WEEK TYPE:
+- Detect the overall shape of the week from the data. Was it dominated by travel? Creative output? Deep focus? Recovery? A mix?
+- This should feel natural and accurate, not forced. If nothing stands out, "steady week" is fine.
+
 BEHAVIORAL RULES:
 - Pick 2-4 insights maximum. If only 1 is genuinely useful, return 1. Never pad.
 - Stale item cleanup is one possible insight, not guaranteed. Only surface when 3+ items are older than 2 weeks.
-- For Week Ahead, classify events into tiers: Tier 1 (signal: user-created, one-off, journal-connected) gets highlighted. Tier 2 (recurring, standard) gets counted in totalEventCount.
-- Cross-reference journal excerpts and note titles against upcoming event titles. Surface connections.
 - Commentary must be specific to this user's data. Never say "great week" if nothing was completed.
 - Frame positively but honestly. Quiet weeks get acknowledged, not manufactured enthusiasm.
 - Gracefully handle sparse data. Week 1 with 3 items should still produce a useful summary.
+- NEVER pattern-match on specific event types (don't always call out travel, don't always call out deadlines). Detect what's ACTUALLY important in THIS specific week.
 
 TREND CONTEXT RULES (when trendContext is present):
 - Only reference prior weeks when a pattern spans 2+ weeks.
@@ -1066,7 +1409,7 @@ TREND CONTEXT RULES (when trendContext is present):
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-5-20250514',
+      model: 'claude-sonnet-4-5-20250929',
       max_tokens: 2000,
       system: systemPrompt,
       messages: [

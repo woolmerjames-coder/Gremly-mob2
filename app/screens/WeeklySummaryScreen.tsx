@@ -20,8 +20,11 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type {
+  NativeStackNavigationProp,
+  NativeStackScreenProps,
+} from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import Animated, {
   FadeIn,
@@ -54,14 +57,20 @@ import {
   ChevronDown,
   ChevronUp,
   ChevronLeft,
+  Wand2,
 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useCurrentWeekSummary } from '../../lib/store/selectors';
+import { selectSummaryByWeek } from '../../lib/store/selectors';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { addDays, nextMonday, format } from 'date-fns';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
 import { getDateService } from '../../lib/date';
-import type { WeeklySummaryContent, WeeklySummaryInsight } from '../../lib/types';
+import type {
+  WeeklySummaryContent,
+  WeeklySummaryInsight,
+  WeeklySummaryMagicMoment,
+} from '../../lib/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -100,6 +109,7 @@ const WS_CARD_SHADOW = {
 
 type CardType =
   | { type: 'weekInReview'; content: WeeklySummaryContent }
+  | { type: 'magicMoments'; moments: WeeklySummaryMagicMoment[]; weekType?: string }
   | { type: 'insight'; insight: WeeklySummaryInsight; index: number }
   | { type: 'weekAhead'; content: WeeklySummaryContent };
 
@@ -369,6 +379,119 @@ function WeekInReviewCard({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Magic Moments card
+// ─────────────────────────────────────────────────────────────────────────────
+
+const mmStyles = StyleSheet.create({
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  title: {
+    fontSize: 22,
+    fontFamily: 'PlusJakartaSans-Bold',
+    color: WS.text,
+  },
+  weekType: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: WS.periwinkle,
+    marginBottom: 20,
+    textTransform: 'capitalize',
+  },
+  momentCard: {
+    backgroundColor: 'rgba(224, 196, 122, 0.08)',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(224, 196, 122, 0.25)',
+  },
+  momentTitle: {
+    fontSize: 17,
+    fontFamily: 'PlusJakartaSans-SemiBold',
+    color: WS.sageDark,
+    marginBottom: 6,
+  },
+  momentBody: {
+    fontSize: 15,
+    fontFamily: 'Inter-Regular',
+    lineHeight: 22,
+    color: WS.sageDark,
+    letterSpacing: -0.1,
+  },
+  connectedRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 10,
+  },
+  connectedPill: {
+    backgroundColor: 'rgba(191, 216, 192, 0.2)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  connectedText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: WS.textSubtle,
+  },
+  emptyState: {
+    fontSize: 15,
+    fontFamily: 'Inter-Regular',
+    color: WS.textMuted,
+    textAlign: 'center',
+    marginTop: 20,
+    lineHeight: 22,
+  },
+});
+
+function MagicMomentsCard({
+  moments,
+  weekType,
+}: {
+  moments: WeeklySummaryMagicMoment[];
+  weekType?: string;
+}) {
+  return (
+    <Animated.View entering={FadeInUp.duration(300).delay(100)} style={wsStyles.card}>
+      <View style={mmStyles.headerRow}>
+        <Wand2 size={20} color={WS.golden} strokeWidth={2} />
+        <Text style={mmStyles.title}>Moments</Text>
+      </View>
+      {weekType ? <Text style={mmStyles.weekType}>{weekType}</Text> : null}
+
+      {moments.length === 0 ? (
+        <Text style={mmStyles.emptyState}>A quiet week — sometimes those are the best ones.</Text>
+      ) : (
+        moments.map((moment, i) => (
+          <Animated.View
+            key={moment.title}
+            entering={FadeInUp.duration(250).delay(200 + i * 120)}
+            style={mmStyles.momentCard}
+          >
+            <Text style={mmStyles.momentTitle}>{moment.title}</Text>
+            <Text style={mmStyles.momentBody}>{moment.body}</Text>
+            {moment.connectedItems && moment.connectedItems.length > 0 && (
+              <View style={mmStyles.connectedRow}>
+                {moment.connectedItems.map((item) => (
+                  <View key={item} style={mmStyles.connectedPill}>
+                    <Text style={mmStyles.connectedText}>{item}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </Animated.View>
+        ))
+      )}
+    </Animated.View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Insight card styles + config (Prompt 2C)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -380,6 +503,8 @@ const INSIGHT_ICON_MAP: Record<string, React.ComponentType<any>> = {
   balance: Scale,
   habit_observation: Activity,
   journal_encouragement: BookOpen,
+  life_event: Calendar,
+  week_rhythm: CalendarDays,
 };
 
 const INSIGHT_STYLE: Record<string, { accent: string; bg: string }> = {
@@ -390,6 +515,8 @@ const INSIGHT_STYLE: Record<string, { accent: string; bg: string }> = {
   balance: { accent: '#9CA6E0', bg: 'rgba(156, 166, 224, 0.1)' },
   habit_observation: { accent: '#A5F3C1', bg: 'rgba(165, 243, 193, 0.1)' },
   journal_encouragement: { accent: '#E0C47A', bg: 'rgba(224, 196, 122, 0.1)' },
+  life_event: { accent: '#E0C47A', bg: 'rgba(224, 196, 122, 0.1)' },
+  week_rhythm: { accent: '#9CA6E0', bg: 'rgba(156, 166, 224, 0.1)' },
 };
 
 const DEFAULT_INSIGHT_STYLE = { accent: '#BFD8C0', bg: 'rgba(191, 216, 192, 0.1)' };
@@ -404,6 +531,8 @@ function humanizeInsightType(type: string): string {
     balance: 'Balance',
     habit_observation: 'Habit Observation',
     journal_encouragement: 'Journaling',
+    life_event: 'Life Event',
+    week_rhythm: 'Week Rhythm',
   };
   return labels[type] ?? type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -712,12 +841,25 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
     for (const id of staleItemIds) {
       const todo = todos.find((t) => t.id === id);
       if (todo) {
-        result.push({ id: todo.id, entityType: 'todo', name: todo.name, title: todo.title, created_at: todo.created_at, sweep_reschedule_count: (todo as any).sweep_reschedule_count });
+        result.push({
+          id: todo.id,
+          entityType: 'todo',
+          name: todo.name,
+          title: todo.title,
+          created_at: todo.created_at,
+          sweep_reschedule_count: (todo as any).sweep_reschedule_count,
+        });
         continue;
       }
       const habit = habits.find((h) => h.id === id);
       if (habit) {
-        result.push({ id: habit.id, entityType: 'habit', name: habit.name, created_at: habit.created_at, sweep_reschedule_count: (habit as any).sweep_reschedule_count });
+        result.push({
+          id: habit.id,
+          entityType: 'habit',
+          name: habit.name,
+          created_at: habit.created_at,
+          sweep_reschedule_count: (habit as any).sweep_reschedule_count,
+        });
       }
     }
     return result;
@@ -1510,8 +1652,14 @@ function ProgressDots({ total, current }: { total: number; current: number }) {
 
 export default function WeeklySummaryScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<NativeStackScreenProps<RootStackParamList, 'WeeklySummary'>['route']>();
   const insets = useSafeAreaInsets();
-  const summary = useCurrentWeekSummary();
+  const weekStartParam = route.params?.weekStartDate;
+  const currentWeekSummary = useCurrentWeekSummary();
+  const paramSummary = useGremlyStore((state) =>
+    weekStartParam ? selectSummaryByWeek(state, weekStartParam) : undefined,
+  );
+  const summary = paramSummary ?? currentWeekSummary;
   const content = summary?.content;
 
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -1529,6 +1677,11 @@ export default function WeeklySummaryScreen() {
     if (!content) return [];
     const result: CardType[] = [];
     result.push({ type: 'weekInReview', content });
+    // Magic Moments card — only if AI returned any
+    const moments = content.magicMoments ?? [];
+    if (moments.length > 0) {
+      result.push({ type: 'magicMoments', moments, weekType: content.weekType });
+    }
     content.insights.forEach((insight, i) => {
       result.push({ type: 'insight', insight, index: i });
     });
@@ -1660,6 +1813,9 @@ export default function WeeklySummaryScreen() {
                   weekStart={summary?.week_start_date ?? ''}
                   weekEnd={summary?.week_end_date ?? ''}
                 />
+              )}
+              {item.type === 'magicMoments' && (
+                <MagicMomentsCard moments={item.moments} weekType={item.weekType} />
               )}
               {item.type === 'insight' && item.insight.type === 'stale_cleanup' && (
                 <StaleCleanupCard insight={item.insight} />

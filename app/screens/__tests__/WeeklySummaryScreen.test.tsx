@@ -110,6 +110,8 @@ const mockSummary = {
 
 jest.mock('../../../lib/store/selectors', () => ({
   useCurrentWeekSummary: () => mockSummary,
+  selectSummaryByWeek: (_state: unknown, weekStartDate: string) =>
+    weekStartDate === mockSummary.week_start_date ? mockSummary : undefined,
 }));
 
 jest.mock('../../../lib/date', () => ({
