@@ -1110,14 +1110,33 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
   }
 
   // Deduplicate helper — many calendar syncs create duplicate note events
+  // Also filters out "Canceled:" events which are pure noise from calendar syncs
   function deduplicateEvents(events) {
     const seen = new Set();
     return events.filter((e) => {
-      const key = `${(e.title || '').toLowerCase().trim()}|${e.date || e.target_date || e.event_date || ''}`;
+      const title = (e.title || '').trim();
+      // Filter out canceled events entirely — they're noise
+      if (title.toLowerCase().startsWith('canceled:')) return false;
+      const key = `${title.toLowerCase()}|${e.date || e.target_date || e.event_date || ''}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
+  }
+
+  // Group events by day of week for structured analyst input
+  function groupEventsByDay(events) {
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const grouped = {};
+    for (const event of events) {
+      const dateStr = event.date ? String(event.date).split('T')[0] : 'unknown';
+      const d = new Date(dateStr + 'T12:00:00Z');
+      const dayName = dayNames[d.getUTCDay()];
+      const key = `${dayName} ${dateStr}`;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(event);
+    }
+    return grouped;
   }
 
   // Upcoming events — parse payload_json (external calendar events)
@@ -1190,24 +1209,28 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
     isAllDay: !event.event_time,
   }));
 
-  const thisWeekEvents = deduplicateEvents(
+  const thisWeekEventsFlat = deduplicateEvents(
     [...noteEventsMappedThisWeek, ...userCalendarEventsMappedThisWeek]
       .sort((a, b) => {
         const dateA = a.date ? new Date(a.date).getTime() : 0;
         const dateB = b.date ? new Date(b.date).getTime() : 0;
         return dateA - dateB;
       }),
-  ).slice(0, 50);
+  );
 
-  // Merge all NEXT WEEK event sources and sort by date ascending
-  const upcomingEventsForAI = deduplicateEvents(
+  // Merge all NEXT WEEK event sources, dedup, and group by day
+  const upcomingEventsFlat = deduplicateEvents(
     [...externalEvents, ...noteEventsMappedNext, ...userCalendarEventsMappedNext]
       .sort((a, b) => {
         const dateA = a.date ? new Date(a.date).getTime() : 0;
         const dateB = b.date ? new Date(b.date).getTime() : 0;
         return dateA - dateB;
       }),
-  ).slice(0, 50);
+  );
+
+  // Group events by day so the analyst can see the full week structure
+  const thisWeekEventsByDay = groupEventsByDay(thisWeekEventsFlat);
+  const upcomingEventsByDay = groupEventsByDay(upcomingEventsFlat);
 
   // Recent journal excerpts
   const recentJournalExcerpts = journalEntries.slice(0, 5).map((j) => ({
@@ -1245,8 +1268,10 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
     spaceActivity,
     completionsByDay,
     completionsByTimeBlock,
-    upcomingEvents: upcomingEventsForAI,
-    thisWeekEvents,
+    upcomingEventsByDay,
+    upcomingEventCount: upcomingEventsFlat.length,
+    thisWeekEventsByDay,
+    thisWeekEventCount: thisWeekEventsFlat.length,
     upcomingTodos: [],
     recentJournalExcerpts,
     recentNotesTitles,
@@ -1398,9 +1423,14 @@ async function runAnalystPass(env, payload) {
 
 CRITICAL DATE BOUNDARIES:
 - THIS WEEK (PAST — already happened): ${payload.weekStartDate} to ${payload.weekEndDate}
-- NEXT WEEK (FUTURE — upcoming): Use upcomingEvents dates
+- NEXT WEEK (FUTURE — upcoming): See upcomingEventsByDay (grouped by day of week)
 - NEVER conflate past and future. If an event's date falls within this week's range, it is PAST. If it falls after ${payload.weekEndDate}, it is FUTURE.
-- Events in thisWeekEvents are ALWAYS past. Events in upcomingEvents are ALWAYS future.
+- Events in thisWeekEventsByDay are ALWAYS past. Events in upcomingEventsByDay are ALWAYS future.
+
+DATA FORMAT:
+- Events are pre-grouped by day. Each key is "DayName YYYY-MM-DD" (e.g., "Monday 2026-02-23") mapping to an array of events.
+- Canceled events have already been filtered out.
+- You MUST examine EVERY DAY in both groups — Monday through Sunday. Do NOT stop after one or two days.
 
 OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
 
@@ -1501,21 +1531,26 @@ OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
   ],
   "weekAheadBrief": {
     "busyDays": ["string — days with 3+ events"],
-    "keyEvents": ["string — the 2-5 most important upcoming events by importance score"],
-    "conflictsOrWarnings": ["string — scheduling issues or things to watch out for"]
+    "keyEvents": ["string — the 3-7 most important upcoming events by importance score. MUST span MULTIPLE days of the week, not just Monday. Format: 'DayName: Event Title (importance X) — reason'"],
+    "conflictsOrWarnings": ["string — scheduling issues or things to watch out for"],
+    "dayByDaySummary": "string — one sentence per day covering Mon-Sun of the upcoming week"
   }
 }
 
 ANALYSIS RULES:
-- Classify EVERY event in thisWeekEvents and upcomingEvents. Don't skip any.
-- For importance scoring: 1-3 = routine (recurring meetings, admin). 4-6 = notable (one-off meetings, deadlines). 7-10 = significant (travel, milestones, personal events, life changes).
-- Events with a space_id (especially non-work spaces) are often more personally significant.
-- Events titled "Canceled: ..." should be scored 1 and flagged as canceled.
+- Scan EVERY DAY in thisWeekEventsByDay and upcomingEventsByDay. You MUST look at Monday through Sunday. Do not stop after processing one day.
+- For the eventAnalysis output, only include events scoring 4 or higher in full detail. For routine events (score 1-3), just count them in a summary.
+- RECURRING MEETING DETECTION: Meetings that appear on the same day every week (e.g., "Weekly Sync", "Bi-Weekly 1:1", "All Hands", internal huddles, standups) should ALWAYS be scored 1-3. They are routine noise, NEVER highlights.
+- HIGH IMPORTANCE (score 7-10): Travel (flights, trips, "Travel to X", "Flight to X"), personal milestones, PTO/vacation, one-off social events, health appointments, multi-day events.
+- MEDIUM IMPORTANCE (score 4-6): One-off work meetings, deadlines, project milestones.
+- LOW IMPORTANCE (score 1-3): Recurring meetings (daily standups, weekly syncs, bi-weekly 1:1s, all-hands), admin tasks (timesheets), internal huddles.
+- Events with a spaceName (especially non-work spaces like "Honeymoon", "Health", "Family") are often personally significant — score higher.
 - Look for threads: if this week has "packing" or "prep" todos and next week has a flight, connect them.
 - For journal excerpts, try to match them to events by date proximity and keyword overlap.
 - The magicMomentCandidates should only include genuinely interesting moments (score 7+). Include the enrichmentHint so the storyteller knows what world knowledge to apply.
 - For anomalies, compare against trendContext if available. A sudden drop in completions during a travel week is expected, not anomalous.
-- Be honest about quiet weeks. If nothing stands out, say so. Don't manufacture significance.`;
+- Be honest about quiet weeks. If nothing stands out, say so. Don't manufacture significance.
+- weekAheadBrief.keyEvents MUST include the highest-scoring events from across ALL days of the week, not just the first day. If Tuesday has a flight and Friday has travel, both MUST appear.`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -1526,7 +1561,7 @@ ANALYSIS RULES:
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 3000,
+      max_tokens: 4096,
       system: analystPrompt,
       messages: [
         {
