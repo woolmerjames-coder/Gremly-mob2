@@ -348,56 +348,6 @@ const wirStyles = StyleSheet.create({
 // Week in Review card (Prompt 2B)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function WeekBar({ stats, weekStart }: { stats: Record<string, unknown>; weekStart: string }) {
-  const completionsByDay = stats?.completionsByDay as Record<string, number> | undefined;
-  const DAY_KEYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  const DAY_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-
-  // Travel days — derive from stats if available, otherwise empty
-  const travelDays = (stats?.travelDays as string[]) ?? [];
-
-  return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 }}>
-      {DAY_KEYS.map((day, i) => {
-        const count = completionsByDay?.[day] ?? 0;
-        const isTravel = travelDays.includes(day);
-        const hasActivity = count > 0;
-
-        return (
-          <View key={day} style={{ alignItems: 'center', gap: 6 }}>
-            {/* Dot or icon */}
-            <View style={{
-              width: 32,
-              height: 32,
-              borderRadius: 16,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: isTravel
-                ? 'rgba(156, 166, 224, 0.2)'
-                : hasActivity
-                ? WS.sage
-                : WS.sageGlow,
-              borderWidth: isTravel ? 1 : 0,
-              borderColor: WS.periwinkle,
-            }}>
-              {isTravel
-                ? <Text style={{ fontSize: 14 }}>{"\u2708"}</Text>
-                : count > 0
-                ? <Text style={{ fontSize: 11, fontFamily: 'Inter-Medium', color: WS.sageDark }}>{count}</Text>
-                : null
-              }
-            </View>
-            {/* Day label */}
-            <Text style={{ fontSize: 11, fontFamily: 'Inter-Regular', color: WS.textMuted }}>
-              {DAY_SHORT[i]}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
 function WeekInReviewCard({
   content,
   stats,
@@ -428,7 +378,7 @@ function WeekInReviewCard({
   }
   statItems.push({ value: todosCompleted, label: 'done', trend: todoTrend });
 
-  if (journalEntries > 0) statItems.push({ value: journalEntries, label: 'journals' });
+  if (journalEntries > 0) statItems.push({ value: journalEntries, label: 'journal' });
   if (mindDropsCreated > 0) statItems.push({ value: mindDropsCreated, label: 'drops' });
   if (habitCount > 0 && statItems.length < 4)
     statItems.push({ value: habitCount, label: 'habits' });
@@ -450,14 +400,20 @@ function WeekInReviewCard({
       {/* Divider */}
       <View style={wirStyles.sectionDivider} />
 
-      {/* Week activity bar */}
-      <WeekBar stats={stats} weekStart={weekStart} />
-
-      {/* Compact stats summary */}
+      {/* Stat tiles */}
       {statItems.length > 0 && (
-        <Text style={{ fontSize: 13, fontFamily: 'Inter-Regular', color: WS.textSubtle, marginBottom: 20, textAlign: 'center' }}>
-          {statItems.map((s, i) => `${s.value} ${s.label}${i < statItems.length - 1 ? '  \u00B7  ' : ''}`).join('')}
-        </Text>
+        <View style={wirStyles.statsRow}>
+          {statItems.map((s) => (
+            <View key={s.label} style={wirStyles.statItem}>
+              <View style={wirStyles.statValueRow}>
+                <Text style={wirStyles.statNumber}>{s.value}</Text>
+                {s.trend === 'up' && <Text style={wirStyles.trendUp}> ↑</Text>}
+                {s.trend === 'down' && <Text style={wirStyles.trendDown}> ↓</Text>}
+              </View>
+              <Text style={wirStyles.statLabel} numberOfLines={1} adjustsFontSizeToFit>{s.label}</Text>
+            </View>
+          ))}
+        </View>
       )}
 
       {/* Highlight moment */}
@@ -2066,6 +2022,16 @@ export default function WeeklySummaryScreen() {
 
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
+  const { submit: mindDropSubmit } = useMindDropSubmit();
+
+  // ── Mind Drop handler for Gremly Recommends ──────────────────────────
+  const handleOpenMindDrop = useCallback(
+    async (prefillText: string) => {
+      await mindDropSubmit(prefillText, { source: 'minddrop' });
+      navigation.goBack();
+    },
+    [mindDropSubmit, navigation],
+  );
 
   // ── Mark as viewed on mount ──────────────────────────────────────────
   useEffect(() => {
@@ -2104,11 +2070,11 @@ export default function WeeklySummaryScreen() {
       result.push({ type: 'insight', insight: staleInsight, index: 0 });
     }
 
-    // Gremly Recommends — only if AI generated any
-    const recommendations = content.recommendations ?? [];
-    if (recommendations.length > 0) {
-      result.push({ type: 'recommends', recommendations });
-    }
+    // Gremly Suggests — temporarily hidden, revisit later
+    // const recommendations = content.recommendations ?? [];
+    // if (recommendations.length > 0) {
+    //   result.push({ type: 'recommends', recommendations });
+    // }
 
     // 5. Week Ahead
     result.push({ type: 'weekAhead', content });
