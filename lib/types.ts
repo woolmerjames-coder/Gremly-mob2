@@ -1133,7 +1133,9 @@ export interface WeeklySummaryInsight {
     | 'space_activity'
     | 'balance'
     | 'habit_observation'
-    | 'journal_encouragement';
+    | 'journal_encouragement'
+    | 'life_event'
+    | 'week_rhythm';
   headline: string;
   body: string;
   isActionable: boolean;
@@ -1157,11 +1159,35 @@ export interface WeeklySummaryWeekAhead {
   totalEventCount: number;
 }
 
+export interface WeeklySummaryMagicMoment {
+  title: string;
+  body: string;
+  connectedItems?: string[];
+  date?: string; // YYYY-MM-DD — the date this moment occurred
+}
+
+export interface WeeklySummaryRecommendation {
+  trigger: string; // short snake_case pattern identifier e.g. 'fitness_travel_drop'
+  text: string; // the recommendation text shown to user, MAX 20 words
+  actionType: 'create_todo' | 'create_habit' | 'tip';
+  actionLabel: string; // button label e.g. 'Create habit', 'Add to today', 'Got it'
+  prefill?: {
+    name?: string;
+    frequency?: string; // habits only, e.g. 'daily', '3x per week'
+    time_window?: 'morning' | 'day' | 'evening' | null;
+    due_day?: string; // todos only, YYYY-MM-DD
+  };
+}
+
 export interface WeeklySummaryContent {
   weeklyCommentary: string;
   highlightMoment: WeeklySummaryHighlight;
+  magicMoments?: WeeklySummaryMagicMoment[];
   insights: WeeklySummaryInsight[];
+  recommendations?: WeeklySummaryRecommendation[];
   weekAhead: WeeklySummaryWeekAhead;
+  weekType?: string;
+  weekTypeShort?: string;
   keyThemes: string[];
   mood: string;
 }
