@@ -352,6 +352,11 @@ function mapPreparseToClassification(preparse) {
 
   // 1. Factual statement or factual frame → general (strong signal)
   if (preparse.factual_statement || preparse.frame_type === 'factual') {
+    // Cross-check: if there's a leading verb, this might be a misclassified command.
+    // Escalate to Phase 1 instead of fast-pathing to log.
+    if (preparse.verb_position === 'start') {
+      return { needsPhase1: true, reason: 'factual_with_leading_verb' };
+    }
     return { needsPhase1: false, bucket: 'log', subtype: 'general', habitSubtype: null };
   }
 
@@ -374,6 +379,13 @@ function mapPreparseToClassification(preparse) {
       return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
     }
     return { needsPhase1: true, reason: 'frequency_detected_needs_habit_verification' };
+  }
+
+  // Leading imperative verb is a strong todo signal even if frame_type disagrees
+  if (preparse.verb_position === 'start' && preparse.action_target !== 'other_person') {
+    if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
+      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+    }
   }
 
   // 5. Directing frame or obligation framing → todo (if no hedging on verb)
@@ -586,10 +598,12 @@ When uncertain about any field, return "uncertain" or the appropriate null value
 // Mini-prompt A: Intent & Frame
 const PREPARSE_INTENT_PROMPT = `Extract these facts from the input. Return JSON only.
 
-- frame_type: What is the user's commitment state? "directing" (user has decided to act — an imperative self-command IS commitment, regardless of what the action involves), "exploring" (user is uncertain WHETHER to commit — hedging or questioning their own intent), "processing" (working through emotions or reflecting), "factual" (stating information to remember), or "uncertain" (cannot determine intent). TEST: Is this a self-command or a consideration? A self-command expresses commitment through its form.
-- factual_statement: Is the user stating complete reference information? This requires BOTH a subject AND its value to be present. If only one side exists, this is false. Goals about what to DO are not facts about what IS.
+- core_verb: The main action verb (what the user would DO), or null. For "stop X" or "quit X", the core_verb is "stop" or "quit".
+- verb_position: Where does the action verb appear structurally? "start" (the input opens with a bare verb in imperative form — no subject, no hedging, the verb is the first meaningful word), "after_hedge" (a verb is present but follows uncertain language like maybe/perhaps/thinking about), "after_obligation" (a verb follows should/need to/must/have to), "inside_hypothetical" (a verb appears inside a what-if or wondering frame), or "none" (no action verb found).
+- frame_type: What is the user's commitment state? "directing" (user has decided to act — an imperative self-command IS commitment, regardless of what the action involves. A bare verb opening a sentence is the defining form of a directive), "exploring" (user is uncertain WHETHER to commit — hedging or questioning their own intent), "processing" (working through emotions or reflecting), "factual" (stating information to remember), or "uncertain" (cannot determine intent).
+- factual_statement: Is the user stating complete reference information? This requires BOTH a subject AND its value to be present — "X is Y" form. An imperative sentence has no subject — it is a command, not a statement of fact. This field is about the grammatical form, not the topic.
 - is_noun_phrase_only: Is this ONLY a noun or noun phrase with no verb, no "is", and no action implied?
-- action_target: Who or what is the subject of change or action? "self" (the user will personally do or embody this change), "external" (the user is giving instructions about how a system, product, feature, or thing should behave or be built), or "other_person" (about another person's behavior). If the user is telling a system what to do rather than telling themselves what to do, that is "external".`;
+- action_target: Who or what is the subject of change or action? "self" (the user will personally do or embody this change), "external" (the user is giving instructions about how a system, product, feature, or thing should behave or be built), or "other_person" (about another person's behavior).`;
 
 // Mini-prompt B: Content Signals
 const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON only.
@@ -625,7 +639,7 @@ async function runPreparseMini(text, env, systemPrompt) {
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-nano',
       temperature: 0.1,
       max_tokens: 100,
       response_format: { type: 'json_object' },
@@ -705,9 +719,13 @@ async function runPreparse(text, env) {
         ? structureResult.parse_confidence
         : 'medium',
 
-      // Removed fields (not used in routing) - set to null/defaults for compatibility
-      core_verb: null,
-      verb_position: 'none',
+      // Restored from Intent mini-prompt for routing cross-checks
+      core_verb: intentResult.core_verb || null,
+      verb_position: ['start', 'after_hedge', 'after_obligation', 'inside_hypothetical', 'none'].includes(
+        intentResult.verb_position,
+      )
+        ? intentResult.verb_position
+        : 'none',
       has_completion_point: 'uncertain',
       hypothetical_framing: false,
     };
@@ -979,7 +997,7 @@ Rules:
         Authorization: `Bearer ${env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-mini',
         temperature: 0.1,
         max_tokens: 500,
         response_format: { type: 'json_object' },
@@ -1515,7 +1533,7 @@ function getModelAndTokens({ preset, userMessage, messageCount, entityType }) {
 
   if (canUseMini) {
     return {
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-nano',
       maxTokens: 400,
       reason: 'simple_short_query',
     };
@@ -4140,7 +4158,7 @@ Return ONLY valid JSON, no explanation:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
+              model: 'gpt-4.1-nano',
               messages: [
                 { role: 'system', content: extractionPrompt },
                 {
@@ -5045,7 +5063,7 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
+              model: 'gpt-4.1-nano',
               messages: [{ role: 'system', content: spaceChatSavePrompt }],
               temperature: 0.3,
               max_tokens: 250,
@@ -5711,7 +5729,7 @@ or if truly separate:
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                model: 'gpt-4o-mini',
+                model: 'gpt-4.1-nano',
                 messages: [
                   { role: 'system', content: promptA },
                   { role: 'user', content: text.substring(0, 1000) },
@@ -5728,7 +5746,7 @@ or if truly separate:
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                model: 'gpt-4o-mini',
+                model: 'gpt-4.1-nano',
                 messages: [
                   { role: 'system', content: promptB },
                   { role: 'user', content: text.substring(0, 1000) },
@@ -5745,7 +5763,7 @@ or if truly separate:
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                model: 'gpt-4o-mini',
+                model: 'gpt-4.1-nano',
                 messages: [
                   { role: 'system', content: promptC },
                   { role: 'user', content: text.substring(0, 1000) },
@@ -5831,7 +5849,7 @@ Return JSON only:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
+              model: 'gpt-4.1-nano',
               messages: [
                 { role: 'system', content: promptD },
                 { role: 'user', content: text.substring(0, 1000) },
@@ -5997,7 +6015,7 @@ Return JSON only:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
+              model: 'gpt-4.1-nano',
               messages: [{ role: 'user', content: aiPrompt }],
               temperature: 0.3,
               max_tokens: 200,
@@ -6190,7 +6208,7 @@ If no date in input, all date fields are null.
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
+              model: 'gpt-4.1-mini',
               messages: [{ role: 'system', content: reclassifyPrompt }],
               temperature: 0.3,
               max_tokens: 250,
@@ -6717,7 +6735,7 @@ Rules:
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'gpt-4o-mini',
+            model: 'gpt-4.1-mini',
             messages: phase1Messages,
             temperature: 0.1,
             max_tokens: 500,
@@ -6966,7 +6984,7 @@ Return ONLY valid JSON:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
+              model: 'gpt-4.1-nano',
               messages: [{ role: 'user', content: phase15aPrompt }],
               temperature: 0.4,
               max_tokens: 150,
@@ -7570,7 +7588,7 @@ For LOGS (event):
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
+              model: 'gpt-4.1-nano',
               messages: [{ role: 'system', content: phase2Prompt }],
               temperature: 0.2,
               max_tokens: 300,
@@ -7884,7 +7902,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
+              model: 'gpt-4.1-nano',
               messages: [{ role: 'system', content: analyzePrompt }],
               temperature: 0.4,
               max_tokens: 1200,
@@ -7929,7 +7947,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       }
 
       // --- EXISTING LOGIC BELOW (unchanged) ---
-      const baseModel = body.model || 'gpt-4o-mini';
+      const baseModel = body.model || 'gpt-4.1-nano';
 
       const baseTemperature = Number.isFinite(body.temperature)
         ? body.temperature
