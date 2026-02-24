@@ -32,6 +32,7 @@ import AgeUpCelebrationModal from './components/ritual/AgeUpCelebrationModal';
 import { GlobalEventPopup } from './components/calendar/GlobalEventPopup';
 import { GlobalEventTimePicker } from './components/calendar/GlobalEventTimePicker';
 import { initOfflineSync } from './lib/network/offlineSync';
+import { useDayRollover } from './lib/today/hooks/useDayRollover';
 
 // Prevent the splash screen from auto-hiding before app is ready
 SplashScreen.preventAutoHideAsync();
@@ -164,6 +165,9 @@ export default function App() {
       if (cleanup) cleanup();
     };
   }, []);
+
+  // Detect calendar day changes (background resume + midnight timer)
+  useDayRollover();
 
   // Hide splash screen after root view layout
   const onLayoutRootView = useCallback(async () => {

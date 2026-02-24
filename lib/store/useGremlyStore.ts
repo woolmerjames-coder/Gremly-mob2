@@ -647,6 +647,8 @@ interface GremlyState {
   /** Wipe all ephemeral daily assignments (daily_block + scheduled_start_iso).
    *  Called when Morning Brief detects a new day. */
   resetDailyAssignments: () => void;
+  /** Called by useDayRollover when the calendar day changes. Resets all daily ephemeral state. */
+  handleDayRollover: (newDate: string) => void;
   applyOrganizeAssignments: (
     assignments: Array<{
       taskId: string;
@@ -812,6 +814,8 @@ interface GremlyState {
   /** Date the user last completed the brief (for re-entry detection) */
   briefCompletedToday: string | null;
   setBriefCompletedToday: (date: string | null) => void;
+  /** Reactive current date — updated by useDayRollover hook. Components should read this instead of calling getDateService().getCurrentDate() */
+  currentDate: string;
 
   // Calendar actions
   refreshCalendarConnections: () => Promise<void>;
@@ -955,6 +959,7 @@ const initialState = {
   briefSelectionDate: null as string | null,
   parkedForDay: [] as string[],
   briefCompletedToday: null as string | null,
+  currentDate: getDateService().getCurrentDate(),
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -3438,6 +3443,41 @@ export const useGremlyStore = create<GremlyState>()(
           for (const h of habitsToReset) {
             get().updateHabit(h.id, { daily_block: null, scheduled_start_iso: null });
           }
+        },
+
+        handleDayRollover: (newDate: string) => {
+          const prev = get().currentDate;
+          if (newDate === prev) return; // No-op if already current
+
+          console.log(`[Store] Day rollover: ${prev} → ${newDate}`);
+
+          set({
+            currentDate: newDate,
+            // Reset brief state
+            briefCompletedToday: null,
+            briefSelectedIds: [],
+            briefLockedIds: [],
+            briefSelectionDate: null,
+            parkedForDay: [],
+            // Reset daily counters
+            todayDropsCount: 0,
+            todaySweepsCount: 0,
+            todayRitualCompletedAt: null,
+            // Reset hidden-today (Not Today feature)
+            hiddenTodayIds: [],
+            hiddenTodayDate: null,
+          });
+
+          // Re-fetch remote data for the new day
+          const state = get();
+          if (state.userId) {
+            state.refreshFromServer();
+            // Refresh calendar for new date range
+            state.fetchCalendarEventsForRange(newDate, getDateService().addDays(newDate, 7));
+          }
+
+          // Emit event so other systems can react (e.g. useDailyAppOpen can reset)
+          eventBus.emit('day:rollover', { date: newDate });
         },
 
         applyOrganizeAssignments: (assignments) => {
@@ -8451,6 +8491,8 @@ export const useGremlyStore = create<GremlyState>()(
             isLoading: false,
             isInitialized: false,
             lastSyncedAt: null,
+            // Always use fresh date on app start, never restore stale date from storage
+            currentDate: getDateService().getCurrentDate(),
           };
         },
       },

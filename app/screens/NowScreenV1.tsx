@@ -320,7 +320,7 @@ export default function NowScreenV1() {
   const markFirstTodayVisitComplete = useGremlyStore((s) => s.markFirstTodayVisitComplete);
 
   // Calendar integration
-  const todayStr = useMemo(() => getDateService().getCurrentDate(), []);
+  const todayStr = useGremlyStore((s) => s.currentDate);
   const fetchCalendarEvents = useGremlyStore((s) => s.fetchCalendarEventsForRange);
 
   // Unified event notes for today (external + native, from Phase 1 normalization)
@@ -351,11 +351,10 @@ export default function NowScreenV1() {
     console.log('[NowScreen] Calendar useEffect, isInitialized:', isInitialized);
     if (!isInitialized) return;
     const dateService = getDateService();
-    const today = dateService.getCurrentDate();
-    const weekFromNow = dateService.addDays(today, 7);
-    console.log('[NowScreen] Fetching calendar:', today, 'to', weekFromNow);
-    fetchCalendarEvents(today, weekFromNow);
-  }, [isInitialized, fetchCalendarEvents]);
+    const weekFromNow = dateService.addDays(todayStr, 7);
+    console.log('[NowScreen] Fetching calendar:', todayStr, 'to', weekFromNow);
+    fetchCalendarEvents(todayStr, weekFromNow);
+  }, [isInitialized, fetchCalendarEvents, todayStr]);
 
   // Listen for "Plan your tomorrow" from sweep completion
   useEffect(() => {
@@ -468,7 +467,7 @@ export default function NowScreenV1() {
   const recentLogsCount = recentLogs.length;
 
   // Today date string (for addToToday)
-  const todayDayString = getDateService().getCurrentDate();
+  const todayDayString = todayStr;
 
   // NowData for header (computed locally)
   const nowData = useMemo(() => {

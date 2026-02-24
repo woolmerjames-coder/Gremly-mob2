@@ -9,6 +9,7 @@ import { useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRitualDay } from '../../date/ritualDay';
 import { useGremlyStore } from '../../store/useGremlyStore';
+import { eventBus } from '../../events';
 
 // v2: Now uses ritual day instead of calendar day
 const STORAGE_KEY = '@gremly/last_app_open_date_v2';
@@ -76,6 +77,16 @@ export function useDailyAppOpen(): UseDailyAppOpenReturn {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  // Reset on day rollover so Morning Brief auto-open triggers again
+  useEffect(() => {
+    const unsub = eventBus.on('day:rollover', () => {
+      console.log('[DailyAppOpen] Day rollover detected — resetting isFirstOpenToday');
+      setIsFirstOpenToday(true);
+      setIsChecking(false);
+    });
+    return () => unsub();
   }, []);
 
   // Mark today as opened
