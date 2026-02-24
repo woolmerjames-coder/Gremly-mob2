@@ -360,6 +360,13 @@ function mapPreparseToClassification(preparse) {
     return { needsPhase1: false, bucket: 'log', subtype: 'general', habitSubtype: null };
   }
 
+  // Leading imperative verb is a strong todo signal even if frame_type disagrees
+  if (preparse.verb_position === 'start' && preparse.action_target !== 'other_person') {
+    if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
+      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+    }
+  }
+
   // 2. Emotional content + processing frame → journal
   if (preparse.emotional_content && preparse.frame_type === 'processing') {
     return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
@@ -379,13 +386,6 @@ function mapPreparseToClassification(preparse) {
       return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
     }
     return { needsPhase1: true, reason: 'frequency_detected_needs_habit_verification' };
-  }
-
-  // Leading imperative verb is a strong todo signal even if frame_type disagrees
-  if (preparse.verb_position === 'start' && preparse.action_target !== 'other_person') {
-    if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
-      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-    }
   }
 
   // 5. Directing frame or obligation framing → todo (if no hedging on verb)

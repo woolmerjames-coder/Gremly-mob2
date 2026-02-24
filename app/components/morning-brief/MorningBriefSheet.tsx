@@ -261,7 +261,7 @@ export function MorningBriefSheet({
   // ─────────────────────────────────────────────────────────────────
   // MINI SWEEP GATE
   // ─────────────────────────────────────────────────────────────────
-  const { shouldShowMiniSweep, rolledOverTodos, unscheduledTodos, markMiniSweepCompleted } =
+  const { shouldShowMiniSweep, rolledOverTodos, unscheduledTodos, todayUnprocessedDrops, markMiniSweepCompleted } =
     useMiniSweepGate();
 
   const [miniSweepDismissed, setMiniSweepDismissed] = useState(false);
@@ -1692,6 +1692,7 @@ export function MorningBriefSheet({
           <StepSweep
             rolledOverTodos={rolledOverTodos}
             unscheduledTodos={unscheduledTodos}
+            todayUnprocessedDrops={todayUnprocessedDrops}
             onContinue={() => {
               handleMiniSweepComplete();
               onContinue();

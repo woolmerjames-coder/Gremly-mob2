@@ -5,6 +5,7 @@
  * - Whether user has already completed mini sweep today
  * - Whether there are rolled over (overdue) todos
  * - Whether there are unscheduled todos from the last 3 days
+ * - Whether there are fresh drops from today not yet processed through the brief
  */
 
 import { useMemo } from 'react';
@@ -24,6 +25,10 @@ export interface UseMiniSweepGateReturn {
   rolledOverCount: number;
   /** Count of unscheduled todos */
   unscheduledCount: number;
+  /** Fresh todos dropped today that haven't been through the brief */
+  todayUnprocessedDrops: Todo[];
+  /** Count of today's unprocessed drops */
+  todayUnprocessedDropsCount: number;
   /** Mark mini sweep as completed for today */
   markMiniSweepCompleted: () => Promise<void>;
 }
@@ -39,6 +44,7 @@ function getTodayDateString(): string {
 export function useMiniSweepGate(): UseMiniSweepGateReturn {
   // Store state
   const miniSweepLastCompletedAt = useGremlyStore((s) => s.miniSweepLastCompletedAt);
+  const todos = useGremlyStore((s) => s.todos);
 
   // Store actions
   const markMiniSweepCompleted = useGremlyStore((s) => s.markMiniSweepCompleted);
@@ -46,6 +52,21 @@ export function useMiniSweepGate(): UseMiniSweepGateReturn {
   // Selectors
   const rolledOverTodos = useRolledOverTodos();
   const unscheduledTodos = useUnscheduledTodosForMiniSweep();
+
+  // Fresh drops from today that haven't been through the brief yet
+  const todayUnprocessedDrops = useMemo(() => {
+    const todayDate = getTodayDateString();
+    return todos.filter(
+      (t) =>
+        !t.archived &&
+        !t.completed_at &&
+        t.due_day === todayDate &&
+        !t.daily_block &&
+        !t.commitment &&
+        t.created_at != null &&
+        getDateService().extractDateFromIso(t.created_at) === todayDate
+    );
+  }, [todos]);
 
   // Get gremly age to check if user is brand new
   const gremlyAge = useGremlyStore((s) => s.gremlyAge);
@@ -62,12 +83,12 @@ export function useMiniSweepGate(): UseMiniSweepGateReturn {
   // Should show mini sweep if:
   // 1. User has completed at least one ritual (gremlyAge >= 1)
   // 2. Haven't completed mini sweep today
-  // 3. There are items to sweep (rolled over OR unscheduled)
+  // 3. There are items to sweep (rolled over OR unscheduled OR unprocessed today drops)
   const shouldShowMiniSweep = useMemo(() => {
     if (gremlyAge < 1) return false; // Don't show for brand new users
     if (hasCompletedMiniSweepToday) return false;
-    return rolledOverTodos.length > 0 || unscheduledTodos.length > 0;
-  }, [gremlyAge, hasCompletedMiniSweepToday, rolledOverTodos.length, unscheduledTodos.length]);
+    return rolledOverTodos.length > 0 || unscheduledTodos.length > 0 || todayUnprocessedDrops.length > 0;
+  }, [gremlyAge, hasCompletedMiniSweepToday, rolledOverTodos.length, unscheduledTodos.length, todayUnprocessedDrops.length]);
 
   return {
     shouldShowMiniSweep,
@@ -75,6 +96,8 @@ export function useMiniSweepGate(): UseMiniSweepGateReturn {
     unscheduledTodos,
     rolledOverCount: rolledOverTodos.length,
     unscheduledCount: unscheduledTodos.length,
+    todayUnprocessedDrops,
+    todayUnprocessedDropsCount: todayUnprocessedDrops.length,
     markMiniSweepCompleted,
   };
 }

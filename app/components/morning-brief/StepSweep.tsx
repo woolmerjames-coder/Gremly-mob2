@@ -25,6 +25,7 @@ import type { Todo } from '../../../lib/types';
 interface StepSweepProps {
   rolledOverTodos: Todo[];
   unscheduledTodos: Todo[];
+  todayUnprocessedDrops?: Todo[];
   onContinue: () => void;
   onSkip: () => void;
   onBack?: () => void;
@@ -37,6 +38,7 @@ interface StepSweepProps {
 export function StepSweep({
   rolledOverTodos,
   unscheduledTodos,
+  todayUnprocessedDrops = [],
   onContinue,
   onSkip,
   onBack,
@@ -50,8 +52,8 @@ export function StepSweep({
 
   // Merge all items
   const allItems = useMemo(
-    () => [...rolledOverTodos, ...unscheduledTodos],
-    [rolledOverTodos, unscheduledTodos],
+    () => [...rolledOverTodos, ...unscheduledTodos, ...todayUnprocessedDrops],
+    [rolledOverTodos, unscheduledTodos, todayUnprocessedDrops],
   );
 
   const totalItems = allItems.length;
@@ -274,6 +276,77 @@ export function StepSweep({
                 onPress={() =>
                   handleBulkAction(
                     unscheduledTodos.map((t) => t.id),
+                    'today',
+                  )
+                }
+              >
+                <Text style={styles.bulkPillText}>All Today</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+        {/* Section separator */}
+        {(rolledOverTodos.length > 0 || unscheduledTodos.length > 0) && todayUnprocessedDrops.length > 0 && (
+          <View style={styles.separator} />
+        )}
+
+        {/* ─── Fresh Drops section ─── */}
+        {todayUnprocessedDrops.length > 0 && (
+          <View style={styles.section}>
+            {/* Banner */}
+            <View style={styles.sectionBanner}>
+              <View style={styles.sectionTitleRow}>
+                <View style={styles.sectionAccent} />
+                <Text style={styles.sectionTitle}>Fresh Drops ({todayUnprocessedDrops.length})</Text>
+                <Text style={styles.sectionHelper}>{'  ·  dropped this morning'}</Text>
+              </View>
+              <View style={styles.columnLabels}>
+                <Text style={styles.columnLabel}>← Archive</Text>
+                <Text style={styles.columnLabel}>Defer</Text>
+                <Text style={styles.columnLabel}>Today →</Text>
+              </View>
+            </View>
+
+            {/* Items */}
+            {todayUnprocessedDrops.map((todo, index) => (
+              <MiniSweepItemRow
+                key={todo.id}
+                item={todo}
+                value={decisions.get(todo.id) ?? 'defer'}
+                onChange={(value) => handleDecision(todo.id, value)}
+                isLast={index === todayUnprocessedDrops.length - 1}
+              />
+            ))}
+
+            {/* Bulk actions */}
+            <View style={styles.bulkActions}>
+              <Pressable
+                style={styles.bulkPill}
+                onPress={() =>
+                  handleBulkAction(
+                    todayUnprocessedDrops.map((t) => t.id),
+                    'archive',
+                  )
+                }
+              >
+                <Text style={styles.bulkPillText}>All Archive</Text>
+              </Pressable>
+              <Pressable
+                style={styles.bulkPill}
+                onPress={() =>
+                  handleBulkAction(
+                    todayUnprocessedDrops.map((t) => t.id),
+                    'defer',
+                  )
+                }
+              >
+                <Text style={styles.bulkPillText}>All Defer</Text>
+              </Pressable>
+              <Pressable
+                style={styles.bulkPill}
+                onPress={() =>
+                  handleBulkAction(
+                    todayUnprocessedDrops.map((t) => t.id),
                     'today',
                   )
                 }

@@ -21,7 +21,7 @@ import {
   Modal,
 } from 'react-native';
 import { getDateService } from '../../lib/date';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui';
@@ -331,6 +331,7 @@ export default function NowScreenV1() {
   const [briefTargetDate, setBriefTargetDate] = useState<string | undefined>(undefined);
 
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const isFocused = useIsFocused();
 
   // Daily app open detection
   const { isFirstOpenToday, isChecking, markTodayOpened } = useDailyAppOpen();
@@ -367,16 +368,20 @@ export default function NowScreenV1() {
   }, [todayStr, navigation]);
 
   // Auto-open Morning Brief on first open of the day (skip for brand new users)
+  const hasAutoOpenedBriefRef = useRef(false);
   useEffect(() => {
-    if (gremlyAge < 1) return; // Don't show for brand new users - let them explore first
+    if (gremlyAge < 1) return; // Don't show for brand new users
+    if (hasAutoOpenedBriefRef.current) return; // Already auto-opened this mount
+    if (!isFocused) return; // Don't fire if user is on another screen (e.g. mid-Sweep)
     if (!isChecking && isFirstOpenToday && !hasCompletedBriefToday && isInitialized && !loading) {
-      // Small delay to let the screen render first
+      hasAutoOpenedBriefRef.current = true;
+      markTodayOpened(); // Flip isFirstOpenToday to false so this won't retrigger
       const timer = setTimeout(() => {
         navigation.navigate('MorningBrief');
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [gremlyAge, isChecking, isFirstOpenToday, hasCompletedBriefToday, isInitialized, loading]);
+  }, [gremlyAge, isChecking, isFirstOpenToday, hasCompletedBriefToday, isInitialized, loading, isFocused, markTodayOpened, navigation]);
 
   // Show first-visit bubble for new users
   useEffect(() => {
