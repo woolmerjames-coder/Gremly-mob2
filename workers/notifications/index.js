@@ -143,9 +143,9 @@ async function sendScheduledNotifications(env) {
 
   const now = new Date();
 
-  // Get notification preferences INCLUDING last_sent columns
+  // Get notification preferences
   const prefsResponse = await fetch(
-    `${supabaseUrl}/rest/v1/notification_preferences?select=user_id,morning_enabled,morning_time,evening_enabled,evening_time,weekly_enabled,weekly_time,weekly_day,timezone,morning_last_sent,evening_last_sent,weekly_last_sent`,
+    `${supabaseUrl}/rest/v1/notification_preferences?select=user_id,morning_enabled,morning_time,evening_enabled,evening_time,weekly_enabled,weekly_time,weekly_day,timezone`,
     {
       headers: {
         apikey: supabaseKey,
@@ -632,34 +632,6 @@ async function claimNotificationSlot(supabaseUrl, supabaseKey, userId, type, dat
   } catch (err) {
     console.error(`[Notifications] claimNotificationSlot exception for ${userId}/${type}:`, err.message);
     return false; // fail-safe: don't send
-  }
-}
-
-async function updateLastSent(supabaseUrl, supabaseKey, userId, type, dateStr) {
-  const columnMap = {
-    morning: 'morning_last_sent',
-    evening: 'evening_last_sent',
-    weekly: 'weekly_last_sent',
-  };
-  const column = columnMap[type];
-  if (!column) return;
-
-  const response = await fetch(
-    `${supabaseUrl}/rest/v1/notification_preferences?user_id=eq.${userId}`,
-    {
-      method: 'PATCH',
-      headers: {
-        apikey: supabaseKey,
-        Authorization: `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      },
-      body: JSON.stringify({ [column]: dateStr }),
-    },
-  );
-
-  if (!response.ok) {
-    console.error(`[Notifications] Failed to update ${column} for ${userId}`);
   }
 }
 
