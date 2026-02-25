@@ -30,6 +30,8 @@ import { supabase } from '../supabase/client';
 import { dateService } from '../date/DateService';
 import { buildTodoFields } from '../cortex/textNormalization';
 import { parseFrequencyString } from '../habits/frequencyUtils';
+import { scheduleItemReminder, scheduleQuickReminder } from '../notifications/itemReminderService';
+import type { ItemReminder } from '../types';
 import { env, getEnv } from '../env';
 
 /**
@@ -76,6 +78,7 @@ export interface Phase2MetadataResult {
   // Event-specific fields
   end_date: string | null;
   smart_title: string | null; // Phase 2 can return smart_title for events
+  auto_reminder: boolean;
 }
 
 export interface ProcessingCallbacks {
@@ -423,6 +426,7 @@ async function runPhase2(
         // Event-specific fields
         end_date: json.end_date ?? null,
         smart_title: json.smart_title ?? null,
+        auto_reminder: json.auto_reminder === true,
       };
     } catch (err) {
       console.log('[DropProcessor] Phase 2 API error', { error: String(err) });
@@ -783,6 +787,67 @@ async function syncMultiDropToSupabase(drop: QueuedDrop): Promise<SyncResult> {
   } catch (error) {
     return { success: false, error: error as Error };
   }
+}
+
+/**
+ * Phase 5: Build an ItemReminder from Phase 2 enrichment data for auto-scheduling.
+ *
+ * Timing tiers:
+ *   Tier 1: Explicit time (event_time extracted) → use that time on the extracted date
+ *   Tier 2: Date but no time → use time_window (morning→09:00, day→13:00, evening→18:00), default 09:00
+ *   Tier 3: No date at all → return null (caller uses scheduleQuickReminder for 2-hour delay)
+ */
+function buildAutoReminder(
+  enrichment: Phase2MetadataResult,
+  bucket: MindDropBucket,
+): ItemReminder | null {
+  // Determine reminder date based on bucket type
+  let reminderDate: string | null = null;
+
+  if (bucket === 'todo') {
+    // Prefer scheduled_date (when user will DO it), then extracted_date, then target_date
+    reminderDate = enrichment.scheduled_date || enrichment.extracted_date || enrichment.target_date;
+  } else if (bucket === 'habit') {
+    reminderDate = enrichment.extracted_start_date || dateService.today();
+  } else if (bucket === 'log') {
+    reminderDate = enrichment.target_date;
+  }
+
+  // Determine reminder time
+  let reminderTime = '09:00'; // default
+
+  if (enrichment.event_time) {
+    // Tier 1: explicit time extracted from text ("at 2pm" → "14:00")
+    reminderTime = enrichment.event_time;
+  } else if (enrichment.time_window) {
+    // Tier 2: infer from time_window
+    switch (enrichment.time_window) {
+      case 'morning':
+        reminderTime = '09:00';
+        break;
+      case 'day':
+        reminderTime = '13:00';
+        break;
+      case 'evening':
+        reminderTime = '18:00';
+        break;
+    }
+  }
+
+  // Tier 3: No date → return null, caller will use quick 2-hour reminder
+  if (!reminderDate) {
+    return null;
+  }
+
+  // For habits, use daily frequency; everything else is one-time
+  const frequency = bucket === 'habit' ? ('daily' as const) : ('once' as const);
+
+  return {
+    id: `auto-${Date.now()}`,
+    time: reminderTime,
+    frequency,
+    date: frequency === 'once' ? reminderDate : undefined,
+  };
 }
 
 // --- Main: Process a single drop ---
@@ -1272,6 +1337,99 @@ export async function processDrop(
       await dequeue(localId);
       useGremlyStore.getState().promotePendingDropToEntity(localId, syncResult.supabaseId);
       callbacks?.onSyncComplete?.(localId, syncResult.supabaseId);
+
+      // === Phase 5: Auto-reminder scheduling (fire-and-forget) ===
+      if (enrichmentResult?.auto_reminder && syncResult.entityType) {
+        const entityType = syncResult.entityType;
+        const entityId = syncResult.supabaseId!;
+
+        // Skip external calendar events (they already have notifications from source calendar)
+        const isExternalEvent =
+          entityType === 'note' &&
+          useGremlyStore.getState().notes.find((n) => n.id === entityId)?.external_source != null;
+
+        if (!isExternalEvent) {
+          const itemTitle = phase15aResult?.smart_title || text.substring(0, 60);
+          // Notes schedule as todo-style reminders (one-time)
+          const reminderEntityType: 'todo' | 'habit' = entityType === 'habit' ? 'habit' : 'todo';
+          const autoReminder = buildAutoReminder(enrichmentResult, phase1Result.bucket);
+
+          const schedulePromise = autoReminder
+            ? scheduleItemReminder(entityId, itemTitle, reminderEntityType, autoReminder)
+            : scheduleQuickReminder(entityId, itemTitle, reminderEntityType, 2 * 60 * 60);
+
+          schedulePromise
+            .then((notificationId) => {
+              if (!notificationId) return;
+
+              // Build the reminder object to persist
+              const reminderToSave: ItemReminder = autoReminder
+                ? { ...autoReminder, notificationId }
+                : {
+                    id: `auto-quick-${Date.now()}`,
+                    time: new Date(Date.now() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5),
+                    frequency: 'once' as const,
+                    date: dateService.today(),
+                    notificationId,
+                  };
+
+              // Persist to Supabase
+              const table =
+                entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+              supabase
+                .from(table)
+                .update({ reminders: [reminderToSave], updated_at: new Date().toISOString() })
+                .eq('id', entityId)
+                .then(
+                  () =>
+                    console.log('[DropProcessor] Auto-reminder persisted', {
+                      entityId,
+                      notificationId,
+                    }),
+                  (err: unknown) =>
+                    console.warn('[DropProcessor] Auto-reminder persist failed', {
+                      error: String(err),
+                    }),
+                );
+
+              // Update Zustand immediately so bell chip renders
+              if (entityType === 'todo') {
+                useGremlyStore.setState((state) => ({
+                  todos: state.todos.map((t) =>
+                    t.id === entityId ? { ...t, reminders: [reminderToSave] } : t,
+                  ),
+                }));
+              } else if (entityType === 'habit') {
+                useGremlyStore.setState((state) => ({
+                  habits: state.habits.map((h) =>
+                    h.id === entityId ? { ...h, reminders: [reminderToSave] } : h,
+                  ),
+                }));
+              } else if (entityType === 'note') {
+                useGremlyStore.setState((state) => ({
+                  notes: state.notes.map((n) =>
+                    n.id === entityId ? { ...n, reminders: [reminderToSave] } : n,
+                  ),
+                }));
+              }
+
+              console.log('[DropProcessor] Auto-reminder scheduled', {
+                localId,
+                entityId,
+                notificationId,
+                date: reminderToSave.date,
+                time: reminderToSave.time,
+                frequency: reminderToSave.frequency,
+              });
+            })
+            .catch((err: unknown) => {
+              console.warn('[DropProcessor] Auto-reminder scheduling failed (non-blocking)', {
+                localId,
+                error: String(err),
+              });
+            });
+        }
+      }
 
       console.log('[DropProcessor] Sync timing', {
         localId,

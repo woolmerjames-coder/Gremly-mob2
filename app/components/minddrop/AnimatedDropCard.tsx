@@ -33,7 +33,7 @@ import Animated, {
   Layout,
   cancelAnimation,
 } from 'react-native-reanimated';
-import { Clock, Camera, Lock } from 'lucide-react-native';
+import { Clock, Camera, Lock, Bell } from 'lucide-react-native';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -80,6 +80,8 @@ export interface AnimatedDropCardItem {
     multi_summary_title?: string;
     [key: string]: unknown;
   }; // View flags
+  /** Active reminders on this item (for bell chip display) */
+  reminders?: Array<{ id: string; date?: string; time: string; frequency: string }> | null;
 }
 
 interface AnimatedDropCardProps {
@@ -95,9 +97,28 @@ interface AnimatedDropCardProps {
 // Helper: truncate text for draft title
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Format "14:00" → "2PM", "09:30" → "9:30AM" */
+function formatTime12h(time: string): string {
+  const [h, m] = time.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return m === 0 ? `${h12}${ampm}` : `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
+}
+
+/** Format reminder date for chip display using existing date service */
+function formatReminderDate(dateStr: string): string {
+  try {
+    const ds = getDateService();
+    return ds.formatForChip(dateStr);
+  } catch {
+    return dateStr;
+  }
+}
+
 const truncateText = (text: string, maxLength: number): string => {
   if (!text) return '';
   const trimmed = text.trim();
+
   if (trimmed.length <= maxLength) return trimmed;
   // Find last space before maxLength to avoid cutting words
   const truncated = trimmed.substring(0, maxLength);
@@ -727,6 +748,25 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
                   </View>
                 )}
 
+                {/* Reminder chip */}
+                {item.reminders &&
+                  item.reminders.length > 0 &&
+                  (() => {
+                    const r = item.reminders[0];
+                    const label =
+                      r.frequency === 'daily'
+                        ? `Daily, ${formatTime12h(r.time)}`
+                        : r.date
+                          ? `${formatReminderDate(r.date)}, ${formatTime12h(r.time)}`
+                          : formatTime12h(r.time);
+                    return (
+                      <View style={localStyles.reminderChip}>
+                        <Bell size={10} color="#D97706" strokeWidth={2} />
+                        <RNText style={localStyles.reminderText}>{label}</RNText>
+                      </View>
+                    );
+                  })()}
+
                 {/* Tags (first 2) */}
                 {item.tags &&
                   item.tags.slice(0, 2).map((tag) => (
@@ -826,6 +866,20 @@ const localStyles = StyleSheet.create({
   timeText: {
     fontSize: 11,
     color: '#6B7280',
+    fontFamily: 'Inter-Regular',
+  },
+  reminderChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(217, 119, 6, 0.10)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  reminderText: {
+    fontSize: 11,
+    color: '#D97706',
     fontFamily: 'Inter-Regular',
   },
   tagChip: {

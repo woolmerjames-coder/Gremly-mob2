@@ -721,9 +721,13 @@ async function runPreparse(text, env) {
 
       // Restored from Intent mini-prompt for routing cross-checks
       core_verb: intentResult.core_verb || null,
-      verb_position: ['start', 'after_hedge', 'after_obligation', 'inside_hypothetical', 'none'].includes(
-        intentResult.verb_position,
-      )
+      verb_position: [
+        'start',
+        'after_hedge',
+        'after_obligation',
+        'inside_hypothetical',
+        'none',
+      ].includes(intentResult.verb_position)
         ? intentResult.verb_position
         : 'none',
       has_completion_point: 'uncertain',
@@ -5065,7 +5069,10 @@ ${assistantMessage.substring(0, 2000)}
             },
             body: JSON.stringify({
               model: 'gpt-4.1-mini',
-              messages: [{ role: 'system', content: spaceChatSavePrompt }, { role: 'user', content: contextBlock }],
+              messages: [
+                { role: 'system', content: spaceChatSavePrompt },
+                { role: 'user', content: contextBlock },
+              ],
               temperature: 0.3,
               max_tokens: 250,
               response_format: { type: 'json_object' },
@@ -6019,7 +6026,10 @@ ${interpLines}`;
             },
             body: JSON.stringify({
               model: 'gpt-4.1-nano',
-              messages: [{ role: 'system', content: clarificationSystemPrompt }, { role: 'user', content: clarificationUserMessage }],
+              messages: [
+                { role: 'system', content: clarificationSystemPrompt },
+                { role: 'user', content: clarificationUserMessage },
+              ],
               temperature: 0.3,
               max_tokens: 200,
               response_format: { type: 'json_object' },
@@ -6212,7 +6222,10 @@ If no date in input, all date fields are null.
             },
             body: JSON.stringify({
               model: 'gpt-4.1-mini',
-              messages: [{ role: 'system', content: reclassifyPrompt }, { role: 'user', content: contextString }],
+              messages: [
+                { role: 'system', content: reclassifyPrompt },
+                { role: 'user', content: contextString },
+              ],
               temperature: 0.3,
               max_tokens: 250,
               response_format: { type: 'json_object' },
@@ -6976,7 +6989,19 @@ Return ONLY valid JSON:
             },
             body: JSON.stringify({
               model: 'gpt-4.1-mini',
-              messages: [{ role: 'system', content: phase15aSystemPrompt }, { role: 'user', content: 'USER INPUT: "' + text + '"\nBUCKET: ' + bucket + '\nSUBTYPE: ' + (subtype || 'none') }],
+              messages: [
+                { role: 'system', content: phase15aSystemPrompt },
+                {
+                  role: 'user',
+                  content:
+                    'USER INPUT: "' +
+                    text +
+                    '"\nBUCKET: ' +
+                    bucket +
+                    '\nSUBTYPE: ' +
+                    (subtype || 'none'),
+                },
+              ],
               temperature: 0.55,
               max_tokens: 150,
               response_format: { type: 'json_object' },
@@ -7502,6 +7527,25 @@ Extract names of people mentioned in the text. Include:
 
 Return as array of strings, max 10 people.
 
+--------------------------------
+AUTO-REMINDER DETECTION (TODOS, START HABITS, AND USER-CREATED EVENTS):
+--------------------------------
+Set auto_reminder to true ONLY if the user's text implies they want to be reminded or nudged.
+
+SET TRUE when:
+- Explicit reminder language: "remind me", "don't forget", "remember to", "don't let me forget"
+- Specific time mentioned with action intent: "at 2pm", "by 5pm", "before lunch", "after work"
+- Urgency + date: "need to do this tomorrow", "must call today"
+
+SET FALSE when:
+- Vague timing: "soon", "eventually", "this week", "sometime"
+- No reminder language and no specific time reference
+- Pure logging/journaling entries
+- Events being recorded without action intent
+- Break habits
+
+Default: false
+
 === OUTPUT ===
 Return ONLY valid JSON.
 
@@ -7514,7 +7558,8 @@ For TODOS:
   "target_date": "YYYY-MM-DD" | null,
   "scheduled_date": "YYYY-MM-DD" | null,
   "date_type_ambiguous": boolean,
-  "people": ["name1", "name2"] | []
+  "people": ["name1", "name2"] | [],
+  "auto_reminder": boolean
 }
 
 For HABITS (start_habit / build):
@@ -7526,7 +7571,8 @@ For HABITS (start_habit / build):
   "extracted_frequency": "daily" | "2x/week" | "weekly" | etc,
   "extracted_days": [0, 1, 2] | null,
   "extracted_start_date": "YYYY-MM-DD" | null,
-  "people": ["name1", "name2"] | []
+  "people": ["name1", "name2"] | [],
+  "auto_reminder": boolean
 }
 
 For HABITS (break_habit):
@@ -7563,7 +7609,8 @@ For LOGS (event):
   "target_date": "YYYY-MM-DD" | null,
   "end_date": "YYYY-MM-DD" | null,
   "event_time": "HH:mm" | null,
-  "people": ["name1", "name2"] | []
+  "people": ["name1", "name2"] | [],
+  "auto_reminder": boolean
 }`;
 
         const t0 = Date.now();
@@ -7577,7 +7624,10 @@ For LOGS (event):
             },
             body: JSON.stringify({
               model: 'gpt-4.1-mini',
-              messages: [{ role: 'system', content: phase2Prompt }, { role: 'user', content: text.substring(0, 1500) }],
+              messages: [
+                { role: 'system', content: phase2Prompt },
+                { role: 'user', content: text.substring(0, 1500) },
+              ],
               temperature: 0.2,
               max_tokens: 300,
               response_format: { type: 'json_object' },
@@ -7802,6 +7852,7 @@ For LOGS (event):
             // Other fields
             people,
             mood,
+            auto_reminder: parsed.auto_reminder === true,
             latency_ms: latency,
           });
         } catch (err) {
@@ -7888,7 +7939,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             },
             body: JSON.stringify({
               model: 'gpt-4.1-mini',
-              messages: [{ role: 'system', content: analyzeSystemPrompt }, { role: 'user', content: 'Here are my journal entries:\n\n' + journalBlock }],
+              messages: [
+                { role: 'system', content: analyzeSystemPrompt },
+                { role: 'user', content: 'Here are my journal entries:\n\n' + journalBlock },
+              ],
               temperature: 0.4,
               max_tokens: 1200,
               response_format: { type: 'json_object' },

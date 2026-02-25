@@ -4,6 +4,55 @@
  * Ensures clean separation between body (full Mind Drop text) and title (short summary).
  */
 
+/**
+ * Strip reminder-style prefixes from Mind Drop input text before using as a title.
+ *
+ * @example
+ * stripReminderPrefix("Remind me to call dentist tomorrow") // → "Call dentist tomorrow"
+ * stripReminderPrefix("Don't forget to submit expenses")    // → "Submit expenses"
+ * stripReminderPrefix("I need to remember to pick up prescription") // → "Pick up prescription"
+ * stripReminderPrefix("Buy milk")                           // → "Buy milk" (no prefix, unchanged)
+ */
+export function stripReminderPrefix(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return trimmed;
+
+  // Order matters — longer/more specific patterns first
+  const prefixes = [
+    /^remind me to\b/i,
+    /^remind me that\b/i,
+    /^remind me about\b/i,
+    /^remind me\b/i,
+    /^don'?t let me forget to\b/i,
+    /^don'?t let me forget\b/i,
+    /^don'?t forget to\b/i,
+    /^don'?t forget about\b/i,
+    /^don'?t forget\b/i,
+    /^i need to remember to\b/i,
+    /^i need to remember\b/i,
+    /^remember to\b/i,
+    /^make sure i\b/i,
+    /^i should\b/i,
+    /^i need to\b/i,
+    /^i have to\b/i,
+    /^i gotta\b/i,
+    /^gotta\b/i,
+    /^need to\b/i,
+  ];
+
+  for (const prefix of prefixes) {
+    if (prefix.test(trimmed)) {
+      const stripped = trimmed.replace(prefix, '').trim();
+      // If stripping leaves nothing, return original
+      if (!stripped) return trimmed;
+      // Capitalize first letter
+      return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+    }
+  }
+
+  return trimmed;
+}
+
 const MAX_TITLE_CHARS = 60;
 const MAX_TITLE_WORDS = 8;
 const FALLBACK_TITLE_WORDS = 7;
