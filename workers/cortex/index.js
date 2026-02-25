@@ -7829,6 +7829,7 @@ For LOGS (event):
             has_start_date: extractedStartDate !== null,
             has_people: people.length > 0,
             has_mood: mood !== null,
+            has_auto_reminder: parsed.auto_reminder === true,
             latency_ms: latency,
           });
 

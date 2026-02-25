@@ -874,8 +874,8 @@ const localStyles = StyleSheet.create({
     gap: 3,
     backgroundColor: 'rgba(217, 119, 6, 0.10)',
     paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   reminderText: {
     fontSize: 11,

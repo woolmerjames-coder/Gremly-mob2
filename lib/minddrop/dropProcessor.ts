@@ -1340,94 +1340,132 @@ export async function processDrop(
 
       // === Phase 5: Auto-reminder scheduling (fire-and-forget) ===
       if (enrichmentResult?.auto_reminder && syncResult.entityType) {
-        const entityType = syncResult.entityType;
-        const entityId = syncResult.supabaseId!;
+        // Break habits should never get auto-reminders
+        if (phase1Result.habitSubtype === 'break_habit') {
+          console.log('[DropProcessor] Skipping auto-reminder for break_habit', { localId });
+        } else {
+          const entityType = syncResult.entityType;
+          const entityId = syncResult.supabaseId!;
 
-        // Skip external calendar events (they already have notifications from source calendar)
-        const isExternalEvent =
-          entityType === 'note' &&
-          useGremlyStore.getState().notes.find((n) => n.id === entityId)?.external_source != null;
+          // Skip external calendar events
+          const isExternalEvent =
+            entityType === 'note' &&
+            useGremlyStore.getState().notes.find((n) => n.id === entityId)?.external_source != null;
 
-        if (!isExternalEvent) {
-          const itemTitle = phase15aResult?.smart_title || text.substring(0, 60);
-          // Notes schedule as todo-style reminders (one-time)
-          const reminderEntityType: 'todo' | 'habit' = entityType === 'habit' ? 'habit' : 'todo';
-          const autoReminder = buildAutoReminder(enrichmentResult, phase1Result.bucket);
+          if (!isExternalEvent) {
+            const itemTitle = phase15aResult?.smart_title || text.substring(0, 60);
+            const reminderEntityType: 'todo' | 'habit' = entityType === 'habit' ? 'habit' : 'todo';
+            const autoReminder = buildAutoReminder(enrichmentResult, phase1Result.bucket);
 
-          const schedulePromise = autoReminder
-            ? scheduleItemReminder(entityId, itemTitle, reminderEntityType, autoReminder)
-            : scheduleQuickReminder(entityId, itemTitle, reminderEntityType, 2 * 60 * 60);
+            // Step 1: Build the reminder object FIRST (this is user data, independent of notifications)
+            const reminderToSave: ItemReminder = autoReminder
+              ? { ...autoReminder }
+              : {
+                  id: `auto-quick-${Date.now()}`,
+                  time: new Date(Date.now() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5),
+                  frequency: 'once' as const,
+                  date: dateService.today(),
+                };
 
-          schedulePromise
-            .then((notificationId) => {
-              if (!notificationId) return;
+            // Step 2: Persist to Supabase IMMEDIATELY (don't wait for notification scheduling)
+            const table =
+              entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+            supabase
+              .from(table)
+              .update({ reminders: [reminderToSave], updated_at: new Date().toISOString() })
+              .eq('id', entityId)
+              .then(
+                () => console.log('[DropProcessor] Auto-reminder persisted', { entityId }),
+                (err: unknown) =>
+                  console.warn('[DropProcessor] Auto-reminder persist failed', {
+                    error: String(err),
+                  }),
+              );
 
-              // Build the reminder object to persist
-              const reminderToSave: ItemReminder = autoReminder
-                ? { ...autoReminder, notificationId }
-                : {
-                    id: `auto-quick-${Date.now()}`,
-                    time: new Date(Date.now() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5),
-                    frequency: 'once' as const,
-                    date: dateService.today(),
-                    notificationId,
-                  };
+            // Step 3: Update Zustand IMMEDIATELY so bell chip renders
+            if (entityType === 'todo') {
+              useGremlyStore.setState((state) => ({
+                todos: state.todos.map((t) =>
+                  t.id === entityId ? { ...t, reminders: [reminderToSave] } : t,
+                ),
+              }));
+            } else if (entityType === 'habit') {
+              useGremlyStore.setState((state) => ({
+                habits: state.habits.map((h) =>
+                  h.id === entityId ? { ...h, reminders: [reminderToSave] } : h,
+                ),
+              }));
+            } else if (entityType === 'note') {
+              useGremlyStore.setState((state) => ({
+                notes: state.notes.map((n) =>
+                  n.id === entityId ? { ...n, reminders: [reminderToSave] } : n,
+                ),
+              }));
+            }
 
-              // Persist to Supabase
-              const table =
-                entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
-              supabase
-                .from(table)
-                .update({ reminders: [reminderToSave], updated_at: new Date().toISOString() })
-                .eq('id', entityId)
-                .then(
-                  () =>
-                    console.log('[DropProcessor] Auto-reminder persisted', {
-                      entityId,
-                      notificationId,
-                    }),
-                  (err: unknown) =>
-                    console.warn('[DropProcessor] Auto-reminder persist failed', {
-                      error: String(err),
-                    }),
-                );
-
-              // Update Zustand immediately so bell chip renders
-              if (entityType === 'todo') {
-                useGremlyStore.setState((state) => ({
-                  todos: state.todos.map((t) =>
-                    t.id === entityId ? { ...t, reminders: [reminderToSave] } : t,
-                  ),
-                }));
-              } else if (entityType === 'habit') {
-                useGremlyStore.setState((state) => ({
-                  habits: state.habits.map((h) =>
-                    h.id === entityId ? { ...h, reminders: [reminderToSave] } : h,
-                  ),
-                }));
-              } else if (entityType === 'note') {
-                useGremlyStore.setState((state) => ({
-                  notes: state.notes.map((n) =>
-                    n.id === entityId ? { ...n, reminders: [reminderToSave] } : n,
-                  ),
-                }));
-              }
-
-              console.log('[DropProcessor] Auto-reminder scheduled', {
-                localId,
-                entityId,
-                notificationId,
-                date: reminderToSave.date,
-                time: reminderToSave.time,
-                frequency: reminderToSave.frequency,
-              });
-            })
-            .catch((err: unknown) => {
-              console.warn('[DropProcessor] Auto-reminder scheduling failed (non-blocking)', {
-                localId,
-                error: String(err),
-              });
+            console.log('[DropProcessor] Auto-reminder saved', {
+              localId,
+              entityId,
+              date: reminderToSave.date,
+              time: reminderToSave.time,
+              frequency: reminderToSave.frequency,
             });
+
+            // Step 4: Schedule OS notification in background (best-effort, doesn't block UI)
+            const schedulePromise = autoReminder
+              ? scheduleItemReminder(entityId, itemTitle, reminderEntityType, autoReminder)
+              : scheduleQuickReminder(entityId, itemTitle, reminderEntityType, 2 * 60 * 60);
+
+            schedulePromise
+              .then((notificationId) => {
+                if (notificationId) {
+                  // Attach notification ID to the saved reminder for future cancellation
+                  const updatedReminder = { ...reminderToSave, notificationId };
+                  supabase
+                    .from(table)
+                    .update({
+                      reminders: [updatedReminder],
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', entityId)
+                    .then(
+                      () => {},
+                      () => {},
+                    );
+
+                  // Update Zustand with notification ID
+                  if (entityType === 'todo') {
+                    useGremlyStore.setState((state) => ({
+                      todos: state.todos.map((t) =>
+                        t.id === entityId ? { ...t, reminders: [updatedReminder] } : t,
+                      ),
+                    }));
+                  } else if (entityType === 'habit') {
+                    useGremlyStore.setState((state) => ({
+                      habits: state.habits.map((h) =>
+                        h.id === entityId ? { ...h, reminders: [updatedReminder] } : h,
+                      ),
+                    }));
+                  } else if (entityType === 'note') {
+                    useGremlyStore.setState((state) => ({
+                      notes: state.notes.map((n) =>
+                        n.id === entityId ? { ...n, reminders: [updatedReminder] } : n,
+                      ),
+                    }));
+                  }
+                  console.log('[DropProcessor] OS notification linked', {
+                    entityId,
+                    notificationId,
+                  });
+                }
+              })
+              .catch((err: unknown) => {
+                console.warn('[DropProcessor] OS notification failed (reminder still saved)', {
+                  localId,
+                  error: String(err),
+                });
+              });
+          }
         }
       }
 

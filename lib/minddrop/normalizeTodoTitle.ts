@@ -103,7 +103,7 @@ function isAiTitleAcceptable(aiTitle: string, body: string): boolean {
  */
 function createFallbackTitle(body: string, maxWords: number = FALLBACK_TITLE_WORDS): string {
   // For multi-line text, only use the first line for the title
-  const firstLine = body.trim().split('\n')[0].trim();
+  const firstLine = stripReminderPrefix(body.trim().split('\n')[0].trim());
   const words = firstLine.split(/\s+/);
 
   // Standard fallback: first N words

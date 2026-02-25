@@ -526,7 +526,7 @@ async function sendScheduledNotifications(env) {
         } else if (context.lockInCount === 1 && context.firstLockInTitle) {
           body = `${context.firstLockInTitle} — still on track?`;
         } else {
-          body = `${context.overdueCount} item${context.overdueCount === 1 ? '' : 's'} rolling over. Quick sweep?`;
+          body = `You've got ${context.overdueCount} open item${context.overdueCount === 1 ? '' : 's'}. Want to lock one in for this afternoon?`;
         }
 
         await sendExpoPush(user.token, title, body, 'afternoon_checkin');
