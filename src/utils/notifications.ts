@@ -69,6 +69,7 @@ export async function setupNotificationResponseHandler(
   onMorningNotification: () => void,
   onEveningNotification: () => void,
   onWeeklyNotification?: () => void,
+  onItemReminderNotification?: (itemId: string, itemType: string) => void,
 ): Promise<() => void> {
   if (isExpoGo) {
     console.log('[Notifications] Skipping response handler - running in Expo Go');
@@ -90,6 +91,10 @@ export async function setupNotificationResponseHandler(
       } else if (data.type === 'weekly_summary') {
         onWeeklyNotification?.();
       }
+    }
+
+    if (data?.action === 'open_item') {
+      onItemReminderNotification?.(data.itemId, data.itemType);
     }
   });
 

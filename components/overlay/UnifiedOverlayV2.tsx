@@ -128,6 +128,13 @@ import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFro
 import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import SetRemindersModal from './SetRemindersModal';
+import type { ItemReminder } from '../../lib/types';
+import {
+  scheduleItemReminder,
+  cancelItemReminder,
+  cancelAllItemReminders,
+} from '../../lib/notifications/itemReminderService';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { enrichListItems } from '../../lib/ai/enrichListItem';
@@ -522,6 +529,21 @@ function formatSingleReminder(r: OverlayReminder): string {
 function formatReminderSummary(reminders: OverlayReminder[]): string {
   if (reminders.length === 0) return 'Off';
   if (reminders.length === 1) return formatSingleReminder(reminders[0]);
+  return `${reminders.length} reminders`;
+}
+
+// Helper: format ItemReminder[] for summary display in detail rows
+function formatItemReminderSummary(reminders: ItemReminder[]): string {
+  if (!reminders || reminders.length === 0) return 'Off';
+  if (reminders.length === 1) {
+    const r = reminders[0];
+    const [h, m] = r.time.split(':').map(Number);
+    const suffix = h >= 12 ? 'PM' : 'AM';
+    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const timeStr = `${hour12}:${String(m).padStart(2, '0')} ${suffix}`;
+    if (r.frequency === 'daily') return `Daily ${timeStr}`;
+    return timeStr;
+  }
   return `${reminders.length} reminders`;
 }
 
@@ -1635,6 +1657,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [reminderCustomDays, setReminderCustomDays] = useState<number[]>([]);
   const [reminderValidationError, setReminderValidationError] = useState<string | null>(null);
 
+  // Item Reminders state (new, persisted to `reminders` JSON column)
+  const [itemReminders, setItemReminders] = useState<ItemReminder[]>([]);
+
   // Date picker state
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState(new Date());
@@ -2231,6 +2256,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const hydrated = hydrateRemindersFromLegacy(state.reminderAt);
     setReminders(hydrated);
   }, [visible, state.reminderAt]);
+
+  // Hydrate item reminders from entity's reminders JSON column when overlay opens
+  useEffect(() => {
+    if (!visible) return;
+    const existing = Array.isArray(fullEntity?.reminders)
+      ? (fullEntity.reminders as ItemReminder[])
+      : [];
+    setItemReminders(existing);
+  }, [visible, fullEntity?.reminders]);
 
   // Emit an 'opened' funnel event when the overlay becomes visible so analytics
   // can track funnel starts (best-effort, ignore telemetry errors).
@@ -4600,7 +4634,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     try {
       // Map reminders array back to legacy reminderAt field before save
       const { reminderAt } = mapRemindersToLegacyFields(reminders);
-      const stateWithReminder = { ...state, reminderAt };
+      const stateWithReminder = { ...state, reminderAt, itemReminders };
 
       const input = await toCreateOrUpdateInput(
         baseType,
@@ -5781,7 +5815,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 color: colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#555',
               }}
             >
-              {formatReminderSummary(reminders)}
+              {formatItemReminderSummary(itemReminders)}
             </Text>
           </View>
         )}
@@ -7552,7 +7586,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           <Text style={styles.detailsRowLabel}>Reminders</Text>
                                         </View>
                                         <Text style={styles.detailsRowValue}>
-                                          {formatReminderSummary(reminders)}
+                                          {formatItemReminderSummary(itemReminders)}
                                         </Text>
                                       </Pressable>
 
@@ -7701,7 +7735,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           <Text style={styles.detailsRowLabel}>Reminders</Text>
                                         </View>
                                         <Text style={styles.detailsRowValue}>
-                                          {formatReminderSummary(reminders)}
+                                          {formatItemReminderSummary(itemReminders)}
                                         </Text>
                                       </Pressable>
 
@@ -7851,7 +7885,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           <Text style={styles.detailsRowLabel}>Reminders</Text>
                                         </View>
                                         <Text style={styles.detailsRowValue}>
-                                          {formatReminderSummary(reminders)}
+                                          {formatItemReminderSummary(itemReminders)}
                                         </Text>
                                       </Pressable>
 
@@ -9880,532 +9914,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </Pressable>
                   </Modal>
 
-                  {/* Reminders Management Modal */}
-                  <Modal visible={showRemindersModal} transparent animationType="fade">
-                    <Pressable
-                      style={{
-                        flex: 1,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        backgroundColor: 'rgba(0,0,0,0.4)',
-                      }}
-                      onPress={() => {
-                        if (!editingReminder) {
-                          setShowRemindersModal(false);
-                        }
-                      }}
-                    >
-                      <Pressable
-                        onPress={(e) => e.stopPropagation()}
-                        style={{
-                          width: '90%',
-                          maxWidth: 400,
-                          backgroundColor: '#FFFFFF',
-                          padding: 20,
-                          borderRadius: 16,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 4 },
-                          shadowOpacity: 0.1,
-                          shadowRadius: 12,
-                          elevation: 5,
-                          maxHeight: '80%',
-                        }}
-                      >
-                        {editingReminder ? (
-                          /* Add/Edit Reminder Form */
-                          <ScrollView showsVerticalScrollIndicator={false}>
-                            {/* Header */}
-                            <View
-                              style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                marginBottom: 20,
-                              }}
-                            >
-                              <Text style={{ fontSize: 18, fontWeight: '600', color: '#111827' }}>
-                                {editingMode === 'add' ? 'Add Reminder' : 'Edit Reminder'}
-                              </Text>
-                              <Pressable
-                                onPress={() => {
-                                  setEditingReminder(null);
-                                  setReminderValidationError(null);
-                                }}
-                                style={({ pressed }) => ({
-                                  opacity: pressed ? 0.6 : 1,
-                                  padding: 4,
-                                })}
-                              >
-                                <CloseIcon size={24} color="#6B7280" />
-                              </Pressable>
-                            </View>
-
-                            {/* Time Selector */}
-                            <View style={{ marginBottom: 20 }}>
-                              <Text
-                                style={{
-                                  fontSize: 14,
-                                  fontWeight: '500',
-                                  color: '#374151',
-                                  marginBottom: 8,
-                                }}
-                              >
-                                Time
-                              </Text>
-                              <View
-                                style={{ backgroundColor: '#F9FAFB', borderRadius: 8, padding: 12 }}
-                              >
-                                <DateTimePicker
-                                  value={reminderTimeValue}
-                                  mode="time"
-                                  display="spinner"
-                                  onChange={(event, date) => {
-                                    if (date) {
-                                      setReminderTimeValue(date);
-                                    }
-                                  }}
-                                  style={{ backgroundColor: 'transparent' }}
-                                />
-                              </View>
-                            </View>
-
-                            {/* Repeat Options */}
-                            <View style={{ marginBottom: 20 }}>
-                              <Text
-                                style={{
-                                  fontSize: 14,
-                                  fontWeight: '500',
-                                  color: '#374151',
-                                  marginBottom: 8,
-                                }}
-                              >
-                                Repeat
-                              </Text>
-                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                                {(['once', 'daily', 'weekdays', 'weekends', 'custom'] as const).map(
-                                  (option) => (
-                                    <Pressable
-                                      key={option}
-                                      onPress={() => setReminderRepeat(option)}
-                                      style={({ pressed }) => ({
-                                        paddingHorizontal: 14,
-                                        paddingVertical: 8,
-                                        borderRadius: 8,
-                                        backgroundColor:
-                                          reminderRepeat === option
-                                            ? lightTokens.colors.moss
-                                            : pressed
-                                              ? '#F3F4F6'
-                                              : '#F9FAFB',
-                                        borderWidth: 1,
-                                        borderColor:
-                                          reminderRepeat === option
-                                            ? lightTokens.colors.moss
-                                            : '#E5E7EB',
-                                      })}
-                                    >
-                                      <Text
-                                        style={{
-                                          fontSize: 14,
-                                          fontWeight: '500',
-                                          color: reminderRepeat === option ? '#FFFFFF' : '#374151',
-                                          textTransform: 'capitalize',
-                                        }}
-                                      >
-                                        {option}
-                                      </Text>
-                                    </Pressable>
-                                  ),
-                                )}
-                              </View>
-                            </View>
-
-                            {/* Conditional: Date picker for "once" */}
-                            {reminderRepeat === 'once' && (
-                              <View style={{ marginBottom: 20 }}>
-                                <Text
-                                  style={{
-                                    fontSize: 14,
-                                    fontWeight: '500',
-                                    color: '#374151',
-                                    marginBottom: 8,
-                                  }}
-                                >
-                                  Date
-                                </Text>
-                                <View
-                                  style={{
-                                    backgroundColor: '#F9FAFB',
-                                    borderRadius: 8,
-                                    padding: 12,
-                                  }}
-                                >
-                                  <DateTimePicker
-                                    value={reminderDateValue}
-                                    mode="date"
-                                    display="inline"
-                                    onChange={(event, date) => {
-                                      if (date) {
-                                        setReminderDateValue(date);
-                                      }
-                                    }}
-                                    style={{ backgroundColor: 'transparent' }}
-                                  />
-                                </View>
-                              </View>
-                            )}
-
-                            {/* Conditional: Custom days selector */}
-                            {reminderRepeat === 'custom' && (
-                              <View style={{ marginBottom: 20 }}>
-                                <Text
-                                  style={{
-                                    fontSize: 14,
-                                    fontWeight: '500',
-                                    color: '#374151',
-                                    marginBottom: 8,
-                                  }}
-                                >
-                                  Days
-                                </Text>
-                                <View
-                                  style={{
-                                    flexDirection: 'row',
-                                    justifyContent: 'space-between',
-                                    gap: 8,
-                                  }}
-                                >
-                                  {SHORT_DAY_LABELS.map((label, index) => (
-                                    <Pressable
-                                      key={index}
-                                      onPress={() => {
-                                        setReminderCustomDays((prev) => {
-                                          if (prev.includes(index)) {
-                                            return prev.filter((d) => d !== index);
-                                          } else {
-                                            return [...prev, index].sort((a, b) => a - b);
-                                          }
-                                        });
-                                      }}
-                                      style={({ pressed }) => ({
-                                        width: 32,
-                                        height: 32,
-                                        borderRadius: 16,
-                                        justifyContent: 'center',
-                                        alignItems: 'center',
-                                        backgroundColor: reminderCustomDays.includes(index)
-                                          ? lightTokens.colors.moss
-                                          : pressed
-                                            ? '#F3F4F6'
-                                            : 'transparent',
-                                        borderWidth: 1,
-                                        borderColor: reminderCustomDays.includes(index)
-                                          ? lightTokens.colors.moss
-                                          : '#D1D5DB',
-                                      })}
-                                    >
-                                      <Text
-                                        style={{
-                                          fontSize: 13,
-                                          fontWeight: '500',
-                                          color: reminderCustomDays.includes(index)
-                                            ? '#FFFFFF'
-                                            : '#6B7280',
-                                        }}
-                                      >
-                                        {label}
-                                      </Text>
-                                    </Pressable>
-                                  ))}
-                                </View>
-                                {reminderValidationError && (
-                                  <Text style={{ fontSize: 12, color: '#DC2626', marginTop: 8 }}>
-                                    {reminderValidationError}
-                                  </Text>
-                                )}
-                              </View>
-                            )}
-
-                            {/* Buttons */}
-                            <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
-                              <Pressable
-                                onPress={() => {
-                                  setEditingReminder(null);
-                                  setReminderValidationError(null);
-                                }}
-                                style={({ pressed }) => ({
-                                  flex: 1,
-                                  paddingVertical: 12,
-                                  borderRadius: 8,
-                                  backgroundColor: pressed ? '#F3F4F6' : 'transparent',
-                                  borderWidth: 1,
-                                  borderColor: '#D1D5DB',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  minHeight: 44,
-                                })}
-                              >
-                                <Text style={{ fontSize: 15, fontWeight: '500', color: '#6B7280' }}>
-                                  Cancel
-                                </Text>
-                              </Pressable>
-                              <Pressable
-                                onPress={() => {
-                                  // Validation
-                                  if (
-                                    reminderRepeat === 'custom' &&
-                                    reminderCustomDays.length === 0
-                                  ) {
-                                    setReminderValidationError('Select at least one day');
-                                    return;
-                                  }
-
-                                  // Build reminder object
-                                  const hour = format(reminderTimeValue, 'HH');
-                                  const minute = format(reminderTimeValue, 'mm');
-                                  const time = `${hour}:${minute}`;
-
-                                  const newReminder: OverlayReminder = {
-                                    id: editingReminder.id,
-                                    time,
-                                    repeat: reminderRepeat,
-                                    ...(reminderRepeat === 'once' && {
-                                      date: format(reminderDateValue, 'yyyy-MM-dd'),
-                                    }),
-                                    ...(reminderRepeat === 'custom' && {
-                                      days: reminderCustomDays,
-                                    }),
-                                  };
-
-                                  // Check for duplicates
-                                  const isDuplicate = reminders.some((r) => {
-                                    if (editingMode === 'edit' && r.id === editingReminder.id)
-                                      return false;
-                                    return (
-                                      r.time === newReminder.time &&
-                                      r.repeat === newReminder.repeat &&
-                                      r.date === newReminder.date &&
-                                      JSON.stringify(r.days) === JSON.stringify(newReminder.days)
-                                    );
-                                  });
-
-                                  if (isDuplicate) {
-                                    setReminderValidationError('This reminder already exists');
-                                    return;
-                                  }
-
-                                  // Add or update
-                                  LayoutAnimation.configureNext(
-                                    LayoutAnimation.Presets.easeInEaseOut,
-                                  );
-                                  if (editingMode === 'add') {
-                                    setReminders((prev) => [...prev, newReminder]);
-                                  } else {
-                                    setReminders((prev) =>
-                                      prev.map((r) =>
-                                        r.id === editingReminder.id ? newReminder : r,
-                                      ),
-                                    );
-                                  }
-
-                                  // Clear and return to list
-                                  setEditingReminder(null);
-                                  setReminderValidationError(null);
-                                }}
-                                style={({ pressed }) => ({
-                                  flex: 1,
-                                  paddingVertical: 12,
-                                  borderRadius: 8,
-                                  backgroundColor: pressed ? '#244430' : lightTokens.colors.moss,
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  minHeight: 44,
-                                })}
-                              >
-                                <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
-                                  {editingMode === 'add' ? 'Add' : 'Update'}
-                                </Text>
-                              </Pressable>
-                            </View>
-                          </ScrollView>
-                        ) : (
-                          /* Reminders List View */
-                          <View>
-                            {/* Header */}
-                            <View
-                              style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                marginBottom: 16,
-                              }}
-                            >
-                              <Text style={{ fontSize: 18, fontWeight: '600', color: '#111827' }}>
-                                Set Reminders
-                              </Text>
-                              <Pressable
-                                onPress={() => setShowRemindersModal(false)}
-                                style={({ pressed }) => ({
-                                  opacity: pressed ? 0.6 : 1,
-                                  padding: 4,
-                                })}
-                              >
-                                <CloseIcon size={24} color="#6B7280" />
-                              </Pressable>
-                            </View>
-
-                            {/* Reminders List or Empty State */}
-                            <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
-                              {reminders.length === 0 ? (
-                                <Text
-                                  style={{
-                                    textAlign: 'center',
-                                    color: '#6B7280',
-                                    paddingVertical: 40,
-                                  }}
-                                >
-                                  No reminders set
-                                </Text>
-                              ) : (
-                                reminders.map((reminder) => (
-                                  <Pressable
-                                    key={reminder.id}
-                                    onPress={() => {
-                                      // Open for editing
-                                      setEditingReminder(reminder);
-                                      setEditingMode('edit');
-                                      // Hydrate form state
-                                      const [hour, minute] = reminder.time.split(':').map(Number);
-                                      const timeDate = new Date();
-                                      timeDate.setHours(hour, minute, 0, 0);
-                                      setReminderTimeValue(timeDate);
-                                      setReminderRepeat(reminder.repeat);
-                                      if (reminder.date) {
-                                        setReminderDateValue(parseISO(reminder.date));
-                                      }
-                                      if (reminder.days) {
-                                        setReminderCustomDays(reminder.days);
-                                      }
-                                      setReminderValidationError(null);
-                                    }}
-                                    style={({ pressed }) => ({
-                                      flexDirection: 'row',
-                                      alignItems: 'center',
-                                      justifyContent: 'space-between',
-                                      paddingVertical: 12,
-                                      paddingHorizontal: 12,
-                                      borderRadius: 8,
-                                      backgroundColor: pressed ? '#F3F4F6' : 'transparent',
-                                      marginBottom: 8,
-                                      minHeight: 48,
-                                    })}
-                                  >
-                                    <View
-                                      style={{
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        gap: 12,
-                                        flex: 1,
-                                      }}
-                                    >
-                                      <Bell size={20} color={lightTokens.colors.moss} />
-                                      <Text
-                                        style={{
-                                          fontSize: 15,
-                                          fontWeight: '500',
-                                          color: '#111827',
-                                        }}
-                                      >
-                                        {formatSingleReminder(reminder)}
-                                      </Text>
-                                    </View>
-                                    <Pressable
-                                      onPress={(e) => {
-                                        e.stopPropagation();
-                                        // Delete reminder with animation
-                                        LayoutAnimation.configureNext(
-                                          LayoutAnimation.Presets.easeInEaseOut,
-                                        );
-                                        setReminders((prev) =>
-                                          prev.filter((r) => r.id !== reminder.id),
-                                        );
-                                      }}
-                                      style={({ pressed }) => ({
-                                        padding: 4,
-                                        opacity: pressed ? 0.6 : 1,
-                                        minWidth: 24,
-                                        minHeight: 24,
-                                        justifyContent: 'center',
-                                        alignItems: 'center',
-                                      })}
-                                    >
-                                      <CloseIcon size={18} color="#6B7280" />
-                                    </Pressable>
-                                  </Pressable>
-                                ))
-                              )}
-                            </ScrollView>
-
-                            {/* Add Reminder Button */}
-                            {reminders.length < 5 && (
-                              <Pressable
-                                onPress={() => {
-                                  // Set smart defaults based on baseType and habit mode
-                                  const isHabit = baseType === 'habit';
-                                  const defaultTime = isHabit
-                                    ? isBreakHabit
-                                      ? '20:00'
-                                      : '09:00'
-                                    : '09:00';
-                                  const defaultRepeat = isHabit ? 'daily' : 'once';
-
-                                  const [hour, minute] = defaultTime.split(':').map(Number);
-                                  const timeDate = new Date();
-                                  timeDate.setHours(hour, minute, 0, 0);
-
-                                  setReminderTimeValue(timeDate);
-                                  setReminderRepeat(defaultRepeat);
-                                  setReminderDateValue(
-                                    baseType === 'todo' ? addDays(new Date(), 1) : new Date(),
-                                  );
-                                  setReminderCustomDays([]);
-                                  setReminderValidationError(null);
-                                  setEditingMode('add');
-                                  setEditingReminder({
-                                    id: `reminder-${Date.now()}`,
-                                    time: defaultTime,
-                                    repeat: defaultRepeat,
-                                  });
-                                }}
-                                style={({ pressed }) => ({
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  paddingVertical: 14,
-                                  borderRadius: 8,
-                                  borderWidth: 1.5,
-                                  borderStyle: 'dashed',
-                                  borderColor: lightTokens.colors.moss,
-                                  backgroundColor: pressed ? '#F0F4F1' : 'transparent',
-                                  minHeight: 48,
-                                })}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 15,
-                                    fontWeight: '500',
-                                    color: lightTokens.colors.moss,
-                                  }}
-                                >
-                                  + Add reminder
-                                </Text>
-                              </Pressable>
-                            )}
-                          </View>
-                        )}
-                      </Pressable>
-                    </Pressable>
-                  </Modal>
+                  {/* Reminders Management Modal – powered by SetRemindersModal */}
+                  <SetRemindersModal
+                    visible={showRemindersModal}
+                    onClose={() => setShowRemindersModal(false)}
+                    reminders={itemReminders}
+                    onSave={(updated) => {
+                      setItemReminders(updated);
+                      setShowRemindersModal(false);
+                    }}
+                    itemType={baseType === 'habit' ? 'habit' : 'todo'}
+                  />
 
                   {/* Save bar (fixed within the sheet) */}
                   {/* Inline save error / retry bar (Phase 9) */}

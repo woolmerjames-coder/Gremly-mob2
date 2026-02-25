@@ -380,7 +380,17 @@ export default function NowScreenV1() {
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [gremlyAge, isChecking, isFirstOpenToday, hasCompletedBriefToday, isInitialized, loading, isFocused, markTodayOpened, navigation]);
+  }, [
+    gremlyAge,
+    isChecking,
+    isFirstOpenToday,
+    hasCompletedBriefToday,
+    isInitialized,
+    loading,
+    isFocused,
+    markTodayOpened,
+    navigation,
+  ]);
 
   // Show first-visit bubble for new users
   useEffect(() => {
@@ -628,6 +638,20 @@ export default function NowScreenV1() {
     const unsubscribe = eventBus.on('notification:open_flow', handleNotificationOpen);
     return () => unsubscribe();
   }, [navigation]);
+
+  // Handle item-reminder notification taps — open the overlay for the reminded item
+  useEffect(() => {
+    const unsubscribe = eventBus.on(
+      'notification:open_item',
+      (payload: { itemId: string; itemType: string }) => {
+        console.log('[NowScreenV1] Opening item from reminder notification', payload);
+        overlayController.openEdit({
+          record: { id: payload.itemId, type: payload.itemType } as any,
+        });
+      },
+    );
+    return () => unsubscribe();
+  }, [overlayController]);
 
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);

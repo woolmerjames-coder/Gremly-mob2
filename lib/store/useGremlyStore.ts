@@ -38,6 +38,7 @@ import {
 import { reconcileCalendarEvents } from '../calendar/calendarSync';
 import { DEFAULT_TIME_BLOCK_PREFERENCES, getTimeBlockBoundaries } from '../capacity';
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
+import { cancelAllItemReminders } from '../notifications/itemReminderService';
 import type { TimeBlockPreferences } from '../capacity';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
@@ -1160,7 +1161,10 @@ export const useGremlyStore = create<GremlyState>()(
                 )
                 .then(({ error: upsertError }) => {
                   if (upsertError) {
-                    console.error('[GremlyStore] Auto-complete onboarding upsert failed:', JSON.stringify(upsertError, null, 2));
+                    console.error(
+                      '[GremlyStore] Auto-complete onboarding upsert failed:',
+                      JSON.stringify(upsertError, null, 2),
+                    );
                   } else {
                     console.log('[GremlyStore] Auto-completed onboarding for existing user');
                   }
@@ -1594,7 +1598,10 @@ export const useGremlyStore = create<GremlyState>()(
           );
 
           if (error) {
-            console.error('[GremlyStore] setOnboardingCompletedAt failed:', JSON.stringify(error, null, 2));
+            console.error(
+              '[GremlyStore] setOnboardingCompletedAt failed:',
+              JSON.stringify(error, null, 2),
+            );
             return;
           }
 
@@ -1615,7 +1622,10 @@ export const useGremlyStore = create<GremlyState>()(
             );
 
           if (error) {
-            console.error('[GremlyStore] markOnboardingComplete failed:', JSON.stringify(error, null, 2));
+            console.error(
+              '[GremlyStore] markOnboardingComplete failed:',
+              JSON.stringify(error, null, 2),
+            );
             return;
           }
 
@@ -1795,6 +1805,11 @@ export const useGremlyStore = create<GremlyState>()(
         deleteTodo: async (id: string) => {
           const prevTodo = get().todos.find((t) => t.id === id);
 
+          // Cancel any scheduled reminders (fire and forget)
+          if (prevTodo?.reminders?.length) {
+            cancelAllItemReminders(prevTodo.reminders);
+          }
+
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
             todos: state.todos.filter((t) => t.id !== id),
@@ -1847,6 +1862,11 @@ export const useGremlyStore = create<GremlyState>()(
 
           // EMIT EVENT for backward compatibility
           eventBus.emit('ItemCompleted', { id, type: 'todo', source: STORE_EVENT_SOURCE });
+
+          // Cancel any scheduled reminders (fire and forget)
+          if (prevTodo?.reminders?.length) {
+            cancelAllItemReminders(prevTodo.reminders);
+          }
         },
 
         uncompleteTodo: async (id: string) => {
@@ -1878,6 +1898,11 @@ export const useGremlyStore = create<GremlyState>()(
         archiveTodo: async (id: string, reason?: string) => {
           const now = new Date().toISOString();
           const prevTodo = get().todos.find((t) => t.id === id);
+
+          // Cancel any scheduled reminders (fire and forget)
+          if (prevTodo?.reminders?.length) {
+            cancelAllItemReminders(prevTodo.reminders);
+          }
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -2047,6 +2072,11 @@ export const useGremlyStore = create<GremlyState>()(
         deleteHabit: async (id: string) => {
           const prevHabit = get().habits.find((h) => h.id === id);
 
+          // Cancel any scheduled reminders (fire and forget)
+          if (prevHabit?.reminders?.length) {
+            cancelAllItemReminders(prevHabit.reminders);
+          }
+
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
             habits: state.habits.filter((h) => h.id !== id),
@@ -2148,6 +2178,12 @@ export const useGremlyStore = create<GremlyState>()(
 
             // 4. EMIT EVENT for backward compatibility (strangler fig pattern)
             eventBus.emit('ItemCompleted', { id, type: 'habit', source: STORE_EVENT_SOURCE });
+
+            // Cancel 'once' frequency reminders (daily reminders persist since habit recurs)
+            if (prevHabit?.reminders?.length) {
+              const onceReminders = prevHabit.reminders.filter((r: any) => r.frequency === 'once');
+              if (onceReminders.length) cancelAllItemReminders(onceReminders);
+            }
 
             // 5. Set start_date on FIRST completion if currently null
             // This ensures habits get a start_date when the user actually begins doing them
@@ -2436,6 +2472,11 @@ export const useGremlyStore = create<GremlyState>()(
         archiveHabit: async (id: string, reason?: string) => {
           const now = new Date().toISOString();
           const prevHabit = get().habits.find((h) => h.id === id);
+
+          // Cancel any scheduled reminders (fire and forget)
+          if (prevHabit?.reminders?.length) {
+            cancelAllItemReminders(prevHabit.reminders);
+          }
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({

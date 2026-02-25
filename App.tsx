@@ -157,6 +157,8 @@ export default function App() {
         () => eventBus.emit('notification:open_flow', { type: 'morning' }),
         () => eventBus.emit('notification:open_flow', { type: 'evening' }),
         () => eventBus.emit('notification:open_flow', { type: 'weekly_summary' }),
+        (itemId: string, itemType: string) =>
+          eventBus.emit('notification:open_item', { itemId, itemType }),
       );
     };
 

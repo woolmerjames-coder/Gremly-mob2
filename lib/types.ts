@@ -129,7 +129,7 @@ export interface Habit {
 
   // Extended habit fields (Phase 7+)
   frequency_value?: any; // FrequencyValue JSON (daily, weekly, monthly, custom_days, n_per_period)
-  reminders?: any[] | null; // ReminderRow[] JSON (nullable in DB)
+  reminders?: ItemReminder[] | null; // Per-item reminders JSON (nullable in DB)
   notes?: string | null;
   tags?: string[] | null; // Searchable, AI-editable JSON array persisted in DB
   tags_meta?: TagsMeta | null;
@@ -210,7 +210,7 @@ export interface Todo {
   due_day?: string | null; // YYYY-MM-DD format - canonical field for day-based logic
   due_time?: string | null; // HH:mm format or null
   time_estimate_minutes?: number | null; // Estimated minutes to complete
-  reminders?: any[] | null; // ReminderRow[] JSON
+  reminders?: ItemReminder[] | null; // Per-item reminders JSON
   undefined_due?: boolean; // true if user wants "Might be today?" treatment (legacy)
   notes?: string | null; // Additional notes
   tags?: string[] | null; // Searchable, AI-editable JSON array persisted in DB
@@ -344,7 +344,7 @@ export interface Note {
   // Journal-specific fields (Phase 7+) - only used when subtype='journal'
   date?: string | null; // ISO date for journal entry (may differ from created_at)
   mood?: Mood[] | null; // Multi-select mood array (uses shared/moods.ts)
-  reminders?: any[] | null; // ReminderRow[] JSON for journal reminders
+  reminders?: ItemReminder[] | null; // Per-item reminders JSON for journal reminders
   journal_subtype?: 'reflection' | 'gratitude' | 'dream' | 'review' | null; // AI-only journal classification
   tags_meta?: TagsMeta | null;
 
@@ -742,7 +742,7 @@ export interface Person {
   dates?: PersonDate[] | null; // Important dates (birthdays, anniversaries, etc.)
   notes?: string | null; // Gift ideas, last connect notes, etc.
   notes_fmt?: 'bullets' | 'numbers' | 'checkboxes' | null; // Formatting style for notes
-  reminders?: any[] | null; // ReminderRow[] for check-ins
+  reminders?: ItemReminder[] | null; // Per-item reminders for check-ins
   space_id?: ID | null; // Organize people by space/context
   tags?: string[] | null; // Categories/labels
 
@@ -1113,6 +1113,24 @@ export interface DefaultReminderPreferences {
   dayBefore: boolean;
   morningOf: boolean;
   minutesBefore: number | null;
+}
+
+/**
+ * Per-item reminder for todos, habits, and notes.
+ * Stored in the `reminders` JSON column on each entity.
+ * Local notifications are scheduled via expo-notifications.
+ */
+export interface ItemReminder {
+  /** Unique ID for this reminder */
+  id: string;
+  /** Time in "HH:MM" format (user's local time) */
+  time: string;
+  /** 'once' fires and should be removed after; 'daily' recurs */
+  frequency: 'once' | 'daily';
+  /** Required for 'once' frequency — the date to fire (YYYY-MM-DD) */
+  date?: string;
+  /** Expo notification ID returned from scheduleNotificationAsync (for cancellation) */
+  notificationId?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════

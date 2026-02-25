@@ -86,7 +86,8 @@ export type EventMap = {
   DailyBriefCleared: { date: string };
   // Notification response events
   'notification:open_flow': { type: 'morning' | 'evening' | 'weekly_summary' };
-  // Tomorrow Brief navigation event\n  openTomorrowBrief: Record<string, never>;\n  // Day rollover event\n  'day:rollover': { date: string };\n};", "oldString": "  // Tomorrow Brief navigation event
+  'notification:open_item': { itemId: string; itemType: string };
+  // Tomorrow Brief navigation event
   openTomorrowBrief: Record<string, never>;
   // Day rollover event
   'day:rollover': { date: string };
