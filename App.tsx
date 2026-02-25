@@ -147,7 +147,11 @@ export default function App() {
         // Emit event after a short delay to ensure navigation is ready
         setTimeout(() => {
           eventBus.emit('notification:open_flow', {
-            type: initialNotification.type as 'morning' | 'evening' | 'weekly_summary',
+            type: initialNotification.type as
+              | 'morning'
+              | 'evening'
+              | 'weekly_summary'
+              | 'afternoon_checkin',
           });
         }, 1000);
       }

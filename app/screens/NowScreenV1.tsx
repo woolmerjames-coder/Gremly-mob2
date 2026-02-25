@@ -617,7 +617,7 @@ export default function NowScreenV1() {
   // Handle notification tap to open Morning Brief, Evening Sweep, or Weekly Summary
   useEffect(() => {
     const handleNotificationOpen = (payload: {
-      type: 'morning' | 'evening' | 'weekly_summary';
+      type: 'morning' | 'evening' | 'weekly_summary' | 'afternoon_checkin';
     }) => {
       if (payload.type === 'morning') {
         console.log('[NowScreenV1] Opening Morning Brief from notification');
@@ -632,6 +632,11 @@ export default function NowScreenV1() {
       if (payload.type === 'weekly_summary') {
         console.log('[NowScreenV1] Opening Weekly Summary from notification');
         navigation.navigate('WeeklySummary');
+      }
+      // Afternoon check-in — already on NowScreen, no navigation needed
+      if (payload.type === 'afternoon_checkin') {
+        console.log('[NowScreenV1] Opening Now screen from afternoon check-in');
+        // Could optionally scroll to lock-ins section in the future
       }
     };
 

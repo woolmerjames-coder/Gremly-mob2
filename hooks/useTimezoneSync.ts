@@ -1,7 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '../lib/supabase/client';
-import { useAuth } from '../providers/AuthProvider';
 
 const HEARTBEAT_DEBOUNCE_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -55,9 +54,23 @@ async function writeHeartbeat(userId: string): Promise<void> {
 }
 
 export function useTimezoneSync(): void {
-  const { user } = useAuth();
-  const userId = user?.id ?? null;
+  const [userId, setUserId] = useState<string | null>(null);
   const lastHeartbeatRef = useRef<number>(0);
+
+  // Get userId directly from Supabase auth (avoids AuthProvider dependency)
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUserId(session?.user?.id ?? null);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserId(session?.user?.id ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   // Sync on mount / userId change
   useEffect(() => {

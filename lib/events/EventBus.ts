@@ -85,7 +85,9 @@ export type EventMap = {
   DailyBriefSaved: { date: string };
   DailyBriefCleared: { date: string };
   // Notification response events
-  'notification:open_flow': { type: 'morning' | 'evening' | 'weekly_summary' };
+  'notification:open_flow': {
+    type: 'morning' | 'evening' | 'weekly_summary' | 'afternoon_checkin';
+  };
   'notification:open_item': { itemId: string; itemType: string };
   // Tomorrow Brief navigation event
   openTomorrowBrief: Record<string, never>;
