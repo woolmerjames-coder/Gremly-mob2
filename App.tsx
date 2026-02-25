@@ -27,6 +27,11 @@ import {
   getInitialNotification,
 } from './src/utils/notifications';
 import { eventBus } from './lib/events';
+import { useGremlyStore } from './lib/store/useGremlyStore';
+import { scheduleQuickReminder } from './lib/notifications/itemReminderService';
+import NotificationQuickActionSheet from './components/notifications/NotificationQuickActionSheet';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from './navigation/RootNavigator';
 import celebrationController from './app/features/celebration/CelebrationController';
 import AgeUpCelebrationModal from './components/ritual/AgeUpCelebrationModal';
 import { GlobalEventPopup } from './components/calendar/GlobalEventPopup';
@@ -48,6 +53,14 @@ export default function App() {
     visible: false,
     age: 0,
   });
+
+  const [quickActionState, setQuickActionState] = useState<{
+    visible: boolean;
+    entityId: string | null;
+    entityType: 'todo' | 'habit' | 'event' | null;
+  }>({ visible: false, entityId: null, entityType: null });
+
+  const navigationRef = useRef<any>(null);
 
   // Start offline sync
   useEffect(() => {
@@ -141,35 +154,139 @@ export default function App() {
     let cleanup: (() => void) | null = null;
 
     const setup = async () => {
-      // Check if app was opened from a notification
-      const initialNotification = await getInitialNotification();
-      if (initialNotification?.action === 'open_flow') {
-        // Emit event after a short delay to ensure navigation is ready
+      // Check cold-start notification
+      const initialData = await getInitialNotification();
+      if (initialData) {
         setTimeout(() => {
-          eventBus.emit('notification:open_flow', {
-            type: initialNotification.type as
-              | 'morning'
-              | 'evening'
-              | 'weekly_summary'
-              | 'afternoon_checkin',
-          });
+          if (initialData.action === 'open_flow') {
+            eventBus.emit('notification:open_flow', { type: initialData.type });
+          } else if (initialData.action === 'open_item') {
+            eventBus.emit('notification:open_item', {
+              itemId: initialData.entityId ?? initialData.itemId,
+              itemType: initialData.entityType ?? initialData.itemType,
+            });
+          }
         }, 1000);
       }
 
-      // Set up listener for future notification taps
-      cleanup = await setupNotificationResponseHandler(
-        () => eventBus.emit('notification:open_flow', { type: 'morning' }),
-        () => eventBus.emit('notification:open_flow', { type: 'evening' }),
-        () => eventBus.emit('notification:open_flow', { type: 'weekly_summary' }),
-        (itemId: string, itemType: string) =>
-          eventBus.emit('notification:open_item', { itemId, itemType }),
-      );
+      cleanup = await setupNotificationResponseHandler({
+        onOpenFlow: (type) => eventBus.emit('notification:open_flow', { type }),
+
+        onOpenItem: (entityId, entityType) =>
+          eventBus.emit('notification:open_item', { itemId: entityId, itemType: entityType }),
+
+        onDoneAction: async (entityId, entityType) => {
+          try {
+            if (entityType === 'todo') {
+              await useGremlyStore.getState().completeTodo(entityId);
+            }
+            // For habits, emit an event that the habit check-in can handle
+            if (entityType === 'habit') {
+              eventBus.emit('notification:habit_done', { entityId });
+            }
+            console.log(`[Notifications] Completed ${entityType} ${entityId} from notification`);
+          } catch (err) {
+            console.error('[Notifications] Done action failed:', err);
+          }
+        },
+
+        onSnooze: async (entityId, entityType, seconds, label) => {
+          try {
+            const entity =
+              entityType === 'todo'
+                ? useGremlyStore.getState().todos.find((t) => t.id === entityId)
+                : useGremlyStore.getState().habits.find((h) => h.id === entityId);
+
+            const title = (entity as any)?.title ?? (entity as any)?.name ?? 'Reminder';
+
+            await scheduleQuickReminder(entityId, title, entityType as 'todo' | 'habit', seconds);
+            console.log(`[Notifications] Snoozed ${entityType} ${entityId} by ${label}`);
+          } catch (err) {
+            console.error('[Notifications] Snooze failed:', err);
+          }
+        },
+
+        onSnoozBeforeDue: async (entityId, entityType, dueDate, dueTime) => {
+          try {
+            const entity =
+              entityType === 'todo'
+                ? useGremlyStore.getState().todos.find((t) => t.id === entityId)
+                : useGremlyStore.getState().habits.find((h) => h.id === entityId);
+
+            const title = (entity as any)?.title ?? (entity as any)?.name ?? 'Reminder';
+
+            // Calculate 30 minutes before due
+            if (dueDate && dueTime) {
+              const [h, m] = dueTime.split(':').map(Number);
+              const dueDateTime = new Date(`${dueDate}T00:00:00`);
+              dueDateTime.setHours(h, m, 0, 0);
+              const snoozeTarget = new Date(dueDateTime.getTime() - 30 * 60 * 1000);
+              const secondsFromNow = Math.max(
+                60,
+                Math.floor((snoozeTarget.getTime() - Date.now()) / 1000),
+              );
+              await scheduleQuickReminder(
+                entityId,
+                title,
+                entityType as 'todo' | 'habit',
+                secondsFromNow,
+              );
+            } else {
+              // Fallback: snooze 1 hour if no due time
+              await scheduleQuickReminder(entityId, title, entityType as 'todo' | 'habit', 3600);
+            }
+            console.log(`[Notifications] Snoozed ${entityType} ${entityId} to 30min before due`);
+          } catch (err) {
+            console.error('[Notifications] Snooze-before-due failed:', err);
+          }
+        },
+
+        onStartFlow: (type) => {
+          eventBus.emit('notification:open_flow', { type });
+        },
+      });
     };
 
     setup();
 
     return () => {
       if (cleanup) cleanup();
+    };
+  }, []);
+
+  // Wire eventBus → navigation for notification deep links + quick action sheet
+  useEffect(() => {
+    const unsubFlow = eventBus.on('notification:open_flow', (payload) => {
+      const nav = navigationRef.current;
+      if (!nav) return;
+
+      switch (payload.type) {
+        case 'morning':
+          nav.navigate('MorningBrief');
+          break;
+        case 'evening':
+          nav.navigate('Sweep');
+          break;
+        case 'weekly_summary':
+          nav.navigate('WeeklySummary');
+          break;
+        case 'afternoon_checkin':
+          nav.navigate('Tabs', { screen: 'Today' });
+          break;
+      }
+    });
+
+    const unsubItem = eventBus.on('notification:open_item', (payload) => {
+      setQuickActionState({
+        visible: true,
+        entityId: payload.itemId,
+        entityType: payload.itemType as 'todo' | 'habit' | 'event',
+      });
+    });
+
+    return () => {
+      unsubFlow();
+      unsubItem();
     };
   }, []);
 
@@ -204,6 +321,7 @@ export default function App() {
                       <CelebrationProvider>
                         <OverlayProvider>
                           <NavigationContainer
+                            ref={navigationRef}
                             theme={scheme === 'dark' ? DarkTheme : DefaultTheme}
                             onStateChange={() => Keyboard.dismiss()}
                           >
@@ -228,6 +346,41 @@ export default function App() {
         visible={ageUpState.visible}
         newAge={ageUpState.age}
         onDismiss={handleAgeUpDismiss}
+      />
+
+      {/* Notification quick-action sheet - slides up on entity reminder tap */}
+      <NotificationQuickActionSheet
+        visible={quickActionState.visible}
+        entityId={quickActionState.entityId}
+        entityType={quickActionState.entityType}
+        onDismiss={() => setQuickActionState({ visible: false, entityId: null, entityType: null })}
+        onDone={async (entityId, entityType) => {
+          try {
+            if (entityType === 'todo') {
+              await useGremlyStore.getState().completeTodo(entityId);
+            }
+            if (entityType === 'habit') {
+              eventBus.emit('notification:habit_done', { entityId });
+            }
+          } catch (err) {
+            console.error('[QuickAction] Done failed:', err);
+          }
+        }}
+        onSnooze={async (entityId, entityType, seconds) => {
+          try {
+            const entity =
+              entityType === 'todo'
+                ? useGremlyStore.getState().todos.find((t) => t.id === entityId)
+                : useGremlyStore.getState().habits.find((h) => h.id === entityId);
+            const title = (entity as any)?.title ?? (entity as any)?.name ?? 'Reminder';
+            await scheduleQuickReminder(entityId, title, entityType as 'todo' | 'habit', seconds);
+          } catch (err) {
+            console.error('[QuickAction] Snooze failed:', err);
+          }
+        }}
+        onOpen={(entityId, entityType) => {
+          eventBus.emit('overlay:open', { entityId, entityType });
+        }}
       />
     </View>
   );

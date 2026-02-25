@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import type { ItemReminder } from '../types';
+import { NOTIFICATION_CATEGORIES } from '../../src/utils/notifications';
 
 const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -13,6 +14,8 @@ export async function scheduleItemReminder(
   itemTitle: string,
   itemType: 'todo' | 'habit',
   reminder: ItemReminder,
+  dueDate?: string | null,
+  dueTime?: string | null,
 ): Promise<string | null> {
   if (isExpoGo) {
     console.log('[itemReminderService] Skipping schedule in Expo Go');
@@ -21,10 +24,22 @@ export async function scheduleItemReminder(
 
   try {
     const title = itemType === 'habit' ? 'Habit reminder' : 'Reminder';
+    const categoryIdentifier = dueDate
+      ? NOTIFICATION_CATEGORIES.ENTITY_REMINDER_DEADLINE
+      : NOTIFICATION_CATEGORIES.ENTITY_REMINDER;
     const content: Notifications.NotificationContentInput = {
       title,
       body: itemTitle,
-      data: { type: 'item_reminder', itemId, itemType, action: 'open_item' },
+      categoryIdentifier,
+      data: {
+        type: 'item_reminder',
+        notificationType: 'entity_reminder',
+        entityId: itemId,
+        entityType: itemType,
+        action: 'open_item',
+        dueDate: dueDate ?? null,
+        dueTime: dueTime ?? null,
+      },
       sound: 'default',
     };
 
@@ -83,6 +98,8 @@ export async function scheduleQuickReminder(
   itemTitle: string,
   itemType: 'todo' | 'habit',
   seconds: number,
+  dueDate?: string | null,
+  dueTime?: string | null,
 ): Promise<string | null> {
   if (isExpoGo) {
     console.log('[itemReminderService] Skipping quick reminder in Expo Go');
@@ -90,11 +107,23 @@ export async function scheduleQuickReminder(
   }
 
   try {
+    const categoryIdentifier = dueDate
+      ? NOTIFICATION_CATEGORIES.ENTITY_REMINDER_DEADLINE
+      : NOTIFICATION_CATEGORIES.ENTITY_REMINDER;
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
         title: 'Reminder',
         body: itemTitle,
-        data: { type: 'item_reminder', itemId, itemType, action: 'open_item' },
+        categoryIdentifier,
+        data: {
+          type: 'item_reminder',
+          notificationType: 'entity_reminder',
+          entityId: itemId,
+          entityType: itemType,
+          action: 'open_item',
+          dueDate: dueDate ?? null,
+          dueTime: dueTime ?? null,
+        },
         sound: 'default',
       },
       trigger: {

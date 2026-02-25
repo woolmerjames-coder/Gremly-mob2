@@ -89,6 +89,17 @@ export type EventMap = {
     type: 'morning' | 'evening' | 'weekly_summary' | 'afternoon_checkin';
   };
   'notification:open_item': { itemId: string; itemType: string };
+  'notification:done_action': { entityId: string; entityType: string };
+  'notification:snooze': { entityId: string; entityType: string; seconds: number; label: string };
+  'notification:snooze_before_due': {
+    entityId: string;
+    entityType: string;
+    dueDate: string;
+    dueTime: string | null;
+  };
+  'notification:habit_done': { entityId: string };
+  // Overlay open event (triggered from notification quick-action sheet)
+  'overlay:open': { entityId: string; entityType: string };
   // Tomorrow Brief navigation event
   openTomorrowBrief: Record<string, never>;
   // Day rollover event

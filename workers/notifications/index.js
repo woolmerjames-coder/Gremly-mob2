@@ -304,7 +304,10 @@ async function sendScheduledNotifications(env) {
         continue;
       }
 
-      await sendExpoPush(user.token, user.title, user.body, user.type);
+      await sendExpoPush(user.token, user.title, user.body, user.type, {
+        _categoryId: user.type === 'morning' ? 'MORNING_BRIEF' : 'EVENING_SWEEP',
+        notificationType: user.type === 'morning' ? 'morning_brief' : 'evening_sweep',
+      });
       sent++;
       console.log(`[Notifications] Sent ${user.type} to user ${user.user_id}`);
     } catch (err) {
@@ -529,7 +532,10 @@ async function sendScheduledNotifications(env) {
           body = `You've got ${context.overdueCount} open item${context.overdueCount === 1 ? '' : 's'}. Want to lock one in for this afternoon?`;
         }
 
-        await sendExpoPush(user.token, title, body, 'afternoon_checkin');
+        await sendExpoPush(user.token, title, body, 'afternoon_checkin', {
+          _categoryId: 'AFTERNOON_CHECKIN',
+          notificationType: 'afternoon_checkin',
+        });
         sent++;
         console.log(`[Notifications] Afternoon check-in sent to ${user.user_id}`);
       } catch (err) {
@@ -808,7 +814,8 @@ function isWithinWindow(currentHour, currentMin, targetHour, targetMin, windowMi
   return wrappedDiff <= windowMinutes;
 }
 
-async function sendExpoPush(token, title, body, notificationType) {
+async function sendExpoPush(token, title, body, notificationType, extraData = {}) {
+  const { _categoryId, ...dataExtras } = extraData;
   const response = await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -817,9 +824,11 @@ async function sendExpoPush(token, title, body, notificationType) {
       title: title,
       body: body,
       sound: 'default',
+      categoryId: _categoryId || null,
       data: {
         type: notificationType,
         action: 'open_flow',
+        ...dataExtras,
       },
     }),
   });
@@ -1288,6 +1297,7 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
   const OOO_PATTERN = /\b(out of office|ooo|pto|on leave|on vacation|holiday)\b/i;
   const THIRD_PARTY_APPT_PATTERN =
     /^[A-Z][a-z]+ ?[A-Z]?\.?[-–]\s*(doctor|dentist|appt|appointment|checkup|check.up|physio|therapy|therapist|vet)\b/i;
+
   function deduplicateEvents(events) {
     const seen = new Set();
     return events.filter((e) => {
