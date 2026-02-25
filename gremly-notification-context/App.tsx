@@ -33,7 +33,6 @@ import { GlobalEventPopup } from './components/calendar/GlobalEventPopup';
 import { GlobalEventTimePicker } from './components/calendar/GlobalEventTimePicker';
 import { initOfflineSync } from './lib/network/offlineSync';
 import { useDayRollover } from './lib/today/hooks/useDayRollover';
-import { useTimezoneSync } from './hooks/useTimezoneSync';
 
 // Prevent the splash screen from auto-hiding before app is ready
 SplashScreen.preventAutoHideAsync();
@@ -169,9 +168,6 @@ export default function App() {
 
   // Detect calendar day changes (background resume + midnight timer)
   useDayRollover();
-
-  // Auto-sync timezone + activity heartbeat for notification delivery
-  useTimezoneSync();
 
   // Hide splash screen after root view layout
   const onLayoutRootView = useCallback(async () => {

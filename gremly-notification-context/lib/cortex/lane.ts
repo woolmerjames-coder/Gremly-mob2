@@ -1,0 +1,39 @@
+// lib/cortex/lane.ts
+export type Lane = 'catchall' | 'space_chat' | 'system';
+
+export interface CortexContextBase {
+  lane?: Lane; // Optional with default 'system' for backward compatibility
+  // keep space for future fields we already pass around elsewhere
+  spaceId?: string | null;
+  messageId?: string | null;
+  userId?: string | null;
+  /** Track the kind of the last assistant message for anti-spam logic */
+  recentAssistantKind?: 'smalltalk' | 'decision' | 'classification' | null;
+  /** Phase 10.7B: Track recent intents to detect reiteration */
+  recentIntentBuffer?: Array<{ kind: string; turn: number }>;
+  /** Phase 10.7B: Turn counter for cooldown logic */
+  currentTurn?: number;
+  /** Phase 10.7B: Last turn that showed a chip */
+  lastChipTurn?: number;
+  /** Phase 10.7C: Track which topics have been clarified (curiosity phase) */
+  clarifiedTopics?: Set<string>;
+  /** Phase 10.7D: Intent cooldown turns remaining (0 = can show chips) */
+  intentCooldownTurns?: number;
+  /** Phase 11.1: Intent-specific cooldown tracking */
+  intentCooldownMap?: Record<string, number>;
+  /** Phase 10.7D: Running summary for context (~700 chars) */
+  runningSummary?: string | null;
+  /** Phase 10.7D: Context window (last N messages) */
+  contextWindow?: Array<{ role: 'user' | 'assistant'; text: string }>;
+  /** Phase 11.2: Track consecutive questions to prevent overload */
+  consecutiveQuestions?: number;
+  /** Phase 14: Conversation context for cross-message memory */
+  conversationContext?: {
+    lastActivity?: string | null;
+    lastFrequency?: string | null;
+    lastDuration?: string | null;
+    contextExpiry?: number;
+    buildingMode?: 'habit' | 'todo' | 'note' | null;
+    buildingStartedAt?: number;
+  };
+}

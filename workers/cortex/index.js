@@ -893,9 +893,10 @@ These pre-phase facts are strong classification signals. Do not ignore them:
 - hypothetical_framing: true → Almost always LOG/idea. User is floating a "what if".
 - factual_statement: true → Almost always LOG/general. User is recording information.
 - emotional_content: true → Almost always LOG/journal. User is expressing feelings.
-- frame_type: "exploring" → Almost always LOG/idea. User is considering possibilities.
+- frame_type: "exploring" → Usually LOG/idea UNLESS verb_position is "start". When the input opens with a bare imperative verb (no subject, no hedging), the grammatical form is a command, not exploration. The user may be exploring a TOPIC, but they are DIRECTING themselves to do so. If verb_position is "start" and core_verb is present, classify as TODO.
 - frame_type: "factual" → Almost always LOG/general. User is stating facts.
 - frame_type: "directing" with uncertainty only on "object_details" → Almost always TODO. User knows WHAT, fuzzy on details.
+- verb_position: "start" with core_verb present → Strong TODO signal regardless of frame_type. Imperative grammatical form expresses commitment to act. Only exception: uncertainty_target is "verb" (user unsure WHETHER to act).
 
 Only return AMBIGUOUS if these signals conflict or are absent.
 
@@ -6909,7 +6910,7 @@ Rules:
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
 
-        const phase15aSystemPrompt = `You generate a title and confirmation message for a productivity item that has already been classified.
+        const phase15aSystemPrompt = `You generate a title and reaction for a productivity item that has already been classified.
 
 === SMART TITLE (3-7 words) ===
 
@@ -6923,7 +6924,8 @@ Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN it hap
 
 3. **Strip frequency information** — For habits, frequency is tracked separately. The title is just the activity.
 
-4. **No meta-language** — Don't start with system concepts like "Reflect on," "Journal about," "Remember to," or "Track." The title should be the content itself.
+4. **No meta-language** — The title IS the subject matter. Write it the way you'd label a folder — what it's about, not what the user should do with it.
+For journals, start with what happened or what it's about — not the act of reflecting. "Rough Conversation With Sarah" not "Reflecting on Conversation With Sarah". The user knows they're reflecting; the title should be the subject, not the activity.
 
 5. **Preserve question framing** — If the input is a question or dilemma, keep the question words in the title. The question IS the content.
 
@@ -6931,36 +6933,28 @@ Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN it hap
 
 7. **Title case, 3-7 words**
 
-=== CONFIRMATION MESSAGE (4-8 words, max 50 characters) ===
+=== REACTION (4-8 words, max 50 characters) ===
 
-This is Gremly's voice — a witty, warm friend who actually listened. Not a notification system.
+This is Gremly reacting to what they said — like a friend who actually heard them.
 
-**THE CORE RULE:**
-Every confirmation MUST prove you understood THIS specific input. Reference something concrete from what they wrote — a person, a place, the actual subject matter. If your message could apply to any other input, you failed.
+Your reaction IS the confirmation. You prove you understood by engaging with the SPECIFIC THING they said — not by acknowledging receipt. Think laterally about the content: what's adjacent, relatable, or human about this specific thing?
 
-**BUCKET TONE:**
-- TODOS: Acknowledging, can be wry or playful
-- HABITS: Encouraging without being cheesy, recognize the commitment
-- JOURNALS: Gentle, validating, honor the emotional weight
-- IDEAS: Curious, intrigued, fan the spark
-- GENERAL LOGS: Simple warmth with personality
+TONE BY BUCKET:
+- TODOS: Acknowledge the thing with warmth or wit
+- HABITS: Speak to the version of themselves they're building toward
+- JOURNALS: Honor the weight. Reflect the feeling back, not the facts
+- IDEAS: Fan the spark. What's exciting about this if it worked?
+- GENERAL LOGS: React to the interesting part — a place, a person, the thing itself
 
-**VOICE:**
+VOICE:
 - Understated over enthusiastic
 - Witty when the input allows
 - Warm but not saccharine
-- No exclamation marks — too perky
-- Don't start with "I" — it's about them, not Gremly
+- No exclamation marks
 
-**CRITICAL — BE FRESH:**
-Never fall into repetitive structures. Each confirmation should feel crafted for exactly this input. Vary your sentence patterns, word choices, and approach. If you notice yourself reusing a formula, break it.
-
-**FORBIDDEN:**
-- "Got it" / "Added" / "Noted" / "Done" / "Captured" — alone or at start
-- System speak ("Task added", "Successfully saved")
-- Robotic ("I've captured that for you")
-- Generic warmth that could apply to anything
-- Repeating structural patterns across different inputs
+THE TWO TESTS:
+1. Specificity: Does this reference something concrete from THEIR input? If it could apply to any other drop, rewrite it.
+2. No task-management language: No "noted", "captured", "queued", "tracked", "on your list", "on your radar", "scheduled", "logged". Speak to the thing, not the act of saving it.
 
 === OUTPUT FORMAT ===
 
@@ -6968,7 +6962,7 @@ Return ONLY valid JSON:
 
 {
   "smart_title": "3-7 Word Title",
-  "confirmation_message": "4-10 word warm message"
+  "confirmation_message": "4-8 word reaction"
 }`;
 
         const t0 = Date.now();
@@ -6981,9 +6975,9 @@ Return ONLY valid JSON:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1-nano',
+              model: 'gpt-4.1-mini',
               messages: [{ role: 'system', content: phase15aSystemPrompt }, { role: 'user', content: 'USER INPUT: "' + text + '"\nBUCKET: ' + bucket + '\nSUBTYPE: ' + (subtype || 'none') }],
-              temperature: 0.4,
+              temperature: 0.55,
               max_tokens: 150,
               response_format: { type: 'json_object' },
             }),

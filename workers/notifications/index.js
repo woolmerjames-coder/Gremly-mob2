@@ -1,5 +1,5 @@
 /**
- * Gremly Notification Worker v3
+ * Gremly Notification Worker v4
  *
  * Sends morning and evening push notifications via Expo Push API.
  * Runs on a cron schedule (every 5 minutes) and checks each user's
@@ -7,8 +7,8 @@
  *
  * Features:
  * - Per-user timezone-aware scheduling
- * - Deduplication via morning_last_sent / evening_last_sent columns
- * - 5-minute window matching (aligns with cron interval)
+ * - Atomic deduplication via claim_notification_slot RPC (prevents race conditions)
+ * - 5-minute window matching (aligns with cron interval) with midnight wraparound
  * - Deep link data payload for in-app routing
  * - Weekly summary payload builder (queries Supabase for Section 8.2 payload)
  *
@@ -123,7 +123,7 @@ export default {
       });
     }
 
-    return new Response('Gremly Notification Worker v3. Use /test to trigger manually.', {
+    return new Response('Gremly Notification Worker v4. Use /test to trigger manually.', {
       status: 200,
     });
   },
@@ -191,17 +191,12 @@ async function sendScheduledNotifications(env) {
 
     const timezone = pref.timezone || 'America/Los_Angeles';
     const userTime = getTimeInTimezone(now, timezone);
-    const todayInUserTz = getDateInTimezone(now, timezone);
 
     // Check morning notification
     if (pref.morning_enabled && pref.morning_time) {
       const [mornHour, mornMin] = parseTime(pref.morning_time);
-      const alreadySentToday = pref.morning_last_sent === todayInUserTz;
 
-      if (
-        !alreadySentToday &&
-        isWithinWindow(userTime.hour, userTime.minute, mornHour, mornMin, 5)
-      ) {
+      if (isWithinWindow(userTime.hour, userTime.minute, mornHour, mornMin, 5)) {
         usersToNotify.push({
           user_id: pref.user_id,
           token: token,
@@ -215,9 +210,8 @@ async function sendScheduledNotifications(env) {
     // Check evening notification
     if (pref.evening_enabled && pref.evening_time) {
       const [eveHour, eveMin] = parseTime(pref.evening_time);
-      const alreadySentToday = pref.evening_last_sent === todayInUserTz;
 
-      if (!alreadySentToday && isWithinWindow(userTime.hour, userTime.minute, eveHour, eveMin, 5)) {
+      if (isWithinWindow(userTime.hour, userTime.minute, eveHour, eveMin, 5)) {
         usersToNotify.push({
           user_id: pref.user_id,
           token: token,
@@ -237,14 +231,8 @@ async function sendScheduledNotifications(env) {
       const userDayOfWeek = getDayOfWeekInTimezone(now, timezone);
       const isCorrectDay = userDayOfWeek === configuredDay;
 
-      // Check if already generated for this week
-      const { weekStart } = computeWeekBoundaries(now, timezone);
-      const weekStartDate = weekStart.split('T')[0]; // "YYYY-MM-DD"
-      const alreadyGenerated = pref.weekly_last_sent === weekStartDate;
-
       if (
         isCorrectDay &&
-        !alreadyGenerated &&
         isWithinWindow(userTime.hour, userTime.minute, weeklyHour, weeklyMin, 5)
       ) {
         usersToNotify.push({
@@ -279,13 +267,18 @@ async function sendScheduledNotifications(env) {
   // --- Process immediate (morning/evening) notifications sequentially ---
   for (const user of immediateUsers) {
     try {
-      await sendExpoPush(user.token, user.title, user.body, user.type);
-
       const userTimezone =
         prefs.find((p) => p.user_id === user.user_id)?.timezone || 'America/Los_Angeles';
       const todayInUserTz = getDateInTimezone(now, userTimezone);
-      await updateLastSent(supabaseUrl, supabaseKey, user.user_id, user.type, todayInUserTz);
 
+      // Atomic claim — if another invocation already sent, skip
+      const claimed = await claimNotificationSlot(supabaseUrl, supabaseKey, user.user_id, user.type, todayInUserTz);
+      if (!claimed) {
+        console.log(`[Notifications] Slot already claimed for ${user.type} - ${user.user_id}, skipping`);
+        continue;
+      }
+
+      await sendExpoPush(user.token, user.title, user.body, user.type);
       sent++;
       console.log(`[Notifications] Sent ${user.type} to user ${user.user_id}`);
     } catch (err) {
@@ -296,14 +289,28 @@ async function sendScheduledNotifications(env) {
 
   // --- Process weekly summary notifications in parallel batches ---
   if (weeklyUsers.length > 0) {
+    // Claim slots for all weekly users before starting expensive generation
+    const claimedWeeklyUsers = [];
+    for (const user of weeklyUsers) {
+      const { weekStart } = computeWeekBoundaries(new Date(), user.timezone);
+      const weekStartDate = weekStart.split('T')[0];
+      const claimed = await claimNotificationSlot(supabaseUrl, supabaseKey, user.user_id, 'weekly', weekStartDate);
+      if (claimed) {
+        claimedWeeklyUsers.push(user);
+      } else {
+        console.log(`[Notifications] Weekly slot already claimed for ${user.user_id}, skipping`);
+      }
+    }
+
     const WEEKLY_BATCH_SIZE = 5;
     console.log(
-      `[Notifications] Processing ${weeklyUsers.length} weekly summaries in batches of ${WEEKLY_BATCH_SIZE}`,
+      `[Notifications] Processing ${claimedWeeklyUsers.length} weekly summaries in batches of ${WEEKLY_BATCH_SIZE}`,
     );
 
-    const batchResults = await processInBatches(weeklyUsers, WEEKLY_BATCH_SIZE, async (user) => {
+    const batchResults = await processInBatches(claimedWeeklyUsers, WEEKLY_BATCH_SIZE, async (user) => {
       console.log(`[Notifications] Generating weekly summary for ${user.user_id}`);
 
+      let pushSent = false;
       try {
         // Step 1: Build payload
         console.log(`[WeeklySummary] Step 1: Starting payload build for ${user.user_id}`);
@@ -381,16 +388,7 @@ async function sendScheduledNotifications(env) {
           notificationBody,
           'weekly_summary',
         );
-
-        // Step 5: Update weekly_last_sent
-        const { weekStart } = computeWeekBoundaries(new Date(), user.timezone);
-        await updateLastSent(
-          supabaseUrl,
-          supabaseKey,
-          user.user_id,
-          'weekly',
-          weekStart.split('T')[0],
-        );
+        pushSent = true;
 
         console.log(`[Notifications] Weekly summary generated and sent for ${user.user_id}`);
         return { success: true, user_id: user.user_id };
@@ -401,35 +399,26 @@ async function sendScheduledNotifications(env) {
           genErr.stack || genErr,
         );
 
-        // Fallback: send notification with generic body
-        try {
-          await sendExpoPush(
-            user.token,
-            'Your week in review is ready',
-            'Tap to see your weekly summary.',
-            'weekly_summary',
-          );
-
-          // Still mark as sent so we don't retry every 5 minutes
-          const { weekStart } = computeWeekBoundaries(new Date(), user.timezone);
-          await updateLastSent(
-            supabaseUrl,
-            supabaseKey,
-            user.user_id,
-            'weekly',
-            weekStart.split('T')[0],
-          );
-
-          console.log(`[Notifications] Weekly fallback notification sent for ${user.user_id}`);
-          return { success: true, user_id: user.user_id };
-        } catch (fallbackErr) {
-          console.error(
-            `[WeeklySummary] Fallback notification ALSO failed for ${user.user_id}:`,
-            fallbackErr.message,
-            fallbackErr.stack || fallbackErr,
-          );
-          return { success: false, user_id: user.user_id, error: fallbackErr.message };
+        // Only send fallback if the primary push wasn't already sent
+        if (!pushSent) {
+          try {
+            await sendExpoPush(
+              user.token,
+              'Your week in review is ready',
+              'Tap to see your weekly summary.',
+              'weekly_summary',
+            );
+            console.log(`[Notifications] Weekly fallback notification sent for ${user.user_id}`);
+          } catch (fallbackErr) {
+            console.error(
+              `[WeeklySummary] Fallback also failed for ${user.user_id}:`,
+              fallbackErr.message,
+              fallbackErr.stack || fallbackErr,
+            );
+          }
         }
+
+        return { success: pushSent, user_id: user.user_id, error: genErr.message };
       }
     });
 
@@ -611,6 +600,41 @@ async function processInBatches(items, batchSize, processFn) {
   return allResults;
 }
 
+/**
+ * Atomically claim a notification send slot via Supabase RPC.
+ * Prevents race conditions where two cron invocations both read "not sent" and both send.
+ * Returns true if claimed (safe to send), false if already sent (skip).
+ */
+async function claimNotificationSlot(supabaseUrl, supabaseKey, userId, type, dateKey) {
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/rpc/claim_notification_slot`, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        p_user_id: userId,
+        p_type: type,
+        p_date_key: dateKey,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`[Notifications] claimNotificationSlot RPC error for ${userId}/${type}:`, errText);
+      return false; // fail-safe: don't send
+    }
+
+    const result = await response.json();
+    return result === true;
+  } catch (err) {
+    console.error(`[Notifications] claimNotificationSlot exception for ${userId}/${type}:`, err.message);
+    return false; // fail-safe: don't send
+  }
+}
+
 async function updateLastSent(supabaseUrl, supabaseKey, userId, type, dateStr) {
   const columnMap = {
     morning: 'morning_last_sent',
@@ -697,7 +721,8 @@ function isWithinWindow(currentHour, currentMin, targetHour, targetMin, windowMi
   const currentTotal = currentHour * 60 + currentMin;
   const targetTotal = targetHour * 60 + targetMin;
   const diff = Math.abs(currentTotal - targetTotal);
-  return diff <= windowMinutes;
+  const wrappedDiff = Math.min(diff, 1440 - diff);
+  return wrappedDiff <= windowMinutes;
 }
 
 async function sendExpoPush(token, title, body, notificationType) {
