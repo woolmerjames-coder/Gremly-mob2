@@ -131,44 +131,6 @@ function extractTemporal(text: string): string | null {
   return match ? match[0] : null;
 }
 
-/**
- * Quick client-side heuristic: does this text look like it needs a reminder?
- * Returns true if Phase 2b should be called. Intentionally loose — false
- * positives are fine (Phase 2b will say no), false negatives mean missed reminders.
- */
-function mightNeedReminder(text: string, bucket: MindDropBucket, subtype: string | null): boolean {
-  // Journals, ideas, general logs never need reminders
-  if (bucket === 'log' && subtype !== 'event') return false;
-  // Break habits never need reminders
-  if (bucket === 'habit' && subtype === 'break_habit') return false;
-
-  const lower = text.toLowerCase();
-
-  // Explicit reminder language
-  if (/remind\s?me|don'?t\s?forget|remember\s?to|don'?t\s?let\s?me\s?forget/.test(lower))
-    return true;
-
-  // Specific time references with action context
-  if (/\bat\s+\d{1,2}(:\d{2})?\s*(am|pm)\b/i.test(lower)) return true;
-  if (/\bby\s+\d{1,2}(:\d{2})?\s*(am|pm)\b/i.test(lower)) return true;
-  if (/\bbefore\s+(lunch|noon|dinner|work|bed|morning|evening)\b/i.test(lower)) return true;
-  if (/\bafter\s+(lunch|work|dinner|school)\b/i.test(lower)) return true;
-
-  // Urgency + date
-  if (
-    /\b(need to|must|have to|gotta)\b/.test(lower) &&
-    /\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(
-      lower,
-    )
-  )
-    return true;
-
-  // Habits always get checked (except break habits, filtered above)
-  if (bucket === 'habit') return true;
-
-  return false;
-}
-
 // --- Helper: Run Phase 1.5 in background (non-blocking) ---
 
 /**
@@ -799,15 +761,24 @@ async function syncDropToSupabase(
     // Add to Zustand store using set() pattern
     if (entityType === 'todo') {
       useGremlyStore.setState((state) => ({
-        todos: [...state.todos, { ...data, type: 'todo' as const }],
+        todos: [
+          ...state.todos,
+          { ...data, type: 'todo' as const, reminders: data.reminders_json ?? [] },
+        ],
       }));
     } else if (entityType === 'habit') {
       useGremlyStore.setState((state) => ({
-        habits: [...state.habits, { ...data, type: 'habit' as const }],
+        habits: [
+          ...state.habits,
+          { ...data, type: 'habit' as const, reminders: data.reminders_json ?? [] },
+        ],
       }));
     } else {
       useGremlyStore.setState((state) => ({
-        notes: [...state.notes, { ...data, type: 'note' as const }],
+        notes: [
+          ...state.notes,
+          { ...data, type: 'note' as const, reminders: data.reminders_json ?? [] },
+        ],
       }));
     }
 
@@ -1292,7 +1263,7 @@ export async function processDrop(
       // The card will show without metadata chips until then
     } else {
       // Phase 2 + Phase 2b in parallel (2b only fires if heuristic says reminder likely)
-      const shouldCheck2b = mightNeedReminder(text, phase1Result.bucket, phase1Result.subtype);
+      const shouldCheck2b = phase1Result.reminder_intent === true;
       const [enrichmentRes, phase2bLocal] = await Promise.all([
         runPhase2(text, phase1Result.bucket, phase1Result.subtype),
         shouldCheck2b
@@ -1439,7 +1410,7 @@ export async function processDrop(
             entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
           supabase
             .from(table)
-            .update({ reminders: [reminderToSave], updated_at: new Date().toISOString() })
+            .update({ reminders_json: [reminderToSave], updated_at: new Date().toISOString() })
             .eq('id', entityId)
             .then(
               () => console.log('[DropProcessor] Auto-reminder persisted', { entityId }),
@@ -1489,7 +1460,10 @@ export async function processDrop(
                 const updatedReminder = { ...reminderToSave, notificationId };
                 supabase
                   .from(table)
-                  .update({ reminders: [updatedReminder], updated_at: new Date().toISOString() })
+                  .update({
+                    reminders_json: [updatedReminder],
+                    updated_at: new Date().toISOString(),
+                  })
                   .eq('id', entityId)
                   .then(
                     () => {},

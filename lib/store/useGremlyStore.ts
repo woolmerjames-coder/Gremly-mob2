@@ -1173,9 +1173,21 @@ export const useGremlyStore = create<GremlyState>()(
 
             set({
               // Add type field since DB doesn't store it
-              todos: (todosRes.data ?? []).map((t) => ({ ...t, type: 'todo' as const })),
-              habits: (habitsRes.data ?? []).map((h) => ({ ...h, type: 'habit' as const })),
-              notes: (notesRes.data ?? []).map((n) => ({ ...n, type: 'note' as const })),
+              todos: (todosRes.data ?? []).map((t) => ({
+                ...t,
+                type: 'todo' as const,
+                reminders: (t as any).reminders_json ?? [],
+              })),
+              habits: (habitsRes.data ?? []).map((h) => ({
+                ...h,
+                type: 'habit' as const,
+                reminders: (h as any).reminders_json ?? [],
+              })),
+              notes: (notesRes.data ?? []).map((n) => ({
+                ...n,
+                type: 'note' as const,
+                reminders: (n as any).reminders_json ?? [],
+              })),
               spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
@@ -1757,7 +1769,11 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           // Add to store with type field (DB doesn't store it)
-          const todoWithType = { ...data, type: 'todo' as const };
+          const todoWithType = {
+            ...data,
+            type: 'todo' as const,
+            reminders: data.reminders_json ?? [],
+          };
           set((state) => ({
             todos: [...state.todos, todoWithType],
           }));
@@ -2024,7 +2040,11 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           // Add to store with type field (DB doesn't store it)
-          const habitWithType = { ...data, type: 'habit' as const };
+          const habitWithType = {
+            ...data,
+            type: 'habit' as const,
+            reminders: data.reminders_json ?? [],
+          };
           set((state) => ({
             habits: [...state.habits, habitWithType],
           }));
@@ -3958,9 +3978,21 @@ export const useGremlyStore = create<GremlyState>()(
 
             set({
               // Add type field since DB doesn't store it
-              todos: (todosRes.data ?? []).map((t) => ({ ...t, type: 'todo' as const })),
-              habits: (habitsRes.data ?? []).map((h) => ({ ...h, type: 'habit' as const })),
-              notes: (notesRes.data ?? []).map((n) => ({ ...n, type: 'note' as const })),
+              todos: (todosRes.data ?? []).map((t) => ({
+                ...t,
+                type: 'todo' as const,
+                reminders: (t as any).reminders_json ?? [],
+              })),
+              habits: (habitsRes.data ?? []).map((h) => ({
+                ...h,
+                type: 'habit' as const,
+                reminders: (h as any).reminders_json ?? [],
+              })),
+              notes: (notesRes.data ?? []).map((n) => ({
+                ...n,
+                type: 'note' as const,
+                reminders: (n as any).reminders_json ?? [],
+              })),
               spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
@@ -7018,11 +7050,38 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Add to new collection
             if (targetBucket === 'todo') {
-              set({ todos: [...get().todos, { ...insertedEntity, type: 'todo' as const }] });
+              set({
+                todos: [
+                  ...get().todos,
+                  {
+                    ...insertedEntity,
+                    type: 'todo' as const,
+                    reminders: (insertedEntity as any).reminders_json ?? [],
+                  },
+                ],
+              });
             } else if (targetBucket === 'habit') {
-              set({ habits: [...get().habits, { ...insertedEntity, type: 'habit' as const }] });
+              set({
+                habits: [
+                  ...get().habits,
+                  {
+                    ...insertedEntity,
+                    type: 'habit' as const,
+                    reminders: (insertedEntity as any).reminders_json ?? [],
+                  },
+                ],
+              });
             } else {
-              set({ notes: [...get().notes, { ...insertedEntity, type: 'note' as const }] });
+              set({
+                notes: [
+                  ...get().notes,
+                  {
+                    ...insertedEntity,
+                    type: 'note' as const,
+                    reminders: (insertedEntity as any).reminders_json ?? [],
+                  },
+                ],
+              });
             }
 
             console.log('[GremlyStore] Bucket change complete:', {

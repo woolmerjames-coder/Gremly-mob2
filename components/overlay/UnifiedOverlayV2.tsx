@@ -2260,11 +2260,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Hydrate item reminders from entity's reminders JSON column when overlay opens
   useEffect(() => {
     if (!visible) return;
-    const existing = Array.isArray(fullEntity?.reminders)
+    const fromReminders = Array.isArray(fullEntity?.reminders)
       ? (fullEntity.reminders as ItemReminder[])
       : [];
+    const fromJson = Array.isArray((fullEntity as any)?.reminders_json)
+      ? ((fullEntity as any).reminders_json as ItemReminder[])
+      : [];
+    const existing = fromReminders.length > 0 ? fromReminders : fromJson;
     setItemReminders(existing);
-  }, [visible, fullEntity?.reminders]);
+  }, [visible, fullEntity?.reminders, (fullEntity as any)?.reminders_json]);
 
   // Emit an 'opened' funnel event when the overlay becomes visible so analytics
   // can track funnel starts (best-effort, ignore telemetry errors).

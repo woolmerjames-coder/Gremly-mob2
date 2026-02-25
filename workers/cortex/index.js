@@ -613,7 +613,8 @@ const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON
 - frequency_present: Does the user intend to personally repeat this behavior on an ongoing basis? Set true if frequency_type is not null.
 - frequency_type: Apply this test: "Has the user specified WHEN or HOW OFTEN they will do this?" Frequency requires concrete timing — not just a desire to do more or less of something. If no timing is specified → null. If timing is specified → "explicit" (recurrence is stated), "day_names" (specific days are referenced), or "stop_quit" (user intends to completely stop a behavior). Wanting "more" or "less" of something without a schedule is NOT frequency — that is direction_without_schedule.
 - direction_without_schedule: Does the user's language explicitly express a desire to CHANGE from their current state — to increase, decrease, or improve something — without specifying a target? This is about the linguistic expression of relative/comparative intent, not whether the activity itself could vary in amount. An imperative to perform an action is false, even if that action could theoretically be done more or less. The question is what the words express, not the nature of the activity.
-- temporal_specificity: Is the action anchored to a specific or bounded point in time? True when the input constrains WHEN — a particular moment, day, or window that limits the action to a single instance. False when timing is open-ended, unspecified, or recurring.`;
+- temporal_specificity: Is the action anchored to a specific or bounded point in time? True when the input constrains WHEN — a particular moment, day, or window that limits the action to a single instance. False when timing is open-ended, unspecified, or recurring.
+- reminder_intent: Does the user want to be reminded or not forget something? True ONLY for: explicit reminder language ("remind me", "don't forget", "remember to", "remember my"), urgency paired with a specific time ("need to do this by 3pm", "must call before lunch"), or appointment-like phrasing that implies a nudge is needed ("doctor appointment tomorrow", "meeting at 2"). False for: vague timing ("soon", "eventually", "this week"), past-tense remembering ("I remembered that..."), journaling or reflection, or simple todos without any reminder/urgency language ("buy groceries").`;
 
 // Mini-prompt C: Structure & Confidence
 const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JSON only.
@@ -706,6 +707,7 @@ async function runPreparse(text, env) {
         : null,
       direction_without_schedule: Boolean(contentResult.direction_without_schedule),
       temporal_specificity: Boolean(contentResult.temporal_specificity),
+      reminder_intent: Boolean(contentResult.reminder_intent),
 
       // From structure
       uncertainty_present: Boolean(structureResult.uncertainty_present),
@@ -5545,6 +5547,7 @@ ${assistantMessage.substring(0, 2000)}
           is_noun_phrase_only: preparseResult.result.is_noun_phrase_only,
           parse_confidence: preparseResult.result.parse_confidence,
           action_target: preparseResult.result.action_target,
+          reminder_intent: preparseResult.result.reminder_intent,
           latency_ms: preparseResult.latency_ms,
         });
 
@@ -5584,6 +5587,7 @@ ${assistantMessage.substring(0, 2000)}
             is_ambiguous: false,
             preparse_latency_ms: preparseLatency,
             heuristic_reason: `fast_path:${preparseResult.result.frame_type}`,
+            reminder_intent: preparseResult.result.reminder_intent || false,
             latency_ms: totalLatency,
           });
         }
@@ -5621,6 +5625,7 @@ ${assistantMessage.substring(0, 2000)}
             preparse_latency_ms: preparseLatency,
             phase1_latency_ms: phase1Latency,
             heuristic_reason: heuristicDecision.reason,
+            reminder_intent: false,
             latency_ms: totalLatency,
           });
         }
@@ -5651,6 +5656,7 @@ ${assistantMessage.substring(0, 2000)}
           preparse_latency_ms: preparseLatency,
           phase1_latency_ms: phase1Latency,
           heuristic_reason: heuristicDecision.reason,
+          reminder_intent: preparseResult.result.reminder_intent || false,
           latency_ms: totalLatency,
         });
       }

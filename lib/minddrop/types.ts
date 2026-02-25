@@ -243,4 +243,7 @@ export interface Phase1Result {
       scheduled_date?: boolean;
     };
   }> | null;
+
+  /** True if the user expressed intent to be reminded (from preparse) */
+  reminder_intent?: boolean;
 }

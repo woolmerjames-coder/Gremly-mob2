@@ -761,7 +761,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
                           : formatTime12h(r.time);
                     return (
                       <View style={localStyles.reminderChip}>
-                        <Bell size={10} color="#D97706" strokeWidth={2} />
+                        <Bell size={10} color="#8B7332" strokeWidth={2} />
                         <RNText style={localStyles.reminderText}>{label}</RNText>
                       </View>
                     );
@@ -872,14 +872,14 @@ const localStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: 'rgba(217, 119, 6, 0.10)',
+    backgroundColor: 'rgba(224, 196, 122, 0.10)',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
   reminderText: {
     fontSize: 11,
-    color: '#D97706',
+    color: '#8B7332',
     fontFamily: 'Inter-Regular',
   },
   tagChip: {

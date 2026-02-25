@@ -1731,7 +1731,9 @@ const Row3Chips: React.FC<{
     // Todo/Habit: show context pill (deadline/frequency)
     // For todos with both target and scheduled date, show both
     // Context chip rendering (scheduled date, frequency, etc.)
-    return contextMeta ? (
+    // Skip context chip (due date/frequency) if reminder chip will show the same info
+    const hasReminders = item.reminders && item.reminders.length > 0;
+    return contextMeta && !hasReminders ? (
       <View style={styles.recentContextPillContainer}>
         <Text testID={contextTestId} style={styles.recentContextPill}>
           {contextMeta}
@@ -1810,7 +1812,7 @@ const Row3Chips: React.FC<{
                       : formatTime12h(r.time);
                 return (
                   <View style={styles.reminderChip}>
-                    <Bell size={10} color="#D97706" strokeWidth={2} />
+                    <Bell size={10} color="#8B7332" strokeWidth={2} />
                     <Text style={styles.reminderText}>{label}</Text>
                   </View>
                 );
@@ -9489,19 +9491,19 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       color: '#7A9A7A',
       fontFamily: 'Inter-Medium',
     },
-    // Reminder bell chip (amber)
+    // Reminder bell chip (golden pear)
     reminderChip: {
       flexDirection: 'row' as const,
       alignItems: 'center' as const,
       gap: 3,
-      backgroundColor: 'rgba(217, 119, 6, 0.10)',
+      backgroundColor: 'rgba(224, 196, 122, 0.10)',
       paddingHorizontal: 6,
       paddingVertical: 2,
       borderRadius: 4,
     },
     reminderText: {
       fontSize: 10,
-      color: '#D97706',
+      color: '#8B7332',
       fontFamily: 'Inter-Medium',
     },
     // Journal subtype display - plain text label with separator and mood chips
