@@ -7527,25 +7527,6 @@ Extract names of people mentioned in the text. Include:
 
 Return as array of strings, max 10 people.
 
---------------------------------
-AUTO-REMINDER DETECTION (TODOS, START HABITS, AND USER-CREATED EVENTS):
---------------------------------
-Set auto_reminder to true ONLY if the user's text implies they want to be reminded or nudged.
-
-SET TRUE when:
-- Explicit reminder language: "remind me", "don't forget", "remember to", "don't let me forget"
-- Specific time mentioned with action intent: "at 2pm", "by 5pm", "before lunch", "after work"
-- Urgency + date: "need to do this tomorrow", "must call today"
-
-SET FALSE when:
-- Vague timing: "soon", "eventually", "this week", "sometime"
-- No reminder language and no specific time reference
-- Pure logging/journaling entries
-- Events being recorded without action intent
-- Break habits
-
-Default: false
-
 === OUTPUT ===
 Return ONLY valid JSON.
 
@@ -7558,8 +7539,7 @@ For TODOS:
   "target_date": "YYYY-MM-DD" | null,
   "scheduled_date": "YYYY-MM-DD" | null,
   "date_type_ambiguous": boolean,
-  "people": ["name1", "name2"] | [],
-  "auto_reminder": boolean
+  "people": ["name1", "name2"] | []
 }
 
 For HABITS (start_habit / build):
@@ -7571,8 +7551,7 @@ For HABITS (start_habit / build):
   "extracted_frequency": "daily" | "2x/week" | "weekly" | etc,
   "extracted_days": [0, 1, 2] | null,
   "extracted_start_date": "YYYY-MM-DD" | null,
-  "people": ["name1", "name2"] | [],
-  "auto_reminder": boolean
+  "people": ["name1", "name2"] | []
 }
 
 For HABITS (break_habit):
@@ -7609,8 +7588,7 @@ For LOGS (event):
   "target_date": "YYYY-MM-DD" | null,
   "end_date": "YYYY-MM-DD" | null,
   "event_time": "HH:mm" | null,
-  "people": ["name1", "name2"] | [],
-  "auto_reminder": boolean
+  "people": ["name1", "name2"] | []
 }`;
 
         const t0 = Date.now();
@@ -7829,7 +7807,6 @@ For LOGS (event):
             has_start_date: extractedStartDate !== null,
             has_people: people.length > 0,
             has_mood: mood !== null,
-            has_auto_reminder: parsed.auto_reminder === true,
             latency_ms: latency,
           });
 
@@ -7853,13 +7830,170 @@ For LOGS (event):
             // Other fields
             people,
             mood,
-            auto_reminder: parsed.auto_reminder === true,
             latency_ms: latency,
           });
         } catch (err) {
           const latency = Date.now() - t0;
           console.log('[Phase2] Error', { error: String(err), latency_ms: latency });
           return j({ error: 'enrichment_failed', detail: String(err), latency_ms: latency }, 200);
+        }
+      }
+
+      // --- PHASE 2B: AUTO-REMINDER DETECTION (standalone, lightweight) ---
+      if (type === 'enrich-phase2b') {
+        const text = body.text || '';
+        const bucket = body.bucket || 'log';
+        const subtype = body.subtype || null;
+        const currentDate = body.currentDate || '2026-01-25';
+        const timezone = body.timezone || 'UTC';
+        const dayOfWeek = body.dayOfWeek || 'Sunday';
+
+        // Skip buckets that should never get reminders
+        if (bucket === 'log' && subtype !== 'event') {
+          return j({
+            auto_reminder: false,
+            reminder_date: null,
+            reminder_time: null,
+            reminder_frequency: null,
+          });
+        }
+        if (bucket === 'habit' && subtype === 'break_habit') {
+          return j({
+            auto_reminder: false,
+            reminder_date: null,
+            reminder_time: null,
+            reminder_frequency: null,
+          });
+        }
+
+        const t0 = Date.now();
+        try {
+          const phase2bPrompt = `You decide if a user's quick thought needs a reminder, and if so, when.
+
+=== CONTEXT ===
+Today: ${currentDate} (${dayOfWeek})
+Timezone: ${timezone}
+Item type: ${bucket}${subtype ? ` (${subtype})` : ''}
+
+=== RULES ===
+Set auto_reminder to true when the text implies the user wants to be reminded or nudged at a specific time. This includes:
+- Explicit reminder language ("remind me", "don't forget", "remember to")
+- A specific time with action intent ("at 2pm", "by 5pm", "before lunch")
+- Urgency combined with a date ("need to do this tomorrow", "must call today")
+
+Set auto_reminder to false when:
+- Timing is vague ("soon", "eventually", "this week")
+- There is no reminder language and no specific time
+- The text is a journal entry, idea, or reflection
+
+If auto_reminder is true, also extract:
+- reminder_date: the date to remind (YYYY-MM-DD), or null if no date mentioned
+- reminder_time: the time to remind (HH:mm 24h format), or null if no specific time. Use these defaults by time_window: morning=09:00, afternoon/day=13:00, evening=18:00
+- reminder_frequency: "once" for one-time reminders, "daily" for habits
+
+If auto_reminder is false, set all other fields to null.
+
+=== OUTPUT ===
+Return ONLY valid JSON, no explanation:
+{
+  "auto_reminder": boolean,
+  "reminder_date": "YYYY-MM-DD" | null,
+  "reminder_time": "HH:mm" | null,
+  "reminder_frequency": "once" | "daily" | null
+}`;
+
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1-mini',
+              messages: [
+                { role: 'system', content: phase2bPrompt },
+                { role: 'user', content: text.substring(0, 500) },
+              ],
+              temperature: 0.1,
+              max_tokens: 100,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[Phase2b] API error', { error: oj.error, latency_ms: latency });
+            return j({
+              auto_reminder: false,
+              reminder_date: null,
+              reminder_time: null,
+              reminder_frequency: null,
+              latency_ms: latency,
+            });
+          }
+
+          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+          let parsed;
+          try {
+            parsed = JSON.parse(rawContent);
+          } catch {
+            console.log('[Phase2b] Parse error', { raw: rawContent });
+            return j({
+              auto_reminder: false,
+              reminder_date: null,
+              reminder_time: null,
+              reminder_frequency: null,
+              latency_ms: latency,
+            });
+          }
+
+          // Validate reminder_time format (HH:mm)
+          let reminderTime = null;
+          if (parsed.reminder_time && /^\d{2}:\d{2}$/.test(parsed.reminder_time)) {
+            reminderTime = parsed.reminder_time;
+          }
+
+          // Validate reminder_date format (YYYY-MM-DD)
+          let reminderDate = null;
+          if (parsed.reminder_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.reminder_date)) {
+            reminderDate = parsed.reminder_date;
+          }
+
+          // Validate frequency
+          const validFreqs = ['once', 'daily'];
+          const reminderFrequency = validFreqs.includes(parsed.reminder_frequency)
+            ? parsed.reminder_frequency
+            : null;
+
+          const autoReminder = parsed.auto_reminder === true;
+
+          console.log('[Phase2b]', {
+            auto_reminder: autoReminder,
+            reminder_date: reminderDate,
+            reminder_time: reminderTime,
+            reminder_frequency: reminderFrequency,
+            latency_ms: latency,
+          });
+
+          return j({
+            auto_reminder: autoReminder,
+            reminder_date: autoReminder ? reminderDate : null,
+            reminder_time: autoReminder ? reminderTime : null,
+            reminder_frequency: autoReminder ? reminderFrequency : null,
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[Phase2b] Error', { error: String(err), latency_ms: latency });
+          return j({
+            auto_reminder: false,
+            reminder_date: null,
+            reminder_time: null,
+            reminder_frequency: null,
+            latency_ms: latency,
+          });
         }
       }
 
