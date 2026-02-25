@@ -119,7 +119,16 @@ import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
 import { parseDue } from '../../lib/nlp/datetime/parseDue';
-import { Lock, Camera, Clock, LogOut, User, ChevronDown, Calendar } from 'lucide-react-native';
+import {
+  Lock,
+  Camera,
+  Clock,
+  LogOut,
+  User,
+  ChevronDown,
+  Calendar,
+  Bell,
+} from 'lucide-react-native';
 // ClarificationIndicatorChip moved to badge position - import removed
 import { formatDue } from '../../lib/date/formatDue';
 import { env } from '../../lib/env';
@@ -839,6 +848,7 @@ type UnifiedDrop = {
   clarification_question?: string; // The question to ask the user
   clarification_options?: Array<{ id: string; label: string; action: any }>; // Available options
   clarification_type?: string; // Type of clarification needed
+  reminders?: Array<{ id: string; date?: string; time: string; frequency: string }> | null;
 };
 
 /**
@@ -1787,6 +1797,25 @@ const Row3Chips: React.FC<{
               </View>
             )}
 
+            {/* Reminder bell chip */}
+            {item.reminders &&
+              item.reminders.length > 0 &&
+              (() => {
+                const r = item.reminders[0];
+                const label =
+                  r.frequency === 'daily'
+                    ? `Daily, ${formatTime12h(r.time)}`
+                    : r.date
+                      ? `${formatDateForChip(r.date)}, ${formatTime12h(r.time)}`
+                      : formatTime12h(r.time);
+                return (
+                  <View style={styles.reminderChip}>
+                    <Bell size={10} color="#D97706" strokeWidth={2} />
+                    <Text style={styles.reminderText}>{label}</Text>
+                  </View>
+                );
+              })()}
+
             {/* People chip */}
             {hasPeople && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
@@ -2416,6 +2445,14 @@ function getConfirmationMessage(kind: 'note' | 'todo' | 'habit', item: UnifiedDr
   if (subtype === 'idea') return 'Interesting — saved for later.';
   if (subtype === 'list') return 'List saved.';
   return 'Noted.';
+}
+
+/** Format "14:00" → "2PM", "09:30" → "9:30AM" */
+function formatTime12h(time: string): string {
+  const [h, m] = time.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return m === 0 ? `${h12}${ampm}` : `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
 }
 
 /**
@@ -3160,6 +3197,11 @@ const AnimatedMindDropCard = React.memo<{
     )
       return false;
     if (prevProps.item.time_estimate_minutes !== nextProps.item.time_estimate_minutes) return false;
+    // Reminders - re-render when reminders array changes (for bell chip)
+    const prevReminders = prevProps.item.reminders;
+    const nextReminders = nextProps.item.reminders;
+    if ((prevReminders?.length ?? 0) !== (nextReminders?.length ?? 0)) return false;
+    if (prevReminders?.[0]?.id !== nextReminders?.[0]?.id) return false;
     if (prevProps.item.frequency !== nextProps.item.frequency) return false; // Habit frequency
     if (prevProps.item.cadence !== nextProps.item.cadence) return false; // Habit cadence
     if (prevProps.isPending !== nextProps.isPending) return false;
@@ -3822,6 +3864,7 @@ const RecentDrops: React.FC<{
             views: noteAny?.views ?? {},
             hasPhotos: noteAny?.views?.has_photos === true,
             mood: noteAny?.mood ?? null,
+            reminders: noteAny?.reminders ?? null,
             // Date Intelligence fields (for notes with event dates)
             target_date: noteAny?.target_date ?? null,
             // Multi-entity support: extract from views to top level
@@ -3866,6 +3909,7 @@ const RecentDrops: React.FC<{
             labels: Array.isArray((t as any)?.labels) ? (t as any).labels : [],
             views: (t as any)?.views ?? {},
             time_estimate_minutes: (t as any)?.time_estimate_minutes ?? null,
+            reminders: (t as any)?.reminders ?? null,
           };
         });
 
@@ -3902,6 +3946,7 @@ const RecentDrops: React.FC<{
             start_date: (h as any)?.start_date ?? null,
             days_active: (h as any)?.days_active ?? null,
             time_estimate_minutes: (h as any)?.time_estimate_minutes ?? null,
+            reminders: (h as any)?.reminders ?? null,
           };
         });
 
@@ -5591,8 +5636,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     };
   }, []);
 
-
-
   // Track keyboard visibility to adjust bottom padding
   useEffect(() => {
     const showListener = Keyboard.addListener(
@@ -5610,18 +5653,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, []);
 
   // Helper to show Gremly speech bubble with auto-dismiss
-  const showGremlySpeech = useCallback((message: string, durationMs = 3500) => {
-    if (showSweepDemoPrompt) return; // Don't auto-dismiss during demo prompt
-    if (gremlySpeechTimeoutRef.current) {
-      clearTimeout(gremlySpeechTimeoutRef.current);
-    }
-    lastSpeechRef.current = message;
-    setGremlySpeech(message);
-    gremlySpeechTimeoutRef.current = setTimeout(() => {
-      // console.log('[Gremly Speech] Auto-dismissing speech bubble');
-      setGremlySpeech(null);
-    }, durationMs);
-  }, [showSweepDemoPrompt]);
+  const showGremlySpeech = useCallback(
+    (message: string, durationMs = 3500) => {
+      if (showSweepDemoPrompt) return; // Don't auto-dismiss during demo prompt
+      if (gremlySpeechTimeoutRef.current) {
+        clearTimeout(gremlySpeechTimeoutRef.current);
+      }
+      lastSpeechRef.current = message;
+      setGremlySpeech(message);
+      gremlySpeechTimeoutRef.current = setTimeout(() => {
+        // console.log('[Gremly Speech] Auto-dismissing speech bubble');
+        setGremlySpeech(null);
+      }, durationMs);
+    },
+    [showSweepDemoPrompt],
+  );
 
   // Show a contextual greeting on mount (or first-visit onboarding speech)
   useEffect(() => {
@@ -5667,8 +5713,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     setIsInputFocused(focused);
     // Keep recent drops visible so users can watch cards update in real-time
   }, []);
-
-
 
   // PanResponder for swipe-down-to-dismiss-keyboard gesture
   const panResponder = React.useRef(
@@ -8431,12 +8475,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                     duration={1400}
                   />
                   {showSweepDemoPrompt && (
-                    <View style={{
-                      flexDirection: 'row',
-                      justifyContent: 'center',
-                      gap: 12,
-                      marginTop: 12,
-                    }}>
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        justifyContent: 'center',
+                        gap: 12,
+                        marginTop: 12,
+                      }}
+                    >
                       <Pressable
                         onPress={() => {
                           setShowSweepDemoPrompt(false);
@@ -8450,7 +8496,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                           borderRadius: 8,
                         }}
                       >
-                        <Text style={{ fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF' }}>
+                        <Text
+                          style={{ fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF' }}
+                        >
                           Show me
                         </Text>
                       </Pressable>
@@ -8464,7 +8512,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                           paddingHorizontal: 16,
                         }}
                       >
-                        <Text style={{ fontFamily: 'Inter-Regular', fontSize: 13, color: c.mutedText }}>
+                        <Text
+                          style={{ fontFamily: 'Inter-Regular', fontSize: 13, color: c.mutedText }}
+                        >
                           Maybe later
                         </Text>
                       </Pressable>
@@ -8704,8 +8754,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       />
 
       <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="minddrop" />
-
-
 
       <Modal
         transparent
@@ -9439,6 +9487,21 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     targetDateText: {
       fontSize: 10,
       color: '#7A9A7A',
+      fontFamily: 'Inter-Medium',
+    },
+    // Reminder bell chip (amber)
+    reminderChip: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      gap: 3,
+      backgroundColor: 'rgba(217, 119, 6, 0.10)',
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 4,
+    },
+    reminderText: {
+      fontSize: 10,
+      color: '#D97706',
       fontFamily: 'Inter-Medium',
     },
     // Journal subtype display - plain text label with separator and mood chips
