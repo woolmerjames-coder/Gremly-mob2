@@ -7883,7 +7883,7 @@ Item type: ${bucket}${subtype ? ` (${subtype})` : ''}
 
 === RULES ===
 Set auto_reminder to true when the text implies the user wants to be reminded or nudged at a specific time. This includes:
-- Explicit reminder language ("remind me", "don't forget", "remember to")
+- Explicit reminder language: "remind me", "don't forget", or "remember" used as an imperative (directing oneself to retain or act on something, not recalling a past memory)
 - A specific time with action intent ("at 2pm", "by 5pm", "before lunch")
 - Urgency combined with a date ("need to do this tomorrow", "must call today")
 

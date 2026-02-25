@@ -3676,6 +3676,8 @@ const RecentDrops: React.FC<{
           frequency: record.frequency ?? null,
           cadence: record.cadence ?? null,
           target_per_period: record.target_per_period ?? null,
+          // Reminders (Supabase column is reminders_json, TS field is reminders)
+          reminders: record.reminders ?? record.reminders_json ?? null,
           // Multi-entity support: extract from views to top level
           is_multi: record.views?.is_multi === true,
           multi_items: record.views?.multi_items ?? undefined,
@@ -3762,6 +3764,9 @@ const RecentDrops: React.FC<{
             views?.clarification_type ??
             item.clarification_type ??
             undefined,
+          // Reminders (Supabase column is reminders_json, TS field is reminders)
+          reminders:
+            (record as any).reminders ?? (record as any).reminders_json ?? item.reminders ?? null,
         };
       });
     },
@@ -4285,6 +4290,8 @@ const RecentDrops: React.FC<{
             target_per_period: entity.target_per_period ?? null,
             days_active: entity.days_active ?? null,
             start_date: entity.start_date ?? null,
+            // Reminders (may come from store as reminders or DB as reminders_json)
+            reminders: entity.reminders ?? entity.reminders_json ?? null,
             // Multi-entity support: extract from views to top level
             is_multi: entity.views?.is_multi === true,
             multi_items: entity.views?.multi_items ?? undefined,
