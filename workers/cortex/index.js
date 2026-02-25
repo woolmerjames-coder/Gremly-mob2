@@ -4973,8 +4973,8 @@ ${assistantMessage.substring(0, 2000)}
  - general: Everything else - advice, plans, lists, reference material (DEFAULT)
  
  **DECISION TREE:**
- 1. User message has reminder/task intent?  TODO
- 2. Explicit frequency OR stop/quit + behavior?  HABIT 
+ 1. User message has reminder/task intent for a discrete, completable action?  TODO
+ 2. Explicit frequency OR stop/quit + ongoing behavioral pattern?  HABIT 
  3. Emotional/reflective content?  LOG/journal
  4. Brainstorming language?  LOG/idea
  5. Default  LOG/general

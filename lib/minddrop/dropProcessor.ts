@@ -1338,6 +1338,13 @@ export async function processDrop(
       useGremlyStore.getState().promotePendingDropToEntity(localId, syncResult.supabaseId);
       callbacks?.onSyncComplete?.(localId, syncResult.supabaseId);
 
+      console.log('[DropProcessor] Phase 5 gate check', {
+        localId,
+        auto_reminder: enrichmentResult?.auto_reminder,
+        entityType: syncResult.entityType,
+        raw_enrichment_keys: enrichmentResult ? Object.keys(enrichmentResult) : 'null',
+      });
+
       // === Phase 5: Auto-reminder scheduling (fire-and-forget) ===
       if (enrichmentResult?.auto_reminder && syncResult.entityType) {
         // Break habits should never get auto-reminders
