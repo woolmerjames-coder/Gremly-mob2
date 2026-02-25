@@ -4897,15 +4897,15 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
         const assistantMessage = body.assistantMessage || '';
         const spaceName = body.spaceName || '';
 
+        const contextBlock = `=== CONTEXT ===
+USER MESSAGE: "${userMessage.substring(0, 500)}"
+SPACE: "${spaceName}"
+AI RESPONSE TO SAVE:
+"""
+${assistantMessage.substring(0, 2000)}
+"""`;
+
         const spaceChatSavePrompt = `You classify and enrich saved chat responses for Gremly, a productivity app.
- 
- === CONTEXT ===
- USER MESSAGE: "${userMessage.substring(0, 500)}"
- SPACE: "${spaceName}"
- AI RESPONSE TO SAVE:
- """
- ${assistantMessage.substring(0, 2000)}
- """
  
  === CLASSIFICATION RULES ===
  
@@ -5063,8 +5063,8 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1-nano',
-              messages: [{ role: 'system', content: spaceChatSavePrompt }],
+              model: 'gpt-4.1-mini',
+              messages: [{ role: 'system', content: spaceChatSavePrompt }, { role: 'user', content: contextBlock }],
               temperature: 0.3,
               max_tokens: 250,
               response_format: { type: 'json_object' },
@@ -5977,13 +5977,9 @@ Return JSON only:
           })
           .join('\n');
 
-        const aiPrompt = `You are writing short labels for an ambiguous user input. The user typed something into a quick-capture box and we need to ask what they meant.
+        const clarificationSystemPrompt = `You are writing short labels for an ambiguous user input. The user typed something into a quick-capture box and we need to ask what they meant.
 
-USER INPUT: "${text}"
-${ambiguityReason ? `CONTEXT: "${ambiguityReason}"` : ''}
-
-INTERPRETATIONS (in order — return exactly ${interpretations.length} labels in the same order):
-${interpLines}
+You will receive the user's input, context, and a list of possible interpretations. Return exactly the same number of labels as interpretations, in the same order.
 
 RULES FOR LABELS:
 - 4 words max, 30 chars max, casual fragments, no periods
@@ -6006,6 +6002,12 @@ Return JSON only:
   "labels": ["label 1", "label 2"]
 }`;
 
+        const clarificationUserMessage = `USER INPUT: "${text.substring(0, 500)}"
+${ambiguityReason ? `CONTEXT: "${ambiguityReason}"` : ''}
+
+INTERPRETATIONS (return exactly ${interpretations.length} labels in the same order):
+${interpLines}`;
+
         // --- Make AI call ---
         try {
           const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -6016,7 +6018,7 @@ Return JSON only:
             },
             body: JSON.stringify({
               model: 'gpt-4.1-nano',
-              messages: [{ role: 'user', content: aiPrompt }],
+              messages: [{ role: 'system', content: clarificationSystemPrompt }, { role: 'user', content: clarificationUserMessage }],
               temperature: 0.3,
               max_tokens: 200,
               response_format: { type: 'json_object' },
@@ -6108,14 +6110,14 @@ Return JSON only:
         const currentDate = body.currentDate || new Date().toISOString().split('T')[0];
         const targetBucket = body.targetBucket || null;
 
-        const reclassifyPrompt = `You finalize a productivity item after the user clarified their intent.
-
-=== CONTEXT ===
+        const contextString = `=== CONTEXT ===
 ORIGINAL INPUT: "${text}"
 USER SELECTED: "${selectedLabel}"
 SELECTED BUCKET: ${selectedBucket || 'not specified'}
 SELECTED SUBTYPE: ${selectedSubtype || 'not specified'}
-CURRENT DATE: ${currentDate}
+CURRENT DATE: ${currentDate}`;
+
+        const reclassifyPrompt = `You finalize a productivity item after the user clarified their intent.
 
 === BUCKET RULE ===
 
@@ -6125,7 +6127,7 @@ If SELECTED SUBTYPE is provided, use it exactly for the subtype field.
 
 === YOUR TASK ===
 
-The user dropped "${text}" and clarified by selecting "${selectedLabel}".
+The user dropped their original input and clarified by selecting an option.
 
 Generate:
 1. A smart title (3-7 words)
@@ -6209,7 +6211,7 @@ If no date in input, all date fields are null.
             },
             body: JSON.stringify({
               model: 'gpt-4.1-mini',
-              messages: [{ role: 'system', content: reclassifyPrompt }],
+              messages: [{ role: 'system', content: reclassifyPrompt }, { role: 'user', content: contextString }],
               temperature: 0.3,
               max_tokens: 250,
               response_format: { type: 'json_object' },
@@ -6907,12 +6909,7 @@ Rules:
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
 
-        const phase15aPrompt = `You generate a title and confirmation message for a productivity item that has already been classified.
-
-=== CONTEXT ===
-USER INPUT: "${text}"
-BUCKET: ${bucket}
-SUBTYPE: ${subtype || 'none'}
+        const phase15aSystemPrompt = `You generate a title and confirmation message for a productivity item that has already been classified.
 
 === SMART TITLE (3-7 words) ===
 
@@ -6985,7 +6982,7 @@ Return ONLY valid JSON:
             },
             body: JSON.stringify({
               model: 'gpt-4.1-nano',
-              messages: [{ role: 'user', content: phase15aPrompt }],
+              messages: [{ role: 'system', content: phase15aSystemPrompt }, { role: 'user', content: 'USER INPUT: "' + text + '"\nBUCKET: ' + bucket + '\nSUBTYPE: ' + (subtype || 'none') }],
               temperature: 0.4,
               max_tokens: 150,
               response_format: { type: 'json_object' },
@@ -7174,9 +7171,6 @@ ${dateExamples}
 
 === ITEM TYPE ===
 Bucket: "${bucket}"${subtype ? ` (Subtype: "${subtype}")` : ''}
-
-=== ORIGINAL TEXT ===
-"${text.substring(0, 1500)}"
 
 === EXTRACTION RULES ===
 If unsure, return null.
@@ -7588,8 +7582,8 @@ For LOGS (event):
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1-nano',
-              messages: [{ role: 'system', content: phase2Prompt }],
+              model: 'gpt-4.1-mini',
+              messages: [{ role: 'system', content: phase2Prompt }, { role: 'user', content: text.substring(0, 1500) }],
               temperature: 0.2,
               max_tokens: 300,
               response_format: { type: 'json_object' },
@@ -7856,11 +7850,8 @@ For LOGS (event):
           })
           .join('\n---\n');
 
-        const analyzePrompt = `You are a thoughtful, warm journal analyst for Gremly, a calm productivity app.
+        const analyzeSystemPrompt = `You are a thoughtful, warm journal analyst for Gremly, a calm productivity app.
 The user has shared their recent journal entries. Analyze them with care and empathy.
-
-=== JOURNAL ENTRIES (${cappedEntries.length} entries) ===
-${journalBlock}
 
 === YOUR TASK ===
 Analyze these entries and return a JSON object with these four sections:
@@ -7902,8 +7893,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1-nano',
-              messages: [{ role: 'system', content: analyzePrompt }],
+              model: 'gpt-4.1-mini',
+              messages: [{ role: 'system', content: analyzeSystemPrompt }, { role: 'user', content: 'Here are my journal entries:\n\n' + journalBlock }],
               temperature: 0.4,
               max_tokens: 1200,
               response_format: { type: 'json_object' },
