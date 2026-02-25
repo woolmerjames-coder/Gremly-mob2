@@ -102,6 +102,8 @@ import {
 import { emitOverlayClosed, addOverlayClosedListener } from '../../lib/events/overlayClosed';
 import { eventBus } from '../../lib/events/EventBus';
 import { addDays, nextMonday } from 'date-fns';
+import { scheduleItemReminder } from '../../lib/notifications/itemReminderService';
+import type { ItemReminder } from '../../lib/types';
 import { toDayString } from '../../lib/date/computeDueDay';
 import type { AppRecord } from '../../lib/types';
 import { SweepIntroStatsCard } from '../../components/sweep/SweepIntroStatsCard';
@@ -1517,6 +1519,23 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
    * Uses ref instead of state to ensure we have the latest decisions
    * (state updates may not have been applied yet in the same render cycle).
    */
+  /**
+   * Compute a context-aware default reminder time based on the item's time_window.
+   * morning → 09:00, day → 13:00, evening → 18:00, default → 09:00
+   */
+  function getDefaultReminderTime(timeWindow?: string | null): string {
+    switch (timeWindow) {
+      case 'morning':
+        return '09:00';
+      case 'day':
+        return '13:00';
+      case 'evening':
+        return '18:00';
+      default:
+        return '09:00';
+    }
+  }
+
   const commitAllDecisions = useCallback(async () => {
     const ds = getDateService();
     const updates: Promise<void>[] = [];
@@ -1541,13 +1560,36 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           const resurfaceDateStr = ds.toLocalDate(decision.resurfaceDate);
           console.log('[SweepFlowScreen] Setting resurface_at:', resurfaceDateStr);
 
+          // Look up the original todo to get time_window for context-aware reminder time
+          const originalTodo = todos.find((t) => t.id === decision.candidateId);
+          const reminderTime = getDefaultReminderTime(originalTodo?.time_window);
+          const entityTitle = originalTodo?.name || originalTodo?.title || 'Reminder';
+
+          // Schedule a local notification for the remind date
+          const reminder: ItemReminder = {
+            id: `sweep-remind-${Date.now()}-${decision.candidateId.slice(0, 8)}`,
+            time: reminderTime,
+            frequency: 'once',
+            date: resurfaceDateStr,
+          };
+
+          // Schedule notification and persist reminder with notificationId
           updates.push(
-            updateTodo(decision.candidateId, {
-              resurface_at: resurfaceDateStr,
-              scheduled_date: null, // New canonical field - clear when setting reminder
-              due_day: null, // Keep for backwards compat
-              due_date: null,
-            } as any),
+            (async () => {
+              const notificationId = await scheduleItemReminder(
+                decision.candidateId,
+                entityTitle,
+                'todo',
+                reminder,
+              );
+              await updateTodo(decision.candidateId, {
+                resurface_at: resurfaceDateStr,
+                scheduled_date: resurfaceDateStr,
+                due_day: resurfaceDateStr,
+                due_date: null,
+                reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
+              } as any);
+            })(),
           );
         } else if (decision.candidateKind === 'todo' && decision.dueDate) {
           // Get current reschedule count from store
@@ -1564,11 +1606,31 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             } as any),
           );
         } else if (decision.candidateKind === 'habit' && decision.startDate) {
+          const habitStartDateStr = ds.toLocalDate(decision.startDate);
+          const originalHabit = habits.find((h) => h.id === decision.candidateId);
+          const habitTitle = originalHabit?.name || 'Habit reminder';
+
+          const habitReminder: ItemReminder = {
+            id: `sweep-remind-${Date.now()}-${decision.candidateId.slice(0, 8)}`,
+            time: getDefaultReminderTime(originalHabit?.time_window),
+            frequency: 'once',
+            date: habitStartDateStr,
+          };
+
           updates.push(
-            updateHabit(decision.candidateId, {
-              start_date: ds.toLocalDate(decision.startDate),
-              start_date_confirmed: true,
-            }),
+            (async () => {
+              const notificationId = await scheduleItemReminder(
+                decision.candidateId,
+                habitTitle,
+                'habit',
+                habitReminder,
+              );
+              await updateHabit(decision.candidateId, {
+                start_date: habitStartDateStr,
+                start_date_confirmed: true,
+                reminders: [{ ...habitReminder, notificationId: notificationId ?? undefined }],
+              } as any);
+            })(),
           );
         } else if (decision.candidateKind === 'note') {
           // Note kept without special action = "Just Save"
@@ -1577,12 +1639,35 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             // "Remind Me" - set resurface date
             const resurfaceDateStr = ds.toLocalDate(decision.resurfaceDate);
             console.log('[SweepFlowScreen] Setting note resurface_at:', resurfaceDateStr);
+
+            // Look up original note for title
+            const originalNote = notes.find((n) => n.id === decision.candidateId);
+            const entityTitle =
+              originalNote?.title || originalNote?.body?.slice(0, 40) || 'Note reminder';
+
+            // Schedule a local notification
+            const reminder: ItemReminder = {
+              id: `sweep-remind-${Date.now()}-${decision.candidateId.slice(0, 8)}`,
+              time: '09:00',
+              frequency: 'once',
+              date: resurfaceDateStr,
+            };
+
             updates.push(
-              updateNote(decision.candidateId, {
-                resurface_at: resurfaceDateStr,
-                swept_at: new Date().toISOString(),
-                skipped_in_sweep_at: null,
-              } as any),
+              (async () => {
+                const notificationId = await scheduleItemReminder(
+                  decision.candidateId,
+                  entityTitle,
+                  'todo', // Use 'todo' type for notification content (notes don't have their own type)
+                  reminder,
+                );
+                await updateNote(decision.candidateId, {
+                  resurface_at: resurfaceDateStr,
+                  swept_at: new Date().toISOString(),
+                  skipped_in_sweep_at: null,
+                  reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
+                } as any);
+              })(),
             );
           } else {
             // "Just Save" - mark as swept

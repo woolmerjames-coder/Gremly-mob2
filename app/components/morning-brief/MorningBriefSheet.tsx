@@ -26,12 +26,18 @@ import * as Notifications from 'expo-notifications';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleEventReminder } from '../../../lib/notifications/scheduleEventReminder';
 import {
+  scheduleQuickReminder,
+  scheduleItemReminder,
+} from '../../../lib/notifications/itemReminderService';
+import type { ItemReminder } from '../../../lib/types';
+import {
   ShieldOff,
   Calendar,
   MoreHorizontal,
   ChevronUp,
   ChevronDown,
   Plus,
+  Bell,
 } from 'lucide-react-native';
 import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
 import { BRAND } from '../../../design/brand';
@@ -261,8 +267,13 @@ export function MorningBriefSheet({
   // ─────────────────────────────────────────────────────────────────
   // MINI SWEEP GATE
   // ─────────────────────────────────────────────────────────────────
-  const { shouldShowMiniSweep, rolledOverTodos, unscheduledTodos, todayUnprocessedDrops, markMiniSweepCompleted } =
-    useMiniSweepGate();
+  const {
+    shouldShowMiniSweep,
+    rolledOverTodos,
+    unscheduledTodos,
+    todayUnprocessedDrops,
+    markMiniSweepCompleted,
+  } = useMiniSweepGate();
 
   const [miniSweepDismissed, setMiniSweepDismissed] = useState(false);
   const showMiniSweep = !isTomorrow && shouldShowMiniSweep && !miniSweepDismissed;
@@ -1064,6 +1075,134 @@ export function MorningBriefSheet({
     'morning',
   );
 
+  // ─────────────────────────────────────────────────────────────────
+  // REMINDER PROMPT STATE (shown after lock-in)
+  // ─────────────────────────────────────────────────────────────────
+  const [reminderPromptTaskId, setReminderPromptTaskId] = useState<string | null>(null);
+  const [reminderPromptTaskTitle, setReminderPromptTaskTitle] = useState('');
+  const [reminderPromptTaskType, setReminderPromptTaskType] = useState<'todo' | 'habit'>('todo');
+  const [showReminderPills, setShowReminderPills] = useState(false);
+  const [reminderSetConfirmation, setReminderSetConfirmation] = useState<string | null>(null);
+  const reminderPromptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reminderFadeAnim = useRef(new Animated.Value(0)).current;
+
+  // ─── Reminder prompt helpers ───
+  const dismissReminderPrompt = useCallback(() => {
+    if (reminderPromptTimer.current) clearTimeout(reminderPromptTimer.current);
+    Animated.timing(reminderFadeAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setReminderPromptTaskId(null);
+      setShowReminderPills(false);
+      setReminderSetConfirmation(null);
+    });
+  }, [reminderFadeAnim]);
+
+  const showReminderPromptFn = useCallback(
+    (taskId: string, title: string, taskType: 'todo' | 'habit') => {
+      if (reminderPromptTimer.current) clearTimeout(reminderPromptTimer.current);
+
+      setReminderPromptTaskId(taskId);
+      setReminderPromptTaskTitle(title);
+      setReminderPromptTaskType(taskType);
+      setShowReminderPills(false);
+      setReminderSetConfirmation(null);
+
+      Animated.timing(reminderFadeAnim, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+
+      reminderPromptTimer.current = setTimeout(() => {
+        dismissReminderPrompt();
+      }, 8000);
+    },
+    [reminderFadeAnim, dismissReminderPrompt],
+  );
+
+  const handleReminderPromptTap = useCallback(() => {
+    if (reminderPromptTimer.current) clearTimeout(reminderPromptTimer.current);
+    setShowReminderPills(true);
+  }, []);
+
+  const handleReminderPillTap = useCallback(
+    async (option: 'in2h' | 'afterLunch' | '4pm') => {
+      if (!reminderPromptTaskId) return;
+
+      const taskId = reminderPromptTaskId;
+      const title = reminderPromptTaskTitle;
+      const taskType = reminderPromptTaskType;
+
+      let label = '';
+      let notificationId: string | null = null;
+      let reminderObj: ItemReminder;
+
+      if (option === 'in2h') {
+        label = 'in 2 hours';
+        const target = new Date();
+        target.setHours(target.getHours() + 2);
+        const time = `${String(target.getHours()).padStart(2, '0')}:${String(target.getMinutes()).padStart(2, '0')}`;
+        reminderObj = { id: 'brief-reminder', time, frequency: 'once' as const, date: today };
+        notificationId = await scheduleQuickReminder(taskId, title, taskType, 7200);
+      } else if (option === 'afterLunch') {
+        label = 'after lunch';
+        reminderObj = {
+          id: 'brief-reminder',
+          time: '13:00',
+          frequency: 'once' as const,
+          date: today,
+        };
+        notificationId = await scheduleItemReminder(taskId, title, taskType, reminderObj);
+      } else {
+        label = 'at 4 PM';
+        reminderObj = {
+          id: 'brief-reminder',
+          time: '16:00',
+          frequency: 'once' as const,
+          date: today,
+        };
+        notificationId = await scheduleItemReminder(taskId, title, taskType, reminderObj);
+      }
+
+      if (notificationId) reminderObj.notificationId = notificationId;
+
+      // Persist reminder on the item
+      if (taskType === 'todo') {
+        updateTodo(taskId, { reminders: [reminderObj] });
+      } else {
+        updateHabit(taskId, { reminders: [reminderObj] });
+      }
+
+      // Show confirmation, then auto-dismiss
+      setShowReminderPills(false);
+      setReminderSetConfirmation(`Reminder set ${label}`);
+
+      if (reminderPromptTimer.current) clearTimeout(reminderPromptTimer.current);
+      reminderPromptTimer.current = setTimeout(() => {
+        dismissReminderPrompt();
+      }, 2000);
+    },
+    [
+      reminderPromptTaskId,
+      reminderPromptTaskTitle,
+      reminderPromptTaskType,
+      today,
+      updateTodo,
+      updateHabit,
+      dismissReminderPrompt,
+    ],
+  );
+
+  // Cleanup reminder timer on unmount
+  useEffect(() => {
+    return () => {
+      if (reminderPromptTimer.current) clearTimeout(reminderPromptTimer.current);
+    };
+  }, []);
+
   const handleGapSlotPress = useCallback(
     (gap: TimeGap, block: 'morning' | 'afternoon' | 'evening') => {
       setSelectedGap(gap);
@@ -1415,9 +1554,20 @@ export function MorningBriefSheet({
         removeCommitment(task.id, taskType);
       } else {
         addCommitment(task.id, taskType);
+        // Show "Set a reminder?" prompt
+        showReminderPromptFn(task.id, task.title, taskType);
       }
     },
-    [toggleBriefLock, todayTodos, todayHabits, todos, habits, addCommitment, removeCommitment],
+    [
+      toggleBriefLock,
+      todayTodos,
+      todayHabits,
+      todos,
+      habits,
+      addCommitment,
+      removeCommitment,
+      showReminderPromptFn,
+    ],
   );
 
   const handleAssignPress = useCallback((task: TaskItemData) => {
@@ -1469,6 +1619,13 @@ export function MorningBriefSheet({
       // Handle lock-in changes
       if (lockIn && !wasLockedIn) {
         await addCommitment(taskId, taskType);
+        // Show "Set a reminder?" prompt
+        const taskTitle = currentTask
+          ? taskType === 'todo'
+            ? ((currentTask as (typeof todos)[0]).title ?? 'your task')
+            : ((currentTask as (typeof habits)[0]).name ?? 'your task')
+          : 'your task';
+        showReminderPromptFn(taskId, taskTitle, taskType);
       } else if (!lockIn && wasLockedIn) {
         await removeCommitment(taskId, taskType);
       }
@@ -1481,6 +1638,8 @@ export function MorningBriefSheet({
     [
       todayTodos,
       todayHabits,
+      todos,
+      habits,
       updateTodo,
       updateHabit,
       addCommitment,
@@ -1488,6 +1647,7 @@ export function MorningBriefSheet({
       isPrioritizing,
       briefSelectedSet,
       toggleBriefSelection,
+      showReminderPromptFn,
     ],
   );
 
@@ -1513,11 +1673,14 @@ export function MorningBriefSheet({
     async (taskId: string, taskType: 'todo' | 'habit', lockIn: boolean) => {
       if (lockIn) {
         await addCommitment(taskId, taskType);
+        // Show "Set a reminder?" prompt
+        const taskTitle = quickActionTask?.title ?? 'your task';
+        showReminderPromptFn(taskId, taskTitle, taskType);
       } else {
         await removeCommitment(taskId, taskType);
       }
     },
-    [addCommitment, removeCommitment],
+    [addCommitment, removeCommitment, quickActionTask, showReminderPromptFn],
   );
 
   const handleQuickActionAssignSlot = useCallback(
@@ -1940,6 +2103,42 @@ export function MorningBriefSheet({
           onOpenFull={handleOpenFullEvent}
         />
       </MorningBriefStepper>
+
+      {/* ─── Reminder prompt toast (appears after lock-in) ─── */}
+      {reminderPromptTaskId && (
+        <Animated.View
+          style={[styles.reminderPromptContainer, { opacity: reminderFadeAnim }]}
+          pointerEvents="box-none"
+        >
+          {reminderSetConfirmation ? (
+            <View style={styles.reminderPromptInner}>
+              <Text style={styles.reminderConfirmation}>✓ {reminderSetConfirmation}</Text>
+            </View>
+          ) : !showReminderPills ? (
+            <Pressable onPress={handleReminderPromptTap} hitSlop={8}>
+              <View style={styles.reminderPromptInner}>
+                <Bell size={14} color={BRAND.colors.mossGreen} style={{ marginRight: 6 }} />
+                <Text style={styles.reminderPromptText}>Set a reminder?</Text>
+              </View>
+            </Pressable>
+          ) : (
+            <View style={styles.reminderPillsRow}>
+              <Pressable style={styles.reminderPill} onPress={() => handleReminderPillTap('in2h')}>
+                <Text style={styles.reminderPillText}>In 2 hours</Text>
+              </Pressable>
+              <Pressable
+                style={styles.reminderPill}
+                onPress={() => handleReminderPillTap('afterLunch')}
+              >
+                <Text style={styles.reminderPillText}>After lunch</Text>
+              </Pressable>
+              <Pressable style={styles.reminderPill} onPress={() => handleReminderPillTap('4pm')}>
+                <Text style={styles.reminderPillText}>4:00 PM</Text>
+              </Pressable>
+            </View>
+          )}
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -2180,6 +2379,64 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '600',
+  },
+  /* ─── Reminder prompt toast ─── */
+  reminderPromptContainer: {
+    position: 'absolute',
+    bottom: 100,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 50,
+  },
+  reminderPromptInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEFDFB',
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  reminderPromptText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+    fontFamily: 'Inter-Medium',
+  },
+  reminderConfirmation: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+    fontFamily: 'Inter-Medium',
+  },
+  reminderPillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  reminderPill: {
+    backgroundColor: '#FEFDFB',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.15)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  reminderPillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+    fontFamily: 'Inter-SemiBold',
   },
 });
 
