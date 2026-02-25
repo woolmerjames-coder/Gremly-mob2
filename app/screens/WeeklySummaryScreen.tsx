@@ -944,6 +944,7 @@ const staleStyles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginTop: 10,
   },
@@ -1210,7 +1211,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
         triageItem(item.id);
       }, 1200);
     },
-    [updateTodo, triageItem],
+    [updateTodo, triageItem, triggerLight],
   );
 
   const handleDropAll = useCallback(async () => {
