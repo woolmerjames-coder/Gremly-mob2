@@ -4646,6 +4646,41 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         effectiveLogSubtype, // Phase L8: Pass effective log subtype
       );
 
+      // ── Schedule item reminders and persist to entity ──────────────────────
+      if (baseType === 'todo' || baseType === 'habit') {
+        const entityTitle = (input as any).title || (input as any).name || state.compactTitle || '';
+        const oldReminders: ItemReminder[] = (fullEntity?.reminders as ItemReminder[]) ?? [];
+        const remindersChanged = JSON.stringify(itemReminders) !== JSON.stringify(oldReminders);
+
+        if (remindersChanged) {
+          // Cancel old reminders (fire and forget — don't block save)
+          cancelAllItemReminders(oldReminders).catch(() => {});
+
+          // Schedule new reminders and collect notification IDs
+          const scheduledReminders: ItemReminder[] = [];
+          for (const reminder of itemReminders) {
+            const notificationId = await scheduleItemReminder(
+              fullEntity?.id || 'new',
+              entityTitle,
+              baseType === 'habit' ? 'habit' : 'todo',
+              reminder,
+            );
+            scheduledReminders.push({
+              ...reminder,
+              notificationId: notificationId ?? undefined,
+            });
+          }
+
+          (input as any).reminders = scheduledReminders.length > 0 ? scheduledReminders : null;
+        } else if (itemReminders.length > 0) {
+          // Reminders unchanged but present — persist them as-is
+          (input as any).reminders = itemReminders;
+        } else if (oldReminders.length > 0 && itemReminders.length === 0) {
+          // User cleared all reminders
+          (input as any).reminders = null;
+        }
+      }
+
       // Development logging for todo saves
       if (__DEV__ && baseType === 'todo') {
         console.log('[UnifiedOverlayV2.onSave] Todo state before save', {
