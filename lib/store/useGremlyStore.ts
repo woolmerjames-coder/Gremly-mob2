@@ -241,6 +241,20 @@ function sanitizeForSupabase(
     delete sanitized.frequency_value;
   }
 
+  // RENAME reminders → reminders_json (all entities)
+  if ('reminders' in sanitized) {
+    const reminders = sanitized.reminders as any[] | undefined;
+    if (Array.isArray(reminders)) {
+      sanitized.reminders_json = reminders.map((r: any) => {
+        const { notificationId, ...rest } = r;
+        return rest;
+      });
+    } else {
+      sanitized.reminders_json = reminders ?? [];
+    }
+    delete sanitized.reminders;
+  }
+
   // These don't exist in DB, safe to remove
   delete sanitized.due_at;
   delete sanitized.photo_uri;

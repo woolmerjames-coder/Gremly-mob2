@@ -242,6 +242,21 @@ export const NOTIFICATION_ACTIONS = {
  * Register notification categories with Expo so iOS/Android show action buttons
  * on the notification banner / lock screen.
  */
+/**
+ * Ensure notification categories are registered on every app launch.
+ * Safe to call multiple times — categories are idempotent.
+ */
+export async function ensureNotificationCategories(): Promise<void> {
+  if (isExpoGo) return;
+
+  const Notifications = await import('expo-notifications');
+  const { status } = await Notifications.getPermissionsAsync();
+
+  if (status === 'granted') {
+    await registerNotificationCategories();
+  }
+}
+
 export async function registerNotificationCategories(): Promise<void> {
   if (isExpoGo) return;
 

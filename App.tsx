@@ -107,6 +107,13 @@ export default function App() {
     initOfflineSync();
   }, []);
 
+  // Ensure notification categories (action buttons) are registered on every launch
+  useEffect(() => {
+    import('./src/utils/notifications').then(({ ensureNotificationCategories }) => {
+      ensureNotificationCategories();
+    });
+  }, []);
+
   // Subscribe to age-up celebration events
   useEffect(() => {
     const unsubscribe = celebrationController.subscribe((payload) => {
@@ -538,19 +545,85 @@ export default function App() {
                             }}
                             onSnooze={async (entityId, entityType, seconds) => {
                               try {
+                                const state = useGremlyStore.getState();
                                 const entity =
                                   entityType === 'todo'
-                                    ? useGremlyStore.getState().todos.find((t) => t.id === entityId)
-                                    : useGremlyStore
-                                        .getState()
-                                        .habits.find((h) => h.id === entityId);
+                                    ? state.todos.find((t) => t.id === entityId)
+                                    : state.habits.find((h) => h.id === entityId);
                                 const title =
                                   (entity as any)?.title ?? (entity as any)?.name ?? 'Reminder';
+
+                                // 1. Schedule the snoozed notification
                                 await scheduleQuickReminder(
                                   entityId,
                                   title,
                                   entityType as 'todo' | 'habit',
                                   seconds,
+                                );
+
+                                // 2. Build updated reminders with new snoozed time
+                                const currentReminders = (entity as any)?.reminders ?? [];
+                                const snoozeTargetDate = new Date(Date.now() + seconds * 1000);
+                                const snoozeTime = `${String(snoozeTargetDate.getHours()).padStart(2, '0')}:${String(snoozeTargetDate.getMinutes()).padStart(2, '0')}`;
+                                const snoozeDate = getDateService().toLocalDate(snoozeTargetDate);
+
+                                const updatedReminders =
+                                  currentReminders.length > 0
+                                    ? currentReminders.map((r: any, i: number) =>
+                                        i === 0
+                                          ? {
+                                              ...r,
+                                              time: snoozeTime,
+                                              date: snoozeDate,
+                                              frequency: 'once',
+                                              snooze_count: (r.snooze_count ?? 0) + 1,
+                                            }
+                                          : r,
+                                      )
+                                    : [
+                                        {
+                                          id: `snooze-${Date.now()}`,
+                                          time: snoozeTime,
+                                          date: snoozeDate,
+                                          frequency: 'once',
+                                          snooze_count: 1,
+                                        },
+                                      ];
+
+                                // 3. Update Zustand (chip reflects new time immediately)
+                                if (entityType === 'todo') {
+                                  useGremlyStore.setState((s: any) => ({
+                                    todos: s.todos.map((t: any) =>
+                                      t.id === entityId ? { ...t, reminders: updatedReminders } : t,
+                                    ),
+                                  }));
+                                } else if (entityType === 'habit') {
+                                  useGremlyStore.setState((s: any) => ({
+                                    habits: s.habits.map((h: any) =>
+                                      h.id === entityId ? { ...h, reminders: updatedReminders } : h,
+                                    ),
+                                  }));
+                                }
+
+                                // 4. Persist to Supabase
+                                const { supabase: sb } = await import('./lib/supabase/client');
+                                const table = entityType === 'todo' ? 'todos' : 'habits';
+                                await sb
+                                  .from(table)
+                                  .update({ reminders_json: updatedReminders })
+                                  .eq('id', entityId);
+
+                                // 5. Log snooze event (fire and forget)
+                                const snoozeLabel =
+                                  seconds <= 900 ? '15m' : seconds <= 3600 ? '1hr' : `${seconds}s`;
+                                const snoozeCount = currentReminders.reduce(
+                                  (count: number, r: any) => count + (r.snooze_count ?? 0),
+                                  0,
+                                );
+                                logSnoozeEvent(entityId, entityType, snoozeLabel, snoozeCount + 1);
+
+                                console.log(
+                                  `[QuickAction] Snoozed ${entityType} ${entityId} by ${snoozeLabel}`,
                                 );
                               } catch (err) {
                                 console.error('[QuickAction] Snooze failed:', err);

@@ -1,10 +1,16 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { Modal, View, Text, Pressable, StyleSheet, ScrollView, Platform } from 'react-native';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { Modal, View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { X, Bell, Plus, Trash2, Clock, AlarmClock, Repeat } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { colors, spacing, borderRadius } from '../../design/tokens';
 import type { ItemReminder } from '../../lib/types';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type ReminderFrequency = ItemReminder['frequency'];
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -17,6 +23,16 @@ function formatTimeFromHHMM(time: string): string {
 
 function formatReminderDescription(reminder: ItemReminder): string {
   const timeStr = formatTimeFromHHMM(reminder.time);
+  if (reminder.frequency === 'weekdays') {
+    return `Weekdays at ${timeStr}`;
+  }
+  if (reminder.frequency === 'weekends') {
+    return `Weekends at ${timeStr}`;
+  }
+  if (reminder.frequency === 'weekly' && reminder.days_of_week?.length) {
+    const dayNames = reminder.days_of_week.map((d) => DAY_LABELS[d]).join(', ');
+    return `${dayNames} at ${timeStr}`;
+  }
   if (reminder.frequency === 'daily') {
     return `Daily at ${timeStr}`;
   }
@@ -58,6 +74,38 @@ function padTime(h: number, m: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+function getTodayMidnight(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function dateFromReminder(reminder: ItemReminder): Date {
+  const [h, m] = reminder.time.split(':').map(Number);
+  if (reminder.date) {
+    const d = new Date(`${reminder.date}T00:00:00`);
+    d.setHours(h, m, 0, 0);
+    return d;
+  }
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d;
+}
+
+function liveEditDescription(freq: ReminderFrequency, date: Date, daysOfWeek: number[]): string {
+  const timeStr = formatTimeFromHHMM(padTime(date.getHours(), date.getMinutes()));
+  if (freq === 'weekdays') return `Weekdays at ${timeStr}`;
+  if (freq === 'weekends') return `Weekends at ${timeStr}`;
+  if (freq === 'weekly' && daysOfWeek.length) {
+    const dayNames = daysOfWeek.map((d) => DAY_LABELS[d]).join(', ');
+    return `${dayNames} at ${timeStr}`;
+  }
+  if (freq === 'daily') return `Daily at ${timeStr}`;
+  const month = date.toLocaleDateString('en-US', { month: 'short' });
+  const day = date.getDate();
+  return `${month} ${day} at ${timeStr}`;
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface SetRemindersModalProps {
@@ -70,6 +118,14 @@ interface SetRemindersModalProps {
 
 const MAX_REMINDERS = 3;
 
+const FREQUENCY_OPTIONS: { value: ReminderFrequency; label: string }[] = [
+  { value: 'once', label: 'Once' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekdays', label: 'Weekdays' },
+  { value: 'weekends', label: 'Weekends' },
+  { value: 'weekly', label: 'Custom' },
+];
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function SetRemindersModal({
@@ -80,102 +136,270 @@ export default function SetRemindersModal({
   itemType,
 }: SetRemindersModalProps) {
   const [localReminders, setLocalReminders] = useState<ItemReminder[]>(reminders);
-  const [showCustomPicker, setShowCustomPicker] = useState(false);
-  const [customDate, setCustomDate] = useState<Date>(new Date());
-  const [customPickerStep, setCustomPickerStep] = useState<'date' | 'time'>('date');
+  // ID of the reminder currently being edited inline, or 'new' for a new custom reminder
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Edit state for the expanded reminder
+  const [editFrequency, setEditFrequency] = useState<ReminderFrequency>('once');
+  const [editDate, setEditDate] = useState<Date>(new Date());
+  const [editDaysOfWeek, setEditDaysOfWeek] = useState<number[]>([]);
+  const [visiblePicker, setVisiblePicker] = useState<'none' | 'date' | 'time'>('none');
+
+  const todayMidnight = useMemo(() => getTodayMidnight(), []);
 
   // Sync from props when modal opens
   useEffect(() => {
     if (visible) {
       setLocalReminders(reminders);
-      setShowCustomPicker(false);
-      setCustomPickerStep('date');
+      setExpandedId(null);
+      setVisiblePicker('none');
     }
   }, [visible, reminders]);
 
   const atMax = localReminders.length >= MAX_REMINDERS;
 
-  const addReminder = useCallback(
-    (r: ItemReminder) => {
-      if (localReminders.length >= MAX_REMINDERS) return;
-      setLocalReminders((prev) => [...prev, r]);
+  // ─── Inline edit helpers ───────────────────────────────────────────────
+
+  const commitEdit = useCallback(
+    (id: string) => {
+      const time = padTime(editDate.getHours(), editDate.getMinutes());
+      const y = editDate.getFullYear();
+      const m = String(editDate.getMonth() + 1).padStart(2, '0');
+      const d = String(editDate.getDate()).padStart(2, '0');
+
+      const updated: ItemReminder = { id, time, frequency: editFrequency };
+      if (editFrequency === 'once') {
+        updated.date = `${y}-${m}-${d}`;
+      }
+      if (editFrequency === 'weekly') {
+        updated.days_of_week = editDaysOfWeek;
+      }
+
+      if (id === 'new') {
+        updated.id = makeId();
+        setLocalReminders((prev) => [...prev, updated]);
+      } else {
+        setLocalReminders((prev) => prev.map((r) => (r.id === id ? updated : r)));
+      }
+      setExpandedId(null);
     },
-    [localReminders.length],
+    [editDate, editFrequency, editDaysOfWeek],
   );
 
-  const removeReminder = useCallback((id: string) => {
-    setLocalReminders((prev) => prev.filter((r) => r.id !== id));
+  const toggleExpand = useCallback(
+    (reminder: ItemReminder) => {
+      if (expandedId === reminder.id) {
+        // Collapse — commit the edit
+        commitEdit(reminder.id);
+      } else {
+        // Switching rows — commit current edit first, then expand new one
+        if (expandedId) {
+          commitEdit(expandedId);
+        }
+        setExpandedId(reminder.id);
+        setEditFrequency(reminder.frequency);
+        setEditDaysOfWeek(reminder.days_of_week ?? []);
+        setEditDate(dateFromReminder(reminder));
+        setVisiblePicker('none');
+      }
+    },
+    [expandedId, commitEdit],
+  );
+
+  const startNewCustom = useCallback(() => {
+    if (atMax) return;
+    const now = new Date();
+    now.setMinutes(roundToNearest(now.getMinutes(), 5), 0, 0);
+    now.setHours(now.getHours() + 1);
+    setEditFrequency('once');
+    // Pre-set today's date so the user doesn't need to tap today to confirm it
+    setEditDate(now);
+    setEditDaysOfWeek([]);
+    setExpandedId('new');
+    setVisiblePicker('none');
+  }, [atMax]);
+
+  const removeReminder = useCallback(
+    (id: string) => {
+      setLocalReminders((prev) => prev.filter((r) => r.id !== id));
+      if (expandedId === id) setExpandedId(null);
+    },
+    [expandedId],
+  );
+
+  const handleFrequencyChange = useCallback((freq: ReminderFrequency) => {
+    setEditFrequency(freq);
+    if (freq === 'weekly') {
+      // Keep existing days or default empty
+    }
   }, []);
+
+  const toggleDay = useCallback((day: number) => {
+    setEditDaysOfWeek((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort(),
+    );
+  }, []);
+
+  const handleDateChange = useCallback((_event: any, selected?: Date) => {
+    if (!selected) return;
+    setEditDate((prev) => {
+      const next = new Date(selected);
+      // Preserve the time from the current edit state
+      next.setHours(prev.getHours(), prev.getMinutes(), 0, 0);
+      return next;
+    });
+    // On iOS compact mode, collapse after selection
+    setVisiblePicker('none');
+  }, []);
+
+  const handleTimeChange = useCallback((_event: any, selected?: Date) => {
+    if (!selected) return;
+    setEditDate((prev) => {
+      const next = new Date(prev);
+      next.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+      return next;
+    });
+    // On iOS compact mode, collapse after selection
+    setVisiblePicker('none');
+  }, []);
+
+  // ─── Quick add handlers (unchanged behavior) ──────────────────────────
 
   const handleIn1Hour = useCallback(() => {
     const now = new Date();
     now.setHours(now.getHours() + 1);
     const mins = roundToNearest(now.getMinutes(), 5);
     now.setMinutes(mins, 0, 0);
-    addReminder({
-      id: makeId(),
-      time: padTime(now.getHours(), now.getMinutes()),
-      frequency: 'once',
-      date: getTodayDateString(),
-    });
-  }, [addReminder]);
+    setLocalReminders((prev) => [
+      ...prev,
+      {
+        id: makeId(),
+        time: padTime(now.getHours(), now.getMinutes()),
+        frequency: 'once' as const,
+        date: getTodayDateString(),
+      },
+    ]);
+  }, []);
 
   const handleTomorrowAM = useCallback(() => {
-    addReminder({
-      id: makeId(),
-      time: '09:00',
-      frequency: 'once',
-      date: getTomorrowDateString(),
-    });
-  }, [addReminder]);
+    setLocalReminders((prev) => [
+      ...prev,
+      { id: makeId(), time: '09:00', frequency: 'once' as const, date: getTomorrowDateString() },
+    ]);
+  }, []);
 
   const handleDaily = useCallback(() => {
     const now = new Date();
     const mins = roundToNearest(now.getMinutes(), 15);
-    addReminder({
-      id: makeId(),
-      time: padTime(now.getHours(), mins >= 60 ? 0 : mins),
-      frequency: 'daily',
-    });
-  }, [addReminder]);
-
-  const handleCustomPress = useCallback(() => {
-    setCustomDate(new Date());
-    setCustomPickerStep('date');
-    setShowCustomPicker(true);
+    setLocalReminders((prev) => [
+      ...prev,
+      {
+        id: makeId(),
+        time: padTime(now.getHours(), mins >= 60 ? 0 : mins),
+        frequency: 'daily' as const,
+      },
+    ]);
   }, []);
 
-  const handleCustomDateChange = useCallback(
-    (_event: any, selected?: Date) => {
-      if (!selected) {
-        // Android cancel
-        if (Platform.OS === 'android') setShowCustomPicker(false);
-        return;
-      }
-      setCustomDate(selected);
-      if (customPickerStep === 'date') {
-        setCustomPickerStep('time');
-      } else {
-        // Time selected — finalize
-        const y = selected.getFullYear();
-        const m = String(selected.getMonth() + 1).padStart(2, '0');
-        const d = String(selected.getDate()).padStart(2, '0');
-        addReminder({
-          id: makeId(),
-          time: padTime(selected.getHours(), selected.getMinutes()),
-          frequency: 'once',
-          date: `${y}-${m}-${d}`,
-        });
-        setShowCustomPicker(false);
-      }
-    },
-    [customPickerStep, addReminder],
-  );
-
   const handleSave = useCallback(() => {
+    // If still editing, commit first
+    if (expandedId) {
+      commitEdit(expandedId);
+    }
     onSave(localReminders);
     onClose();
-  }, [localReminders, onSave, onClose]);
+  }, [localReminders, onSave, onClose, expandedId, commitEdit]);
+
+  // ─── Inline edit section renderer ──────────────────────────────────────
+
+  const renderExpandedEditor = useCallback(
+    () => (
+      <View style={styles.expandedSection}>
+        {/* Frequency chips */}
+        <View style={styles.frequencyRow}>
+          {FREQUENCY_OPTIONS.map((opt) => (
+            <Pressable
+              key={opt.value}
+              style={[
+                styles.frequencyChip,
+                editFrequency === opt.value && styles.frequencyChipSelected,
+              ]}
+              onPress={() => handleFrequencyChange(opt.value)}
+            >
+              <Text
+                style={[
+                  styles.frequencyChipText,
+                  editFrequency === opt.value && styles.frequencyChipTextSelected,
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* Day-of-week chips (only for 'weekly' / custom) */}
+        {editFrequency === 'weekly' && (
+          <View style={styles.dayRow}>
+            {DAY_LABELS.map((label, i) => (
+              <Pressable
+                key={i}
+                style={[styles.dayChip, editDaysOfWeek.includes(i) && styles.dayChipSelected]}
+                onPress={() => toggleDay(i)}
+              >
+                <Text
+                  style={[
+                    styles.dayChipText,
+                    editDaysOfWeek.includes(i) && styles.dayChipTextSelected,
+                  ]}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        {/* Compact date + time picker pills — side by side */}
+        <View style={styles.pickerPillRow}>
+          {/* Date pill — only for 'once' */}
+          {editFrequency === 'once' && (
+            <View style={styles.pickerPillWrapper}>
+              <DateTimePicker
+                value={editDate}
+                mode="date"
+                display="compact"
+                onChange={handleDateChange}
+                minimumDate={todayMidnight}
+                accentColor={BRAND.colors.mossGreen}
+              />
+            </View>
+          )}
+
+          {/* Time pill — always shown */}
+          <View style={styles.pickerPillWrapper}>
+            <DateTimePicker
+              value={editDate}
+              mode="time"
+              display="compact"
+              onChange={handleTimeChange}
+              minuteInterval={5}
+              accentColor={BRAND.colors.mossGreen}
+            />
+          </View>
+        </View>
+      </View>
+    ),
+    [
+      editFrequency,
+      editDaysOfWeek,
+      editDate,
+      todayMidnight,
+      handleFrequencyChange,
+      toggleDay,
+      handleDateChange,
+      handleTimeChange,
+    ],
+  );
 
   return (
     <Modal visible={visible} transparent animationType="slide">
@@ -195,14 +419,45 @@ export default function SetRemindersModal({
               <Text style={styles.emptyText}>No reminders set</Text>
             ) : (
               localReminders.map((r) => (
-                <View key={r.id} style={styles.reminderRow}>
-                  <Bell size={16} color={BRAND.colors.mossGreen} />
-                  <Text style={styles.reminderText}>{formatReminderDescription(r)}</Text>
-                  <Pressable onPress={() => removeReminder(r.id)} hitSlop={10}>
-                    <Trash2 size={16} color={colors.text.secondary} />
+                <View key={r.id}>
+                  {/* Tappable row — tap to expand/collapse edit */}
+                  <Pressable
+                    style={[styles.reminderRow, expandedId === r.id && styles.reminderRowExpanded]}
+                    onPress={() => toggleExpand(r)}
+                  >
+                    <Bell size={16} color={BRAND.colors.mossGreen} />
+                    <Text style={styles.reminderText}>
+                      {expandedId === r.id
+                        ? liveEditDescription(editFrequency, editDate, editDaysOfWeek)
+                        : formatReminderDescription(r)}
+                    </Text>
+                    <Pressable
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        removeReminder(r.id);
+                      }}
+                      hitSlop={12}
+                    >
+                      <Trash2 size={16} color={colors.text.secondary} />
+                    </Pressable>
                   </Pressable>
+                  {/* Inline expanded editor */}
+                  {expandedId === r.id && renderExpandedEditor()}
                 </View>
               ))
+            )}
+
+            {/* New custom reminder inline editor */}
+            {expandedId === 'new' && (
+              <View>
+                <View style={[styles.reminderRow, styles.reminderRowExpanded]}>
+                  <Bell size={16} color={BRAND.colors.mossGreen} />
+                  <Text style={styles.reminderText}>
+                    {liveEditDescription(editFrequency, editDate, editDaysOfWeek)}
+                  </Text>
+                </View>
+                {renderExpandedEditor()}
+              </View>
             )}
 
             {/* Quick options */}
@@ -234,32 +489,20 @@ export default function SetRemindersModal({
               </Pressable>
             </View>
 
-            {atMax && <Text style={styles.maxText}>Maximum 3 reminders</Text>}
+            {atMax && expandedId !== 'new' && (
+              <Text style={styles.maxText}>Maximum 3 reminders</Text>
+            )}
 
-            {/* Custom reminder */}
-            <Pressable
-              style={[styles.customButton, atMax && styles.pillDisabled]}
-              onPress={handleCustomPress}
-              disabled={atMax}
-            >
-              <Plus size={16} color={BRAND.colors.mossGreen} />
-              <Text style={styles.customButtonText}>Custom reminder</Text>
-            </Pressable>
-
-            {showCustomPicker && (
-              <View style={styles.pickerContainer}>
-                <Text style={styles.pickerLabel}>
-                  {customPickerStep === 'date' ? 'Pick a date' : 'Pick a time'}
-                </Text>
-                <DateTimePicker
-                  value={customDate}
-                  mode={customPickerStep}
-                  display={Platform.OS === 'ios' ? 'compact' : 'default'}
-                  onChange={handleCustomDateChange}
-                  minimumDate={new Date()}
-                  accentColor={BRAND.colors.mossGreen}
-                />
-              </View>
+            {/* Custom reminder button */}
+            {expandedId !== 'new' && (
+              <Pressable
+                style={[styles.customButton, atMax && styles.pillDisabled]}
+                onPress={startNewCustom}
+                disabled={atMax}
+              >
+                <Plus size={16} color={BRAND.colors.mossGreen} />
+                <Text style={styles.customButtonText}>Custom reminder</Text>
+              </Pressable>
             )}
           </ScrollView>
 
@@ -289,7 +532,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingTop: spacing.lg,
     paddingBottom: spacing['2xl'],
-    maxHeight: '80%',
+    maxHeight: '85%',
   },
   header: {
     flexDirection: 'row',
@@ -321,11 +564,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border.DEFAULT,
   },
+  reminderRowExpanded: {
+    borderBottomWidth: 0,
+  },
   reminderText: {
     flex: 1,
     fontFamily: 'Inter-Medium',
     fontSize: 14,
     color: BRAND.colors.charcoalInk,
+  },
+  expandedSection: {
+    backgroundColor: `${BRAND.colors.sageMist}26`, // ~15% opacity
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
   },
   sectionLabel: {
     fontFamily: 'Inter-Regular',
@@ -381,22 +633,78 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: BRAND.colors.mossGreen,
   },
-  pickerContainer: {
-    marginTop: spacing.md,
+  frequencyRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  frequencyChip: {
+    borderWidth: 1,
+    borderColor: BRAND.colors.sageMist,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+  },
+  frequencyChipSelected: {
+    backgroundColor: BRAND.colors.sageMist,
+    borderColor: BRAND.colors.mossGreen,
+  },
+  frequencyChipText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: BRAND.colors.mossGreen,
+  },
+  frequencyChipTextSelected: {
+    color: BRAND.colors.mossGreen,
+    fontFamily: 'Inter-SemiBold',
+  },
+  dayRow: {
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  dayChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: BRAND.colors.sageMist,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  dayChipSelected: {
+    backgroundColor: BRAND.colors.sageMist,
+    borderColor: BRAND.colors.mossGreen,
+  },
+  dayChipText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: BRAND.colors.mossGreen,
+  },
+  dayChipTextSelected: {
+    color: BRAND.colors.mossGreen,
+    fontFamily: 'Inter-SemiBold',
+  },
+  pickerPillRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
     alignItems: 'center',
   },
-  pickerLabel: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 13,
-    color: colors.text.secondary,
-    marginBottom: spacing.xs,
+  pickerPillWrapper: {
+    // iOS compact DateTimePicker renders as a small tappable label
+    // that opens a native popover — minimal vertical footprint
   },
   footer: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.base,
   },
   saveButton: {
-    backgroundColor: BRAND.colors.charcoalInk,
+    backgroundColor: BRAND.colors.mossGreen,
     borderRadius: borderRadius.lg,
     paddingVertical: 14,
     alignItems: 'center',

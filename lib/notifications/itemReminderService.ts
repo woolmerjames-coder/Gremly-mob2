@@ -88,7 +88,7 @@ export async function scheduleItemReminder(
       sound: 'default',
     };
 
-    let trigger: Notifications.NotificationTriggerInput;
+    const [hour, minute] = reminder.time.split(':').map(Number);
 
     if (reminder.frequency === 'once') {
       if (!reminder.date) {
@@ -96,7 +96,6 @@ export async function scheduleItemReminder(
         return null;
       }
 
-      const [hour, minute] = reminder.time.split(':').map(Number);
       const fireDate = new Date(`${reminder.date}T00:00:00`);
       fireDate.setHours(hour, minute, 0, 0);
 
@@ -105,29 +104,67 @@ export async function scheduleItemReminder(
         return null;
       }
 
-      trigger = {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: fireDate,
-      };
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content,
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: fireDate,
+        },
+      });
+
+      console.log(
+        `[itemReminderService] Scheduled once reminder for ${itemType} "${itemTitle}" → ${notificationId}`,
+      );
+      return notificationId;
+    } else if (reminder.frequency === 'daily') {
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content,
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour,
+          minute,
+        },
+      });
+
+      console.log(
+        `[itemReminderService] Scheduled daily reminder for ${itemType} "${itemTitle}" → ${notificationId}`,
+      );
+      return notificationId;
     } else {
-      // daily
-      const [hour, minute] = reminder.time.split(':').map(Number);
-      trigger = {
-        type: Notifications.SchedulableTriggerInputTypes.DAILY,
-        hour,
-        minute,
-      };
+      // weekdays, weekends, or weekly — schedule WEEKLY triggers for each day
+      let daysToSchedule: number[];
+
+      if (reminder.frequency === 'weekdays') {
+        daysToSchedule = [2, 3, 4, 5, 6]; // Mon=2, Tue=3, ... Fri=6 (Expo uses 1=Sun)
+      } else if (reminder.frequency === 'weekends') {
+        daysToSchedule = [1, 7]; // Sun=1, Sat=7 (Expo uses 1=Sun, 7=Sat)
+      } else {
+        // 'weekly' — use days_of_week (0=Sun, 1=Mon, ..., 6=Sat) → Expo weekday (1=Sun, 2=Mon, ..., 7=Sat)
+        daysToSchedule = (reminder.days_of_week ?? []).map((d) => d + 1);
+      }
+
+      if (daysToSchedule.length === 0) return null;
+
+      const ids: string[] = [];
+      for (const weekday of daysToSchedule) {
+        const nid = await Notifications.scheduleNotificationAsync({
+          content,
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+            weekday,
+            hour,
+            minute,
+          },
+        });
+        ids.push(nid);
+      }
+
+      const joined = ids.join(',');
+      console.log(
+        `[itemReminderService] Scheduled ${reminder.frequency} reminder for ${itemType} "${itemTitle}" (${daysToSchedule.length} days) → ${joined}`,
+      );
+      return joined;
     }
-
-    const notificationId = await Notifications.scheduleNotificationAsync({
-      content,
-      trigger,
-    });
-
-    console.log(
-      `[itemReminderService] Scheduled ${reminder.frequency} reminder for ${itemType} "${itemTitle}" → ${notificationId}`,
-    );
-    return notificationId;
   } catch (error) {
     console.error(`[itemReminderService] Failed to schedule for ${itemType} ${itemId}:`, error);
     return null;
@@ -188,11 +225,17 @@ export async function scheduleQuickReminder(
 
 /**
  * Cancel a single scheduled notification by its expo notification ID.
+ * Handles comma-separated IDs from multi-day schedules (weekdays/weekends/weekly).
  */
 export async function cancelItemReminder(notificationId: string): Promise<void> {
   try {
-    await Notifications.cancelScheduledNotificationAsync(notificationId);
-    console.log(`[itemReminderService] Cancelled ${notificationId}`);
+    const ids = notificationId.includes(',') ? notificationId.split(',') : [notificationId];
+    await Promise.allSettled(
+      ids.map(async (id) => {
+        await Notifications.cancelScheduledNotificationAsync(id.trim());
+        console.log(`[itemReminderService] Cancelled ${id.trim()}`);
+      }),
+    );
   } catch (error) {
     console.warn(`[itemReminderService] Cancel failed for ${notificationId}:`, error);
   }
