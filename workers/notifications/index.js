@@ -47,6 +47,34 @@ export default {
       }
     }
 
+    // ── Temporary admin: delete weekly summary ──
+    // DELETE /admin/weekly-summary?user_id=X&after=ISO
+    if (url.pathname === '/admin/weekly-summary' && request.method === 'DELETE') {
+      const userId = url.searchParams.get('user_id');
+      const after = url.searchParams.get('after');
+      if (!userId || !after) {
+        return new Response(JSON.stringify({ error: 'user_id and after required' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/weekly_summaries?user_id=eq.${userId}&generated_at=gte.${after}`,
+        {
+          method: 'DELETE',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            Prefer: 'return=representation',
+          },
+        },
+      );
+      const deleted = res.ok ? await res.json() : [];
+      return new Response(JSON.stringify({ deleted: deleted.length, rows: deleted }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     // ── Temporary backfill endpoint ──────────────────────────────────────
     // POST /backfill-weekly
     // Generates + saves + pushes weekly summaries for ALL weekly-enabled users.
@@ -370,8 +398,9 @@ async function sendScheduledNotifications(env) {
           // Step 2a: Analyst pass (Haiku)
           console.log(`[WeeklySummary] Step 2a: Running analyst pass (Haiku) for ${user.user_id}`);
           let aiResponse;
+          let analysisBrief;
           try {
-            const analysisBrief = await runAnalystPass(env, payload);
+            analysisBrief = await runAnalystPass(env, payload);
             console.log(
               `[WeeklySummary] Step 2a complete: Analyst brief received. Keys: ${Object.keys(analysisBrief).join(', ')}`,
             );
@@ -412,6 +441,68 @@ async function sendScheduledNotifications(env) {
               saveErr.stack || saveErr,
             );
             throw saveErr;
+          }
+
+          // Step 3b: Save space suggestion if Haiku found one
+          if (
+            analysisBrief?.spaceGapAnalysis?.shouldSuggest &&
+            analysisBrief.spaceGapAnalysis.suggestion
+          ) {
+            try {
+              const suggestion = analysisBrief.spaceGapAnalysis.suggestion;
+              if (suggestion.confidence >= 0.75 && suggestion.dropIds?.length >= 5) {
+                console.log(`[WeeklySummary] Step 3b: Saving space suggestion for ${user.user_id}`);
+
+                // Expire any existing pending new_space suggestions first
+                await fetch(
+                  `${env.SUPABASE_URL}/rest/v1/space_suggestions?user_id=eq.${user.user_id}&status=eq.pending&suggestion_type=eq.new_space`,
+                  {
+                    method: 'PATCH',
+                    headers: {
+                      apikey: env.SUPABASE_SERVICE_KEY,
+                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                      'Content-Type': 'application/json',
+                      Prefer: 'return=minimal',
+                    },
+                    body: JSON.stringify({
+                      status: 'expired',
+                      updated_at: new Date().toISOString(),
+                    }),
+                  },
+                );
+
+                // Insert new suggestion
+                await fetch(`${env.SUPABASE_URL}/rest/v1/space_suggestions`, {
+                  method: 'POST',
+                  headers: {
+                    apikey: env.SUPABASE_SERVICE_KEY,
+                    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                    'Content-Type': 'application/json',
+                    Prefer: 'return=minimal',
+                  },
+                  body: JSON.stringify({
+                    user_id: user.user_id,
+                    suggestion_type: 'new_space',
+                    space_id: null,
+                    suggested_name: suggestion.suggestedName,
+                    reason: suggestion.reason,
+                    drop_ids: suggestion.dropIds,
+                    confidence: suggestion.confidence,
+                    status: 'pending',
+                  }),
+                });
+
+                console.log(
+                  `[WeeklySummary] Step 3b complete: Space suggestion saved — "${suggestion.suggestedName}"`,
+                );
+              }
+            } catch (spaceSugErr) {
+              // Non-fatal — don't block the weekly summary pipeline
+              console.error(
+                `[WeeklySummary] Step 3b FAILED (space suggestion):`,
+                spaceSugErr.message,
+              );
+            }
           }
 
           // Step 4: Send push notification with dynamic body
@@ -659,6 +750,65 @@ async function handleBackfillWeekly(env, url) {
       );
       console.log(`[Backfill] Step 3 complete: Saved for ${userId}`);
 
+      // Step 3b: Save space suggestion if Haiku found one
+      if (
+        analysisBrief?.spaceGapAnalysis?.shouldSuggest &&
+        analysisBrief.spaceGapAnalysis.suggestion
+      ) {
+        try {
+          const suggestion = analysisBrief.spaceGapAnalysis.suggestion;
+          if (suggestion.confidence >= 0.75 && suggestion.dropIds?.length >= 5) {
+            console.log(`[Backfill] Step 3b: Saving space suggestion for ${userId}`);
+
+            // Expire any existing pending new_space suggestions first
+            await fetch(
+              `${supabaseUrl}/rest/v1/space_suggestions?user_id=eq.${userId}&status=eq.pending&suggestion_type=eq.new_space`,
+              {
+                method: 'PATCH',
+                headers: {
+                  apikey: supabaseKey,
+                  Authorization: `Bearer ${supabaseKey}`,
+                  'Content-Type': 'application/json',
+                  Prefer: 'return=minimal',
+                },
+                body: JSON.stringify({
+                  status: 'expired',
+                  updated_at: new Date().toISOString(),
+                }),
+              },
+            );
+
+            // Insert new suggestion
+            await fetch(`${supabaseUrl}/rest/v1/space_suggestions`, {
+              method: 'POST',
+              headers: {
+                apikey: supabaseKey,
+                Authorization: `Bearer ${supabaseKey}`,
+                'Content-Type': 'application/json',
+                Prefer: 'return=minimal',
+              },
+              body: JSON.stringify({
+                user_id: userId,
+                suggestion_type: 'new_space',
+                space_id: null,
+                suggested_name: suggestion.suggestedName,
+                reason: suggestion.reason,
+                drop_ids: suggestion.dropIds,
+                confidence: suggestion.confidence,
+                status: 'pending',
+              }),
+            });
+
+            console.log(
+              `[Backfill] Step 3b complete: Space suggestion saved — "${suggestion.suggestedName}"`,
+            );
+          }
+        } catch (spaceSugErr) {
+          // Non-fatal — don't block the backfill pipeline
+          console.error(`[Backfill] Step 3b FAILED (space suggestion):`, spaceSugErr.message);
+        }
+      }
+
       // Step 4: Send push notification (if user has a token)
       if (token) {
         const firstSentence = aiResponse.weeklyCommentary?.split(/[.!]/)[0]?.trim() || '';
@@ -816,21 +966,28 @@ function isWithinWindow(currentHour, currentMin, targetHour, targetMin, windowMi
 
 async function sendExpoPush(token, title, body, notificationType, extraData = {}) {
   const { _categoryId, ...dataExtras } = extraData;
+  const pushPayload = {
+    to: token,
+    title: title,
+    body: body,
+    sound: 'default',
+    categoryId: _categoryId,
+    data: {
+      type: notificationType,
+      action: 'open_flow',
+      ...dataExtras,
+    },
+  };
+  // Remove null/undefined optional fields that Expo rejects
+  Object.keys(pushPayload).forEach((key) => {
+    if (pushPayload[key] === null || pushPayload[key] === undefined) {
+      delete pushPayload[key];
+    }
+  });
   const response = await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      to: token,
-      title: title,
-      body: body,
-      sound: 'default',
-      categoryId: _categoryId || null,
-      data: {
-        type: notificationType,
-        action: 'open_flow',
-        ...dataExtras,
-      },
-    }),
+    body: JSON.stringify(pushPayload),
   });
 
   if (!response.ok) {
@@ -949,6 +1106,11 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
     userCalendarEventsNextWeek,
     noteEventsThisWeek,
     userCalendarEventsThisWeek,
+    unassignedTodos,
+    unassignedNotes,
+    unassignedHabits,
+    userProfileRows,
+    recentSpaceSuggestions,
   ] = await Promise.all([
     // 1. Completed todos this week (from the TODOS table)
     query(
@@ -1179,6 +1341,62 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
         `event_date=gte.${weekStart.split('T')[0]}`,
         `event_date=lte.${weekEnd.split('T')[0]}`,
         `select=id,title,event_date,event_time,duration_minutes,space_id,notes`,
+      ].join('&'),
+    ),
+
+    // 21. Unassigned drops (last 30 days) for space gap analysis
+    query(
+      'todos',
+      [
+        `owner_id=eq.${userId}`,
+        `space_id=is.null`,
+        `archived=eq.false`,
+        `completed_at=is.null`,
+        `created_at=gte.${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()}`,
+        `select=id,title,tags,created_at`,
+        `limit=100`,
+      ].join('&'),
+    ),
+
+    // 22. Unassigned notes (last 30 days, exclude journals)
+    query(
+      'notes',
+      [
+        `owner_id=eq.${userId}`,
+        `space_id=is.null`,
+        `archived=eq.false`,
+        `subtype=neq.journal`,
+        `created_at=gte.${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()}`,
+        `select=id,title,tags,subtype,created_at`,
+        `limit=100`,
+      ].join('&'),
+    ),
+
+    // 23. Unassigned habits (last 30 days)
+    query(
+      'habits',
+      [
+        `owner_id=eq.${userId}`,
+        `space_id=is.null`,
+        `archived=eq.false`,
+        `created_at=gte.${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()}`,
+        `select=id,name,tags,created_at`,
+        `limit=50`,
+      ].join('&'),
+    ),
+
+    // 24. User profile (for personal context)
+    query('user_profiles', [`user_id=eq.${userId}`, `select=profile_text`].join('&')),
+
+    // 25. Recent space suggestions (for cooldown / no-repeat logic)
+    query(
+      'space_suggestions',
+      [
+        `user_id=eq.${userId}`,
+        `suggestion_type=eq.new_space`,
+        `order=created_at.desc`,
+        `limit=10`,
+        `select=suggested_name,status,created_at`,
       ].join('&'),
     ),
   ]);
@@ -1465,6 +1683,53 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
     recentJournalExcerpts,
     recentNotesTitles,
     trendContext,
+
+    // Space gap analysis (for Haiku analyst pass)
+    spaceDiscovery: (() => {
+      const unassignedDrops = [
+        ...unassignedTodos.map((t) => ({
+          id: t.id,
+          title: t.title,
+          type: 'todo',
+          tags: t.tags || [],
+        })),
+        ...unassignedNotes.map((n) => ({
+          id: n.id,
+          title: n.title,
+          type: n.subtype || 'note',
+          tags: n.tags || [],
+        })),
+        ...unassignedHabits.map((h) => ({
+          id: h.id,
+          title: h.name,
+          type: 'habit',
+          tags: h.tags || [],
+        })),
+      ];
+
+      const userProfileText = userProfileRows?.[0]?.profile_text || null;
+
+      // Cooldown: skip space discovery if a new_space was suggested in the last 2 weeks
+      const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+      const recentNewSpaceSuggestion = (recentSpaceSuggestions || []).find(
+        (s) => s.created_at > twoWeeksAgo,
+      );
+      const spaceDiscoveryEnabled = !recentNewSpaceSuggestion && unassignedDrops.length >= 5;
+
+      // Names the user already dismissed (never re-suggest these)
+      const dismissedSpaceNames = (recentSpaceSuggestions || [])
+        .filter((s) => s.status === 'dismissed')
+        .map((s) => (s.suggested_name || '').toLowerCase());
+
+      if (!spaceDiscoveryEnabled) return null;
+
+      return {
+        unassignedDrops,
+        userProfileText,
+        existingSpaceNames: spaces.map((s) => s.name),
+        dismissedSuggestionNames: dismissedSpaceNames,
+      };
+    })(),
   };
 }
 
@@ -1730,6 +1995,16 @@ OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
     "keyEvents": ["string — the 3-7 most important upcoming events by importance score. MUST span MULTIPLE days of the week, not just Monday. Format: 'DayName: Event Title (importance X) — reason'"],
     "conflictsOrWarnings": ["string — scheduling issues or things to watch out for"],
     "dayByDaySummary": "string — one sentence per day covering Mon-Sun of the upcoming week"
+  },
+  "spaceGapAnalysis": {
+    "shouldSuggest": true|false,
+    "suggestion": {
+      "suggestedName": "string — specific, action-oriented name",
+      "reason": "string — why this cluster deserves its own space, referencing the user's life context",
+      "dropIds": ["string — IDs of unassigned items that belong here"],
+      "confidence": 0.0-1.0,
+      "connectionToProfile": "string — how this space connects to who this person is"
+    } | null
   }
 }
 
@@ -1750,7 +2025,20 @@ ANALYSIS RULES:
 - If completions cluster in the last 2 days of the week, flag pattern: 'weekend_sprinter'.
 - If journal entries mentioning stress/fatigue correlate with skipped habits the same day, flag pattern: 'stress_skips_exercise'.
 - If a single space has both highest activity and highest completion rate, flag pattern: 'deep_focus_[spaceName]'.
-- weekAheadBrief.keyEvents MUST include the highest-scoring events from across ALL days of the week, not just the first day. If Tuesday has a flight and Friday has travel, both MUST appear.`;
+- weekAheadBrief.keyEvents MUST include the highest-scoring events from across ALL days of the week, not just the first day. If Tuesday has a flight and Friday has travel, both MUST appear.
+
+SPACE GAP ANALYSIS RULES:
+- Only analyze if spaceDiscovery is present in the payload (it will be null if cooldown is active or too few unassigned items).
+- If spaceDiscovery is null, set shouldSuggest: false, suggestion: null.
+- Look for 5+ unassigned items that cluster around a SPECIFIC thing the user is actively doing — a project, a life transition, a goal.
+- The cluster must be DISTINCT from all existingSpaceNames. Do NOT suggest a space that overlaps with what already exists.
+- Do NOT suggest any space whose name (case-insensitive) matches a name in dismissedSuggestionNames — the user already rejected it.
+- Use userProfileText to understand who this person is. A good space suggestion feels like it reflects their life, not just a category.
+- Ask: "Would this person open this space next week to check on things?" If not, don't suggest it.
+- Derive the name from what they're DOING, not a generic label. "Job Search" not "Career". "Wedding Planning" not "Life Events".
+- If nothing meets the bar, set shouldSuggest: false. That's the expected outcome most weeks. Do not force a suggestion.
+- Confidence must be >= 0.75 to suggest. Below that, don't.
+- Maximum ONE space suggestion per week.`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -1761,12 +2049,12 @@ ANALYSIS RULES:
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: analystPrompt,
       messages: [
         {
           role: 'user',
-          content: `Analyze this user's weekly data thoroughly. Produce the structured analysis brief.\n\n${JSON.stringify(payload, null, 2)}`,
+          content: `Analyze this user's weekly data thoroughly. Produce the structured analysis brief.\n\n${JSON.stringify(payload)}`,
         },
       ],
     }),
@@ -1792,6 +2080,9 @@ ANALYSIS RULES:
     return JSON.parse(cleaned);
   } catch (e) {
     console.error('[Analyst] Failed to parse JSON, using raw text as fallback');
+    console.error('[Analyst] Parse error:', e.message);
+    console.error('[Analyst] First 500 chars:', cleaned.substring(0, 500));
+    console.error('[Analyst] Last 200 chars:', cleaned.substring(cleaned.length - 200));
     return { rawAnalysis: cleaned };
   }
 }
@@ -1919,7 +2210,14 @@ TREND CONTEXT RULES:
 - Only reference prior weeks when a pattern spans 2+ weeks.
 - Never open with "last week you also..."
 - Use insightFrequency to avoid repeating the same insight type.
-- If trendContext includes a week from the same period last month or last year with a similar weekType, add one sentence to weeklyCommentary connecting them: "Three weeks ago you also had a travel disruption — you recovered faster this time." Only do this if the connection is genuine and specific.`;
+- If trendContext includes a week from the same period last month or last year with a similar weekType, add one sentence to weeklyCommentary connecting them: "Three weeks ago you also had a travel disruption — you recovered faster this time." Only do this if the connection is genuine and specific.
+
+SPACE SUGGESTION INSIGHT (optional):
+- If the analyst brief contains a spaceGapAnalysis with shouldSuggest: true, you MAY include a "space_suggestion" insight.
+- Frame it warmly and specifically: "I noticed X items about [topic] floating around without a home — want me to set up a [Name] space?"
+- Use the connectionToProfile from the analysis to make it personal.
+- This is LOW PRIORITY — only include it if you have room in your 2-4 insight slots and other insights aren't more important.
+- type: "space_suggestion", isActionable: true, actionType: "open_spaces", actionLabel: "View suggestion"`;
 
   // Build a focused payload for Sonnet — analyst brief + essential raw data
   const storytellerPayload = {
