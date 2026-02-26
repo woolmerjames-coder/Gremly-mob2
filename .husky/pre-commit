@@ -20,7 +20,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Get staged TypeScript files (excluding tests, DateService.ts, and server-side code)
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx)$' | grep -v '__tests__' | grep -v '\.test\.' | grep -v 'DateService\.ts' | grep -v 'supabase/functions')
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx)$' | grep -v '__tests__' | grep -v '\.test\.' | grep -v 'DateService\.ts' | grep -v 'supabase/functions' || true)
 
 if [ -z "$STAGED_FILES" ]; then
   # No relevant files staged, run lint-staged and exit
