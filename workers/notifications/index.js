@@ -105,6 +105,30 @@ export default {
       return jsonResponse({ deleted: deleted.length, weekStart });
     }
 
+    // GET /admin/test-space-discovery?user_id=...&timezone=... — read-only diagnostic
+    if (url.pathname === '/admin/test-space-discovery' && request.method === 'GET') {
+      const userId = url.searchParams.get('user_id');
+      if (!userId) return jsonResponse({ error: 'Missing user_id' }, 400);
+      const timezone = url.searchParams.get('timezone') || 'America/Los_Angeles';
+      try {
+        const payload = await buildServerSidePayload(env, userId, timezone);
+        if (!payload.spaceDiscovery) {
+          return jsonResponse({ skipped: true, reason: 'cooldown active or <5 unassigned drops' });
+        }
+        const result = await runSpaceDiscoveryPass(env, payload);
+        if (result.rawAnalysis) {
+          return jsonResponse({
+            error: 'parse_failed',
+            first500: result.rawAnalysis.substring(0, 500),
+            last200: result.rawAnalysis.substring(result.rawAnalysis.length - 200),
+          });
+        }
+        return jsonResponse(result);
+      } catch (err) {
+        return jsonResponse({ error: err.message }, 500);
+      }
+    }
+
     // GET /debug-events?user_id=...  — temporary audit endpoint
     if (url.pathname === '/debug-events') {
       const userId = url.searchParams.get('user_id');
@@ -443,21 +467,35 @@ async function sendScheduledNotifications(env) {
             throw saveErr;
           }
 
-          // Step 3b: Save space suggestion if Haiku found one
-          if (
-            analysisBrief?.spaceGapAnalysis?.shouldSuggest &&
-            analysisBrief.spaceGapAnalysis.suggestion
-          ) {
+          // Step 3b: Space discovery (independent Haiku call)
+          if (payload.spaceDiscovery) {
             try {
-              const suggestion = analysisBrief.spaceGapAnalysis.suggestion;
-              if (suggestion.confidence >= 0.75 && suggestion.dropIds?.length >= 5) {
-                console.log(`[WeeklySummary] Step 3b: Saving space suggestion for ${user.user_id}`);
+              console.log(`[WeeklySummary] Step 3b: Running space discovery for ${user.user_id}`);
+              const spaceResult = await runSpaceDiscoveryPass(env, payload);
+              if (spaceResult?.shouldSuggest && spaceResult.suggestion) {
+                const suggestion = spaceResult.suggestion;
+                if (suggestion.confidence >= 0.75 && suggestion.dropIds?.length >= 5) {
+                  // Expire any existing pending new_space suggestions first
+                  await fetch(
+                    `${env.SUPABASE_URL}/rest/v1/space_suggestions?user_id=eq.${user.user_id}&status=eq.pending&suggestion_type=eq.new_space`,
+                    {
+                      method: 'PATCH',
+                      headers: {
+                        apikey: env.SUPABASE_SERVICE_KEY,
+                        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                        'Content-Type': 'application/json',
+                        Prefer: 'return=minimal',
+                      },
+                      body: JSON.stringify({
+                        status: 'expired',
+                        updated_at: new Date().toISOString(),
+                      }),
+                    },
+                  );
 
-                // Expire any existing pending new_space suggestions first
-                await fetch(
-                  `${env.SUPABASE_URL}/rest/v1/space_suggestions?user_id=eq.${user.user_id}&status=eq.pending&suggestion_type=eq.new_space`,
-                  {
-                    method: 'PATCH',
+                  // Insert new suggestion
+                  await fetch(`${env.SUPABASE_URL}/rest/v1/space_suggestions`, {
+                    method: 'POST',
                     headers: {
                       apikey: env.SUPABASE_SERVICE_KEY,
                       Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
@@ -465,41 +503,32 @@ async function sendScheduledNotifications(env) {
                       Prefer: 'return=minimal',
                     },
                     body: JSON.stringify({
-                      status: 'expired',
-                      updated_at: new Date().toISOString(),
+                      user_id: user.user_id,
+                      suggestion_type: 'new_space',
+                      space_id: null,
+                      suggested_name: suggestion.suggestedName,
+                      reason: suggestion.reason,
+                      drop_ids: suggestion.dropIds,
+                      confidence: suggestion.confidence,
+                      status: 'pending',
                     }),
-                  },
-                );
+                  });
 
-                // Insert new suggestion
-                await fetch(`${env.SUPABASE_URL}/rest/v1/space_suggestions`, {
-                  method: 'POST',
-                  headers: {
-                    apikey: env.SUPABASE_SERVICE_KEY,
-                    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-                    'Content-Type': 'application/json',
-                    Prefer: 'return=minimal',
-                  },
-                  body: JSON.stringify({
-                    user_id: user.user_id,
-                    suggestion_type: 'new_space',
-                    space_id: null,
-                    suggested_name: suggestion.suggestedName,
-                    reason: suggestion.reason,
-                    drop_ids: suggestion.dropIds,
-                    confidence: suggestion.confidence,
-                    status: 'pending',
-                  }),
-                });
-
-                console.log(
-                  `[WeeklySummary] Step 3b complete: Space suggestion saved — "${suggestion.suggestedName}"`,
-                );
+                  console.log(
+                    `[WeeklySummary] Step 3b complete: Space suggestion saved — "${suggestion.suggestedName}"`,
+                  );
+                } else {
+                  console.log(
+                    `[WeeklySummary] Step 3b: Suggestion below threshold (confidence=${suggestion.confidence}, drops=${suggestion.dropIds?.length})`,
+                  );
+                }
+              } else {
+                console.log(`[WeeklySummary] Step 3b: No space suggestion from discovery pass`);
               }
             } catch (spaceSugErr) {
               // Non-fatal — don't block the weekly summary pipeline
               console.error(
-                `[WeeklySummary] Step 3b FAILED (space suggestion):`,
+                `[WeeklySummary] Step 3b FAILED (space discovery):`,
                 spaceSugErr.message,
               );
             }
@@ -750,21 +779,35 @@ async function handleBackfillWeekly(env, url) {
       );
       console.log(`[Backfill] Step 3 complete: Saved for ${userId}`);
 
-      // Step 3b: Save space suggestion if Haiku found one
-      if (
-        analysisBrief?.spaceGapAnalysis?.shouldSuggest &&
-        analysisBrief.spaceGapAnalysis.suggestion
-      ) {
+      // Step 3b: Space discovery (independent Haiku call)
+      if (payload.spaceDiscovery) {
         try {
-          const suggestion = analysisBrief.spaceGapAnalysis.suggestion;
-          if (suggestion.confidence >= 0.75 && suggestion.dropIds?.length >= 5) {
-            console.log(`[Backfill] Step 3b: Saving space suggestion for ${userId}`);
+          console.log(`[Backfill] Step 3b: Running space discovery for ${userId}`);
+          const spaceResult = await runSpaceDiscoveryPass(env, payload);
+          if (spaceResult?.shouldSuggest && spaceResult.suggestion) {
+            const suggestion = spaceResult.suggestion;
+            if (suggestion.confidence >= 0.75 && suggestion.dropIds?.length >= 5) {
+              // Expire any existing pending new_space suggestions first
+              await fetch(
+                `${supabaseUrl}/rest/v1/space_suggestions?user_id=eq.${userId}&status=eq.pending&suggestion_type=eq.new_space`,
+                {
+                  method: 'PATCH',
+                  headers: {
+                    apikey: supabaseKey,
+                    Authorization: `Bearer ${supabaseKey}`,
+                    'Content-Type': 'application/json',
+                    Prefer: 'return=minimal',
+                  },
+                  body: JSON.stringify({
+                    status: 'expired',
+                    updated_at: new Date().toISOString(),
+                  }),
+                },
+              );
 
-            // Expire any existing pending new_space suggestions first
-            await fetch(
-              `${supabaseUrl}/rest/v1/space_suggestions?user_id=eq.${userId}&status=eq.pending&suggestion_type=eq.new_space`,
-              {
-                method: 'PATCH',
+              // Insert new suggestion
+              await fetch(`${supabaseUrl}/rest/v1/space_suggestions`, {
+                method: 'POST',
                 headers: {
                   apikey: supabaseKey,
                   Authorization: `Bearer ${supabaseKey}`,
@@ -772,40 +815,31 @@ async function handleBackfillWeekly(env, url) {
                   Prefer: 'return=minimal',
                 },
                 body: JSON.stringify({
-                  status: 'expired',
-                  updated_at: new Date().toISOString(),
+                  user_id: userId,
+                  suggestion_type: 'new_space',
+                  space_id: null,
+                  suggested_name: suggestion.suggestedName,
+                  reason: suggestion.reason,
+                  drop_ids: suggestion.dropIds,
+                  confidence: suggestion.confidence,
+                  status: 'pending',
                 }),
-              },
-            );
+              });
 
-            // Insert new suggestion
-            await fetch(`${supabaseUrl}/rest/v1/space_suggestions`, {
-              method: 'POST',
-              headers: {
-                apikey: supabaseKey,
-                Authorization: `Bearer ${supabaseKey}`,
-                'Content-Type': 'application/json',
-                Prefer: 'return=minimal',
-              },
-              body: JSON.stringify({
-                user_id: userId,
-                suggestion_type: 'new_space',
-                space_id: null,
-                suggested_name: suggestion.suggestedName,
-                reason: suggestion.reason,
-                drop_ids: suggestion.dropIds,
-                confidence: suggestion.confidence,
-                status: 'pending',
-              }),
-            });
-
-            console.log(
-              `[Backfill] Step 3b complete: Space suggestion saved — "${suggestion.suggestedName}"`,
-            );
+              console.log(
+                `[Backfill] Step 3b complete: Space suggestion saved — "${suggestion.suggestedName}"`,
+              );
+            } else {
+              console.log(
+                `[Backfill] Step 3b: Suggestion below threshold (confidence=${suggestion.confidence}, drops=${suggestion.dropIds?.length})`,
+              );
+            }
+          } else {
+            console.log(`[Backfill] Step 3b: No space suggestion from discovery pass`);
           }
         } catch (spaceSugErr) {
           // Non-fatal — don't block the backfill pipeline
-          console.error(`[Backfill] Step 3b FAILED (space suggestion):`, spaceSugErr.message);
+          console.error(`[Backfill] Step 3b FAILED (space discovery):`, spaceSugErr.message);
         }
       }
 
@@ -1996,16 +2030,6 @@ OUTPUT FORMAT: Respond ONLY with valid JSON. No markdown, no backticks.
     "conflictsOrWarnings": ["string — scheduling issues or things to watch out for"],
     "dayByDaySummary": "string — one sentence per day covering Mon-Sun of the upcoming week"
   },
-  "spaceGapAnalysis": {
-    "shouldSuggest": true|false,
-    "suggestion": {
-      "suggestedName": "string — specific, action-oriented name",
-      "reason": "string — why this cluster deserves its own space, referencing the user's life context",
-      "dropIds": ["string — IDs of unassigned items that belong here"],
-      "confidence": 0.0-1.0,
-      "connectionToProfile": "string — how this space connects to who this person is"
-    } | null
-  }
 }
 
 ANALYSIS RULES:
@@ -2027,18 +2051,7 @@ ANALYSIS RULES:
 - If a single space has both highest activity and highest completion rate, flag pattern: 'deep_focus_[spaceName]'.
 - weekAheadBrief.keyEvents MUST include the highest-scoring events from across ALL days of the week, not just the first day. If Tuesday has a flight and Friday has travel, both MUST appear.
 
-SPACE GAP ANALYSIS RULES:
-- Only analyze if spaceDiscovery is present in the payload (it will be null if cooldown is active or too few unassigned items).
-- If spaceDiscovery is null, set shouldSuggest: false, suggestion: null.
-- Look for 5+ unassigned items that cluster around a SPECIFIC thing the user is actively doing — a project, a life transition, a goal.
-- The cluster must be DISTINCT from all existingSpaceNames. Do NOT suggest a space that overlaps with what already exists.
-- Do NOT suggest any space whose name (case-insensitive) matches a name in dismissedSuggestionNames — the user already rejected it.
-- Use userProfileText to understand who this person is. A good space suggestion feels like it reflects their life, not just a category.
-- Ask: "Would this person open this space next week to check on things?" If not, don't suggest it.
-- Derive the name from what they're DOING, not a generic label. "Job Search" not "Career". "Wedding Planning" not "Life Events".
-- If nothing meets the bar, set shouldSuggest: false. That's the expected outcome most weeks. Do not force a suggestion.
-- Confidence must be >= 0.75 to suggest. Below that, don't.
-- Maximum ONE space suggestion per week.`;
+`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -2049,7 +2062,7 @@ SPACE GAP ANALYSIS RULES:
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 8192,
+      max_tokens: 4096,
       system: analystPrompt,
       messages: [
         {
@@ -2083,6 +2096,89 @@ SPACE GAP ANALYSIS RULES:
     console.error('[Analyst] Parse error:', e.message);
     console.error('[Analyst] First 500 chars:', cleaned.substring(0, 500));
     console.error('[Analyst] Last 200 chars:', cleaned.substring(cleaned.length - 200));
+    return { rawAnalysis: cleaned };
+  }
+}
+
+/**
+ * SPACE DISCOVERY PASS: Lightweight Haiku call to analyze unassigned items.
+ * Runs independently of the analyst pass. Only sends spaceDiscovery context + user profile.
+ *
+ * @param {object} env - Worker env with ANTHROPIC_API_KEY
+ * @param {object} payload - Full payload (only spaceDiscovery + userProfileText are used)
+ * @returns {object} { shouldSuggest, suggestion } or { rawAnalysis } on parse failure
+ */
+async function runSpaceDiscoveryPass(env, payload) {
+  const systemPrompt = `You analyze unassigned items in a productivity app and decide whether they cluster into a new Space (a life domain container). Respond ONLY with valid JSON, no markdown, no backticks.
+
+{
+  "shouldSuggest": true|false,
+  "suggestion": {
+    "suggestedName": "string — specific, action-oriented name",
+    "reason": "string — why this cluster deserves its own space",
+    "dropIds": ["string — IDs of items that belong here"],
+    "confidence": 0.0-1.0,
+    "connectionToProfile": "string — how this connects to who this person is"
+  } | null
+}
+
+Rules:
+- Look for 5+ unassigned items clustering around a SPECIFIC project, life transition, or goal.
+- The cluster must be DISTINCT from all existing spaces.
+- Do NOT suggest any name (case-insensitive) matching a dismissed name.
+- Use the user profile to understand who this person is. A good suggestion reflects their life.
+- Ask: "Would this person open this space next week?" If not, don't suggest.
+- Derive names from what they're DOING, not generic labels. "Job Search" not "Career".
+- If nothing meets the bar, set shouldSuggest: false. That's the expected outcome most weeks.
+- Confidence must be >= 0.75 to suggest.
+- Maximum ONE suggestion.`;
+
+  const userMessage = `User profile: ${payload.userProfileText || 'No profile available'}
+
+Existing spaces: ${JSON.stringify(payload.spaceDiscovery.existingSpaceNames)}
+Dismissed suggestions: ${JSON.stringify(payload.spaceDiscovery.dismissedSuggestionNames)}
+
+Unassigned items (${payload.spaceDiscovery.unassignedDrops.length}):
+${JSON.stringify(payload.spaceDiscovery.unassignedDrops)}`;
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Space discovery pass (Haiku) error: ${response.status} — ${errText}`);
+  }
+
+  const data = await response.json();
+  const text = data.content
+    ?.map((block) => (block.type === 'text' ? block.text : ''))
+    .filter(Boolean)
+    .join('');
+
+  if (!text) {
+    throw new Error('Space discovery pass returned empty response');
+  }
+
+  const cleaned = text.replace(/```json\n?|```\n?/g, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.error('[SpaceDiscovery] Failed to parse JSON, using raw text as fallback');
+    console.error('[SpaceDiscovery] Parse error:', e.message);
+    console.error('[SpaceDiscovery] First 500 chars:', cleaned.substring(0, 500));
+    console.error('[SpaceDiscovery] Last 200 chars:', cleaned.substring(cleaned.length - 200));
     return { rawAnalysis: cleaned };
   }
 }
@@ -2213,9 +2309,8 @@ TREND CONTEXT RULES:
 - If trendContext includes a week from the same period last month or last year with a similar weekType, add one sentence to weeklyCommentary connecting them: "Three weeks ago you also had a travel disruption — you recovered faster this time." Only do this if the connection is genuine and specific.
 
 SPACE SUGGESTION INSIGHT (optional):
-- If the analyst brief contains a spaceGapAnalysis with shouldSuggest: true, you MAY include a "space_suggestion" insight.
+- If there is a pending space suggestion in the data, you MAY include a "space_suggestion" insight.
 - Frame it warmly and specifically: "I noticed X items about [topic] floating around without a home — want me to set up a [Name] space?"
-- Use the connectionToProfile from the analysis to make it personal.
 - This is LOW PRIORITY — only include it if you have room in your 2-4 insight slots and other insights aren't more important.
 - type: "space_suggestion", isActionable: true, actionType: "open_spaces", actionLabel: "View suggestion"`;
 
