@@ -168,6 +168,7 @@ import LinkedItemsSection from './LinkedItemsSection';
 import LinkedEventPicker from './LinkedEventPicker';
 import { RevertToTextButton } from './RevertToTextButton';
 import { TodoPreviewModal } from './TodoPreviewModal';
+import { env } from '../../lib/env';
 import { ClarificationPopup } from '../minddrop/ClarificationPopup';
 import {
   extractListItems,
@@ -2036,7 +2037,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [visible, conversionMeta]);
 
   // feature flag for commitments (soft rollout)
-  const commitmentsOn = process?.env?.EXPO_PUBLIC_FEATURE_COMMITMENTS === 'on';
+  const commitmentsOn = env.feature.commitments;
   const currentTagsRef = useRef<TagKey[]>(state.tags);
   useEffect(() => {
     currentTagsRef.current = state.tags;
