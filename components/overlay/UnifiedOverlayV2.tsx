@@ -2183,7 +2183,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         type: 'SET_TODO_DUE',
         due_at: null,
         due_day: scheduleModalState.startDate, // do date = due_day
-        due_time: null,
+        // don't include due_time — reducer preserves existing value
       });
 
       dispatch({
