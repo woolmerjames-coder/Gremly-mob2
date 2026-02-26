@@ -60,12 +60,15 @@ import {
   Wand2,
   Zap,
   Plus,
+  Bell,
 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useCurrentWeekSummary } from '../../lib/store/selectors';
 import { selectSummaryByWeek } from '../../lib/store/selectors';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { addDays, nextMonday, format } from 'date-fns';
+import { scheduleItemReminder } from '../../lib/notifications/itemReminderService';
+import type { ItemReminder } from '../../lib/types';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
 import { getDateService } from '../../lib/date';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
@@ -182,7 +185,15 @@ const moodStyles = StyleSheet.create({
   },
 });
 
-function MoodOpenerCard({ mood, weekType, weekTypeShort }: { mood: string; weekType?: string; weekTypeShort?: string }) {
+function MoodOpenerCard({
+  mood,
+  weekType,
+  weekTypeShort,
+}: {
+  mood: string;
+  weekType?: string;
+  weekTypeShort?: string;
+}) {
   return (
     <Animated.View entering={FadeIn.duration(600)} style={wsStyles.card}>
       <View style={moodStyles.container}>
@@ -192,7 +203,7 @@ function MoodOpenerCard({ mood, weekType, weekTypeShort }: { mood: string; weekT
         <Animated.Text entering={FadeInUp.duration(500).delay(400)} style={moodStyles.moodText}>
           {mood}
         </Animated.Text>
-        {(weekTypeShort || weekType) ? (
+        {weekTypeShort || weekType ? (
           <Animated.Text entering={FadeIn.duration(400).delay(700)} style={moodStyles.weekTypeText}>
             {weekTypeShort ?? weekType}
           </Animated.Text>
@@ -410,7 +421,9 @@ function WeekInReviewCard({
                 {s.trend === 'up' && <Text style={wirStyles.trendUp}> ↑</Text>}
                 {s.trend === 'down' && <Text style={wirStyles.trendDown}> ↓</Text>}
               </View>
-              <Text style={wirStyles.statLabel} numberOfLines={1} adjustsFontSizeToFit>{s.label}</Text>
+              <Text style={wirStyles.statLabel} numberOfLines={1} adjustsFontSizeToFit>
+                {s.label}
+              </Text>
             </View>
           ))}
         </View>
@@ -454,23 +467,66 @@ function WeekInReviewCard({
 const mmStyles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   title: { fontSize: 22, fontFamily: 'PlusJakartaSans-Bold', color: WS.text },
-  weekType: { fontSize: 14, fontFamily: 'Inter-Medium', color: WS.periwinkle, marginBottom: 20, textTransform: 'capitalize' },
+  weekType: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: WS.periwinkle,
+    marginBottom: 20,
+    textTransform: 'capitalize',
+  },
   timelineContainer: { paddingTop: 8 },
   timelineRow: { flexDirection: 'row', gap: 12 },
   timelineLeft: { alignItems: 'center', width: 44 },
-  dayPill: { backgroundColor: WS.sageLight, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 4, marginBottom: 4 },
+  dayPill: {
+    backgroundColor: WS.sageLight,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    marginBottom: 4,
+  },
   dayText: { fontSize: 11, fontFamily: 'Inter-Medium', color: WS.sageDark, textAlign: 'center' },
   connectorLine: { flex: 1, width: 1, backgroundColor: WS.divider },
   timelineContent: { flex: 1, paddingBottom: 24 },
-  momentTitle: { fontSize: 16, fontFamily: 'PlusJakartaSans-SemiBold', color: WS.sageDark, marginBottom: 5, marginTop: 2 },
-  momentBody: { fontSize: 14, fontFamily: 'Inter-Regular', lineHeight: 21, color: WS.sageDark, letterSpacing: -0.1, marginBottom: 8 },
+  momentTitle: {
+    fontSize: 16,
+    fontFamily: 'PlusJakartaSans-SemiBold',
+    color: WS.sageDark,
+    marginBottom: 5,
+    marginTop: 2,
+  },
+  momentBody: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    lineHeight: 21,
+    color: WS.sageDark,
+    letterSpacing: -0.1,
+    marginBottom: 8,
+  },
   connectedRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  connectedPill: { backgroundColor: 'rgba(191, 216, 192, 0.2)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
+  connectedPill: {
+    backgroundColor: 'rgba(191, 216, 192, 0.2)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
   connectedText: { fontSize: 12, fontFamily: 'Inter-Medium', color: WS.textSubtle },
-  emptyState: { fontSize: 15, fontFamily: 'Inter-Regular', color: WS.textMuted, textAlign: 'center', marginTop: 20, lineHeight: 22 },
+  emptyState: {
+    fontSize: 15,
+    fontFamily: 'Inter-Regular',
+    color: WS.textMuted,
+    textAlign: 'center',
+    marginTop: 20,
+    lineHeight: 22,
+  },
 });
 
-function MagicMomentsCard({ moments, weekType }: { moments: WeeklySummaryMagicMoment[]; weekType?: string }) {
+function MagicMomentsCard({
+  moments,
+  weekType,
+}: {
+  moments: WeeklySummaryMagicMoment[];
+  weekType?: string;
+}) {
   function getDayLabel(dateStr?: string): string {
     if (!dateStr) return '—';
     const DAY_NAMES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -888,6 +944,7 @@ const staleStyles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginTop: 10,
   },
@@ -993,6 +1050,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
   const [triagedIds, setTriagedIds] = useState<Set<string>>(new Set());
   const [datePickerItemId, setDatePickerItemId] = useState<string | null>(null);
   const [confirmedDates, setConfirmedDates] = useState<Record<string, string>>({});
+  const [remindedIds, setRemindedIds] = useState<Set<string>>(new Set());
   const [allCleared, setAllCleared] = useState(false);
 
   type StaleEntity = {
@@ -1002,6 +1060,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
     title?: string;
     created_at?: string;
     sweep_reschedule_count?: number;
+    time_window?: string | null;
   };
 
   const staleItems: StaleEntity[] = useMemo(() => {
@@ -1016,6 +1075,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
           title: todo.title,
           created_at: todo.created_at,
           sweep_reschedule_count: (todo as any).sweep_reschedule_count,
+          time_window: (todo as any).time_window,
         });
         continue;
       }
@@ -1027,6 +1087,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
           name: habit.name,
           created_at: habit.created_at,
           sweep_reschedule_count: (habit as any).sweep_reschedule_count,
+          time_window: (habit as any).time_window,
         });
       }
     }
@@ -1102,6 +1163,55 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
       triageItem(item.id);
     },
     [archiveTodo, triageItem],
+  );
+
+  const handleRemind = useCallback(
+    async (item: StaleEntity) => {
+      triggerLight();
+
+      const tomorrow = addDays(new Date(), 1);
+      const dateStr = format(tomorrow, 'yyyy-MM-dd');
+      const entityTitle = item.title || item.name || 'Reminder';
+
+      // Default reminder time: use time_window if available, else 9am
+      let reminderTime = '09:00';
+      if (item.time_window === 'day') reminderTime = '13:00';
+      if (item.time_window === 'evening') reminderTime = '18:00';
+
+      const reminder: ItemReminder = {
+        id: `weekly-remind-${Date.now()}-${item.id.slice(0, 8)}`,
+        time: reminderTime,
+        frequency: 'once' as const,
+        date: dateStr,
+      };
+
+      // Schedule local notification
+      const notificationId = await scheduleItemReminder(
+        item.id,
+        entityTitle,
+        item.entityType === 'todo' ? 'todo' : 'habit',
+        reminder,
+      );
+
+      // Persist reminder and set due_day to tomorrow so it shows on Today
+      if (item.entityType === 'todo') {
+        await updateTodo(item.id, {
+          reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
+          due_day: dateStr,
+          scheduled_date: dateStr,
+          resurface_at: dateStr,
+        } as any);
+      }
+
+      // Mark as reminded (shows confirmation chip)
+      setRemindedIds((prev) => new Set([...prev, item.id]));
+
+      // Auto-triage after a brief delay (same pattern as reschedule)
+      setTimeout(() => {
+        triageItem(item.id);
+      }, 1200);
+    },
+    [updateTodo, triageItem, triggerLight],
   );
 
   const handleDropAll = useCallback(async () => {
@@ -1205,8 +1315,14 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
                   </Text>
                   {ageText ? <Text style={staleStyles.itemAge}>{ageText}</Text> : null}
 
-                  {/* Confirmed date chip (shown after reschedule pick) */}
-                  {confirmedDate ? (
+                  {/* Reminder confirmation chip */}
+                  {remindedIds.has(item.id) ? (
+                    <View style={[staleStyles.actionRow, { marginTop: 10 }]}>
+                      <View style={staleStyles.dateConfirmChip}>
+                        <Text style={staleStyles.dateConfirmText}>Reminder set for tomorrow</Text>
+                      </View>
+                    </View>
+                  ) : confirmedDate ? (
                     <View style={[staleStyles.actionRow, { marginTop: 10 }]}>
                       <View style={staleStyles.dateConfirmChip}>
                         <Text style={staleStyles.dateConfirmText}>✓ {confirmedDate}</Text>
@@ -1240,6 +1356,17 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
                         >
                           <CalendarDays size={16} color={WS.sageDark} strokeWidth={2} />
                           <Text style={staleStyles.rescheduleText}>Reschedule</Text>
+                        </Pressable>
+
+                        <Pressable
+                          onPress={() => handleRemind(item)}
+                          style={({ pressed }) => [
+                            staleStyles.rescheduleBtn,
+                            pressed && { opacity: 0.8 },
+                          ]}
+                        >
+                          <Bell size={16} color={WS.sageDark} strokeWidth={2} />
+                          <Text style={staleStyles.rescheduleText}>Remind</Text>
                         </Pressable>
 
                         <Pressable
@@ -1478,14 +1605,16 @@ function getEventAccentColor(highlight: WeeklySummaryWeekAheadHighlight): string
     title.includes('tokyo') ||
     title.includes('tulum') ||
     title.includes('los angeles')
-  ) return WS.periwinkle;
+  )
+    return WS.periwinkle;
   if (
     title.includes('launch') ||
     title.includes('testflight') ||
     title.includes('release') ||
     title.includes('milestone') ||
     title.includes('honeymoon')
-  ) return WS.golden;
+  )
+    return WS.golden;
   return WS.sage;
 }
 
@@ -2047,7 +2176,12 @@ export default function WeeklySummaryScreen() {
 
     // 1. Mood opener — the fortune cookie
     if (content.mood) {
-      result.push({ type: 'mood', mood: content.mood, weekType: content.weekType, weekTypeShort: content.weekTypeShort });
+      result.push({
+        type: 'mood',
+        mood: content.mood,
+        weekType: content.weekType,
+        weekTypeShort: content.weekTypeShort,
+      });
     }
 
     // 2. Week in Review
@@ -2172,15 +2306,17 @@ export default function WeeklySummaryScreen() {
           </Text>
           <ProgressDots total={cards.length} current={currentCardIndex} />
           {content?.weekTypeShort ? (
-            <Text style={{
-              fontSize: 10,
-              fontFamily: 'Inter-Regular',
-              color: WS.textMuted,
-              textAlign: 'center',
-              marginTop: 2,
-              letterSpacing: 0.5,
-              textTransform: 'uppercase',
-            }}>
+            <Text
+              style={{
+                fontSize: 10,
+                fontFamily: 'Inter-Regular',
+                color: WS.textMuted,
+                textAlign: 'center',
+                marginTop: 2,
+                letterSpacing: 0.5,
+                textTransform: 'uppercase',
+              }}
+            >
               {content.weekTypeShort}
             </Text>
           ) : null}
@@ -2211,7 +2347,13 @@ export default function WeeklySummaryScreen() {
               contentContainerStyle={wsStyles.cardScrollContent}
               showsVerticalScrollIndicator={false}
             >
-              {item.type === 'mood' && <MoodOpenerCard mood={item.mood} weekType={item.weekType} weekTypeShort={item.weekTypeShort} />}
+              {item.type === 'mood' && (
+                <MoodOpenerCard
+                  mood={item.mood}
+                  weekType={item.weekType}
+                  weekTypeShort={item.weekTypeShort}
+                />
+              )}
               {item.type === 'weekInReview' && (
                 <WeekInReviewCard
                   content={item.content}

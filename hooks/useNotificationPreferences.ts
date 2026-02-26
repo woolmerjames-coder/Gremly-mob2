@@ -17,6 +17,8 @@ export interface NotificationPreferences {
   morningTime: string; // "HH:MM" format
   eveningEnabled: boolean;
   eveningTime: string; // "HH:MM" format
+  afternoonEnabled: boolean;
+  afternoonTime: string; // "HH:MM" format
   weeklyEnabled: boolean;
   weeklyTime: string; // "HH:MM" format
   weeklyDay: number; // 0=Sun, 1=Mon, ..., 6=Sat
@@ -31,6 +33,8 @@ export interface NotificationPreferencesUI {
   morningTime: Date;
   eveningEnabled: boolean;
   eveningTime: Date;
+  afternoonEnabled: boolean;
+  afternoonTime: Date;
   weeklyEnabled: boolean;
   weeklyTime: Date;
   weeklyDay: number; // 0=Sun, 1=Mon, ..., 6=Sat
@@ -42,6 +46,8 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
   morningTime: '08:00',
   eveningEnabled: true,
   eveningTime: '20:00',
+  afternoonEnabled: true,
+  afternoonTime: '14:00',
   weeklyEnabled: true,
   weeklyTime: '18:00',
   weeklyDay: 0, // Sunday
@@ -76,6 +82,8 @@ function toUIPreferences(prefs: NotificationPreferences): NotificationPreference
     morningTime: timeStringToDate(prefs.morningTime),
     eveningEnabled: prefs.eveningEnabled,
     eveningTime: timeStringToDate(prefs.eveningTime),
+    afternoonEnabled: prefs.afternoonEnabled,
+    afternoonTime: timeStringToDate(prefs.afternoonTime),
     weeklyEnabled: prefs.weeklyEnabled,
     weeklyTime: timeStringToDate(prefs.weeklyTime),
     weeklyDay: prefs.weeklyDay,
@@ -92,6 +100,8 @@ function toDBPreferences(prefs: NotificationPreferencesUI): NotificationPreferen
     morningTime: dateToTimeString(prefs.morningTime),
     eveningEnabled: prefs.eveningEnabled,
     eveningTime: dateToTimeString(prefs.eveningTime),
+    afternoonEnabled: prefs.afternoonEnabled,
+    afternoonTime: dateToTimeString(prefs.afternoonTime),
     weeklyEnabled: prefs.weeklyEnabled,
     weeklyTime: dateToTimeString(prefs.weeklyTime),
     weeklyDay: prefs.weeklyDay,
@@ -169,6 +179,8 @@ export function useNotificationPreferences(): UseNotificationPreferencesResult {
               morningTime: data.morning_time ?? DEFAULT_PREFERENCES.morningTime,
               eveningEnabled: data.evening_enabled ?? DEFAULT_PREFERENCES.eveningEnabled,
               eveningTime: data.evening_time ?? DEFAULT_PREFERENCES.eveningTime,
+              afternoonEnabled: data.afternoon_enabled ?? DEFAULT_PREFERENCES.afternoonEnabled,
+              afternoonTime: data.afternoon_time ?? DEFAULT_PREFERENCES.afternoonTime,
               weeklyEnabled: data.weekly_enabled ?? DEFAULT_PREFERENCES.weeklyEnabled,
               weeklyTime: data.weekly_time ?? DEFAULT_PREFERENCES.weeklyTime,
               weeklyDay: data.weekly_day ?? DEFAULT_PREFERENCES.weeklyDay,
@@ -208,6 +220,8 @@ export function useNotificationPreferences(): UseNotificationPreferencesResult {
             morning_time: dbPrefs.morningTime,
             evening_enabled: dbPrefs.eveningEnabled,
             evening_time: dbPrefs.eveningTime,
+            afternoon_enabled: dbPrefs.afternoonEnabled,
+            afternoon_time: dbPrefs.afternoonTime,
             weekly_enabled: dbPrefs.weeklyEnabled,
             weekly_time: dbPrefs.weeklyTime,
             weekly_day: dbPrefs.weeklyDay,

@@ -1,5 +1,5 @@
 /**
- * Gremly Notification Worker v3
+ * Gremly Notification Worker v4
  *
  * Sends morning and evening push notifications via Expo Push API.
  * Runs on a cron schedule (every 5 minutes) and checks each user's
@@ -7,8 +7,8 @@
  *
  * Features:
  * - Per-user timezone-aware scheduling
- * - Deduplication via morning_last_sent / evening_last_sent columns
- * - 5-minute window matching (aligns with cron interval)
+ * - Atomic deduplication via claim_notification_slot RPC (prevents race conditions)
+ * - 5-minute window matching (aligns with cron interval) with midnight wraparound
  * - Deep link data payload for in-app routing
  * - Weekly summary payload builder (queries Supabase for Section 8.2 payload)
  *
@@ -123,7 +123,7 @@ export default {
       });
     }
 
-    return new Response('Gremly Notification Worker v3. Use /test to trigger manually.', {
+    return new Response('Gremly Notification Worker v4. Use /test to trigger manually.', {
       status: 200,
     });
   },
@@ -143,9 +143,9 @@ async function sendScheduledNotifications(env) {
 
   const now = new Date();
 
-  // Get notification preferences INCLUDING last_sent columns
+  // Get notification preferences
   const prefsResponse = await fetch(
-    `${supabaseUrl}/rest/v1/notification_preferences?select=user_id,morning_enabled,morning_time,evening_enabled,evening_time,weekly_enabled,weekly_time,weekly_day,timezone,morning_last_sent,evening_last_sent,weekly_last_sent`,
+    `${supabaseUrl}/rest/v1/notification_preferences?select=user_id,morning_enabled,morning_time,evening_enabled,evening_time,weekly_enabled,weekly_time,weekly_day,timezone,afternoon_enabled,afternoon_time,last_app_active_at`,
     {
       headers: {
         apikey: supabaseKey,
@@ -191,17 +191,12 @@ async function sendScheduledNotifications(env) {
 
     const timezone = pref.timezone || 'America/Los_Angeles';
     const userTime = getTimeInTimezone(now, timezone);
-    const todayInUserTz = getDateInTimezone(now, timezone);
 
     // Check morning notification
     if (pref.morning_enabled && pref.morning_time) {
       const [mornHour, mornMin] = parseTime(pref.morning_time);
-      const alreadySentToday = pref.morning_last_sent === todayInUserTz;
 
-      if (
-        !alreadySentToday &&
-        isWithinWindow(userTime.hour, userTime.minute, mornHour, mornMin, 5)
-      ) {
+      if (isWithinWindow(userTime.hour, userTime.minute, mornHour, mornMin, 5)) {
         usersToNotify.push({
           user_id: pref.user_id,
           token: token,
@@ -215,9 +210,8 @@ async function sendScheduledNotifications(env) {
     // Check evening notification
     if (pref.evening_enabled && pref.evening_time) {
       const [eveHour, eveMin] = parseTime(pref.evening_time);
-      const alreadySentToday = pref.evening_last_sent === todayInUserTz;
 
-      if (!alreadySentToday && isWithinWindow(userTime.hour, userTime.minute, eveHour, eveMin, 5)) {
+      if (isWithinWindow(userTime.hour, userTime.minute, eveHour, eveMin, 5)) {
         usersToNotify.push({
           user_id: pref.user_id,
           token: token,
@@ -237,14 +231,8 @@ async function sendScheduledNotifications(env) {
       const userDayOfWeek = getDayOfWeekInTimezone(now, timezone);
       const isCorrectDay = userDayOfWeek === configuredDay;
 
-      // Check if already generated for this week
-      const { weekStart } = computeWeekBoundaries(now, timezone);
-      const weekStartDate = weekStart.split('T')[0]; // "YYYY-MM-DD"
-      const alreadyGenerated = pref.weekly_last_sent === weekStartDate;
-
       if (
         isCorrectDay &&
-        !alreadyGenerated &&
         isWithinWindow(userTime.hour, userTime.minute, weeklyHour, weeklyMin, 5)
       ) {
         usersToNotify.push({
@@ -252,6 +240,21 @@ async function sendScheduledNotifications(env) {
           token: token,
           type: 'weekly_summary',
           timezone: timezone,
+        });
+      }
+    }
+
+    // Check afternoon check-in notification
+    if (pref.afternoon_enabled && pref.afternoon_time) {
+      const [aftHour, aftMin] = parseTime(pref.afternoon_time);
+
+      if (isWithinWindow(userTime.hour, userTime.minute, aftHour, aftMin, 5)) {
+        usersToNotify.push({
+          user_id: pref.user_id,
+          token: token,
+          type: 'afternoon',
+          timezone: timezone,
+          last_app_active_at: pref.last_app_active_at,
         });
       }
     }
@@ -269,8 +272,11 @@ async function sendScheduledNotifications(env) {
   }
 
   // Split users into immediate (morning/evening) and weekly
-  const immediateUsers = usersToNotify.filter((u) => u.type !== 'weekly_summary');
+  const immediateUsers = usersToNotify.filter(
+    (u) => u.type !== 'weekly_summary' && u.type !== 'afternoon',
+  );
   const weeklyUsers = usersToNotify.filter((u) => u.type === 'weekly_summary');
+  const afternoonUsers = usersToNotify.filter((u) => u.type === 'afternoon');
 
   // Send notifications and update last_sent
   let sent = 0;
@@ -279,13 +285,29 @@ async function sendScheduledNotifications(env) {
   // --- Process immediate (morning/evening) notifications sequentially ---
   for (const user of immediateUsers) {
     try {
-      await sendExpoPush(user.token, user.title, user.body, user.type);
-
       const userTimezone =
         prefs.find((p) => p.user_id === user.user_id)?.timezone || 'America/Los_Angeles';
       const todayInUserTz = getDateInTimezone(now, userTimezone);
-      await updateLastSent(supabaseUrl, supabaseKey, user.user_id, user.type, todayInUserTz);
 
+      // Atomic claim — if another invocation already sent, skip
+      const claimed = await claimNotificationSlot(
+        supabaseUrl,
+        supabaseKey,
+        user.user_id,
+        user.type,
+        todayInUserTz,
+      );
+      if (!claimed) {
+        console.log(
+          `[Notifications] Slot already claimed for ${user.type} - ${user.user_id}, skipping`,
+        );
+        continue;
+      }
+
+      await sendExpoPush(user.token, user.title, user.body, user.type, {
+        _categoryId: user.type === 'morning' ? 'MORNING_BRIEF' : 'EVENING_SWEEP',
+        notificationType: user.type === 'morning' ? 'morning_brief' : 'evening_sweep',
+      });
       sent++;
       console.log(`[Notifications] Sent ${user.type} to user ${user.user_id}`);
     } catch (err) {
@@ -296,142 +318,148 @@ async function sendScheduledNotifications(env) {
 
   // --- Process weekly summary notifications in parallel batches ---
   if (weeklyUsers.length > 0) {
+    // Claim slots for all weekly users before starting expensive generation
+    const claimedWeeklyUsers = [];
+    for (const user of weeklyUsers) {
+      const { weekStart } = computeWeekBoundaries(new Date(), user.timezone);
+      const weekStartDate = weekStart.split('T')[0];
+      const claimed = await claimNotificationSlot(
+        supabaseUrl,
+        supabaseKey,
+        user.user_id,
+        'weekly',
+        weekStartDate,
+      );
+      if (claimed) {
+        claimedWeeklyUsers.push(user);
+      } else {
+        console.log(`[Notifications] Weekly slot already claimed for ${user.user_id}, skipping`);
+      }
+    }
+
     const WEEKLY_BATCH_SIZE = 5;
     console.log(
-      `[Notifications] Processing ${weeklyUsers.length} weekly summaries in batches of ${WEEKLY_BATCH_SIZE}`,
+      `[Notifications] Processing ${claimedWeeklyUsers.length} weekly summaries in batches of ${WEEKLY_BATCH_SIZE}`,
     );
 
-    const batchResults = await processInBatches(weeklyUsers, WEEKLY_BATCH_SIZE, async (user) => {
-      console.log(`[Notifications] Generating weekly summary for ${user.user_id}`);
+    const batchResults = await processInBatches(
+      claimedWeeklyUsers,
+      WEEKLY_BATCH_SIZE,
+      async (user) => {
+        console.log(`[Notifications] Generating weekly summary for ${user.user_id}`);
 
-      try {
-        // Step 1: Build payload
-        console.log(`[WeeklySummary] Step 1: Starting payload build for ${user.user_id}`);
-        let payload;
+        let pushSent = false;
         try {
-          payload = await buildServerSidePayload(env, user.user_id, user.timezone);
-          console.log(
-            `[WeeklySummary] Step 1 complete: Payload built successfully. Keys: ${Object.keys(payload).join(', ')}`,
-          );
-        } catch (payloadErr) {
-          console.error(
-            `[WeeklySummary] Step 1 FAILED (buildServerSidePayload) for ${user.user_id}:`,
-            payloadErr.message,
-            payloadErr.stack || payloadErr,
-          );
-          throw payloadErr;
-        }
+          // Step 1: Build payload
+          console.log(`[WeeklySummary] Step 1: Starting payload build for ${user.user_id}`);
+          let payload;
+          try {
+            payload = await buildServerSidePayload(env, user.user_id, user.timezone);
+            console.log(
+              `[WeeklySummary] Step 1 complete: Payload built successfully. Keys: ${Object.keys(payload).join(', ')}`,
+            );
+          } catch (payloadErr) {
+            console.error(
+              `[WeeklySummary] Step 1 FAILED (buildServerSidePayload) for ${user.user_id}:`,
+              payloadErr.message,
+              payloadErr.stack || payloadErr,
+            );
+            throw payloadErr;
+          }
 
-        // Step 2a: Analyst pass (Haiku)
-        console.log(`[WeeklySummary] Step 2a: Running analyst pass (Haiku) for ${user.user_id}`);
-        let aiResponse;
-        try {
-          const analysisBrief = await runAnalystPass(env, payload);
-          console.log(
-            `[WeeklySummary] Step 2a complete: Analyst brief received. Keys: ${Object.keys(analysisBrief).join(', ')}`,
-          );
+          // Step 2a: Analyst pass (Haiku)
+          console.log(`[WeeklySummary] Step 2a: Running analyst pass (Haiku) for ${user.user_id}`);
+          let aiResponse;
+          try {
+            const analysisBrief = await runAnalystPass(env, payload);
+            console.log(
+              `[WeeklySummary] Step 2a complete: Analyst brief received. Keys: ${Object.keys(analysisBrief).join(', ')}`,
+            );
 
-          // Step 2b: Storyteller pass (Sonnet)
-          console.log(
-            `[WeeklySummary] Step 2b: Running storyteller pass (Sonnet) for ${user.user_id}`,
-          );
-          aiResponse = await generateWeeklySummary(env, payload, analysisBrief);
-          console.log(
-            `[WeeklySummary] Step 2b complete: AI response received. Keys: ${Object.keys(aiResponse).join(', ')}`,
-          );
-        } catch (aiErr) {
-          console.error(
-            `[WeeklySummary] Step 2 FAILED (generateWeeklySummary) for ${user.user_id}:`,
-            aiErr.message,
-            aiErr.stack || aiErr,
-          );
-          throw aiErr;
-        }
+            // Step 2b: Storyteller pass (Sonnet)
+            console.log(
+              `[WeeklySummary] Step 2b: Running storyteller pass (Sonnet) for ${user.user_id}`,
+            );
+            aiResponse = await generateWeeklySummary(env, payload, analysisBrief);
+            console.log(
+              `[WeeklySummary] Step 2b complete: AI response received. Keys: ${Object.keys(aiResponse).join(', ')}`,
+            );
+          } catch (aiErr) {
+            console.error(
+              `[WeeklySummary] Step 2 FAILED (generateWeeklySummary) for ${user.user_id}:`,
+              aiErr.message,
+              aiErr.stack || aiErr,
+            );
+            throw aiErr;
+          }
 
-        // Step 3: Save to Supabase
-        console.log(`[WeeklySummary] Step 3: Saving to Supabase for ${user.user_id}`);
-        try {
-          await saveWeeklySummary(
-            env,
-            user.user_id,
-            payload.weekStartDate,
-            payload.weekEndDate,
-            aiResponse,
-            payload,
-          );
-          console.log(`[WeeklySummary] Step 3 complete: Saved successfully for ${user.user_id}`);
-        } catch (saveErr) {
-          console.error(
-            `[WeeklySummary] Step 3 FAILED (saveWeeklySummary) for ${user.user_id}:`,
-            saveErr.message,
-            saveErr.stack || saveErr,
-          );
-          throw saveErr;
-        }
+          // Step 3: Save to Supabase
+          console.log(`[WeeklySummary] Step 3: Saving to Supabase for ${user.user_id}`);
+          try {
+            await saveWeeklySummary(
+              env,
+              user.user_id,
+              payload.weekStartDate,
+              payload.weekEndDate,
+              aiResponse,
+              payload,
+            );
+            console.log(`[WeeklySummary] Step 3 complete: Saved successfully for ${user.user_id}`);
+          } catch (saveErr) {
+            console.error(
+              `[WeeklySummary] Step 3 FAILED (saveWeeklySummary) for ${user.user_id}:`,
+              saveErr.message,
+              saveErr.stack || saveErr,
+            );
+            throw saveErr;
+          }
 
-        // Step 4: Send push notification with dynamic body
-        const firstSentence = aiResponse.weeklyCommentary?.split(/[.!]/)[0]?.trim() || '';
-        const notificationBody = firstSentence
-          ? `${firstSentence}.`
-          : 'Your weekly summary is ready.';
+          // Step 4: Send push notification with dynamic body
+          const firstSentence = aiResponse.weeklyCommentary?.split(/[.!]/)[0]?.trim() || '';
+          const notificationBody = firstSentence
+            ? `${firstSentence}.`
+            : 'Your weekly summary is ready.';
 
-        await sendExpoPush(
-          user.token,
-          'Your week in review is ready',
-          notificationBody,
-          'weekly_summary',
-        );
-
-        // Step 5: Update weekly_last_sent
-        const { weekStart } = computeWeekBoundaries(new Date(), user.timezone);
-        await updateLastSent(
-          supabaseUrl,
-          supabaseKey,
-          user.user_id,
-          'weekly',
-          weekStart.split('T')[0],
-        );
-
-        console.log(`[Notifications] Weekly summary generated and sent for ${user.user_id}`);
-        return { success: true, user_id: user.user_id };
-      } catch (genErr) {
-        console.error(
-          `[Notifications] Weekly generation failed for ${user.user_id}:`,
-          genErr.message,
-          genErr.stack || genErr,
-        );
-
-        // Fallback: send notification with generic body
-        try {
           await sendExpoPush(
             user.token,
             'Your week in review is ready',
-            'Tap to see your weekly summary.',
+            notificationBody,
             'weekly_summary',
           );
+          pushSent = true;
 
-          // Still mark as sent so we don't retry every 5 minutes
-          const { weekStart } = computeWeekBoundaries(new Date(), user.timezone);
-          await updateLastSent(
-            supabaseUrl,
-            supabaseKey,
-            user.user_id,
-            'weekly',
-            weekStart.split('T')[0],
-          );
-
-          console.log(`[Notifications] Weekly fallback notification sent for ${user.user_id}`);
+          console.log(`[Notifications] Weekly summary generated and sent for ${user.user_id}`);
           return { success: true, user_id: user.user_id };
-        } catch (fallbackErr) {
+        } catch (genErr) {
           console.error(
-            `[WeeklySummary] Fallback notification ALSO failed for ${user.user_id}:`,
-            fallbackErr.message,
-            fallbackErr.stack || fallbackErr,
+            `[Notifications] Weekly generation failed for ${user.user_id}:`,
+            genErr.message,
+            genErr.stack || genErr,
           );
-          return { success: false, user_id: user.user_id, error: fallbackErr.message };
+
+          // Only send fallback if the primary push wasn't already sent
+          if (!pushSent) {
+            try {
+              await sendExpoPush(
+                user.token,
+                'Your week in review is ready',
+                'Tap to see your weekly summary.',
+                'weekly_summary',
+              );
+              console.log(`[Notifications] Weekly fallback notification sent for ${user.user_id}`);
+            } catch (fallbackErr) {
+              console.error(
+                `[WeeklySummary] Fallback also failed for ${user.user_id}:`,
+                fallbackErr.message,
+                fallbackErr.stack || fallbackErr,
+              );
+            }
+          }
+
+          return { success: pushSent, user_id: user.user_id, error: genErr.message };
         }
-      }
-    });
+      },
+    );
 
     // Aggregate batch results
     for (const result of batchResults) {
@@ -441,6 +469,78 @@ async function sendScheduledNotifications(env) {
         errors.push({ user_id: result.value.user_id, error: result.value.error });
       } else if (result.status === 'rejected') {
         errors.push({ user_id: 'unknown', error: result.reason?.message || 'Unknown batch error' });
+      }
+    }
+  }
+
+  // --- Process afternoon check-in notifications ---
+  if (afternoonUsers.length > 0) {
+    console.log(`[Notifications] Processing ${afternoonUsers.length} afternoon check-ins`);
+
+    for (const user of afternoonUsers) {
+      try {
+        const userTimezone = user.timezone || 'America/Los_Angeles';
+        const todayInUserTz = getDateInTimezone(now, userTimezone);
+
+        // Atomic claim
+        const claimed = await claimNotificationSlot(
+          supabaseUrl,
+          supabaseKey,
+          user.user_id,
+          'afternoon',
+          todayInUserTz,
+        );
+        if (!claimed) {
+          console.log(`[Notifications] Afternoon slot already claimed for ${user.user_id}`);
+          continue;
+        }
+
+        // Suppression: user active in last 2 hours
+        if (user.last_app_active_at) {
+          const lastActive = new Date(user.last_app_active_at);
+          const twoHoursMs = 2 * 60 * 60 * 1000;
+          if (now.getTime() - lastActive.getTime() < twoHoursMs) {
+            console.log(
+              `[Notifications] Afternoon suppressed (recently active) for ${user.user_id}`,
+            );
+            continue;
+          }
+        }
+
+        // Query actionable items for smart content
+        const context = await getAfternoonContext(
+          supabaseUrl,
+          supabaseKey,
+          user.user_id,
+          getDateInTimezone(now, userTimezone),
+        );
+        if (context.lockInCount === 0 && context.overdueCount === 0) {
+          console.log(
+            `[Notifications] Afternoon suppressed (no actionable items) for ${user.user_id}`,
+          );
+          continue;
+        }
+
+        // Build message
+        let title = 'Afternoon check-in';
+        let body;
+        if (context.lockInCount >= 2) {
+          body = `You have ${context.lockInCount} lock-ins today. How's it going?`;
+        } else if (context.lockInCount === 1 && context.firstLockInTitle) {
+          body = `${context.firstLockInTitle} — still on track?`;
+        } else {
+          body = `You've got ${context.overdueCount} open item${context.overdueCount === 1 ? '' : 's'}. Want to lock one in for this afternoon?`;
+        }
+
+        await sendExpoPush(user.token, title, body, 'afternoon_checkin', {
+          _categoryId: 'AFTERNOON_CHECKIN',
+          notificationType: 'afternoon_checkin',
+        });
+        sent++;
+        console.log(`[Notifications] Afternoon check-in sent to ${user.user_id}`);
+      } catch (err) {
+        errors.push({ user_id: user.user_id, error: err.message });
+        console.error(`[Notifications] Afternoon failed for ${user.user_id}:`, err.message);
       }
     }
   }
@@ -611,31 +711,44 @@ async function processInBatches(items, batchSize, processFn) {
   return allResults;
 }
 
-async function updateLastSent(supabaseUrl, supabaseKey, userId, type, dateStr) {
-  const columnMap = {
-    morning: 'morning_last_sent',
-    evening: 'evening_last_sent',
-    weekly: 'weekly_last_sent',
-  };
-  const column = columnMap[type];
-  if (!column) return;
-
-  const response = await fetch(
-    `${supabaseUrl}/rest/v1/notification_preferences?user_id=eq.${userId}`,
-    {
-      method: 'PATCH',
+/**
+ * Atomically claim a notification send slot via Supabase RPC.
+ * Prevents race conditions where two cron invocations both read "not sent" and both send.
+ * Returns true if claimed (safe to send), false if already sent (skip).
+ */
+async function claimNotificationSlot(supabaseUrl, supabaseKey, userId, type, dateKey) {
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/rpc/claim_notification_slot`, {
+      method: 'POST',
       headers: {
         apikey: supabaseKey,
         Authorization: `Bearer ${supabaseKey}`,
         'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
       },
-      body: JSON.stringify({ [column]: dateStr }),
-    },
-  );
+      body: JSON.stringify({
+        p_user_id: userId,
+        p_type: type,
+        p_date_key: dateKey,
+      }),
+    });
 
-  if (!response.ok) {
-    console.error(`[Notifications] Failed to update ${column} for ${userId}`);
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(
+        `[Notifications] claimNotificationSlot RPC error for ${userId}/${type}:`,
+        errText,
+      );
+      return false; // fail-safe: don't send
+    }
+
+    const result = await response.json();
+    return result === true;
+  } catch (err) {
+    console.error(
+      `[Notifications] claimNotificationSlot exception for ${userId}/${type}:`,
+      err.message,
+    );
+    return false; // fail-safe: don't send
   }
 }
 
@@ -697,10 +810,12 @@ function isWithinWindow(currentHour, currentMin, targetHour, targetMin, windowMi
   const currentTotal = currentHour * 60 + currentMin;
   const targetTotal = targetHour * 60 + targetMin;
   const diff = Math.abs(currentTotal - targetTotal);
-  return diff <= windowMinutes;
+  const wrappedDiff = Math.min(diff, 1440 - diff);
+  return wrappedDiff <= windowMinutes;
 }
 
-async function sendExpoPush(token, title, body, notificationType) {
+async function sendExpoPush(token, title, body, notificationType, extraData = {}) {
+  const { _categoryId, ...dataExtras } = extraData;
   const response = await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -709,9 +824,11 @@ async function sendExpoPush(token, title, body, notificationType) {
       title: title,
       body: body,
       sound: 'default',
+      categoryId: _categoryId || null,
       data: {
         type: notificationType,
         action: 'open_flow',
+        ...dataExtras,
       },
     }),
   });
@@ -722,6 +839,52 @@ async function sendExpoPush(token, title, body, notificationType) {
   }
 
   return response.json();
+}
+
+/**
+ * Query a user's actionable items for today to build afternoon check-in content.
+ * Returns lock-in count, overdue count, and the title of the first lock-in.
+ */
+async function getAfternoonContext(supabaseUrl, supabaseKey, userId, todayDate) {
+  const headers = {
+    apikey: supabaseKey,
+    Authorization: `Bearer ${supabaseKey}`,
+  };
+
+  try {
+    // Query locked-in todos for today that are not completed
+    const lockInsRes = await fetch(
+      `${supabaseUrl}/rest/v1/todos?owner_id=eq.${userId}&locked_in_at=not.is.null&completed_at=is.null&archived=eq.false&select=id,title,name&limit=10`,
+      { headers },
+    );
+    const lockIns = lockInsRes.ok ? await lockInsRes.json() : [];
+
+    // Query overdue todos (due_day <= today, not completed, not archived)
+    const overdueRes = await fetch(
+      `${supabaseUrl}/rest/v1/todos?owner_id=eq.${userId}&due_day=lte.${todayDate}&completed_at=is.null&archived=eq.false&select=id&limit=20`,
+      { headers },
+    );
+    const overdueTodos = overdueRes.ok ? await overdueRes.json() : [];
+
+    // Also check locked-in habits
+    const habitLockInsRes = await fetch(
+      `${supabaseUrl}/rest/v1/habits?owner_id=eq.${userId}&locked_in_at=not.is.null&archived=eq.false&select=id,title,name&limit=10`,
+      { headers },
+    );
+    const habitLockIns = habitLockInsRes.ok ? await habitLockInsRes.json() : [];
+
+    const allLockIns = [...lockIns, ...habitLockIns];
+    const firstLockIn = allLockIns[0];
+
+    return {
+      lockInCount: allLockIns.length,
+      overdueCount: overdueTodos.length,
+      firstLockInTitle: firstLockIn?.title || firstLockIn?.name || null,
+    };
+  } catch (err) {
+    console.error(`[getAfternoonContext] Failed for ${userId}:`, err.message);
+    return { lockInCount: 0, overdueCount: 0, firstLockInTitle: null };
+  }
 }
 
 // =============================================================================
@@ -1132,7 +1295,9 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
   // Deduplicate helper — many calendar syncs create duplicate note events
   // Also filters out noise: "Canceled:" events, other people's OOO/PTO blocks
   const OOO_PATTERN = /\b(out of office|ooo|pto|on leave|on vacation|holiday)\b/i;
-  const THIRD_PARTY_APPT_PATTERN = /^[A-Z][a-z]+ ?[A-Z]?\.?[-–]\s*(doctor|dentist|appt|appointment|checkup|check.up|physio|therapy|therapist|vet)\b/i;
+  const THIRD_PARTY_APPT_PATTERN =
+    /^[A-Z][a-z]+ ?[A-Z]?\.?[-–]\s*(doctor|dentist|appt|appointment|checkup|check.up|physio|therapy|therapist|vet)\b/i;
+
   function deduplicateEvents(events) {
     const seen = new Set();
     return events.filter((e) => {

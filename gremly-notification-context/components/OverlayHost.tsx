@@ -1,0 +1,486 @@
+import * as React from 'react';
+import ActionSheet, { SheetManager, registerSheet } from 'react-native-actions-sheet';
+import { Pressable, StyleSheet, ScrollView, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../navigation/RootNavigator';
+import DSPreview from '../app/(dev)/DSPreview';
+import CreateSpaceModal from './CreateSpaceModal';
+import { OverlayComponent } from './overlay';
+import { eventBus } from '../lib/events/EventBus';
+import { useGlobalOverlay } from '../contexts/OverlayContext';
+import { Box, Text, Button } from '../ui';
+import { lightTokens } from '../design/tokens';
+import { useRepo } from '../providers/RepoProvider';
+import { useEntityMutations } from '../hooks/useEntityMutations';
+import type { AppRecord, NoteSubtype, Space, Note, Habit, Todo } from '../lib/types';
+import { ActivityLog, type ActivityEvent } from '../lib/activityLog';
+import { emitOverlaySaved, type OverlaySavedPayload } from '../lib/events/overlaySaved';
+import SpaceAssignmentActionSheet from './spaces/SpaceAssignmentActionSheet';
+
+registerSheet('demo-sheet', ({ sheetId }) => {
+  return (
+    <ActionSheet id={sheetId}>
+      <Box p={4} bg="surface">
+        <Text variant="title">Hello from a Global Sheet</Text>
+        <Text variant="body" style={{ marginBottom: 16 }}>
+          This will host Manual Add and Reviews later.
+        </Text>
+        <Pressable style={styles.button} onPress={() => SheetManager.hide('demo-sheet')}>
+          <Text style={styles.buttonText}>Close</Text>
+        </Pressable>
+      </Box>
+    </ActionSheet>
+  );
+});
+
+// Space assignment bottom sheet - shown when entering a Space with pending suggestions
+registerSheet('space-assignment', SpaceAssignmentActionSheet);
+
+type DestinationPickerPayload = {
+  itemId: string;
+  itemType: AppRecord['type'];
+  itemSubtype?: NoteSubtype;
+  itemTitle?: string;
+  origin?: AppRecord['origin'];
+};
+
+registerSheet(
+  'destination-picker',
+  ({ sheetId, payload }: { sheetId: string; payload: DestinationPickerPayload }) => (
+    <DestinationPickerSheet sheetId={sheetId} payload={payload} />
+  ),
+);
+
+// DEV-ONLY: Design System Preview Sheet (fallback)
+registerSheet('ds-preview-sheet', ({ sheetId }: { sheetId: string }) => {
+  return (
+    <ActionSheet
+      id={sheetId}
+      gestureEnabled
+      containerStyle={{
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        maxHeight: '85%',
+        backgroundColor: lightTokens.colors.bg,
+      }}
+    >
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 24 }}
+        showsVerticalScrollIndicator={false}
+        style={{ flex: 1 }}
+      >
+        <Box px={4} pt={3}>
+          <DSPreview />
+        </Box>
+      </ScrollView>
+    </ActionSheet>
+  );
+});
+
+const styles = StyleSheet.create({
+  container: {
+    padding: 16,
+    backgroundColor: lightTokens.colors.bg,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: lightTokens.colors.primary,
+  },
+  description: {
+    fontSize: 16,
+    marginBottom: 16,
+    color: lightTokens.colors.text,
+  },
+  button: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 18,
+    backgroundColor: lightTokens.colors.primary,
+  },
+  buttonText: {
+    color: lightTokens.colors.onPrimary,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#fff',
+  },
+  textarea: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#fff',
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+});
+
+function DestinationPickerSheet({
+  sheetId,
+  payload,
+}: {
+  sheetId: string;
+  payload: DestinationPickerPayload;
+}) {
+  const repo = useRepo();
+  const entityMutations = useEntityMutations();
+  const [spaces, setSpaces] = React.useState<Space[]>([]);
+  const { itemId, itemType, itemSubtype, origin } = payload;
+
+  React.useEffect(() => {
+    let isMounted = true;
+    repo
+      .listSpaces()
+      .then((result) => {
+        if (isMounted) setSpaces(result);
+      })
+      .catch((err) => {
+        console.error('[DestinationPickerSheet] Failed to load spaces', err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [repo]);
+
+  function fallbackTitle(item: Partial<AppRecord>): string {
+    const titleField =
+      item.type === 'habit' || item.type === 'todo'
+        ? 'name' in item
+          ? item.name
+          : undefined
+        : 'title' in item
+          ? item.title
+          : undefined;
+    if (titleField && titleField.trim()) return titleField.trim();
+    if (item.type === 'note' && (item as Note).body) {
+      const line =
+        ((item as Note).body ?? '')
+          .split('\n')
+          .map((segment) => segment.trim())
+          .find(Boolean) ?? '';
+      if (line.length) {
+        return line.length > 60 ? `${line.slice(0, 57)}…` : line;
+      }
+    }
+    return 'Untitled';
+  }
+
+  async function moveToDestination(
+    destination: 'habit' | 'todo' | 'journal' | 'list',
+  ): Promise<void> {
+    if (!itemId) return;
+
+    try {
+      const currentItem = await repo.getById(itemId);
+      if (!currentItem) {
+        console.error('[DestinationPickerSheet] Item not found:', itemId);
+        return;
+      }
+
+      const title = fallbackTitle(currentItem);
+
+      // Route based on destination
+      if (destination === 'habit') {
+        if (itemType !== 'habit') {
+          // Create new habit, archive original
+          await repo.create({
+            type: 'habit',
+            title,
+            frequency: (currentItem as Habit).frequency ?? 'daily',
+            origin: origin ?? 'catchall',
+          });
+          await repo.update({ id: itemId, patch: { archived: true, ai_placed: false } });
+        }
+      } else if (destination === 'todo') {
+        if (itemType !== 'todo') {
+          // Create new todo, archive original
+          await repo.create({
+            type: 'todo',
+            title,
+            body: (currentItem as Todo).body ?? undefined,
+            due_date: (currentItem as Todo).due_date ?? null,
+            undefined_due: false,
+            origin: origin ?? 'catchall',
+          });
+          await repo.update({ id: itemId, patch: { archived: true, ai_placed: false } });
+        }
+      } else if (destination === 'journal') {
+        if (itemType === 'note' && itemSubtype !== 'journal') {
+          // Update existing note to journal subtype
+          await repo.update({
+            id: itemId,
+            patch: { subtype: 'journal', ai_placed: false } as Partial<Note>,
+          });
+        } else if (itemType !== 'note') {
+          // Create new journal note, archive original
+          await repo.create({
+            type: 'note',
+            title,
+            body: (currentItem as Note).body ?? undefined,
+            subtype: 'journal',
+            origin: origin ?? 'catchall',
+          });
+          await repo.update({ id: itemId, patch: { archived: true, ai_placed: false } });
+        }
+      } else if (destination === 'list') {
+        if (itemType === 'note' && itemSubtype !== 'list') {
+          // Update existing note to list subtype
+          await repo.update({
+            id: itemId,
+            patch: { subtype: 'list', ai_placed: false } as Partial<Note>,
+          });
+        } else if (itemType !== 'note') {
+          // Create new list note, archive original
+          await repo.create({
+            type: 'note',
+            title,
+            body: (currentItem as Note).body ?? undefined,
+            subtype: 'list',
+            origin: origin ?? 'catchall',
+          });
+          await repo.update({ id: itemId, patch: { archived: true, ai_placed: false } });
+        }
+      }
+
+      // Log if from catch-all
+      if (origin === 'catchall') {
+        const destKey =
+          destination === 'habit'
+            ? 'habit'
+            : destination === 'todo'
+              ? 'todo'
+              : destination === 'journal'
+                ? 'note:journal'
+                : ('note:list' as ActivityEvent['destination']);
+        ActivityLog.recordCatchAllMove({
+          itemId,
+          destination: destKey,
+          itemTitle: title,
+        });
+      }
+
+      console.log(`[DestinationPickerSheet] Moved to ${destination}`);
+      await SheetManager.hide(sheetId);
+    } catch (e) {
+      console.error('[DestinationPickerSheet] Move failed', e);
+    }
+  }
+
+  async function moveToSpace(spaceId: string): Promise<void> {
+    if (!itemId) return;
+    try {
+      // Get current item for before state
+      const currentItem = await repo.getById(itemId);
+      const beforeState = currentItem
+        ? {
+            in_today: false,
+            space_id: (currentItem as any).space_id ?? null,
+            archived: (currentItem as any).archived ?? false,
+            dueDay: (currentItem as any).due_day ?? null,
+          }
+        : undefined;
+
+      // Use entity mutations with test logging
+      const result = await entityMutations.assignToSpace(itemId, spaceId, itemType, beforeState);
+
+      if (result.success) {
+        if (origin === 'catchall') {
+          ActivityLog.recordCatchAllMove({
+            itemId,
+            destination: 'space',
+            itemTitle: payload.itemTitle,
+          });
+        }
+        console.log('[DestinationPickerSheet] Moved to space:', spaceId);
+      } else {
+        console.error('[DestinationPickerSheet] Move to space failed', result.error);
+      }
+
+      await SheetManager.hide(sheetId);
+    } catch (e) {
+      console.error('[DestinationPickerSheet] Move to space failed', e);
+    }
+  }
+
+  return (
+    <ActionSheet id={sheetId} gestureEnabled>
+      <ScrollView contentContainerStyle={{ padding: 16 }}>
+        <Text variant="title" style={{ marginBottom: 16 }}>
+          Move to…
+        </Text>
+
+        <Box gap={2}>
+          <Button
+            title="Habit"
+            variant="neutral"
+            size="md"
+            testID="dest-habit"
+            onPress={() => moveToDestination('habit')}
+          />
+          <Button
+            title="To-Do"
+            variant="neutral"
+            size="md"
+            testID="dest-todo"
+            onPress={() => moveToDestination('todo')}
+          />
+          <Button
+            title="Journal"
+            variant="neutral"
+            size="md"
+            testID="dest-journal"
+            onPress={() => moveToDestination('journal')}
+          />
+          <Button
+            title="List"
+            variant="neutral"
+            size="md"
+            testID="dest-list"
+            onPress={() => moveToDestination('list')}
+          />
+        </Box>
+
+        {spaces.length > 0 && (
+          <>
+            <Text variant="label" style={{ marginTop: 24, marginBottom: 8 }}>
+              Or place in a Space
+            </Text>
+            <Box gap={2}>
+              {spaces.map((sp: Space) => (
+                <Button
+                  key={sp.id}
+                  title={sp.name}
+                  variant="neutral"
+                  size="md"
+                  testID={`dest-space-${sp.id}`}
+                  onPress={() => moveToSpace(sp.id)}
+                />
+              ))}
+            </Box>
+          </>
+        )}
+      </ScrollView>
+    </ActionSheet>
+  );
+}
+
+/**
+ * DEPRECATED: manual-edit sheet registration removed
+ * All create/edit flows now use UnifiedCreateOverlay managed locally in each screen
+ * via useUnifiedOverlayController hook.
+ *
+ * Previous usage in HubScreen has been migrated to:
+ * overlayController.openEdit({ record, spaceId })
+ */
+
+export const OverlayHost = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const overlay = useGlobalOverlay();
+  const {
+    state: {
+      visible,
+      mode,
+      initialEntity,
+      initialSpaceId,
+      conversionMeta,
+      initialText,
+      initialLogPhotoUris,
+    },
+    close,
+  } = overlay;
+
+  const canTapOutsideToClose = (overlay.state as any)?.canTapOutsideToClose ?? false;
+  const defaultDueToday = (overlay.state as any)?.defaultDueToday ?? false;
+
+  // Extract full entity for edit mode pre-fill
+  const fullEntity = (overlay.state as any).entity ?? null;
+  const effectiveInitialEntity = fullEntity || initialEntity;
+
+  const handleClose = React.useCallback(() => {
+    if (!visible) return;
+    close();
+  }, [close, visible]);
+
+  const handleSaved = React.useCallback(
+    async (result: OverlaySavedPayload) => {
+      // Phase 12: Include source_message_id for saveable card transformation
+      const payloadWithSource: OverlaySavedPayload = {
+        ...result,
+        sourceMessageId: conversionMeta?.source_message_id ?? null,
+      };
+      emitOverlaySaved(payloadWithSource);
+      try {
+        eventBus.emit('OverlaySaved', { id: result.id, type: (result as any).type });
+      } catch (e) {
+        // ignore telemetry failures
+      }
+      close();
+    },
+    [close, conversionMeta],
+  );
+
+  // Safety check: In edit/view modes, don't render if entity data hasn't arrived yet
+  // This prevents rendering with stale data from a previous session
+  const isEditOrViewMode = mode === 'edit' || mode === 'view';
+  const hasEntityId = !!(effectiveInitialEntity as any)?.id;
+  const shouldSkipRender = visible && isEditOrViewMode && !hasEntityId;
+
+  if (shouldSkipRender) {
+    console.warn('[OverlayHost] Skipping render - waiting for entity data');
+  }
+
+  return (
+    <>
+      <CreateSpaceModal />
+
+      {/* Global Unified Overlay - single instance for entire app
+          Mount the overlay into a top-level absolute container so it renders
+          above app content without dimming or modal backdrop. The overlay
+          itself controls its internal layout (height/scrollable) and should
+          not rely on Modal transparency. */}
+      {visible && !shouldSkipRender ? (
+        <View
+          key={`overlay-${(effectiveInitialEntity as any)?.id ?? 'create'}-${mode}`}
+          pointerEvents="box-none"
+          style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 1000 }}
+        >
+          <Pressable
+            onPress={canTapOutsideToClose ? handleClose : undefined}
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+              backgroundColor: 'rgba(0,0,0,0.55)', // Phase 6a: Darker scrim (50-60% black)
+            }}
+          />
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+            <OverlayComponent
+              visible={visible}
+              mode={mode}
+              initialEntity={effectiveInitialEntity}
+              initialSpaceId={initialSpaceId}
+              conversionMeta={conversionMeta}
+              initialText={initialText ?? undefined}
+              initialLogPhotoUris={initialLogPhotoUris}
+              defaultDueToday={defaultDueToday}
+              onClose={handleClose}
+              onSaved={handleSaved}
+            />
+          </View>
+        </View>
+      ) : null}
+    </>
+  );
+};

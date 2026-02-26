@@ -38,6 +38,7 @@ import {
 import { reconcileCalendarEvents } from '../calendar/calendarSync';
 import { DEFAULT_TIME_BLOCK_PREFERENCES, getTimeBlockBoundaries } from '../capacity';
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
+import { cancelAllItemReminders } from '../notifications/itemReminderService';
 import type { TimeBlockPreferences } from '../capacity';
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
@@ -647,6 +648,8 @@ interface GremlyState {
   /** Wipe all ephemeral daily assignments (daily_block + scheduled_start_iso).
    *  Called when Morning Brief detects a new day. */
   resetDailyAssignments: () => void;
+  /** Called by useDayRollover when the calendar day changes. Resets all daily ephemeral state. */
+  handleDayRollover: (newDate: string) => void;
   applyOrganizeAssignments: (
     assignments: Array<{
       taskId: string;
@@ -812,6 +815,8 @@ interface GremlyState {
   /** Date the user last completed the brief (for re-entry detection) */
   briefCompletedToday: string | null;
   setBriefCompletedToday: (date: string | null) => void;
+  /** Reactive current date — updated by useDayRollover hook. Components should read this instead of calling getDateService().getCurrentDate() */
+  currentDate: string;
 
   // Calendar actions
   refreshCalendarConnections: () => Promise<void>;
@@ -955,6 +960,7 @@ const initialState = {
   briefSelectionDate: null as string | null,
   parkedForDay: [] as string[],
   briefCompletedToday: null as string | null,
+  currentDate: getDateService().getCurrentDate(),
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1153,16 +1159,35 @@ export const useGremlyStore = create<GremlyState>()(
                   },
                   { onConflict: 'owner_id' },
                 )
-                .then(() =>
-                  console.log('[GremlyStore] Auto-completed onboarding for existing user'),
-                );
+                .then(({ error: upsertError }) => {
+                  if (upsertError) {
+                    console.error(
+                      '[GremlyStore] Auto-complete onboarding upsert failed:',
+                      JSON.stringify(upsertError, null, 2),
+                    );
+                  } else {
+                    console.log('[GremlyStore] Auto-completed onboarding for existing user');
+                  }
+                });
             }
 
             set({
               // Add type field since DB doesn't store it
-              todos: (todosRes.data ?? []).map((t) => ({ ...t, type: 'todo' as const })),
-              habits: (habitsRes.data ?? []).map((h) => ({ ...h, type: 'habit' as const })),
-              notes: (notesRes.data ?? []).map((n) => ({ ...n, type: 'note' as const })),
+              todos: (todosRes.data ?? []).map((t) => ({
+                ...t,
+                type: 'todo' as const,
+                reminders: (t as any).reminders_json ?? [],
+              })),
+              habits: (habitsRes.data ?? []).map((h) => ({
+                ...h,
+                type: 'habit' as const,
+                reminders: (h as any).reminders_json ?? [],
+              })),
+              notes: (notesRes.data ?? []).map((n) => ({
+                ...n,
+                type: 'note' as const,
+                reminders: (n as any).reminders_json ?? [],
+              })),
               spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
@@ -1585,7 +1610,10 @@ export const useGremlyStore = create<GremlyState>()(
           );
 
           if (error) {
-            console.error('[GremlyStore] setOnboardingCompletedAt failed:', error);
+            console.error(
+              '[GremlyStore] setOnboardingCompletedAt failed:',
+              JSON.stringify(error, null, 2),
+            );
             return;
           }
 
@@ -1606,7 +1634,10 @@ export const useGremlyStore = create<GremlyState>()(
             );
 
           if (error) {
-            console.error('[GremlyStore] markOnboardingComplete failed:', error);
+            console.error(
+              '[GremlyStore] markOnboardingComplete failed:',
+              JSON.stringify(error, null, 2),
+            );
             return;
           }
 
@@ -1738,7 +1769,11 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           // Add to store with type field (DB doesn't store it)
-          const todoWithType = { ...data, type: 'todo' as const };
+          const todoWithType = {
+            ...data,
+            type: 'todo' as const,
+            reminders: data.reminders_json ?? [],
+          };
           set((state) => ({
             todos: [...state.todos, todoWithType],
           }));
@@ -1785,6 +1820,11 @@ export const useGremlyStore = create<GremlyState>()(
 
         deleteTodo: async (id: string) => {
           const prevTodo = get().todos.find((t) => t.id === id);
+
+          // Cancel any scheduled reminders (fire and forget)
+          if (prevTodo?.reminders?.length) {
+            cancelAllItemReminders(prevTodo.reminders);
+          }
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -1838,6 +1878,11 @@ export const useGremlyStore = create<GremlyState>()(
 
           // EMIT EVENT for backward compatibility
           eventBus.emit('ItemCompleted', { id, type: 'todo', source: STORE_EVENT_SOURCE });
+
+          // Cancel any scheduled reminders (fire and forget)
+          if (prevTodo?.reminders?.length) {
+            cancelAllItemReminders(prevTodo.reminders);
+          }
         },
 
         uncompleteTodo: async (id: string) => {
@@ -1869,6 +1914,11 @@ export const useGremlyStore = create<GremlyState>()(
         archiveTodo: async (id: string, reason?: string) => {
           const now = new Date().toISOString();
           const prevTodo = get().todos.find((t) => t.id === id);
+
+          // Cancel any scheduled reminders (fire and forget)
+          if (prevTodo?.reminders?.length) {
+            cancelAllItemReminders(prevTodo.reminders);
+          }
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -1990,7 +2040,11 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           // Add to store with type field (DB doesn't store it)
-          const habitWithType = { ...data, type: 'habit' as const };
+          const habitWithType = {
+            ...data,
+            type: 'habit' as const,
+            reminders: data.reminders_json ?? [],
+          };
           set((state) => ({
             habits: [...state.habits, habitWithType],
           }));
@@ -2037,6 +2091,11 @@ export const useGremlyStore = create<GremlyState>()(
 
         deleteHabit: async (id: string) => {
           const prevHabit = get().habits.find((h) => h.id === id);
+
+          // Cancel any scheduled reminders (fire and forget)
+          if (prevHabit?.reminders?.length) {
+            cancelAllItemReminders(prevHabit.reminders);
+          }
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -2139,6 +2198,12 @@ export const useGremlyStore = create<GremlyState>()(
 
             // 4. EMIT EVENT for backward compatibility (strangler fig pattern)
             eventBus.emit('ItemCompleted', { id, type: 'habit', source: STORE_EVENT_SOURCE });
+
+            // Cancel 'once' frequency reminders (daily reminders persist since habit recurs)
+            if (prevHabit?.reminders?.length) {
+              const onceReminders = prevHabit.reminders.filter((r: any) => r.frequency === 'once');
+              if (onceReminders.length) cancelAllItemReminders(onceReminders);
+            }
 
             // 5. Set start_date on FIRST completion if currently null
             // This ensures habits get a start_date when the user actually begins doing them
@@ -2427,6 +2492,11 @@ export const useGremlyStore = create<GremlyState>()(
         archiveHabit: async (id: string, reason?: string) => {
           const now = new Date().toISOString();
           const prevHabit = get().habits.find((h) => h.id === id);
+
+          // Cancel any scheduled reminders (fire and forget)
+          if (prevHabit?.reminders?.length) {
+            cancelAllItemReminders(prevHabit.reminders);
+          }
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -3440,6 +3510,41 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
+        handleDayRollover: (newDate: string) => {
+          const prev = get().currentDate;
+          if (newDate === prev) return; // No-op if already current
+
+          console.log(`[Store] Day rollover: ${prev} → ${newDate}`);
+
+          set({
+            currentDate: newDate,
+            // Reset brief state
+            briefCompletedToday: null,
+            briefSelectedIds: [],
+            briefLockedIds: [],
+            briefSelectionDate: null,
+            parkedForDay: [],
+            // Reset daily counters
+            todayDropsCount: 0,
+            todaySweepsCount: 0,
+            todayRitualCompletedAt: null,
+            // Reset hidden-today (Not Today feature)
+            hiddenTodayIds: [],
+            hiddenTodayDate: null,
+          });
+
+          // Re-fetch remote data for the new day
+          const state = get();
+          if (state.userId) {
+            state.refreshFromServer();
+            // Refresh calendar for new date range
+            state.fetchCalendarEventsForRange(newDate, getDateService().addDays(newDate, 7));
+          }
+
+          // Emit event so other systems can react (e.g. useDailyAppOpen can reset)
+          eventBus.emit('day:rollover', { date: newDate });
+        },
+
         applyOrganizeAssignments: (assignments) => {
           const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
           const today = getDateService().getCurrentDate();
@@ -3873,9 +3978,21 @@ export const useGremlyStore = create<GremlyState>()(
 
             set({
               // Add type field since DB doesn't store it
-              todos: (todosRes.data ?? []).map((t) => ({ ...t, type: 'todo' as const })),
-              habits: (habitsRes.data ?? []).map((h) => ({ ...h, type: 'habit' as const })),
-              notes: (notesRes.data ?? []).map((n) => ({ ...n, type: 'note' as const })),
+              todos: (todosRes.data ?? []).map((t) => ({
+                ...t,
+                type: 'todo' as const,
+                reminders: (t as any).reminders_json ?? [],
+              })),
+              habits: (habitsRes.data ?? []).map((h) => ({
+                ...h,
+                type: 'habit' as const,
+                reminders: (h as any).reminders_json ?? [],
+              })),
+              notes: (notesRes.data ?? []).map((n) => ({
+                ...n,
+                type: 'note' as const,
+                reminders: (n as any).reminders_json ?? [],
+              })),
               spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
@@ -6933,11 +7050,38 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Add to new collection
             if (targetBucket === 'todo') {
-              set({ todos: [...get().todos, { ...insertedEntity, type: 'todo' as const }] });
+              set({
+                todos: [
+                  ...get().todos,
+                  {
+                    ...insertedEntity,
+                    type: 'todo' as const,
+                    reminders: (insertedEntity as any).reminders_json ?? [],
+                  },
+                ],
+              });
             } else if (targetBucket === 'habit') {
-              set({ habits: [...get().habits, { ...insertedEntity, type: 'habit' as const }] });
+              set({
+                habits: [
+                  ...get().habits,
+                  {
+                    ...insertedEntity,
+                    type: 'habit' as const,
+                    reminders: (insertedEntity as any).reminders_json ?? [],
+                  },
+                ],
+              });
             } else {
-              set({ notes: [...get().notes, { ...insertedEntity, type: 'note' as const }] });
+              set({
+                notes: [
+                  ...get().notes,
+                  {
+                    ...insertedEntity,
+                    type: 'note' as const,
+                    reminders: (insertedEntity as any).reminders_json ?? [],
+                  },
+                ],
+              });
             }
 
             console.log('[GremlyStore] Bucket change complete:', {
@@ -8451,6 +8595,8 @@ export const useGremlyStore = create<GremlyState>()(
             isLoading: false,
             isInitialized: false,
             lastSyncedAt: null,
+            // Always use fresh date on app start, never restore stale date from storage
+            currentDate: getDateService().getCurrentDate(),
           };
         },
       },

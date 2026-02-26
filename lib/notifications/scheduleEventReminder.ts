@@ -1,4 +1,5 @@
 import * as Notifications from 'expo-notifications';
+import { NOTIFICATION_CATEGORIES } from '../../src/utils/notifications';
 
 /**
  * Schedule a local push notification for an event.
@@ -47,7 +48,16 @@ export async function scheduleEventReminder(
               ? `In ${Math.round(minutesBefore / 60)} hour${minutesBefore >= 120 ? 's' : ''}: ${eventTitle}`
               : `In ${minutesBefore} min: ${eventTitle}`,
         body: 'Tap to view in Gremly',
-        data: { type: 'event_reminder', eventId },
+        categoryIdentifier: NOTIFICATION_CATEGORIES.ENTITY_REMINDER,
+        data: {
+          type: 'event_reminder',
+          notificationType: 'entity_reminder',
+          entityId: eventId,
+          entityType: 'event',
+          action: 'open_item',
+          dueDate: eventDate,
+          dueTime: eventTime ?? null,
+        },
         sound: 'default',
       },
       trigger: {

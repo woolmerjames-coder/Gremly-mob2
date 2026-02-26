@@ -108,17 +108,47 @@ describe('scheduleEventReminder', () => {
     spy.mockRestore();
   });
 
-  it('includes correct notification data payload', async () => {
+  it('includes enriched notification data payload', async () => {
     sched().mockResolvedValueOnce('notif-data');
     await scheduleEventReminder('evt-7', 'Standup', '2099-06-15', '10:00', 15);
 
     const call = sched().mock.calls[0][0];
     expect(call.content.data).toEqual({
       type: 'event_reminder',
-      eventId: 'evt-7',
+      notificationType: 'entity_reminder',
+      entityId: 'evt-7',
+      entityType: 'event',
+      action: 'open_item',
+      dueDate: '2099-06-15',
+      dueTime: '10:00',
     });
     expect(call.content.body).toBe('Tap to view in Gremly');
     expect(call.content.sound).toBe('default');
+  });
+
+  it('sets categoryIdentifier to ENTITY_REMINDER', async () => {
+    sched().mockResolvedValueOnce('notif-cat');
+    await scheduleEventReminder('evt-8', 'Meeting', '2099-06-15', '10:00', 15);
+
+    const call = sched().mock.calls[0][0];
+    expect(call.content.categoryIdentifier).toBe('ENTITY_REMINDER');
+  });
+
+  it('sets trigger type to DATE', async () => {
+    sched().mockResolvedValueOnce('notif-trigger');
+    await scheduleEventReminder('evt-9', 'Sync', '2099-06-15', '10:00', 15);
+
+    const call = sched().mock.calls[0][0];
+    expect(call.trigger.type).toBe('date');
+  });
+
+  it('includes dueTime as null for all-day day-before reminder', async () => {
+    sched().mockResolvedValueOnce('notif-allday');
+    await scheduleEventReminder('evt-10', 'Holiday', '2099-06-15', null, 1440);
+
+    const call = sched().mock.calls[0][0];
+    expect(call.content.data.dueTime).toBeNull();
+    expect(call.content.data.dueDate).toBe('2099-06-15');
   });
 });
 

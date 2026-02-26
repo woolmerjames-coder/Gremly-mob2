@@ -411,6 +411,7 @@ export function toCreateOrUpdateInput(
       tags: [...tagsForSave],
       tags_meta: tagsMeta,
       views: preservedViews,
+      reminders: (s as any).itemReminders ?? null,
     };
   }
   if (baseType === 'habit') {
@@ -424,6 +425,7 @@ export function toCreateOrUpdateInput(
       tags: [...tagsForSave],
       tags_meta: tagsMeta,
       views: preservedViews,
+      reminders: (s as any).itemReminders ?? null,
     };
   }
 

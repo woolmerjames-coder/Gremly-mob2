@@ -48,6 +48,15 @@ export default function RitualsSettingsScreen() {
     d.setHours(20, 0, 0, 0);
     return d;
   });
+  const [afternoonEnabled, setAfternoonEnabled] = useState(
+    notificationPrefs?.afternoonEnabled ?? true,
+  );
+  const [afternoonTime, setAfternoonTime] = useState(() => {
+    if (notificationPrefs?.afternoonTime) return notificationPrefs.afternoonTime;
+    const d = new Date();
+    d.setHours(14, 0, 0, 0);
+    return d;
+  });
   const [weeklyEnabled, setWeeklyEnabled] = useState(notificationPrefs?.weeklyEnabled ?? true);
   const [weeklyTime, setWeeklyTime] = useState(() => {
     if (notificationPrefs?.weeklyTime) return notificationPrefs.weeklyTime;
@@ -69,6 +78,9 @@ export default function RitualsSettingsScreen() {
         setMorningEnabled(notificationPrefs.morningEnabled);
       if (notificationPrefs.eveningEnabled !== undefined)
         setEveningEnabled(notificationPrefs.eveningEnabled);
+      if (notificationPrefs.afternoonTime) setAfternoonTime(notificationPrefs.afternoonTime);
+      if (notificationPrefs.afternoonEnabled !== undefined)
+        setAfternoonEnabled(notificationPrefs.afternoonEnabled);
       if (notificationPrefs.weeklyTime) setWeeklyTime(notificationPrefs.weeklyTime);
       if (notificationPrefs.weeklyEnabled !== undefined)
         setWeeklyEnabled(notificationPrefs.weeklyEnabled);
@@ -85,6 +97,8 @@ export default function RitualsSettingsScreen() {
           morningTime,
           eveningEnabled,
           eveningTime,
+          afternoonEnabled,
+          afternoonTime,
           weeklyEnabled,
           weeklyTime,
           weeklyDay,
@@ -101,6 +115,8 @@ export default function RitualsSettingsScreen() {
     morningTime,
     eveningEnabled,
     eveningTime,
+    afternoonEnabled,
+    afternoonTime,
     weeklyEnabled,
     weeklyTime,
     weeklyDay,
@@ -118,6 +134,13 @@ export default function RitualsSettingsScreen() {
   const handleEveningTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
     if (selectedDate) {
       setEveningTime(selectedDate);
+      hasChanges.current = true;
+    }
+  };
+
+  const handleAfternoonTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
+    if (selectedDate) {
+      setAfternoonTime(selectedDate);
       hasChanges.current = true;
     }
   };
@@ -191,6 +214,38 @@ export default function RitualsSettingsScreen() {
                 mode="time"
                 display={Platform.OS === 'ios' ? 'compact' : 'default'}
                 onChange={handleEveningTimeChange}
+                accentColor={BRAND.colors.mossGreen}
+              />
+            </View>
+          )}
+        </View>
+
+        {/* Afternoon Check-in */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Afternoon Check-in</Text>
+            <Switch
+              value={afternoonEnabled}
+              onValueChange={(val) => {
+                setAfternoonEnabled(val);
+                hasChanges.current = true;
+              }}
+              trackColor={{ false: colors.gray, true: BRAND.colors.sageMist }}
+              thumbColor={afternoonEnabled ? BRAND.colors.mossGreen : colors.white}
+            />
+          </View>
+          <Text style={styles.cardDescription}>
+            A smart nudge to check on your lock-ins and stay on track. Only fires when you have
+            something actionable.
+          </Text>
+          {afternoonEnabled && (
+            <View style={styles.timeRow}>
+              <Text style={styles.timeLabel}>Notification time</Text>
+              <DateTimePicker
+                value={afternoonTime}
+                mode="time"
+                display={Platform.OS === 'ios' ? 'compact' : 'default'}
+                onChange={handleAfternoonTimeChange}
                 accentColor={BRAND.colors.mossGreen}
               />
             </View>

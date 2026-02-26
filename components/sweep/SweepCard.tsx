@@ -282,19 +282,49 @@ function shouldHidePreview(title: string, preview: string | null | undefined): b
  * - Within next 7 days: Day name
  * - Otherwise: "Jan 15" format
  */
-function formatRemindDateLabel(date: Date): string {
+function formatRemindDateLabel(date: Date, reminderTime?: string): string {
   const today = startOfDay(new Date());
   const targetDay = startOfDay(date);
   const daysDiff = differenceInDays(targetDay, today);
 
+  let dateLabel: string;
   if (daysDiff === 0) {
-    return 'Today';
+    dateLabel = 'Today';
   } else if (daysDiff === 1) {
-    return 'Tomorrow';
+    dateLabel = 'Tomorrow';
   } else if (daysDiff > 1 && daysDiff <= 7) {
-    return format(date, 'EEEE'); // "Wednesday"
+    dateLabel = format(date, 'EEEE'); // "Wednesday"
   } else {
-    return format(date, 'MMM d'); // "Jan 15"
+    dateLabel = format(date, 'MMM d'); // "Jan 15"
+  }
+
+  // Append formatted time if available
+  if (reminderTime) {
+    const [h, m] = reminderTime.split(':').map(Number);
+    const period = h >= 12 ? 'PM' : 'AM';
+    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const timeStr =
+      m === 0 ? `${hour12}${period}` : `${hour12}:${String(m).padStart(2, '0')}${period}`;
+    return `${dateLabel}, ${timeStr}`;
+  }
+
+  return dateLabel;
+}
+
+/**
+ * Get default reminder time based on the item's time_window preference.
+ */
+function getReminderTimeForCandidate(candidate: SweepCandidate): string {
+  const timeWindow = (candidate.raw as any)?.time_window;
+  switch (timeWindow) {
+    case 'morning':
+      return '09:00';
+    case 'day':
+      return '13:00';
+    case 'evening':
+      return '18:00';
+    default:
+      return '09:00';
   }
 }
 
@@ -607,7 +637,7 @@ export function SweepCard({
             : 'Pick a date';
         case 'remindlater':
           return confirmedRemindDate
-            ? `Remind ${format(confirmedRemindDate, 'MMM d')}`
+            ? `Remind ${formatRemindDateLabel(confirmedRemindDate, getReminderTimeForCandidate(candidate))}`
             : 'Set reminder';
         default:
           return 'Set due tomorrow';
@@ -636,7 +666,7 @@ export function SweepCard({
       case 'remindlater':
       case 'nextsweep':
         return confirmedRemindDate
-          ? `Remind ${format(confirmedRemindDate, 'MMM d')}`
+          ? `Remind ${formatRemindDateLabel(confirmedRemindDate, getReminderTimeForCandidate(candidate))}`
           : 'Set reminder';
       case 'addtospace':
         return selectedSpace ? `Add to ${selectedSpace.name}` : 'Add to Space';
@@ -1581,7 +1611,7 @@ export function SweepCard({
                                 ]}
                               >
                                 {confirmedRemindDate
-                                  ? `Remind ${format(confirmedRemindDate, 'MMM d')}`
+                                  ? `Remind ${formatRemindDateLabel(confirmedRemindDate, getReminderTimeForCandidate(candidate))}`
                                   : 'Remind Later'}
                               </Text>
                             </View>
@@ -1874,7 +1904,7 @@ export function SweepCard({
                                 ]}
                               >
                                 {confirmedRemindDate
-                                  ? `Remind ${format(confirmedRemindDate, 'MMM d')}`
+                                  ? `Remind ${formatRemindDateLabel(confirmedRemindDate, getReminderTimeForCandidate(candidate))}`
                                   : 'Remind Later'}
                               </Text>
                             </View>

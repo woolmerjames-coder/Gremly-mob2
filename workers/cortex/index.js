@@ -352,7 +352,19 @@ function mapPreparseToClassification(preparse) {
 
   // 1. Factual statement or factual frame → general (strong signal)
   if (preparse.factual_statement || preparse.frame_type === 'factual') {
+    // Cross-check: if there's a leading verb, this might be a misclassified command.
+    // Escalate to Phase 1 instead of fast-pathing to log.
+    if (preparse.verb_position === 'start') {
+      return { needsPhase1: true, reason: 'factual_with_leading_verb' };
+    }
     return { needsPhase1: false, bucket: 'log', subtype: 'general', habitSubtype: null };
+  }
+
+  // Leading imperative verb is a strong todo signal even if frame_type disagrees
+  if (preparse.verb_position === 'start' && preparse.action_target !== 'other_person') {
+    if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
+      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+    }
   }
 
   // 2. Emotional content + processing frame → journal
@@ -586,10 +598,12 @@ When uncertain about any field, return "uncertain" or the appropriate null value
 // Mini-prompt A: Intent & Frame
 const PREPARSE_INTENT_PROMPT = `Extract these facts from the input. Return JSON only.
 
-- frame_type: What is the user's commitment state? "directing" (user has decided to act — an imperative self-command IS commitment, regardless of what the action involves), "exploring" (user is uncertain WHETHER to commit — hedging or questioning their own intent), "processing" (working through emotions or reflecting), "factual" (stating information to remember), or "uncertain" (cannot determine intent). TEST: Is this a self-command or a consideration? A self-command expresses commitment through its form.
-- factual_statement: Is the user stating complete reference information? This requires BOTH a subject AND its value to be present. If only one side exists, this is false. Goals about what to DO are not facts about what IS.
+- core_verb: The main action verb (what the user would DO), or null. For "stop X" or "quit X", the core_verb is "stop" or "quit".
+- verb_position: Where does the action verb appear structurally? "start" (the input opens with a bare verb in imperative form — no subject, no hedging, the verb is the first meaningful word), "after_hedge" (a verb is present but follows uncertain language like maybe/perhaps/thinking about), "after_obligation" (a verb follows should/need to/must/have to), "inside_hypothetical" (a verb appears inside a what-if or wondering frame), or "none" (no action verb found).
+- frame_type: What is the user's commitment state? "directing" (user has decided to act — an imperative self-command IS commitment, regardless of what the action involves. A bare verb opening a sentence is the defining form of a directive), "exploring" (user is uncertain WHETHER to commit — hedging or questioning their own intent), "processing" (working through emotions or reflecting), "factual" (stating information to remember), or "uncertain" (cannot determine intent).
+- factual_statement: Is the user stating complete reference information? This requires BOTH a subject AND its value to be present — "X is Y" form. An imperative sentence has no subject — it is a command, not a statement of fact. This field is about the grammatical form, not the topic.
 - is_noun_phrase_only: Is this ONLY a noun or noun phrase with no verb, no "is", and no action implied?
-- action_target: Who or what is the subject of change or action? "self" (the user will personally do or embody this change), "external" (the user is giving instructions about how a system, product, feature, or thing should behave or be built), or "other_person" (about another person's behavior). If the user is telling a system what to do rather than telling themselves what to do, that is "external".`;
+- action_target: Who or what is the subject of change or action? "self" (the user will personally do or embody this change), "external" (the user is giving instructions about how a system, product, feature, or thing should behave or be built), or "other_person" (about another person's behavior).`;
 
 // Mini-prompt B: Content Signals
 const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON only.
@@ -599,7 +613,8 @@ const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON
 - frequency_present: Does the user intend to personally repeat this behavior on an ongoing basis? Set true if frequency_type is not null.
 - frequency_type: Apply this test: "Has the user specified WHEN or HOW OFTEN they will do this?" Frequency requires concrete timing — not just a desire to do more or less of something. If no timing is specified → null. If timing is specified → "explicit" (recurrence is stated), "day_names" (specific days are referenced), or "stop_quit" (user intends to completely stop a behavior). Wanting "more" or "less" of something without a schedule is NOT frequency — that is direction_without_schedule.
 - direction_without_schedule: Does the user's language explicitly express a desire to CHANGE from their current state — to increase, decrease, or improve something — without specifying a target? This is about the linguistic expression of relative/comparative intent, not whether the activity itself could vary in amount. An imperative to perform an action is false, even if that action could theoretically be done more or less. The question is what the words express, not the nature of the activity.
-- temporal_specificity: Is the action anchored to a specific or bounded point in time? True when the input constrains WHEN — a particular moment, day, or window that limits the action to a single instance. False when timing is open-ended, unspecified, or recurring.`;
+- temporal_specificity: Is the action anchored to a specific or bounded point in time? True when the input constrains WHEN — a particular moment, day, or window that limits the action to a single instance. False when timing is open-ended, unspecified, or recurring.
+- reminder_intent: Does the user want to be reminded or not forget something? True ONLY for: explicit reminder language ("remind me", "don't forget", "remember to", "remember my"), urgency paired with a specific time ("need to do this by 3pm", "must call before lunch"), or appointment-like phrasing that implies a nudge is needed ("doctor appointment tomorrow", "meeting at 2"). False for: vague timing ("soon", "eventually", "this week"), past-tense remembering ("I remembered that..."), journaling or reflection, or simple todos without any reminder/urgency language ("buy groceries").`;
 
 // Mini-prompt C: Structure & Confidence
 const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JSON only.
@@ -625,7 +640,7 @@ async function runPreparseMini(text, env, systemPrompt) {
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-nano',
       temperature: 0.1,
       max_tokens: 100,
       response_format: { type: 'json_object' },
@@ -692,6 +707,7 @@ async function runPreparse(text, env) {
         : null,
       direction_without_schedule: Boolean(contentResult.direction_without_schedule),
       temporal_specificity: Boolean(contentResult.temporal_specificity),
+      reminder_intent: Boolean(contentResult.reminder_intent),
 
       // From structure
       uncertainty_present: Boolean(structureResult.uncertainty_present),
@@ -705,9 +721,17 @@ async function runPreparse(text, env) {
         ? structureResult.parse_confidence
         : 'medium',
 
-      // Removed fields (not used in routing) - set to null/defaults for compatibility
-      core_verb: null,
-      verb_position: 'none',
+      // Restored from Intent mini-prompt for routing cross-checks
+      core_verb: intentResult.core_verb || null,
+      verb_position: [
+        'start',
+        'after_hedge',
+        'after_obligation',
+        'inside_hypothetical',
+        'none',
+      ].includes(intentResult.verb_position)
+        ? intentResult.verb_position
+        : 'none',
       has_completion_point: 'uncertain',
       hypothetical_framing: false,
     };
@@ -875,9 +899,10 @@ These pre-phase facts are strong classification signals. Do not ignore them:
 - hypothetical_framing: true → Almost always LOG/idea. User is floating a "what if".
 - factual_statement: true → Almost always LOG/general. User is recording information.
 - emotional_content: true → Almost always LOG/journal. User is expressing feelings.
-- frame_type: "exploring" → Almost always LOG/idea. User is considering possibilities.
+- frame_type: "exploring" → Usually LOG/idea UNLESS verb_position is "start". When the input opens with a bare imperative verb (no subject, no hedging), the grammatical form is a command, not exploration. The user may be exploring a TOPIC, but they are DIRECTING themselves to do so. If verb_position is "start" and core_verb is present, classify as TODO.
 - frame_type: "factual" → Almost always LOG/general. User is stating facts.
 - frame_type: "directing" with uncertainty only on "object_details" → Almost always TODO. User knows WHAT, fuzzy on details.
+- verb_position: "start" with core_verb present → Strong TODO signal regardless of frame_type. Imperative grammatical form expresses commitment to act. Only exception: uncertainty_target is "verb" (user unsure WHETHER to act).
 
 Only return AMBIGUOUS if these signals conflict or are absent.
 
@@ -979,7 +1004,7 @@ Rules:
         Authorization: `Bearer ${env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-mini',
         temperature: 0.1,
         max_tokens: 500,
         response_format: { type: 'json_object' },
@@ -1515,7 +1540,7 @@ function getModelAndTokens({ preset, userMessage, messageCount, entityType }) {
 
   if (canUseMini) {
     return {
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-nano',
       maxTokens: 400,
       reason: 'simple_short_query',
     };
@@ -4140,7 +4165,7 @@ Return ONLY valid JSON, no explanation:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
+              model: 'gpt-4.1-nano',
               messages: [
                 { role: 'system', content: extractionPrompt },
                 {
@@ -4879,15 +4904,15 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
         const assistantMessage = body.assistantMessage || '';
         const spaceName = body.spaceName || '';
 
+        const contextBlock = `=== CONTEXT ===
+USER MESSAGE: "${userMessage.substring(0, 500)}"
+SPACE: "${spaceName}"
+AI RESPONSE TO SAVE:
+"""
+${assistantMessage.substring(0, 2000)}
+"""`;
+
         const spaceChatSavePrompt = `You classify and enrich saved chat responses for Gremly, a productivity app.
- 
- === CONTEXT ===
- USER MESSAGE: "${userMessage.substring(0, 500)}"
- SPACE: "${spaceName}"
- AI RESPONSE TO SAVE:
- """
- ${assistantMessage.substring(0, 2000)}
- """
  
  === CLASSIFICATION RULES ===
  
@@ -4950,8 +4975,8 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
  - general: Everything else - advice, plans, lists, reference material (DEFAULT)
  
  **DECISION TREE:**
- 1. User message has reminder/task intent?  TODO
- 2. Explicit frequency OR stop/quit + behavior?  HABIT 
+ 1. User message has reminder/task intent for a discrete, completable action?  TODO
+ 2. Explicit frequency OR stop/quit + ongoing behavioral pattern?  HABIT 
  3. Emotional/reflective content?  LOG/journal
  4. Brainstorming language?  LOG/idea
  5. Default  LOG/general
@@ -5045,8 +5070,11 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [{ role: 'system', content: spaceChatSavePrompt }],
+              model: 'gpt-4.1-mini',
+              messages: [
+                { role: 'system', content: spaceChatSavePrompt },
+                { role: 'user', content: contextBlock },
+              ],
               temperature: 0.3,
               max_tokens: 250,
               response_format: { type: 'json_object' },
@@ -5519,6 +5547,7 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
           is_noun_phrase_only: preparseResult.result.is_noun_phrase_only,
           parse_confidence: preparseResult.result.parse_confidence,
           action_target: preparseResult.result.action_target,
+          reminder_intent: preparseResult.result.reminder_intent,
           latency_ms: preparseResult.latency_ms,
         });
 
@@ -5558,6 +5587,7 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             is_ambiguous: false,
             preparse_latency_ms: preparseLatency,
             heuristic_reason: `fast_path:${preparseResult.result.frame_type}`,
+            reminder_intent: preparseResult.result.reminder_intent || false,
             latency_ms: totalLatency,
           });
         }
@@ -5595,6 +5625,7 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             preparse_latency_ms: preparseLatency,
             phase1_latency_ms: phase1Latency,
             heuristic_reason: heuristicDecision.reason,
+            reminder_intent: false,
             latency_ms: totalLatency,
           });
         }
@@ -5625,6 +5656,7 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
           preparse_latency_ms: preparseLatency,
           phase1_latency_ms: phase1Latency,
           heuristic_reason: heuristicDecision.reason,
+          reminder_intent: preparseResult.result.reminder_intent || false,
           latency_ms: totalLatency,
         });
       }
@@ -5711,7 +5743,7 @@ or if truly separate:
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                model: 'gpt-4o-mini',
+                model: 'gpt-4.1-nano',
                 messages: [
                   { role: 'system', content: promptA },
                   { role: 'user', content: text.substring(0, 1000) },
@@ -5728,7 +5760,7 @@ or if truly separate:
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                model: 'gpt-4o-mini',
+                model: 'gpt-4.1-nano',
                 messages: [
                   { role: 'system', content: promptB },
                   { role: 'user', content: text.substring(0, 1000) },
@@ -5745,7 +5777,7 @@ or if truly separate:
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                model: 'gpt-4o-mini',
+                model: 'gpt-4.1-nano',
                 messages: [
                   { role: 'system', content: promptC },
                   { role: 'user', content: text.substring(0, 1000) },
@@ -5831,7 +5863,7 @@ Return JSON only:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
+              model: 'gpt-4.1-nano',
               messages: [
                 { role: 'system', content: promptD },
                 { role: 'user', content: text.substring(0, 1000) },
@@ -5959,13 +5991,9 @@ Return JSON only:
           })
           .join('\n');
 
-        const aiPrompt = `You are writing short labels for an ambiguous user input. The user typed something into a quick-capture box and we need to ask what they meant.
+        const clarificationSystemPrompt = `You are writing short labels for an ambiguous user input. The user typed something into a quick-capture box and we need to ask what they meant.
 
-USER INPUT: "${text}"
-${ambiguityReason ? `CONTEXT: "${ambiguityReason}"` : ''}
-
-INTERPRETATIONS (in order — return exactly ${interpretations.length} labels in the same order):
-${interpLines}
+You will receive the user's input, context, and a list of possible interpretations. Return exactly the same number of labels as interpretations, in the same order.
 
 RULES FOR LABELS:
 - 4 words max, 30 chars max, casual fragments, no periods
@@ -5988,6 +6016,12 @@ Return JSON only:
   "labels": ["label 1", "label 2"]
 }`;
 
+        const clarificationUserMessage = `USER INPUT: "${text.substring(0, 500)}"
+${ambiguityReason ? `CONTEXT: "${ambiguityReason}"` : ''}
+
+INTERPRETATIONS (return exactly ${interpretations.length} labels in the same order):
+${interpLines}`;
+
         // --- Make AI call ---
         try {
           const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -5997,8 +6031,11 @@ Return JSON only:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [{ role: 'user', content: aiPrompt }],
+              model: 'gpt-4.1-nano',
+              messages: [
+                { role: 'system', content: clarificationSystemPrompt },
+                { role: 'user', content: clarificationUserMessage },
+              ],
               temperature: 0.3,
               max_tokens: 200,
               response_format: { type: 'json_object' },
@@ -6090,14 +6127,14 @@ Return JSON only:
         const currentDate = body.currentDate || new Date().toISOString().split('T')[0];
         const targetBucket = body.targetBucket || null;
 
-        const reclassifyPrompt = `You finalize a productivity item after the user clarified their intent.
-
-=== CONTEXT ===
+        const contextString = `=== CONTEXT ===
 ORIGINAL INPUT: "${text}"
 USER SELECTED: "${selectedLabel}"
 SELECTED BUCKET: ${selectedBucket || 'not specified'}
 SELECTED SUBTYPE: ${selectedSubtype || 'not specified'}
-CURRENT DATE: ${currentDate}
+CURRENT DATE: ${currentDate}`;
+
+        const reclassifyPrompt = `You finalize a productivity item after the user clarified their intent.
 
 === BUCKET RULE ===
 
@@ -6107,7 +6144,7 @@ If SELECTED SUBTYPE is provided, use it exactly for the subtype field.
 
 === YOUR TASK ===
 
-The user dropped "${text}" and clarified by selecting "${selectedLabel}".
+The user dropped their original input and clarified by selecting an option.
 
 Generate:
 1. A smart title (3-7 words)
@@ -6190,8 +6227,11 @@ If no date in input, all date fields are null.
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [{ role: 'system', content: reclassifyPrompt }],
+              model: 'gpt-4.1-mini',
+              messages: [
+                { role: 'system', content: reclassifyPrompt },
+                { role: 'user', content: contextString },
+              ],
               temperature: 0.3,
               max_tokens: 250,
               response_format: { type: 'json_object' },
@@ -6717,7 +6757,7 @@ Rules:
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'gpt-4o-mini',
+            model: 'gpt-4.1-mini',
             messages: phase1Messages,
             temperature: 0.1,
             max_tokens: 500,
@@ -6889,12 +6929,7 @@ Rules:
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
 
-        const phase15aPrompt = `You generate a title and confirmation message for a productivity item that has already been classified.
-
-=== CONTEXT ===
-USER INPUT: "${text}"
-BUCKET: ${bucket}
-SUBTYPE: ${subtype || 'none'}
+        const phase15aSystemPrompt = `You generate a title and reaction for a productivity item that has already been classified.
 
 === SMART TITLE (3-7 words) ===
 
@@ -6908,7 +6943,8 @@ Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN it hap
 
 3. **Strip frequency information** — For habits, frequency is tracked separately. The title is just the activity.
 
-4. **No meta-language** — Don't start with system concepts like "Reflect on," "Journal about," "Remember to," or "Track." The title should be the content itself.
+4. **No meta-language** — The title IS the subject matter. Write it the way you'd label a folder — what it's about, not what the user should do with it.
+For journals, start with what happened or what it's about — not the act of reflecting. "Rough Conversation With Sarah" not "Reflecting on Conversation With Sarah". The user knows they're reflecting; the title should be the subject, not the activity.
 
 5. **Preserve question framing** — If the input is a question or dilemma, keep the question words in the title. The question IS the content.
 
@@ -6916,36 +6952,28 @@ Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN it hap
 
 7. **Title case, 3-7 words**
 
-=== CONFIRMATION MESSAGE (4-8 words, max 50 characters) ===
+=== REACTION (4-8 words, max 50 characters) ===
 
-This is Gremly's voice — a witty, warm friend who actually listened. Not a notification system.
+This is Gremly reacting to what they said — like a friend who actually heard them.
 
-**THE CORE RULE:**
-Every confirmation MUST prove you understood THIS specific input. Reference something concrete from what they wrote — a person, a place, the actual subject matter. If your message could apply to any other input, you failed.
+Your reaction IS the confirmation. You prove you understood by engaging with the SPECIFIC THING they said — not by acknowledging receipt. Think laterally about the content: what's adjacent, relatable, or human about this specific thing?
 
-**BUCKET TONE:**
-- TODOS: Acknowledging, can be wry or playful
-- HABITS: Encouraging without being cheesy, recognize the commitment
-- JOURNALS: Gentle, validating, honor the emotional weight
-- IDEAS: Curious, intrigued, fan the spark
-- GENERAL LOGS: Simple warmth with personality
+TONE BY BUCKET:
+- TODOS: Acknowledge the thing with warmth or wit
+- HABITS: Speak to the version of themselves they're building toward
+- JOURNALS: Honor the weight. Reflect the feeling back, not the facts
+- IDEAS: Fan the spark. What's exciting about this if it worked?
+- GENERAL LOGS: React to the interesting part — a place, a person, the thing itself
 
-**VOICE:**
+VOICE:
 - Understated over enthusiastic
 - Witty when the input allows
 - Warm but not saccharine
-- No exclamation marks — too perky
-- Don't start with "I" — it's about them, not Gremly
+- No exclamation marks
 
-**CRITICAL — BE FRESH:**
-Never fall into repetitive structures. Each confirmation should feel crafted for exactly this input. Vary your sentence patterns, word choices, and approach. If you notice yourself reusing a formula, break it.
-
-**FORBIDDEN:**
-- "Got it" / "Added" / "Noted" / "Done" / "Captured" — alone or at start
-- System speak ("Task added", "Successfully saved")
-- Robotic ("I've captured that for you")
-- Generic warmth that could apply to anything
-- Repeating structural patterns across different inputs
+THE TWO TESTS:
+1. Specificity: Does this reference something concrete from THEIR input? If it could apply to any other drop, rewrite it.
+2. No task-management language: No "noted", "captured", "queued", "tracked", "on your list", "on your radar", "scheduled", "logged". Speak to the thing, not the act of saving it.
 
 === OUTPUT FORMAT ===
 
@@ -6953,7 +6981,7 @@ Return ONLY valid JSON:
 
 {
   "smart_title": "3-7 Word Title",
-  "confirmation_message": "4-10 word warm message"
+  "confirmation_message": "4-8 word reaction"
 }`;
 
         const t0 = Date.now();
@@ -6966,9 +6994,21 @@ Return ONLY valid JSON:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [{ role: 'user', content: phase15aPrompt }],
-              temperature: 0.4,
+              model: 'gpt-4.1-mini',
+              messages: [
+                { role: 'system', content: phase15aSystemPrompt },
+                {
+                  role: 'user',
+                  content:
+                    'USER INPUT: "' +
+                    text +
+                    '"\nBUCKET: ' +
+                    bucket +
+                    '\nSUBTYPE: ' +
+                    (subtype || 'none'),
+                },
+              ],
+              temperature: 0.55,
               max_tokens: 150,
               response_format: { type: 'json_object' },
             }),
@@ -7156,9 +7196,6 @@ ${dateExamples}
 
 === ITEM TYPE ===
 Bucket: "${bucket}"${subtype ? ` (Subtype: "${subtype}")` : ''}
-
-=== ORIGINAL TEXT ===
-"${text.substring(0, 1500)}"
 
 === EXTRACTION RULES ===
 If unsure, return null.
@@ -7570,8 +7607,11 @@ For LOGS (event):
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [{ role: 'system', content: phase2Prompt }],
+              model: 'gpt-4.1-mini',
+              messages: [
+                { role: 'system', content: phase2Prompt },
+                { role: 'user', content: text.substring(0, 1500) },
+              ],
               temperature: 0.2,
               max_tokens: 300,
               response_format: { type: 'json_object' },
@@ -7805,6 +7845,164 @@ For LOGS (event):
         }
       }
 
+      // --- PHASE 2B: AUTO-REMINDER DETECTION (standalone, lightweight) ---
+      if (type === 'enrich-phase2b') {
+        const text = body.text || '';
+        const bucket = body.bucket || 'log';
+        const subtype = body.subtype || null;
+        const currentDate = body.currentDate || '2026-01-25';
+        const timezone = body.timezone || 'UTC';
+        const dayOfWeek = body.dayOfWeek || 'Sunday';
+
+        // Skip buckets that should never get reminders
+        if (bucket === 'log' && subtype !== 'event') {
+          return j({
+            auto_reminder: false,
+            reminder_date: null,
+            reminder_time: null,
+            reminder_frequency: null,
+          });
+        }
+        if (bucket === 'habit' && subtype === 'break_habit') {
+          return j({
+            auto_reminder: false,
+            reminder_date: null,
+            reminder_time: null,
+            reminder_frequency: null,
+          });
+        }
+
+        const t0 = Date.now();
+        try {
+          const phase2bPrompt = `You decide if a user's quick thought needs a reminder, and if so, when.
+
+=== CONTEXT ===
+Today: ${currentDate} (${dayOfWeek})
+Timezone: ${timezone}
+Item type: ${bucket}${subtype ? ` (${subtype})` : ''}
+
+=== RULES ===
+Set auto_reminder to true when the text implies the user wants to be reminded or nudged at a specific time. This includes:
+- Explicit reminder language: "remind me", "don't forget", or "remember" used as an imperative (directing oneself to retain or act on something, not recalling a past memory)
+- A specific time with action intent ("at 2pm", "by 5pm", "before lunch")
+- Urgency combined with a date ("need to do this tomorrow", "must call today")
+
+Set auto_reminder to false when:
+- Timing is vague ("soon", "eventually", "this week")
+- There is no reminder language and no specific time
+- The text is a journal entry, idea, or reflection
+
+If auto_reminder is true, also extract:
+- reminder_date: the date to remind (YYYY-MM-DD), or null if no date mentioned
+- reminder_time: the time to remind (HH:mm 24h format), or null if no specific time. Use these defaults by time_window: morning=09:00, afternoon/day=13:00, evening=18:00
+- reminder_frequency: "once" for one-time reminders, "daily" for habits
+
+If auto_reminder is false, set all other fields to null.
+
+=== OUTPUT ===
+Return ONLY valid JSON, no explanation:
+{
+  "auto_reminder": boolean,
+  "reminder_date": "YYYY-MM-DD" | null,
+  "reminder_time": "HH:mm" | null,
+  "reminder_frequency": "once" | "daily" | null
+}`;
+
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${key}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1-mini',
+              messages: [
+                { role: 'system', content: phase2bPrompt },
+                { role: 'user', content: text.substring(0, 500) },
+              ],
+              temperature: 0.1,
+              max_tokens: 100,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          const oj = await res.json();
+          const latency = Date.now() - t0;
+
+          if (!res.ok) {
+            console.log('[Phase2b] API error', { error: oj.error, latency_ms: latency });
+            return j({
+              auto_reminder: false,
+              reminder_date: null,
+              reminder_time: null,
+              reminder_frequency: null,
+              latency_ms: latency,
+            });
+          }
+
+          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
+          let parsed;
+          try {
+            parsed = JSON.parse(rawContent);
+          } catch {
+            console.log('[Phase2b] Parse error', { raw: rawContent });
+            return j({
+              auto_reminder: false,
+              reminder_date: null,
+              reminder_time: null,
+              reminder_frequency: null,
+              latency_ms: latency,
+            });
+          }
+
+          // Validate reminder_time format (HH:mm)
+          let reminderTime = null;
+          if (parsed.reminder_time && /^\d{2}:\d{2}$/.test(parsed.reminder_time)) {
+            reminderTime = parsed.reminder_time;
+          }
+
+          // Validate reminder_date format (YYYY-MM-DD)
+          let reminderDate = null;
+          if (parsed.reminder_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.reminder_date)) {
+            reminderDate = parsed.reminder_date;
+          }
+
+          // Validate frequency
+          const validFreqs = ['once', 'daily'];
+          const reminderFrequency = validFreqs.includes(parsed.reminder_frequency)
+            ? parsed.reminder_frequency
+            : null;
+
+          const autoReminder = parsed.auto_reminder === true;
+
+          console.log('[Phase2b]', {
+            auto_reminder: autoReminder,
+            reminder_date: reminderDate,
+            reminder_time: reminderTime,
+            reminder_frequency: reminderFrequency,
+            latency_ms: latency,
+          });
+
+          return j({
+            auto_reminder: autoReminder,
+            reminder_date: autoReminder ? reminderDate : null,
+            reminder_time: autoReminder ? reminderTime : null,
+            reminder_frequency: autoReminder ? reminderFrequency : null,
+            latency_ms: latency,
+          });
+        } catch (err) {
+          const latency = Date.now() - t0;
+          console.log('[Phase2b] Error', { error: String(err), latency_ms: latency });
+          return j({
+            auto_reminder: false,
+            reminder_date: null,
+            reminder_time: null,
+            reminder_frequency: null,
+            latency_ms: latency,
+          });
+        }
+      }
+
       // ═══════════════════════════════════════════════════════════════════════════
       // JOURNAL ANALYZE (v4.2) - Analyze journal entries for themes & patterns
       // ═══════════════════════════════════════════════════════════════════════════
@@ -7838,11 +8036,8 @@ For LOGS (event):
           })
           .join('\n---\n');
 
-        const analyzePrompt = `You are a thoughtful, warm journal analyst for Gremly, a calm productivity app.
+        const analyzeSystemPrompt = `You are a thoughtful, warm journal analyst for Gremly, a calm productivity app.
 The user has shared their recent journal entries. Analyze them with care and empathy.
-
-=== JOURNAL ENTRIES (${cappedEntries.length} entries) ===
-${journalBlock}
 
 === YOUR TASK ===
 Analyze these entries and return a JSON object with these four sections:
@@ -7884,8 +8079,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4o-mini',
-              messages: [{ role: 'system', content: analyzePrompt }],
+              model: 'gpt-4.1-mini',
+              messages: [
+                { role: 'system', content: analyzeSystemPrompt },
+                { role: 'user', content: 'Here are my journal entries:\n\n' + journalBlock },
+              ],
               temperature: 0.4,
               max_tokens: 1200,
               response_format: { type: 'json_object' },
@@ -7929,7 +8127,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       }
 
       // --- EXISTING LOGIC BELOW (unchanged) ---
-      const baseModel = body.model || 'gpt-4o-mini';
+      const baseModel = body.model || 'gpt-4.1-nano';
 
       const baseTemperature = Number.isFinite(body.temperature)
         ? body.temperature

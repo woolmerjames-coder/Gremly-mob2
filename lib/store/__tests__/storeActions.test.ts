@@ -509,4 +509,94 @@ describe('useGremlyStore actions', () => {
       // Test verifies the update code path runs without crashing
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // handleDayRollover
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('handleDayRollover', () => {
+    it('updates currentDate to the new date', () => {
+      useGremlyStore.setState({ currentDate: '2025-12-15' });
+
+      useGremlyStore.getState().handleDayRollover('2025-12-16');
+
+      expect(useGremlyStore.getState().currentDate).toBe('2025-12-16');
+    });
+
+    it('is a no-op when called with the same date', () => {
+      useGremlyStore.setState({
+        currentDate: '2025-12-15',
+        todayDropsCount: 5,
+      });
+
+      useGremlyStore.getState().handleDayRollover('2025-12-15');
+
+      // todayDropsCount should NOT be reset because the date didn't change
+      expect(useGremlyStore.getState().todayDropsCount).toBe(5);
+    });
+
+    it('resets briefCompletedToday on rollover', () => {
+      useGremlyStore.setState({
+        currentDate: '2025-12-15',
+        briefCompletedToday: '2025-12-15T08:00:00Z' as any,
+      });
+
+      useGremlyStore.getState().handleDayRollover('2025-12-16');
+
+      expect(useGremlyStore.getState().briefCompletedToday).toBeNull();
+    });
+
+    it('resets daily counters on rollover', () => {
+      useGremlyStore.setState({
+        currentDate: '2025-12-15',
+        todayDropsCount: 10,
+        todaySweepsCount: 3,
+      });
+
+      useGremlyStore.getState().handleDayRollover('2025-12-16');
+
+      expect(useGremlyStore.getState().todayDropsCount).toBe(0);
+      expect(useGremlyStore.getState().todaySweepsCount).toBe(0);
+    });
+
+    it('resets hiddenTodayIds on rollover', () => {
+      useGremlyStore.setState({
+        currentDate: '2025-12-15',
+        hiddenTodayIds: ['todo-1', 'todo-2'],
+        hiddenTodayDate: '2025-12-15',
+      });
+
+      useGremlyStore.getState().handleDayRollover('2025-12-16');
+
+      expect(useGremlyStore.getState().hiddenTodayIds).toEqual([]);
+      expect(useGremlyStore.getState().hiddenTodayDate).toBeNull();
+    });
+
+    it('resets briefSelectedIds and briefLockedIds', () => {
+      useGremlyStore.setState({
+        currentDate: '2025-12-15',
+        briefSelectedIds: ['a', 'b'],
+        briefLockedIds: ['c'],
+        briefSelectionDate: '2025-12-15',
+      });
+
+      useGremlyStore.getState().handleDayRollover('2025-12-16');
+
+      expect(useGremlyStore.getState().briefSelectedIds).toEqual([]);
+      expect(useGremlyStore.getState().briefLockedIds).toEqual([]);
+      expect(useGremlyStore.getState().briefSelectionDate).toBeNull();
+    });
+
+    it('emits day:rollover event', () => {
+      const { eventBus } = require('../../events/EventBus');
+      const handler = jest.fn();
+      eventBus.on('day:rollover', handler);
+
+      useGremlyStore.setState({ currentDate: '2025-12-15' });
+      useGremlyStore.getState().handleDayRollover('2025-12-16');
+
+      expect(handler).toHaveBeenCalledWith({ date: '2025-12-16' });
+      eventBus.clear();
+    });
+  });
 });

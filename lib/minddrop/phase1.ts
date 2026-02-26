@@ -82,6 +82,7 @@ export async function runPhase1(
       confidence: 0.5,
       source: 'heuristic-fallback',
       is_multi: false,
+      reminder_intent: false,
     };
   }
 
@@ -136,6 +137,7 @@ export async function runPhase1(
       confidence: 0.5,
       source: 'heuristic-fallback',
       is_multi: false,
+      reminder_intent: false,
     };
   }
 
@@ -166,6 +168,7 @@ export async function runPhase1(
       bucket: apiResult.items[0]?.bucket || 'log',
       subtype: apiResult.items[0]?.subtype || null,
       habitSubtype: apiResult.items[0]?.habitSubtype || null,
+      reminder_intent: apiResult.reminder_intent === true,
     };
   }
 
@@ -179,6 +182,7 @@ export async function runPhase1(
       confidence: 0.5,
       source: 'heuristic-fallback',
       is_multi: false,
+      reminder_intent: false,
     };
   }
 
@@ -220,5 +224,6 @@ export async function runPhase1(
     clarification_type: apiResult.clarification_type || null,
     clarification_question: apiResult.clarification_question || null,
     clarification_options: apiResult.clarification_options || null,
+    reminder_intent: apiResult.reminder_intent === true,
   };
 }

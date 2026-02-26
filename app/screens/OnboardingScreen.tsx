@@ -138,7 +138,9 @@ function NotificationSetup({
         />
       </View>
 
-      <Text style={notifStyles.settingsHint}>You can adjust times or turn off reminders in Settings.</Text>
+      <Text style={notifStyles.settingsHint}>
+        You can adjust times or turn off reminders in Settings.
+      </Text>
     </View>
   );
 }
@@ -310,6 +312,8 @@ export default function OnboardingScreen() {
         morningTime: morningTime,
         eveningEnabled: true,
         eveningTime: eveningTime,
+        afternoonEnabled: notificationPrefs.afternoonEnabled,
+        afternoonTime: notificationPrefs.afternoonTime,
         weeklyEnabled: notificationPrefs.weeklyEnabled,
         weeklyTime: notificationPrefs.weeklyTime,
         weeklyDay: notificationPrefs.weeklyDay,

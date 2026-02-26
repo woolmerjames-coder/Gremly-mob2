@@ -21,7 +21,7 @@ import {
   Modal,
 } from 'react-native';
 import { getDateService } from '../../lib/date';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../../ui';
@@ -320,7 +320,7 @@ export default function NowScreenV1() {
   const markFirstTodayVisitComplete = useGremlyStore((s) => s.markFirstTodayVisitComplete);
 
   // Calendar integration
-  const todayStr = useMemo(() => getDateService().getCurrentDate(), []);
+  const todayStr = useGremlyStore((s) => s.currentDate);
   const fetchCalendarEvents = useGremlyStore((s) => s.fetchCalendarEventsForRange);
 
   // Unified event notes for today (external + native, from Phase 1 normalization)
@@ -331,6 +331,7 @@ export default function NowScreenV1() {
   const [briefTargetDate, setBriefTargetDate] = useState<string | undefined>(undefined);
 
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const isFocused = useIsFocused();
 
   // Daily app open detection
   const { isFirstOpenToday, isChecking, markTodayOpened } = useDailyAppOpen();
@@ -350,11 +351,10 @@ export default function NowScreenV1() {
     console.log('[NowScreen] Calendar useEffect, isInitialized:', isInitialized);
     if (!isInitialized) return;
     const dateService = getDateService();
-    const today = dateService.getCurrentDate();
-    const weekFromNow = dateService.addDays(today, 7);
-    console.log('[NowScreen] Fetching calendar:', today, 'to', weekFromNow);
-    fetchCalendarEvents(today, weekFromNow);
-  }, [isInitialized, fetchCalendarEvents]);
+    const weekFromNow = dateService.addDays(todayStr, 7);
+    console.log('[NowScreen] Fetching calendar:', todayStr, 'to', weekFromNow);
+    fetchCalendarEvents(todayStr, weekFromNow);
+  }, [isInitialized, fetchCalendarEvents, todayStr]);
 
   // Listen for "Plan your tomorrow" from sweep completion
   useEffect(() => {
@@ -367,16 +367,30 @@ export default function NowScreenV1() {
   }, [todayStr, navigation]);
 
   // Auto-open Morning Brief on first open of the day (skip for brand new users)
+  const hasAutoOpenedBriefRef = useRef(false);
   useEffect(() => {
-    if (gremlyAge < 1) return; // Don't show for brand new users - let them explore first
+    if (gremlyAge < 1) return; // Don't show for brand new users
+    if (hasAutoOpenedBriefRef.current) return; // Already auto-opened this mount
+    if (!isFocused) return; // Don't fire if user is on another screen (e.g. mid-Sweep)
     if (!isChecking && isFirstOpenToday && !hasCompletedBriefToday && isInitialized && !loading) {
-      // Small delay to let the screen render first
+      hasAutoOpenedBriefRef.current = true;
+      markTodayOpened(); // Flip isFirstOpenToday to false so this won't retrigger
       const timer = setTimeout(() => {
         navigation.navigate('MorningBrief');
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [gremlyAge, isChecking, isFirstOpenToday, hasCompletedBriefToday, isInitialized, loading]);
+  }, [
+    gremlyAge,
+    isChecking,
+    isFirstOpenToday,
+    hasCompletedBriefToday,
+    isInitialized,
+    loading,
+    isFocused,
+    markTodayOpened,
+    navigation,
+  ]);
 
   // Show first-visit bubble for new users
   useEffect(() => {
@@ -463,7 +477,7 @@ export default function NowScreenV1() {
   const recentLogsCount = recentLogs.length;
 
   // Today date string (for addToToday)
-  const todayDayString = getDateService().getCurrentDate();
+  const todayDayString = todayStr;
 
   // NowData for header (computed locally)
   const nowData = useMemo(() => {
@@ -603,7 +617,7 @@ export default function NowScreenV1() {
   // Handle notification tap to open Morning Brief, Evening Sweep, or Weekly Summary
   useEffect(() => {
     const handleNotificationOpen = (payload: {
-      type: 'morning' | 'evening' | 'weekly_summary';
+      type: 'morning' | 'evening' | 'weekly_summary' | 'afternoon_checkin';
     }) => {
       if (payload.type === 'morning') {
         console.log('[NowScreenV1] Opening Morning Brief from notification');
@@ -619,11 +633,30 @@ export default function NowScreenV1() {
         console.log('[NowScreenV1] Opening Weekly Summary from notification');
         navigation.navigate('WeeklySummary');
       }
+      // Afternoon check-in — already on NowScreen, no navigation needed
+      if (payload.type === 'afternoon_checkin') {
+        console.log('[NowScreenV1] Opening Now screen from afternoon check-in');
+        // Could optionally scroll to lock-ins section in the future
+      }
     };
 
     const unsubscribe = eventBus.on('notification:open_flow', handleNotificationOpen);
     return () => unsubscribe();
   }, [navigation]);
+
+  // Handle item-reminder notification taps — open the overlay for the reminded item
+  useEffect(() => {
+    const unsubscribe = eventBus.on(
+      'notification:open_item',
+      (payload: { itemId: string; itemType: string }) => {
+        console.log('[NowScreenV1] Opening item from reminder notification', payload);
+        overlayController.openEdit({
+          record: { id: payload.itemId, type: payload.itemType } as any,
+        });
+      },
+    );
+    return () => unsubscribe();
+  }, [overlayController]);
 
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);

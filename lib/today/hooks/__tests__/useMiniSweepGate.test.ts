@@ -56,6 +56,7 @@ describe('useMiniSweepGate', () => {
         miniSweepLastCompletedAt: null,
         markMiniSweepCompleted: mockMarkMiniSweepCompleted,
         gremlyAge: 5, // Default to established user
+        todos: [], // Required by todayUnprocessedDrops selector
       };
       return selector(state);
     });
@@ -75,6 +76,7 @@ describe('useMiniSweepGate', () => {
           miniSweepLastCompletedAt: null,
           markMiniSweepCompleted: mockMarkMiniSweepCompleted,
           gremlyAge: 0, // Brand new user
+          todos: [],
         };
         return selector(state);
       });
@@ -92,6 +94,7 @@ describe('useMiniSweepGate', () => {
           miniSweepLastCompletedAt: null,
           markMiniSweepCompleted: mockMarkMiniSweepCompleted,
           gremlyAge: 1, // Completed first ritual
+          todos: [],
         };
         return selector(state);
       });
@@ -140,6 +143,7 @@ describe('useMiniSweepGate', () => {
           miniSweepLastCompletedAt: '2025-12-15T08:00:00Z', // Completed earlier today
           markMiniSweepCompleted: mockMarkMiniSweepCompleted,
           gremlyAge: 5,
+          todos: [],
         };
         return selector(state);
       });
@@ -157,6 +161,7 @@ describe('useMiniSweepGate', () => {
           miniSweepLastCompletedAt: '2025-12-14T20:00:00Z', // Completed yesterday
           markMiniSweepCompleted: mockMarkMiniSweepCompleted,
           gremlyAge: 5,
+          todos: [],
         };
         return selector(state);
       });

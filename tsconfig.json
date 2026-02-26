@@ -34,6 +34,8 @@
     "minddrop-audit-bundle/**/*",
     "minddrop-bundle/**/*",
     // Generic bundle pattern - all *-bundle directories
-    "*-bundle/**/*"
+    "*-bundle/**/*",
+    // Exclude notification context bundle - copied code with broken relative imports
+    "gremly-notification-context/**/*"
   ]
 }

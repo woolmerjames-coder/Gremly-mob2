@@ -85,9 +85,27 @@ export type EventMap = {
   DailyBriefSaved: { date: string };
   DailyBriefCleared: { date: string };
   // Notification response events
-  'notification:open_flow': { type: 'morning' | 'evening' | 'weekly_summary' };
+  'notification:open_flow': {
+    type: 'morning' | 'evening' | 'weekly_summary' | 'afternoon_checkin';
+  };
+  'notification:open_item': { itemId: string; itemType: string };
+  'notification:done_action': { entityId: string; entityType: string };
+  'notification:snooze': { entityId: string; entityType: string; seconds: number; label: string };
+  'notification:snooze_before_due': {
+    entityId: string;
+    entityType: string;
+    dueDate: string;
+    dueTime: string | null;
+  };
+  'notification:habit_done': { entityId: string };
+  // Contextual notification permission prompt
+  'notification:permission_prompt': { context: 'reminder' | 'sweep' };
+  // Overlay open event (triggered from notification quick-action sheet)
+  'overlay:open': { entityId: string; entityType: string };
   // Tomorrow Brief navigation event
   openTomorrowBrief: Record<string, never>;
+  // Day rollover event
+  'day:rollover': { date: string };
 };
 
 type Handler<T> = (payload: T) => void;
