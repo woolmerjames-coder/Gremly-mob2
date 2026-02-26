@@ -105,30 +105,6 @@ export default {
       return jsonResponse({ deleted: deleted.length, weekStart });
     }
 
-    // GET /admin/test-space-discovery?user_id=...&timezone=... — read-only diagnostic
-    if (url.pathname === '/admin/test-space-discovery' && request.method === 'GET') {
-      const userId = url.searchParams.get('user_id');
-      if (!userId) return jsonResponse({ error: 'Missing user_id' }, 400);
-      const timezone = url.searchParams.get('timezone') || 'America/Los_Angeles';
-      try {
-        const payload = await buildServerSidePayload(env, userId, timezone);
-        if (!payload.spaceDiscovery) {
-          return jsonResponse({ skipped: true, reason: 'cooldown active or <5 unassigned drops' });
-        }
-        const result = await runSpaceDiscoveryPass(env, payload);
-        if (result.rawAnalysis) {
-          return jsonResponse({
-            error: 'parse_failed',
-            first500: result.rawAnalysis.substring(0, 500),
-            last200: result.rawAnalysis.substring(result.rawAnalysis.length - 200),
-          });
-        }
-        return jsonResponse(result);
-      } catch (err) {
-        return jsonResponse({ error: err.message }, 500);
-      }
-    }
-
     // GET /debug-events?user_id=...  — temporary audit endpoint
     if (url.pathname === '/debug-events') {
       const userId = url.searchParams.get('user_id');
@@ -470,11 +446,13 @@ async function sendScheduledNotifications(env) {
           // Step 3b: Space discovery (independent Haiku call)
           if (payload.spaceDiscovery) {
             try {
-              console.log(`[WeeklySummary] Step 3b: Running space discovery for ${user.user_id}`);
-              const spaceResult = await runSpaceDiscoveryPass(env, payload);
+              console.log(
+                `[WeeklySummary] Step 3b: Running space discovery pipeline for ${user.user_id}`,
+              );
+              const spaceResult = await runSpaceDiscoveryPipeline(env, payload, analysisBrief);
               if (spaceResult?.shouldSuggest && spaceResult.suggestion) {
                 const suggestion = spaceResult.suggestion;
-                if (suggestion.confidence >= 0.75 && suggestion.dropIds?.length >= 5) {
+                if (suggestion.confidence >= 0.75 && suggestion.dropIds?.length >= 2) {
                   // Expire any existing pending new_space suggestions first
                   await fetch(
                     `${env.SUPABASE_URL}/rest/v1/space_suggestions?user_id=eq.${user.user_id}&status=eq.pending&suggestion_type=eq.new_space`,
@@ -782,11 +760,11 @@ async function handleBackfillWeekly(env, url) {
       // Step 3b: Space discovery (independent Haiku call)
       if (payload.spaceDiscovery) {
         try {
-          console.log(`[Backfill] Step 3b: Running space discovery for ${userId}`);
-          const spaceResult = await runSpaceDiscoveryPass(env, payload);
+          console.log(`[Backfill] Step 3b: Running space discovery pipeline for ${userId}`);
+          const spaceResult = await runSpaceDiscoveryPipeline(env, payload, analysisBrief);
           if (spaceResult?.shouldSuggest && spaceResult.suggestion) {
             const suggestion = spaceResult.suggestion;
-            if (suggestion.confidence >= 0.75 && suggestion.dropIds?.length >= 5) {
+            if (suggestion.confidence >= 0.75 && suggestion.dropIds?.length >= 2) {
               // Expire any existing pending new_space suggestions first
               await fetch(
                 `${supabaseUrl}/rest/v1/space_suggestions?user_id=eq.${userId}&status=eq.pending&suggestion_type=eq.new_space`,
@@ -1760,7 +1738,21 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
       return {
         unassignedDrops,
         userProfileText,
-        existingSpaceNames: spaces.map((s) => s.name),
+        existingSpaces: spaces.map((s) => {
+          const spaceTodos = completedTodosThisWeek
+            .filter((t) => t.space_id === s.id)
+            .map((t) => t.title || t.name)
+            .slice(0, 5);
+          const spaceNotes = ideasCapturedThisWeek
+            .filter((n) => n.space_id === s.id)
+            .map((n) => n.title)
+            .slice(0, 5);
+          return {
+            name: s.name,
+            description: s.description || s.milestone || null,
+            recentItems: [...spaceTodos, ...spaceNotes].slice(0, 10),
+          };
+        }),
         dismissedSuggestionNames: dismissedSpaceNames,
       };
     })(),
@@ -2101,45 +2093,197 @@ ANALYSIS RULES:
 }
 
 /**
- * SPACE DISCOVERY PASS: Lightweight Haiku call to analyze unassigned items.
- * Runs independently of the analyst pass. Only sends spaceDiscovery context + user profile.
- *
- * @param {object} env - Worker env with ANTHROPIC_API_KEY
- * @param {object} payload - Full payload (only spaceDiscovery + userProfileText are used)
- * @returns {object} { shouldSuggest, suggestion } or { rawAnalysis } on parse failure
+ * SPACE DISCOVERY PIPELINE — 3-step progressive refinement.
+ * Step A (Nano): Cluster raw titles — cheap pattern matching.
+ * Step B (Mini): Enrich clusters with personal context.
+ * Step C (Haiku): Final recommendation — judgment call with full picture.
  */
-async function runSpaceDiscoveryPass(env, payload) {
-  const systemPrompt = `You analyze unassigned items in a productivity app and decide whether they cluster into a new Space (a life domain container). Respond ONLY with valid JSON, no markdown, no backticks.
+
+/**
+ * Step A: Cluster unassigned drops by theme using gpt-4.1-nano.
+ */
+async function clusterUnassignedDrops(env, drops) {
+  const systemPrompt = `You group items into thematic clusters. Respond ONLY with valid JSON, no markdown, no backticks.
+
+Output format:
+{
+  "clusters": [
+    {
+      "theme": "short keyword theme",
+      "dropIds": ["id1", "id2"],
+      "titles": ["title1", "title2"]
+    }
+  ],
+  "unclustered": ["id1", "id2"]
+}
+
+Rules:
+- Group items that clearly belong together.
+- A cluster needs at least 3 items.
+- Items that don't fit anywhere go in unclustered.
+- theme should be 2-4 words describing the common thread.
+- Do not overthink this. Group by obvious similarity.`;
+
+  const userMessage = `Group these items into clusters:\n${JSON.stringify(drops.map((d) => ({ id: d.id, title: d.title, type: d.type })))}`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-nano',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        max_tokens: 4096,
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`[SpaceDiscovery] Step A API error: ${response.status} — ${errText}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const text = (data.choices?.[0]?.message?.content || '').trim();
+    if (!text) {
+      console.error('[SpaceDiscovery] Step A: Empty response');
+      return null;
+    }
+
+    const cleaned = text.replace(/```json\n?|```\n?/g, '').trim();
+    try {
+      return JSON.parse(cleaned);
+    } catch (e) {
+      console.error('[SpaceDiscovery] Step A: JSON parse failed');
+      console.error('[SpaceDiscovery] Step A parse error:', e.message);
+      console.error('[SpaceDiscovery] Step A first 500:', cleaned.substring(0, 500));
+      console.error('[SpaceDiscovery] Step A last 200:', cleaned.substring(cleaned.length - 200));
+      return null;
+    }
+  } catch (err) {
+    console.error('[SpaceDiscovery] Step A exception:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Step B: Enrich clusters with personal context using gpt-4.1-mini.
+ */
+async function enrichClustersWithContext(
+  env,
+  clusters,
+  profileText,
+  journalExcerpts,
+  existingSpaces,
+) {
+  const systemPrompt = `You enrich thematic clusters with personal context. You receive clusters of items plus information about who this person is. Your job is to figure out what each cluster is ACTUALLY about in this person's life and give it a specific name.
+
+Respond ONLY with valid JSON, no markdown, no backticks.
+
+Output format:
+{
+  "enrichedClusters": [
+    {
+      "originalTheme": "string — the theme from the input",
+      "enrichedName": "string — specific name based on personal context",
+      "belongsToExistingSpace": "string — name of existing space if these items fit there, or null",
+      "dropIds": ["id1", "id2"],
+      "reasoning": "string — brief explanation of why you renamed it or assigned it"
+    }
+  ]
+}
+
+Rules:
+- Use the person's profile and journal entries to understand their life context.
+- If a cluster matches an existing space's purpose or content, set belongsToExistingSpace to that space name instead of creating a new name.
+- Be SPECIFIC with enrichedName. Use actual client names, project names, or life events mentioned in the profile or journals.
+- Generic names like "Work Meetings" or "Personal Tasks" are failures. If you can't be specific, keep the original theme.`;
+
+  const userMessage = `Clusters to enrich:\n${JSON.stringify(clusters)}\n\nUser profile:\n${profileText || 'No profile available'}\n\nRecent journal excerpts:\n${JSON.stringify(journalExcerpts || [])}\n\nExisting spaces (name and recent items):\n${JSON.stringify(existingSpaces)}`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        max_tokens: 2048,
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`[SpaceDiscovery] Step B API error: ${response.status} — ${errText}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const text = (data.choices?.[0]?.message?.content || '').trim();
+    if (!text) {
+      console.error('[SpaceDiscovery] Step B: Empty response');
+      return null;
+    }
+
+    const cleaned = text.replace(/```json\n?|```\n?/g, '').trim();
+    try {
+      return JSON.parse(cleaned);
+    } catch (e) {
+      console.error('[SpaceDiscovery] Step B: JSON parse failed');
+      console.error('[SpaceDiscovery] Step B parse error:', e.message);
+      console.error('[SpaceDiscovery] Step B first 500:', cleaned.substring(0, 500));
+      console.error('[SpaceDiscovery] Step B last 200:', cleaned.substring(cleaned.length - 200));
+      return null;
+    }
+  } catch (err) {
+    console.error('[SpaceDiscovery] Step B exception:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Step C: Final recommendation using claude-haiku-4-5.
+ */
+async function makeSpaceRecommendation(env, enrichedClusters, dismissedNames) {
+  const systemPrompt = `You decide whether to recommend a new Space (a life domain container) in a productivity app. You receive enriched clusters that have already been analyzed for personal context.
+
+Respond ONLY with valid JSON, no markdown, no backticks.
 
 {
   "shouldSuggest": true|false,
   "suggestion": {
-    "suggestedName": "string — specific, action-oriented name",
-    "reason": "string — why this cluster deserves its own space",
-    "dropIds": ["string — IDs of items that belong here"],
+    "suggestedName": "string — the final space name",
+    "reason": "string — warm, personal explanation of why this space would help",
+    "dropIds": ["up to 20 IDs that belong in this space"],
     "confidence": 0.0-1.0,
     "connectionToProfile": "string — how this connects to who this person is"
   } | null
 }
 
 Rules:
-- Look for 5+ unassigned items clustering around a SPECIFIC project, life transition, or goal.
-- The cluster must be DISTINCT from all existing spaces.
-- Do NOT suggest any name (case-insensitive) matching a dismissed name.
-- Use the user profile to understand who this person is. A good suggestion reflects their life.
-- Ask: "Would this person open this space next week?" If not, don't suggest.
-- Derive names from what they're DOING, not generic labels. "Job Search" not "Career".
-- If nothing meets the bar, set shouldSuggest: false. That's the expected outcome most weeks.
+- Only consider clusters where belongsToExistingSpace is null — those that DON'T fit in an existing space.
+- Do NOT suggest any name matching a dismissed name (case-insensitive).
+- The suggestedName should come directly from the enrichedName — it has already been refined with personal context.
+- If no cluster deserves its own space, set shouldSuggest: false. This is the expected outcome most weeks.
 - Confidence must be >= 0.75 to suggest.
-- Maximum ONE suggestion.`;
+- Ask: "Would this person open this space next week?" If not, don't suggest.
+- Maximum ONE suggestion — pick the strongest cluster.`;
 
-  const userMessage = `User profile: ${payload.userProfileText || 'No profile available'}
-
-Existing spaces: ${JSON.stringify(payload.spaceDiscovery.existingSpaceNames)}
-Dismissed suggestions: ${JSON.stringify(payload.spaceDiscovery.dismissedSuggestionNames)}
-
-Unassigned items (${payload.spaceDiscovery.unassignedDrops.length}):
-${JSON.stringify(payload.spaceDiscovery.unassignedDrops)}`;
+  const userMessage = `Enriched clusters:\n${JSON.stringify(enrichedClusters)}\n\nDismissed space names (never re-suggest):\n${JSON.stringify(dismissedNames)}`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -2150,7 +2294,7 @@ ${JSON.stringify(payload.spaceDiscovery.unassignedDrops)}`;
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
     }),
@@ -2158,7 +2302,7 @@ ${JSON.stringify(payload.spaceDiscovery.unassignedDrops)}`;
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`Space discovery pass (Haiku) error: ${response.status} — ${errText}`);
+    throw new Error(`Space discovery Step C (Haiku) error: ${response.status} — ${errText}`);
   }
 
   const data = await response.json();
@@ -2168,19 +2312,78 @@ ${JSON.stringify(payload.spaceDiscovery.unassignedDrops)}`;
     .join('');
 
   if (!text) {
-    throw new Error('Space discovery pass returned empty response');
+    throw new Error('Space discovery Step C returned empty response');
   }
 
   const cleaned = text.replace(/```json\n?|```\n?/g, '').trim();
   try {
     return JSON.parse(cleaned);
   } catch (e) {
-    console.error('[SpaceDiscovery] Failed to parse JSON, using raw text as fallback');
-    console.error('[SpaceDiscovery] Parse error:', e.message);
-    console.error('[SpaceDiscovery] First 500 chars:', cleaned.substring(0, 500));
-    console.error('[SpaceDiscovery] Last 200 chars:', cleaned.substring(cleaned.length - 200));
-    return { rawAnalysis: cleaned };
+    console.error('[SpaceDiscovery] Step C: JSON parse failed');
+    console.error('[SpaceDiscovery] Step C parse error:', e.message);
+    console.error('[SpaceDiscovery] Step C first 500:', cleaned.substring(0, 500));
+    console.error('[SpaceDiscovery] Step C last 200:', cleaned.substring(cleaned.length - 200));
+    return { shouldSuggest: false, suggestion: null };
   }
+}
+
+/**
+ * Orchestrator: Run the 3-step space discovery pipeline.
+ * Replaces the old single-call runSpaceDiscoveryPass.
+ *
+ * @param {object} env - Worker env with API keys
+ * @param {object} payload - Full payload
+ * @param {object} analysisBrief - Structured analysis from analyst pass (reserved for future use)
+ * @returns {object} { shouldSuggest, suggestion }
+ */
+async function runSpaceDiscoveryPipeline(env, payload, analysisBrief = null) {
+  const discovery = payload.spaceDiscovery;
+  if (!discovery) return null;
+
+  console.log(
+    `[SpaceDiscovery] Starting pipeline: ${discovery.unassignedDrops.length} unassigned drops`,
+  );
+
+  // Step A: Cluster (Nano)
+  const clusters = await clusterUnassignedDrops(env, discovery.unassignedDrops);
+  if (!clusters?.clusters?.length) {
+    console.log('[SpaceDiscovery] Step A: No clusters found');
+    return { shouldSuggest: false, suggestion: null };
+  }
+  console.log(`[SpaceDiscovery] Step A complete: ${clusters.clusters.length} clusters found`);
+
+  // Step B: Enrich with context (Mini)
+  const enriched = await enrichClustersWithContext(
+    env,
+    clusters.clusters,
+    discovery.userProfileText,
+    payload.recentJournalExcerpts,
+    discovery.existingSpaces,
+  );
+  if (!enriched?.enrichedClusters?.length) {
+    console.log('[SpaceDiscovery] Step B: Enrichment failed');
+    return { shouldSuggest: false, suggestion: null };
+  }
+  console.log(
+    `[SpaceDiscovery] Step B complete: ${enriched.enrichedClusters.length} enriched clusters`,
+  );
+
+  // Filter to only new space candidates
+  const newSpaceCandidates = enriched.enrichedClusters.filter((c) => !c.belongsToExistingSpace);
+  if (!newSpaceCandidates.length) {
+    console.log('[SpaceDiscovery] All clusters belong to existing spaces');
+    return { shouldSuggest: false, suggestion: null };
+  }
+
+  // Step C: Final recommendation (Haiku)
+  const recommendation = await makeSpaceRecommendation(
+    env,
+    newSpaceCandidates,
+    discovery.dismissedSuggestionNames,
+  );
+  console.log(`[SpaceDiscovery] Step C complete: shouldSuggest=${recommendation?.shouldSuggest}`);
+
+  return recommendation;
 }
 
 /**
