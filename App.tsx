@@ -3,7 +3,7 @@ import 'react-native-url-polyfill/auto'; // URL polyfill for React Native
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useColorScheme, Linking, View, Keyboard, Alert } from 'react-native';
+import { useColorScheme, Linking, View, Keyboard } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SheetProvider } from 'react-native-actions-sheet';
@@ -34,8 +34,9 @@ import { eventBus } from './lib/events';
 import { useGremlyStore } from './lib/store/useGremlyStore';
 import { scheduleQuickReminder } from './lib/notifications/itemReminderService';
 import NotificationQuickActionSheet from './components/notifications/NotificationQuickActionSheet';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from './navigation/RootNavigator';
+// Navigation type imports available if needed:
+// import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+// import type { RootStackParamList } from './navigation/RootNavigator';
 import celebrationController from './app/features/celebration/CelebrationController';
 import AgeUpCelebrationModal from './components/ritual/AgeUpCelebrationModal';
 import { GlobalEventPopup } from './components/calendar/GlobalEventPopup';

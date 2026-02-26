@@ -107,7 +107,7 @@ export function mapTodoToForm(t: Todo | AppRecord): FormTodo {
     dueDate: date,
     dueTime: time,
     details: {
-      reminders: todo.reminders || [],
+      reminders: (todo.reminders || []) as any[],
       spaceId: todo.space_id || null,
       notes: todo.notes || '',
       tags: todo.tags || [],
@@ -126,13 +126,12 @@ export function mapJournalToForm(j: Note | AppRecord): FormJournal {
   const journal = j as Note;
 
   return {
-    date:
-      journal.date || dateService.extractLocalDate(journal.created_at) || dateService.today(),
+    date: journal.date || dateService.extractLocalDate(journal.created_at) || dateService.today(),
     entry: journal.body || '',
     mood: journal.mood ?? null, // Now supports array or legacy single value
     details: {
       formatting: journal.fmt || null,
-      reminders: journal.reminders || [],
+      reminders: (journal.reminders || []) as any[],
       tags: journal.tags || [],
       spaceId: journal.space_id || null,
     },
@@ -175,7 +174,7 @@ export function mapPersonToForm(p: Person): FormPerson {
       })),
       notes: p.notes || '',
       notesFormatting: p.notes_fmt || null,
-      reminders: p.reminders || [],
+      reminders: (p.reminders || []) as any[],
       spaceId: p.space_id || null,
       tags: p.tags || [],
     },
