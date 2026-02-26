@@ -5,6 +5,51 @@ import { NOTIFICATION_CATEGORIES } from '../../src/utils/notifications';
 
 const isExpoGo = Constants.appOwnership === 'expo';
 
+export function buildNotificationCopy(
+  itemTitle: string,
+  itemType: 'todo' | 'habit',
+  isSnooze: boolean = false,
+  isOverdue: boolean = false,
+): { title: string; body: string } {
+  // Clean the title — remove trailing periods, lowercase first char for
+  // embedding in sentences
+  const clean = itemTitle.replace(/\.$/, '');
+  const lower = clean.charAt(0).toLowerCase() + clean.slice(1);
+
+  if (isOverdue) {
+    return {
+      title: 'This was due already',
+      body: `Still need to: ${clean}`,
+    };
+  }
+
+  if (isSnooze) {
+    // Snoozed reminders get a gentle nudge
+    const snoozeOptions = [
+      { title: 'Hey, circling back', body: `Still need to ${lower}` },
+      { title: 'Quick nudge', body: clean },
+      { title: 'This popped back up', body: clean },
+    ];
+    return snoozeOptions[Math.floor(Math.random() * snoozeOptions.length)];
+  }
+
+  if (itemType === 'habit') {
+    const habitOptions = [
+      { title: 'Habit check-in', body: `Time for: ${clean}` },
+      { title: clean, body: "Don't break the chain" },
+    ];
+    return habitOptions[Math.floor(Math.random() * habitOptions.length)];
+  }
+
+  // Todos — vary the copy
+  const todoOptions = [
+    { title: `Time to ${lower}`, body: 'Tap to mark it done' },
+    { title: clean, body: "You've got this" },
+    { title: 'Heads up', body: clean },
+  ];
+  return todoOptions[Math.floor(Math.random() * todoOptions.length)];
+}
+
 /**
  * Schedule a local notification for a per-item reminder on a todo or habit.
  * Returns the expo notification ID (for cancellation), or null on error/skip.
@@ -23,13 +68,13 @@ export async function scheduleItemReminder(
   }
 
   try {
-    const title = itemType === 'habit' ? 'Habit reminder' : 'Reminder';
+    const { title, body } = buildNotificationCopy(itemTitle, itemType);
     const categoryIdentifier = dueDate
       ? NOTIFICATION_CATEGORIES.ENTITY_REMINDER_DEADLINE
       : NOTIFICATION_CATEGORIES.ENTITY_REMINDER;
     const content: Notifications.NotificationContentInput = {
       title,
-      body: itemTitle,
+      body,
       categoryIdentifier,
       data: {
         type: 'item_reminder',
@@ -112,8 +157,7 @@ export async function scheduleQuickReminder(
       : NOTIFICATION_CATEGORIES.ENTITY_REMINDER;
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'Reminder',
-        body: itemTitle,
+        ...buildNotificationCopy(itemTitle, itemType, true),
         categoryIdentifier,
         data: {
           type: 'item_reminder',

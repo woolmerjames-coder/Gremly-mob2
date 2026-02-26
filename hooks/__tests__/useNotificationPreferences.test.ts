@@ -195,4 +195,25 @@ describe('useNotificationPreferences behavior contract', () => {
       expect(defaultEnabled).toBe(true);
     });
   });
+
+  describe('afternoon check-in defaults', () => {
+    it('defines default afternoon time as 15:00 (3pm)', () => {
+      const expectedAfternoonTime = '15:00';
+      const date = timeStringToDate(expectedAfternoonTime);
+      expect(date.getHours()).toBe(15);
+      expect(date.getMinutes()).toBe(0);
+    });
+
+    it('afternoon time round-trips correctly', () => {
+      const original = '15:00';
+      const date = timeStringToDate(original);
+      expect(dateToTimeString(date)).toBe(original);
+    });
+
+    it('documents afternoon enabled default as false', () => {
+      // Afternoon check-in is off by default, user must opt in
+      const defaultEnabled = false;
+      expect(defaultEnabled).toBe(false);
+    });
+  });
 });

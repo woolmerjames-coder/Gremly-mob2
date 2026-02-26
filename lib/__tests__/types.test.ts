@@ -78,3 +78,95 @@ describe('DailyBriefInput interface', () => {
     });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ItemReminder interface contract (new on app-fixes-2.24 branch)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import type { ItemReminder, Todo, Habit, Note } from '../types';
+
+describe('ItemReminder interface', () => {
+  it('compiles with required fields only', () => {
+    const reminder: ItemReminder = {
+      id: 'rem-1',
+      time: '09:00',
+      frequency: 'once',
+    };
+
+    expect(reminder.id).toBe('rem-1');
+    expect(reminder.time).toBe('09:00');
+    expect(reminder.frequency).toBe('once');
+  });
+
+  it('accepts optional date field for once-frequency', () => {
+    const reminder: ItemReminder = {
+      id: 'rem-2',
+      time: '14:30',
+      frequency: 'once',
+      date: '2025-12-20',
+    };
+
+    expect(reminder.date).toBe('2025-12-20');
+  });
+
+  it('accepts optional notificationId field', () => {
+    const reminder: ItemReminder = {
+      id: 'rem-3',
+      time: '09:00',
+      frequency: 'daily',
+      notificationId: 'expo-notif-abc123',
+    };
+
+    expect(reminder.notificationId).toBe('expo-notif-abc123');
+  });
+
+  it('frequency accepts "once" and "daily" as union values', () => {
+    const once: ItemReminder = { id: '1', time: '08:00', frequency: 'once' };
+    const daily: ItemReminder = { id: '2', time: '08:00', frequency: 'daily' };
+
+    expect(once.frequency).toBe('once');
+    expect(daily.frequency).toBe('daily');
+  });
+
+  it('time field uses HH:MM format', () => {
+    const reminder: ItemReminder = { id: '1', time: '23:59', frequency: 'daily' };
+    expect(reminder.time).toMatch(/^\d{2}:\d{2}$/);
+  });
+});
+
+describe('reminders field on entity types', () => {
+  it('Todo type accepts reminders array', () => {
+    const todo = {
+      id: 'todo-1',
+      type: 'todo',
+      reminders: [{ id: 'r1', time: '09:00', frequency: 'once' as const, date: '2025-12-20' }],
+    } as Partial<Todo>;
+
+    expect(todo.reminders).toHaveLength(1);
+  });
+
+  it('Todo type accepts null reminders', () => {
+    const todo = { id: 'todo-1', type: 'todo', reminders: null } as Partial<Todo>;
+    expect(todo.reminders).toBeNull();
+  });
+
+  it('Habit type accepts reminders array', () => {
+    const habit = {
+      id: 'habit-1',
+      type: 'habit',
+      reminders: [{ id: 'r1', time: '08:00', frequency: 'daily' as const }],
+    } as Partial<Habit>;
+
+    expect(habit.reminders).toHaveLength(1);
+  });
+
+  it('Note type accepts reminders array', () => {
+    const note = {
+      id: 'note-1',
+      type: 'note',
+      reminders: [{ id: 'r1', time: '10:00', frequency: 'once' as const, date: '2025-12-25' }],
+    } as Partial<Note>;
+
+    expect(note.reminders).toHaveLength(1);
+  });
+});

@@ -3,6 +3,56 @@ import { Platform } from 'react-native';
 
 const isExpoGo = Constants.appOwnership === 'expo';
 
+/**
+ * Check if notification permissions have been granted without
+ * requesting them. Returns true if already granted.
+ */
+export async function hasNotificationPermission(): Promise<boolean> {
+  if (isExpoGo) return false;
+  const Notifications = await import('expo-notifications');
+  const { status } = await Notifications.getPermissionsAsync();
+  return status === 'granted';
+}
+
+/**
+ * Request notification permission with a contextual pre-prompt.
+ * Call this when the user does something that would benefit from
+ * notifications (first reminder drop, first Sweep completion).
+ * Returns the push token if granted, null if denied.
+ */
+export async function requestNotificationPermissionContextual(): Promise<string | null> {
+  if (isExpoGo) return null;
+
+  const Notifications = await import('expo-notifications');
+  const { status: existing } = await Notifications.getPermissionsAsync();
+
+  if (existing === 'granted') {
+    // Already have permission — just get the token
+    const tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId: '4c82fb8d-fdff-41a8-8fec-ce46ee3e6183',
+    });
+    return tokenData.data;
+  }
+
+  // Request permission (iOS will show the system dialog)
+  const { status } = await Notifications.requestPermissionsAsync();
+
+  if (status !== 'granted') {
+    console.log('[Notifications] Permission denied via contextual prompt');
+    return null;
+  }
+
+  // Register categories now that we have permission
+  await registerNotificationCategories();
+
+  const tokenData = await Notifications.getExpoPushTokenAsync({
+    projectId: '4c82fb8d-fdff-41a8-8fec-ce46ee3e6183',
+  });
+
+  console.log('[Notifications] Permission granted via contextual prompt:', tokenData.data);
+  return tokenData.data;
+}
+
 export async function registerForPushNotifications(): Promise<string | null> {
   if (isExpoGo) {
     console.log('[Notifications] Skipping - running in Expo Go');
@@ -19,15 +69,10 @@ export async function registerForPushNotifications(): Promise<string | null> {
   }
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
 
   if (existingStatus !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-
-  if (finalStatus !== 'granted') {
-    console.log('[Notifications] Permission not granted');
+    // Don't request on startup — use contextual prompt instead
+    console.log('[Notifications] Permission not yet granted, will prompt contextually');
     return null;
   }
 

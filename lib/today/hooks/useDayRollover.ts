@@ -38,24 +38,24 @@ export function useDayRollover(): void {
     }
   }, []);
 
-  const armMidnightTimer = useCallback(() => {
-    // Clear any existing timer
-    if (midnightTimer.current) {
-      clearTimeout(midnightTimer.current);
+  useEffect(() => {
+    function armMidnightTimer() {
+      // Clear any existing timer
+      if (midnightTimer.current) {
+        clearTimeout(midnightTimer.current);
+      }
+
+      const ms = msUntilMidnight();
+      console.log(`[DayRollover] Midnight timer armed: ${Math.round(ms / 1000 / 60)}min from now`);
+
+      midnightTimer.current = setTimeout(() => {
+        console.log('[DayRollover] Midnight timer fired');
+        checkAndRollover();
+        // Re-arm for the next midnight (handles multi-day idle)
+        armMidnightTimer();
+      }, ms);
     }
 
-    const ms = msUntilMidnight();
-    console.log(`[DayRollover] Midnight timer armed: ${Math.round(ms / 1000 / 60)}min from now`);
-
-    midnightTimer.current = setTimeout(() => {
-      console.log('[DayRollover] Midnight timer fired');
-      checkAndRollover();
-      // Re-arm for the next midnight (handles multi-day idle)
-      armMidnightTimer();
-    }, ms);
-  }, [checkAndRollover]);
-
-  useEffect(() => {
     // Arm the midnight timer on mount
     armMidnightTimer();
 
@@ -77,5 +77,5 @@ export function useDayRollover(): void {
         clearTimeout(midnightTimer.current);
       }
     };
-  }, [checkAndRollover, armMidnightTimer]);
+  }, [checkAndRollover]);
 }

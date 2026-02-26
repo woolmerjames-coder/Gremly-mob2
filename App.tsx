@@ -25,7 +25,11 @@ import { testLogger } from './src/utils/TestLogger';
 import {
   setupNotificationResponseHandler,
   getInitialNotification,
+  requestNotificationPermissionContextual,
+  savePushToken,
 } from './src/utils/notifications';
+import { getDateService } from './lib/date/DateService';
+import { NotificationPermissionPrompt } from './components/notifications/NotificationPermissionPrompt';
 import { eventBus } from './lib/events';
 import { useGremlyStore } from './lib/store/useGremlyStore';
 import { scheduleQuickReminder } from './lib/notifications/itemReminderService';
@@ -42,6 +46,36 @@ import { useTimezoneSync } from './hooks/useTimezoneSync';
 
 // Prevent the splash screen from auto-hiding before app is ready
 SplashScreen.preventAutoHideAsync();
+
+async function logSnoozeEvent(
+  entityId: string,
+  entityType: string,
+  snoozeDuration: string,
+  snoozeCount: number,
+): Promise<void> {
+  try {
+    const { supabase } = await import('./lib/supabase/client');
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.user?.id) return;
+
+    await supabase.from('events').insert({
+      user_id: session.user.id,
+      owner_id: session.user.id,
+      kind: 'reminder_snoozed',
+      payload_json: {
+        entity_id: entityId,
+        entity_type: entityType,
+        snooze_duration: snoozeDuration,
+        snooze_count: snoozeCount,
+      },
+    });
+  } catch (err) {
+    // Fire and forget — don't break the snooze flow
+    console.warn('[Notifications] Failed to log snooze event:', err);
+  }
+}
 
 export default function App() {
   const { fontsLoaded, fontsError } = useBrandFonts();
@@ -61,6 +95,11 @@ export default function App() {
   }>({ visible: false, entityId: null, entityType: null });
 
   const navigationRef = useRef<any>(null);
+
+  const [permissionPrompt, setPermissionPrompt] = useState<{
+    visible: boolean;
+    context: 'reminder' | 'sweep';
+  }>({ visible: false, context: 'reminder' });
 
   // Start offline sync
   useEffect(() => {
@@ -178,6 +217,18 @@ export default function App() {
         onDoneAction: async (entityId, entityType) => {
           try {
             if (entityType === 'todo') {
+              const todo = useGremlyStore.getState().todos.find((t) => t.id === entityId);
+
+              // Skip if already completed or archived
+              if (todo?.completed_at) {
+                console.log(`[Notifications] Todo ${entityId} already completed, skipping`);
+                return;
+              }
+              if ((todo as any)?.archived) {
+                console.log(`[Notifications] Todo ${entityId} archived, skipping`);
+                return;
+              }
+
               await useGremlyStore.getState().completeTodo(entityId);
             }
             // For habits, emit an event that the habit check-in can handle
@@ -192,15 +243,130 @@ export default function App() {
 
         onSnooze: async (entityId, entityType, seconds, label) => {
           try {
+            const state = useGremlyStore.getState();
             const entity =
               entityType === 'todo'
-                ? useGremlyStore.getState().todos.find((t) => t.id === entityId)
-                : useGremlyStore.getState().habits.find((h) => h.id === entityId);
+                ? state.todos.find((t) => t.id === entityId)
+                : state.habits.find((h) => h.id === entityId);
 
-            const title = (entity as any)?.title ?? (entity as any)?.name ?? 'Reminder';
+            if (!entity) {
+              console.warn('[Notifications] Snooze: entity not found', entityId);
+              return;
+            }
 
+            // Don't snooze completed or archived items
+            if ((entity as any).completed_at || (entity as any).archived) {
+              console.log(`[Notifications] Skipping snooze for completed/archived ${entityId}`);
+              return;
+            }
+
+            const title = (entity as any).title ?? (entity as any).name ?? 'Reminder';
+
+            // Check if snoozed past due date — will affect next notification copy
+            const dueDay = (entity as any).due_day ?? null;
+            if (dueDay) {
+              const today = getDateService().today();
+              if (dueDay < today) {
+                console.log(
+                  `[Notifications] Snoozing overdue item ${entityId} (was due ${dueDay})`,
+                );
+                // The next notification will pick up the overdue state
+                // from the entity's due_day automatically
+              }
+            }
+
+            // Count existing snoozes from reminders metadata
+            const currentReminders = (entity as any).reminders ?? [];
+            const snoozeCount = currentReminders.reduce(
+              (count: number, r: any) => count + (r.snooze_count ?? 0),
+              0,
+            );
+
+            if (snoozeCount >= 3) {
+              // Cap reached — don't reschedule, surface in Sweep instead
+              console.log(`[Notifications] Snooze cap reached for ${entityId}, deferring to Sweep`);
+
+              // Update the entity to flag it for Sweep attention
+              if (entityType === 'todo') {
+                const { supabase } = await import('./lib/supabase/client');
+                await supabase.from('todos').update({ sweep_flagged: true }).eq('id', entityId);
+
+                useGremlyStore.setState((s: any) => ({
+                  todos: s.todos.map((t: any) =>
+                    t.id === entityId ? { ...t, sweep_flagged: true } : t,
+                  ),
+                }));
+              }
+              return;
+            }
+
+            // Schedule the snoozed reminder
             await scheduleQuickReminder(entityId, title, entityType as 'todo' | 'habit', seconds);
-            console.log(`[Notifications] Snoozed ${entityType} ${entityId} by ${label}`);
+
+            // Log snooze event for weekly summary (fire and forget)
+            logSnoozeEvent(entityId, entityType, label, snoozeCount + 1);
+
+            // Build updated reminders with new snoozed time + incremented snooze count
+            const snoozeTargetDate = new Date(Date.now() + seconds * 1000);
+            const snoozeTime = `${String(snoozeTargetDate.getHours()).padStart(2, '0')}:${String(snoozeTargetDate.getMinutes()).padStart(2, '0')}`;
+            const snoozeDate = getDateService().toLocalDate(snoozeTargetDate);
+
+            const updatedReminders =
+              currentReminders.length > 0
+                ? currentReminders.map((r: any, i: number) =>
+                    i === 0
+                      ? {
+                          ...r,
+                          time: snoozeTime,
+                          date: snoozeDate,
+                          frequency: 'once',
+                          snooze_count: (r.snooze_count ?? 0) + 1,
+                        }
+                      : r,
+                  )
+                : [
+                    {
+                      id: `snooze-${Date.now()}`,
+                      time: snoozeTime,
+                      date: snoozeDate,
+                      frequency: 'once',
+                      snooze_count: 1,
+                    },
+                  ];
+
+            // Update Zustand (bell chip reflects new time immediately)
+            if (entityType === 'todo') {
+              useGremlyStore.setState((s: any) => ({
+                todos: s.todos.map((t: any) =>
+                  t.id === entityId ? { ...t, reminders: updatedReminders } : t,
+                ),
+              }));
+            } else if (entityType === 'habit') {
+              useGremlyStore.setState((s: any) => ({
+                habits: s.habits.map((h: any) =>
+                  h.id === entityId ? { ...h, reminders: updatedReminders } : h,
+                ),
+              }));
+            }
+
+            // Persist to Supabase (same array)
+            if (entityType === 'todo') {
+              const { supabase } = await import('./lib/supabase/client');
+              await supabase
+                .from('todos')
+                .update({ reminders_json: updatedReminders })
+                .eq('id', entityId);
+            } else if (entityType === 'habit') {
+              const { supabase } = await import('./lib/supabase/client');
+              await supabase
+                .from('habits')
+                .update({ reminders_json: updatedReminders })
+                .eq('id', entityId);
+            }
+
+            console.log(
+              `[Notifications] Snoozed ${entityType} ${entityId} by ${label} (count: ${snoozeCount + 1})`,
+            );
           } catch (err) {
             console.error('[Notifications] Snooze failed:', err);
           }
@@ -231,9 +397,11 @@ export default function App() {
                 entityType as 'todo' | 'habit',
                 secondsFromNow,
               );
+              logSnoozeEvent(entityId, entityType, 'before_due', 1);
             } else {
               // Fallback: snooze 1 hour if no due time
               await scheduleQuickReminder(entityId, title, entityType as 'todo' | 'habit', 3600);
+              logSnoozeEvent(entityId, entityType, 'before_due', 1);
             }
             console.log(`[Notifications] Snoozed ${entityType} ${entityId} to 30min before due`);
           } catch (err) {
@@ -251,6 +419,19 @@ export default function App() {
 
     return () => {
       if (cleanup) cleanup();
+    };
+  }, []);
+
+  // Listen for contextual notification permission prompt
+  useEffect(() => {
+    const unsub = eventBus.on(
+      'notification:permission_prompt',
+      (payload: { context: 'reminder' | 'sweep' }) => {
+        setPermissionPrompt({ visible: true, context: payload.context });
+      },
+    );
+    return () => {
+      unsub();
     };
   }, []);
 
@@ -330,6 +511,75 @@ export default function App() {
                           </NavigationContainer>
                           <GlobalEventPopup />
                           <GlobalEventTimePicker />
+                          {/* Notification quick-action sheet - slides up on entity reminder tap */}
+                          <NotificationQuickActionSheet
+                            visible={quickActionState.visible}
+                            entityId={quickActionState.entityId}
+                            entityType={quickActionState.entityType}
+                            onDismiss={() =>
+                              setQuickActionState({
+                                visible: false,
+                                entityId: null,
+                                entityType: null,
+                              })
+                            }
+                            onDone={async (entityId, entityType) => {
+                              try {
+                                if (entityType === 'todo') {
+                                  await useGremlyStore.getState().completeTodo(entityId);
+                                }
+                                if (entityType === 'habit') {
+                                  eventBus.emit('notification:habit_done', { entityId });
+                                }
+                              } catch (err) {
+                                console.error('[QuickAction] Done failed:', err);
+                              }
+                            }}
+                            onSnooze={async (entityId, entityType, seconds) => {
+                              try {
+                                const entity =
+                                  entityType === 'todo'
+                                    ? useGremlyStore.getState().todos.find((t) => t.id === entityId)
+                                    : useGremlyStore
+                                        .getState()
+                                        .habits.find((h) => h.id === entityId);
+                                const title =
+                                  (entity as any)?.title ?? (entity as any)?.name ?? 'Reminder';
+                                await scheduleQuickReminder(
+                                  entityId,
+                                  title,
+                                  entityType as 'todo' | 'habit',
+                                  seconds,
+                                );
+                              } catch (err) {
+                                console.error('[QuickAction] Snooze failed:', err);
+                              }
+                            }}
+                            onOpen={(entityId, entityType) => {
+                              eventBus.emit('overlay:open', { entityId, entityType });
+                            }}
+                          />
+                          {/* Contextual notification permission prompt */}
+                          <NotificationPermissionPrompt
+                            visible={permissionPrompt.visible}
+                            context={permissionPrompt.context}
+                            onAllow={async () => {
+                              setPermissionPrompt({ visible: false, context: 'reminder' });
+                              const token = await requestNotificationPermissionContextual();
+                              if (token) {
+                                const { supabase } = await import('./lib/supabase/client');
+                                const {
+                                  data: { session },
+                                } = await supabase.auth.getSession();
+                                if (session?.user?.id) {
+                                  await savePushToken(session.user.id, token);
+                                }
+                              }
+                            }}
+                            onNotNow={() => {
+                              setPermissionPrompt({ visible: false, context: 'reminder' });
+                            }}
+                          />
                         </OverlayProvider>
                       </CelebrationProvider>
                     </CortexProvider>
@@ -346,41 +596,6 @@ export default function App() {
         visible={ageUpState.visible}
         newAge={ageUpState.age}
         onDismiss={handleAgeUpDismiss}
-      />
-
-      {/* Notification quick-action sheet - slides up on entity reminder tap */}
-      <NotificationQuickActionSheet
-        visible={quickActionState.visible}
-        entityId={quickActionState.entityId}
-        entityType={quickActionState.entityType}
-        onDismiss={() => setQuickActionState({ visible: false, entityId: null, entityType: null })}
-        onDone={async (entityId, entityType) => {
-          try {
-            if (entityType === 'todo') {
-              await useGremlyStore.getState().completeTodo(entityId);
-            }
-            if (entityType === 'habit') {
-              eventBus.emit('notification:habit_done', { entityId });
-            }
-          } catch (err) {
-            console.error('[QuickAction] Done failed:', err);
-          }
-        }}
-        onSnooze={async (entityId, entityType, seconds) => {
-          try {
-            const entity =
-              entityType === 'todo'
-                ? useGremlyStore.getState().todos.find((t) => t.id === entityId)
-                : useGremlyStore.getState().habits.find((h) => h.id === entityId);
-            const title = (entity as any)?.title ?? (entity as any)?.name ?? 'Reminder';
-            await scheduleQuickReminder(entityId, title, entityType as 'todo' | 'habit', seconds);
-          } catch (err) {
-            console.error('[QuickAction] Snooze failed:', err);
-          }
-        }}
-        onOpen={(entityId, entityType) => {
-          eventBus.emit('overlay:open', { entityId, entityType });
-        }}
       />
     </View>
   );

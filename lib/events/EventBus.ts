@@ -98,6 +98,8 @@ export type EventMap = {
     dueTime: string | null;
   };
   'notification:habit_done': { entityId: string };
+  // Contextual notification permission prompt
+  'notification:permission_prompt': { context: 'reminder' | 'sweep' };
   // Overlay open event (triggered from notification quick-action sheet)
   'overlay:open': { entityId: string; entityType: string };
   // Tomorrow Brief navigation event

@@ -239,5 +239,149 @@ describe('EventBus', () => {
 
       expect(handler).not.toHaveBeenCalled();
     });
+
+    it('fires with afternoon_checkin type', () => {
+      const handler = jest.fn();
+      eventBus.on('notification:open_flow', handler);
+
+      eventBus.emit('notification:open_flow', { type: 'afternoon_checkin' });
+
+      expect(handler).toHaveBeenCalledWith({ type: 'afternoon_checkin' });
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // New notification event types (branch: app-fixes-2.24)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('notification:open_item event', () => {
+    it('fires with item payload', () => {
+      const handler = jest.fn();
+      eventBus.on('notification:open_item', handler);
+
+      eventBus.emit('notification:open_item', { itemId: 'todo-1', itemType: 'todo' });
+
+      expect(handler).toHaveBeenCalledWith({ itemId: 'todo-1', itemType: 'todo' });
+    });
+  });
+
+  describe('notification:done_action event', () => {
+    it('fires with entity payload', () => {
+      const handler = jest.fn();
+      eventBus.on('notification:done_action', handler);
+
+      eventBus.emit('notification:done_action', { entityId: 'todo-1', entityType: 'todo' });
+
+      expect(handler).toHaveBeenCalledWith({ entityId: 'todo-1', entityType: 'todo' });
+    });
+  });
+
+  describe('notification:snooze event', () => {
+    it('fires with entity and snooze details', () => {
+      const handler = jest.fn();
+      eventBus.on('notification:snooze', handler);
+
+      eventBus.emit('notification:snooze', {
+        entityId: 'todo-1',
+        entityType: 'todo',
+        seconds: 900,
+        label: '15m',
+      });
+
+      expect(handler).toHaveBeenCalledWith({
+        entityId: 'todo-1',
+        entityType: 'todo',
+        seconds: 900,
+        label: '15m',
+      });
+    });
+  });
+
+  describe('notification:snooze_before_due event', () => {
+    it('fires with due date/time payload', () => {
+      const handler = jest.fn();
+      eventBus.on('notification:snooze_before_due', handler);
+
+      eventBus.emit('notification:snooze_before_due', {
+        entityId: 'todo-2',
+        entityType: 'todo',
+        dueDate: '2025-12-20',
+        dueTime: '14:00',
+      });
+
+      expect(handler).toHaveBeenCalledWith({
+        entityId: 'todo-2',
+        entityType: 'todo',
+        dueDate: '2025-12-20',
+        dueTime: '14:00',
+      });
+    });
+
+    it('accepts null dueTime', () => {
+      const handler = jest.fn();
+      eventBus.on('notification:snooze_before_due', handler);
+
+      eventBus.emit('notification:snooze_before_due', {
+        entityId: 'todo-3',
+        entityType: 'todo',
+        dueDate: '2025-12-20',
+        dueTime: null,
+      });
+
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ dueTime: null }));
+    });
+  });
+
+  describe('notification:habit_done event', () => {
+    it('fires with entityId', () => {
+      const handler = jest.fn();
+      eventBus.on('notification:habit_done', handler);
+
+      eventBus.emit('notification:habit_done', { entityId: 'habit-1' });
+
+      expect(handler).toHaveBeenCalledWith({ entityId: 'habit-1' });
+    });
+  });
+
+  describe('notification:permission_prompt event', () => {
+    it('fires with reminder context', () => {
+      const handler = jest.fn();
+      eventBus.on('notification:permission_prompt', handler);
+
+      eventBus.emit('notification:permission_prompt', { context: 'reminder' });
+
+      expect(handler).toHaveBeenCalledWith({ context: 'reminder' });
+    });
+
+    it('fires with sweep context', () => {
+      const handler = jest.fn();
+      eventBus.on('notification:permission_prompt', handler);
+
+      eventBus.emit('notification:permission_prompt', { context: 'sweep' });
+
+      expect(handler).toHaveBeenCalledWith({ context: 'sweep' });
+    });
+  });
+
+  describe('overlay:open event', () => {
+    it('fires with entity info', () => {
+      const handler = jest.fn();
+      eventBus.on('overlay:open', handler);
+
+      eventBus.emit('overlay:open', { entityId: 'todo-1', entityType: 'todo' });
+
+      expect(handler).toHaveBeenCalledWith({ entityId: 'todo-1', entityType: 'todo' });
+    });
+  });
+
+  describe('day:rollover event', () => {
+    it('fires with new date', () => {
+      const handler = jest.fn();
+      eventBus.on('day:rollover', handler);
+
+      eventBus.emit('day:rollover', { date: '2025-12-16' });
+
+      expect(handler).toHaveBeenCalledWith({ date: '2025-12-16' });
+    });
   });
 });

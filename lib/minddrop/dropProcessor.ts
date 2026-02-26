@@ -31,6 +31,7 @@ import { dateService } from '../date/DateService';
 import { buildTodoFields } from '../cortex/textNormalization';
 import { parseFrequencyString } from '../habits/frequencyUtils';
 import { scheduleItemReminder, scheduleQuickReminder } from '../notifications/itemReminderService';
+import { hasNotificationPermission } from '../../src/utils/notifications';
 import type { ItemReminder } from '../types';
 import { env, getEnv } from '../env';
 
@@ -1490,6 +1491,13 @@ export async function processDrop(
                   }));
                 }
                 console.log('[DropProcessor] OS notification linked', { entityId, notificationId });
+
+                // Check if permissions aren't granted yet — prompt contextually
+                hasNotificationPermission().then((hasPerm) => {
+                  if (!hasPerm) {
+                    eventBus.emit('notification:permission_prompt', { context: 'reminder' });
+                  }
+                });
               }
             })
             .catch((err: unknown) => {
