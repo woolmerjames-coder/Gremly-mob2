@@ -1420,6 +1420,14 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
     ),
   ]);
 
+  // Check if this is the user's first weekly summary
+  const firstWeekRes = await fetch(
+    `${supabaseUrl}/rest/v1/weekly_summaries?user_id=eq.${userId}&select=id`,
+    { headers: { ...headers, Prefer: 'count=exact' }, method: 'HEAD' },
+  );
+  const isFirstWeek =
+    parseInt(firstWeekRes.headers.get('content-range')?.split('/')[1] || '0', 10) === 0;
+
   // --- Aggregate into payload shape ---
 
   const todosCompleted = completedTodosThisWeek.length;
@@ -1676,6 +1684,7 @@ async function buildServerSidePayload(env, userId, timezone, dateOverride = null
 
   return {
     userId,
+    isFirstWeek,
     weekStartDate: weekStart.split('T')[0],
     weekEndDate: weekEnd.split('T')[0],
     stats: {
@@ -2511,6 +2520,14 @@ WORD BUDGET (STRICT — count your words):
 - Each highlight prepNudge/context: MAX 20 words
 - mood: 2-4 words (e.g., "accomplished but depleted", "quietly productive")
 
+FIRST WEEK RULES:
+- If isFirstWeek is true in the payload, this is the user's very first weekly summary.
+- Lead with warmth about their first week. Acknowledge they're just getting started.
+- Focus on what they've begun building, not what's missing. Sparse data is expected — frame it as early days.
+- Briefly mention that this summary gets richer as more data builds up, without over-explaining.
+- Keep the same output schema. Don't skip sections — just let them be lighter and shorter where data is thin.
+- Do not be patronizing or over-the-top celebratory. Subtle warmth, not confetti.
+
 BEHAVIORAL RULES:
 - DEDUPLICATION RULE: Insights must surface observations NOT already covered in weeklyCommentary or magicMoments. If the narrative already mentions running dropped or sleep deprivation, do not repeat those as insights. Insights should add new information the user hasn't seen yet in the recap.
 - Use analysisBrief.behavioralFingerprints to add one insight of type 'productivity_pattern' or 'balance' if a novel fingerprint is found. Frame it warmly: "You're a weekend sprinter — 11 of 15 todos cleared Thursday–Friday." This is the 'wow it knows me' moment.
@@ -2535,6 +2552,7 @@ SPACE SUGGESTION INSIGHT (optional):
   // Build a focused payload for Sonnet — analyst brief + essential raw data
   const storytellerPayload = {
     analysisBrief,
+    isFirstWeek: payload.isFirstWeek,
     weekStartDate: payload.weekStartDate,
     weekEndDate: payload.weekEndDate,
     stats: payload.stats,

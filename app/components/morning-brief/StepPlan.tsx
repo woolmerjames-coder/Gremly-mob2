@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../../../ui';
 import { ShieldOff, Calendar, MoreHorizontal, ChevronLeft } from 'lucide-react-native';
@@ -6,6 +6,7 @@ import { BRAND } from '../../../design/brand';
 import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
 import { TimeBlockSection, type TaskItemData } from './components';
 import type { Note } from '../../../lib/types';
+import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
 
 // ═══════════════════════════════════════════════════════════════════
 // Types
@@ -13,6 +14,8 @@ import type { Note } from '../../../lib/types';
 
 interface StepPlanProps {
   capacity: any;
+  /** Calendar events visible for this day (non-hidden) */
+  calendarEvents: CalendarEvent[];
   keyDatesByBlock: Record<string, Note[]>;
   tasksByBlock: {
     morning: TaskItemData[];
@@ -53,6 +56,7 @@ interface StepPlanProps {
 
 export function StepPlan({
   capacity,
+  calendarEvents,
   keyDatesByBlock,
   tasksByBlock,
   anytimeTasks,
@@ -80,6 +84,26 @@ export function StepPlan({
   onBack,
   showBack,
 }: StepPlanProps) {
+  const eventsByBlock = useMemo(() => {
+    const morning: CalendarEvent[] = [];
+    const afternoon: CalendarEvent[] = [];
+    const evening: CalendarEvent[] = [];
+
+    for (const event of calendarEvents) {
+      if (event.isAllDay) continue;
+      const startHour = new Date(event.startAt).getHours();
+      if (startHour < capacity.blocks.morning.endHour) {
+        morning.push(event);
+      } else if (startHour < capacity.blocks.day.endHour) {
+        afternoon.push(event);
+      } else {
+        evening.push(event);
+      }
+    }
+
+    return { morning, afternoon, evening };
+  }, [calendarEvents, capacity]);
+
   return (
     <>
       <ScrollView
@@ -148,7 +172,7 @@ export function StepPlan({
           {/* Morning */}
           <TimeBlockSection
             capacity={capacity.blocks.morning}
-            events={[]}
+            events={eventsByBlock.morning}
             keyDateEvents={keyDatesByBlock.morning}
             getSpaceName={getSpaceName}
             onKeyDatePress={onKeyDatePress}
@@ -175,7 +199,7 @@ export function StepPlan({
           {/* Afternoon */}
           <TimeBlockSection
             capacity={capacity.blocks.day}
-            events={[]}
+            events={eventsByBlock.afternoon}
             keyDateEvents={keyDatesByBlock.day}
             getSpaceName={getSpaceName}
             onKeyDatePress={onKeyDatePress}
@@ -202,7 +226,7 @@ export function StepPlan({
           {/* Evening */}
           <TimeBlockSection
             capacity={capacity.blocks.evening}
-            events={[]}
+            events={eventsByBlock.evening}
             keyDateEvents={keyDatesByBlock.evening}
             getSpaceName={getSpaceName}
             onKeyDatePress={onKeyDatePress}

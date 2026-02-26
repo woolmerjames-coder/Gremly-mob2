@@ -1952,6 +1952,7 @@ export function MorningBriefSheet({
         renderPlan={(onBack) => (
           <StepPlan
             capacity={capacity}
+            calendarEvents={visibleCalendarEvents}
             keyDatesByBlock={keyDatesByBlock}
             tasksByBlock={tasksByBlock}
             anytimeTasks={planAnytimeTasks}
