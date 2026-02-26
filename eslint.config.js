@@ -25,6 +25,7 @@ module.exports = [
       'scripts/**', // Dev scripts
       'date-audit/**', // Temporary audit folder
       'gremly-handoff-jan26/**', // Handoff artifacts with broken relative imports
+      'gremly-notification-context/**', // Context bundle with copied code and broken relative imports
       'workers/cortex/patch-*.js', // Patch utility scripts
     ],
   },
