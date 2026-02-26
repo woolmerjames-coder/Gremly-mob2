@@ -1,15 +1,10 @@
-import React, { useMemo, useState, useEffect } from 'react';
-import { Image, StyleSheet, Dimensions } from 'react-native';
-import Animated, { SlideOutUp, Easing } from 'react-native-reanimated';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
+import { View, StyleSheet } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../providers/AuthProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { useDropRecovery } from '../hooks/useDropRecovery';
-import { Text } from '../ui';
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_MASCOT = require('../assets/mascot/gremly-mascot.png');
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 import LoginScreen from '../app/screens/LoginScreen';
 import TabNavigator from './TabNavigator';
@@ -101,18 +96,6 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-function LoadingScreen() {
-  return (
-    <Animated.View
-      style={styles.loadingContainer}
-      exiting={SlideOutUp.duration(400).easing(Easing.out(Easing.ease))}
-    >
-      <Image source={GREMLY_MASCOT} style={styles.loadingMascot} resizeMode="contain" />
-      <Text style={styles.loadingText}>Gremly</Text>
-    </Animated.View>
-  );
-}
-
 export default function RootNavigator() {
   const { user, loading } = useAuth();
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
@@ -132,15 +115,24 @@ export default function RootNavigator() {
   // Recover any pending drops from previous session
   useDropRecovery();
 
+  const isReady = hasHydrated && !(loading && !user);
+  const splashHidden = useRef(false);
+
+  useEffect(() => {
+    if (isReady && !splashHidden.current) {
+      splashHidden.current = true;
+      SplashScreen.hideAsync();
+    }
+  }, [isReady]);
+
   // Determine initial route based on onboarding status
   const initialRouteName = useMemo(() => {
     if (!onboardingCompletedAt) return 'Onboarding';
     return 'Tabs';
   }, [onboardingCompletedAt]);
 
-  // Block rendering until MMKV hydration completes (near-instant) and we have auth state
-  if (!hasHydrated || (loading && !user)) {
-    return <LoadingScreen />;
+  if (!isReady) {
+    return <View style={styles.splashHolder} />;
   }
 
   return (
@@ -327,21 +319,8 @@ export default function RootNavigator() {
 }
 
 const styles = StyleSheet.create({
-  loadingContainer: {
+  splashHolder: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: '#BFD8C0',
-  },
-  loadingMascot: {
-    width: SCREEN_WIDTH * 0.5,
-    height: SCREEN_WIDTH * 0.5,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 28,
-    fontFamily: 'PlusJakartaSans-Bold',
-    color: '#2D3A35',
-    lineHeight: 40,
   },
 });

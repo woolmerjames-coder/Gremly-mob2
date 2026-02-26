@@ -12,3 +12,6 @@ compatibility_flags = ["nodejs_compat"]
 # npx wrangler secret put OPENAI_API_KEY
 # npx wrangler secret put INNGEST_SIGNING_KEY
 # npx wrangler secret put INNGEST_EVENT_KEY
+
+[observability]
+enabled = true

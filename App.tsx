@@ -485,13 +485,10 @@ export default function App() {
   // Auto-sync timezone + activity heartbeat for notification delivery
   useTimezoneSync();
 
-  // Hide splash screen after root view layout
-  const onLayoutRootView = useCallback(async () => {
-    if (appIsReady) {
-      // Hide the splash screen after the root view has laid out
-      await SplashScreen.hideAsync();
-    }
-  }, [appIsReady]);
+  // Native splash is now hidden by RootNavigator when auth + hydration are ready
+  const onLayoutRootView = useCallback(() => {
+    // no-op: SplashScreen.hideAsync() is called in RootNavigator
+  }, []);
 
   if (!appIsReady) {
     return null;

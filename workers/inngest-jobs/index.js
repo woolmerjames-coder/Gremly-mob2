@@ -72,11 +72,12 @@ const dailySynthesisDispatcher = inngest.createFunction(
 
     // Fan out: send one event per user
     if (activeUsers.length > 0) {
-      await step.sendEvent('dispatch-users',
-        activeUsers.map(u => ({
+      await step.sendEvent(
+        'dispatch-users',
+        activeUsers.map((u) => ({
           name: 'app/user.synthesize',
           data: { user_id: u.user_id },
-        }))
+        })),
       );
     }
 
@@ -428,26 +429,38 @@ EXAMPLES (good vs bad):
 
 Output ONLY the profile text, no headers.`;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 300,
-      temperature: 0.7,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 300,
+        temperature: 0.7,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
 
-  if (!response.ok) {
-    throw new Error(`OpenAI error: ${response.statusText}`);
+    if (!response.ok) {
+      throw new Error(`OpenAI error: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content.trim();
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      console.error('[synthesizePatterns] OpenAI request timed out after 90s');
+    }
+    throw err;
   }
-
-  const data = await response.json();
-  return data.choices[0].message.content.trim();
 }
 
 // ============================================================================
@@ -479,32 +492,44 @@ RULES:
 
 Output ONLY the JSON array, no explanation.`;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 500,
-      temperature: 0.3, // Lower temp for extraction
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI error (facts): ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  const content = data.choices[0].message.content.trim();
-
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
   try {
-    return JSON.parse(content);
-  } catch {
-    console.warn('Failed to parse facts JSON:', content);
-    return [];
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 500,
+        temperature: 0.3, // Lower temp for extraction
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      throw new Error(`OpenAI error (facts): ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices[0].message.content.trim();
+
+    try {
+      return JSON.parse(content);
+    } catch {
+      console.warn('Failed to parse facts JSON:', content);
+      return [];
+    }
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      console.error('[extractFacts] OpenAI request timed out after 90s');
+    }
+    throw err;
   }
 }
 
@@ -670,7 +695,7 @@ async function generateSpaceSuggestions(userId, env) {
     // Step 5: Build condensed profiles for each space (where disable_suggestions = false)
     const spacesForSuggestions = allSpaces.filter((s) => !s.disable_suggestions);
     const spaceProfiles = await Promise.all(
-      spacesForSuggestions.map(space => buildSpaceProfile(space, env, headers))
+      spacesForSuggestions.map((space) => buildSpaceProfile(space, env, headers)),
     );
 
     console.log(`[SpaceSuggestions] Built profiles for ${spaceProfiles.length} spaces`);
@@ -683,10 +708,7 @@ async function generateSpaceSuggestions(userId, env) {
     );
 
     const assignCount = aiSuggestions.assign_to_existing?.length || 0;
-    const newSpaceCount = aiSuggestions.suggest_new_spaces?.length || 0;
-    console.log(
-      `[SpaceSuggestions] AI response: ${assignCount} assign suggestions, ${newSpaceCount} new space suggestions`,
-    );
+    console.log(`[SpaceSuggestions] AI response: ${assignCount} assign suggestions`);
 
     // Step 7: Validate suggestions
     const validSpaceIds = new Set(spacesForSuggestions.map((s) => s.id));
@@ -710,22 +732,7 @@ async function generateSpaceSuggestions(userId, env) {
       return s.drop_ids.length > 0;
     });
 
-    const validNewSpaceSuggestions = (aiSuggestions.suggest_new_spaces || []).filter((s) => {
-      if (!s.suggested_name || s.suggested_name.length < 2) {
-        filteredOut++;
-        return false;
-      }
-      const originalCount = s.drop_ids?.length || 0;
-      s.drop_ids = (s.drop_ids || []).filter((id) => validDropIds.has(id));
-      if (s.drop_ids.length < originalCount) {
-        console.warn(
-          `[SpaceSuggestions] Filtered ${originalCount - s.drop_ids.length} invalid drop_ids`,
-        );
-      }
-      return s.drop_ids.length >= 5; // Need at least 5 items for a new space suggestion
-    });
-
-    const validCount = validAssignSuggestions.length + validNewSpaceSuggestions.length;
+    const validCount = validAssignSuggestions.length;
     console.log(`[SpaceSuggestions] Validation: ${validCount} valid, ${filteredOut} filtered out`);
 
     // Step 8: Expire old pending suggestions
@@ -754,19 +761,6 @@ async function generateSpaceSuggestions(userId, env) {
       });
     }
 
-    for (const s of validNewSpaceSuggestions) {
-      suggestionsToInsert.push({
-        user_id: userId,
-        suggestion_type: 'new_space',
-        space_id: null,
-        suggested_name: s.suggested_name,
-        reason: s.reason || null,
-        drop_ids: s.drop_ids,
-        confidence: s.confidence || 0.8,
-        status: 'pending',
-      });
-    }
-
     if (suggestionsToInsert.length > 0) {
       const insertResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/space_suggestions`, {
         method: 'POST',
@@ -787,7 +781,6 @@ async function generateSpaceSuggestions(userId, env) {
       success: true,
       suggestions_created: {
         assign_to_existing: validAssignSuggestions.length,
-        new_spaces: validNewSpaceSuggestions.length,
       },
     };
   } catch (error) {
@@ -837,7 +830,7 @@ async function buildSpaceProfile(space, env, headers) {
   const chats = Array.isArray(chatsData) ? chatsData : [];
 
   const sampleTitles = allEntities
-    .map(e => e.title)
+    .map((e) => e.title)
     .filter(Boolean)
     .slice(0, 10);
 
@@ -1168,7 +1161,7 @@ function extractChatThemes(chats, limit = 3) {
 }
 
 // ============================================================================
-// AI call for space suggestions (uses gpt-4o for better reasoning)
+// AI call for space suggestions (uses gpt-4.1-mini for assign-to-existing suggestions)
 // ============================================================================
 
 async function callAIForSpaceSuggestions(spaceProfiles, unassignedDrops, apiKey) {
@@ -1204,17 +1197,11 @@ async function callAIForSpaceSuggestions(spaceProfiles, unassignedDrops, apiKey)
     })
     .join('');
 
-  const systemPrompt = `You analyze a user's captured items and suggest how they should be organized into Spaces.
+  const systemPrompt = `You analyze a user's captured items and suggest which ones belong in their existing Spaces.
 
 A Space is a container for something a person is actively working on, planning, or managing in their life. The defining quality of a good Space is that the person would open it regularly to check progress, add new items, or figure out what to do next.
 
-Ask yourself: "Would this person open this Space next Tuesday to see what needs attention?" If yes, it's a Space. If it's just a loose grouping of somewhat-related items, it's not.
-
-Your job is to:
-1. Identify which unassigned items belong in existing Spaces
-2. Identify clusters of unassigned items that suggest a NEW Space — but ONLY if the cluster represents something the person is actively navigating in their life right now
-
-It is completely normal — even expected — to return an empty array for suggest_new_spaces. Most runs will not produce a new Space suggestion. Do not force items into a new Space just because they are unassigned. Unassigned items are fine. Only suggest a new Space if the evidence is strong.`;
+Your job is to identify which unassigned items belong in existing Spaces. Items that don't clearly fit any existing Space should be left unassigned — that's completely fine.`;
 
   const userPrompt = `EXISTING SPACES:
 ${spacesText}
@@ -1224,8 +1211,6 @@ ${dropsText}
 ANALYSIS CRITERIA:
 IMPORTANT: Be generous when assigning to existing Spaces. If an item could plausibly be part of an existing Space based on its title, topic, or context, assign it there. For example, if a Space contains app development tasks like 'Fix Lock-in Button' and 'Build Mind Drop Widget', then an item like 'Plan Your Tomorrow Section' clearly belongs in that same Space even if the keywords don't overlap exactly. Think about WHAT the items are about, not just whether tags match.
 
-Assign first, suggest new Spaces only for what's truly left over and truly clusters around a concrete initiative.
-
 To determine if an item belongs in a Space, consider (in priority order):
 1. SPACE PURPOSE: Does the item relate to the Space's name and goal?
 2. ENTITY OVERLAP: Does the item reference projects or topics present in the Space?
@@ -1234,15 +1219,7 @@ To determine if an item belongs in a Space, consider (in priority order):
 5. PEOPLE OVERLAP: Does the item mention people associated with the Space?
    (Weight this higher if the Space itself is about specific people)
 
-For NEW SPACE suggestions:
-- Look for 5+ unassigned items that point to something the user is actively navigating right now
-- The cluster should have a natural center of gravity — a project, an upcoming event, a transition, a goal with a finish line, or a life area they're actively managing
-- Ask: "If I created this Space, would the user open it next week to check on things?" If not, don't suggest it
-- Ask: "Is this a thing the person is DOING, or just a label I'm grouping items under?" Only suggest if it's a thing they're doing
-- The theme must be DISTINCT from existing Spaces
-- Derive the name from what the person is actually trying to accomplish, not from what category the items fall into
-- If items are loosely related but don't point to a single effort or initiative, leave them unassigned — that's fine
-- Require at least 5 items for a new space suggestion
+Items that don't clearly fit any existing Space should be left unassigned.
 
 CONFIDENCE SCORING:
 - 90-100%: Clearly belongs based on Space purpose OR strong entity/keyword match
@@ -1259,56 +1236,60 @@ OUTPUT (JSON only, no explanation):
       "reason": "why these items belong in this Space",
       "confidence": 0.85
     }
-  ],
-  "suggest_new_spaces": [
-    {
-      "suggested_name": "specific name derived from items",
-      "drop_ids": ["uuid", "uuid", "uuid"],
-      "reason": "what theme these items share",
-      "confidence": 0.82
-    }
   ]
 }
 
 Order results by confidence (highest first).
-If no suggestions meet criteria, return empty arrays.
-Maximum 3 new Space suggestions.`;
+If no suggestions meet criteria, return an empty array.`;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-5-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      max_completion_tokens: 4096,
-      reasoning_effort: 'medium',
-    }),
-  });
-
-  if (!response.ok) {
-    console.error(`[SpaceSuggestions] OpenAI error: ${response.statusText}`);
-    return { assign_to_existing: [], suggest_new_spaces: [] };
-  }
-
-  const data = await response.json();
-  const content = data.choices[0]?.message?.content?.trim() || '';
-
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
   try {
-    // Parse JSON, handling markdown code fences
-    let jsonStr = content;
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        max_tokens: 4096,
+        temperature: 0.3,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      console.error(`[SpaceSuggestions] OpenAI error: ${response.statusText}`);
+      return { assign_to_existing: [] };
     }
-    return JSON.parse(jsonStr);
-  } catch (e) {
-    console.error('[SpaceSuggestions] Failed to parse AI response:', content);
-    return { assign_to_existing: [], suggest_new_spaces: [] };
+
+    const data = await response.json();
+    const content = data.choices[0]?.message?.content?.trim() || '';
+    console.log('[SpaceSuggestions] Raw AI response:', content.slice(0, 200));
+
+    try {
+      // Parse JSON, handling markdown code fences
+      let jsonStr = content;
+      if (jsonStr.startsWith('```')) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      }
+      return JSON.parse(jsonStr);
+    } catch (e) {
+      console.error('[SpaceSuggestions] Failed to parse AI response:', content);
+      return { assign_to_existing: [] };
+    }
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      console.error('[callAIForSpaceSuggestions] OpenAI request timed out after 90s');
+    }
+    throw err;
   }
 }
 
@@ -1391,7 +1372,18 @@ export default {
         // Call the space suggestions function directly
         const result = await generateSpaceSuggestions(userId, env);
 
-        return corsResponse({ success: true, ...result });
+        // Fetch pending suggestions for debug visibility
+        const debugHeaders = {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        };
+        const pendingRes = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/space_suggestions?user_id=eq.${userId}&status=eq.pending&select=*`,
+          { headers: debugHeaders },
+        );
+        const pending = await pendingRes.json();
+
+        return corsResponse({ success: true, ...result, pending_suggestions: pending });
       } catch (err) {
         console.error('[API] Error generating space suggestions:', err);
         return corsResponse({ error: err.message || 'Internal error' }, 500);
