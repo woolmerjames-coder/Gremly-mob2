@@ -87,6 +87,7 @@ import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverl
 // Phase 12: MilestoneHeader (milestone data now from Zustand store)
 import { MilestoneHeader } from '../../components/spaces/MilestoneHeader';
 import { getMascotSource } from '../../lib/mascots/mascotConfig';
+import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModal';
 import { SpaceChatListModal } from '../../components/chat/SpaceChatListModal';
@@ -505,6 +506,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [chatListModalVisible, setChatListModalVisible] = useState(false);
   const [showCompletedOverlay, setShowCompletedOverlay] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   // Handler to change filter and collapse list
   const handleFilterChange = useCallback((newFilter: FilterTab) => {
@@ -1307,9 +1309,8 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Phase 12: MilestoneHeader handlers
   const handleGremlyPress = useCallback(() => {
-    // Open chat - use existing chat opening logic
-    handleNewChat();
-  }, [handleNewChat]);
+    setShowHelp(true);
+  }, []);
 
   const handleSettingsPress = useCallback(() => {
     setShowSettingsModal(true);
@@ -1702,6 +1703,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               nextKeyDatePreview={nextKeyDatePreview}
             />
           </View>
+
+          <GremlyHelpCard
+            visible={showHelp}
+            onDismiss={() => setShowHelp(false)}
+            screen="space-detail"
+          />
 
           {/* Scrollable content */}
           <ScrollView

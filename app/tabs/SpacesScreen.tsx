@@ -48,7 +48,11 @@ import { setNewSpaceCallback } from '../../components/CreateSpaceModal';
 import { useReducedMotion } from '../../design/animations';
 import { getSpaceIcon } from '../../lib/utils/spaceIconMatcher';
 import MascotIcon from '../../components/MascotIcon';
+import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import type { SpaceSuggestion } from '../../lib/types';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_ASTRO = require('../../assets/mascot/astrogremly.png');
 
 /**
  * Shows expanded list of items in a suggestion
@@ -104,6 +108,7 @@ function SpacesScreen() {
   const isReducedMotion = useReducedMotion();
 
   const [expandedSuggestions, setExpandedSuggestions] = useState<Set<string>>(new Set());
+  const [showHelp, setShowHelp] = useState(false);
 
   // Fetch space suggestions when screen comes into focus
   useFocusEffect(
@@ -216,7 +221,12 @@ function SpacesScreen() {
             resizeMode="contain"
             accessibilityLabel="Spaces"
           />
+          <Pressable onPress={() => setShowHelp(true)}>
+            <Image source={GREMLY_ASTRO} style={styles.headerMascot} />
+          </Pressable>
         </View>
+
+        <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="spaces" />
 
         <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
           {/* Create Space Button */}
@@ -420,11 +430,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9F6F1',
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
+  },
+  headerMascot: {
+    width: 80,
+    height: 80,
+    resizeMode: 'contain',
+    marginRight: -8,
   },
   headerTitleImage: {
     height: 34,

@@ -54,7 +54,7 @@ import PeopleList, { type PersonWithCounts } from '../../components/people/Peopl
 import { colors, radii, spacing } from '../../theme/tokens';
 import { type as typeStyles } from '../../theme/typography';
 import { BRAND } from '../../design/brand';
-import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
+import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { UnifiedCreateOverlay } from '../../components/overlay/UnifiedCreateOverlay';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useJournalAnalysis } from '../../hooks/useJournalAnalysis';
@@ -325,15 +325,12 @@ export default function HubScreen() {
   const updateNote = useGremlyStore((s) => s.updateNote);
   const storeIsLoading = useGremlyStore((s) => s.isLoading);
   const storeIsInitialized = useGremlyStore((s) => s.isInitialized);
-  const gremlyAge = useGremlyStore((s) => s.gremlyAge);
-  const todayDropsCount = useGremlyStore((s) => s.todayDropsCount);
-  const todaySweepsCount = useGremlyStore((s) => s.todaySweepsCount);
 
   // ═══════════════════════════════════════════════════════════════════
   // UI STATE (local to this screen)
   // ═══════════════════════════════════════════════════════════════════
   const [error, setError] = useState<string | null>(null);
-  const [showRitualProgress, setShowRitualProgress] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [tab, setTab] = useState<Tab>('Habits');
   const [scope, setScope] = useState<ScopeOption>({ type: 'everywhere', label: 'Everywhere' });
   const [search, setSearch] = useState('');
@@ -981,14 +978,8 @@ export default function HubScreen() {
   const renderHubV1 = () => {
     return (
       <SafeAreaView style={styles.safe} testID="hub-screen">
-        {/* Ritual Progress Popover */}
-        <RitualProgressPopover
-          visible={showRitualProgress}
-          onDismiss={() => setShowRitualProgress(false)}
-          gremlyAge={gremlyAge}
-          dropsCount={todayDropsCount}
-          sweepsCount={todaySweepsCount}
-        />
+        {/* Help Card (replaces standalone ritual popup) */}
+        <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="hub" />
 
         <ScrollView
           style={{ flex: 1 }}
@@ -998,23 +989,7 @@ export default function HubScreen() {
           {/* Header */}
           <View style={hubV1Styles.headerRow}>
             <Text style={[typeStyles.h1, { marginTop: spacing.sm }]}>Hub</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              {/* Age badge: mascot + age number - tappable for ritual progress */}
-              <TouchableOpacity
-                style={hubV1Styles.ageBadge}
-                onPress={() => setShowRitualProgress(true)}
-                activeOpacity={0.7}
-                accessibilityLabel={`Gremly age ${gremlyAge}. Tap to see ritual progress.`}
-                accessibilityRole="button"
-              >
-                <Image
-                  source={require('../../assets/mascot/gremly-mascot.png')}
-                  style={hubV1Styles.ageMascot}
-                  resizeMode="contain"
-                  accessibilityIgnoresInvertColors
-                />
-                <Text style={hubV1Styles.ageNumber}>{gremlyAge}</Text>
-              </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               {__DEV__ && (
                 <TouchableOpacity
                   onPress={() => navigation.navigate('DevTools')}
@@ -1036,6 +1011,20 @@ export default function HubScreen() {
                 accessibilityRole="button"
               >
                 <Settings size={24} color={colors.gray600} />
+              </TouchableOpacity>
+              {/* Gremly mascot - tappable for help & ritual progress */}
+              <TouchableOpacity
+                onPress={() => setShowHelp(true)}
+                activeOpacity={0.7}
+                accessibilityLabel="Gremly. Tap to see help and ritual progress."
+                accessibilityRole="button"
+              >
+                <Image
+                  source={require('../../assets/mascot/safari_gremly.png')}
+                  style={hubV1Styles.headerMascot}
+                  resizeMode="contain"
+                  accessibilityIgnoresInvertColors
+                />
               </TouchableOpacity>
             </View>
           </View>
@@ -2215,24 +2204,9 @@ const hubV1Styles = StyleSheet.create({
     padding: spacing.sm,
     marginTop: spacing.sm,
   },
-  ageBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: BRAND.colors.sageMist,
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    marginTop: spacing.sm,
-  },
-  ageMascot: {
-    width: 28,
-    height: 28,
-  },
-  ageNumber: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: BRAND.colors.charcoalInk,
+  headerMascot: {
+    width: 84,
+    height: 84,
   },
   // View Toggle (All Items | Journal View)
   viewToggleContainer: {

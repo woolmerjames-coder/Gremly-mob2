@@ -87,6 +87,7 @@ import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { SweepDemoFlow } from '../../components/sweep/SweepDemoFlow';
 import { SweepGremlyHeader } from '../../components/sweep/SweepGremlyHeader';
+import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { SweepMultiSplitStep } from '../../components/sweep/SweepMultiSplitStep';
 import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionTransition';
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
@@ -850,6 +851,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
   const completeHabit = useGremlyStore((state) => state.completeHabit);
   const uncompleteHabit = useGremlyStore((state) => state.uncompleteHabit);
   const loading = useIsLoading();
+  const [showHabitsHelp, setShowHabitsHelp] = useState(false);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Session state - tracks toggles during this sweep (not committed yet)
@@ -1148,9 +1150,17 @@ function SweepHabitsStep({ onContinue }: StepProps) {
               </Text>
               <Text style={styles.wrapUpStepSubcopy}>Slide to mark what you managed today.</Text>
             </View>
-            <Image source={GREMLY_HABIT} style={styles.habitsMascot} />
+            <Pressable onPress={() => setShowHabitsHelp(true)}>
+              <Image source={GREMLY_HABIT} style={styles.habitsMascot} />
+            </Pressable>
           </View>
         </View>
+
+        <GremlyHelpCard
+          visible={showHabitsHelp}
+          onDismiss={() => setShowHabitsHelp(false)}
+          screen="sweep-habits"
+        />
 
         {isEmpty ? (
           <View style={styles.wrapUpEmptyContainer}>
@@ -1393,6 +1403,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Use both state (for UI) and refs (for async callbacks that need latest values)
   const [didAgeUp, setDidAgeUp] = useState(false);
   const [finalAge, setFinalAge] = useState(useGremlyStore.getState().gremlyAge);
+  const [showHelp, setShowHelp] = useState(false);
   const didAgeUpRef = useRef(false);
   const finalAgeRef = useRef(useGremlyStore.getState().gremlyAge);
 
@@ -2756,6 +2767,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
                 candidate={currentCandidate}
                 meta={currentCandidateWithMeta.meta}
                 onOpenChat={handleOpenChat}
+                onMascotPress={() => setShowHelp(true)}
               />
             </Reanimated.View>
             <SweepCard
@@ -2853,6 +2865,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           onClose={() => setShowEntityChat(false)}
         />
       </Modal>
+      <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="sweep" />
     </View>
   );
 }

@@ -5510,6 +5510,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return count;
   }, [storeTodos, storeNotes, storeHabits]);
 
+  // Actionable drops only (todos + habits) — used for milestone speech at 5/10
+  const actionableDropsToday = useMemo(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayISO = todayStart.toISOString();
+
+    let count = 0;
+    for (const item of storeTodos) {
+      if (item.created_at && item.created_at >= todayISO) count++;
+    }
+    for (const item of storeHabits) {
+      if (item.created_at && item.created_at >= todayISO) count++;
+    }
+    return count;
+  }, [storeTodos, storeHabits]);
+
   const storeLastDropTime = useMemo(() => {
     let latest = 0;
     for (const item of storeTodos) {
@@ -7990,7 +8006,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           confidence: confidenceCategory,
           dueDate,
           mode: 'auto',
-          dropsToday: storeDropsToday + 1,
+          dropsToday: actionableDropsToday + (uiKind === 'todo' || uiKind === 'habit' ? 1 : 0),
           isFirstDrop: false,
           hasPhotos: pendingPhotoUris.length > 0,
           isReturningUser:
@@ -8220,7 +8236,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           confidence: confidenceCategory,
           dueDate,
           mode: (finalResult.decisionMode as string) ?? 'auto',
-          dropsToday: storeDropsToday + 1,
+          dropsToday: actionableDropsToday + (uiKind === 'todo' || uiKind === 'habit' ? 1 : 0),
           isFirstDrop: false,
           hasPhotos: currentSubmissionHasPhotosRef.current,
           isReturningUser:
@@ -8305,6 +8321,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     userId,
     showGremlySpeech,
     storeDropsToday,
+    actionableDropsToday,
     storeLastDropTime,
     firstDropCompletedAt,
   ]);
