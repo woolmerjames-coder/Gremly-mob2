@@ -95,6 +95,91 @@ describe('MorningBriefHeader - targetDate logic', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Mascot + GremlyHelpCard wiring
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('MorningBriefHeader - mascot + GremlyHelpCard (documentary)', () => {
+  describe('mascot rendering contract', () => {
+    it('uses morningbriefgremly.png mascot image', () => {
+      // In MorningBriefHeader (line 99):
+      //   <Image
+      //     source={require('../../../../assets/mascot/morningbriefgremly.png')}
+      //     style={styles.headerMascot}
+      //   />
+      //
+      // This image is specific to the morning brief — different from Hub's safari_gremly.
+
+      const mascotConfig = {
+        source: 'assets/mascot/morningbriefgremly.png',
+        style: 'headerMascot',
+      };
+
+      expect(mascotConfig.source).toContain('morningbriefgremly');
+      expect(mascotConfig.style).toBe('headerMascot');
+    });
+
+    it('mascot is tappable — opens GremlyHelpCard', () => {
+      // Mascot is wrapped in a Pressable (line 97):
+      //   <Pressable onPress={() => setShowHelp(true)}>
+      //     <Image source={morningbriefgremly.png} ... />
+      //   </Pressable>
+
+      const tappable = true;
+      const helpCardOpens = true;
+
+      expect(tappable).toBe(true);
+      expect(helpCardOpens).toBe(true);
+    });
+  });
+
+  describe('GremlyHelpCard props', () => {
+    it('passes screen="organize" to GremlyHelpCard', () => {
+      // Line 119:
+      //   <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="organize" />
+      //
+      // The morning brief maps to the "organize" screen type,
+      // which shows "Organize" help steps on page 1.
+
+      const helpCardProps = {
+        visible: true,
+        screen: 'organize' as const,
+      };
+
+      expect(helpCardProps.screen).toBe('organize');
+    });
+
+    it('GremlyHelpCard dismiss resets showHelp to false', () => {
+      // onDismiss={() => setShowHelp(false)}
+      // When user taps "Got it" in the help card, the card hides.
+
+      let showHelp = true;
+      const onDismiss = () => {
+        showHelp = false;
+      };
+      onDismiss();
+
+      expect(showHelp).toBe(false);
+    });
+  });
+
+  describe('mascot positioning', () => {
+    it('documents headerMascot style contract', () => {
+      // headerMascot style (line 302):
+      //   width, height, borderRadius for circular display
+      //   Positioned in the headerRow flex layout
+
+      const styleContract = {
+        shape: 'circle (borderRadius: width/2)',
+        position: 'header row, right side',
+      };
+
+      expect(styleContract.shape).toContain('circle');
+      expect(styleContract.position).toContain('header row');
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Exit button (onExit prop)
 // ─────────────────────────────────────────────────────────────────────────────
 

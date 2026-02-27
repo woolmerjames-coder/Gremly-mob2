@@ -87,6 +87,7 @@ import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import { SweepCard } from '../../components/sweep/SweepCard';
 import { SweepDemoFlow } from '../../components/sweep/SweepDemoFlow';
 import { SweepGremlyHeader } from '../../components/sweep/SweepGremlyHeader';
+import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { SweepMultiSplitStep } from '../../components/sweep/SweepMultiSplitStep';
 import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionTransition';
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
@@ -101,7 +102,7 @@ import {
 } from '../../lib/events/overlaySaved';
 import { emitOverlayClosed, addOverlayClosedListener } from '../../lib/events/overlayClosed';
 import { eventBus } from '../../lib/events/EventBus';
-import { addDays, nextMonday } from 'date-fns';
+// date-fns addDays/nextMonday removed — DateService used for timezone-safe date math
 import { scheduleItemReminder } from '../../lib/notifications/itemReminderService';
 import type { ItemReminder } from '../../lib/types';
 import { toDayString } from '../../lib/date/computeDueDay';
@@ -180,11 +181,13 @@ type SweepDecision = {
   candidateId: string;
   candidateKind: 'todo' | 'habit' | 'note';
   action: 'keep' | 'clear' | 'skip';
-  // For todos with dates:
+  // Timezone-safe string dates (YYYY-MM-DD) via DateService:
+  dueDateStr?: string;
+  startDateStr?: string;
+  resurfaceDateStr?: string;
+  // Legacy Date fields — kept for custom date picker path:
   dueDate?: Date;
-  // For habits with start dates:
   startDate?: Date;
-  // For "Remind Me Later" - resurfaces in sweep on this date:
   resurfaceDate?: Date;
   habitAction?: 'asktomorrow' | 'starttomorrow' | 'startmonday';
 };
@@ -848,6 +851,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
   const completeHabit = useGremlyStore((state) => state.completeHabit);
   const uncompleteHabit = useGremlyStore((state) => state.uncompleteHabit);
   const loading = useIsLoading();
+  const [showHabitsHelp, setShowHabitsHelp] = useState(false);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Session state - tracks toggles during this sweep (not committed yet)
@@ -1146,9 +1150,17 @@ function SweepHabitsStep({ onContinue }: StepProps) {
               </Text>
               <Text style={styles.wrapUpStepSubcopy}>Slide to mark what you managed today.</Text>
             </View>
-            <Image source={GREMLY_HABIT} style={styles.habitsMascot} />
+            <Pressable onPress={() => setShowHabitsHelp(true)}>
+              <Image source={GREMLY_HABIT} style={styles.habitsMascot} />
+            </Pressable>
           </View>
         </View>
+
+        <GremlyHelpCard
+          visible={showHabitsHelp}
+          onDismiss={() => setShowHabitsHelp(false)}
+          screen="sweep-habits"
+        />
 
         {isEmpty ? (
           <View style={styles.wrapUpEmptyContainer}>
@@ -1391,6 +1403,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Use both state (for UI) and refs (for async callbacks that need latest values)
   const [didAgeUp, setDidAgeUp] = useState(false);
   const [finalAge, setFinalAge] = useState(useGremlyStore.getState().gremlyAge);
+  const [showHelp, setShowHelp] = useState(false);
   const didAgeUpRef = useRef(false);
   const finalAgeRef = useRef(useGremlyStore.getState().gremlyAge);
 
@@ -1591,22 +1604,29 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
               } as any);
             })(),
           );
-        } else if (decision.candidateKind === 'todo' && decision.dueDate) {
+        } else if (decision.candidateKind === 'todo' && (decision.dueDateStr || decision.dueDate)) {
           // Get current reschedule count from store
           const currentTodo = todos.find((t) => t.id === decision.candidateId);
           const currentCount = currentTodo?.sweep_reschedule_count ?? 0;
 
+          // Prefer string date (timezone-safe), fall back to Date conversion
+          const dateStr = decision.dueDateStr || toDayString(decision.dueDate!);
+
           updates.push(
             updateTodo(decision.candidateId, {
-              scheduled_date: toDayString(decision.dueDate), // New canonical field
-              due_day: toDayString(decision.dueDate), // Keep for backwards compat
+              scheduled_date: dateStr,
+              due_day: dateStr,
               skipped_in_sweep_at: null,
               resurface_at: null, // Clear reminder so it doesn't keep resurfacing
               sweep_reschedule_count: currentCount + 1,
             } as any),
           );
-        } else if (decision.candidateKind === 'habit' && decision.startDate) {
-          const habitStartDateStr = ds.toLocalDate(decision.startDate);
+        } else if (
+          decision.candidateKind === 'habit' &&
+          (decision.startDateStr || decision.startDate)
+        ) {
+          // Prefer string date (timezone-safe), fall back to Date conversion
+          const habitStartDateStr = decision.startDateStr || ds.toLocalDate(decision.startDate!);
           const originalHabit = habits.find((h) => h.id === decision.candidateId);
           const habitTitle = originalHabit?.name || 'Habit reminder';
 
@@ -2235,15 +2255,15 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       // Only works for todos and notes (not habits)
       if (candidate.kind === 'habit') return;
 
-      // Calculate the target date
-      const today = new Date();
-      let targetDate: Date;
+      // Calculate the target date using DateService (timezone-safe string math)
+      const ds = getDateService();
+      let targetDateStr: string;
       switch (option) {
         case 'tomorrow':
-          targetDate = addDays(today, 1);
+          targetDateStr = ds.tomorrow();
           break;
         case 'nextweek':
-          targetDate = nextMonday(today);
+          targetDateStr = ds.toLocalDate(ds.getNextWeekday(1)); // Monday=1
           break;
       }
 
@@ -2251,7 +2271,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         candidateId: candidate.id,
         candidateKind: candidate.kind,
         action: 'keep',
-        dueDate: targetDate,
+        dueDateStr: targetDateStr,
       });
 
       // Update stats and move to next card
@@ -2392,21 +2412,22 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           habitAction: action,
         });
       } else {
-        // Calculate start date based on action
-        let startDate: Date;
+        // Calculate start date using DateService (timezone-safe)
+        const ds = getDateService();
+        let startDateStr: string;
         if (customDate) {
-          startDate = customDate;
+          startDateStr = ds.toLocalDate(customDate);
         } else if (action === 'starttomorrow') {
-          startDate = addDays(new Date(), 1);
+          startDateStr = ds.tomorrow();
         } else {
-          startDate = nextMonday(new Date());
+          startDateStr = ds.toLocalDate(ds.getNextWeekday(1)); // Monday=1
         }
 
         recordDecision({
           candidateId: candidate.id,
           candidateKind: 'habit',
           action: 'keep',
-          startDate,
+          startDateStr,
           habitAction: action,
         });
       }
@@ -2746,6 +2767,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
                 candidate={currentCandidate}
                 meta={currentCandidateWithMeta.meta}
                 onOpenChat={handleOpenChat}
+                onMascotPress={() => setShowHelp(true)}
               />
             </Reanimated.View>
             <SweepCard
@@ -2843,6 +2865,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           onClose={() => setShowEntityChat(false)}
         />
       </Modal>
+      <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="sweep" />
     </View>
   );
 }

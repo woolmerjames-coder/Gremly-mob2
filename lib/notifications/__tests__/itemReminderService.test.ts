@@ -349,13 +349,13 @@ describe('cancelItemReminder', () => {
     expect(cancelMock()).toHaveBeenCalledWith('notif-123');
   });
 
-  it('swallows errors and logs warning', async () => {
+  it('swallows errors and does not throw when cancel fails', async () => {
     cancelMock().mockRejectedValueOnce(new Error('Not found'));
-    const spy = jest.spyOn(console, 'warn').mockImplementation();
 
-    await cancelItemReminder('notif-missing');
-    expect(spy).toHaveBeenCalled();
-    spy.mockRestore();
+    // cancelItemReminder uses Promise.allSettled internally,
+    // so individual rejections are absorbed — the function should
+    // never throw, regardless of the underlying cancel failing.
+    await expect(cancelItemReminder('notif-missing')).resolves.toBeUndefined();
   });
 });
 

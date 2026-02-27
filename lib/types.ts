@@ -1125,10 +1125,12 @@ export interface ItemReminder {
   id: string;
   /** Time in "HH:MM" format (user's local time) */
   time: string;
-  /** 'once' fires and should be removed after; 'daily' recurs */
-  frequency: 'once' | 'daily';
+  /** 'once' fires and should be removed after; 'daily' recurs; 'weekdays'/'weekends'/'weekly' for multi-day */
+  frequency: 'once' | 'daily' | 'weekdays' | 'weekends' | 'weekly';
   /** Required for 'once' frequency — the date to fire (YYYY-MM-DD) */
   date?: string;
+  /** Days of week for 'weekly' frequency (0=Sun, 1=Mon, ..., 6=Sat) */
+  days_of_week?: number[];
   /** Expo notification ID returned from scheduleNotificationAsync (for cancellation) */
   notificationId?: string;
 }

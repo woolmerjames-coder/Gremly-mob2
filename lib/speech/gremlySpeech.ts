@@ -122,7 +122,7 @@ const SPEECH_POOLS = {
     ],
   },
 
-  SUCCESS_HIGH_CONFIDENCE: {
+  SUCCESS: {
     todo_with_date: [
       'Locked in for {date}. One less thing to hold.',
       '{date} — handled. Let it go.',
@@ -188,7 +188,7 @@ const SPEECH_POOLS = {
     'Brain dump complete. Sorting can wait.',
   ],
 
-  STREAKS: {
+  MILESTONES: {
     3: [
       'Three in a row. That\u2019s a rhythm.',
       'Look at you go. That\u2019s three.',
@@ -292,18 +292,12 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
     message = pickRandom(errorPool, recentMessages);
   }
 
-  // Priority 2: Streaks (3, 5, 10, then every 5 after)
+  // Priority 2: Milestones (5 and 10 only)
   if (!message && ctx.dropsToday > 0) {
     const count = ctx.dropsToday;
-    if (count === 3) {
-      message = pickRandom(SPEECH_POOLS.STREAKS[3], recentMessages);
-    } else if (count === 5) {
-      message = pickRandom(SPEECH_POOLS.STREAKS[5], recentMessages);
-    } else if (count === 10) {
-      message = pickRandom(SPEECH_POOLS.STREAKS[10], recentMessages);
-    } else if (count > 10 && count % 5 === 0) {
-      message = pickRandom(SPEECH_POOLS.STREAKS.every5after, recentMessages);
-      message = message.replace('{count}', String(count));
+    const milestonePool = (SPEECH_POOLS.MILESTONES as Record<number, string[]>)[count];
+    if (milestonePool) {
+      message = pickRandom(milestonePool, recentMessages);
     }
   }
 
@@ -322,47 +316,35 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
     message = pickRandom(SPEECH_POOLS.RETURNING_USER, recentMessages);
   }
 
-  // Priority 6: Success by confidence
+  // Priority 6: Success by kind
   if (!message) {
-    const confidence = ctx.confidence || 'high';
+    const kind = ctx.kind || 'general';
+    const logSubtype = ctx.logSubtype || '';
+    const hasDueDate = ctx.dueDate != null;
 
-    if (confidence === 'low') {
-      message = pickRandom(SPEECH_POOLS.SUCCESS_LOW_CONFIDENCE, recentMessages);
-    } else if (confidence === 'medium') {
-      message = pickRandom(SPEECH_POOLS.SUCCESS_MEDIUM_CONFIDENCE, recentMessages);
+    let pool: string[];
+
+    if (kind === 'todo' || kind === 'task') {
+      pool = hasDueDate ? SPEECH_POOLS.SUCCESS.todo_with_date : SPEECH_POOLS.SUCCESS.todo_no_date;
+    } else if (kind === 'habit') {
+      pool = SPEECH_POOLS.SUCCESS.habit;
+    } else if (kind === 'journal' || (kind === 'log' && logSubtype === 'journal')) {
+      pool = SPEECH_POOLS.SUCCESS.journal;
+    } else if (kind === 'idea' || logSubtype === 'idea') {
+      pool = SPEECH_POOLS.SUCCESS.idea;
+    } else if (kind === 'event' || logSubtype === 'event') {
+      pool = SPEECH_POOLS.SUCCESS.event;
+    } else if (kind === 'log') {
+      pool = SPEECH_POOLS.SUCCESS.general;
     } else {
-      // High confidence - pick by kind
-      const kind = ctx.kind || 'general';
-      const logSubtype = ctx.logSubtype || '';
-      const hasDueDate = ctx.dueDate != null;
+      pool = SPEECH_POOLS.SUCCESS.general;
+    }
 
-      let pool: string[];
+    message = pickRandom(pool, recentMessages);
 
-      if (kind === 'todo' || kind === 'task') {
-        pool = hasDueDate
-          ? SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.todo_with_date
-          : SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.todo_no_date;
-      } else if (kind === 'habit') {
-        pool = SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.habit;
-      } else if (kind === 'journal' || (kind === 'log' && logSubtype === 'journal')) {
-        pool = SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.journal;
-      } else if (kind === 'idea' || logSubtype === 'idea') {
-        pool = SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.idea;
-      } else if (kind === 'event' || logSubtype === 'event') {
-        pool = SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.event;
-      } else if (kind === 'log') {
-        // Generic log — use general pool
-        pool = SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.general;
-      } else {
-        pool = SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE.general;
-      }
-
-      message = pickRandom(pool, recentMessages);
-
-      // Replace {date} placeholder
-      if (message.includes('{date}') && ctx.dueDate) {
-        message = message.replace('{date}', formatDate(ctx.dueDate));
-      }
+    // Replace {date} placeholder
+    if (message.includes('{date}') && ctx.dueDate) {
+      message = message.replace('{date}', formatDate(ctx.dueDate));
     }
   }
 
@@ -401,7 +383,8 @@ export function getEmptyStateSpeech(): { message: string; duration: number } {
 }
 
 export function getFirstVisitSpeech(): { message: string; duration: number } {
-  const message = "Drop your first thought! A task, a worry, an idea, something you keep forgetting. Anything. I'll sort it out later.";
+  const message =
+    "Drop anything — a task, a thought, something you keep forgetting. I'll figure out what to do with it.";
   return {
     message,
     duration: 15000, // Stay visible until user acts — long duration as fallback
@@ -409,7 +392,7 @@ export function getFirstVisitSpeech(): { message: string; duration: number } {
 }
 
 export function getPostFirstDropSpeech(): { message: string; duration: number } {
-  const message = "Nice! That's your first drop. Want me to show you how the Sweep works?";
+  const message = "Nice! That's your first drop. Want to see how the Sweep works?";
   return {
     message,
     duration: 30000, // Stay visible until user makes a choice

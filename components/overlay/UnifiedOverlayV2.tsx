@@ -168,6 +168,7 @@ import LinkedItemsSection from './LinkedItemsSection';
 import LinkedEventPicker from './LinkedEventPicker';
 import { RevertToTextButton } from './RevertToTextButton';
 import { TodoPreviewModal } from './TodoPreviewModal';
+import { env } from '../../lib/env';
 import { ClarificationPopup } from '../minddrop/ClarificationPopup';
 import {
   extractListItems,
@@ -2036,7 +2037,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [visible, conversionMeta]);
 
   // feature flag for commitments (soft rollout)
-  const commitmentsOn = process?.env?.EXPO_PUBLIC_FEATURE_COMMITMENTS === 'on';
+  const commitmentsOn = env.feature.commitments;
   const currentTagsRef = useRef<TagKey[]>(state.tags);
   useEffect(() => {
     currentTagsRef.current = state.tags;
@@ -2117,7 +2118,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         count: 1,
         unit: 'day',
         isCustom: false,
-        startDate: state.todo.scheduled_date ?? null,
+        startDate: state.todo.scheduled_date ?? state.todo.due_day ?? null,
         endDate: state.todo.target_date ?? null,
         timeWindow: state.todo.time_window ?? null,
         timeEstimateMinutes: state.todo.time_estimate_minutes ?? null,
@@ -2173,8 +2174,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const applyScheduleChanges = useCallback(() => {
     if (baseType === 'todo') {
       // For To-Dos: apply dates, time window, and time estimate
+      // Date Intelligence fields (for views JSONB)
       dispatch({ type: 'SET_TODO_SCHEDULED_DATE', date: scheduleModalState.startDate });
       dispatch({ type: 'SET_TODO_TARGET_DATE', date: scheduleModalState.endDate });
+
+      // CRITICAL: Also sync due_day — this is what the save path reads
+      // and what drives Today page display, sweep eligibility, etc.
+      dispatch({
+        type: 'SET_TODO_DUE',
+        due_at: null,
+        due_day: scheduleModalState.startDate, // do date = due_day
+        // don't include due_time — reducer preserves existing value
+      });
+
       dispatch({
         type: 'SET_TODO_TIME_WINDOW',
         window: scheduleModalState.timeWindow as 'day' | 'any' | 'morning' | 'evening' | null,
@@ -4217,7 +4229,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
         // GREMLY TODO DATE MODEL: Use due_day (YYYY-MM-DD) as canonical source of truth
         // due_at is NOT used for todos - we only send due_day and due_date
-        const dueDay = s.todo.due_day ?? null;
+        // Fallback to scheduled_date if due_day is missing (belt-and-suspenders for schedule modal)
+        const dueDay = s.todo.due_day ?? s.todo.scheduled_date ?? null;
         // Resolve space_id: explicit null means "None" selected, undefined means use fallback
         const resolvedSpaceId = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
         if (__DEV__ && s.spaceId === null) {
@@ -4236,6 +4249,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           due_day: dueDay,
           due_date: dueDay, // Set due_date same as due_day for backwards compatibility
           undefined_due: !dueDay, // True if no due date is set
+          // Top-level DB columns for Date Intelligence
+          scheduled_date: s.todo.scheduled_date ?? null,
+          target_date: s.todo.target_date ?? null,
           time_estimate_minutes: s.todo.time_estimate_minutes ?? null,
           time_window: s.todo.time_window ?? null,
           energy_type: (entity as any)?.energy_type ?? 'administrative',
@@ -4245,7 +4261,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           origin: 'catchall' as const,
           views: {
             ...viewsWithPrefillFlag,
-            // Date Intelligence fields in views
+            // Keep in views too for backwards compat
             target_date: s.todo.target_date ?? null,
             scheduled_date: s.todo.scheduled_date ?? null,
           },
@@ -4273,7 +4289,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       // GREMLY TODO DATE MODEL: Use due_day (YYYY-MM-DD) as canonical source of truth
       // due_at is NOT used for todos - we only send due_day and due_date
-      const dueDay = s.todo.due_day ?? null;
+      // Fallback to scheduled_date if due_day is missing (belt-and-suspenders for schedule modal)
+      const dueDay = s.todo.due_day ?? s.todo.scheduled_date ?? null;
       // Resolve space_id: explicit null means "None" selected, undefined means use fallback
       const resolvedSpaceId2 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
       if (__DEV__ && s.spaceId === null) {
@@ -4294,6 +4311,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         due_day: dueDay,
         due_date: dueDay, // Set due_date same as due_day for backwards compatibility
         undefined_due: !dueDay, // True if no due date is set
+        // Top-level DB columns for Date Intelligence
+        scheduled_date: s.todo.scheduled_date ?? null,
+        target_date: s.todo.target_date ?? null,
         time_estimate_minutes: s.todo.time_estimate_minutes ?? null,
         time_window: s.todo.time_window ?? null,
         energy_type: (entity as any)?.energy_type ?? 'administrative',
@@ -4303,7 +4323,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         origin: 'catchall' as const,
         views: {
           ...viewsWithPrefillFlag,
-          // Date Intelligence fields in views
+          // Keep in views too for backwards compat
           target_date: s.todo.target_date ?? null,
           scheduled_date: s.todo.scheduled_date ?? null,
         },
@@ -7255,10 +7275,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                             parts.push(
                                               `Due ${formatDueDay(state.todo.target_date)}`,
                                             );
-                                          if (state.todo.scheduled_date)
-                                            parts.push(
-                                              `Do ${formatDueDay(state.todo.scheduled_date)}`,
-                                            );
+                                          const effectiveDoDate =
+                                            state.todo.scheduled_date ?? state.todo.due_day;
+                                          if (effectiveDoDate)
+                                            parts.push(`Do ${formatDueDay(effectiveDoDate)}`);
                                           if (state.todo.time_estimate_minutes)
                                             parts.push(
                                               formatTimeEstimate(state.todo.time_estimate_minutes),

@@ -5510,6 +5510,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return count;
   }, [storeTodos, storeNotes, storeHabits]);
 
+  // Actionable drops only (todos + habits) — used for milestone speech at 5/10
+  const actionableDropsToday = useMemo(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayISO = todayStart.toISOString();
+
+    let count = 0;
+    for (const item of storeTodos) {
+      if (item.created_at && item.created_at >= todayISO) count++;
+    }
+    for (const item of storeHabits) {
+      if (item.created_at && item.created_at >= todayISO) count++;
+    }
+    return count;
+  }, [storeTodos, storeHabits]);
+
   const storeLastDropTime = useMemo(() => {
     let latest = 0;
     for (const item of storeTodos) {
@@ -7969,38 +7985,42 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         markFirstDropComplete();
       } else if (result.createdDetails?.length > 0) {
         // Show speech based on classification result using full getGremlySpeech logic
-        const detail = result.createdDetails[0];
-        const uiKind = detail.kind === 'note' ? 'log' : detail.kind;
+        try {
+          const detail = result.createdDetails[0];
+          const uiKind = detail.kind === 'note' ? 'log' : detail.kind;
 
-        // Get due date from created entity if available
-        let dueDate: string | null = null;
-        if (uiKind === 'todo' && result.created?.todos?.[0]) {
-          const createdTodo = getItemById(result.created.todos[0]);
-          dueDate = (createdTodo as any)?.due_date ?? (createdTodo as any)?.due_day ?? null;
-        }
+          // Get due date from created entity if available
+          let dueDate: string | null = null;
+          if (uiKind === 'todo' && result.created?.todos?.[0]) {
+            const createdTodo = getItemById(result.created.todos[0]);
+            dueDate = (createdTodo as any)?.due_date ?? (createdTodo as any)?.due_day ?? null;
+          }
 
-        // Map confidence number to category
-        const rawConfidence = (result as any).decisionConfidence ?? 0.9;
-        const confidenceCategory: 'high' | 'medium' | 'low' =
-          rawConfidence >= 0.8 ? 'high' : rawConfidence >= 0.5 ? 'medium' : 'low';
+          // Map confidence number to category
+          const rawConfidence = (result as any).decisionConfidence ?? 0.9;
+          const confidenceCategory: 'high' | 'medium' | 'low' =
+            rawConfidence >= 0.8 ? 'high' : rawConfidence >= 0.5 ? 'medium' : 'low';
 
-        const speechCtx: SpeechContext = {
-          kind: uiKind,
-          logSubtype: (detail as any).noteSubtype || undefined,
-          confidence: confidenceCategory,
-          dueDate,
-          mode: 'auto',
-          dropsToday: storeDropsToday + 1,
-          isFirstDrop: false,
-          hasPhotos: pendingPhotoUris.length > 0,
-          isReturningUser:
-            storeLastDropTime != null && Date.now() - storeLastDropTime > 24 * 60 * 60 * 1000,
-          error: null,
-        };
-        const speechResult = getGremlySpeech(speechCtx);
-        if (speechResult) {
-          lastSpeechRef.current = speechResult.message;
-          showGremlySpeech(speechResult.message, speechResult.duration);
+          const speechCtx: SpeechContext = {
+            kind: uiKind,
+            logSubtype: (detail as any).noteSubtype || undefined,
+            confidence: confidenceCategory,
+            dueDate,
+            mode: 'auto',
+            dropsToday: actionableDropsToday + (uiKind === 'todo' || uiKind === 'habit' ? 1 : 0),
+            isFirstDrop: false,
+            hasPhotos: pendingPhotoUris.length > 0,
+            isReturningUser:
+              storeLastDropTime != null && Date.now() - storeLastDropTime > 24 * 60 * 60 * 1000,
+            error: null,
+          };
+          const speechResult = getGremlySpeech(speechCtx);
+          if (speechResult) {
+            lastSpeechRef.current = speechResult.message;
+            showGremlySpeech(speechResult.message, speechResult.duration);
+          }
+        } catch (speechErr) {
+          console.warn('[MindDrop] Speech generation failed, skipping:', speechErr);
         }
       }
 
@@ -8220,7 +8240,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           confidence: confidenceCategory,
           dueDate,
           mode: (finalResult.decisionMode as string) ?? 'auto',
-          dropsToday: storeDropsToday + 1,
+          dropsToday: actionableDropsToday + (uiKind === 'todo' || uiKind === 'habit' ? 1 : 0),
           isFirstDrop: false,
           hasPhotos: currentSubmissionHasPhotosRef.current,
           isReturningUser:
@@ -8305,6 +8325,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     userId,
     showGremlySpeech,
     storeDropsToday,
+    actionableDropsToday,
     storeLastDropTime,
     firstDropCompletedAt,
   ]);

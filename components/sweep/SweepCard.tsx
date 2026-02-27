@@ -71,6 +71,7 @@ import * as Haptics from 'expo-haptics';
 import { Text, Button, Box } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { toDayString, parseDayString } from '../../lib/date/computeDueDay';
+import { getDateService } from '../../lib/date';
 import { useRepo } from '../../providers/RepoProvider';
 import { useActiveSpaces } from '../../lib/store/selectors';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
@@ -753,16 +754,18 @@ export function SweepCard({
     setShowDatePicker(true);
   }, []);
 
-  // Remind option handlers for log cards
+  // Remind option handlers for log cards — use DateService for timezone safety
   const handleRemindTomorrow = useCallback(() => {
-    const tomorrow = addDays(new Date(), 1);
-    setConfirmedRemindDate(tomorrow);
+    const ds = getDateService();
+    const tomorrow = ds.fromLocalDate(ds.tomorrow()); // Date at noon, safe
+    if (tomorrow) setConfirmedRemindDate(tomorrow);
     setShowRemindOptions(false);
   }, []);
 
   const handleRemindNextWeek = useCallback(() => {
-    const nextWeek = addDays(new Date(), 7);
-    setConfirmedRemindDate(nextWeek);
+    const ds = getDateService();
+    const nextWeek = ds.fromLocalDate(ds.daysFromNow(7));
+    if (nextWeek) setConfirmedRemindDate(nextWeek);
     setShowRemindOptions(false);
   }, []);
 

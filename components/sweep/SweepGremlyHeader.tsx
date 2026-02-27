@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, Image, TouchableOpacity, Pressable, StyleSheet } from 'react-native';
 import { BRAND } from '../../design/brand';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
 
@@ -14,6 +14,7 @@ export interface SweepGremlyHeaderProps {
   candidate: SweepCandidate;
   meta: SweepCardMeta;
   onOpenChat?: (presetHint?: string) => void;
+  onMascotPress?: () => void;
 }
 
 /**
@@ -73,6 +74,7 @@ export function SweepGremlyHeader({
   candidate,
   meta,
   onOpenChat,
+  onMascotPress,
 }: SweepGremlyHeaderProps): React.ReactElement {
   const speechText = getSpeechText(candidate, meta);
 
@@ -82,11 +84,13 @@ export function SweepGremlyHeader({
 
   return (
     <View style={styles.container}>
-      <Image
-        source={require('../../assets/mascot/gremly-mascot.png')}
-        style={styles.mascot}
-        resizeMode="contain"
-      />
+      <Pressable onPress={onMascotPress} disabled={!onMascotPress}>
+        <Image
+          source={require('../../assets/mascot/gremly-mascot.png')}
+          style={styles.mascot}
+          resizeMode="contain"
+        />
+      </Pressable>
       <View style={styles.contentContainer}>
         <View style={styles.speechBubble}>
           <Text style={styles.speechText}>{speechText}</Text>

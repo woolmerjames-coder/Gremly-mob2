@@ -360,10 +360,14 @@ function mapPreparseToClassification(preparse) {
     return { needsPhase1: false, bucket: 'log', subtype: 'general', habitSubtype: null };
   }
 
-  // Leading imperative verb is a strong todo signal even if frame_type disagrees
+  // Leading imperative verb is a strong todo signal even if frame_type disagrees.
+  // BUT: if frequency signals are present, skip this fast-path so the frequency
+  // check below can route to Phase 1 for habit verification.
   if (preparse.verb_position === 'start' && preparse.action_target !== 'other_person') {
     if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
-      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+      if (!preparse.frequency_present && !preparse.frequency_type) {
+        return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+      }
     }
   }
 
@@ -611,8 +615,8 @@ const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON
 - emotional_content: Is the user expressing feelings, mood, or emotional state?
 - self_reflection: Is the user examining their own thoughts, patterns, or behavior?
 - frequency_present: Does the user intend to personally repeat this behavior on an ongoing basis? Set true if frequency_type is not null.
-- frequency_type: Apply this test: "Has the user specified WHEN or HOW OFTEN they will do this?" Frequency requires concrete timing — not just a desire to do more or less of something. If no timing is specified → null. If timing is specified → "explicit" (recurrence is stated), "day_names" (specific days are referenced), or "stop_quit" (user intends to completely stop a behavior). Wanting "more" or "less" of something without a schedule is NOT frequency — that is direction_without_schedule.
-- direction_without_schedule: Does the user's language explicitly express a desire to CHANGE from their current state — to increase, decrease, or improve something — without specifying a target? This is about the linguistic expression of relative/comparative intent, not whether the activity itself could vary in amount. An imperative to perform an action is false, even if that action could theoretically be done more or less. The question is what the words express, not the nature of the activity.
+- frequency_type: Apply this test: "Has the user specified WHEN or HOW OFTEN they will do this?" Frequency requires concrete timing — not just a desire to do more or less of something. If no timing is specified → null. If timing is specified, classify: "explicit" — the user has stated a recurring schedule or cadence; the input conveys that this behavior repeats at defined intervals or on a regular basis. "day_names" — the user has anchored the behavior to one or more particular named days of the week; the recurrence is defined by which days it occurs on. "stop_quit" — apply this decisional test: Is the user's goal state for this behavior ZERO? Is the user expressing that something they currently do should stop entirely? If the answer to both is yes, this is "stop_quit" — the user has a concrete target (zero) for an existing behavior. This is true regardless of how they phrase it. CRITICAL DISAMBIGUATION: When the user wants a behavior to reach zero, frequency_type is "stop_quit" and direction_without_schedule MUST be false. Zero is a concrete target, not a relative direction. direction_without_schedule only applies to non-zero relative changes. Wanting "more" or "less" of something without a schedule is NOT frequency — that is direction_without_schedule.
+- direction_without_schedule: Does the user's language explicitly express a desire for a NON-ZERO relative change — to increase, decrease, or improve something — without specifying a concrete amount or schedule? This is about the linguistic expression of relative/comparative intent, not whether the activity itself could vary in amount. An imperative to perform an action is false, even if that action could theoretically be done more or less. The question is what the words express, not the nature of the activity. IMPORTANT: If the user's desired end state is zero (complete cessation), that is NOT direction_without_schedule — that is frequency_type "stop_quit". direction_without_schedule is only true when the target is a non-zero relative shift (more, less, better) with no concrete amount or schedule.
 - temporal_specificity: Is the action anchored to a specific or bounded point in time? True when the input constrains WHEN — a particular moment, day, or window that limits the action to a single instance. False when timing is open-ended, unspecified, or recurring.
 - reminder_intent: Does the user want to be reminded or not forget something? True ONLY for: explicit reminder language ("remind me", "don't forget", "remember to", "remember my"), urgency paired with a specific time ("need to do this by 3pm", "must call before lunch"), or appointment-like phrasing that implies a nudge is needed ("doctor appointment tomorrow", "meeting at 2"). False for: vague timing ("soon", "eventually", "this week"), past-tense remembering ("I remembered that..."), journaling or reflection, or simple todos without any reminder/urgency language ("buy groceries").`;
 
@@ -763,12 +767,19 @@ Does this noun inherently imply something needs to be done, or could it equally 
 If only one interpretation makes sense, choose it. If both are genuinely plausible, return AMBIGUOUS with type "bucket".`;
 
     case 'direction_without_schedule':
-      return `This expresses wanting more or less of something, without specifying when or how often.
+      return `This expresses wanting to change a behavior without specifying a concrete schedule.
 
-Apply THE TRACKABILITY TEST:
-Could this appear on a habit tracker with a yes/no checkbox? Can the user answer "did I do this today?" with certainty?
+Apply these two tests IN ORDER:
 
-Without a defined threshold or frequency, there is nothing concrete to track. Return AMBIGUOUS with type "bucket" and let the user clarify whether they want a trackable habit or are noting an intention.`;
+FIRST — THE CESSATION TEST:
+Is the user's desired end state for this behavior ZERO? Can the user answer "did I do this today?" with a yes or no, where the goal answer is "no"?
+If YES: the target is zero, which is concrete and binary. This is trackable. Classify as HABIT with subtype break_habit. Do NOT return AMBIGUOUS.
+
+SECOND — THE TRACKABILITY TEST (only if cessation test fails):
+The user wants more or less of something, but is there any concrete measure of success? Can you draw a line between "done" and "not done" on any given day?
+If NO: there is no threshold to track. Return AMBIGUOUS with type "bucket" and let the user clarify whether they want a trackable habit or are noting an intention.
+
+Key distinction: wanting zero is a concrete, trackable target. Wanting "more" or "less" without a threshold is vague and not trackable. Check for cessation first.`;
 
     case 'hedged_action':
       return `This has an action verb, but uncertainty is on the verb itself.
@@ -820,6 +831,20 @@ Uncertainty about WHAT/WHEN/HOW within a committed action is still TODO - the co
 Only uncertainty about WHETHER to act at all removes it from TODO.
 
 If signals genuinely conflict with equal weight, return AMBIGUOUS.`;
+
+    case 'frequency_detected_needs_habit_verification':
+      return `Pre-parse detected frequency or cessation signals alongside a leading action verb. A leading verb does NOT override frequency — the verb describes the action content while frequency determines the entity type.
+
+Apply THE HABIT GATE — all three tests must pass for HABIT classification:
+
+1. WHO REPEATS: Is the user personally performing the recurring action? If they are building, configuring, or scheduling something external (a system, a project, a deliverable), that is a TODO regardless of frequency language.
+
+2. WHAT RECURS: Does the frequency language attach to the user's own behavior? Recurrence in the action the user takes → HABIT. Recurrence in an output, event, or external process → TODO.
+
+3. IS THERE CONCRETE TIMING: Either explicit recurrence schedules (daily, weekly, every morning) or cessation language (stop, quit, give up) count as concrete frequency signals. Vague aspirational language without temporal anchoring does not.
+
+If all three pass → HABIT. Use subtype "start_habit" for building new behaviors, "break_habit" for stopping or quitting existing behaviors.
+If any test fails → TODO. The frequency language is incidental, not definitional.`;
 
     case 'exploring_frame':
       return `Pre-parse detected "exploring" frame, but this signal is unreliable.
@@ -902,7 +927,7 @@ These pre-phase facts are strong classification signals. Do not ignore them:
 - frame_type: "exploring" → Usually LOG/idea UNLESS verb_position is "start". When the input opens with a bare imperative verb (no subject, no hedging), the grammatical form is a command, not exploration. The user may be exploring a TOPIC, but they are DIRECTING themselves to do so. If verb_position is "start" and core_verb is present, classify as TODO.
 - frame_type: "factual" → Almost always LOG/general. User is stating facts.
 - frame_type: "directing" with uncertainty only on "object_details" → Almost always TODO. User knows WHAT, fuzzy on details.
-- verb_position: "start" with core_verb present → Strong TODO signal regardless of frame_type. Imperative grammatical form expresses commitment to act. Only exception: uncertainty_target is "verb" (user unsure WHETHER to act).
+- verb_position: "start" with core_verb present → Strong TODO signal regardless of frame_type. Imperative grammatical form expresses commitment to act. Only exception: uncertainty_target is "verb" (user unsure WHETHER to act). CRITICAL EXCEPTION: When frequency_present is true OR frequency_type is "stop_quit", the verb signal does NOT override — apply the HABIT GATE instead. Frequency and cessation signals take precedence over verb position for classification.
 
 Only return AMBIGUOUS if these signals conflict or are absent.
 

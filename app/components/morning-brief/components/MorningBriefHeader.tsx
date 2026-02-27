@@ -10,6 +10,7 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, Modal, ScrollView, Image } from 'react-native';
 import { X, RotateCcw, Calendar, CheckSquare, Repeat } from 'lucide-react-native';
+import GremlyHelpCard from '../../../../components/help/GremlyHelpCard';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import {
   useCapacityForDate,
@@ -50,6 +51,7 @@ export function MorningBriefHeader({
   const hiddenEventCount = useHiddenEventCountForDate(effectiveDate);
   const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
   const [showHiddenPopup, setShowHiddenPopup] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   // Combined hidden count (events + todos/habits — skip today's hidden items when viewing future date)
   const totalHiddenCount = hiddenEventCount + (isCustomDate ? 0 : hiddenTodayIds.length);
@@ -92,10 +94,12 @@ export function MorningBriefHeader({
             )}
           </View>
         </View>
-        <Image
-          source={require('../../../../assets/mascot/morningbriefgremly.png')}
-          style={styles.headerMascot}
-        />
+        <Pressable onPress={() => setShowHelp(true)}>
+          <Image
+            source={require('../../../../assets/mascot/morningbriefgremly.png')}
+            style={styles.headerMascot}
+          />
+        </Pressable>
         {onExit && (
           <Pressable
             onPress={onExit}
@@ -111,6 +115,8 @@ export function MorningBriefHeader({
       {showHiddenPopup && (
         <HiddenItemsPopup visible={showHiddenPopup} onClose={() => setShowHiddenPopup(false)} />
       )}
+
+      <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="organize" />
     </View>
   );
 }
