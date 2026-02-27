@@ -750,14 +750,24 @@ async function syncDropToSupabase(
       clarification_options_count: (payload as any).clarification_options?.length ?? 0,
     });
 
-    const { data, error } = await supabase
-      .from(table)
-      .upsert(payload, { onConflict: 'owner_id,drop_id' })
-      .select()
-      .single();
+    const { data, error } = await supabase.from(table).insert(payload).select().single();
 
     if (error) {
-      console.error('[DropProcessor] Supabase upsert failed:', error);
+      // Handle crash-recovery: row already exists from a prior attempt that
+      // succeeded on Supabase but the app was killed before local dequeue.
+      if (error.code === '23505') {
+        console.warn('[DropProcessor] Duplicate drop detected, fetching existing row', { localId });
+        const { data: existing } = await supabase
+          .from(table)
+          .select('id')
+          .eq('owner_id', payload.owner_id as string)
+          .eq('drop_id', payload.drop_id as string)
+          .single();
+        if (existing) {
+          return { success: true, supabaseId: existing.id, entityType };
+        }
+      }
+      console.error('[DropProcessor] Supabase insert failed:', error);
       return { success: false, error };
     }
 
@@ -844,13 +854,25 @@ async function syncMultiDropToSupabase(drop: QueuedDrop): Promise<SyncResult> {
       updated_at: now,
     };
 
-    const { data, error } = await supabase
-      .from('notes')
-      .upsert(payload, { onConflict: 'owner_id,drop_id' })
-      .select()
-      .single();
+    const { data, error } = await supabase.from('notes').insert(payload).select().single();
 
     if (error) {
+      // Handle crash-recovery: row already exists from a prior attempt that
+      // succeeded on Supabase but the app was killed before local dequeue.
+      if (error.code === '23505') {
+        console.warn('[DropProcessor] Duplicate multi-drop detected, fetching existing row', {
+          localId,
+        });
+        const { data: existing } = await supabase
+          .from('notes')
+          .select('id')
+          .eq('owner_id', payload.owner_id as string)
+          .eq('drop_id', payload.drop_id as string)
+          .single();
+        if (existing) {
+          return { success: true, supabaseId: existing.id, entityType: 'note' };
+        }
+      }
       console.error('[DropProcessor] Multi-drop sync failed:', error);
       return { success: false, error };
     }

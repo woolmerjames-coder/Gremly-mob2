@@ -122,7 +122,7 @@ const SPEECH_POOLS = {
     ],
   },
 
-  SUCCESS_HIGH_CONFIDENCE: {
+  SUCCESS: {
     todo_with_date: [
       'Locked in for {date}. One less thing to hold.',
       '{date} — handled. Let it go.',
@@ -188,7 +188,7 @@ const SPEECH_POOLS = {
     'Brain dump complete. Sorting can wait.',
   ],
 
-  STREAKS: {
+  MILESTONES: {
     3: [
       'Three in a row. That\u2019s a rhythm.',
       'Look at you go. That\u2019s three.',
