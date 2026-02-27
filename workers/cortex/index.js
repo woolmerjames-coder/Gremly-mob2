@@ -360,10 +360,14 @@ function mapPreparseToClassification(preparse) {
     return { needsPhase1: false, bucket: 'log', subtype: 'general', habitSubtype: null };
   }
 
-  // Leading imperative verb is a strong todo signal even if frame_type disagrees
+  // Leading imperative verb is a strong todo signal even if frame_type disagrees.
+  // BUT: if frequency signals are present, skip this fast-path so the frequency
+  // check below can route to Phase 1 for habit verification.
   if (preparse.verb_position === 'start' && preparse.action_target !== 'other_person') {
     if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
-      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+      if (!preparse.frequency_present && !preparse.frequency_type) {
+        return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+      }
     }
   }
 
@@ -821,6 +825,20 @@ Only uncertainty about WHETHER to act at all removes it from TODO.
 
 If signals genuinely conflict with equal weight, return AMBIGUOUS.`;
 
+    case 'frequency_detected_needs_habit_verification':
+      return `Pre-parse detected frequency or cessation signals alongside a leading action verb. A leading verb does NOT override frequency — the verb describes the action content while frequency determines the entity type.
+
+Apply THE HABIT GATE — all three tests must pass for HABIT classification:
+
+1. WHO REPEATS: Is the user personally performing the recurring action? If they are building, configuring, or scheduling something external (a system, a project, a deliverable), that is a TODO regardless of frequency language.
+
+2. WHAT RECURS: Does the frequency language attach to the user's own behavior? Recurrence in the action the user takes → HABIT. Recurrence in an output, event, or external process → TODO.
+
+3. IS THERE CONCRETE TIMING: Either explicit recurrence schedules (daily, weekly, every morning) or cessation language (stop, quit, give up) count as concrete frequency signals. Vague aspirational language without temporal anchoring does not.
+
+If all three pass → HABIT. Use subtype "start_habit" for building new behaviors, "break_habit" for stopping or quitting existing behaviors.
+If any test fails → TODO. The frequency language is incidental, not definitional.`;
+
     case 'exploring_frame':
       return `Pre-parse detected "exploring" frame, but this signal is unreliable.
 
@@ -902,7 +920,7 @@ These pre-phase facts are strong classification signals. Do not ignore them:
 - frame_type: "exploring" → Usually LOG/idea UNLESS verb_position is "start". When the input opens with a bare imperative verb (no subject, no hedging), the grammatical form is a command, not exploration. The user may be exploring a TOPIC, but they are DIRECTING themselves to do so. If verb_position is "start" and core_verb is present, classify as TODO.
 - frame_type: "factual" → Almost always LOG/general. User is stating facts.
 - frame_type: "directing" with uncertainty only on "object_details" → Almost always TODO. User knows WHAT, fuzzy on details.
-- verb_position: "start" with core_verb present → Strong TODO signal regardless of frame_type. Imperative grammatical form expresses commitment to act. Only exception: uncertainty_target is "verb" (user unsure WHETHER to act).
+- verb_position: "start" with core_verb present → Strong TODO signal regardless of frame_type. Imperative grammatical form expresses commitment to act. Only exception: uncertainty_target is "verb" (user unsure WHETHER to act). CRITICAL EXCEPTION: When frequency_present is true OR frequency_type is "stop_quit", the verb signal does NOT override — apply the HABIT GATE instead. Frequency and cessation signals take precedence over verb position for classification.
 
 Only return AMBIGUOUS if these signals conflict or are absent.
 

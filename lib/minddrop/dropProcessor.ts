@@ -750,10 +750,14 @@ async function syncDropToSupabase(
       clarification_options_count: (payload as any).clarification_options?.length ?? 0,
     });
 
-    const { data, error } = await supabase.from(table).insert(payload).select().single();
+    const { data, error } = await supabase
+      .from(table)
+      .upsert(payload, { onConflict: 'owner_id,drop_id' })
+      .select()
+      .single();
 
     if (error) {
-      console.error('[DropProcessor] Supabase insert failed:', error);
+      console.error('[DropProcessor] Supabase upsert failed:', error);
       return { success: false, error };
     }
 
@@ -840,7 +844,11 @@ async function syncMultiDropToSupabase(drop: QueuedDrop): Promise<SyncResult> {
       updated_at: now,
     };
 
-    const { data, error } = await supabase.from('notes').insert(payload).select().single();
+    const { data, error } = await supabase
+      .from('notes')
+      .upsert(payload, { onConflict: 'owner_id,drop_id' })
+      .select()
+      .single();
 
     if (error) {
       console.error('[DropProcessor] Multi-drop sync failed:', error);
@@ -867,237 +875,516 @@ async function syncMultiDropToSupabase(drop: QueuedDrop): Promise<SyncResult> {
 
 // --- Main: Process a single drop ---
 
+const processingLocks = new Set<string>();
+
 export async function processDrop(
   drop: QueuedDrop,
   callbacks?: ProcessingCallbacks,
 ): Promise<{ success: boolean; supabaseId?: string; error?: Error }> {
   const { localId, text } = drop;
+
+  if (processingLocks.has(localId)) {
+    console.log('[DropProcessor] Already processing, skipping duplicate', { localId });
+    return { success: false, error: new Error('Already processing') };
+  }
+  processingLocks.add(localId);
+
   const startTime = Date.now();
 
   console.log('[DropProcessor] Processing drop', { localId, textPreview: text.substring(0, 30) });
 
   try {
-    // =========================================
-    // GATE: Check if multi detection needed
-    // =========================================
-    const shouldCheckMulti = mightBeMulti(text);
+    try {
+      // =========================================
+      // GATE: Check if multi detection needed
+      // =========================================
+      const shouldCheckMulti = mightBeMulti(text);
 
-    console.log('[DropProcessor] Gate check', {
-      localId,
-      shouldCheckMulti,
-      elapsed: Date.now() - startTime,
-    });
-
-    // =========================================
-    // PARALLEL EXECUTION: Multi + Pre-phase
-    // =========================================
-
-    let multiResult: {
-      is_multi: boolean;
-      segments?: { text: string; likely_bucket?: string; likely_subtype?: string }[];
-      summary?: string;
-      dominant_bucket?: string;
-      dominant_subtype?: string;
-    } = { is_multi: false };
-    let phase1Result: Awaited<ReturnType<typeof runPhase1>>;
-
-    if (shouldCheckMulti) {
-      // Run multi detection AND pre-phase in parallel
-      const [multiRes, phase1Res] = await Promise.all([
-        detectMulti(text),
-        runPhase1(text, { hasAttachments: false }),
-      ]);
-
-      multiResult = multiRes;
-      phase1Result = phase1Res;
-
-      console.log('[DropProcessor] Parallel complete', {
+      console.log('[DropProcessor] Gate check', {
         localId,
-        isMulti: multiResult.is_multi,
-        bucket: phase1Result.bucket,
-        elapsed: Date.now() - startTime,
-      });
-    } else {
-      // No delimiters - skip multi, just run pre-phase
-      phase1Result = await runPhase1(text, { hasAttachments: false });
-
-      console.log('[DropProcessor] Pre-phase only (no delimiters)', {
-        localId,
-        bucket: phase1Result.bucket,
-        elapsed: Date.now() - startTime,
-      });
-    }
-
-    // =========================================
-    // MULTI PATH: If multi detected
-    // =========================================
-    if (multiResult.is_multi && multiResult.segments && multiResult.segments.length > 1) {
-      console.log('[DropProcessor] Multi-entity detected', {
-        localId,
-        segmentCount: multiResult.segments.length,
-      });
-
-      // Build initial segments with Phase 0 data (likelyBucket before Phase 1 confirmation)
-      const initialSegments = multiResult.segments.map((seg) => ({
-        text: seg.text,
-        bucket: (seg.likely_bucket || 'log') as 'todo' | 'habit' | 'log',
-        subtype: (seg.likely_subtype || null) as 'journal' | 'idea' | 'event' | 'general' | null,
-        likelyBucket: seg.likely_bucket,
-        likelySubtype: seg.likely_subtype,
-        confirmed: false, // Not yet confirmed by Phase 1
-      }));
-
-      // IMMEDIATELY update Zustand with ALL multi-card info so UI shows multi-shape right away
-      // This happens at ~700ms when Phase 0 returns
-      useGremlyStore.getState().updatePendingDropEnrichment(localId, {
-        isMulti: true,
-        multiSegments: initialSegments,
-        multiSummary: multiResult.summary || text.substring(0, 60),
-        dominantBucket: (multiResult.dominant_bucket || 'log') as 'todo' | 'habit' | 'log',
-        dominantSubtype: (multiResult.dominant_subtype || null) as
-          | 'journal'
-          | 'idea'
-          | 'event'
-          | 'general'
-          | null,
-        status: 'classifying', // Still classifying segments
-      });
-
-      console.log('[DropProcessor] Multi-drop Zustand update complete', {
-        localId,
-        elapsed: Date.now() - startTime,
-        segmentCount: initialSegments.length,
-      });
-
-      // Fire callback IMMEDIATELY so UI knows this is multi (~700ms)
-      callbacks?.onPhase0Complete?.(localId, true);
-
-      console.log('[DropProcessor] Phase 0 complete callback fired (multi)', {
-        localId,
+        shouldCheckMulti,
         elapsed: Date.now() - startTime,
       });
 
-      // THEN run Phase 1 on each segment for accurate classification (async, ~2s more)
-      const classifiedSegments = await Promise.all(
-        multiResult.segments.map(async (seg, index) => {
-          const segmentStartTime = Date.now();
-          console.log('[DropProcessor:MultiPhase1] Starting segment', {
-            localId,
-            index,
-            text: seg.text.substring(0, 30),
-          });
+      // =========================================
+      // PARALLEL EXECUTION: Multi + Pre-phase
+      // =========================================
 
-          let phase1;
-          let phase15a: { smart_title: string | null; confirmation_message: string | null } | null =
-            null;
-          try {
-            phase1 = await runPhase1(seg.text, { hasAttachments: false });
+      let multiResult: {
+        is_multi: boolean;
+        segments?: { text: string; likely_bucket?: string; likely_subtype?: string }[];
+        summary?: string;
+        dominant_bucket?: string;
+        dominant_subtype?: string;
+      } = { is_multi: false };
+      let phase1Result: Awaited<ReturnType<typeof runPhase1>>;
 
-            // Get title and confirmation from Phase 1.5a (Phase 1 no longer returns these)
-            phase15a = await runPhase1_5a(seg.text, phase1.bucket, phase1.subtype);
-          } catch (err) {
-            console.error('[DropProcessor:MultiPhase1] Segment Phase1 failed', {
+      if (shouldCheckMulti) {
+        // Run multi detection AND pre-phase in parallel
+        const [multiRes, phase1Res] = await Promise.all([
+          detectMulti(text),
+          runPhase1(text, { hasAttachments: false }),
+        ]);
+
+        multiResult = multiRes;
+        phase1Result = phase1Res;
+
+        console.log('[DropProcessor] Parallel complete', {
+          localId,
+          isMulti: multiResult.is_multi,
+          bucket: phase1Result.bucket,
+          elapsed: Date.now() - startTime,
+        });
+      } else {
+        // No delimiters - skip multi, just run pre-phase
+        phase1Result = await runPhase1(text, { hasAttachments: false });
+
+        console.log('[DropProcessor] Pre-phase only (no delimiters)', {
+          localId,
+          bucket: phase1Result.bucket,
+          elapsed: Date.now() - startTime,
+        });
+      }
+
+      // =========================================
+      // MULTI PATH: If multi detected
+      // =========================================
+      if (multiResult.is_multi && multiResult.segments && multiResult.segments.length > 1) {
+        console.log('[DropProcessor] Multi-entity detected', {
+          localId,
+          segmentCount: multiResult.segments.length,
+        });
+
+        // Build initial segments with Phase 0 data (likelyBucket before Phase 1 confirmation)
+        const initialSegments = multiResult.segments.map((seg) => ({
+          text: seg.text,
+          bucket: (seg.likely_bucket || 'log') as 'todo' | 'habit' | 'log',
+          subtype: (seg.likely_subtype || null) as 'journal' | 'idea' | 'event' | 'general' | null,
+          likelyBucket: seg.likely_bucket,
+          likelySubtype: seg.likely_subtype,
+          confirmed: false, // Not yet confirmed by Phase 1
+        }));
+
+        // IMMEDIATELY update Zustand with ALL multi-card info so UI shows multi-shape right away
+        // This happens at ~700ms when Phase 0 returns
+        useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+          isMulti: true,
+          multiSegments: initialSegments,
+          multiSummary: multiResult.summary || text.substring(0, 60),
+          dominantBucket: (multiResult.dominant_bucket || 'log') as 'todo' | 'habit' | 'log',
+          dominantSubtype: (multiResult.dominant_subtype || null) as
+            | 'journal'
+            | 'idea'
+            | 'event'
+            | 'general'
+            | null,
+          status: 'classifying', // Still classifying segments
+        });
+
+        console.log('[DropProcessor] Multi-drop Zustand update complete', {
+          localId,
+          elapsed: Date.now() - startTime,
+          segmentCount: initialSegments.length,
+        });
+
+        // Fire callback IMMEDIATELY so UI knows this is multi (~700ms)
+        callbacks?.onPhase0Complete?.(localId, true);
+
+        console.log('[DropProcessor] Phase 0 complete callback fired (multi)', {
+          localId,
+          elapsed: Date.now() - startTime,
+        });
+
+        // THEN run Phase 1 on each segment for accurate classification (async, ~2s more)
+        const classifiedSegments = await Promise.all(
+          multiResult.segments.map(async (seg, index) => {
+            const segmentStartTime = Date.now();
+            console.log('[DropProcessor:MultiPhase1] Starting segment', {
               localId,
               index,
-              error: String(err),
+              text: seg.text.substring(0, 30),
+            });
+
+            let phase1;
+            let phase15a: {
+              smart_title: string | null;
+              confirmation_message: string | null;
+            } | null = null;
+            try {
+              phase1 = await runPhase1(seg.text, { hasAttachments: false });
+
+              // Get title and confirmation from Phase 1.5a (Phase 1 no longer returns these)
+              phase15a = await runPhase1_5a(seg.text, phase1.bucket, phase1.subtype);
+            } catch (err) {
+              console.error('[DropProcessor:MultiPhase1] Segment Phase1 failed', {
+                localId,
+                index,
+                error: String(err),
+                elapsed: Date.now() - segmentStartTime,
+              });
+              // Return a fallback instead of throwing
+              phase1 = {
+                bucket: (seg.likely_bucket || 'log') as 'todo' | 'habit' | 'log',
+                subtype: (seg.likely_subtype || null) as
+                  | 'journal'
+                  | 'idea'
+                  | 'event'
+                  | 'general'
+                  | null,
+                habitSubtype: null,
+                smart_title: null,
+                confirmation_message: null,
+              };
+            }
+
+            // Use Phase 1.5a results if available, otherwise fallback to Phase 1
+            const smartTitle = phase15a?.smart_title ?? phase1.smart_title ?? null;
+            const confirmationMessage =
+              phase15a?.confirmation_message ?? phase1.confirmation_message ?? null;
+
+            console.log('[DropProcessor:MultiPhase1] Segment complete', {
+              localId,
+              index,
+              bucket: phase1.bucket,
+              smartTitle: smartTitle?.substring(0, 20),
               elapsed: Date.now() - segmentStartTime,
             });
-            // Return a fallback instead of throwing
-            phase1 = {
-              bucket: (seg.likely_bucket || 'log') as 'todo' | 'habit' | 'log',
-              subtype: (seg.likely_subtype || null) as
-                | 'journal'
-                | 'idea'
-                | 'event'
-                | 'general'
-                | null,
-              habitSubtype: null,
-              smart_title: null,
-              confirmation_message: null,
-            };
-          }
 
-          // Use Phase 1.5a results if available, otherwise fallback to Phase 1
-          const smartTitle = phase15a?.smart_title ?? phase1.smart_title ?? null;
-          const confirmationMessage =
-            phase15a?.confirmation_message ?? phase1.confirmation_message ?? null;
+            // Update this segment in Zustand as Phase 1 confirms it
+            // Use atomic updateMultiSegment to avoid race conditions with parallel updates
+            try {
+              useGremlyStore.getState().updateMultiSegment(localId, index, {
+                bucket: phase1.bucket,
+                subtype: phase1.subtype,
+                confirmed: true, // Now confirmed by Phase 1
+                smartTitle: smartTitle,
+                confirmationMessage: confirmationMessage,
+              });
+              console.log('[DropProcessor:MultiPhase1] Zustand updated for segment', {
+                localId,
+                index,
+                confirmed: true,
+              });
+            } catch (storeErr) {
+              console.error('[DropProcessor:MultiPhase1] Zustand update failed', {
+                localId,
+                index,
+                error: String(storeErr),
+              });
+            }
 
-          console.log('[DropProcessor:MultiPhase1] Segment complete', {
-            localId,
-            index,
-            bucket: phase1.bucket,
-            smartTitle: smartTitle?.substring(0, 20),
-            elapsed: Date.now() - segmentStartTime,
-          });
-
-          // Update this segment in Zustand as Phase 1 confirms it
-          // Use atomic updateMultiSegment to avoid race conditions with parallel updates
-          try {
-            useGremlyStore.getState().updateMultiSegment(localId, index, {
+            return {
+              text: seg.text,
               bucket: phase1.bucket,
               subtype: phase1.subtype,
-              confirmed: true, // Now confirmed by Phase 1
-              smartTitle: smartTitle,
-              confirmationMessage: confirmationMessage,
-            });
-            console.log('[DropProcessor:MultiPhase1] Zustand updated for segment', {
-              localId,
-              index,
-              confirmed: true,
-            });
-          } catch (storeErr) {
-            console.error('[DropProcessor:MultiPhase1] Zustand update failed', {
-              localId,
-              index,
-              error: String(storeErr),
-            });
-          }
+              habitSubtype: phase1.habitSubtype,
+              // Use Phase 1.5a's smart_title and confirmation_message
+              smart_title: smartTitle,
+              confirmation_message: confirmationMessage,
+            };
+          }),
+        );
 
-          return {
-            text: seg.text,
-            bucket: phase1.bucket,
-            subtype: phase1.subtype,
-            habitSubtype: phase1.habitSubtype,
-            // Use Phase 1.5a's smart_title and confirmation_message
-            smart_title: smartTitle,
-            confirmation_message: confirmationMessage,
-          };
-        }),
-      );
+        console.log('[DropProcessor] Phase 1 segments complete', {
+          localId,
+          elapsed: Date.now() - startTime,
+          segmentTitles: classifiedSegments.map((s) => ({
+            text: s.text.substring(0, 20),
+            smart_title: s.smart_title,
+            confirmation_message: s.confirmation_message?.substring(0, 30),
+          })),
+        });
 
-      console.log('[DropProcessor] Phase 1 segments complete', {
+        // Update status to enriching now that Phase 1 is done
+        useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+          status: 'enriching',
+        });
+
+        // CHECKPOINT 1 (for multi): Save multi-detection results before sync
+        await updateDrop(localId, {
+          isMulti: true,
+          multiSegments: classifiedSegments,
+          multiSummary: multiResult.summary,
+          dominantBucket: multiResult.dominant_bucket as MindDropBucket,
+          dominantSubtype: multiResult.dominant_subtype as LogSubtype | null,
+          status: 'classified', // Clear checkpoint status
+        });
+
+        // Sync multi-drop
+        const syncResult = await syncMultiDropToSupabase({
+          ...drop,
+          multiSegments: classifiedSegments,
+          multiSummary: multiResult.summary,
+          dominantBucket: multiResult.dominant_bucket as MindDropBucket,
+          dominantSubtype: multiResult.dominant_subtype as LogSubtype | null,
+        });
+
+        if (syncResult.success && syncResult.supabaseId) {
+          // Remove from queue entirely instead of marking synced (keeps queue small)
+          await dequeue(localId);
+          useGremlyStore.getState().promotePendingDropToEntity(localId, syncResult.supabaseId);
+          callbacks?.onSyncComplete?.(localId, syncResult.supabaseId);
+
+          console.log('[DropProcessor] Total timing (multi)', {
+            localId,
+            elapsed: Date.now() - startTime,
+          });
+          return { success: true, supabaseId: syncResult.supabaseId };
+        } else {
+          throw syncResult.error || new Error('Multi-drop sync failed');
+        }
+      }
+
+      callbacks?.onPhase0Complete?.(localId, false);
+
+      // =========================================
+      // SINGLE PATH: Use pre-phase result (already computed)
+      // CHECKPOINT 1: Save after Phase 1 (expensive AI work)
+      // =========================================
+
+      console.log('[DropProcessor] Phase 1 complete', {
         localId,
-        elapsed: Date.now() - startTime,
-        segmentTitles: classifiedSegments.map((s) => ({
-          text: s.text.substring(0, 20),
-          smart_title: s.smart_title,
-          confirmation_message: s.confirmation_message?.substring(0, 30),
-        })),
+        bucket: phase1Result.bucket,
+        is_ambiguous: phase1Result.is_ambiguous,
+        ambiguity_reason: phase1Result.ambiguity_reason,
+        latency_ms: Date.now() - startTime,
       });
 
-      // Update status to enriching now that Phase 1 is done
-      useGremlyStore.getState().updatePendingDropEnrichment(localId, {
-        status: 'enriching',
+      // =========================================
+      // UPDATE UI IMMEDIATELY with Phase 1 data
+      // Card can now render with clarify badge if is_ambiguous
+      // =========================================
+
+      // Update Zustand for immediate UI feedback (in-memory, instant)
+      useGremlyStore.getState().updatePendingDropClassification(localId, {
+        bucket: phase1Result.bucket,
+        subtype: phase1Result.subtype,
       });
 
-      // CHECKPOINT 1 (for multi): Save multi-detection results before sync
+      // Push early enrichment AND ambiguity fields to Zustand
+      // This allows:
+      // 1. Clarify badge to appear immediately if is_ambiguous
+      // Title and confirmation message now come from Phase 1.5a
+      const earlyEnrichment: Record<string, unknown> = {};
+      // NEW: Push ambiguity state for immediate UI feedback (clarify badge)
+      if (phase1Result.is_ambiguous) {
+        earlyEnrichment.needs_clarification = true;
+        earlyEnrichment.ambiguity_reason = phase1Result.ambiguity_reason;
+        earlyEnrichment.plausible_interpretations = phase1Result.plausible_interpretations;
+        earlyEnrichment.clarification_resolved = false;
+        // Options will be populated by Phase 1.5 in background
+        earlyEnrichment.clarification_question = null;
+        earlyEnrichment.clarification_options = null;
+      }
+      if (Object.keys(earlyEnrichment).length > 0) {
+        useGremlyStore.getState().updatePendingDropEnrichment(localId, earlyEnrichment);
+      }
+
+      callbacks?.onPhase1Complete?.(localId, phase1Result.bucket);
+
+      // =========================================
+      // PHASE 1.5: Clarification Question Generation
+      // Runs in BACKGROUND if is_ambiguous - does NOT block Phase 2
+      // =========================================
+
+      // Fire and forget - Phase 1.5 runs in background, Phase 2 starts immediately
+      if (phase1Result.is_ambiguous && phase1Result.ambiguity_type) {
+        const spaceNames = Array.from(useGremlyStore.getState().spaces.values()).map((s) => s.name);
+        runPhase1_5InBackground(
+          localId,
+          text,
+          phase1Result.ambiguity_type,
+          phase1Result.bucket,
+          spaceNames,
+          phase1Result.ambiguity_reason,
+          phase1Result.plausible_interpretations,
+        );
+      }
+
+      // CHECKPOINT 1: Save classification results (ambiguity fields saved, options come later)
+      // This is the first save - protects expensive Phase 1 AI work
       await updateDrop(localId, {
-        isMulti: true,
-        multiSegments: classifiedSegments,
-        multiSummary: multiResult.summary,
-        dominantBucket: multiResult.dominant_bucket as MindDropBucket,
-        dominantSubtype: multiResult.dominant_subtype as LogSubtype | null,
+        bucket: phase1Result.bucket,
+        subtype: phase1Result.subtype,
+        habitSubtype: phase1Result.habitSubtype,
+        confidence: phase1Result.confidence,
+        // Title and confirmation now come from Phase 1.5a (after this checkpoint)
+        // Ambiguity detection (Phase 1.5 populates question/options in background)
+        needsClarification: phase1Result.is_ambiguous || false,
+        ambiguityReason: phase1Result.ambiguity_reason || null,
+        plausibleInterpretations: phase1Result.plausible_interpretations || null,
+        // Options will be populated by Phase 1.5 asynchronously
+        clarificationType: null,
+        clarificationQuestion: null,
+        clarificationOptions: null,
         status: 'classified', // Clear checkpoint status
       });
 
-      // Sync multi-drop
-      const syncResult = await syncMultiDropToSupabase({
-        ...drop,
-        multiSegments: classifiedSegments,
-        multiSummary: multiResult.summary,
-        dominantBucket: multiResult.dominant_bucket as MindDropBucket,
-        dominantSubtype: multiResult.dominant_subtype as LogSubtype | null,
+      console.log('[DropQueue] Updated drop with classification', {
+        localId,
+        bucket: phase1Result.bucket,
+        is_ambiguous: phase1Result.is_ambiguous,
+        ambiguity_reason: phase1Result.ambiguity_reason,
       });
+
+      // =========================================
+      // PHASE 1.5a: Title + Confirmation Message
+      // Runs for non-ambiguous items BEFORE Phase 2
+      // =========================================
+
+      let phase15aResult = null;
+
+      if (!phase1Result.is_ambiguous) {
+        phase15aResult = await runPhase1_5a(text, phase1Result.bucket, phase1Result.subtype);
+        console.log('[DropProcessor] Phase 1.5a timing', {
+          localId,
+          elapsed: Date.now() - startTime,
+        });
+
+        // Update Zustand with title + confirmation for immediate typewriter animation
+        // CRITICAL: Set minddrop_stage to 'streaming' to trigger card reveal
+        if (phase15aResult) {
+          useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+            smartTitle: phase15aResult.smart_title || undefined,
+            confirmationMessage: phase15aResult.confirmation_message || undefined,
+            minddrop_stage: 'streaming', // Triggers card reveal animation
+          });
+
+          console.log('🔵 [DropProcessor] Phase 1.5a: Updated Zustand with streaming state', {
+            localId,
+            smartTitle: phase15aResult.smart_title?.substring(0, 30),
+            minddrop_stage: 'streaming',
+            timestamp: Date.now(),
+          });
+
+          // CRITICAL: Yield to the event loop so React can render the 'streaming' state
+          // before Phase 2 starts. Without this, React batches all updates and only
+          // renders once after Phase 2 completes, missing the typewriter animation.
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      }
+
+      // =========================================
+      // PHASE 2: Enrichment (non-streaming)
+      // SKIP for ambiguous items - Phase 2 will run after clarification
+      // =========================================
+
+      let enrichmentResult = null;
+      let phase2bRes: Phase2bResult | null = null;
+
+      if (phase1Result.is_ambiguous) {
+        console.log(
+          '[DropProcessor] Skipping Phase 2 for ambiguous item - will run after clarification',
+          {
+            localId,
+            ambiguity_reason: phase1Result.ambiguity_reason,
+          },
+        );
+        // Don't run Phase 2 yet - it will run after user clarifies
+        // The card will show without metadata chips until then
+      } else {
+        // Phase 2 + Phase 2b in parallel (2b only fires if heuristic says reminder likely)
+        const shouldCheck2b = phase1Result.reminder_intent === true;
+        const [enrichmentRes, phase2bLocal] = await Promise.all([
+          runPhase2(text, phase1Result.bucket, phase1Result.subtype),
+          shouldCheck2b
+            ? runPhase2b(text, phase1Result.bucket, phase1Result.subtype)
+            : Promise.resolve(null),
+        ]);
+        enrichmentResult = enrichmentRes;
+        phase2bRes = phase2bLocal;
+
+        if (shouldCheck2b) {
+          console.log('[DropProcessor] Phase 2b result', {
+            localId,
+            auto_reminder: phase2bRes?.auto_reminder,
+            reminder_date: phase2bRes?.reminder_date,
+            reminder_time: phase2bRes?.reminder_time,
+          });
+        }
+        console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
+      }
+
+      // Update Zustand with ALL metadata fields (time estimate, tags, frequency, people, etc.)
+      // CRITICAL: Set status to 'enriched' so UI knows ALL chip data is ready
+      // This triggers the unified chip animation in Row3Chips
+      if (enrichmentResult) {
+        console.log('🟠 [DropProcessor] Phase 2 complete - updating Zustand', {
+          localId,
+          time_estimate: enrichmentResult.time_estimate_minutes,
+          people: enrichmentResult.people,
+          tags: enrichmentResult.tags,
+          target_date: enrichmentResult.target_date,
+        });
+        useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+          status: 'enriched', // CRITICAL: Mark as fully enriched for chip animation
+          tags: enrichmentResult.tags,
+          timeEstimateMinutes: enrichmentResult.time_estimate_minutes,
+          timeWindow: enrichmentResult.time_window,
+          extractedDate: enrichmentResult.extracted_date, // For deadline chip
+          extractedFrequency: enrichmentResult.extracted_frequency,
+          extractedDays: enrichmentResult.extracted_days,
+          people: enrichmentResult.people, // Include people for chip rendering
+          mood: enrichmentResult.mood, // Include mood for journal chip rendering
+          // Date Intelligence fields (snake_case to match PendingDrop interface)
+          target_date: enrichmentResult.target_date,
+          scheduled_date: enrichmentResult.scheduled_date,
+          event_time: enrichmentResult.event_time,
+          date_type_ambiguous: enrichmentResult.date_type_ambiguous,
+        });
+      }
+
+      // CHECKPOINT 2: Save ALL enrichment results in ONE write
+      // Note: smart_title and confirmation_message already saved with Phase 1
+      if (enrichmentResult) {
+        await updateDrop(localId, {
+          tags: enrichmentResult.tags,
+          timeEstimateMinutes: enrichmentResult.time_estimate_minutes,
+          timeWindow: enrichmentResult.time_window,
+          extractedDate: enrichmentResult.extracted_date,
+          extractedStartDate: enrichmentResult.extracted_start_date,
+          extractedFrequency: enrichmentResult.extracted_frequency,
+          extractedDays: enrichmentResult.extracted_days,
+          people: enrichmentResult.people,
+          mood: enrichmentResult.mood,
+          status: 'enriched', // Clear checkpoint status
+          // Date Intelligence fields
+          targetDate: enrichmentResult.target_date,
+          scheduledDate: enrichmentResult.scheduled_date,
+          eventTime: enrichmentResult.event_time,
+          dateTypeAmbiguous: enrichmentResult.date_type_ambiguous,
+        });
+      }
+
+      callbacks?.onPhase2Complete?.(localId);
+
+      // =========================================
+      // SYNC: Write to Supabase
+      // NO separate 'syncing' status save (not needed)
+      // =========================================
+
+      const syncResult = await syncDropToSupabase(
+        {
+          ...drop,
+          bucket: phase1Result.bucket,
+          subtype: phase1Result.subtype,
+          habitSubtype: phase1Result.habitSubtype,
+          // Include Phase 1.5a smart title and confirmation message (NOT Phase 1)
+          smartTitle: phase15aResult?.smart_title ?? undefined,
+          confirmationMessage: phase15aResult?.confirmation_message ?? undefined,
+          // Include ambiguity detection from Phase 1
+          // Note: question/options may still be loading from Phase 1.5 background task
+          needsClarification: phase1Result.is_ambiguous || false,
+          ambiguityReason: phase1Result.ambiguity_reason || null,
+          plausibleInterpretations: phase1Result.plausible_interpretations || null,
+          // Get latest clarification data from Zustand (Phase 1.5 may have updated it)
+          clarificationQuestion:
+            useGremlyStore.getState().pendingDrops.get(localId)?.clarification_question || null,
+          clarificationOptions:
+            useGremlyStore.getState().pendingDrops.get(localId)?.clarification_options || null,
+        },
+        enrichmentResult,
+      );
 
       if (syncResult.success && syncResult.supabaseId) {
         // Remove from queue entirely instead of marking synced (keeps queue small)
@@ -1105,424 +1392,163 @@ export async function processDrop(
         useGremlyStore.getState().promotePendingDropToEntity(localId, syncResult.supabaseId);
         callbacks?.onSyncComplete?.(localId, syncResult.supabaseId);
 
-        console.log('[DropProcessor] Total timing (multi)', {
+        // === Phase 5: Auto-reminder scheduling (fire-and-forget) ===
+        if (phase2bRes?.auto_reminder && syncResult.entityType) {
+          const entityType = syncResult.entityType;
+          const entityId = syncResult.supabaseId!;
+
+          // Skip external calendar events
+          const isExternalEvent =
+            entityType === 'note' &&
+            useGremlyStore.getState().notes.find((n) => n.id === entityId)?.external_source != null;
+
+          if (!isExternalEvent) {
+            const itemTitle = phase15aResult?.smart_title || text.substring(0, 60);
+            const reminderEntityType: 'todo' | 'habit' = entityType === 'habit' ? 'habit' : 'todo';
+
+            // Build reminder from Phase 2b data
+            const frequency =
+              phase2bRes.reminder_frequency === 'daily' ? ('daily' as const) : ('once' as const);
+            const hasDate = !!phase2bRes.reminder_date;
+
+            const reminderToSave: ItemReminder = hasDate
+              ? {
+                  id: `auto-${Date.now()}`,
+                  time: phase2bRes.reminder_time || '09:00',
+                  frequency,
+                  date: frequency === 'once' ? phase2bRes.reminder_date! : undefined,
+                }
+              : {
+                  // No date — quick 2-hour reminder
+                  id: `auto-quick-${Date.now()}`,
+                  time: new Date(Date.now() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5),
+                  frequency: 'once' as const,
+                  date: dateService.today(),
+                };
+
+            // Step 1: Persist to Supabase immediately
+            const table =
+              entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
+            supabase
+              .from(table)
+              .update({ reminders_json: [reminderToSave], updated_at: new Date().toISOString() })
+              .eq('id', entityId)
+              .then(
+                () => console.log('[DropProcessor] Auto-reminder persisted', { entityId }),
+                (err: unknown) =>
+                  console.warn('[DropProcessor] Auto-reminder persist failed', {
+                    error: String(err),
+                  }),
+              );
+
+            // Step 2: Update Zustand immediately so bell chip renders
+            if (entityType === 'todo') {
+              useGremlyStore.setState((state) => ({
+                todos: state.todos.map((t) =>
+                  t.id === entityId ? { ...t, reminders: [reminderToSave] } : t,
+                ),
+              }));
+            } else if (entityType === 'habit') {
+              useGremlyStore.setState((state) => ({
+                habits: state.habits.map((h) =>
+                  h.id === entityId ? { ...h, reminders: [reminderToSave] } : h,
+                ),
+              }));
+            } else if (entityType === 'note') {
+              useGremlyStore.setState((state) => ({
+                notes: state.notes.map((n) =>
+                  n.id === entityId ? { ...n, reminders: [reminderToSave] } : n,
+                ),
+              }));
+            }
+
+            console.log('[DropProcessor] Auto-reminder saved', {
+              localId,
+              entityId,
+              date: reminderToSave.date,
+              time: reminderToSave.time,
+              frequency: reminderToSave.frequency,
+            });
+
+            // Step 3: Schedule OS notification (best-effort, doesn't block UI)
+            const schedulePromise = hasDate
+              ? scheduleItemReminder(entityId, itemTitle, reminderEntityType, reminderToSave)
+              : scheduleQuickReminder(entityId, itemTitle, reminderEntityType, 2 * 60 * 60);
+
+            schedulePromise
+              .then((notificationId) => {
+                if (notificationId) {
+                  const updatedReminder = { ...reminderToSave, notificationId };
+                  supabase
+                    .from(table)
+                    .update({
+                      reminders_json: [updatedReminder],
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', entityId)
+                    .then(
+                      () => {},
+                      () => {},
+                    );
+
+                  if (entityType === 'todo') {
+                    useGremlyStore.setState((state) => ({
+                      todos: state.todos.map((t) =>
+                        t.id === entityId ? { ...t, reminders: [updatedReminder] } : t,
+                      ),
+                    }));
+                  } else if (entityType === 'habit') {
+                    useGremlyStore.setState((state) => ({
+                      habits: state.habits.map((h) =>
+                        h.id === entityId ? { ...h, reminders: [updatedReminder] } : h,
+                      ),
+                    }));
+                  } else if (entityType === 'note') {
+                    useGremlyStore.setState((state) => ({
+                      notes: state.notes.map((n) =>
+                        n.id === entityId ? { ...n, reminders: [updatedReminder] } : n,
+                      ),
+                    }));
+                  }
+                  console.log('[DropProcessor] OS notification linked', {
+                    entityId,
+                    notificationId,
+                  });
+
+                  // Check if permissions aren't granted yet — prompt contextually
+                  hasNotificationPermission().then((hasPerm) => {
+                    if (!hasPerm) {
+                      eventBus.emit('notification:permission_prompt', { context: 'reminder' });
+                    }
+                  });
+                }
+              })
+              .catch((err: unknown) => {
+                console.warn('[DropProcessor] OS notification failed (reminder still saved)', {
+                  localId,
+                  error: String(err),
+                });
+              });
+          }
+        }
+
+        console.log('[DropProcessor] Sync timing', {
           localId,
           elapsed: Date.now() - startTime,
+          total: Date.now() - startTime,
         });
         return { success: true, supabaseId: syncResult.supabaseId };
       } else {
-        throw syncResult.error || new Error('Multi-drop sync failed');
+        throw syncResult.error || new Error('Sync failed');
       }
+    } catch (error) {
+      console.error('[DropProcessor] Processing failed', { localId, error });
+      await markFailed(localId);
+      callbacks?.onError?.(localId, error as Error);
+      return { success: false, error: error as Error };
     }
-
-    callbacks?.onPhase0Complete?.(localId, false);
-
-    // =========================================
-    // SINGLE PATH: Use pre-phase result (already computed)
-    // CHECKPOINT 1: Save after Phase 1 (expensive AI work)
-    // =========================================
-
-    console.log('[DropProcessor] Phase 1 complete', {
-      localId,
-      bucket: phase1Result.bucket,
-      is_ambiguous: phase1Result.is_ambiguous,
-      ambiguity_reason: phase1Result.ambiguity_reason,
-      latency_ms: Date.now() - startTime,
-    });
-
-    // =========================================
-    // UPDATE UI IMMEDIATELY with Phase 1 data
-    // Card can now render with clarify badge if is_ambiguous
-    // =========================================
-
-    // Update Zustand for immediate UI feedback (in-memory, instant)
-    useGremlyStore.getState().updatePendingDropClassification(localId, {
-      bucket: phase1Result.bucket,
-      subtype: phase1Result.subtype,
-    });
-
-    // Push early enrichment AND ambiguity fields to Zustand
-    // This allows:
-    // 1. Clarify badge to appear immediately if is_ambiguous
-    // Title and confirmation message now come from Phase 1.5a
-    const earlyEnrichment: Record<string, unknown> = {};
-    // NEW: Push ambiguity state for immediate UI feedback (clarify badge)
-    if (phase1Result.is_ambiguous) {
-      earlyEnrichment.needs_clarification = true;
-      earlyEnrichment.ambiguity_reason = phase1Result.ambiguity_reason;
-      earlyEnrichment.plausible_interpretations = phase1Result.plausible_interpretations;
-      earlyEnrichment.clarification_resolved = false;
-      // Options will be populated by Phase 1.5 in background
-      earlyEnrichment.clarification_question = null;
-      earlyEnrichment.clarification_options = null;
-    }
-    if (Object.keys(earlyEnrichment).length > 0) {
-      useGremlyStore.getState().updatePendingDropEnrichment(localId, earlyEnrichment);
-    }
-
-    callbacks?.onPhase1Complete?.(localId, phase1Result.bucket);
-
-    // =========================================
-    // PHASE 1.5: Clarification Question Generation
-    // Runs in BACKGROUND if is_ambiguous - does NOT block Phase 2
-    // =========================================
-
-    // Fire and forget - Phase 1.5 runs in background, Phase 2 starts immediately
-    if (phase1Result.is_ambiguous && phase1Result.ambiguity_type) {
-      const spaceNames = Array.from(useGremlyStore.getState().spaces.values()).map((s) => s.name);
-      runPhase1_5InBackground(
-        localId,
-        text,
-        phase1Result.ambiguity_type,
-        phase1Result.bucket,
-        spaceNames,
-        phase1Result.ambiguity_reason,
-        phase1Result.plausible_interpretations,
-      );
-    }
-
-    // CHECKPOINT 1: Save classification results (ambiguity fields saved, options come later)
-    // This is the first save - protects expensive Phase 1 AI work
-    await updateDrop(localId, {
-      bucket: phase1Result.bucket,
-      subtype: phase1Result.subtype,
-      habitSubtype: phase1Result.habitSubtype,
-      confidence: phase1Result.confidence,
-      // Title and confirmation now come from Phase 1.5a (after this checkpoint)
-      // Ambiguity detection (Phase 1.5 populates question/options in background)
-      needsClarification: phase1Result.is_ambiguous || false,
-      ambiguityReason: phase1Result.ambiguity_reason || null,
-      plausibleInterpretations: phase1Result.plausible_interpretations || null,
-      // Options will be populated by Phase 1.5 asynchronously
-      clarificationType: null,
-      clarificationQuestion: null,
-      clarificationOptions: null,
-      status: 'classified', // Clear checkpoint status
-    });
-
-    console.log('[DropQueue] Updated drop with classification', {
-      localId,
-      bucket: phase1Result.bucket,
-      is_ambiguous: phase1Result.is_ambiguous,
-      ambiguity_reason: phase1Result.ambiguity_reason,
-    });
-
-    // =========================================
-    // PHASE 1.5a: Title + Confirmation Message
-    // Runs for non-ambiguous items BEFORE Phase 2
-    // =========================================
-
-    let phase15aResult = null;
-
-    if (!phase1Result.is_ambiguous) {
-      phase15aResult = await runPhase1_5a(text, phase1Result.bucket, phase1Result.subtype);
-      console.log('[DropProcessor] Phase 1.5a timing', {
-        localId,
-        elapsed: Date.now() - startTime,
-      });
-
-      // Update Zustand with title + confirmation for immediate typewriter animation
-      // CRITICAL: Set minddrop_stage to 'streaming' to trigger card reveal
-      if (phase15aResult) {
-        useGremlyStore.getState().updatePendingDropEnrichment(localId, {
-          smartTitle: phase15aResult.smart_title || undefined,
-          confirmationMessage: phase15aResult.confirmation_message || undefined,
-          minddrop_stage: 'streaming', // Triggers card reveal animation
-        });
-
-        console.log('🔵 [DropProcessor] Phase 1.5a: Updated Zustand with streaming state', {
-          localId,
-          smartTitle: phase15aResult.smart_title?.substring(0, 30),
-          minddrop_stage: 'streaming',
-          timestamp: Date.now(),
-        });
-
-        // CRITICAL: Yield to the event loop so React can render the 'streaming' state
-        // before Phase 2 starts. Without this, React batches all updates and only
-        // renders once after Phase 2 completes, missing the typewriter animation.
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      }
-    }
-
-    // =========================================
-    // PHASE 2: Enrichment (non-streaming)
-    // SKIP for ambiguous items - Phase 2 will run after clarification
-    // =========================================
-
-    let enrichmentResult = null;
-    let phase2bRes: Phase2bResult | null = null;
-
-    if (phase1Result.is_ambiguous) {
-      console.log(
-        '[DropProcessor] Skipping Phase 2 for ambiguous item - will run after clarification',
-        {
-          localId,
-          ambiguity_reason: phase1Result.ambiguity_reason,
-        },
-      );
-      // Don't run Phase 2 yet - it will run after user clarifies
-      // The card will show without metadata chips until then
-    } else {
-      // Phase 2 + Phase 2b in parallel (2b only fires if heuristic says reminder likely)
-      const shouldCheck2b = phase1Result.reminder_intent === true;
-      const [enrichmentRes, phase2bLocal] = await Promise.all([
-        runPhase2(text, phase1Result.bucket, phase1Result.subtype),
-        shouldCheck2b
-          ? runPhase2b(text, phase1Result.bucket, phase1Result.subtype)
-          : Promise.resolve(null),
-      ]);
-      enrichmentResult = enrichmentRes;
-      phase2bRes = phase2bLocal;
-
-      if (shouldCheck2b) {
-        console.log('[DropProcessor] Phase 2b result', {
-          localId,
-          auto_reminder: phase2bRes?.auto_reminder,
-          reminder_date: phase2bRes?.reminder_date,
-          reminder_time: phase2bRes?.reminder_time,
-        });
-      }
-      console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
-    }
-
-    // Update Zustand with ALL metadata fields (time estimate, tags, frequency, people, etc.)
-    // CRITICAL: Set status to 'enriched' so UI knows ALL chip data is ready
-    // This triggers the unified chip animation in Row3Chips
-    if (enrichmentResult) {
-      console.log('🟠 [DropProcessor] Phase 2 complete - updating Zustand', {
-        localId,
-        time_estimate: enrichmentResult.time_estimate_minutes,
-        people: enrichmentResult.people,
-        tags: enrichmentResult.tags,
-        target_date: enrichmentResult.target_date,
-      });
-      useGremlyStore.getState().updatePendingDropEnrichment(localId, {
-        status: 'enriched', // CRITICAL: Mark as fully enriched for chip animation
-        tags: enrichmentResult.tags,
-        timeEstimateMinutes: enrichmentResult.time_estimate_minutes,
-        timeWindow: enrichmentResult.time_window,
-        extractedDate: enrichmentResult.extracted_date, // For deadline chip
-        extractedFrequency: enrichmentResult.extracted_frequency,
-        extractedDays: enrichmentResult.extracted_days,
-        people: enrichmentResult.people, // Include people for chip rendering
-        mood: enrichmentResult.mood, // Include mood for journal chip rendering
-        // Date Intelligence fields (snake_case to match PendingDrop interface)
-        target_date: enrichmentResult.target_date,
-        scheduled_date: enrichmentResult.scheduled_date,
-        event_time: enrichmentResult.event_time,
-        date_type_ambiguous: enrichmentResult.date_type_ambiguous,
-      });
-    }
-
-    // CHECKPOINT 2: Save ALL enrichment results in ONE write
-    // Note: smart_title and confirmation_message already saved with Phase 1
-    if (enrichmentResult) {
-      await updateDrop(localId, {
-        tags: enrichmentResult.tags,
-        timeEstimateMinutes: enrichmentResult.time_estimate_minutes,
-        timeWindow: enrichmentResult.time_window,
-        extractedDate: enrichmentResult.extracted_date,
-        extractedStartDate: enrichmentResult.extracted_start_date,
-        extractedFrequency: enrichmentResult.extracted_frequency,
-        extractedDays: enrichmentResult.extracted_days,
-        people: enrichmentResult.people,
-        mood: enrichmentResult.mood,
-        status: 'enriched', // Clear checkpoint status
-        // Date Intelligence fields
-        targetDate: enrichmentResult.target_date,
-        scheduledDate: enrichmentResult.scheduled_date,
-        eventTime: enrichmentResult.event_time,
-        dateTypeAmbiguous: enrichmentResult.date_type_ambiguous,
-      });
-    }
-
-    callbacks?.onPhase2Complete?.(localId);
-
-    // =========================================
-    // SYNC: Write to Supabase
-    // NO separate 'syncing' status save (not needed)
-    // =========================================
-
-    const syncResult = await syncDropToSupabase(
-      {
-        ...drop,
-        bucket: phase1Result.bucket,
-        subtype: phase1Result.subtype,
-        habitSubtype: phase1Result.habitSubtype,
-        // Include Phase 1.5a smart title and confirmation message (NOT Phase 1)
-        smartTitle: phase15aResult?.smart_title ?? undefined,
-        confirmationMessage: phase15aResult?.confirmation_message ?? undefined,
-        // Include ambiguity detection from Phase 1
-        // Note: question/options may still be loading from Phase 1.5 background task
-        needsClarification: phase1Result.is_ambiguous || false,
-        ambiguityReason: phase1Result.ambiguity_reason || null,
-        plausibleInterpretations: phase1Result.plausible_interpretations || null,
-        // Get latest clarification data from Zustand (Phase 1.5 may have updated it)
-        clarificationQuestion:
-          useGremlyStore.getState().pendingDrops.get(localId)?.clarification_question || null,
-        clarificationOptions:
-          useGremlyStore.getState().pendingDrops.get(localId)?.clarification_options || null,
-      },
-      enrichmentResult,
-    );
-
-    if (syncResult.success && syncResult.supabaseId) {
-      // Remove from queue entirely instead of marking synced (keeps queue small)
-      await dequeue(localId);
-      useGremlyStore.getState().promotePendingDropToEntity(localId, syncResult.supabaseId);
-      callbacks?.onSyncComplete?.(localId, syncResult.supabaseId);
-
-      // === Phase 5: Auto-reminder scheduling (fire-and-forget) ===
-      if (phase2bRes?.auto_reminder && syncResult.entityType) {
-        const entityType = syncResult.entityType;
-        const entityId = syncResult.supabaseId!;
-
-        // Skip external calendar events
-        const isExternalEvent =
-          entityType === 'note' &&
-          useGremlyStore.getState().notes.find((n) => n.id === entityId)?.external_source != null;
-
-        if (!isExternalEvent) {
-          const itemTitle = phase15aResult?.smart_title || text.substring(0, 60);
-          const reminderEntityType: 'todo' | 'habit' = entityType === 'habit' ? 'habit' : 'todo';
-
-          // Build reminder from Phase 2b data
-          const frequency =
-            phase2bRes.reminder_frequency === 'daily' ? ('daily' as const) : ('once' as const);
-          const hasDate = !!phase2bRes.reminder_date;
-
-          const reminderToSave: ItemReminder = hasDate
-            ? {
-                id: `auto-${Date.now()}`,
-                time: phase2bRes.reminder_time || '09:00',
-                frequency,
-                date: frequency === 'once' ? phase2bRes.reminder_date! : undefined,
-              }
-            : {
-                // No date — quick 2-hour reminder
-                id: `auto-quick-${Date.now()}`,
-                time: new Date(Date.now() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5),
-                frequency: 'once' as const,
-                date: dateService.today(),
-              };
-
-          // Step 1: Persist to Supabase immediately
-          const table =
-            entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
-          supabase
-            .from(table)
-            .update({ reminders_json: [reminderToSave], updated_at: new Date().toISOString() })
-            .eq('id', entityId)
-            .then(
-              () => console.log('[DropProcessor] Auto-reminder persisted', { entityId }),
-              (err: unknown) =>
-                console.warn('[DropProcessor] Auto-reminder persist failed', {
-                  error: String(err),
-                }),
-            );
-
-          // Step 2: Update Zustand immediately so bell chip renders
-          if (entityType === 'todo') {
-            useGremlyStore.setState((state) => ({
-              todos: state.todos.map((t) =>
-                t.id === entityId ? { ...t, reminders: [reminderToSave] } : t,
-              ),
-            }));
-          } else if (entityType === 'habit') {
-            useGremlyStore.setState((state) => ({
-              habits: state.habits.map((h) =>
-                h.id === entityId ? { ...h, reminders: [reminderToSave] } : h,
-              ),
-            }));
-          } else if (entityType === 'note') {
-            useGremlyStore.setState((state) => ({
-              notes: state.notes.map((n) =>
-                n.id === entityId ? { ...n, reminders: [reminderToSave] } : n,
-              ),
-            }));
-          }
-
-          console.log('[DropProcessor] Auto-reminder saved', {
-            localId,
-            entityId,
-            date: reminderToSave.date,
-            time: reminderToSave.time,
-            frequency: reminderToSave.frequency,
-          });
-
-          // Step 3: Schedule OS notification (best-effort, doesn't block UI)
-          const schedulePromise = hasDate
-            ? scheduleItemReminder(entityId, itemTitle, reminderEntityType, reminderToSave)
-            : scheduleQuickReminder(entityId, itemTitle, reminderEntityType, 2 * 60 * 60);
-
-          schedulePromise
-            .then((notificationId) => {
-              if (notificationId) {
-                const updatedReminder = { ...reminderToSave, notificationId };
-                supabase
-                  .from(table)
-                  .update({
-                    reminders_json: [updatedReminder],
-                    updated_at: new Date().toISOString(),
-                  })
-                  .eq('id', entityId)
-                  .then(
-                    () => {},
-                    () => {},
-                  );
-
-                if (entityType === 'todo') {
-                  useGremlyStore.setState((state) => ({
-                    todos: state.todos.map((t) =>
-                      t.id === entityId ? { ...t, reminders: [updatedReminder] } : t,
-                    ),
-                  }));
-                } else if (entityType === 'habit') {
-                  useGremlyStore.setState((state) => ({
-                    habits: state.habits.map((h) =>
-                      h.id === entityId ? { ...h, reminders: [updatedReminder] } : h,
-                    ),
-                  }));
-                } else if (entityType === 'note') {
-                  useGremlyStore.setState((state) => ({
-                    notes: state.notes.map((n) =>
-                      n.id === entityId ? { ...n, reminders: [updatedReminder] } : n,
-                    ),
-                  }));
-                }
-                console.log('[DropProcessor] OS notification linked', { entityId, notificationId });
-
-                // Check if permissions aren't granted yet — prompt contextually
-                hasNotificationPermission().then((hasPerm) => {
-                  if (!hasPerm) {
-                    eventBus.emit('notification:permission_prompt', { context: 'reminder' });
-                  }
-                });
-              }
-            })
-            .catch((err: unknown) => {
-              console.warn('[DropProcessor] OS notification failed (reminder still saved)', {
-                localId,
-                error: String(err),
-              });
-            });
-        }
-      }
-
-      console.log('[DropProcessor] Sync timing', {
-        localId,
-        elapsed: Date.now() - startTime,
-        total: Date.now() - startTime,
-      });
-      return { success: true, supabaseId: syncResult.supabaseId };
-    } else {
-      throw syncResult.error || new Error('Sync failed');
-    }
-  } catch (error) {
-    console.error('[DropProcessor] Processing failed', { localId, error });
-    await markFailed(localId);
-    callbacks?.onError?.(localId, error as Error);
-    return { success: false, error: error as Error };
+  } finally {
+    processingLocks.delete(localId);
   }
 }
 
