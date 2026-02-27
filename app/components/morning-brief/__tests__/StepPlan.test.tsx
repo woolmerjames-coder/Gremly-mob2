@@ -92,6 +92,7 @@ describe('StepPlan', () => {
     onEventQuickAction: jest.fn(),
     onFreeMinutesCalculated: jest.fn(),
     getSpaceName: jest.fn(() => undefined),
+    calendarEvents: [],
     onConfirm: jest.fn(),
     isLoading: false,
     onBack: jest.fn(),

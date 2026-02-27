@@ -9,6 +9,7 @@ module.exports = [
     ignores: [
       'node_modules/**',
       '.expo/**',
+      '.claude/**',
       'android/**',
       'ios/**',
       'dist/**',

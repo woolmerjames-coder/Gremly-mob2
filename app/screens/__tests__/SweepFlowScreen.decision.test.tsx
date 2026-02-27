@@ -191,6 +191,25 @@ jest.mock('@react-navigation/native', () => {
   };
 });
 
+// Mock OverlayContext — SweepFlowScreen uses useGlobalOverlay
+jest.mock('../../../contexts/OverlayContext', () => {
+  const React = require('react');
+  return {
+    __esModule: true,
+    OverlayProvider: ({ children }: { children: React.ReactNode }) =>
+      React.createElement(React.Fragment, null, children),
+    useGlobalOverlay: () => ({
+      state: { visible: false, mode: 'create', entity: undefined },
+      openCreate: jest.fn(),
+      openEdit: jest.fn(),
+      openView: jest.fn(),
+      close: jest.fn(),
+      openClarificationPopup: jest.fn(),
+      closeClarificationPopup: jest.fn(),
+    }),
+  };
+});
+
 // Mock SweepSectionTransition to auto-dismiss (calls onContinue immediately)
 jest.mock('../../../src/components/sweep/SweepSectionTransition', () => {
   const ReactModule = require('react');

@@ -295,7 +295,7 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
   // Priority 2: Milestones (5 and 10 only)
   if (!message && ctx.dropsToday > 0) {
     const count = ctx.dropsToday;
-    const milestonePool = SPEECH_POOLS.MILESTONES[count];
+    const milestonePool = (SPEECH_POOLS.MILESTONES as Record<number, string[]>)[count];
     if (milestonePool) {
       message = pickRandom(milestonePool, recentMessages);
     }

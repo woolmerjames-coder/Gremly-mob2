@@ -767,12 +767,19 @@ Does this noun inherently imply something needs to be done, or could it equally 
 If only one interpretation makes sense, choose it. If both are genuinely plausible, return AMBIGUOUS with type "bucket".`;
 
     case 'direction_without_schedule':
-      return `This expresses wanting more or less of something, without specifying when or how often.
+      return `This expresses wanting to change a behavior without specifying a concrete schedule.
 
-Apply THE TRACKABILITY TEST:
-Could this appear on a habit tracker with a yes/no checkbox? Can the user answer "did I do this today?" with certainty?
+Apply these two tests IN ORDER:
 
-Without a defined threshold or frequency, there is nothing concrete to track. Return AMBIGUOUS with type "bucket" and let the user clarify whether they want a trackable habit or are noting an intention.`;
+FIRST — THE CESSATION TEST:
+Is the user's desired end state for this behavior ZERO? Can the user answer "did I do this today?" with a yes or no, where the goal answer is "no"?
+If YES: the target is zero, which is concrete and binary. This is trackable. Classify as HABIT with subtype break_habit. Do NOT return AMBIGUOUS.
+
+SECOND — THE TRACKABILITY TEST (only if cessation test fails):
+The user wants more or less of something, but is there any concrete measure of success? Can you draw a line between "done" and "not done" on any given day?
+If NO: there is no threshold to track. Return AMBIGUOUS with type "bucket" and let the user clarify whether they want a trackable habit or are noting an intention.
+
+Key distinction: wanting zero is a concrete, trackable target. Wanting "more" or "less" without a threshold is vague and not trackable. Check for cessation first.`;
 
     case 'hedged_action':
       return `This has an action verb, but uncertainty is on the verb itself.
