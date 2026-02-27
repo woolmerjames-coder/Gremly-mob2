@@ -1,30 +1,49 @@
 /**
- * Gremly Persona — Mode-Based Chat System
+ * Gremly Persona — Mode-Based Chat System (Worker JS version)
  *
- * Single source of truth for Gremly's identity, mode templates,
- * depth/temperature/search configuration, and system prompt assembly.
- *
- * Architecture:
- * - buildSharedIdentity(): Core identity shared by every chat surface
- * - MODE_TEMPLATES: Focused behavioral rules per TriageMode
- * - DEPTH_CONFIG / MODE_TEMP: Token budget and temperature per triage dimension
- * - assembleGenerationConfig(): Combines triage result + context into a ready-to-use config
+ * Identity, mode templates, depth/temperature/search configuration,
+ * and system prompt assembly for the Cloudflare Worker.
  */
 
-import { ChatContext } from './rollingContext';
-import { SpaceContext, formatSpaceContextForPrompt } from './buildSpaceContext';
-import { buildBirthdayContext } from './buildBirthdayContext';
-import type { TriageMode, TriageDepth, TriageSearch, TriageResult } from './triage';
+// ============================================================================
+// BIRTHDAY CONTEXT (inlined from buildBirthdayContext.ts)
+// ============================================================================
+
+function buildBirthdayContext(accountCreatedAt) {
+  const today = new Date();
+  const todayStr = today.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  let context = `=== DATE & RELATIONSHIP ===\n`;
+  context += `Today is ${todayStr}.\n`;
+
+  if (accountCreatedAt) {
+    const birthDate = new Date(accountCreatedAt);
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const daysTogether = Math.floor((today.getTime() - birthDate.getTime()) / msPerDay);
+
+    const birthDateStr = birthDate.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+
+    context += `You were born on ${birthDateStr} (when this user created their account).\n`;
+    context += `You've been companions for ${daysTogether} day${daysTogether === 1 ? '' : 's'}.`;
+  }
+
+  return context;
+}
 
 // ============================================================================
 // SHARED IDENTITY
 // ============================================================================
 
-/**
- * Core identity block shared across every Gremly chat surface.
- * Includes formatting rules, tone constraints, and hard rules.
- */
-export function buildSharedIdentity(currentDate: string): string {
+export function buildSharedIdentity(currentDate) {
   return `You are Gremly — a sharp, warm thinking partner. AI-powered gremlin with real personality. Smart friend who actually listens — not a life coach, not a cheerleader, not a customer service bot.
 
 THIS IS A MOBILE CHAT. Every word earns its place.
@@ -48,7 +67,7 @@ Today is ${currentDate}.`;
 // MODE TEMPLATES
 // ============================================================================
 
-export const MODE_TEMPLATES: Record<TriageMode, string> = {
+export const MODE_TEMPLATES = {
   emotional: `The user is processing something hard. Make them feel HEARD first.
 
 - Open by naming what they're feeling. Specifically. "That freeze-up thing is brutal" not "I understand your frustration."
@@ -172,24 +191,13 @@ When to suggest: clear action items, habits with frequency, reference info worth
 When NOT to suggest: questions, emotional support, short responses, exploratory conversation.
 Rules: type is "todo", "habit", or "note". Title is 2-6 words, action-oriented. Steps max 8. JSON must be valid.`;
 
-const SAVEABLE_MODES: TriageMode[] = [
-  'action_ready',
-  'prioritization',
-  'research',
-  'comparison',
-  'capture',
-];
+const SAVEABLE_MODES = ['action_ready', 'prioritization', 'research', 'comparison', 'capture'];
 
 // ============================================================================
 // DEPTH CONFIG
 // ============================================================================
 
-export interface DepthConfig {
-  tokenCap: number;
-  reasoning: 'low' | 'medium';
-}
-
-export const DEPTH_CONFIG: Record<TriageDepth, DepthConfig> = {
+export const DEPTH_CONFIG = {
   minimal: { tokenCap: 80, reasoning: 'low' },
   short: { tokenCap: 250, reasoning: 'low' },
   medium: { tokenCap: 500, reasoning: 'medium' },
@@ -201,9 +209,9 @@ export const DEPTH_CONFIG: Record<TriageDepth, DepthConfig> = {
 // MODE TEMPERATURE
 // ============================================================================
 
-const TEMP_TIERS = { low: 0.3, mid: 0.5, high: 0.7 } as const;
+const TEMP_TIERS = { low: 0.3, mid: 0.5, high: 0.7 };
 
-export const MODE_TEMP: Record<TriageMode, number> = {
+export const MODE_TEMP = {
   emotional: TEMP_TIERS.mid,
   venting: TEMP_TIERS.high,
   accountability: TEMP_TIERS.mid,
@@ -225,12 +233,7 @@ export const MODE_TEMP: Record<TriageMode, number> = {
 // SEARCH POLICY
 // ============================================================================
 
-export interface SearchPolicy {
-  attachTool: boolean;
-  toolChoice: 'required' | 'auto' | null;
-}
-
-export function getSearchPolicy(searchSignal: TriageSearch): SearchPolicy {
+export function getSearchPolicy(searchSignal) {
   switch (searchSignal) {
     case 'required':
       return { attachTool: true, toolChoice: 'required' };
@@ -244,32 +247,10 @@ export function getSearchPolicy(searchSignal: TriageSearch): SearchPolicy {
 }
 
 // ============================================================================
-// GENERATION CONFIG
+// GENERATION CONFIG ASSEMBLY
 // ============================================================================
 
-export interface GenerationConfig {
-  systemPrompt: string;
-  maxTokens: number;
-  reasoning: 'low' | 'medium';
-  temperature: number;
-  attachSearch: boolean;
-  toolChoice: 'required' | 'auto' | null;
-}
-
-interface AssembleOptions {
-  triage: TriageResult;
-  chatType: 'space' | 'entity';
-  currentDate: string;
-  spaceContext?: string | null;
-  spaceName?: string;
-  entityContext?: string | null;
-  conversationContext?: string | null;
-  sessionContext?: string | null;
-  userProfileText?: string | null;
-  accountCreatedAt?: string | null;
-}
-
-export function assembleGenerationConfig(opts: AssembleOptions): GenerationConfig {
+export function assembleGenerationConfig(opts) {
   const depth = DEPTH_CONFIG[opts.triage.depth] ?? DEPTH_CONFIG.short;
   const temperature = MODE_TEMP[opts.triage.mode] ?? 0.5;
   const search = getSearchPolicy(opts.triage.search);
@@ -289,8 +270,8 @@ export function assembleGenerationConfig(opts: AssembleOptions): GenerationConfi
 // SYSTEM PROMPT BUILDER (private)
 // ============================================================================
 
-function buildSystemPrompt(opts: AssembleOptions): string {
-  const parts: string[] = [];
+function buildSystemPrompt(opts) {
+  const parts = [];
 
   // 1. Shared identity — always first
   parts.push(buildSharedIdentity(opts.currentDate));
@@ -347,40 +328,13 @@ function buildSystemPrompt(opts: AssembleOptions): string {
 // ENTITY CONTEXT BLOCK BUILDER
 // ============================================================================
 
-interface EntityContextOptions {
-  entity: {
-    type: string;
-    title: string;
-    body?: string | null;
-    tags?: string[];
-    due_date?: string | null;
-    frequency?: string | null;
-    time_estimate?: string | null;
-    subtype?: string | null;
-  };
-  sweepContext?: {
-    times_moved?: number;
-    days_unscheduled?: number;
-    is_overdue?: boolean;
-  } | null;
-  siblingContext?: {
-    sameSpace?: Array<{ type: string; title: string; frequency?: string }>;
-    otherHabits?: Array<{ title: string; frequency?: string; completionsLast7Days?: number }>;
-    recentCompletions?: Array<{ title: string }>;
-  } | null;
-  timeOfDay: string;
-  timeStr: string;
-  messageCount: number;
-}
-
-export function buildEntityContextBlock(opts: EntityContextOptions): string {
-  const lines: string[] = [];
+export function buildEntityContextBlock(opts) {
+  const lines = [];
   const e = opts.entity;
 
-  // Entity header and fields
   lines.push("=== THE ITEM YOU'RE HELPING WITH ===");
 
-  const fields: string[] = [];
+  const fields = [];
   fields.push(`Type: ${e.type}`);
   fields.push(`Title: "${e.title}"`);
   if (e.body) fields.push(`Notes: ${e.body}`);
@@ -393,7 +347,7 @@ export function buildEntityContextBlock(opts: EntityContextOptions): string {
 
   // Sweep context
   if (opts.sweepContext) {
-    const sweepParts: string[] = [];
+    const sweepParts = [];
     if (opts.sweepContext.times_moved !== undefined && opts.sweepContext.times_moved >= 2) {
       sweepParts.push(`Deferred ${opts.sweepContext.times_moved} times in Sweep.`);
     }
@@ -461,14 +415,14 @@ export function buildEntityContextBlock(opts: EntityContextOptions): string {
  * Builds a full GenerationConfig for Space Chat.
  */
 export function buildSpaceChatSystemPrompt(
-  triage: TriageResult,
-  context: ChatContext,
-  spaceName?: string,
-  spaceContext?: SpaceContext | null,
-  accountCreatedAt?: string | null,
-  sessionContextStr?: string | null,
-  userProfileText?: string | null,
-): GenerationConfig {
+  triage,
+  context,
+  spaceName,
+  spaceContext,
+  accountCreatedAt,
+  sessionContextStr,
+  userProfileText,
+) {
   const currentDate = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -476,13 +430,11 @@ export function buildSpaceChatSystemPrompt(
     day: 'numeric',
   });
 
-  const formattedSpaceContext = spaceContext ? formatSpaceContextForPrompt(spaceContext) : null;
-
   return assembleGenerationConfig({
     triage,
     chatType: 'space',
     currentDate,
-    spaceContext: formattedSpaceContext,
+    spaceContext: spaceContext || null,
     spaceName,
     conversationContext: context.runningSummary || null,
     sessionContext: sessionContextStr,
@@ -495,12 +447,12 @@ export function buildSpaceChatSystemPrompt(
  * Builds a full GenerationConfig for Entity Chat.
  */
 export function buildEntityChatConfig(
-  triage: TriageResult,
-  entityContextBlock: string,
-  accountCreatedAt?: string | null,
-  sessionContextStr?: string | null,
-  userProfileText?: string | null,
-): GenerationConfig {
+  triage,
+  entityContextBlock,
+  accountCreatedAt,
+  sessionContextStr,
+  userProfileText,
+) {
   const currentDate = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',

@@ -133,6 +133,36 @@ import { buildSessionContextString } from './context/contextBuilder.js';
 import { getUserProfile } from './context/userProfile.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { getSpaceContent, buildSpaceContentString } from './context/spaceContent.js';
+import { triageMessage } from './triage';
+import {
+  assembleGenerationConfig,
+  buildSpaceChatSystemPrompt,
+  buildEntityChatConfig,
+  buildEntityContextBlock,
+  getSearchPolicy,
+  DEPTH_CONFIG,
+  MODE_TEMP,
+} from './gremlyPersona';
+
+/**
+ * Extract the last user/assistant exchange from a messages array.
+ * Used to give the triage classifier conversation context.
+ */
+function extractPreviousExchange(messages) {
+  if (!messages || messages.length < 2) return null;
+  let assistantMsg = null;
+  let userMsg = null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (!assistantMsg && messages[i].role === 'assistant') {
+      assistantMsg = messages[i].content;
+    } else if (assistantMsg && !userMsg && messages[i].role === 'user') {
+      userMsg = messages[i].content;
+      break;
+    }
+  }
+  if (!userMsg || !assistantMsg) return null;
+  return { userMsg, assistantMsg };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRE-PHASE SEMANTIC PARSE TYPES
@@ -1512,13 +1542,13 @@ RESPONSE LENGTH — match the question:
 STRUCTURE:
 - Default to short paragraphs (2-3 sentences each). This is almost always the right choice.
 - NEVER use markdown headers (# ## ###). They render as raw text in this chat. If you need a section label, use a **Bold Label** on its own line.
-- Bullets are a LAST RESORT, not a default. Use them ONLY for genuinely parallel items: a list of specific stores, a set of pros/cons, 3+ concrete steps. If you can say it in a sentence, say it in a sentence. Max 4 bullets per group, max 2 bullet groups per response.
+- Bullets are for structure, not decoration. Use them for genuinely parallel items — comparing options, listing specific places or products, concrete steps. Don't use them to break up prose that reads fine as sentences. When comparing 3+ things on the same criteria, bullets with bold labels are the right call. Max 4 bullets per group, max 2 bullet groups per response.
 - One **bold** phrase per paragraph max. Bold is for emphasis, not decoration.
 - No tables, no code blocks, no numbered lists longer than 5 items.
 - Use em-dashes for asides — they read better on mobile than parentheses or semicolons.
 
 OPENINGS — never start with:
-- Filler: "Oh,", "Ah,", "So,", "Well,"
+- Filler: "Oh,", "Ah,", "So,", "Well,", "Okay,"
 - Compliments: "Great question!", "Love that!", "That's smart!", "Nice!"
 - Restatements: Don't echo what they just said back to them
 - Meta-commentary: "Let me think about this", "That's an interesting one"
@@ -1549,6 +1579,7 @@ Before responding, identify what mode the user is in:
 - SEARCH IMMEDIATELY. Don't give generic advice — search and provide specific, sourced answers.
 - Lead with the most specific finding: a study, a statistic, a concrete recommendation.
 - "Research suggests" is lazy. "A 2023 UCL study found..." is what makes search valuable.
+- Researched answers should be substantive — if you searched and found specific data, don't summarize it in two sentences. Give each recommendation enough detail to be useful: specific streets, price ranges, what makes it different. A search that returns a thin summary wastes the user's time.
 
 **ACTION-READY** — clear on what they want, needs help executing
 - Signals: "break this down", "what are the steps", "help me plan"
@@ -8894,36 +8925,223 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       // --- NON-STREAMING (original logic, with web search for space_chat) ---
       const t0NonStream = Date.now();
 
-      const lastUserMsgNonStream = messages.filter((m) => m.role === 'user').pop()?.content || '';
-      const chatCfgNonStream = isSpaceChatLane ? getChatConfig(lastUserMsgNonStream) : null;
-
-      const nonStreamModel = isSpaceChatLane ? chatCfgNonStream.model : actualModel;
-      const nonStreamMaxTokens = isSpaceChatLane ? chatCfgNonStream.maxTokens : maxTokensValue;
-
+      // ===================================================================
+      // SPACE CHAT NON-STREAMING — triage-based pipeline
+      // ===================================================================
       if (isSpaceChatLane) {
-        console.log('[SpaceChat] Using Gemini Flash', {
-          maxTokens: nonStreamMaxTokens,
+        // --- Context loading (session + profile) ---
+        let sessionContextStr = '';
+        let userProfile = null;
+        if (body.userId) {
+          try {
+            const [sessionData, profile] = await Promise.all([
+              getSessionContext(body.userId, env),
+              getUserProfile(body.userId, env),
+            ]);
+            sessionContextStr = buildSessionContextString(sessionData, {
+              spaceId: body.spaceId,
+            });
+            userProfile = profile;
+            if (sessionContextStr || userProfile) {
+              console.log('[SpaceChat:NonStreaming] Context loaded', {
+                userId: body.userId.slice(0, 8),
+                sessionContextLength: sessionContextStr?.length || 0,
+                hasUserProfile: !!userProfile,
+              });
+            }
+          } catch (err) {
+            console.error('[SpaceChat:NonStreaming] Context error', err);
+          }
+        }
+
+        // Minimal ChatContext for rolling summary
+        const context = { runningSummary: body.runningSummary || '' };
+        const spaceContext = null; // SpaceContext built client-side; not available server-side yet
+
+        // === TRIAGE: Classify message before generation ===
+        const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
+        const previousExchange = extractPreviousExchange(messages);
+
+        const triage = await triageMessage({
+          userMessage: lastUserMsg,
+          previousExchange,
+          spaceName: body.spaceName || undefined,
+          chatType: 'space',
+          env,
+        });
+
+        console.log('[SpaceChat:NonStreaming:Triage]', {
+          mode: triage.mode,
+          depth: triage.depth,
+          search: triage.search,
+          source: triage.source,
+          messagePreview: lastUserMsg.slice(0, 80),
+        });
+
+        // === COMPOSE: Build generation config from triage signals ===
+        const genConfig = buildSpaceChatSystemPrompt(
+          triage,
+          context,
+          body.spaceName,
+          spaceContext,
+          body.accountCreatedAt,
+          sessionContextStr,
+          userProfile?.profileText,
+        );
+
+        // === BUILD MESSAGES: Replace old system prompt with triage-built one ===
+        const triageMessages = [
+          { role: 'system', content: genConfig.systemPrompt },
+          ...messages.filter((m) => m.role !== 'system'),
+        ];
+
+        // === SEARCH POLICY: Attach or detach Tavily based on triage ===
+        const searchPolicy = getSearchPolicy(triage.search);
+        const payload = {
+          model: 'gemini-2.5-flash',
+          messages: triageMessages,
+          temperature: genConfig.temperature,
+          max_tokens: genConfig.maxTokens,
+          reasoning_effort: genConfig.reasoning,
+          stream: false,
+        };
+
+        if (searchPolicy.attachTool) {
+          payload.tools = [WEB_SEARCH_TOOL];
+          payload.tool_choice =
+            searchPolicy.toolChoice === 'required'
+              ? { type: 'function', function: { name: 'web_search' } }
+              : 'auto';
+        }
+
+        const res = await fetch(GEMINI_BASE_URL, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const oj = await res.json();
+
+        if (!res.ok) {
+          return j(
+            {
+              error: (oj && (oj.error?.message || oj.message)) || 'openai_error',
+              code: res.status,
+            },
+            200,
+          );
+        }
+
+        // Handle web search tool calls
+        let content = oj?.choices?.[0]?.message?.content ?? '';
+        let sources = undefined;
+        let searchQuery = undefined;
+
+        const toolCall = oj?.choices?.[0]?.message?.tool_calls?.[0];
+
+        if (toolCall?.function?.name === 'web_search') {
+          try {
+            const args = JSON.parse(toolCall.function.arguments);
+            searchQuery = args.query;
+
+            console.log('[SpaceChat:NonStreaming] Web search triggered', { query: searchQuery });
+
+            const searchT0 = Date.now();
+            const searchResults = await executeTavilySearch(searchQuery, env.TAVILY_API_KEY);
+            const searchLatency = Date.now() - searchT0;
+
+            console.log('[SpaceChat:NonStreaming] Search complete', {
+              resultCount: searchResults?.results?.length || 0,
+              latency: searchLatency,
+            });
+
+            if (searchResults && searchResults.results.length > 0) {
+              const followUpMessages = [
+                ...triageMessages,
+                {
+                  role: 'assistant',
+                  content: null,
+                  tool_calls: [{ id: toolCall.id, type: 'function', function: toolCall.function }],
+                },
+                {
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: formatSearchBrief(searchResults),
+                },
+              ];
+
+              // Follow-up uses same triage config but bumped tokens for search synthesis
+              const followUpRes = await fetch(GEMINI_BASE_URL, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  model: 'gemini-2.5-flash',
+                  messages: followUpMessages,
+                  temperature: genConfig.temperature,
+                  max_tokens: Math.max(genConfig.maxTokens, 1200),
+                  reasoning_effort: genConfig.reasoning,
+                }),
+              });
+
+              const followUpData = await followUpRes.json();
+              content = followUpData?.choices?.[0]?.message?.content ?? '';
+              sources = searchResults.results.map((r) => ({ title: r.title, url: r.url }));
+            }
+          } catch (searchErr) {
+            console.log('[SpaceChat:NonStreaming] Search error:', searchErr);
+          }
+        }
+
+        // Post-processing
+        content = stripFillerOpening(content);
+        const { suggestion: save_suggestion, cleanContent } = extractSaveSuggestion(content);
+        content = cleanContent;
+
+        const latency = Date.now() - t0NonStream;
+        console.log('[SpaceChat:NonStreaming] Complete', {
+          latency_ms: latency,
+          content_length: content.length,
+          used_search: !!searchQuery,
+          triage_mode: triage.mode,
+          triage_depth: triage.depth,
+        });
+
+        return j({
+          id: String((oj.id || '').replace(/^chatcmpl-/, 'cmpl-')),
+          content,
+          model: oj.model,
+          usage: oj.usage || null,
+          save_suggestion: save_suggestion || null,
+          sources,
+          search_query: searchQuery,
         });
       }
 
+      // ===================================================================
+      // NON-SPACE-CHAT PATH (classify, entity-chat fallback, etc.)
+      // ===================================================================
+      const lastUserMsgNonStream = messages.filter((m) => m.role === 'user').pop()?.content || '';
+
+      const nonStreamModel = actualModel;
+      const nonStreamMaxTokens = maxTokensValue;
+
       const openaiPayload = { model: nonStreamModel, messages, temperature, stream: false };
 
-      if (isSpaceChatLane) {
-        openaiPayload.max_tokens = nonStreamMaxTokens;
-        openaiPayload.reasoning_effort = chatCfgNonStream.reasoningEffort;
-        openaiPayload.tools = [WEB_SEARCH_TOOL];
-        openaiPayload.tool_choice = 'auto';
-      } else if (nonStreamModel === 'gpt-4.1' || nonStreamModel === 'gpt-4o') {
+      if (nonStreamModel === 'gpt-4.1' || nonStreamModel === 'gpt-4o') {
         openaiPayload.max_completion_tokens = nonStreamMaxTokens;
       } else {
         openaiPayload.max_tokens = nonStreamMaxTokens;
       }
 
-      // Use Gemini for Space Chat, OpenAI for everything else (classify, etc.)
-      const nonStreamUrl = isSpaceChatLane
-        ? GEMINI_BASE_URL
-        : 'https://api.openai.com/v1/chat/completions';
-      const nonStreamAuthKey = isSpaceChatLane ? env.GOOGLE_API_KEY : key;
+      // Use OpenAI for non-space-chat lanes
+      const nonStreamUrl = 'https://api.openai.com/v1/chat/completions';
+      const nonStreamAuthKey = key;
 
       const res = await fetch(nonStreamUrl, {
         method: 'POST',
@@ -8943,87 +9161,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         );
       }
 
-      // Handle web search for space_chat lane
+      // Handle remaining non-space-chat response
       let content = oj?.choices?.[0]?.message?.content ?? oj?.choices?.[0]?.text ?? '';
       let sources = undefined;
       let searchQuery = undefined;
-
-      if (isSpaceChatLane) {
-        const toolCall = oj?.choices?.[0]?.message?.tool_calls?.[0];
-
-        if (toolCall?.function?.name === 'web_search') {
-          try {
-            const args = JSON.parse(toolCall.function.arguments);
-            searchQuery = args.query;
-
-            console.log('[SpaceChat] Web search triggered', { query: searchQuery });
-
-            const searchT0 = Date.now();
-            const searchResults = await executeTavilySearch(searchQuery, env.TAVILY_API_KEY);
-            const searchLatency = Date.now() - searchT0;
-
-            console.log('[SpaceChat] Search complete', {
-              resultCount: searchResults?.results?.length || 0,
-              latency: searchLatency,
-            });
-
-            if (searchResults && searchResults.results.length > 0) {
-              // Build follow-up messages
-              const followUpMessages = [
-                ...messages,
-                {
-                  role: 'assistant',
-                  content: null,
-                  tool_calls: [
-                    {
-                      id: toolCall.id,
-                      type: 'function',
-                      function: toolCall.function,
-                    },
-                  ],
-                },
-                {
-                  role: 'tool',
-                  tool_call_id: toolCall.id,
-                  content: formatSearchBrief(searchResults),
-                },
-              ];
-
-              // Second API call
-              const chatCfgFollowUp = getChatConfig(lastUserMsgNonStream, {
-                isSearchFollowUp: true,
-              });
-              const followUpRes = await fetch(GEMINI_BASE_URL, {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  model: chatCfgFollowUp.model,
-                  messages: followUpMessages,
-                  temperature,
-                  max_tokens: chatCfgFollowUp.maxTokens,
-                  reasoning_effort: chatCfgFollowUp.reasoningEffort,
-                }),
-              });
-
-              const followUpData = await followUpRes.json();
-              content = followUpData?.choices?.[0]?.message?.content ?? '';
-              sources = searchResults.results.map((r) => ({ title: r.title, url: r.url }));
-            }
-          } catch (searchErr) {
-            console.log('[SpaceChat] Search error:', searchErr);
-          }
-        }
-
-        const latency = Date.now() - t0NonStream;
-        console.log('[SpaceChat] Complete', {
-          latency_ms: latency,
-          content_length: content.length,
-          used_search: !!searchQuery,
-        });
-      }
 
       if (type === 'classify') {
         const rawContent = oj?.choices?.[0]?.message?.content ?? '';
@@ -9087,22 +9228,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         });
       }
 
-      // For non-space_chat lanes, extract content here (space_chat already has it from tool handling above)
-      if (!isSpaceChatLane) {
-        content = oj?.choices?.[0]?.message?.content ?? oj?.choices?.[0]?.text ?? '';
-      }
-
-      let save_suggestion = null;
-      if (lane === 'space_chat') {
-        // save_suggestion removed
-      }
-
       return j({
         id: String((oj.id || '').replace(/^chatcmpl-/, 'cmpl-')),
         content,
         model: oj.model,
         usage: oj.usage || null,
-        save_suggestion,
+        save_suggestion: null,
         sources,
         search_query: searchQuery,
       });

@@ -8,7 +8,6 @@
  * ```tsx
  * function ChatThreadScreen({ chatId, spaceId, spaceName }) {
  *   const {
- *     systemPrompt,
  *     checkForMetaIntent,
  *     handleSaveThisCommand,
  *     runSaveableDetection,
@@ -26,9 +25,8 @@
  *       return;
  *     }
  *
- *     // 2. Normal flow - send to AI
- *     const response = await sendToAI(userMessage, { systemPrompt });
- *     addMessage({ role: 'assistant', content: response });
+ *     // 2. Normal flow - send to AI (worker builds prompt via triage)
+ *     const response = await sendToAI(userMessage);
  *
  *     // 3. Run saveable detection
  *     runSaveableDetection(response, userMessage, messageId);
@@ -40,7 +38,7 @@
  * ```
  */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import { useChatContext } from './useChatContext';
 import { useSaveableCooldown } from './useSaveableCooldown';
 import { useSaveButtonState, SaveButtonState } from './useSaveButtonState';
@@ -51,13 +49,11 @@ import {
   SummaryHandlerResult,
 } from './useMetaIntentHandler';
 import { detectConversationMode, ConversationMode } from '../lib/chat/conversationMode';
-import { buildSpaceChatSystemPrompt } from '../lib/chat/gremlyPersona';
-import { SpaceContext } from '../lib/chat/buildSpaceContext';
+import type { SpaceContext } from '../lib/chat/buildSpaceContext';
 import { incrementTurnCount, addKeyTopic, ChatContext } from '../lib/chat/rollingContext';
 import { SaveableResult } from '../lib/chat/saveableTypes';
 import { ChatMessageForResolution, ThisResolution } from '../lib/chat/thisResolver';
 import { SaveThisIntent } from '../lib/chat/metaIntents';
-import { useGremlyStore } from '../lib/store/useGremlyStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -78,8 +74,6 @@ export interface UseSpaceChatEnhancedReturn {
   // Context
   /** Current chat context (running summary + structured data) */
   context: ChatContext;
-  /** System prompt built from context + Gremly persona */
-  systemPrompt: string;
 
   // Meta-intent handling
   /** Check if user message is a meta-intent (save this, summary) */
@@ -229,7 +223,7 @@ export function useSpaceChatEnhanced({
   chatId,
   spaceId: _spaceId,
   spaceName,
-  spaceContext,
+  spaceContext: _spaceContext,
 }: UseSpaceChatEnhancedProps): UseSpaceChatEnhancedReturn {
   // Initialize all sub-hooks
   // Pass empty string to useChatContext when chatId is undefined (new chat)
@@ -237,13 +231,6 @@ export function useSpaceChatEnhanced({
   const cooldown = useSaveableCooldown();
   const buttonState = useSaveButtonState();
   const metaIntent = useMetaIntentHandler();
-  const accountCreatedAt = useGremlyStore((state) => state.accountCreatedAt);
-
-  // Build system prompt from context (includes space context if provided)
-  const systemPrompt = useMemo(
-    () => buildSpaceChatSystemPrompt(context, spaceName, spaceContext, accountCreatedAt),
-    [context, spaceName, spaceContext, accountCreatedAt],
-  );
 
   // ─────────────────────────────────────────────────────────────────────────
   // Meta-Intent Handling
@@ -455,7 +442,6 @@ export function useSpaceChatEnhanced({
   return {
     // Context
     context,
-    systemPrompt,
 
     // Meta-intent handling
     checkForMetaIntent,
