@@ -324,6 +324,7 @@ async function fetchDcoInputData(userId, timezone, env) {
     eventNotes,
     weeklySummaries,
     previousDco,
+    userProfile,
   ] = await Promise.all([
     // Todos (last 7 days)
     fetch(
@@ -345,7 +346,7 @@ async function fetchDcoInputData(userId, timezone, env) {
 
     // Notes (last 7 days) — includes target_date and is_goal for event notes
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,title,subtype,mood,space_id,created_at,target_date,is_goal&limit=100`,
+      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,title,text,subtype,mood,space_id,created_at,target_date,is_goal&limit=100`,
       { headers },
     ).then((r) => r.json()),
 
@@ -378,6 +379,12 @@ async function fetchDcoInputData(userId, timezone, env) {
       `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=lt.${todayLocal}&select=dco&order=date.desc&limit=1`,
       { headers },
     ).then((r) => r.json()),
+
+    // User profile (Soul Document — durable identity context)
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=profile_text&limit=1`,
+      { headers },
+    ).then((r) => r.json()),
   ]);
 
   return {
@@ -393,6 +400,7 @@ async function fetchDcoInputData(userId, timezone, env) {
     eventNotes,
     weeklySummary: weeklySummaries[0]?.summary_text || null,
     previousDco: previousDco[0]?.dco || null,
+    userProfile: userProfile?.[0]?.profile_text || null,
   };
 }
 
@@ -420,10 +428,15 @@ async function runDcoExtraction(inputData, env) {
     completions_7d: habitCompletions[h.id] || 0,
   }));
 
-  const noteTitles = inputData.notes
+  // Notes with truncated body text for richer extraction
+  const noteDetails = inputData.notes
     .filter((n) => n.title && n.subtype !== 'event')
-    .slice(0, 10)
-    .map((n) => n.title);
+    .slice(0, 20)
+    .map((n) => {
+      const body = n.text ? ` — ${n.text.slice(0, 150)}` : '';
+      const sub = n.subtype ? ` [${n.subtype}]` : '';
+      return `${n.title}${sub}${body}`;
+    });
 
   // Event notes with dates — fetched by target_date window, not created_at
   const events = (inputData.eventNotes || [])
@@ -436,6 +449,12 @@ async function runDcoExtraction(inputData, env) {
       const spaceName = space ? ` (${space.name})` : '';
       return `${n.title}: ${date}${spaceName}${goal}`;
     });
+
+  // Today's specific events — for calendar-aware headlines
+  const todaysEvents = (inputData.eventNotes || [])
+    .filter((n) => n.target_date === inputData.todayLocal)
+    .map((n) => n.title)
+    .filter(Boolean);
 
   // Milestones with dates
   const milestones = (inputData.milestones || []).slice(0, 10).map((m) => {
@@ -459,8 +478,9 @@ User timezone: ${inputData.timezone}
 Todos: ${inputData.todos.length} total, ${todosCompleted} completed, ${todosOverdue} overdue
 Habits: ${JSON.stringify(habitsFormatted)}
 Key dates & events: ${events.length > 0 ? events.join('; ') : 'none'}
+Today's schedule: ${todaysEvents.length > 0 ? todaysEvents.join(', ') : 'no events today'}
 Milestones: ${milestones.length > 0 ? milestones.join('; ') : 'none'}
-Recent drops: ${noteTitles.join(', ') || 'none'}
+Recent drops: ${noteDetails.length > 0 ? noteDetails.join('\n  ') : 'none'}
 Mood signals: ${
     Object.entries(moodCounts)
       .map(([k, v]) => `${k}:${v}`)
@@ -483,13 +503,18 @@ Output JSON:
   "mood_signals": {"mood": count},
   "key_events_with_dates": [{"title": "X", "date": "YYYY-MM-DD", "space": "space name"}],
   "notable_drop_titles": ["title1", "title2"],
-  "spaces_active": ["space1"]
+  "emotional_themes": ["theme1", "theme2"],
+  "spaces_active": ["space1"],
+  "todays_event_count": number,
+  "todays_events": ["event title 1", "event title 2"]
 }
 
 Rules:
 - Only include people/places/projects explicitly named in the data
 - Do not invent or assume anything not present
 - Keep arrays empty if no data found
+- Extract recurring emotional themes from drop content if they appear across multiple drops or are strongly expressed in one
+- Keep arrays empty if nothing stands out
 - Output ONLY valid JSON, nothing else`;
 
   const controller = new AbortController();
@@ -585,11 +610,17 @@ Use the timezone and today's date to determine where the user is RIGHT NOW by co
     ? `PREVIOUS DCO (for delta comparison):\n${JSON.stringify(inputData.previousDco, null, 2)}`
     : 'No previous DCO available (new user or first generation).';
 
+  const userProfileContext = inputData.userProfile
+    ? `USER PROFILE (durable identity — who this person is):\n${inputData.userProfile}`
+    : 'No user profile available yet.';
+
   const systemPrompt = `You are Gremly's daily context engine. Given structured facts extracted from a user's last 7 days, produce a Daily Context Object (DCO) — a JSON snapshot of their current life situation.
 
 ${timezoneContext}
 
 ${previousContext}
+
+${userProfileContext}
 
 Output this exact JSON shape:
 {
@@ -623,6 +654,24 @@ CRITICAL RULES:
 4. If there is very little data (fewer than 3 drops and no habits), set life_moment_confidence to "low" and keep observations conservative.
 5. tone should reflect the OVERALL vibe, not individual items. Someone on vacation with 2 overdue todos is still "relaxed".
 6. named_anchors: only include proper nouns explicitly present in the data. Never invent people or places.
+7. ROUTINE WEEK STRATEGY: When there is no standout life event (no travel, no major milestone, no significant emotional shift), DO NOT try to force a dramatic life_moment. Instead:
+   - Set life_moment to a practical summary: "normal work week" or "steady routine"
+   - Set life_moment_confidence to "low"
+   - For brief_headline, be PRACTICAL and reference what's actually on today's plate: habits due, events scheduled, or projects in progress.
+   - Use the user profile to make it personal. Name specific things from THEIR life, not generic categories.
+   - If the user has events today, reference those specifically.
+   - A good routine headline names 1-2 specific things from TODAY, not generic observations about the week.
+   - Vary the structure. Do not always use "X and Y. Short comment." format.
+   - Examples: "Three Sage meetings before lunch.", "Quiet calendar — good day for the backlog.", "Running and a Gremly sprint. Not bad for a Tuesday."
+8. SPARSE DATA / NO CALENDAR STRATEGY: When there is no calendar data or very few items to work with:
+   - NEVER say "not much data", "quiet week", or "still getting started" without adding something specific. Even "Just the habits today. That counts." is better than nothing.
+   - Look for PATTERNS over individual items: "Third week of consistent yoga" is better than "You did yoga."
+   - Reference habit streaks or trends: "Running streak at 5 days" or "Social media habit building momentum."
+   - Note space activity shifts: "Kitchen renovation space getting active" or "Wedding planning winding down."
+   - If mood signals show a consistent direction, acknowledge it: "Good week by the numbers" or "Quieter week than usual."
+   - For users with a profile but thin recent data, bridge the two: use what you know about them to contextualize recent activity. "Still settling into the running habit — 2 of 3 this week."
+   - If a user has very few drops but they are concentrated in one space, reference that space.
+   - LAST RESORT: If there is genuinely almost nothing to work with, acknowledge the user's app engagement streak if one exists (consecutive days with drops or sweeps). Frame as observation, not cheerleading: "Day 4 in a row. Rhythm's there." NOT "Great streak, keep it up!"
 
 Output ONLY valid JSON, nothing else.`;
 
