@@ -184,7 +184,7 @@ const dcoDispatcher = inngest.createFunction(
             timeZone: u.timezone,
           }).format(now);
           const hour = parseInt(userTime, 10);
-          return hour === 5; // Only dispatch during the 5:xx AM window
+          return hour === 4; // Generate DCO at 4:xx AM — always ready before morning notifications
         } catch {
           return false;
         }
