@@ -299,7 +299,7 @@ async function fetchDcoInputData(userId, timezone, env) {
 
   const todayLocal = getUserLocalDate(timezone);
 
-  const [todos, habits, habitProgress, notes, spaces, weeklySummaries, previousDco] =
+  const [todos, habits, habitProgress, notes, spaces, milestones, weeklySummaries, previousDco] =
     await Promise.all([
       // Todos (last 7 days)
       fetch(
@@ -319,15 +319,21 @@ async function fetchDcoInputData(userId, timezone, env) {
         { headers },
       ).then((r) => r.json()),
 
-      // Notes (last 7 days)
+      // Notes (last 7 days) — includes target_date and is_goal for event notes
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,title,subtype,mood,space_id,created_at&limit=100`,
+        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,title,subtype,mood,space_id,created_at,target_date,is_goal&limit=100`,
         { headers },
       ).then((r) => r.json()),
 
       // Spaces (active)
       fetch(
         `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&archived_at=is.null&select=id,name&limit=20`,
+        { headers },
+      ).then((r) => r.json()),
+
+      // Space milestones (all active, with dates)
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/space_milestones?owner_id=eq.${userId}&is_active=eq.true&select=name,date,space_id,completed&order=date.asc&limit=50`,
         { headers },
       ).then((r) => r.json()),
 
@@ -353,6 +359,7 @@ async function fetchDcoInputData(userId, timezone, env) {
     habitProgress,
     notes,
     spaces,
+    milestones,
     weeklySummary: weeklySummaries[0]?.summary_text || null,
     previousDco: previousDco[0]?.dco || null,
   };
@@ -383,9 +390,29 @@ async function runDcoExtraction(inputData, env) {
   }));
 
   const noteTitles = inputData.notes
-    .map((n) => n.title)
-    .filter(Boolean)
-    .slice(0, 20);
+    .filter((n) => n.title && n.subtype !== 'event')
+    .slice(0, 20)
+    .map((n) => n.title);
+
+  // Event notes with dates — this is critical for travel, key dates, etc.
+  const events = inputData.notes
+    .filter((n) => n.subtype === 'event' && n.title)
+    .map((n) => {
+      const date = n.target_date || 'no date';
+      const goal = n.is_goal ? ' [GOAL]' : '';
+      const space = inputData.spaces.find((s) => s.id === n.space_id);
+      const spaceName = space ? ` (${space.name})` : '';
+      return `${n.title}: ${date}${spaceName}${goal}`;
+    });
+
+  // Milestones with dates
+  const milestones = (inputData.milestones || []).map((m) => {
+    const space = inputData.spaces.find((s) => s.id === m.space_id);
+    const spaceName = space ? ` (${space.name})` : '';
+    const status = m.completed ? ' [DONE]' : '';
+    return `${m.name}: ${m.date || 'no date'}${spaceName}${status}`;
+  });
+
   const moods = inputData.notes.flatMap((n) => n.mood || []);
   const moodCounts = {};
   for (const m of moods) {
@@ -395,9 +422,13 @@ async function runDcoExtraction(inputData, env) {
   const spaceNames = inputData.spaces.map((s) => s.name);
 
   const dataPayload = `DATA SNAPSHOT (last 7 days):
+Today's date: ${inputData.todayLocal}
+User timezone: ${inputData.timezone}
 Todos: ${inputData.todos.length} total, ${todosCompleted} completed, ${todosOverdue} overdue
 Habits: ${JSON.stringify(habitsFormatted)}
-Recent drops: ${noteTitles.join(', ')}
+Key dates & events: ${events.length > 0 ? events.join('; ') : 'none'}
+Milestones: ${milestones.length > 0 ? milestones.join('; ') : 'none'}
+Recent drops: ${noteTitles.join(', ') || 'none'}
 Mood signals: ${
     Object.entries(moodCounts)
       .map(([k, v]) => `${k}:${v}`)
@@ -418,6 +449,7 @@ Output JSON:
   "overdue_count": number,
   "habit_completions": [{"name": "X", "done": N, "frequency": "daily"}],
   "mood_signals": {"mood": count},
+  "key_events_with_dates": [{"title": "X", "date": "YYYY-MM-DD", "space": "space name"}],
   "notable_drop_titles": ["title1", "title2"],
   "spaces_active": ["space1"]
 }
@@ -466,12 +498,18 @@ Rules:
 async function runDcoAnalysis(extraction, inputData, env) {
   const t0 = Date.now();
 
+  const timezoneContext = `USER TIMEZONE: ${inputData.timezone} (this indicates their current physical location)
+TODAY'S DATE: ${inputData.todayLocal}
+Use the timezone and today's date to determine where the user is RIGHT NOW by comparing against their key dates and events.`;
+
   // Include previous DCO for delta comparison
   const previousContext = inputData.previousDco
     ? `PREVIOUS DCO (for delta comparison):\n${JSON.stringify(inputData.previousDco, null, 2)}`
     : 'No previous DCO available (new user or first generation).';
 
   const systemPrompt = `You are Gremly's daily context engine. Given structured facts extracted from a user's last 7 days, produce a Daily Context Object (DCO) — a JSON snapshot of their current life situation.
+
+${timezoneContext}
 
 ${previousContext}
 
