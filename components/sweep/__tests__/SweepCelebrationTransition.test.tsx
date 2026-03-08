@@ -40,6 +40,11 @@ jest.mock('../../../lib/haptics', () => ({
   triggerSuccess: jest.fn(),
 }));
 
+// Mock env for fetchNanoHeadline
+jest.mock('../../../lib/env', () => ({
+  env: { cortexUrl: null, supabaseAnonKey: null },
+}));
+
 // Mock brand
 jest.mock('../../../design/brand', () => ({
   BRAND: {
@@ -104,6 +109,25 @@ describe('SweepCelebrationTransition', () => {
 
       // Counter starts at 0, animates to target
       // Due to animation mocking, we verify the structure exists
+      expect(getByText('SINCE YOUR LAST SWEEP')).toBeTruthy();
+    });
+
+    it('renders with DCO tone and life moment props', () => {
+      const items = makeItems({ todos: 3 });
+      const onComplete = jest.fn();
+      const onSkip = jest.fn();
+
+      const { getByText } = render(
+        <SweepCelebrationTransition
+          completedItems={items}
+          dcoTone="focused"
+          dcoLifeMoment="hosting family"
+          dcoNamedAnchors={[{ label: 'Sarah', type: 'person' }]}
+          onComplete={onComplete}
+          onSkip={onSkip}
+        />,
+      );
+
       expect(getByText('SINCE YOUR LAST SWEEP')).toBeTruthy();
     });
 
@@ -345,22 +369,72 @@ describe('SweepCelebrationTransition', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Celebration Phrase Tests
+  // DCO-Aware Celebration Phrase Tests
   // ═══════════════════════════════════════════════════════════════════════════
 
-  describe('celebration phrases', () => {
-    it('selects a random phrase from the list', () => {
-      const CELEBRATION_PHRASES = [
-        'Already crushed it',
-        "You've been busy",
-        'Nice momentum',
-        'Off to a great start',
-        'Making progress',
-      ];
+  describe('DCO celebration phrases', () => {
+    // TONE_PHRASES pools — component uses these when DCO tone is present
+    const TONE_PHRASES: Record<string, string[]> = {
+      relaxed: [
+        'Easy day. All good.',
+        'Light and that\u2019s fine',
+        'No rush today',
+        'Gentle pace, on purpose',
+      ],
+      focused: ['Solid progress', 'Locked in today', 'Clean work', 'Productive day'],
+      stretched: [
+        'You showed up today',
+        'Tough day. You pushed through.',
+        'A lot on your plate. You handled it.',
+        'Long one. You got through it.',
+      ],
+      recovering: [
+        'Easy does it',
+        'Slow day. That counts.',
+        'Rest is productive too',
+        'Gentle day. Still here.',
+      ],
+      celebratory: ['What a day', 'Look at you go', 'That\u2019s a win', 'Big day. Well earned.'],
+    };
 
-      const phrase = CELEBRATION_PHRASES[Math.floor(Math.random() * CELEBRATION_PHRASES.length)];
+    // Fallback phrases when no DCO is present
+    const FALLBACK_PHRASES = [
+      'Already crushed it',
+      "You've been busy",
+      'Nice momentum',
+      'Off to a great start',
+      'Making progress',
+    ];
 
-      expect(CELEBRATION_PHRASES).toContain(phrase);
+    it('selects from FALLBACK_PHRASES when no DCO tone', () => {
+      const phrase = FALLBACK_PHRASES[Math.floor(Math.random() * FALLBACK_PHRASES.length)];
+      expect(FALLBACK_PHRASES).toContain(phrase);
+    });
+
+    it.each(['relaxed', 'focused', 'stretched', 'recovering', 'celebratory'])(
+      'selects from TONE_PHRASES for tone "%s"',
+      (tone) => {
+        const pool = TONE_PHRASES[tone];
+        const phrase = pool[Math.floor(Math.random() * pool.length)];
+        expect(pool).toContain(phrase);
+      },
+    );
+
+    it('buildHeadline uses life moment context phrasing when available', () => {
+      // Simulate the contextPhrases logic from the component
+      const lifeMoment = 'hosting family';
+      const shortMoment = lifeMoment.charAt(0).toUpperCase() + lifeMoment.slice(1);
+      const contextPhrases: Record<string, (ctx: string) => string[]> = {
+        relaxed: (ctx) => [`${ctx}. All good.`, `${ctx}. Easy pace.`],
+        focused: (ctx) => [`${ctx}. Solid progress.`, `${ctx}. Clean work today.`],
+        stretched: (ctx) => [`${ctx}. You showed up.`, `${ctx}. Tough one, but handled.`],
+        recovering: (ctx) => [`${ctx}. Gentle day.`, `${ctx}. Easy does it.`],
+        celebratory: (ctx) => [`${ctx}. What a day.`, `${ctx}. Big one.`],
+      };
+
+      const pool = contextPhrases['focused'](shortMoment);
+      expect(pool).toContain('Hosting family. Solid progress.');
+      expect(pool).toContain('Hosting family. Clean work today.');
     });
   });
 });

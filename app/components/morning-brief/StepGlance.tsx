@@ -1,409 +1,186 @@
 /**
- * StepGlance — Step 1 of the Morning Brief flow
+ * StepGlance — Morning Brief opening card
  *
- * Visual "morning greeting card" showing the shape of your day.
- * Proportional timeline blocks with event cards, current time
- * indicator, and free-time gaps — so you can orient instantly.
+ * Shows the DCO life context as the first thing the user sees
+ * when opening Morning Brief. Warm, contextual, sets the tone
+ * for the planning session ahead.
+ *
+ * Design: sage/cream background, mascot, big headline from DCO,
+ * subtle life moment context below. Tap or button to continue.
  */
 
-import React, { useMemo } from 'react';
-import { View, ScrollView, Pressable, StyleSheet, Text as RNText } from 'react-native';
+import React from 'react';
+import { View, StyleSheet, TouchableWithoutFeedback, Image } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
-import { getDateService } from '../../../lib/date';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
-import { GlanceTimelineBlock, GlanceOpenWindows } from './components/GlanceTimelineBlock';
-import type { Note } from '../../../lib/types';
-import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
+import { selectBriefHeadline, selectLifeMoment, selectDcoTone } from '../../../lib/store/selectors';
+import type { DcoTone } from '../../../lib/types';
 
-// ═══════════════════════════════════════════════════════════════════
-// Types (unchanged — same props interface)
-// ═══════════════════════════════════════════════════════════════════
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const MORNING_BRIEF_GREMLY = require('../../../assets/mascot/morningbriefgremly.png');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tone-aware subtitles
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TONE_SUBTITLES: Record<DcoTone, string[]> = {
+  relaxed: [
+    'Keep it light today',
+    'No rush. Pick what feels right.',
+    'Easy day. Plan accordingly.',
+  ],
+  focused: ["Let's make today count", 'Clear head, clear plan.', 'Good energy. Use it well.'],
+  stretched: [
+    'Big day ahead. Be selective.',
+    "A lot going on. Let's focus.",
+    'Pick the non-negotiables.',
+  ],
+  recovering: [
+    'Gentle start. Just the essentials.',
+    "Go easy. You'll find your rhythm.",
+    'Small wins today.',
+  ],
+  celebratory: [
+    'Riding high. Keep the momentum.',
+    'Great energy to plan with.',
+    "Strong week. Let's keep going.",
+  ],
+};
+
+const FALLBACK_SUBTITLES = [
+  "Let's shape your day",
+  'What matters most today?',
+  'A few minutes now, a calmer day ahead.',
+];
+
+function pickRandom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface StepGlanceProps {
-  /** Key-date events (user-created notes with subtype='event') */
-  events: Note[];
-  /** Synced external calendar events (Google / Apple) */
-  calendarEvents?: CalendarEvent[];
-  /** IDs of hidden key-date events */
-  hiddenEventIds: string[];
-  /** Free minutes — matches the header display */
-  freeMinutes: number;
-  /** Total calendar event count (from capacity) */
-  totalEventCount: number;
-  /** Total minutes in calendar events today */
-  eventMinutes: number;
-  /** Whether hidden event data has been loaded */
-  isReady?: boolean;
-  /** Callbacks */
-  onEventQuickAction: (event: Note) => void;
-  onCalendarEventAction: (calEvent: CalendarEvent) => void;
   onContinue: () => void;
   onSkipToEnd: () => void;
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════════════
-
-function formatFreeMinutes(mins: number): string {
-  if (mins <= 0) return '0m';
-  const hours = Math.floor(mins / 60);
-  const remainder = mins % 60;
-  if (hours > 0 && remainder > 0) return `${hours}h ${remainder}m`;
-  if (hours > 0) return `${hours}h`;
-  return `${remainder}m`;
-}
-
-// ═══════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
 // Component
-// ═══════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
 
-export function StepGlance({
-  events,
-  calendarEvents,
-  hiddenEventIds,
-  freeMinutes,
-  totalEventCount,
-  eventMinutes,
-  isReady,
-  onEventQuickAction,
-  onCalendarEventAction,
-  onContinue,
-  onSkipToEnd,
-}: StepGlanceProps) {
-  const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
-  const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? {};
+export function StepGlance({ onContinue, onSkipToEnd }: StepGlanceProps) {
+  const briefHeadline = useGremlyStore(selectBriefHeadline);
+  const lifeMoment = useGremlyStore(selectLifeMoment);
+  const tone = useGremlyStore(selectDcoTone);
 
-  const freeTimeFormatted = formatFreeMinutes(freeMinutes);
-
-  // Current minute of day (for time clipping + now indicator)
-  const currentMinute = useMemo(() => {
-    const now = getDateService().now();
-    return now.getHours() * 60 + now.getMinutes();
-  }, []);
-
-  // Filter out hidden calendar events
-  const visibleCalEvents = useMemo(() => {
-    if (!calendarEvents) return [];
-    const hiddenSet = new Set(hiddenEventIds);
-    return calendarEvents.filter(
-      (e) => !hiddenSet.has(e.id) && !hiddenSet.has(`${e.provider}-${e.providerEventId}`),
-    );
-  }, [calendarEvents, hiddenEventIds]);
-
-  // Filter out hidden key-date events
-  const visibleKeyDates = useMemo(() => {
-    const hiddenSet = new Set(hiddenEventIds);
-    return events.filter((e) => !hiddenSet.has(e.id));
-  }, [events, hiddenEventIds]);
-
-  // All-day events: calendar all-day + notes that are all-day OR have no event_time
-  // (Notes with no time set are treated as all-day — e.g. "Fly to LA")
-  // De-duplicate: if a calendar event and note share the same title, keep the calendar event
-  const { dedupedCalAllDay, dedupedNoteAllDay } = useMemo(() => {
-    const calAllDay = visibleCalEvents.filter((e) => e.isAllDay);
-    const noteAllDay = visibleKeyDates.filter((e) => !!e.is_all_day || !e.event_time);
-
-    // Build a set of calendar event titles (lowercased) for dedup
-    const calTitles = new Set(calAllDay.map((e) => (e.title || '').toLowerCase().trim()));
-
-    // Filter out notes whose title matches a calendar event
-    const uniqueNotes = noteAllDay.filter(
-      (n) => !calTitles.has((n.title || '').toLowerCase().trim()),
-    );
-
-    return { dedupedCalAllDay: calAllDay, dedupedNoteAllDay: uniqueNotes };
-  }, [visibleCalEvents, visibleKeyDates]);
-
-  const hasAllDay = dedupedCalAllDay.length > 0 || dedupedNoteAllDay.length > 0;
-
-  // Block config from user preferences
-  const blocks = useMemo(
-    () => [
-      {
-        key: 'morning' as const,
-        startHour: timeBlockPreferences.morning.startHour,
-        endHour: timeBlockPreferences.morning.endHour,
-      },
-      {
-        key: 'day' as const,
-        startHour: timeBlockPreferences.day.startHour,
-        endHour: timeBlockPreferences.day.endHour,
-      },
-      {
-        key: 'evening' as const,
-        startHour: timeBlockPreferences.evening.startHour,
-        endHour: timeBlockPreferences.evening.endHour,
-      },
-    ],
-    [timeBlockPreferences],
-  );
-
-  // Key dates grouped by block (deduped against calendar events)
-  const keyDatesByBlock = useMemo(() => {
-    // Build a set of calendar event titles for dedup
-    const calTitles = new Set(
-      (visibleCalEvents ?? []).map((e) => (e.title || '').toLowerCase().trim()),
-    );
-
-    const result: Record<string, Note[]> = { morning: [], day: [], evening: [] };
-    for (const note of visibleKeyDates) {
-      if (note.is_all_day || !note.event_time) continue;
-      // Skip notes that duplicate a calendar event
-      if (calTitles.has((note.title || '').toLowerCase().trim())) continue;
-      const [h] = note.event_time.split(':').map(Number);
-      for (const block of blocks) {
-        if (h >= block.startHour && h < block.endHour) {
-          result[block.key].push(note);
-          break;
-        }
-      }
-    }
-    return result;
-  }, [visibleKeyDates, visibleCalEvents, blocks]);
-
-  // Today's date for dateContext
-  const today = useMemo(() => getDateService().getCurrentDate(), []);
-
-  // Gate: wait for hidden state before rendering to prevent flash
-  if (isReady === false) {
-    return <View style={styles.scroll} />;
-  }
+  // Build display text
+  const headline = briefHeadline || 'Good morning';
+  const subtitle = tone
+    ? pickRandom(TONE_SUBTITLES[tone] || FALLBACK_SUBTITLES)
+    : pickRandom(FALLBACK_SUBTITLES);
 
   return (
-    <View style={styles.wrapper}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ── 1. DAY SHAPE HERO ─────────────────────────────────── */}
-        <View style={styles.heroArea}>
-          {freeMinutes <= 0 ? (
-            <>
-              <RNText style={styles.heroHeadline}>Packed today</RNText>
-              <RNText style={styles.heroSub}>
-                {formatFreeMinutes(eventMinutes)} in events · but you can still shuffle things
-              </RNText>
-            </>
-          ) : totalEventCount === 0 ? (
-            <>
-              <RNText style={styles.heroHeadline}>Nothing scheduled</RNText>
-              <RNText style={styles.heroSub}>The whole day is yours</RNText>
-            </>
-          ) : (
-            <>
-              <View style={styles.heroStatsRow}>
-                <View style={styles.heroStat}>
-                  <RNText style={styles.heroStatNumber}>{formatFreeMinutes(eventMinutes)}</RNText>
-                  <RNText style={styles.heroStatLabel}>in events</RNText>
-                </View>
-                <View style={styles.heroDivider} />
-                <View style={styles.heroStat}>
-                  <RNText style={styles.heroStatNumberGreen}>{freeTimeFormatted}</RNText>
-                  <RNText style={styles.heroStatLabel}>for you</RNText>
-                </View>
-              </View>
-            </>
+    <TouchableWithoutFeedback onPress={onContinue}>
+      <View style={styles.container}>
+        <View style={styles.content}>
+          {/* Mascot */}
+          <Animated.View entering={FadeIn.duration(600).delay(150)}>
+            <Image source={MORNING_BRIEF_GREMLY} style={styles.mascot} resizeMode="contain" />
+          </Animated.View>
+
+          {/* Headline — DCO brief_headline or fallback */}
+          <Animated.Text style={styles.headline} entering={FadeIn.duration(600).delay(300)}>
+            {headline}
+          </Animated.Text>
+
+          {/* Subtitle — tone-aware planning prompt */}
+          <Animated.Text style={styles.subtitle} entering={FadeIn.duration(500).delay(500)}>
+            {subtitle}
+          </Animated.Text>
+
+          {/* Life moment context (if available) */}
+          {lifeMoment && (
+            <Animated.View style={styles.contextPill} entering={FadeIn.duration(400).delay(700)}>
+              <Text style={styles.contextText}>
+                {lifeMoment.charAt(0).toUpperCase() + lifeMoment.slice(1)}
+              </Text>
+            </Animated.View>
           )}
         </View>
 
-        {/* ── 2. ALL-DAY EVENTS (if any) ────────────────────────── */}
-        {hasAllDay && (
-          <View style={styles.allDaySection}>
-            {dedupedCalAllDay.map((e, i) => (
-              <React.Fragment key={e.id}>
-                {i > 0 && <View style={styles.allDayDivider} />}
-                <Pressable onPress={() => onCalendarEventAction(e)} style={styles.allDayRow}>
-                  <Text style={styles.allDayTitle} numberOfLines={1}>
-                    {e.title}
-                  </Text>
-                </Pressable>
-              </React.Fragment>
-            ))}
-            {dedupedNoteAllDay.map((e, i) => (
-              <React.Fragment key={e.id}>
-                {(i > 0 || dedupedCalAllDay.length > 0) && <View style={styles.allDayDivider} />}
-                <Pressable onPress={() => onEventQuickAction(e)} style={styles.allDayRow}>
-                  <Text style={styles.allDayTitle} numberOfLines={1}>
-                    {e.title || 'Untitled'}
-                  </Text>
-                </Pressable>
-              </React.Fragment>
-            ))}
-          </View>
-        )}
-
-        {/* ── 3. VISUAL TIMELINE ────────────────────────────────── */}
-        {blocks.map((block) => (
-          <GlanceTimelineBlock
-            key={block.key}
-            block={block.key}
-            startHour={block.startHour}
-            endHour={block.endHour}
-            calendarEvents={visibleCalEvents}
-            keyDateEvents={keyDatesByBlock[block.key]}
-            currentMinute={currentMinute}
-            eventTimeOverrides={eventTimeOverrides}
-            onCalendarEventPress={onCalendarEventAction}
-            onKeyDatePress={onEventQuickAction}
-            dateContext={today}
-          />
-        ))}
-
-        {/* ── 4. OPEN WINDOWS SUMMARY ───────────────────────────── */}
-        <GlanceOpenWindows
-          calendarEvents={visibleCalEvents}
-          keyDateEvents={visibleKeyDates}
-          eventTimeOverrides={eventTimeOverrides}
-          blocks={blocks}
-          currentMinute={currentMinute}
-        />
-
-        {/* Spacer so content doesn't hide behind sticky footer */}
-        <View style={{ height: 120 }} />
-      </ScrollView>
-
-      {/* ── 5. STICKY FOOTER ────────────────────────────────────── */}
-      <View style={styles.stickyFooter}>
-        <Pressable
-          style={({ pressed }) => [styles.primaryButton, pressed && { backgroundColor: '#AECBB0' }]}
-          onPress={onContinue}
-        >
-          <Text style={styles.primaryButtonText}>Continue →</Text>
-        </Pressable>
+        {/* Hint at bottom */}
+        <Animated.Text style={styles.hint} entering={FadeIn.duration(400).delay(1200)}>
+          tap to start planning
+        </Animated.Text>
       </View>
-    </View>
+    </TouchableWithoutFeedback>
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
 // Styles
-// ═══════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  wrapper: {
+  container: {
     flex: 1,
+    backgroundColor: BRAND.colors.linenCream || '#FDFBF7',
   },
-  scroll: {
+  content: {
     flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 8,
-  },
-
-  // ── Hero ────────────────────────────────────────────────────────
-  heroArea: {
-    paddingHorizontal: 20,
-    marginTop: 16,
-    marginBottom: 16,
-  },
-  heroHeadline: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: BRAND.colors.charcoalInk,
-  },
-  heroSub: {
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-    marginTop: 3,
-  },
-  heroStatsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  heroStat: {
-    flex: 1,
-  },
-  heroStatNumber: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: BRAND.colors.charcoalInk,
-    letterSpacing: -0.5,
-  },
-  heroStatNumberGreen: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: BRAND.colors.mossGreen,
-    letterSpacing: -0.5,
-  },
-  heroStatLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: BRAND.colors.inkMuted,
-    marginTop: 1,
-  },
-  heroDivider: {
-    width: 1,
-    height: 36,
-    backgroundColor: BRAND.colors.borderSubtle,
-    marginHorizontal: 16,
-  },
-
-  // ── All-day events ──────────────────────────────────────────────
-  allDaySection: {
-    marginHorizontal: 32,
-    marginBottom: 8,
-  },
-  allDaySectionLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1,
-    color: BRAND.colors.inkMuted,
-    marginBottom: 2,
-  },
-  allDayRow: {
-    paddingVertical: 5,
-  },
-  allDayDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: BRAND.colors.borderSubtle,
-  },
-  allDayTitle: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: BRAND.colors.inkMuted,
-  },
-
-  // ── Sticky Footer ──────────────────────────────────────────────
-  stickyFooter: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 8,
-    backgroundColor: BRAND.colors.linenCream,
-    // Fade effect at top edge
-    borderTopWidth: 0,
-    shadowColor: BRAND.colors.linenCream,
-    shadowOffset: { width: 0, height: -10 },
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    elevation: 10,
-  },
-  primaryButton: {
-    backgroundColor: '#BFD8C0',
-    height: 48,
-    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 32,
+    paddingBottom: 40,
   },
-  primaryButtonText: {
+  mascot: {
+    width: 120,
+    height: 120,
+    marginBottom: 24,
+  },
+  headline: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: BRAND.colors.mossGreen,
+    textAlign: 'center',
+    lineHeight: 36,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+  },
+  subtitle: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#2E5540',
-  },
-  skipPressable: {
-    alignItems: 'center',
-  },
-  skipText: {
-    fontSize: 13,
+    fontWeight: '400',
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
-    paddingVertical: 14,
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+  contextPill: {
+    backgroundColor: 'rgba(224, 196, 122, 0.2)',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(224, 196, 122, 0.4)',
+  },
+  contextText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+  },
+  hint: {
+    position: 'absolute',
+    bottom: 50,
+    alignSelf: 'center',
+    fontSize: 14,
+    color: BRAND.colors.mossGreen,
+    opacity: 0.6,
   },
 });
 

@@ -29,8 +29,16 @@ import {
   selectUpcomingEventsForSpace,
   selectEventsForDate,
   selectNewSpaceSuggestions,
+  selectDco,
+  selectBriefHeadline,
+  selectDcoTone,
+  selectTodayFocus,
+  selectNamedAnchors,
+  selectDcoLoading,
+  selectLifeMoment,
+  selectDcoSortedSpaces,
 } from '../selectors';
-import type { Todo, Habit, Note, Space, SpaceSuggestion } from '../../types';
+import type { Todo, Habit, Note, Space, SpaceSuggestion, DailyContextObject } from '../../types';
 import type { Milestone } from '../../schemas';
 import type { HabitProgressRow } from '../useGremlyStore';
 
@@ -2150,5 +2158,205 @@ describe('selectNewSpaceSuggestions', () => {
     const state = makeState({ spaceSuggestions: [] });
     const result = selectNewSpaceSuggestions(state as any);
     expect(result).toEqual([]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DCO SELECTORS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function makeDco(overrides: Partial<DailyContextObject> = {}): DailyContextObject {
+  return {
+    user_id: 'user-1',
+    date: '2025-12-15',
+    generated_at: '2025-12-15T06:00:00Z',
+    ttl_days: 1,
+    life_moment: 'hosting family',
+    life_moment_confidence: 'high',
+    tone: 'focused',
+    brief_headline: 'Busy week with Sarah visiting',
+    named_anchors: [{ label: 'Sarah', type: 'person', source: 'drop' }],
+    active_today: {
+      overdue_todos: 2,
+      habit_streak_risk: ['Meditate'],
+      upcoming_in_7d: ['Dentist'],
+    },
+    deltas: {
+      drop_velocity: 'normal',
+      habit_health: 'high',
+      mood_signal: 'positive',
+      notable_change: null,
+    },
+    today_focus: ['Finish report', 'Call dentist'],
+    weekly_digest: 'Productive week overall',
+    input_sources: ['drops', 'habits', 'calendar'],
+    model_used: 'gpt-4.1-mini',
+    ...overrides,
+  };
+}
+
+describe('selectDco', () => {
+  it('returns full DCO when present', () => {
+    const dco = makeDco();
+    const state = makeState({ dco } as any);
+    expect(selectDco(state as any)).toEqual(dco);
+  });
+
+  it('returns null when no DCO', () => {
+    const state = makeState({ dco: null } as any);
+    expect(selectDco(state as any)).toBeNull();
+  });
+});
+
+describe('selectBriefHeadline', () => {
+  it('returns brief_headline from DCO', () => {
+    const state = makeState({ dco: makeDco({ brief_headline: 'Big day ahead' }) } as any);
+    expect(selectBriefHeadline(state as any)).toBe('Big day ahead');
+  });
+
+  it('returns null when no DCO', () => {
+    const state = makeState({ dco: null } as any);
+    expect(selectBriefHeadline(state as any)).toBeNull();
+  });
+
+  it('returns null when headline is null', () => {
+    const state = makeState({ dco: makeDco({ brief_headline: null }) } as any);
+    expect(selectBriefHeadline(state as any)).toBeNull();
+  });
+});
+
+describe('selectDcoTone', () => {
+  it('returns tone from DCO', () => {
+    const state = makeState({ dco: makeDco({ tone: 'stretched' }) } as any);
+    expect(selectDcoTone(state as any)).toBe('stretched');
+  });
+
+  it('returns null when no DCO', () => {
+    const state = makeState({ dco: null } as any);
+    expect(selectDcoTone(state as any)).toBeNull();
+  });
+});
+
+describe('selectTodayFocus', () => {
+  it('returns focus priorities', () => {
+    const state = makeState({
+      dco: makeDco({ today_focus: ['Write report', 'Exercise'] }),
+    } as any);
+    expect(selectTodayFocus(state as any)).toEqual(['Write report', 'Exercise']);
+  });
+
+  it('returns null when no DCO', () => {
+    const state = makeState({ dco: null } as any);
+    expect(selectTodayFocus(state as any)).toBeNull();
+  });
+
+  it('returns null when today_focus is null', () => {
+    const state = makeState({ dco: makeDco({ today_focus: null }) } as any);
+    expect(selectTodayFocus(state as any)).toBeNull();
+  });
+});
+
+describe('selectNamedAnchors', () => {
+  it('returns named anchors from DCO', () => {
+    const anchors = [
+      { label: 'Sarah', type: 'person' as const, source: 'drop' as const },
+      { label: 'Trip to Paris', type: 'trip' as const, source: 'space' as const },
+    ];
+    const state = makeState({ dco: makeDco({ named_anchors: anchors }) } as any);
+    expect(selectNamedAnchors(state as any)).toEqual(anchors);
+  });
+
+  it('returns empty array when no DCO', () => {
+    const state = makeState({ dco: null } as any);
+    expect(selectNamedAnchors(state as any)).toEqual([]);
+  });
+});
+
+describe('selectDcoLoading', () => {
+  it('returns true when loading', () => {
+    const state = makeState({ dcoLoading: true } as any);
+    expect(selectDcoLoading(state as any)).toBe(true);
+  });
+
+  it('returns false when not loading', () => {
+    const state = makeState({ dcoLoading: false } as any);
+    expect(selectDcoLoading(state as any)).toBe(false);
+  });
+});
+
+describe('selectLifeMoment', () => {
+  it('returns life_moment from DCO', () => {
+    const state = makeState({ dco: makeDco({ life_moment: 'job transition' }) } as any);
+    expect(selectLifeMoment(state as any)).toBe('job transition');
+  });
+
+  it('returns null when no DCO', () => {
+    const state = makeState({ dco: null } as any);
+    expect(selectLifeMoment(state as any)).toBeNull();
+  });
+
+  it('returns null when life_moment is null', () => {
+    const state = makeState({ dco: makeDco({ life_moment: null }) } as any);
+    expect(selectLifeMoment(state as any)).toBeNull();
+  });
+});
+
+describe('selectDcoSortedSpaces', () => {
+  function makeSpace(overrides: Partial<Space> = {}): Space {
+    return {
+      id: `space-${Math.random().toString(36).slice(2)}`,
+      name: 'Test Space',
+      owner_id: 'user-1',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      ...overrides,
+    } as Space;
+  }
+
+  it('sorts spaces matching named anchors to the front', () => {
+    const spaces = [
+      makeSpace({ id: 's1', name: 'Groceries' }),
+      makeSpace({ id: 's2', name: 'Sarah' }),
+      makeSpace({ id: 's3', name: 'Work' }),
+    ];
+    const dco = makeDco({
+      named_anchors: [{ label: 'Sarah', type: 'person', source: 'drop' }],
+    });
+    const state = makeState({ spaces, dco } as any);
+    const result = selectDcoSortedSpaces(state as any);
+    expect(result[0].name).toBe('Sarah');
+  });
+
+  it('returns active spaces when no DCO', () => {
+    const spaces = [
+      makeSpace({ id: 's1', name: 'A' }),
+      makeSpace({ id: 's2', name: 'B', archived_at: '2025-01-01T00:00:00Z' }),
+    ];
+    const state = makeState({ spaces, dco: null } as any);
+    const result = selectDcoSortedSpaces(state as any);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('A');
+  });
+
+  it('case-insensitive anchor matching', () => {
+    const spaces = [makeSpace({ id: 's1', name: 'sarah' }), makeSpace({ id: 's2', name: 'Work' })];
+    const dco = makeDco({
+      named_anchors: [{ label: 'Sarah', type: 'person', source: 'drop' }],
+    });
+    const state = makeState({ spaces, dco } as any);
+    const result = selectDcoSortedSpaces(state as any);
+    expect(result[0].name).toBe('sarah');
+  });
+
+  it('preserves order for non-matching spaces', () => {
+    const spaces = [
+      makeSpace({ id: 's1', name: 'Alpha' }),
+      makeSpace({ id: 's2', name: 'Beta' }),
+      makeSpace({ id: 's3', name: 'Gamma' }),
+    ];
+    const dco = makeDco({ named_anchors: [] });
+    const state = makeState({ spaces, dco } as any);
+    const result = selectDcoSortedSpaces(state as any);
+    expect(result.map((s) => s.name)).toEqual(['Alpha', 'Beta', 'Gamma']);
   });
 });

@@ -2,7 +2,8 @@
  * SweepCelebrationTransition Component
  *
  * Quick count-up animation celebrating completed items since last sweep.
- * Shows totals with fast counting animation, expandable to see details.
+ * Now DCO-aware: uses tone + life context for headline, includes calendar
+ * events and captured drops alongside todos and habits.
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -13,9 +14,6 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   ScrollView,
-  LayoutAnimation,
-  Platform,
-  UIManager,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -26,29 +24,143 @@ import Animated, {
   FadeIn,
   FadeInDown,
 } from 'react-native-reanimated';
-import { Check, Repeat, Lightbulb, ChevronDown, ChevronUp } from 'lucide-react-native';
+import {
+  Check,
+  Repeat,
+  Lightbulb,
+  Calendar,
+  ArrowDown,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
-
-// Enable LayoutAnimation on Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+import { env } from '../../lib/env';
+import type { DcoTone } from '../../lib/types';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 
 // Timing constants
-const COUNT_DURATION = 1200; // Total time to count up all numbers
-const COUNT_STAGGER = 150; // Delay between starting each counter
+const COUNT_DURATION = 1200;
+const COUNT_STAGGER = 150;
 
-const CELEBRATION_PHRASES = [
+// ─────────────────────────────────────────────────────────────────────────────
+// DCO-Aware Headline Pools
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TONE_PHRASES: Record<DcoTone, string[]> = {
+  relaxed: [
+    'Easy day. All good.',
+    'Light and that\u2019s fine',
+    'No rush today',
+    'Gentle pace, on purpose',
+  ],
+  focused: ['Solid progress', 'Locked in today', 'Clean work', 'Productive day'],
+  stretched: [
+    'You showed up today',
+    'Tough day. You pushed through.',
+    'A lot on your plate. You handled it.',
+    'Long one. You got through it.',
+  ],
+  recovering: [
+    'Easy does it',
+    'Slow day. That counts.',
+    'Rest is productive too',
+    'Gentle day. Still here.',
+  ],
+  celebratory: ['What a day', 'Look at you go', 'That\u2019s a win', 'Big day. Well earned.'],
+};
+
+// Fallback if no DCO
+const FALLBACK_PHRASES = [
   'Already crushed it',
   "You've been busy",
   'Nice momentum',
   'Off to a great start',
   'Making progress',
 ];
+
+function pickRandom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/**
+ * Build the celebration headline using DCO context.
+ * Uses lifeMoment directly when available for contextual phrases.
+ */
+function buildHeadline(
+  tone: DcoTone | null,
+  lifeMoment: string | null,
+  namedAnchors: Array<{ label: string; type: string }>,
+): string {
+  if (!tone) return pickRandom(FALLBACK_PHRASES);
+
+  // If we have a life moment, use it to build a contextual phrase
+  if (lifeMoment) {
+    const contextPhrases: Record<DcoTone, (ctx: string) => string[]> = {
+      relaxed: (ctx) => [`${ctx}. All good.`, `${ctx}. Easy pace.`],
+      focused: (ctx) => [`${ctx}. Solid progress.`, `${ctx}. Clean work today.`],
+      stretched: (ctx) => [`${ctx}. You showed up.`, `${ctx}. Tough one, but handled.`],
+      recovering: (ctx) => [`${ctx}. Gentle day.`, `${ctx}. Easy does it.`],
+      celebratory: (ctx) => [`${ctx}. What a day.`, `${ctx}. Big one.`],
+    };
+
+    // Clean up the life moment — capitalize first letter, trim
+    const shortMoment = lifeMoment.charAt(0).toUpperCase() + lifeMoment.slice(1);
+    const pool = contextPhrases[tone]?.(shortMoment);
+    if (pool) return pickRandom(pool);
+  }
+
+  // Fall back to tone-only phrases
+  return pickRandom(TONE_PHRASES[tone] || FALLBACK_PHRASES);
+}
+
+/**
+ * Fetch a nano-generated sweep headline from the cortex worker.
+ * Returns null on failure — caller falls back to template.
+ */
+async function fetchNanoHeadline(
+  tone: DcoTone | null,
+  lifeMoment: string | null,
+  counts: { todos: number; habits: number; events: number; drops: number },
+): Promise<string | null> {
+  try {
+    const cortexUrl = env.cortexUrl;
+    const anonKey = env.supabaseAnonKey;
+
+    if (!cortexUrl || !anonKey) return null;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000); // 3s timeout
+
+    const res = await fetch(cortexUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify({
+        type: 'sweep-headline',
+        tone,
+        lifeMoment,
+        todosCompleted: counts.todos,
+        habitsCompleted: counts.habits,
+        eventsCompleted: counts.events,
+        dropsCaptured: counts.drops,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.headline || null;
+  } catch {
+    return null; // Silent fail — template fallback handles it
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -60,8 +172,18 @@ interface CompletedItem {
   type: 'todo' | 'habit' | 'note';
 }
 
+interface CompletedEvent {
+  id: string;
+  title: string;
+}
+
 interface Props {
   completedItems: CompletedItem[];
+  completedEvents?: CompletedEvent[];
+  dropsCount?: number;
+  dcoTone?: DcoTone | null;
+  dcoLifeMoment?: string | null;
+  dcoNamedAnchors?: Array<{ label: string; type: string }>;
   onComplete: () => void;
   onSkip: () => void;
 }
@@ -93,7 +215,6 @@ const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
   const hasCompleted = useRef(false);
 
   useEffect(() => {
-    // Prevent re-running if already started
     if (hasStarted.current) return;
     hasStarted.current = true;
 
@@ -103,9 +224,7 @@ const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
     const interval = setInterval(() => {
       const now = Date.now();
 
-      if (now < startTime) {
-        return; // Still waiting for delay
-      }
+      if (now < startTime) return;
 
       if (now >= endTime || hasCompleted.current) {
         if (!hasCompleted.current) {
@@ -113,7 +232,6 @@ const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
           setDisplayValue(targetValue);
           clearInterval(interval);
 
-          // Bounce on complete
           scale.value = withSequence(
             withSpring(1.15, { damping: 8, stiffness: 400 }),
             withSpring(1, { damping: 12, stiffness: 300 }),
@@ -124,25 +242,22 @@ const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
         return;
       }
 
-      // Calculate progress
       const progress = (now - startTime) / duration;
       const easedProgress = Easing.out(Easing.cubic)(progress);
       const currentValue = Math.round(easedProgress * targetValue);
 
       setDisplayValue(currentValue);
-    }, 32); // ~30fps is enough for number display
+    }, 32);
 
     return () => clearInterval(interval);
-  }, []); // Empty deps - only run once on mount
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
-  // Don't render if target is 0
   if (targetValue === 0) return null;
 
-  // Fix grammar: singular vs plural
   const displayLabel = targetValue === 1 ? label.replace(/s$/, '') : label;
 
   return (
@@ -163,15 +278,16 @@ const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
 
 interface ItemListProps {
   items: CompletedItem[];
+  events: CompletedEvent[];
 }
 
-const ItemList: React.FC<ItemListProps> = ({ items }) => {
+const ItemList: React.FC<ItemListProps> = ({ items, events }) => {
   const todos = items.filter((i) => i.type === 'todo');
   const habits = items.filter((i) => i.type === 'habit');
   const notes = items.filter((i) => i.type === 'note');
 
   const renderSection = (
-    sectionItems: CompletedItem[],
+    sectionItems: Array<{ id: string; name?: string; title?: string }>,
     title: string,
     sectionIcon: React.ReactNode,
   ) => {
@@ -187,7 +303,7 @@ const ItemList: React.FC<ItemListProps> = ({ items }) => {
           <View key={item.id} style={styles.listItem}>
             <Check size={14} color={BRAND.colors.mossGreen} strokeWidth={2.5} />
             <Text style={styles.listItemText} numberOfLines={1}>
-              {item.name}
+              {item.name || item.title || 'Untitled'}
             </Text>
           </View>
         ))}
@@ -199,6 +315,7 @@ const ItemList: React.FC<ItemListProps> = ({ items }) => {
     <View style={styles.listContainer}>
       {renderSection(todos, 'TODOS', <Check size={14} color={BRAND.colors.inkMuted} />)}
       {renderSection(habits, 'HABITS', <Repeat size={14} color={BRAND.colors.inkMuted} />)}
+      {renderSection(events, 'EVENTS', <Calendar size={14} color={BRAND.colors.inkMuted} />)}
       {renderSection(notes, 'IDEAS', <Lightbulb size={14} color={BRAND.colors.inkMuted} />)}
     </View>
   );
@@ -210,12 +327,44 @@ const ItemList: React.FC<ItemListProps> = ({ items }) => {
 
 export const SweepCelebrationTransition: React.FC<Props> = ({
   completedItems,
+  completedEvents = [],
+  dropsCount = 0,
+  dcoTone = null,
+  dcoLifeMoment = null,
+  dcoNamedAnchors = [],
   onComplete,
   onSkip,
 }) => {
-  const [phrase] = useState(
-    () => CELEBRATION_PHRASES[Math.floor(Math.random() * CELEBRATION_PHRASES.length)],
+  const [phrase, setPhrase] = useState<string | null>(
+    dcoTone ? null : buildHeadline(null, null, []),
   );
+
+  // Upgrade headline with nano call (replaces template if successful)
+  useEffect(() => {
+    if (!dcoTone) return;
+
+    const counts = {
+      todos: completedItems.filter((i) => i.type === 'todo').length,
+      habits: completedItems.filter((i) => i.type === 'habit').length,
+      events: completedEvents?.length || 0,
+      drops: dropsCount || 0,
+    };
+
+    // Fallback timer — if nano hasn't responded in 2s, use template
+    const fallbackTimer = setTimeout(() => {
+      setPhrase((current) =>
+        current === null ? buildHeadline(dcoTone, dcoLifeMoment, dcoNamedAnchors) : current,
+      );
+    }, 2000);
+
+    fetchNanoHeadline(dcoTone, dcoLifeMoment, counts).then((nanoResult) => {
+      clearTimeout(fallbackTimer);
+      setPhrase(nanoResult || buildHeadline(dcoTone, dcoLifeMoment, dcoNamedAnchors));
+    });
+
+    return () => clearTimeout(fallbackTimer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [canContinue, setCanContinue] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [completedCounters, setCompletedCounters] = useState(0);
@@ -226,11 +375,19 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
       todos: completedItems.filter((i) => i.type === 'todo').length,
       habits: completedItems.filter((i) => i.type === 'habit').length,
       notes: completedItems.filter((i) => i.type === 'note').length,
+      events: completedEvents.length,
+      drops: dropsCount,
     }),
-    [completedItems],
+    [completedItems, completedEvents, dropsCount],
   );
 
-  const totalCategories = [counts.todos, counts.habits, counts.notes].filter((c) => c > 0).length;
+  const totalCategories = [
+    counts.todos,
+    counts.habits,
+    counts.notes,
+    counts.events,
+    counts.drops,
+  ].filter((c) => c > 0).length;
 
   // Handle counter completion
   const handleCounterComplete = useCallback(() => {
@@ -260,7 +417,7 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
   }, [canContinue, onComplete, onSkip]);
 
   // Calculate delays for staggered counters
-  const getDelay = (index: number) => 400 + index * COUNT_STAGGER;
+  const getDelay = (index: number) => 600 + index * COUNT_STAGGER;
 
   let counterIndex = 0;
 
@@ -273,16 +430,20 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
             source={GREMLY_MASCOT}
             style={styles.mascot}
             resizeMode="contain"
-            entering={FadeIn.duration(400)}
+            entering={FadeIn.duration(600).delay(150)}
           />
 
-          {/* Celebration Phrase */}
-          <Animated.Text style={styles.phrase} entering={FadeIn.duration(400).delay(100)}>
-            {phrase}
-          </Animated.Text>
+          {/* Celebration Phrase — DCO-aware */}
+          {phrase ? (
+            <Animated.Text key={phrase} style={styles.phrase} entering={FadeIn.duration(600)}>
+              {phrase}
+            </Animated.Text>
+          ) : (
+            <View style={{ height: 64, marginBottom: 8 }} />
+          )}
 
           {/* Subtitle */}
-          <Animated.Text style={styles.subtitle} entering={FadeIn.duration(400).delay(200)}>
+          <Animated.Text style={styles.subtitle} entering={FadeIn.duration(500).delay(350)}>
             SINCE YOUR LAST SWEEP
           </Animated.Text>
 
@@ -308,6 +469,26 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
                 onComplete={handleCounterComplete}
               />
             )}
+            {counts.events > 0 && (
+              <AnimatedCounter
+                targetValue={counts.events}
+                delay={getDelay(counterIndex++)}
+                duration={COUNT_DURATION}
+                icon={<Calendar size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+                label={counts.events === 1 ? 'event' : 'events'}
+                onComplete={handleCounterComplete}
+              />
+            )}
+            {counts.drops > 0 && (
+              <AnimatedCounter
+                targetValue={counts.drops}
+                delay={getDelay(counterIndex++)}
+                duration={COUNT_DURATION}
+                icon={<ArrowDown size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+                label={counts.drops === 1 ? 'drop' : 'drops'}
+                onComplete={handleCounterComplete}
+              />
+            )}
             {counts.notes > 0 && (
               <AnimatedCounter
                 targetValue={counts.notes}
@@ -322,7 +503,7 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
 
           {/* Expand Button */}
           {canContinue && (
-            <Animated.View entering={FadeIn.duration(300)}>
+            <Animated.View entering={FadeIn.duration(400).delay(200)}>
               <TouchableOpacity
                 style={styles.expandButton}
                 onPress={handleToggleExpand}
@@ -354,7 +535,7 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
                   showsVerticalScrollIndicator={true}
                   bounces={true}
                 >
-                  <ItemList items={completedItems} />
+                  <ItemList items={completedItems} events={completedEvents} />
                 </ScrollView>
               </View>
             </Animated.View>
@@ -362,7 +543,7 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
         </View>
 
         {/* Hint at bottom */}
-        <Animated.Text style={styles.hint} entering={FadeIn.duration(300).delay(1500)}>
+        <Animated.Text style={styles.hint} entering={FadeIn.duration(400).delay(1800)}>
           {canContinue ? 'tap to continue' : 'tap to skip'}
         </Animated.Text>
       </View>
@@ -371,7 +552,7 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Styles
+// Styles (unchanged from original)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({

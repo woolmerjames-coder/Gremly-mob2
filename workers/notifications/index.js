@@ -158,6 +158,31 @@ export default {
 };
 
 // =============================================================================
+// DCO helper
+// =============================================================================
+
+async function fetchUserDco(userId, timezone, supabaseUrl, supabaseKey) {
+  try {
+    const todayLocal = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${todayLocal}&select=dco`,
+      {
+        headers: {
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+        },
+      },
+    );
+    if (!response.ok) return null;
+    const rows = await response.json();
+    return rows?.[0]?.dco || null;
+  } catch (err) {
+    console.warn(`[Notifications] DCO fetch failed for ${userId.slice(0, 8)}:`, err.message);
+    return null;
+  }
+}
+
+// =============================================================================
 // Core logic
 // =============================================================================
 
@@ -229,8 +254,9 @@ async function sendScheduledNotifications(env) {
           user_id: pref.user_id,
           token: token,
           type: 'morning',
-          title: 'Good morning ☀️',
-          body: 'Ready to tackle the day? Your Morning Brief is waiting.',
+          timezone: timezone,
+          title: 'Good morning',
+          body: 'Your Morning Brief is waiting.',
         });
       }
     }
@@ -240,13 +266,29 @@ async function sendScheduledNotifications(env) {
       const [eveHour, eveMin] = parseTime(pref.evening_time);
 
       if (isWithinWindow(userTime.hour, userTime.minute, eveHour, eveMin, 5)) {
-        usersToNotify.push({
-          user_id: pref.user_id,
-          token: token,
-          type: 'evening',
-          title: 'Sweep before sleep 🌙',
-          body: 'A few minutes now, a clearer head tonight.',
-        });
+        // Check DCO tone — skip or soften for relaxed users
+        const dco = await fetchUserDco(pref.user_id, timezone, supabaseUrl, supabaseKey);
+        const tone = dco?.tone;
+
+        if (tone === 'relaxed') {
+          console.log(
+            `[Notifications] Skipping evening for ${pref.user_id.slice(0, 8)} (tone: relaxed)`,
+          );
+          // Don't push — user is intentionally disengaged
+        } else {
+          const eveningBody =
+            tone === 'recovering'
+              ? 'Quick check-in whenever you are ready.'
+              : 'A few minutes now, a clearer head tonight.';
+
+          usersToNotify.push({
+            user_id: pref.user_id,
+            token: token,
+            type: 'evening',
+            title: 'Sweep before sleep',
+            body: eveningBody,
+          });
+        }
       }
     }
 
@@ -330,6 +372,15 @@ async function sendScheduledNotifications(env) {
           `[Notifications] Slot already claimed for ${user.type} - ${user.user_id}, skipping`,
         );
         continue;
+      }
+
+      // For morning notifications, try to use DCO brief_headline as copy
+      if (user.type === 'morning') {
+        const dco = await fetchUserDco(user.user_id, user.timezone, supabaseUrl, supabaseKey);
+        if (dco?.brief_headline) {
+          user.title = 'Gremly';
+          user.body = dco.brief_headline;
+        }
       }
 
       await sendExpoPush(user.token, user.title, user.body, user.type, {

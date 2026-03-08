@@ -1042,6 +1042,26 @@ export const selectActiveSpaces = createSelector([selectSpaces], (spaces): Space
   spaces.filter((s) => !s.archived_at),
 );
 
+/** Active spaces sorted by DCO relevance — spaces matching named_anchors or with upcoming key dates appear first */
+export const selectDcoSortedSpaces = createSelector(
+  [
+    (state: ReturnType<typeof useGremlyStore.getState>) => state.spaces,
+    (state: ReturnType<typeof useGremlyStore.getState>) => state.dco,
+  ],
+  (spaces, dco) => {
+    const active = spaces.filter((s) => !s.archived_at);
+    if (!dco?.named_anchors?.length) return active;
+
+    const anchorLabels = new Set(dco.named_anchors.map((a) => a.label.toLowerCase()));
+
+    return [...active].sort((a, b) => {
+      const aMatch = anchorLabels.has(a.name.toLowerCase()) ? 1 : 0;
+      const bMatch = anchorLabels.has(b.name.toLowerCase()) ? 1 : 0;
+      return bMatch - aMatch; // Matched spaces first, rest in original order
+    });
+  },
+);
+
 /** Get todos for a specific space */
 export const selectTodosBySpace = createSelector(
   [selectActiveTodos, (_state: GremlyState, spaceId: string) => spaceId],
@@ -1453,6 +1473,7 @@ export const useYourNotes = () => useGremlyStore(selectYourNotes);
 export const useRecentJournals = () => useGremlyStore(selectRecentJournals);
 
 export const useActiveSpaces = () => useGremlyStore(selectActiveSpaces);
+export const useDcoSortedSpaces = () => useGremlyStore(selectDcoSortedSpaces);
 export const useSpacesWithCounts = () => useGremlyStore(selectSpacesWithCounts);
 export const usePopularTags = () => useGremlyStore(selectPopularTags);
 
@@ -2573,3 +2594,34 @@ export function useShouldShowSummaryBanner(): boolean {
 export function useWeeklySummaryForChatContext(): string | null {
   return useGremlyStore((state) => selectWeeklySummaryForChatContext(state));
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// DCO SELECTORS
+// ═══════════════════════════════════════════════════════════════════
+
+/** The full DCO object for today (or null if not generated yet) */
+export const selectDco = (state: ReturnType<typeof useGremlyStore.getState>) => state.dco;
+
+/** The brief_headline string for Gremly speech bubble and notifications */
+export const selectBriefHeadline = (state: ReturnType<typeof useGremlyStore.getState>) =>
+  state.dco?.brief_headline ?? null;
+
+/** The DCO tone signal — consumed by sweep, notifications, and chat */
+export const selectDcoTone = (state: ReturnType<typeof useGremlyStore.getState>) =>
+  state.dco?.tone ?? null;
+
+/** Today's focus priorities (populated after Morning Brief) */
+export const selectTodayFocus = (state: ReturnType<typeof useGremlyStore.getState>) =>
+  state.dco?.today_focus ?? null;
+
+/** Named anchors (people, trips, projects) from the DCO */
+export const selectNamedAnchors = (state: ReturnType<typeof useGremlyStore.getState>) =>
+  state.dco?.named_anchors ?? [];
+
+/** Whether the DCO is currently loading */
+export const selectDcoLoading = (state: ReturnType<typeof useGremlyStore.getState>) =>
+  state.dcoLoading;
+
+/** The life moment string */
+export const selectLifeMoment = (state: ReturnType<typeof useGremlyStore.getState>) =>
+  state.dco?.life_moment ?? null;

@@ -23,6 +23,7 @@ import type {
   CalendarEvent as UserCalendarEvent,
   WeeklySummary,
   WeeklySummaryCleanupAction,
+  DailyContextObject,
 } from '../types';
 import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
@@ -458,6 +459,12 @@ interface GremlyState {
   weeklySummaries: WeeklySummary[];
   weeklySummaryLoading: boolean;
 
+  // ═══════════════════════════════════════════════════════════════════
+  // DAILY CONTEXT OBJECT (DCO)
+  // ═══════════════════════════════════════════════════════════════════
+  dco: DailyContextObject | null;
+  dcoLoading: boolean;
+
   // Loading/sync state
   isLoading: boolean;
   isInitialized: boolean;
@@ -643,6 +650,12 @@ interface GremlyState {
   dismissSummaryBanner: (summaryId: string) => Promise<void>;
   addCleanupAction: (summaryId: string, action: WeeklySummaryCleanupAction) => Promise<void>;
   bulkCleanupActions: (summaryId: string, actions: WeeklySummaryCleanupAction[]) => Promise<void>;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // DCO MUTATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  fetchTodayDco: () => Promise<void>;
+  patchDcoTodayFocus: (priorities: string[]) => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
   // COMMITMENT MUTATIONS (with optimistic Zustand updates)
@@ -919,6 +932,9 @@ const initialState = {
   dailyBriefLoading: false,
   weeklySummaries: [] as WeeklySummary[],
   weeklySummaryLoading: false,
+  // DCO
+  dco: null as DailyContextObject | null,
+  dcoLoading: false,
   isLoading: false,
   isInitialized: false,
   lastSyncedAt: null as Date | null,
@@ -1300,6 +1316,9 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Recover any stuck MindDrop items from previous crashes
             get().recoverStuckMindDrops();
+
+            // Fetch today's DCO (fire-and-forget, non-blocking)
+            get().fetchTodayDco();
           } catch (error) {
             console.error('[GremlyStore] ❌ Failed to initialize:', error);
             set({ isLoading: false });
@@ -4018,6 +4037,9 @@ export const useGremlyStore = create<GremlyState>()(
             });
 
             console.log('[GremlyStore] ✅ Refreshed from server');
+
+            // Fetch DCO after server refresh (cached hydration path skips cold init)
+            get().fetchTodayDco();
           } catch (error) {
             console.error('[GremlyStore] refreshFromServer failed:', error);
             set({ isLoading: false });
@@ -4441,6 +4463,81 @@ export const useGremlyStore = create<GremlyState>()(
             if (error) console.warn('[GremlyStore] bulkCleanupActions sync error:', error);
           } catch (error) {
             console.warn('[GremlyStore] bulkCleanupActions failed:', error);
+          }
+        },
+
+        // ═══════════════════════════════════════════════════════════════════
+        // DCO ACTIONS
+        // ═══════════════════════════════════════════════════════════════════
+
+        fetchTodayDco: async () => {
+          console.log(
+            '[GremlyStore] fetchTodayDco called, userId:',
+            get().userId?.slice(0, 8) || 'NULL',
+          );
+          const userId = get().userId;
+          if (!userId) return;
+
+          set({ dcoLoading: true });
+          try {
+            const today = getDateService().getCurrentDate(); // YYYY-MM-DD
+            const { data, error } = await supabase
+              .from('user_daily_state')
+              .select('dco')
+              .eq('user_id', userId)
+              .eq('date', today)
+              .maybeSingle();
+
+            if (error) {
+              console.warn('[GremlyStore] DCO fetch error:', error);
+              set({ dcoLoading: false });
+              return;
+            }
+
+            if (data?.dco) {
+              console.log('[GremlyStore] ✅ DCO loaded:', {
+                tone: data.dco.tone,
+                life_moment: data.dco.life_moment,
+                has_headline: !!data.dco.brief_headline,
+              });
+              set({ dco: data.dco as DailyContextObject, dcoLoading: false });
+            } else {
+              console.log('[GremlyStore] No DCO for today');
+              set({ dco: null, dcoLoading: false });
+            }
+          } catch (err) {
+            console.error('[GremlyStore] DCO fetch failed:', err);
+            set({ dcoLoading: false });
+          }
+        },
+
+        patchDcoTodayFocus: async (priorities: string[]) => {
+          const userId = get().userId;
+          const dco = get().dco;
+          if (!userId || !dco) return;
+
+          try {
+            const today = getDateService().getCurrentDate();
+            const updatedDco = { ...dco, today_focus: priorities };
+
+            const { error } = await supabase
+              .from('user_daily_state')
+              .update({
+                dco: updatedDco,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('user_id', userId)
+              .eq('date', today);
+
+            if (error) {
+              console.warn('[GremlyStore] DCO today_focus patch failed:', error);
+              return;
+            }
+
+            set({ dco: updatedDco });
+            console.log('[GremlyStore] ✅ DCO today_focus patched:', priorities);
+          } catch (err) {
+            console.error('[GremlyStore] DCO patch failed:', err);
           }
         },
 

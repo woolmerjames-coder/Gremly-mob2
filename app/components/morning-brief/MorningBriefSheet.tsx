@@ -55,6 +55,7 @@ import {
   selectHabitLastCompletionDate,
   selectCompletionsInRolling7Days,
   selectCompletionsInRolling30Days,
+  selectBriefHeadline,
 } from '../../../lib/store/selectors';
 import { getTimeBlockForHour } from '../../../lib/now/timeBlockHelpers';
 import type { Note, Todo, Habit } from '../../../lib/types';
@@ -214,6 +215,10 @@ export function MorningBriefSheet({
   const resetDailyAssignments = useGremlyStore((s) => s.resetDailyAssignments);
   const eventTimeOverrides = useGremlyStore((s) => s.eventTimeOverrides) ?? {};
   const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
+
+  // DCO availability for glance step
+  const hasDcoHeadline = useGremlyStore(selectBriefHeadline) !== null;
+  const patchDcoTodayFocus = useGremlyStore((s) => s.patchDcoTodayFocus);
 
   // Brief capacity gate state
   const briefSelectedIds = useGremlyStore((s) => s.briefSelectedIds);
@@ -636,6 +641,7 @@ export function MorningBriefSheet({
       stepsNeededRef.current = ['plan'];
     } else {
       const steps: BriefStep[] = [];
+      if (hasDcoHeadline) steps.push('glance');
       if (showMiniSweep) steps.push('sweep');
       // Always show — user reviews tasks whether or not they fit
       steps.push('prioritize');
@@ -1850,7 +1856,9 @@ export function MorningBriefSheet({
 
       <MorningBriefStepper
         stepsNeeded={stepsNeeded}
-        renderGlance={() => null}
+        renderGlance={(onContinue, onSkipToEnd) => (
+          <StepGlance onContinue={onContinue} onSkipToEnd={onSkipToEnd} />
+        )}
         renderSweep={(onContinue, onSkip, onBack) => (
           <StepSweep
             rolledOverTodos={rolledOverTodos}
@@ -1886,7 +1894,22 @@ export function MorningBriefSheet({
             onSkipTask={() => {}}
             pendingDrops={todayPendingDrops}
             animatingAssignments={animatingAssignments}
-            onContinue={onContinue}
+            onContinue={() => {
+              // Patch DCO with today's focus (fire-and-forget)
+              const selectedNames = Array.from(briefSelectedSet)
+                .map((id) => {
+                  const todo = todos.find((t) => t.id === id);
+                  const habit = habits.find((h) => h.id === id);
+                  return todo?.name || habit?.name || null;
+                })
+                .filter(Boolean) as string[];
+
+              if (selectedNames.length > 0) {
+                patchDcoTodayFocus(selectedNames);
+              }
+
+              onContinue();
+            }}
             onSkip={onSkip}
             onBack={onBack}
             calendarEvents={visibleCalendarEvents}

@@ -1236,3 +1236,46 @@ export interface WeeklySummary {
   created_at: string;
   updated_at: string;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// DAILY CONTEXT OBJECT (DCO)
+// ═══════════════════════════════════════════════════════════════════
+
+export interface DcoNamedAnchor {
+  label: string;
+  type: 'person' | 'trip' | 'project' | 'event';
+  source: 'drop' | 'space';
+}
+
+export interface DcoActiveToday {
+  overdue_todos: number;
+  habit_streak_risk: string[];
+  upcoming_in_7d: string[];
+}
+
+export interface DcoDeltas {
+  drop_velocity: 'high' | 'normal' | 'low';
+  habit_health: 'high' | 'normal' | 'low';
+  mood_signal: 'positive' | 'neutral' | 'negative' | 'mixed';
+  notable_change: string | null;
+}
+
+export type DcoTone = 'relaxed' | 'focused' | 'stretched' | 'recovering' | 'celebratory';
+
+export interface DailyContextObject {
+  user_id: string;
+  date: string;
+  generated_at: string;
+  ttl_days: number;
+  life_moment: string | null;
+  life_moment_confidence: 'high' | 'medium' | 'low';
+  tone: DcoTone;
+  brief_headline: string | null;
+  named_anchors: DcoNamedAnchor[];
+  active_today: DcoActiveToday;
+  deltas: DcoDeltas;
+  today_focus: string[] | null;
+  weekly_digest: string | null;
+  input_sources: string[];
+  model_used: string;
+}

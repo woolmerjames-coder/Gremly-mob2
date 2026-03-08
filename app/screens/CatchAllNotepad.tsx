@@ -58,6 +58,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Text } from '../../ui/Text';
 import { Icon } from '../../design-system/Icon';
 import { useGremlyStore, type PendingDrop } from '../../lib/store/useGremlyStore';
+import { selectBriefHeadline } from '../../lib/store/selectors';
 import {
   selectItemById,
   selectNoteBySourceMessageId,
@@ -136,6 +137,7 @@ import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import {
   getGremlySpeech,
   getGreetingSpeech,
+  getDcoGreetingSpeech,
   getEmptyStateSpeech,
   getFirstVisitSpeech,
   getPostFirstDropSpeech,
@@ -5482,6 +5484,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const todayDropsCount = useGremlyStore((s) => s.todayDropsCount);
   const todaySweepsCount = useGremlyStore((s) => s.todaySweepsCount);
 
+  // DCO brief headline
+  const briefHeadline = useGremlyStore(selectBriefHeadline);
+
   // First drop tracking
   const firstDropCompletedAt = useGremlyStore((s) => s.firstDropCompletedAt);
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
@@ -5710,12 +5715,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         setGremlySpeech(speech.message);
         // Don't auto-dismiss — keep it visible until user interacts
       } else {
-        const greeting = getGreetingSpeech();
+        const greeting = getDcoGreetingSpeech(briefHeadline);
         showGremlySpeech(greeting.message, greeting.duration);
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [showGremlySpeech, firstDropCompletedAt, showSweepDemoPrompt]);
+  }, [showGremlySpeech, firstDropCompletedAt, showSweepDemoPrompt, briefHeadline]);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pulseScale] = useState(() => new Animated.Value(1));

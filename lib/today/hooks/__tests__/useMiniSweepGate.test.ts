@@ -140,7 +140,7 @@ describe('useMiniSweepGate', () => {
     it('returns false when mini sweep was already completed today', () => {
       mockUseGremlyStore.mockImplementation((selector: any) => {
         const state = {
-          miniSweepLastCompletedAt: '2025-12-15T08:00:00Z', // Completed earlier today
+          miniSweepLastCompletedAt: '2025-12-15T18:00:00Z', // Completed earlier today
           markMiniSweepCompleted: mockMarkMiniSweepCompleted,
           gremlyAge: 5,
           todos: [],

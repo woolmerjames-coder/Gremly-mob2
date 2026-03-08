@@ -9,6 +9,7 @@ import {
   getGreetingSpeech,
   getEmptyStateSpeech,
   getMorningBriefSpeech,
+  getDcoGreetingSpeech,
   getTimeOfDay,
   pickRandom,
   SpeechContext,
@@ -331,5 +332,41 @@ describe('getMorningBriefSpeech', () => {
 
     expect(result.message).toBeTruthy();
     expect(result.duration).toBeGreaterThan(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DCO Greeting Speech Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getDcoGreetingSpeech', () => {
+  it('returns the DCO headline when provided', () => {
+    const result = getDcoGreetingSpeech('Busy week with Sarah visiting');
+    expect(result.message).toBe('Busy week with Sarah visiting');
+    expect(result.duration).toBeGreaterThan(0);
+  });
+
+  it('falls back to time-of-day greeting when briefHeadline is null', () => {
+    const result = getDcoGreetingSpeech(null);
+    expect(result.message).toBeTruthy();
+    expect(result.message.length).toBeGreaterThan(0);
+    expect(result.duration).toBeGreaterThan(0);
+  });
+
+  it('calculates duration proportional to headline length', () => {
+    const short = getDcoGreetingSpeech('Hi');
+    const long = getDcoGreetingSpeech(
+      'A very long headline that takes much more time to read through carefully',
+    );
+    expect(long.duration).toBeGreaterThanOrEqual(short.duration);
+  });
+
+  it('returns different messages on repeated calls with null', () => {
+    // With null, falls back to heuristic — should not crash
+    const results = Array.from({ length: 5 }, () => getDcoGreetingSpeech(null));
+    results.forEach((r) => {
+      expect(r.message).toBeTruthy();
+      expect(r.duration).toBeGreaterThan(0);
+    });
   });
 });

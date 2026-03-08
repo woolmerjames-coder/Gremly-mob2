@@ -3354,6 +3354,43 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     ];
   }, [introStats]);
 
+  const [dcoSnapshot] = useState(() => {
+    const dco = useGremlyStore.getState().dco;
+    console.log('[SweepFlow] DCO snapshot:', dco?.tone, dco?.life_moment);
+    return {
+      tone: dco?.tone ?? null,
+      lifeMoment: dco?.life_moment ?? null,
+      namedAnchors: dco?.named_anchors ?? [],
+    };
+  });
+
+  // Calendar events that have already happened today
+  const [completedEvents] = useState(() => {
+    const calendarEventsMap = useGremlyStore.getState().calendarEvents;
+    const today = useGremlyStore.getState().currentDate;
+    const todayEvents = calendarEventsMap[today] || [];
+    const now = new Date();
+
+    return todayEvents
+      .filter((event) => {
+        if (event.isAllDay) return true;
+        const endTime = new Date(event.endAt);
+        return endTime <= now;
+      })
+      .map((event) => ({
+        id: event.id,
+        title: event.title,
+      }));
+  });
+
+  // Drops captured today
+  const [dropsCount] = useState(() => {
+    const notes = useGremlyStore.getState().notes;
+    const today = useGremlyStore.getState().currentDate;
+    return notes.filter((n) => !n.archived && n.created_at && n.created_at.startsWith(today))
+      .length;
+  });
+
   // Track completion badges data
   const [habitsCheckedCount, setHabitsCheckedCount] = useState(0);
   const [journalWritten, setJournalWritten] = useState(false);
@@ -4040,6 +4077,11 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         <View style={styles.celebrationOverlay}>
           <SweepCelebrationTransition
             completedItems={completedItems}
+            completedEvents={completedEvents}
+            dropsCount={dropsCount}
+            dcoTone={dcoSnapshot.tone}
+            dcoLifeMoment={dcoSnapshot.lifeMoment}
+            dcoNamedAnchors={dcoSnapshot.namedAnchors}
             onComplete={() => setShowCelebration(false)}
             onSkip={() => setShowCelebration(false)}
           />

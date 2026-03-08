@@ -170,6 +170,11 @@ describe.skip('MorningBriefSheet', () => {
         slotTaskIntoGap: jest.fn(),
         unslotTask: jest.fn(),
         hideForToday: jest.fn(),
+        // DCO state (needed for StepGlance and patchDcoTodayFocus)
+        dco: null,
+        dcoLoading: false,
+        fetchTodayDco: jest.fn().mockResolvedValue(undefined),
+        patchDcoTodayFocus: jest.fn().mockResolvedValue(undefined),
       };
       return selector(state);
     });
@@ -386,10 +391,30 @@ describe('MorningBriefSheet — reset & date-stamp effects (documentary)', () =>
       const filter = (t: any, todayStr: string) =>
         !t.archived && !t.completed_at && t.due_day === todayStr && t.commitment === true;
 
-      expect(filter({ archived: false, completed_at: null, due_day: '2025-02-19', commitment: true }, '2025-02-19')).toBe(true);
-      expect(filter({ archived: true, completed_at: null, due_day: '2025-02-19', commitment: true }, '2025-02-19')).toBe(false);
-      expect(filter({ archived: false, completed_at: null, due_day: '2025-02-19', commitment: false }, '2025-02-19')).toBe(false);
-      expect(filter({ archived: false, completed_at: null, due_day: '2025-02-18', commitment: true }, '2025-02-19')).toBe(false);
+      expect(
+        filter(
+          { archived: false, completed_at: null, due_day: '2025-02-19', commitment: true },
+          '2025-02-19',
+        ),
+      ).toBe(true);
+      expect(
+        filter(
+          { archived: true, completed_at: null, due_day: '2025-02-19', commitment: true },
+          '2025-02-19',
+        ),
+      ).toBe(false);
+      expect(
+        filter(
+          { archived: false, completed_at: null, due_day: '2025-02-19', commitment: false },
+          '2025-02-19',
+        ),
+      ).toBe(false);
+      expect(
+        filter(
+          { archived: false, completed_at: null, due_day: '2025-02-18', commitment: true },
+          '2025-02-19',
+        ),
+      ).toBe(false);
     });
 
     it('documents habit commitment removal filter', () => {
@@ -400,10 +425,21 @@ describe('MorningBriefSheet — reset & date-stamp effects (documentary)', () =>
         h.start_date <= todayStr &&
         (!h.end_date || h.end_date >= todayStr);
 
-      expect(isActiveToday({ archived: false, start_date: '2025-01-01', end_date: null }, '2025-02-19')).toBe(true);
-      expect(isActiveToday({ archived: false, start_date: '2025-03-01', end_date: null }, '2025-02-19')).toBe(false);
-      expect(isActiveToday({ archived: true, start_date: '2025-01-01', end_date: null }, '2025-02-19')).toBe(false);
-      expect(isActiveToday({ archived: false, start_date: '2025-01-01', end_date: '2025-02-01' }, '2025-02-19')).toBe(false);
+      expect(
+        isActiveToday({ archived: false, start_date: '2025-01-01', end_date: null }, '2025-02-19'),
+      ).toBe(true);
+      expect(
+        isActiveToday({ archived: false, start_date: '2025-03-01', end_date: null }, '2025-02-19'),
+      ).toBe(false);
+      expect(
+        isActiveToday({ archived: true, start_date: '2025-01-01', end_date: null }, '2025-02-19'),
+      ).toBe(false);
+      expect(
+        isActiveToday(
+          { archived: false, start_date: '2025-01-01', end_date: '2025-02-01' },
+          '2025-02-19',
+        ),
+      ).toBe(false);
     });
   });
 
@@ -469,9 +505,17 @@ describe('MorningBriefSheet — reset & date-stamp effects (documentary)', () =>
       const today = '2025-02-19';
 
       // Case 1: snapshot date matches today → restore
-      const snapSameDay = { selectedIds: ['a', 'b'], lockedIds: ['a'], selectionDate: '2025-02-19' };
+      const snapSameDay = {
+        selectedIds: ['a', 'b'],
+        lockedIds: ['a'],
+        selectionDate: '2025-02-19',
+      };
       if (snapSameDay.selectionDate === today) {
-        setBriefSelections(snapSameDay.selectedIds, snapSameDay.lockedIds, snapSameDay.selectionDate);
+        setBriefSelections(
+          snapSameDay.selectedIds,
+          snapSameDay.lockedIds,
+          snapSameDay.selectionDate,
+        );
       }
       expect(setBriefSelections).toHaveBeenCalledWith(['a', 'b'], ['a'], '2025-02-19');
 
