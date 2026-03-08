@@ -251,19 +251,22 @@ const generateSingleUserDco = inngest.createFunction(
         const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
         const todayLocal = getUserLocalDate(timezone);
 
-        const res = await fetch(`${env.SUPABASE_URL}/rest/v1/user_daily_state`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            user_id: userId,
-            date: todayLocal,
-            dco: analysisResult,
-            extraction_raw: extractionResult,
-            created_at: now.toISOString(),
-            updated_at: now.toISOString(),
-            expires_at: expiresAt.toISOString(),
-          }),
-        });
+        const res = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              user_id: userId,
+              date: todayLocal,
+              dco: analysisResult,
+              extraction_raw: extractionResult,
+              created_at: now.toISOString(),
+              updated_at: now.toISOString(),
+              expires_at: expiresAt.toISOString(),
+            }),
+          },
+        );
 
         if (!res.ok) {
           throw new Error(`Failed to store DCO: ${res.statusText}`);
@@ -290,6 +293,18 @@ function sevenDaysAgo() {
   return formatDateOnly(d);
 }
 
+function fourteenDaysAgoStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 14);
+  return formatDateOnly(d);
+}
+
+function fourteenDaysFromNow() {
+  const d = new Date();
+  d.setDate(d.getDate() + 14);
+  return formatDateOnly(d);
+}
+
 async function fetchDcoInputData(userId, timezone, env) {
   const headers = {
     apikey: env.SUPABASE_SERVICE_KEY,
@@ -299,56 +314,71 @@ async function fetchDcoInputData(userId, timezone, env) {
 
   const todayLocal = getUserLocalDate(timezone);
 
-  const [todos, habits, habitProgress, notes, spaces, milestones, weeklySummaries, previousDco] =
-    await Promise.all([
-      // Todos (last 7 days)
-      fetch(
-        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,name,status,completed_at,target_date,space_id&limit=100`,
-        { headers },
-      ).then((r) => r.json()),
+  const [
+    todos,
+    habits,
+    habitProgress,
+    notes,
+    spaces,
+    milestones,
+    eventNotes,
+    weeklySummaries,
+    previousDco,
+  ] = await Promise.all([
+    // Todos (last 7 days)
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,name,status,completed_at,target_date,space_id&limit=100`,
+      { headers },
+    ).then((r) => r.json()),
 
-      // Habits (active only)
-      fetch(
-        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,frequency&limit=20`,
-        { headers },
-      ).then((r) => r.json()),
+    // Habits (active only)
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,frequency&limit=20`,
+      { headers },
+    ).then((r) => r.json()),
 
-      // Habit progress (last 7 days)
-      fetch(
-        `${env.SUPABASE_URL}/rest/v1/habit_progress?owner_id=eq.${userId}&occurred_day=gte.${sevenDaysAgo()}&select=habit_id,occurred_day`,
-        { headers },
-      ).then((r) => r.json()),
+    // Habit progress (last 7 days)
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habit_progress?owner_id=eq.${userId}&occurred_day=gte.${sevenDaysAgo()}&select=habit_id,occurred_day`,
+      { headers },
+    ).then((r) => r.json()),
 
-      // Notes (last 7 days) — includes target_date and is_goal for event notes
-      fetch(
-        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,title,subtype,mood,space_id,created_at,target_date,is_goal&limit=100`,
-        { headers },
-      ).then((r) => r.json()),
+    // Notes (last 7 days) — includes target_date and is_goal for event notes
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,title,subtype,mood,space_id,created_at,target_date,is_goal&limit=100`,
+      { headers },
+    ).then((r) => r.json()),
 
-      // Spaces (active)
-      fetch(
-        `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&archived_at=is.null&select=id,name&limit=20`,
-        { headers },
-      ).then((r) => r.json()),
+    // Spaces (active)
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&archived_at=is.null&select=id,name&limit=20`,
+      { headers },
+    ).then((r) => r.json()),
 
-      // Space milestones (all active, with dates)
-      fetch(
-        `${env.SUPABASE_URL}/rest/v1/space_milestones?owner_id=eq.${userId}&is_active=eq.true&select=name,date,space_id,completed&order=date.asc&limit=50`,
-        { headers },
-      ).then((r) => r.json()),
+    // Space milestones (all active, with dates)
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/space_milestones?owner_id=eq.${userId}&is_active=eq.true&select=name,date,space_id,completed&order=date.asc&limit=50`,
+      { headers },
+    ).then((r) => r.json()),
 
-      // Weekly summary (latest)
-      fetch(
-        `${env.SUPABASE_URL}/rest/v1/weekly_summaries?owner_id=eq.${userId}&select=summary_text&order=created_at.desc&limit=1`,
-        { headers },
-      ).then((r) => r.json()),
+    // Event notes by target_date (travel dates, key dates — regardless of when created)
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&archived=eq.false&target_date=gte.${fourteenDaysAgoStr()}&target_date=lte.${fourteenDaysFromNow()}&select=id,title,target_date,is_goal,space_id`,
+      { headers },
+    ).then((r) => r.json()),
 
-      // Previous DCO (yesterday or most recent)
-      fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=lt.${todayLocal}&select=dco&order=date.desc&limit=1`,
-        { headers },
-      ).then((r) => r.json()),
-    ]);
+    // Weekly summary (latest)
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/weekly_summaries?owner_id=eq.${userId}&select=summary_text&order=created_at.desc&limit=1`,
+      { headers },
+    ).then((r) => r.json()),
+
+    // Previous DCO (yesterday or most recent)
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=lt.${todayLocal}&select=dco&order=date.desc&limit=1`,
+      { headers },
+    ).then((r) => r.json()),
+  ]);
 
   return {
     userId,
@@ -360,6 +390,7 @@ async function fetchDcoInputData(userId, timezone, env) {
     notes,
     spaces,
     milestones,
+    eventNotes,
     weeklySummary: weeklySummaries[0]?.summary_text || null,
     previousDco: previousDco[0]?.dco || null,
   };
@@ -394,9 +425,9 @@ async function runDcoExtraction(inputData, env) {
     .slice(0, 20)
     .map((n) => n.title);
 
-  // Event notes with dates — this is critical for travel, key dates, etc.
-  const events = inputData.notes
-    .filter((n) => n.subtype === 'event' && n.title)
+  // Event notes with dates — fetched by target_date window, not created_at
+  const events = (inputData.eventNotes || [])
+    .filter((n) => n.title)
     .map((n) => {
       const date = n.target_date || 'no date';
       const goal = n.is_goal ? ' [GOAL]' : '';
