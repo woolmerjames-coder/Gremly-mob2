@@ -37,7 +37,7 @@ import SPACES_TITLE from '../../assets/spacestitle.png';
 
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import {
-  useActiveSpaces,
+  useDcoSortedSpaces,
   useNewSpaceSuggestions,
   useEntitiesByIds,
   type DropEntity,
@@ -95,7 +95,7 @@ function SuggestionItemsList({ dropIds }: SuggestionItemsListProps) {
 }
 
 function SpacesScreen() {
-  const activeSpaces = useActiveSpaces();
+  const activeSpaces = useDcoSortedSpaces();
   const newSpaceSuggestions = useNewSpaceSuggestions();
   const deleteSpace = useGremlyStore((s) => s.deleteSpace);
   const createSpace = useGremlyStore((s) => s.createSpace);

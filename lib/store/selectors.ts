@@ -1042,6 +1042,26 @@ export const selectActiveSpaces = createSelector([selectSpaces], (spaces): Space
   spaces.filter((s) => !s.archived_at),
 );
 
+/** Active spaces sorted by DCO relevance — spaces matching named_anchors or with upcoming key dates appear first */
+export const selectDcoSortedSpaces = createSelector(
+  [
+    (state: ReturnType<typeof useGremlyStore.getState>) => state.spaces,
+    (state: ReturnType<typeof useGremlyStore.getState>) => state.dco,
+  ],
+  (spaces, dco) => {
+    const active = spaces.filter((s) => !s.archived_at);
+    if (!dco?.named_anchors?.length) return active;
+
+    const anchorLabels = new Set(dco.named_anchors.map((a) => a.label.toLowerCase()));
+
+    return [...active].sort((a, b) => {
+      const aMatch = anchorLabels.has(a.name.toLowerCase()) ? 1 : 0;
+      const bMatch = anchorLabels.has(b.name.toLowerCase()) ? 1 : 0;
+      return bMatch - aMatch; // Matched spaces first, rest in original order
+    });
+  },
+);
+
 /** Get todos for a specific space */
 export const selectTodosBySpace = createSelector(
   [selectActiveTodos, (_state: GremlyState, spaceId: string) => spaceId],
@@ -1453,6 +1473,7 @@ export const useYourNotes = () => useGremlyStore(selectYourNotes);
 export const useRecentJournals = () => useGremlyStore(selectRecentJournals);
 
 export const useActiveSpaces = () => useGremlyStore(selectActiveSpaces);
+export const useDcoSortedSpaces = () => useGremlyStore(selectDcoSortedSpaces);
 export const useSpacesWithCounts = () => useGremlyStore(selectSpacesWithCounts);
 export const usePopularTags = () => useGremlyStore(selectPopularTags);
 
