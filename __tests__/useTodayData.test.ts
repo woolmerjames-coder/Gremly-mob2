@@ -348,8 +348,8 @@ describe('useTodayData', () => {
 
   describe('suggestion heuristics', () => {
     it('should suggest journal entry if none today and not evening', async () => {
-      // Set morning time (T18:00Z = 8am in UTC-10, safe across US timezones)
-      const mockDate = new Date('2025-01-01T18:00:00Z');
+      // Set morning/midday time (T15:00Z = 3pm UTC = 5am UTC-10, not evening in any timezone)
+      const mockDate = new Date('2025-01-01T15:00:00Z');
       jest.spyOn(global, 'Date').mockImplementation((() => mockDate) as any);
 
       mockRepo.listDueToday.mockResolvedValue([]);
