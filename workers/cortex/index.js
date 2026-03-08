@@ -129,10 +129,10 @@
  */
 
 import { getSessionContext } from './context/sessionContext.js';
-import { buildSessionContextString } from './context/contextBuilder.js';
+import { buildSessionContextString, buildDcoContextHeader } from './context/contextBuilder.js';
+import { getDcoContext } from './context/dcoContext.js';
 import { getUserProfile } from './context/userProfile.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
-import { getSpaceContent, buildSpaceContentString } from './context/spaceContent.js';
 import { triageMessage } from './triage';
 import {
   assembleGenerationConfig,
@@ -140,7 +140,8 @@ import {
   buildEntityChatConfig,
   buildEntityContextBlock,
   getSearchPolicy,
-  DEPTH_CONFIG,
+  TOKEN_CAP,
+  MODE_REASONING,
   MODE_TEMP,
 } from './gremlyPersona';
 
@@ -3216,6 +3217,7 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
         const timeOfDay = clientHour < 12 ? 'morning' : clientHour < 17 ? 'afternoon' : 'evening';
         const timeStr = `${clientHour}:${String(clientTime.getMinutes()).padStart(2, '0')}`;
 
+        /* [COMMENTED OUT — replaced by triage pipeline in buildEntityChatConfig]
         const entityChatSystemPrompt = `${GREMLY_CORE_PERSONA}
 
 === CONTEXT: ENTITY CHAT ===
@@ -3273,6 +3275,7 @@ Almost never suggest creating a Space. Only if ALL true:
 - 3+ distinct sub-tasks with different timelines
 - Will take weeks, not days
 - User seems to be managing something complex`;
+        */
 
         // === USER PROFILE & SESSION CONTEXT ===
         let sessionContextStr = '';
@@ -3280,13 +3283,18 @@ Almost never suggest creating a Space. Only if ALL true:
         if (body.userId) {
           try {
             // Fetch both in parallel
-            const [sessionData, profile] = await Promise.all([
+            const [sessionData, profile, dcoData] = await Promise.all([
               getSessionContext(body.userId, env),
               getUserProfile(body.userId, env),
+              getDcoContext(body.userId, env),
             ]);
             sessionContextStr = buildSessionContextString(sessionData, {
               entityType: entity.type,
             });
+            const dcoHeader = buildDcoContextHeader(dcoData);
+            if (dcoHeader) {
+              sessionContextStr = dcoHeader + '\n\n' + sessionContextStr;
+            }
             userProfile = profile;
             if (sessionContextStr || userProfile) {
               console.log('[EntityChat] Context loaded', {
@@ -3301,45 +3309,63 @@ Almost never suggest creating a Space. Only if ALL true:
           }
         }
 
-        // Build context injection
-        let contextInjection = '';
-
-        // Get age guidance using both time and data signals
-        const ageInfo = getAgeGuidance(userProfile?.relationshipStartedAt, userProfile?.signals);
-        console.log(`[EntityChat] ${ageInfo.logSummary}`);
-        contextInjection += `\n${ageInfo.promptGuidance}\n`;
-
-        if (userProfile?.profileText) {
-          contextInjection += `\n=== ABOUT THIS USER ===\n${userProfile.profileText}\n`;
-        } else {
-          contextInjection += `\n=== ABOUT THIS USER ===\nNew user — no patterns observed yet.\n`;
-        }
-        if (sessionContextStr) {
-          contextInjection += `\n${sessionContextStr}`;
-        }
-
-        // Inject context into system prompt
-        let fullEntitySystemPrompt = entityChatSystemPrompt;
-        if (contextInjection) {
-          fullEntitySystemPrompt += '\n\n' + contextInjection;
-        }
-
         // URL context placeholders - populated in streaming path if URLs detected
         let urlContext = '';
         let fetchedUrl = null;
 
-        // Build messages array for OpenAI, injecting URL context if present
-        const processedMessages = messages.slice(-20).map((msg, idx, arr) => {
-          // Add URL context to the last user message
-          if (urlContext && idx === arr.length - 1 && msg.role === 'user') {
-            return { ...msg, content: msg.content + urlContext };
-          }
-          return msg;
+        // === TRIAGE: Classify message before generation ===
+        const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
+        const previousExchange = extractPreviousExchange(messages);
+
+        const triage = await triageMessage({
+          userMessage: lastUserMsg,
+          previousExchange,
+          spaceName: body.spaceName || undefined,
+          preset: preset || undefined,
+          chatType: 'entity',
+          env,
         });
 
-        const openaiMessages = [
-          { role: 'system', content: fullEntitySystemPrompt },
-          ...processedMessages,
+        console.log('[EntityChat:Triage]', {
+          mode: triage.mode,
+          search: triage.search,
+          source: triage.source,
+          preset: preset || 'none',
+          messagePreview: lastUserMsg.slice(0, 80),
+        });
+
+        // === BUILD ENTITY CONTEXT ===
+        const entityContextBlock = buildEntityContextBlock({
+          entity: {
+            type: entity.type,
+            title: entity.title || 'Untitled',
+            body: entity.body || null,
+            tags: entity.tags || [],
+            due_date: entity.due_date || null,
+            frequency: entity.frequency || null,
+            time_estimate: entity.time_estimate || null,
+            subtype: entity.subtype || null,
+          },
+          sweepContext: sweepContext || null,
+          siblingContext: body.siblingContext || null,
+          timeOfDay,
+          timeStr,
+          messageCount: messages.length,
+        });
+
+        // === COMPOSE: Build generation config from triage signals ===
+        const genConfig = buildEntityChatConfig(
+          triage,
+          entityContextBlock,
+          body.accountCreatedAt,
+          sessionContextStr,
+          userProfile?.profileText,
+        );
+
+        // === BUILD MESSAGES: Replace old system prompt with triage-built one ===
+        const entityMessages = [
+          { role: 'system', content: genConfig.systemPrompt },
+          ...messages.slice(-20).filter((m) => m.role !== 'system'),
         ];
 
         // Check if previous messages contain search results to avoid redundant searches
@@ -3348,12 +3374,14 @@ Almost never suggest creating a Space. Only if ALL true:
           .slice(-1)[0];
 
         if (previousSearchContext) {
-          // Add a system hint about existing search context
-          openaiMessages.push({
+          entityMessages.push({
             role: 'system',
             content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.metadata.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
           });
         }
+
+        // === SEARCH POLICY ===
+        const searchPolicy = getSearchPolicy(triage.search);
 
         const t0 = Date.now();
 
@@ -3362,9 +3390,6 @@ Almost never suggest creating a Space. Only if ALL true:
         // =========================
         if (isEntityChatStreaming) {
           console.log('[EntityChat:Streaming] Starting SSE stream');
-
-          // Determine optimal model and tokens for this query
-          const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
 
           // Create TransformStream early so we can send fetching indicators
           const { readable, writable } = new TransformStream();
@@ -3422,25 +3447,50 @@ Almost never suggest creating a Space. Only if ALL true:
             );
           }
 
-          const chatCfg = getChatConfig(
-            openaiMessages.filter((m) => m.role === 'user').pop()?.content || '',
-          );
+          // Inject URL context into entityMessages if present
+          if (urlContext) {
+            const lastIdx = entityMessages.length - 1;
+            if (entityMessages[lastIdx].role === 'user') {
+              entityMessages[lastIdx] = {
+                ...entityMessages[lastIdx],
+                content: entityMessages[lastIdx].content + urlContext,
+              };
+            }
+          }
+
+          const streamPayload = {
+            model: 'gemini-2.5-flash',
+            messages: entityMessages,
+            temperature: genConfig.temperature,
+            max_tokens: genConfig.maxTokens,
+            reasoning_effort: genConfig.reasoning,
+            stream: true,
+          };
+
+          if (searchPolicy.attachTool) {
+            streamPayload.tools = [WEB_SEARCH_TOOL];
+            streamPayload.tool_choice =
+              searchPolicy.toolChoice === 'required'
+                ? { type: 'function', function: { name: 'web_search' } }
+                : 'auto';
+          }
+
+          console.log('[EntityChat:Streaming:Payload]', {
+            model: streamPayload.model,
+            temperature: streamPayload.temperature,
+            max_tokens: streamPayload.max_tokens,
+            reasoning_effort: streamPayload.reasoning_effort,
+            hasTools: !!streamPayload.tools,
+            messageCount: streamPayload.messages?.length,
+          });
+
           const openaiRes = await fetch(GEMINI_BASE_URL, {
             method: 'POST',
             headers: {
               Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              model: chatCfg.model,
-              messages: openaiMessages,
-              temperature: 0.7,
-              max_tokens: chatCfg.maxTokens,
-              reasoning_effort: chatCfg.reasoningEffort,
-              stream: true,
-              tools: [WEB_SEARCH_TOOL],
-              tool_choice: 'auto',
-            }),
+            body: JSON.stringify(streamPayload),
           });
 
           if (!openaiRes.ok) {
@@ -3661,7 +3711,7 @@ Almost never suggest creating a Space. Only if ALL true:
                   }));
 
                   const followUpMessages = [
-                    ...openaiMessages,
+                    ...entityMessages,
                     {
                       role: 'assistant',
                       content: null,
@@ -3677,10 +3727,6 @@ Almost never suggest creating a Space. Only if ALL true:
                   );
                   fullContent = '';
 
-                  const chatCfgFollowUp = getChatConfig(
-                    openaiMessages.filter((m) => m.role === 'user').pop()?.content || '',
-                    { isSearchFollowUp: true },
-                  );
                   const followUpRes = await fetch(GEMINI_BASE_URL, {
                     method: 'POST',
                     headers: {
@@ -3688,11 +3734,11 @@ Almost never suggest creating a Space. Only if ALL true:
                       'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                      model: chatCfgFollowUp.model,
+                      model: 'gemini-2.5-flash',
                       messages: followUpMessages,
-                      temperature: 0.7,
-                      max_tokens: chatCfgFollowUp.maxTokens,
-                      reasoning_effort: chatCfgFollowUp.reasoningEffort,
+                      temperature: genConfig.temperature,
+                      max_tokens: Math.max(genConfig.maxTokens, 1200),
+                      reasoning_effort: genConfig.reasoning,
                       stream: true,
                     }),
                   });
@@ -3835,9 +3881,6 @@ Almost never suggest creating a Space. Only if ALL true:
                   '[EntityChat:Streaming] Search fallback - responding without search results',
                 );
 
-                const chatCfgFallback = getChatConfig(
-                  openaiMessages.filter((m) => m.role === 'user').pop()?.content || '',
-                );
                 const fallbackRes = await fetch(GEMINI_BASE_URL, {
                   method: 'POST',
                   headers: {
@@ -3845,18 +3888,18 @@ Almost never suggest creating a Space. Only if ALL true:
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    model: chatCfgFallback.model,
+                    model: 'gemini-2.5-flash',
                     messages: [
-                      ...openaiMessages,
+                      ...entityMessages,
                       {
                         role: 'system',
                         content:
                           'Web search is temporarily unavailable. Please respond based on your knowledge, and let the user know you could not search for the latest information.',
                       },
                     ],
-                    temperature: 0.7,
-                    max_tokens: chatCfgFallback.maxTokens,
-                    reasoning_effort: chatCfgFallback.reasoningEffort,
+                    temperature: genConfig.temperature,
+                    max_tokens: genConfig.maxTokens,
+                    reasoning_effort: genConfig.reasoning,
                   }),
                 });
 
@@ -3953,24 +3996,29 @@ Almost never suggest creating a Space. Only if ALL true:
         // NON-STREAMING ENTITY CHAT
         // =========================
         try {
-          const chatCfg = getChatConfig(
-            openaiMessages.filter((m) => m.role === 'user').pop()?.content || '',
-          );
+          const nonStreamPayload = {
+            model: 'gemini-2.5-flash',
+            messages: entityMessages,
+            temperature: genConfig.temperature,
+            max_tokens: genConfig.maxTokens,
+            reasoning_effort: genConfig.reasoning,
+          };
+
+          if (searchPolicy.attachTool) {
+            nonStreamPayload.tools = [WEB_SEARCH_TOOL];
+            nonStreamPayload.tool_choice =
+              searchPolicy.toolChoice === 'required'
+                ? { type: 'function', function: { name: 'web_search' } }
+                : 'auto';
+          }
+
           const res = await fetch(GEMINI_BASE_URL, {
             method: 'POST',
             headers: {
               Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              model: chatCfg.model,
-              messages: openaiMessages,
-              temperature: 0.7,
-              max_tokens: chatCfg.maxTokens,
-              reasoning_effort: chatCfg.reasoningEffort,
-              tools: [WEB_SEARCH_TOOL],
-              tool_choice: 'auto',
-            }),
+            body: JSON.stringify(nonStreamPayload),
           });
 
           const oj = await res.json();
@@ -4009,7 +4057,7 @@ Almost never suggest creating a Space. Only if ALL true:
               if (searchResults && searchResults.results.length > 0) {
                 // Build follow-up messages
                 const followUpMessages = [
-                  ...openaiMessages,
+                  ...entityMessages,
                   {
                     role: 'assistant',
                     content: null,
@@ -4028,11 +4076,7 @@ Almost never suggest creating a Space. Only if ALL true:
                   },
                 ];
 
-                // Second API call
-                const chatCfgFollowUp = getChatConfig(
-                  openaiMessages.filter((m) => m.role === 'user').pop()?.content || '',
-                  { isSearchFollowUp: true },
-                );
+                // Second API call (triage config)
                 const followUpRes = await fetch(GEMINI_BASE_URL, {
                   method: 'POST',
                   headers: {
@@ -4040,11 +4084,11 @@ Almost never suggest creating a Space. Only if ALL true:
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    model: chatCfgFollowUp.model,
+                    model: 'gemini-2.5-flash',
                     messages: followUpMessages,
-                    temperature: 0.7,
-                    max_tokens: chatCfgFollowUp.maxTokens,
-                    reasoning_effort: chatCfgFollowUp.reasoningEffort,
+                    temperature: genConfig.temperature,
+                    max_tokens: Math.max(genConfig.maxTokens, 1200),
+                    reasoning_effort: genConfig.reasoning,
                   }),
                 });
 
@@ -8290,12 +8334,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       if (isSpaceChatStreaming && isSpaceChatLane) {
         console.log('[SpaceChat:Streaming] Starting SSE stream');
 
-        // Space Chat - all Gemini Flash (no mini/full split needed, Flash is cheap + good)
         const lastUserMsgSpace = messages.filter((m) => m.role === 'user').pop()?.content || '';
-        const chatCfg = getChatConfig(lastUserMsgSpace);
-        console.log('[SpaceChat:Streaming] Using Gemini Flash', {
-          maxTokens: chatCfg.maxTokens,
-        });
 
         // Create TransformStream early so we can send fetching indicators
         const { readable, writable } = new TransformStream();
@@ -8366,28 +8405,27 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         // === USER PROFILE & SESSION CONTEXT FOR SPACE CHAT ===
         let spaceSessionContextStr = '';
         let spaceUserProfile = null;
-        let spaceContentData = null;
         if (body.userId) {
           try {
             // Fetch all context in parallel
-            const [sessionData, profile, spaceContent] = await Promise.all([
+            const [sessionData, profile, dcoData] = await Promise.all([
               getSessionContext(body.userId, env),
               getUserProfile(body.userId, env),
-              body.spaceId
-                ? getSpaceContent(body.spaceId, body.userId, env)
-                : Promise.resolve(null),
+              getDcoContext(body.userId, env),
             ]);
             spaceSessionContextStr = buildSessionContextString(sessionData, {
               spaceId: body.spaceId,
             });
+            const dcoHeader = buildDcoContextHeader(dcoData);
+            if (dcoHeader) {
+              spaceSessionContextStr = dcoHeader + '\n\n' + spaceSessionContextStr;
+            }
             spaceUserProfile = profile;
-            spaceContentData = spaceContent;
-            if (spaceSessionContextStr || spaceUserProfile || spaceContentData) {
+            if (spaceSessionContextStr || spaceUserProfile) {
               console.log('[SpaceChat] Context loaded', {
                 userId: body.userId.slice(0, 8),
                 sessionContextLength: spaceSessionContextStr?.length || 0,
                 hasUserProfile: !!spaceUserProfile,
-                spaceContent: spaceContentData?.counts || null,
               });
             }
           } catch (err) {
@@ -8395,62 +8433,50 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
           }
         }
 
-        // Time of day for contextual suggestions
-        const scClientTime = body.currentTime ? new Date(body.currentTime) : new Date();
-        const scClientHour = scClientTime.getHours();
-        const scTimeOfDay =
-          scClientHour < 12 ? 'morning' : scClientHour < 17 ? 'afternoon' : 'evening';
-        const scTimeStr = `${scClientHour}:${String(scClientTime.getMinutes()).padStart(2, '0')}`;
+        // === TRIAGE: Classify message before generation ===
+        const previousExchange = extractPreviousExchange(messages);
+        const triage = await triageMessage({
+          userMessage: lastUserMsgSpace,
+          previousExchange,
+          spaceName: body.spaceName || undefined,
+          chatType: 'space',
+          env,
+        });
 
-        // Build context injection for space chat
-        let spaceContextInjection = '';
+        console.log('[SpaceChat:Streaming:Triage]', {
+          mode: triage.mode,
+          search: triage.search,
+          source: triage.source,
+          messagePreview: lastUserMsgSpace.slice(0, 80),
+        });
 
-        spaceContextInjection += `\n=== CURRENT TIME ===\nIt's currently ${scTimeOfDay} (${scTimeStr}). If suggesting the user do something now, consider the time — don't suggest starting a workout at 11pm or a morning routine in the evening.\n`;
+        // Minimal ChatContext for rolling summary
+        const streamContext = { runningSummary: body.runningSummary || '' };
 
-        // Get age guidance using both time and data signals
-        const spaceAgeInfo = getAgeGuidance(
-          spaceUserProfile?.relationshipStartedAt,
-          spaceUserProfile?.signals,
+        // === COMPOSE: Build generation config from triage signals ===
+        const genConfig = buildSpaceChatSystemPrompt(
+          triage,
+          streamContext,
+          body.spaceName,
+          null, // spaceContext not available server-side
+          body.accountCreatedAt,
+          spaceSessionContextStr,
+          spaceUserProfile?.profileText,
         );
-        console.log(`[SpaceChat] ${spaceAgeInfo.logSummary}`);
-        spaceContextInjection += `\n${spaceAgeInfo.promptGuidance}\n`;
 
-        if (spaceUserProfile?.profileText) {
-          spaceContextInjection += `\n=== ABOUT THIS USER ===\n${spaceUserProfile.profileText}\n`;
-        } else {
-          spaceContextInjection += `\n=== ABOUT THIS USER ===\nNew user — no patterns observed yet.\n`;
-        }
-
-        // Add space content (notes, todos, habits saved to this space)
-        const spaceContentStr = spaceContentData
-          ? buildSpaceContentString(spaceContentData, body.spaceName || 'This Space')
-          : '';
-        if (spaceContentStr) {
-          spaceContextInjection += `\n${spaceContentStr}\n`;
-        }
-
-        if (spaceSessionContextStr) {
-          spaceContextInjection += `\n${spaceSessionContextStr}`;
-        }
-
-        // Build messages with optional search context hint, injecting URL context if present
+        // === BUILD MESSAGES ===
+        // Inject URL context into the last user message if present
         const processedMessagesSpace = messages.map((msg, idx, arr) => {
-          // Add URL context to the last user message
           if (urlContextSpace && idx === arr.length - 1 && msg.role === 'user') {
             return { ...msg, content: msg.content + urlContextSpace };
           }
           return msg;
         });
 
-        let spaceChatMessages = [...processedMessagesSpace];
-
-        // Add context injection as a separate system message
-        if (spaceContextInjection) {
-          spaceChatMessages.unshift({
-            role: 'system',
-            content: spaceContextInjection,
-          });
-        }
+        const spaceChatMessages = [
+          { role: 'system', content: genConfig.systemPrompt },
+          ...processedMessagesSpace.filter((m) => m.role !== 'system'),
+        ];
 
         if (previousSearchContext) {
           spaceChatMessages.push({
@@ -8459,18 +8485,36 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
           });
         }
 
+        // === SEARCH POLICY ===
+        const searchPolicy = getSearchPolicy(triage.search);
+
         const openaiPayload = {
-          model: chatCfg.model,
+          model: 'gemini-2.5-flash',
           messages: spaceChatMessages,
-          temperature,
+          temperature: genConfig.temperature,
           stream: true,
-          tools: [WEB_SEARCH_TOOL],
-          tool_choice: 'auto',
-          max_tokens: chatCfg.maxTokens,
-          reasoning_effort: chatCfg.reasoningEffort,
+          max_tokens: genConfig.maxTokens,
+          reasoning_effort: genConfig.reasoning,
         };
 
+        if (searchPolicy.attachTool) {
+          openaiPayload.tools = [WEB_SEARCH_TOOL];
+          openaiPayload.tool_choice =
+            searchPolicy.toolChoice === 'required'
+              ? { type: 'function', function: { name: 'web_search' } }
+              : 'auto';
+        }
+
         const t0 = Date.now();
+
+        console.log('[SpaceChat:Streaming:Payload]', {
+          model: openaiPayload.model,
+          temperature: openaiPayload.temperature,
+          max_tokens: openaiPayload.max_tokens,
+          reasoning_effort: openaiPayload.reasoning_effort,
+          hasTools: !!openaiPayload.tools,
+          messageCount: openaiPayload.messages?.length,
+        });
 
         const openaiRes = await fetch(GEMINI_BASE_URL, {
           method: 'POST',
@@ -8677,7 +8721,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 }));
 
                 const followUpMessages = [
-                  ...messages,
+                  ...spaceChatMessages,
                   {
                     role: 'assistant',
                     content: null,
@@ -8686,8 +8730,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   ...toolResultMessages,
                 ];
 
-                // Second API call for final response - with real streaming
-                const chatCfgFollowUp = getChatConfig(lastUserMsgSpace, { isSearchFollowUp: true });
+                // Second API call for final response - with real streaming (triage config)
                 const followUpRes = await fetch(GEMINI_BASE_URL, {
                   method: 'POST',
                   headers: {
@@ -8695,12 +8738,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    model: chatCfgFollowUp.model,
+                    model: 'gemini-2.5-flash',
                     messages: followUpMessages,
-                    temperature,
-                    max_tokens: chatCfgFollowUp.maxTokens,
+                    temperature: genConfig.temperature,
+                    max_tokens: Math.max(genConfig.maxTokens, 1200),
                     stream: true,
-                    reasoning_effort: chatCfgFollowUp.reasoningEffort,
+                    reasoning_effort: genConfig.reasoning,
                   }),
                 });
 
@@ -8817,7 +8860,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 '[SpaceChat:Streaming] Search fallback - responding without search results',
               );
 
-              const chatCfgFallback = getChatConfig(lastUserMsgSpace);
               const fallbackRes = await fetch(GEMINI_BASE_URL, {
                 method: 'POST',
                 headers: {
@@ -8825,18 +8867,18 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                  model: chatCfgFallback.model,
+                  model: 'gemini-2.5-flash',
                   messages: [
-                    ...messages,
+                    ...spaceChatMessages,
                     {
                       role: 'system',
                       content:
                         'Web search is temporarily unavailable. Please respond based on your knowledge, and let the user know you could not search for the latest information.',
                     },
                   ],
-                  temperature,
-                  max_tokens: chatCfgFallback.maxTokens,
-                  reasoning_effort: chatCfgFallback.reasoningEffort,
+                  temperature: genConfig.temperature,
+                  max_tokens: genConfig.maxTokens,
+                  reasoning_effort: genConfig.reasoning,
                 }),
               });
 
@@ -8934,13 +8976,18 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         let userProfile = null;
         if (body.userId) {
           try {
-            const [sessionData, profile] = await Promise.all([
+            const [sessionData, profile, dcoData] = await Promise.all([
               getSessionContext(body.userId, env),
               getUserProfile(body.userId, env),
+              getDcoContext(body.userId, env),
             ]);
             sessionContextStr = buildSessionContextString(sessionData, {
               spaceId: body.spaceId,
             });
+            const dcoHeader = buildDcoContextHeader(dcoData);
+            if (dcoHeader) {
+              sessionContextStr = dcoHeader + '\n\n' + sessionContextStr;
+            }
             userProfile = profile;
             if (sessionContextStr || userProfile) {
               console.log('[SpaceChat:NonStreaming] Context loaded', {
@@ -8972,7 +9019,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
         console.log('[SpaceChat:NonStreaming:Triage]', {
           mode: triage.mode,
-          depth: triage.depth,
           search: triage.search,
           source: triage.source,
           messagePreview: lastUserMsg.slice(0, 80),
@@ -9109,7 +9155,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
           content_length: content.length,
           used_search: !!searchQuery,
           triage_mode: triage.mode,
-          triage_depth: triage.depth,
         });
 
         return j({
