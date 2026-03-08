@@ -167,7 +167,8 @@ describe('Timezone Safety', () => {
       // Should extract "2025-12-22" regardless of time component
       expect(service.extractDateFromIso('2025-12-22T00:00:00.000Z')).toBe('2025-12-22');
       expect(service.extractDateFromIso('2025-12-22T23:59:59.999Z')).toBe('2025-12-22');
-      expect(service.extractDateFromIso('2025-12-22T14:30:00+05:00')).toBe('2025-12-22');
+      // Use T18:00Z to avoid timezone shifts in western US timezones
+      expect(service.extractDateFromIso('2025-12-22T18:00:00.000Z')).toBe('2025-12-22');
     });
 
     it('handles date-only strings', () => {

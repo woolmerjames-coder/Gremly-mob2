@@ -27,6 +27,9 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
     gremlySpeech: mockGremlySpeech,
     setGremlySpeech: jest.fn(),
     incrementSweepCount: () => Promise.resolve({ didAgeUp: false, newAge: 5 }),
+    // DCO state (default null — getDcoGreetingSpeech falls back to heuristic)
+    dco: null,
+    dcoLoading: false,
   });
 
   const useGremlyStore = Object.assign(
@@ -48,6 +51,7 @@ jest.mock('../../../lib/store/selectors', () => ({
   selectRecentNotes: jest.fn(() => []),
   selectRecentTodos: jest.fn(() => []),
   selectRecentHabits: jest.fn(() => []),
+  selectBriefHeadline: jest.fn((s: any) => s?.dco?.brief_headline ?? null),
 }));
 
 jest.mock('../../../providers/AuthProvider', () => ({
@@ -177,7 +181,7 @@ describe.skip('CatchAllNotepad Gremly Speech', () => {
   it('does not render speech container when no speech message', () => {
     mockGremlySpeech = null;
     const screen = render(<CatchAllNotepad />);
-    
+
     // With no speech, the speech container should not be rendered
     // This is hard to test without specific testIDs, but we can verify
     // the component renders without errors
@@ -212,7 +216,7 @@ describe('Gremly Speech Styles (unit)', () => {
       right: 110, // Leave space for Gremly
       zIndex: 15,
     };
-    
+
     expect(expectedStyle.position).toBe('absolute');
     expect(expectedStyle.bottom).toBe(100);
     expect(expectedStyle.right).toBe(110); // Space for Gremly mascot
@@ -226,7 +230,7 @@ describe('Gremly Speech Styles (unit)', () => {
       fontWeight: '600',
       textAlign: 'right',
     };
-    
+
     expect(expectedStyle.textAlign).toBe('right');
     expect(expectedStyle.fontStyle).toBe('italic');
     expect(expectedStyle.fontWeight).toBe('600');
@@ -253,7 +257,7 @@ describe('Gremly Mascot Position (unit)', () => {
       height: 95,
       zIndex: 10,
     };
-    
+
     expect(expectedStyle.top).toBe(-50);
     expect(expectedStyle.right).toBe(0);
     expect(expectedStyle.width).toBe(95);

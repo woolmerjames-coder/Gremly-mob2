@@ -1124,34 +1124,36 @@ describe('DateService', () => {
   // ═══════════════════════════════════════════════════════════════════
 
   describe('isTimestampWithinDays', () => {
+    // Use T18:00:00Z so local date stays on the intended calendar day
+    // in timezones up to UTC-10 (e.g. Hawaii).
     it('returns true for timestamp from today with days=1', () => {
-      const todayTimestamp = '2025-12-22T08:00:00.000Z';
+      const todayTimestamp = '2025-12-22T18:00:00.000Z';
       expect(service.isTimestampWithinDays(todayTimestamp, 1)).toBe(true);
     });
 
     it('returns true for timestamp from yesterday with days=2', () => {
-      const yesterdayTimestamp = '2025-12-21T08:00:00.000Z';
+      const yesterdayTimestamp = '2025-12-21T18:00:00.000Z';
       expect(service.isTimestampWithinDays(yesterdayTimestamp, 2)).toBe(true);
     });
 
     it('returns true for timestamp from 3 days ago with days=4', () => {
-      const threeDaysAgo = '2025-12-19T08:00:00.000Z';
+      const threeDaysAgo = '2025-12-19T18:00:00.000Z';
       expect(service.isTimestampWithinDays(threeDaysAgo, 4)).toBe(true);
     });
 
     it('returns false for timestamp from 4 days ago with days=3', () => {
-      const fourDaysAgo = '2025-12-18T08:00:00.000Z';
+      const fourDaysAgo = '2025-12-18T18:00:00.000Z';
       expect(service.isTimestampWithinDays(fourDaysAgo, 3)).toBe(false);
     });
 
     it('returns false for timestamp older than window', () => {
-      const oldTimestamp = '2025-12-01T08:00:00.000Z';
+      const oldTimestamp = '2025-12-01T18:00:00.000Z';
       expect(service.isTimestampWithinDays(oldTimestamp, 7)).toBe(false);
     });
 
     it('returns true for timestamp exactly at cutoff boundary', () => {
       // 6 days ago with days=7 should be included
-      const sixDaysAgo = '2025-12-16T08:00:00.000Z';
+      const sixDaysAgo = '2025-12-16T18:00:00.000Z';
       expect(service.isTimestampWithinDays(sixDaysAgo, 7)).toBe(true);
     });
 
@@ -1164,13 +1166,13 @@ describe('DateService', () => {
     });
 
     it('handles days=0 (checks today only via cutoff)', () => {
-      const todayTimestamp = '2025-12-22T08:00:00.000Z';
+      const todayTimestamp = '2025-12-22T18:00:00.000Z';
       // days=0 means cutoff is today, so only timestamps >= today should pass
       expect(service.isTimestampWithinDays(todayTimestamp, 0)).toBe(true);
     });
 
     it('handles days=1 for yesterday check', () => {
-      const yesterdayTimestamp = '2025-12-21T08:00:00.000Z';
+      const yesterdayTimestamp = '2025-12-21T18:00:00.000Z';
       // days=1 means cutoff is yesterday
       expect(service.isTimestampWithinDays(yesterdayTimestamp, 1)).toBe(true);
     });

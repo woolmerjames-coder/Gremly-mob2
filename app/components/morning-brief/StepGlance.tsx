@@ -128,7 +128,7 @@ export function StepGlance({ onContinue, onSkipToEnd }: StepGlanceProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: BRAND.colors.creamBase || '#FDFBF7',
+    backgroundColor: BRAND.colors.linenCream || '#FDFBF7',
   },
   content: {
     flex: 1,

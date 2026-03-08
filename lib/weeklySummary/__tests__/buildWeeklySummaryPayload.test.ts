@@ -420,7 +420,7 @@ describe('buildWeeklySummaryPayload', () => {
       todos: [
         makeTodo({ completed_at: '2025-12-15T10:00:00Z' }), // Monday
         makeTodo({ completed_at: '2025-12-15T14:00:00Z' }), // Monday
-        makeTodo({ completed_at: '2025-12-17T09:00:00Z' }), // Wednesday
+        makeTodo({ completed_at: '2025-12-17T18:00:00Z' }), // Wednesday
       ],
     });
     mockGetState.mockReturnValue(state);
