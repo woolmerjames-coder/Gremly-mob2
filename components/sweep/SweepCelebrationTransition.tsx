@@ -35,6 +35,7 @@ import {
 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
+import { env } from '../../lib/env';
 import type { DcoTone } from '../../lib/types';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -86,7 +87,7 @@ function pickRandom<T>(arr: T[]): T {
 
 /**
  * Build the celebration headline using DCO context.
- * If a trip/location anchor exists, weave it in for specificity.
+ * Uses lifeMoment directly when available for contextual phrases.
  */
 function buildHeadline(
   tone: DcoTone | null,
@@ -95,26 +96,70 @@ function buildHeadline(
 ): string {
   if (!tone) return pickRandom(FALLBACK_PHRASES);
 
-  const phrase = pickRandom(TONE_PHRASES[tone] || FALLBACK_PHRASES);
-
-  // Try to find a trip or location anchor for specificity
-  const tripAnchor = namedAnchors.find((a) => a.type === 'trip' || a.type === 'event');
-
-  if (tripAnchor && (tone === 'relaxed' || tone === 'celebratory')) {
-    // Weave location in: "Easy day in Bora Bora" or "What a day in Tokyo"
-    const locationPhrases: Record<string, string[]> = {
-      relaxed: [
-        `${tripAnchor.label} pace. All good.`,
-        `Easy day in ${tripAnchor.label}`,
-        `${tripAnchor.label} vibes. Here\u2019s your day.`,
-      ],
-      celebratory: [`What a day in ${tripAnchor.label}`, `Big day in ${tripAnchor.label}`],
+  // If we have a life moment, use it to build a contextual phrase
+  if (lifeMoment) {
+    const contextPhrases: Record<DcoTone, (ctx: string) => string[]> = {
+      relaxed: (ctx) => [`${ctx}. All good.`, `${ctx}. Easy pace.`],
+      focused: (ctx) => [`${ctx}. Solid progress.`, `${ctx}. Clean work today.`],
+      stretched: (ctx) => [`${ctx}. You showed up.`, `${ctx}. Tough one, but handled.`],
+      recovering: (ctx) => [`${ctx}. Gentle day.`, `${ctx}. Easy does it.`],
+      celebratory: (ctx) => [`${ctx}. What a day.`, `${ctx}. Big one.`],
     };
-    const pool = locationPhrases[tone];
+
+    // Clean up the life moment — capitalize first letter, trim
+    const shortMoment = lifeMoment.charAt(0).toUpperCase() + lifeMoment.slice(1);
+    const pool = contextPhrases[tone]?.(shortMoment);
     if (pool) return pickRandom(pool);
   }
 
-  return phrase;
+  // Fall back to tone-only phrases
+  return pickRandom(TONE_PHRASES[tone] || FALLBACK_PHRASES);
+}
+
+/**
+ * Fetch a nano-generated sweep headline from the cortex worker.
+ * Returns null on failure — caller falls back to template.
+ */
+async function fetchNanoHeadline(
+  tone: DcoTone | null,
+  lifeMoment: string | null,
+  counts: { todos: number; habits: number; events: number; drops: number },
+): Promise<string | null> {
+  try {
+    const cortexUrl = env.cortexUrl;
+    const anonKey = env.supabaseAnonKey;
+
+    if (!cortexUrl || !anonKey) return null;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000); // 3s timeout
+
+    const res = await fetch(cortexUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify({
+        type: 'sweep-headline',
+        tone,
+        lifeMoment,
+        todosCompleted: counts.todos,
+        habitsCompleted: counts.habits,
+        eventsCompleted: counts.events,
+        dropsCaptured: counts.drops,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.headline || null;
+  } catch {
+    return null; // Silent fail — template fallback handles it
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -290,7 +335,28 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
   onComplete,
   onSkip,
 }) => {
-  const [phrase] = useState(() => buildHeadline(dcoTone, dcoLifeMoment, dcoNamedAnchors));
+  const [phrase, setPhrase] = useState(() =>
+    buildHeadline(dcoTone, dcoLifeMoment, dcoNamedAnchors),
+  );
+
+  // Upgrade headline with nano call (replaces template if successful)
+  useEffect(() => {
+    if (!dcoTone) return; // No DCO, stick with fallback
+
+    const counts = {
+      todos: completedItems.filter((i) => i.type === 'todo').length,
+      habits: completedItems.filter((i) => i.type === 'habit').length,
+      events: completedEvents?.length || 0,
+      drops: dropsCount || 0,
+    };
+
+    fetchNanoHeadline(dcoTone, dcoLifeMoment, counts).then((nanoResult) => {
+      if (nanoResult) {
+        setPhrase(nanoResult);
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [canContinue, setCanContinue] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [completedCounters, setCompletedCounters] = useState(0);

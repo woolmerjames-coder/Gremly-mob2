@@ -5566,6 +5566,72 @@ ${assistantMessage.substring(0, 2000)}
       }
 
       // =========================
+      // === SWEEP HEADLINE: DCO-aware celebration one-liner ===
+      // =========================
+      if (type === 'sweep-headline') {
+        const {
+          tone,
+          lifeMoment,
+          todosCompleted,
+          habitsCompleted,
+          eventsCompleted,
+          dropsCaptured,
+        } = body;
+
+        const systemPrompt = `You generate a single short celebration line for a productivity app's evening review screen. The line acknowledges what the user accomplished today within the context of their current life situation.
+
+Rules:
+- Maximum 8 words. Aim for 4-6.
+- No exclamation marks. No emoji.
+- No generic phrases like "Great job!" or "Nice work today!" or "Keep it up!"
+- Warm, slightly cheeky. Like a friend who knows your situation.
+- Reference the life context naturally if it adds specificity.
+- If the user is relaxed/on vacation with low activity, acknowledge that's intentional and fine.
+- Output ONLY the headline text, nothing else.
+
+Examples of good output:
+- "Bora Bora pace. Light one today."
+- "Big pitch week. You showed up."
+- "Slow day. That counts too."
+- "Three meetings down. Evening's yours."
+- "Wedding crunch mode. Solid progress."`;
+
+        const userContent = `Tone: ${tone || 'focused'}
+Life context: ${lifeMoment || 'none'}
+Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${eventsCompleted || 0} events, ${dropsCaptured || 0} drops`;
+
+        try {
+          const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${key}`,
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1-nano',
+              temperature: 0.6,
+              max_tokens: 30,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userContent },
+              ],
+            }),
+          });
+
+          if (!response.ok) {
+            return j({ headline: null, error: 'nano_failed' });
+          }
+
+          const data = await response.json();
+          const headline = data.choices?.[0]?.message?.content?.trim() || null;
+          return j({ headline });
+        } catch (err) {
+          console.error('[SweepHeadline] Error:', err);
+          return j({ headline: null, error: 'exception' });
+        }
+      }
+
+      // =========================
       // === PRE-PHASE: SEMANTIC PARSE (v1.0) ===
       // Extracts linguistic facts WITHOUT classifying
       // =========================
