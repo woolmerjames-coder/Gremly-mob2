@@ -70,9 +70,6 @@ import {
   useActiveSpaces,
   useIsLoading,
   useSweepCandidatesUnified,
-  selectDcoTone,
-  selectLifeMoment,
-  selectNamedAnchors,
 } from '../../lib/store/selectors';
 import type { Habit } from '../../lib/types';
 import { supabase } from '../../lib/supabase/client';
@@ -3357,22 +3354,26 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     ];
   }, [introStats]);
 
-  const dcoTone = useGremlyStore(selectDcoTone);
-  const dcoLifeMoment = useGremlyStore(selectLifeMoment);
-  const dcoNamedAnchors = useGremlyStore(selectNamedAnchors);
+  const [dcoSnapshot] = useState(() => {
+    const dco = useGremlyStore.getState().dco;
+    console.log('[SweepFlow] DCO snapshot:', dco?.tone, dco?.life_moment);
+    return {
+      tone: dco?.tone ?? null,
+      lifeMoment: dco?.life_moment ?? null,
+      namedAnchors: dco?.named_anchors ?? [],
+    };
+  });
 
-  // Calendar events that have already happened today (time-aware)
-  const completedEvents = useMemo(() => {
-    const calendarEvents = useGremlyStore.getState().calendarEvents;
+  // Calendar events that have already happened today
+  const [completedEvents] = useState(() => {
+    const calendarEventsMap = useGremlyStore.getState().calendarEvents;
     const today = useGremlyStore.getState().currentDate;
-    const todayEvents = calendarEvents[today] || [];
+    const todayEvents = calendarEventsMap[today] || [];
     const now = new Date();
 
     return todayEvents
       .filter((event) => {
-        // All-day events always count as completed in evening sweep
         if (event.isAllDay) return true;
-        // Timed events: only if end time has passed
         const endTime = new Date(event.endAt);
         return endTime <= now;
       })
@@ -3380,15 +3381,15 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         id: event.id,
         title: event.title,
       }));
-  }, []);
+  });
 
-  // Drops captured today (notes created today)
-  const dropsCount = useMemo(() => {
+  // Drops captured today
+  const [dropsCount] = useState(() => {
     const notes = useGremlyStore.getState().notes;
     const today = useGremlyStore.getState().currentDate;
     return notes.filter((n) => !n.archived && n.created_at && n.created_at.startsWith(today))
       .length;
-  }, []);
+  });
 
   // Track completion badges data
   const [habitsCheckedCount, setHabitsCheckedCount] = useState(0);
@@ -4078,9 +4079,9 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             completedItems={completedItems}
             completedEvents={completedEvents}
             dropsCount={dropsCount}
-            dcoTone={dcoTone}
-            dcoLifeMoment={dcoLifeMoment}
-            dcoNamedAnchors={dcoNamedAnchors}
+            dcoTone={dcoSnapshot.tone}
+            dcoLifeMoment={dcoSnapshot.lifeMoment}
+            dcoNamedAnchors={dcoSnapshot.namedAnchors}
             onComplete={() => setShowCelebration(false)}
             onSkip={() => setShowCelebration(false)}
           />

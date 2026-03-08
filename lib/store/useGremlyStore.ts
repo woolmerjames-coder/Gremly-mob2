@@ -4037,6 +4037,9 @@ export const useGremlyStore = create<GremlyState>()(
             });
 
             console.log('[GremlyStore] ✅ Refreshed from server');
+
+            // Fetch DCO after server refresh (cached hydration path skips cold init)
+            get().fetchTodayDco();
           } catch (error) {
             console.error('[GremlyStore] refreshFromServer failed:', error);
             set({ isLoading: false });
@@ -4468,6 +4471,10 @@ export const useGremlyStore = create<GremlyState>()(
         // ═══════════════════════════════════════════════════════════════════
 
         fetchTodayDco: async () => {
+          console.log(
+            '[GremlyStore] fetchTodayDco called, userId:',
+            get().userId?.slice(0, 8) || 'NULL',
+          );
           const userId = get().userId;
           if (!userId) return;
 

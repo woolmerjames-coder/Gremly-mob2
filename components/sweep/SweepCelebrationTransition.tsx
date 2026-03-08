@@ -335,13 +335,13 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
   onComplete,
   onSkip,
 }) => {
-  const [phrase, setPhrase] = useState(() =>
-    buildHeadline(dcoTone, dcoLifeMoment, dcoNamedAnchors),
+  const [phrase, setPhrase] = useState<string | null>(
+    dcoTone ? null : buildHeadline(null, null, []),
   );
 
   // Upgrade headline with nano call (replaces template if successful)
   useEffect(() => {
-    if (!dcoTone) return; // No DCO, stick with fallback
+    if (!dcoTone) return;
 
     const counts = {
       todos: completedItems.filter((i) => i.type === 'todo').length,
@@ -350,11 +350,19 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
       drops: dropsCount || 0,
     };
 
+    // Fallback timer — if nano hasn't responded in 2s, use template
+    const fallbackTimer = setTimeout(() => {
+      setPhrase((current) =>
+        current === null ? buildHeadline(dcoTone, dcoLifeMoment, dcoNamedAnchors) : current,
+      );
+    }, 2000);
+
     fetchNanoHeadline(dcoTone, dcoLifeMoment, counts).then((nanoResult) => {
-      if (nanoResult) {
-        setPhrase(nanoResult);
-      }
+      clearTimeout(fallbackTimer);
+      setPhrase(nanoResult || buildHeadline(dcoTone, dcoLifeMoment, dcoNamedAnchors));
     });
+
+    return () => clearTimeout(fallbackTimer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [canContinue, setCanContinue] = useState(false);
@@ -409,7 +417,7 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
   }, [canContinue, onComplete, onSkip]);
 
   // Calculate delays for staggered counters
-  const getDelay = (index: number) => 400 + index * COUNT_STAGGER;
+  const getDelay = (index: number) => 600 + index * COUNT_STAGGER;
 
   let counterIndex = 0;
 
@@ -422,16 +430,20 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
             source={GREMLY_MASCOT}
             style={styles.mascot}
             resizeMode="contain"
-            entering={FadeIn.duration(400)}
+            entering={FadeIn.duration(600).delay(150)}
           />
 
           {/* Celebration Phrase — DCO-aware */}
-          <Animated.Text style={styles.phrase} entering={FadeIn.duration(400).delay(100)}>
-            {phrase}
-          </Animated.Text>
+          {phrase ? (
+            <Animated.Text key={phrase} style={styles.phrase} entering={FadeIn.duration(600)}>
+              {phrase}
+            </Animated.Text>
+          ) : (
+            <View style={{ height: 64, marginBottom: 8 }} />
+          )}
 
           {/* Subtitle */}
-          <Animated.Text style={styles.subtitle} entering={FadeIn.duration(400).delay(200)}>
+          <Animated.Text style={styles.subtitle} entering={FadeIn.duration(500).delay(350)}>
             SINCE YOUR LAST SWEEP
           </Animated.Text>
 
@@ -491,7 +503,7 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
 
           {/* Expand Button */}
           {canContinue && (
-            <Animated.View entering={FadeIn.duration(300)}>
+            <Animated.View entering={FadeIn.duration(400).delay(200)}>
               <TouchableOpacity
                 style={styles.expandButton}
                 onPress={handleToggleExpand}
@@ -531,7 +543,7 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
         </View>
 
         {/* Hint at bottom */}
-        <Animated.Text style={styles.hint} entering={FadeIn.duration(300).delay(1500)}>
+        <Animated.Text style={styles.hint} entering={FadeIn.duration(400).delay(1800)}>
           {canContinue ? 'tap to continue' : 'tap to skip'}
         </Animated.Text>
       </View>
