@@ -114,6 +114,451 @@ const synthesizeSingleUser = inngest.createFunction(
 );
 
 // ============================================================================
+// DCO (Daily Context Object) generation
+// ============================================================================
+
+function getUserLocalDate(timezone) {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(now);
+  return parts; // en-CA gives YYYY-MM-DD format
+}
+
+// Dispatcher: hourly check for users in their 5 AM window, fan out DCO generation
+const dcoDispatcher = inngest.createFunction(
+  {
+    id: 'dco-dispatcher',
+    name: 'DCO Dispatcher',
+  },
+  [
+    { cron: '0 * * * *' }, // Hourly — check timezone windows each run
+    { event: 'app/dco.generate' }, // Manual trigger
+  ],
+  async ({ step, env }) => {
+    // Step 1: Clean up expired DCO rows
+    const cleaned = await step.run('cleanup-expired', async () => {
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_daily_state?expires_at=lt.${new Date().toISOString()}`,
+        {
+          method: 'DELETE',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=representation',
+          },
+        },
+      );
+
+      const deleted = res.ok ? (await res.json()).length : 0;
+      console.log(`[DCO Dispatcher] Cleaned up ${deleted} expired rows`);
+      return deleted;
+    });
+
+    // Step 2: Get all users who need a DCO today
+    const allUsers = await step.run('get-users-needing-dco', async () => {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/get_users_needing_dco`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Failed to get users needing DCO: ${res.statusText}`);
+      }
+
+      return res.json(); // [{ user_id, timezone }]
+    });
+
+    // Step 3: Filter to users whose local time is in the 5:xx AM window
+    const readyUsers = await step.run('filter-by-timezone-window', async () => {
+      const now = new Date();
+      return allUsers.filter((u) => {
+        try {
+          const userTime = new Intl.DateTimeFormat('en-US', {
+            hour: 'numeric',
+            hour12: false,
+            timeZone: u.timezone,
+          }).format(now);
+          const hour = parseInt(userTime, 10);
+          return hour === 5; // Only dispatch during the 5:xx AM window
+        } catch {
+          return false;
+        }
+      });
+    });
+
+    console.log(
+      `[DCO Dispatcher] ${allUsers.length} active users, ${readyUsers.length} in 5 AM window`,
+    );
+
+    // Step 4: Fan out DCO generation for each ready user
+    if (readyUsers.length > 0) {
+      await step.sendEvent(
+        'dispatch-dco-users',
+        readyUsers.map((u) => ({
+          name: 'app/dco.generate-user',
+          data: { user_id: u.user_id, timezone: u.timezone },
+        })),
+      );
+    }
+
+    return { cleaned, total_active: allUsers.length, dispatched: readyUsers.length };
+  },
+);
+
+// Per-user worker: fetch data, run extraction + analysis, store DCO
+const generateSingleUserDco = inngest.createFunction(
+  {
+    id: 'generate-single-user-dco',
+    name: 'Generate Single User DCO',
+    concurrency: { limit: 5 },
+  },
+  { event: 'app/dco.generate-user' },
+  async ({ event, step, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone;
+
+    try {
+      // Step 1: Fetch all input data for DCO generation
+      const inputData = await step.run('fetch-user-data', async () => {
+        return fetchDcoInputData(userId, timezone, env);
+      });
+
+      // Step 2: Extraction pass (gpt-4.1-nano)
+      const extractionResult = await step.run('run-extraction', async () => {
+        return runDcoExtraction(inputData, env);
+      });
+
+      // Step 3: Analysis pass (gpt-4.1-mini)
+      const analysisResult = await step.run('run-analysis', async () => {
+        return runDcoAnalysis(extractionResult, inputData, env);
+      });
+
+      // Step 4: Upsert DCO into user_daily_state
+      await step.run('store-dco', async () => {
+        const headers = {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates',
+        };
+
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
+        const todayLocal = getUserLocalDate(timezone);
+
+        const res = await fetch(`${env.SUPABASE_URL}/rest/v1/user_daily_state`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            user_id: userId,
+            date: todayLocal,
+            dco: analysisResult,
+            extraction_raw: extractionResult,
+            created_at: now.toISOString(),
+            updated_at: now.toISOString(),
+            expires_at: expiresAt.toISOString(),
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`Failed to store DCO: ${res.statusText}`);
+        }
+
+        console.log(`[DCO] Stored DCO for user ${userId} (${todayLocal})`);
+      });
+
+      return { user_id: userId, success: true };
+    } catch (error) {
+      console.error(`[DCO] Failed for user ${userId}:`, error);
+      return { user_id: userId, success: false, error: String(error) };
+    }
+  },
+);
+
+// ============================================================================
+// DCO data fetching
+// ============================================================================
+
+function sevenDaysAgo() {
+  const d = new Date();
+  d.setDate(d.getDate() - 7);
+  return formatDateOnly(d);
+}
+
+async function fetchDcoInputData(userId, timezone, env) {
+  const headers = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    'Content-Type': 'application/json',
+  };
+
+  const todayLocal = getUserLocalDate(timezone);
+
+  const [todos, habits, habitProgress, notes, spaces, weeklySummaries, previousDco] =
+    await Promise.all([
+      // Todos (last 7 days)
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,name,status,completed_at,target_date,space_id&limit=100`,
+        { headers },
+      ).then((r) => r.json()),
+
+      // Habits (active only)
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,frequency&limit=20`,
+        { headers },
+      ).then((r) => r.json()),
+
+      // Habit progress (last 7 days)
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/habit_progress?owner_id=eq.${userId}&occurred_day=gte.${sevenDaysAgo()}&select=habit_id,occurred_day`,
+        { headers },
+      ).then((r) => r.json()),
+
+      // Notes (last 7 days)
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,title,subtype,mood,space_id,created_at&limit=100`,
+        { headers },
+      ).then((r) => r.json()),
+
+      // Spaces (active)
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&archived_at=is.null&select=id,name&limit=20`,
+        { headers },
+      ).then((r) => r.json()),
+
+      // Weekly summary (latest)
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/weekly_summaries?owner_id=eq.${userId}&select=summary_text&order=created_at.desc&limit=1`,
+        { headers },
+      ).then((r) => r.json()),
+
+      // Previous DCO (yesterday or most recent)
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=lt.${todayLocal}&select=dco&order=date.desc&limit=1`,
+        { headers },
+      ).then((r) => r.json()),
+    ]);
+
+  return {
+    userId,
+    todayLocal,
+    timezone,
+    todos,
+    habits,
+    habitProgress,
+    notes,
+    spaces,
+    weeklySummary: weeklySummaries[0]?.summary_text || null,
+    previousDco: previousDco[0]?.dco || null,
+  };
+}
+
+// ============================================================================
+// DCO extraction (gpt-4.1-nano)
+// ============================================================================
+
+async function runDcoExtraction(inputData, env) {
+  const t0 = Date.now();
+
+  // Build a compact data summary for nano
+  const todosCompleted = inputData.todos.filter((t) => t.status === 'completed').length;
+  const todosOverdue = inputData.todos.filter(
+    (t) => t.target_date && t.target_date < inputData.todayLocal && t.status !== 'completed',
+  ).length;
+
+  const habitCompletions = {};
+  for (const hp of inputData.habitProgress) {
+    habitCompletions[hp.habit_id] = (habitCompletions[hp.habit_id] || 0) + 1;
+  }
+
+  const habitsFormatted = inputData.habits.map((h) => ({
+    name: h.name,
+    frequency: h.frequency,
+    completions_7d: habitCompletions[h.id] || 0,
+  }));
+
+  const noteTitles = inputData.notes
+    .map((n) => n.title)
+    .filter(Boolean)
+    .slice(0, 20);
+  const moods = inputData.notes.flatMap((n) => n.mood || []);
+  const moodCounts = {};
+  for (const m of moods) {
+    moodCounts[m] = (moodCounts[m] || 0) + 1;
+  }
+
+  const spaceNames = inputData.spaces.map((s) => s.name);
+
+  const dataPayload = `DATA SNAPSHOT (last 7 days):
+Todos: ${inputData.todos.length} total, ${todosCompleted} completed, ${todosOverdue} overdue
+Habits: ${JSON.stringify(habitsFormatted)}
+Recent drops: ${noteTitles.join(', ')}
+Mood signals: ${
+    Object.entries(moodCounts)
+      .map(([k, v]) => `${k}:${v}`)
+      .join(', ') || 'none'
+  }
+Active spaces: ${spaceNames.join(', ') || 'none'}
+Weekly digest: ${inputData.weeklySummary || 'none'}`;
+
+  const systemPrompt = `You are a structured fact extractor. Given a 7-day data snapshot from a productivity app, extract ONLY observable facts. Never interpret, score, or infer feelings.
+
+Output JSON:
+{
+  "people_mentioned": ["name1", "name2"],
+  "places_mentioned": ["place1"],
+  "active_projects_or_trips": ["label1"],
+  "drop_count_7d": number,
+  "completed_count_7d": number,
+  "overdue_count": number,
+  "habit_completions": [{"name": "X", "done": N, "frequency": "daily"}],
+  "mood_signals": {"mood": count},
+  "notable_drop_titles": ["title1", "title2"],
+  "spaces_active": ["space1"]
+}
+
+Rules:
+- Only include people/places/projects explicitly named in the data
+- Do not invent or assume anything not present
+- Keep arrays empty if no data found
+- Output ONLY valid JSON, nothing else`;
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4.1-nano',
+      temperature: 0.1,
+      max_tokens: 500,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: dataPayload },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`DCO extraction failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '{}';
+  const parsed = JSON.parse(content);
+  const latency = Date.now() - t0;
+
+  console.log(`[DCO:Nano] Extraction complete in ${latency}ms`);
+  return parsed;
+}
+
+// ============================================================================
+// DCO analysis (gpt-4.1-mini)
+// ============================================================================
+
+async function runDcoAnalysis(extraction, inputData, env) {
+  const t0 = Date.now();
+
+  // Include previous DCO for delta comparison
+  const previousContext = inputData.previousDco
+    ? `PREVIOUS DCO (for delta comparison):\n${JSON.stringify(inputData.previousDco, null, 2)}`
+    : 'No previous DCO available (new user or first generation).';
+
+  const systemPrompt = `You are Gremly's daily context engine. Given structured facts extracted from a user's last 7 days, produce a Daily Context Object (DCO) — a JSON snapshot of their current life situation.
+
+${previousContext}
+
+Output this exact JSON shape:
+{
+  "life_moment": "short phrase describing their current life situation" | null,
+  "life_moment_confidence": "high" | "medium" | "low",
+  "tone": "relaxed" | "focused" | "stretched" | "recovering" | "celebratory",
+  "brief_headline": "one-liner Gremly says to the user" | null,
+  "named_anchors": [{"label": "Name", "type": "person|trip|project|event", "source": "drop|space"}],
+  "active_today": {
+    "overdue_todos": number,
+    "habit_streak_risk": ["habit names at risk"],
+    "upcoming_in_7d": ["event or date descriptions"]
+  },
+  "deltas": {
+    "drop_velocity": "high" | "normal" | "low",
+    "habit_health": "high" | "normal" | "low",
+    "mood_signal": "positive" | "neutral" | "negative" | "mixed",
+    "notable_change": "one sentence describing the most notable change vs recent baseline" | null
+  },
+  "weekly_digest": "one sentence summary" | null
+}
+
+CRITICAL RULES:
+1. DELTA RULE: Every observation MUST compare against recent baseline. "3 todos completed" means nothing. "3 todos completed vs 8 last week — slower pace" means something. If no previous DCO exists, note this is a first impression.
+2. ANTI-GENERIC RULE: If nothing specific stands out, set brief_headline to null. NEVER output generic filler like "Busy day ahead!", "Stay focused!", "You've got this!". Silence is better than generic.
+3. VOICE RULE for brief_headline: Write as Gremly speaking directly to the user. Short, warm, situationally specific. No exclamation marks. No corporate motivational tone. No third person.
+   Good: "Day 6 in Italy. The pile can wait."
+   Good: "Big pitch today — you've prepped for this."
+   Bad: "User is on honeymoon, day 6."
+   Bad: "Stay focused and have a productive day!"
+4. If there is very little data (fewer than 3 drops and no habits), set life_moment_confidence to "low" and keep observations conservative.
+5. tone should reflect the OVERALL vibe, not individual items. Someone on vacation with 2 overdue todos is still "relaxed".
+6. named_anchors: only include proper nouns explicitly present in the data. Never invent people or places.
+
+Output ONLY valid JSON, nothing else.`;
+
+  const extractionPayload = JSON.stringify(extraction, null, 2);
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4.1-mini',
+      temperature: 0.4,
+      max_tokens: 800,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `EXTRACTED FACTS:\n${extractionPayload}` },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`DCO analysis failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content || '{}';
+  const dco = JSON.parse(content);
+  const latency = Date.now() - t0;
+
+  console.log(`[DCO:Mini] Analysis complete in ${latency}ms`, {
+    life_moment: dco.life_moment,
+    tone: dco.tone,
+    has_headline: !!dco.brief_headline,
+  });
+
+  // Attach metadata
+  dco.user_id = inputData.userId;
+  dco.date = inputData.todayLocal;
+  dco.generated_at = new Date().toISOString();
+  dco.ttl_days = 7;
+  dco.today_focus = null; // Populated later by Morning Brief
+  dco.input_sources = ['todos', 'habits', 'notes', 'spaces'];
+  if (inputData.weeklySummary) dco.input_sources.push('weekly_summary');
+  dco.model_used = 'gpt-4.1-mini';
+
+  return dco;
+}
+
+// ============================================================================
 // Core synthesis logic
 // ============================================================================
 
@@ -1344,7 +1789,7 @@ function corsResponse(body, status = 200) {
 // Inngest serve handler
 const inngestHandler = serve({
   client: inngest,
-  functions: [dailySynthesisDispatcher, synthesizeSingleUser],
+  functions: [dailySynthesisDispatcher, synthesizeSingleUser, dcoDispatcher, generateSingleUserDco],
   servePath: '/',
 });
 
