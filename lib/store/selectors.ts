@@ -2573,3 +2573,34 @@ export function useShouldShowSummaryBanner(): boolean {
 export function useWeeklySummaryForChatContext(): string | null {
   return useGremlyStore((state) => selectWeeklySummaryForChatContext(state));
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// DCO SELECTORS
+// ═══════════════════════════════════════════════════════════════════
+
+/** The full DCO object for today (or null if not generated yet) */
+export const selectDco = (state: ReturnType<typeof useGremlyStore.getState>) => state.dco;
+
+/** The brief_headline string for Gremly speech bubble and notifications */
+export const selectBriefHeadline = (state: ReturnType<typeof useGremlyStore.getState>) =>
+  state.dco?.brief_headline ?? null;
+
+/** The DCO tone signal — consumed by sweep, notifications, and chat */
+export const selectDcoTone = (state: ReturnType<typeof useGremlyStore.getState>) =>
+  state.dco?.tone ?? null;
+
+/** Today's focus priorities (populated after Morning Brief) */
+export const selectTodayFocus = (state: ReturnType<typeof useGremlyStore.getState>) =>
+  state.dco?.today_focus ?? null;
+
+/** Named anchors (people, trips, projects) from the DCO */
+export const selectNamedAnchors = (state: ReturnType<typeof useGremlyStore.getState>) =>
+  state.dco?.named_anchors ?? [];
+
+/** Whether the DCO is currently loading */
+export const selectDcoLoading = (state: ReturnType<typeof useGremlyStore.getState>) =>
+  state.dcoLoading;
+
+/** The life moment string */
+export const selectLifeMoment = (state: ReturnType<typeof useGremlyStore.getState>) =>
+  state.dco?.life_moment ?? null;

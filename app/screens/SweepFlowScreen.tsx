@@ -70,6 +70,9 @@ import {
   useActiveSpaces,
   useIsLoading,
   useSweepCandidatesUnified,
+  selectDcoTone,
+  selectLifeMoment,
+  selectNamedAnchors,
 } from '../../lib/store/selectors';
 import type { Habit } from '../../lib/types';
 import { supabase } from '../../lib/supabase/client';
@@ -3354,6 +3357,39 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     ];
   }, [introStats]);
 
+  const dcoTone = useGremlyStore(selectDcoTone);
+  const dcoLifeMoment = useGremlyStore(selectLifeMoment);
+  const dcoNamedAnchors = useGremlyStore(selectNamedAnchors);
+
+  // Calendar events that have already happened today (time-aware)
+  const completedEvents = useMemo(() => {
+    const calendarEvents = useGremlyStore.getState().calendarEvents;
+    const today = useGremlyStore.getState().currentDate;
+    const todayEvents = calendarEvents[today] || [];
+    const now = new Date();
+
+    return todayEvents
+      .filter((event) => {
+        // All-day events always count as completed in evening sweep
+        if (event.isAllDay) return true;
+        // Timed events: only if end time has passed
+        const endTime = new Date(event.endAt);
+        return endTime <= now;
+      })
+      .map((event) => ({
+        id: event.id,
+        title: event.title,
+      }));
+  }, []);
+
+  // Drops captured today (notes created today)
+  const dropsCount = useMemo(() => {
+    const notes = useGremlyStore.getState().notes;
+    const today = useGremlyStore.getState().currentDate;
+    return notes.filter((n) => !n.archived && n.created_at && n.created_at.startsWith(today))
+      .length;
+  }, []);
+
   // Track completion badges data
   const [habitsCheckedCount, setHabitsCheckedCount] = useState(0);
   const [journalWritten, setJournalWritten] = useState(false);
@@ -4040,6 +4076,11 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         <View style={styles.celebrationOverlay}>
           <SweepCelebrationTransition
             completedItems={completedItems}
+            completedEvents={completedEvents}
+            dropsCount={dropsCount}
+            dcoTone={dcoTone}
+            dcoLifeMoment={dcoLifeMoment}
+            dcoNamedAnchors={dcoNamedAnchors}
             onComplete={() => setShowCelebration(false)}
             onSkip={() => setShowCelebration(false)}
           />

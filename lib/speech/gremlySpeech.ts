@@ -373,6 +373,28 @@ export function getGreetingSpeech(): { message: string; duration: number } {
   };
 }
 
+/**
+ * Get greeting speech with DCO awareness.
+ * If the DCO has a brief_headline, use it as Gremly's greeting.
+ * Otherwise fall back to the existing heuristic greeting.
+ */
+export function getDcoGreetingSpeech(briefHeadline: string | null): {
+  message: string;
+  duration: number;
+} {
+  // If DCO has a specific headline, use it
+  if (briefHeadline) {
+    trackMessage(briefHeadline);
+    return {
+      message: briefHeadline,
+      duration: calculateDuration(briefHeadline),
+    };
+  }
+
+  // Fall back to existing time-of-day heuristic
+  return getGreetingSpeech();
+}
+
 export function getEmptyStateSpeech(): { message: string; duration: number } {
   const message = pickRandom(SPEECH_POOLS.EMPTY_STATE, recentMessages);
   trackMessage(message);
