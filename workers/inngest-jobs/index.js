@@ -422,12 +422,13 @@ async function runDcoExtraction(inputData, env) {
 
   const noteTitles = inputData.notes
     .filter((n) => n.title && n.subtype !== 'event')
-    .slice(0, 20)
+    .slice(0, 10)
     .map((n) => n.title);
 
   // Event notes with dates — fetched by target_date window, not created_at
   const events = (inputData.eventNotes || [])
     .filter((n) => n.title)
+    .slice(0, 10)
     .map((n) => {
       const date = n.target_date || 'no date';
       const goal = n.is_goal ? ' [GOAL]' : '';
@@ -437,7 +438,7 @@ async function runDcoExtraction(inputData, env) {
     });
 
   // Milestones with dates
-  const milestones = (inputData.milestones || []).map((m) => {
+  const milestones = (inputData.milestones || []).slice(0, 10).map((m) => {
     const space = inputData.spaces.find((s) => s.id === m.space_id);
     const spaceName = space ? ` (${space.name})` : '';
     const status = m.completed ? ' [DONE]' : '';
@@ -491,23 +492,37 @@ Rules:
 - Keep arrays empty if no data found
 - Output ONLY valid JSON, nothing else`;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4.1-nano',
-      temperature: 0.1,
-      max_tokens: 500,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: dataPayload },
-      ],
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  let response;
+  try {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: 'gpt-4.1-nano',
+        temperature: 0.1,
+        max_tokens: 1500,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: dataPayload },
+        ],
+      }),
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      throw new Error('DCO extraction timed out after 30s');
+    }
+    throw err;
+  }
+  clearTimeout(timeout);
 
   if (!response.ok) {
     throw new Error(`DCO extraction failed: ${response.status}`);
@@ -515,7 +530,39 @@ Rules:
 
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content || '{}';
-  const parsed = JSON.parse(content);
+
+  const EXTRACTION_FALLBACK = {
+    people_mentioned: [],
+    places_mentioned: [],
+    active_projects_or_trips: [],
+    drop_count_7d: 0,
+    completed_count_7d: 0,
+    overdue_count: 0,
+    habit_completions: [],
+    mood_signals: {},
+    key_events_with_dates: [],
+    notable_drop_titles: [],
+    spaces_active: [],
+  };
+
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch (parseErr) {
+    // Try to fix common truncation: missing closing brace
+    let fixed = content.trim();
+    if (!fixed.endsWith('}')) {
+      fixed += '}';
+    }
+    try {
+      parsed = JSON.parse(fixed);
+      console.warn('[DCO:Nano] Recovered truncated JSON after appending }');
+    } catch {
+      console.error('[DCO:Nano] JSON parse failed, using fallback. Raw:', content.slice(0, 200));
+      parsed = EXTRACTION_FALLBACK;
+    }
+  }
+
   const latency = Date.now() - t0;
 
   console.log(`[DCO:Nano] Extraction complete in ${latency}ms`);
@@ -1900,6 +1947,127 @@ export default {
         return corsResponse({ success: true, ...result, pending_suggestions: pending });
       } catch (err) {
         console.error('[API] Error generating space suggestions:', err);
+        return corsResponse({ error: err.message || 'Internal error' }, 500);
+      }
+    }
+
+    // Custom API endpoint: force-generate DCO for one or all users (bypasses Inngest)
+    if (url.pathname === '/api/force-generate-dco' && request.method === 'POST') {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const requestedUserId = body.user_id || null;
+
+        const supaHeaders = {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        };
+
+        let users = [];
+
+        if (requestedUserId) {
+          // Single user — look up their timezone
+          const tzRes = await fetch(
+            `${env.SUPABASE_URL}/rest/v1/notification_preferences?user_id=eq.${requestedUserId}&select=user_id,timezone`,
+            { headers: supaHeaders },
+          );
+          const tzRows = tzRes.ok ? await tzRes.json() : [];
+          if (tzRows.length === 0) {
+            return corsResponse(
+              { error: `No notification_preferences row for user ${requestedUserId}` },
+              404,
+            );
+          }
+          users = [
+            { user_id: tzRows[0].user_id, timezone: tzRows[0].timezone || 'America/New_York' },
+          ];
+        } else {
+          // All users with a timezone
+          const allRes = await fetch(
+            `${env.SUPABASE_URL}/rest/v1/notification_preferences?timezone=not.is.null&select=user_id,timezone`,
+            { headers: supaHeaders },
+          );
+          if (!allRes.ok) {
+            return corsResponse(
+              { error: 'Failed to fetch users from notification_preferences' },
+              500,
+            );
+          }
+          users = await allRes.json();
+        }
+
+        console.log(`[API] force-generate-dco: processing ${users.length} user(s)`);
+
+        const results = [];
+
+        for (const u of users) {
+          try {
+            // Run the full DCO pipeline directly (no Inngest)
+            const inputData = await fetchDcoInputData(u.user_id, u.timezone, env);
+            const extraction = await runDcoExtraction(inputData, env);
+            const analysis = await runDcoAnalysis(extraction, inputData, env);
+
+            // Upsert into user_daily_state (same pattern as store-dco step)
+            const now = new Date();
+            const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+            const todayLocal = getUserLocalDate(u.timezone);
+
+            const upsertRes = await fetch(
+              `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
+              {
+                method: 'POST',
+                headers: { ...supaHeaders, Prefer: 'resolution=merge-duplicates' },
+                body: JSON.stringify({
+                  user_id: u.user_id,
+                  date: todayLocal,
+                  dco: analysis,
+                  extraction_raw: extraction,
+                  created_at: now.toISOString(),
+                  updated_at: now.toISOString(),
+                  expires_at: expiresAt.toISOString(),
+                }),
+              },
+            );
+
+            if (!upsertRes.ok) {
+              throw new Error(`Upsert failed: ${upsertRes.statusText}`);
+            }
+
+            console.log(`[API] DCO generated for ${u.user_id} (${todayLocal})`);
+            results.push({
+              user_id: u.user_id,
+              timezone: u.timezone,
+              date: todayLocal,
+              success: true,
+              headline: analysis.brief_headline || null,
+              life_moment: analysis.life_moment || null,
+            });
+          } catch (userErr) {
+            console.error(`[API] DCO failed for ${u.user_id}:`, userErr);
+            results.push({
+              user_id: u.user_id,
+              timezone: u.timezone,
+              date: null,
+              success: false,
+              headline: null,
+              life_moment: null,
+              error: userErr.message || String(userErr),
+            });
+          }
+        }
+
+        const succeeded = results.filter((r) => r.success).length;
+        const failed = results.filter((r) => !r.success).length;
+
+        return corsResponse({
+          success: true,
+          total: results.length,
+          succeeded,
+          failed,
+          results,
+        });
+      } catch (err) {
+        console.error('[API] Error in force-generate-dco:', err);
         return corsResponse({ error: err.message || 'Internal error' }, 500);
       }
     }
