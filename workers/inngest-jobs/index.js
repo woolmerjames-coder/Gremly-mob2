@@ -305,6 +305,17 @@ function fourteenDaysFromNow() {
   return formatDateOnly(d);
 }
 
+function getDateRange(startDate, endDate) {
+  const dates = [];
+  const current = new Date(startDate + 'T00:00:00Z');
+  const end = new Date(endDate + 'T00:00:00Z');
+  while (current <= end) {
+    dates.push(current.toISOString().split('T')[0]);
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return dates;
+}
+
 async function fetchDcoInputData(userId, timezone, env) {
   const headers = {
     apikey: env.SUPABASE_SERVICE_KEY,
@@ -328,7 +339,7 @@ async function fetchDcoInputData(userId, timezone, env) {
   ] = await Promise.all([
     // Todos (last 7 days)
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,name,status,completed_at,target_date,space_id&limit=100`,
+      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,name,status,completed_at,target_date,space_id,created_at&limit=100`,
       { headers },
     ).then((r) => r.json()),
 
@@ -346,7 +357,7 @@ async function fetchDcoInputData(userId, timezone, env) {
 
     // Notes (last 7 days) — includes target_date and is_goal for event notes
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,title,text,subtype,mood,space_id,created_at,target_date,is_goal&limit=100`,
+      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&created_at=gte.${sevenDaysAgo()}&select=id,title,body,subtype,mood,space_id,created_at,target_date,is_goal&limit=100`,
       { headers },
     ).then((r) => r.json()),
 
@@ -405,6 +416,139 @@ async function fetchDcoInputData(userId, timezone, env) {
 }
 
 // ============================================================================
+// DCO data fetching — historical (date-parameterized)
+// ============================================================================
+
+async function fetchDcoInputDataForDate(userId, timezone, targetDate, env) {
+  const headers = {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    'Content-Type': 'application/json',
+  };
+
+  const todayLocal = targetDate;
+
+  // Date helpers relative to targetDate
+  const target = new Date(targetDate + 'T00:00:00Z');
+  const sevenBefore = new Date(target);
+  sevenBefore.setUTCDate(sevenBefore.getUTCDate() - 7);
+  const sevenDaysBeforeStr = formatDateOnly(sevenBefore);
+
+  const fourteenBefore = new Date(target);
+  fourteenBefore.setUTCDate(fourteenBefore.getUTCDate() - 14);
+  const fourteenDaysBeforeStr = formatDateOnly(fourteenBefore);
+
+  const fourteenAfter = new Date(target);
+  fourteenAfter.setUTCDate(fourteenAfter.getUTCDate() + 14);
+  const fourteenDaysAfterStr = formatDateOnly(fourteenAfter);
+
+  // Upper bound for JS filtering (end of target day)
+  const targetEndOfDay = new Date(targetDate + 'T23:59:59.999Z');
+
+  const [
+    todosRaw,
+    habits,
+    habitProgressRaw,
+    notesRaw,
+    spaces,
+    milestones,
+    eventNotes,
+    weeklySummaries,
+    previousDco,
+    userProfile,
+  ] = await Promise.all([
+    // Todos — EXACT same query as production, just swap sevenDaysAgo() for sevenDaysBeforeStr
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&created_at=gte.${sevenDaysBeforeStr}&select=id,name,status,completed_at,target_date,space_id,created_at&limit=100`,
+      { headers },
+    ).then((r) => r.json()),
+
+    // Habits — identical to production (not date-dependent)
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,frequency&limit=20`,
+      { headers },
+    ).then((r) => r.json()),
+
+    // Habit progress — EXACT same query as production, just swap sevenDaysAgo()
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habit_progress?owner_id=eq.${userId}&occurred_day=gte.${sevenDaysBeforeStr}&select=habit_id,occurred_day`,
+      { headers },
+    ).then((r) => r.json()),
+
+    // Notes — EXACT same query as production, just swap sevenDaysAgo()
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&created_at=gte.${sevenDaysBeforeStr}&select=id,title,body,subtype,mood,space_id,created_at,target_date,is_goal&limit=100`,
+      { headers },
+    ).then((r) => r.json()),
+
+    // Spaces — identical to production
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&archived_at=is.null&select=id,name&limit=20`,
+      { headers },
+    ).then((r) => r.json()),
+
+    // Space milestones — identical to production
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/space_milestones?owner_id=eq.${userId}&is_active=eq.true&select=name,date,space_id,completed&order=date.asc&limit=50`,
+      { headers },
+    ).then((r) => r.json()),
+
+    // Event notes — EXACT same query as production, just swap date helpers
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&archived=eq.false&target_date=gte.${fourteenDaysBeforeStr}&target_date=lte.${fourteenDaysAfterStr}&select=id,title,target_date,is_goal,space_id`,
+      { headers },
+    ).then((r) => r.json()),
+
+    // Weekly summary — same as production but bounded to before targetDate
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/weekly_summaries?owner_id=eq.${userId}&select=summary_text&order=created_at.desc&limit=1`,
+      { headers },
+    ).then((r) => r.json()),
+
+    // Previous DCO — same as production
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=lt.${targetDate}&select=dco&order=date.desc&limit=1`,
+      { headers },
+    ).then((r) => r.json()),
+
+    // User profile — identical to production
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=profile_text&limit=1`,
+      { headers },
+    ).then((r) => r.json()),
+  ]);
+
+  // Filter in JavaScript: remove anything created AFTER targetDate end-of-day
+  const todos = Array.isArray(todosRaw)
+    ? todosRaw.filter((t) => !t.created_at || new Date(t.created_at) <= targetEndOfDay)
+    : [];
+  const notes = Array.isArray(notesRaw)
+    ? notesRaw.filter((n) => !n.created_at || new Date(n.created_at) <= targetEndOfDay)
+    : [];
+  const habitProgress = Array.isArray(habitProgressRaw)
+    ? habitProgressRaw.filter((h) => !h.occurred_day || h.occurred_day <= targetDate)
+    : [];
+
+  console.log(`[DCO:Backfill] ${targetDate}: ${todos.length} todos, ${notes.length} notes, ${habitProgress.length} habit_progress`);
+
+  return {
+    userId,
+    todayLocal,
+    timezone,
+    todos,
+    habits: Array.isArray(habits) ? habits : [],
+    habitProgress,
+    notes,
+    spaces: Array.isArray(spaces) ? spaces : [],
+    milestones: Array.isArray(milestones) ? milestones : [],
+    eventNotes: Array.isArray(eventNotes) ? eventNotes : [],
+    weeklySummary: weeklySummaries?.[0]?.summary_text || null,
+    previousDco: previousDco?.[0]?.dco || null,
+    userProfile: userProfile?.[0]?.profile_text || null,
+  };
+}
+
+// ============================================================================
 // DCO extraction (gpt-4.1-nano)
 // ============================================================================
 
@@ -433,14 +577,37 @@ async function runDcoExtraction(inputData, env) {
     .filter((n) => n.title && n.subtype !== 'event')
     .slice(0, 20)
     .map((n) => {
-      const body = n.text ? ` — ${n.text.slice(0, 150)}` : '';
+      const body = n.body ? ` — ${n.body.slice(0, 150)}` : '';
       const sub = n.subtype ? ` [${n.subtype}]` : '';
       return `${n.title}${sub}${body}`;
     });
 
+  const seenNoteTitles = new Set();
+  const cleanedNoteDetails = noteDetails.filter((detail) => {
+    const titleMatch = detail.match(/^([^[\]—]+)/);
+    const title = titleMatch ? titleMatch[0].trim().toLowerCase() : detail.toLowerCase();
+    if (seenNoteTitles.has(title)) return false;
+    seenNoteTitles.add(title);
+    return true;
+  });
+
   // Event notes with dates — fetched by target_date window, not created_at
-  const events = (inputData.eventNotes || [])
-    .filter((n) => n.title)
+  // Deduplicate and clean event notes before they reach the AI
+  const seenEventTitles = new Set();
+  const cleanedEventNotes = (inputData.eventNotes || [])
+    .filter((n) => {
+      if (!n.title) return false;
+      // Remove cancelled events
+      if (n.title.toLowerCase().startsWith('canceled:')) return false;
+      if (n.title.toLowerCase().startsWith('cancelled:')) return false;
+      // Deduplicate by title
+      const key = n.title.trim().toLowerCase();
+      if (seenEventTitles.has(key)) return false;
+      seenEventTitles.add(key);
+      return true;
+    });
+
+  const events = cleanedEventNotes
     .slice(0, 10)
     .map((n) => {
       const date = n.target_date || 'no date';
@@ -451,10 +618,20 @@ async function runDcoExtraction(inputData, env) {
     });
 
   // Today's specific events — for calendar-aware headlines
-  const todaysEvents = (inputData.eventNotes || [])
+  const todaysEvents = cleanedEventNotes
     .filter((n) => n.target_date === inputData.todayLocal)
     .map((n) => n.title)
     .filter(Boolean);
+
+  const seenTodayEvents = new Set();
+  const cleanedTodaysEvents = todaysEvents.filter((title) => {
+    if (title.toLowerCase().startsWith('canceled:')) return false;
+    if (title.toLowerCase().startsWith('cancelled:')) return false;
+    const key = title.trim().toLowerCase();
+    if (seenTodayEvents.has(key)) return false;
+    seenTodayEvents.add(key);
+    return true;
+  });
 
   // Milestones with dates
   const milestones = (inputData.milestones || []).slice(0, 10).map((m) => {
@@ -478,9 +655,9 @@ User timezone: ${inputData.timezone}
 Todos: ${inputData.todos.length} total, ${todosCompleted} completed, ${todosOverdue} overdue
 Habits: ${JSON.stringify(habitsFormatted)}
 Key dates & events: ${events.length > 0 ? events.join('; ') : 'none'}
-Today's schedule: ${todaysEvents.length > 0 ? todaysEvents.join(', ') : 'no events today'}
+Today's schedule: ${cleanedTodaysEvents.length > 0 ? cleanedTodaysEvents.join(', ') : 'no events today'}
 Milestones: ${milestones.length > 0 ? milestones.join('; ') : 'none'}
-Recent drops: ${noteDetails.length > 0 ? noteDetails.join('\n  ') : 'none'}
+Recent drops: ${cleanedNoteDetails.length > 0 ? cleanedNoteDetails.join('\n  ') : 'none'}
 Mood signals: ${
     Object.entries(moodCounts)
       .map(([k, v]) => `${k}:${v}`)
@@ -601,33 +778,44 @@ Rules:
 async function runDcoAnalysis(extraction, inputData, env) {
   const t0 = Date.now();
 
-  const timezoneContext = `USER TIMEZONE: ${inputData.timezone} (this indicates their current physical location)
+  const systemPrompt = `You are Gremly's daily context engine. Given structured 
+facts extracted from a user's last 7 days, produce a Daily Context Object (DCO) 
+— a JSON snapshot of their current life situation.
+
+YOUR PROCESS — follow these steps in order:
+
+STEP 1: CROSS-REFERENCE. Before producing any output, examine how the extracted 
+facts relate to each other. Look at calendar events, drops, journal entries, 
+habit data, spaces, mood signals, and the previous DCO together. Understand 
+which facts change the meaning or relevance of other facts. Determine:
+- Where is the user physically located today?
+- What is the dominant context of their life right now?
+- Which data points are relevant to today and which are background?
+- Are any calendar events irrelevant given other facts in the data?
+
+STEP 2: PRODUCE THE DCO. Using your cross-referenced understanding, generate 
+the JSON output below.
+
+${inputData.previousDco ? `PREVIOUS DCO (use for continuity and delta comparison):
+${JSON.stringify(inputData.previousDco, null, 2)}
+
+Use this to maintain continuity. If yesterday placed the user at a specific 
+location and no new travel event has occurred today, they are still at that 
+location. Build on yesterday's context rather than computing from scratch.` 
+: 'No previous DCO available (new user or first generation).'}
+
+${inputData.userProfile ? `USER PROFILE (durable identity — who this person is):
+${inputData.userProfile}` : 'No user profile available yet.'}
+
+USER TIMEZONE: ${inputData.timezone}
 TODAY'S DATE: ${inputData.todayLocal}
-Use the timezone and today's date to determine where the user is RIGHT NOW by comparing against their key dates and events.`;
-
-  // Include previous DCO for delta comparison
-  const previousContext = inputData.previousDco
-    ? `PREVIOUS DCO (for delta comparison):\n${JSON.stringify(inputData.previousDco, null, 2)}`
-    : 'No previous DCO available (new user or first generation).';
-
-  const userProfileContext = inputData.userProfile
-    ? `USER PROFILE (durable identity — who this person is):\n${inputData.userProfile}`
-    : 'No user profile available yet.';
-
-  const systemPrompt = `You are Gremly's daily context engine. Given structured facts extracted from a user's last 7 days, produce a Daily Context Object (DCO) — a JSON snapshot of their current life situation.
-
-${timezoneContext}
-
-${previousContext}
-
-${userProfileContext}
 
 Output this exact JSON shape:
 {
   "life_moment": "short phrase describing their current life situation" | null,
   "life_moment_confidence": "high" | "medium" | "low",
   "tone": "relaxed" | "focused" | "stretched" | "recovering" | "celebratory",
-  "brief_headline": "one-liner Gremly says to the user" | null,
+  "brief_headline": "one-liner Gremly says to the user about TODAY — where they are, what's ahead, or what matters right now" | null,
   "named_anchors": [{"label": "Name", "type": "person|trip|project|event", "source": "drop|space"}],
   "active_today": {
     "overdue_todos": number,
@@ -644,34 +832,45 @@ Output this exact JSON shape:
 }
 
 CRITICAL RULES:
-1. DELTA RULE: Every observation MUST compare against recent baseline. "3 todos completed" means nothing. "3 todos completed vs 8 last week — slower pace" means something. If no previous DCO exists, note this is a first impression.
-2. ANTI-GENERIC RULE: If nothing specific stands out, set brief_headline to null. NEVER output generic filler like "Busy day ahead!", "Stay focused!", "You've got this!". Silence is better than generic.
-3. VOICE RULE for brief_headline: Write as Gremly speaking directly to the user. Short, warm, situationally specific. No exclamation marks. No corporate motivational tone. No third person.
-   Good: "Day 6 in Italy. The pile can wait."
-   Good: "Big pitch today — you've prepped for this."
-   Bad: "User is on honeymoon, day 6."
-   Bad: "Stay focused and have a productive day!"
-4. If there is very little data (fewer than 3 drops and no habits), set life_moment_confidence to "low" and keep observations conservative.
-5. tone should reflect the OVERALL vibe, not individual items. Someone on vacation with 2 overdue todos is still "relaxed".
-6. named_anchors: only include proper nouns explicitly present in the data. Never invent people or places.
-7. ROUTINE WEEK STRATEGY: When there is no standout life event (no travel, no major milestone, no significant emotional shift), DO NOT try to force a dramatic life_moment. Instead:
-   - Set life_moment to a practical summary: "normal work week" or "steady routine"
-   - Set life_moment_confidence to "low"
-   - For brief_headline, be PRACTICAL and reference what's actually on today's plate: habits due, events scheduled, or projects in progress.
-   - Use the user profile to make it personal. Name specific things from THEIR life, not generic categories.
-   - If the user has events today, reference those specifically.
-   - A good routine headline names 1-2 specific things from TODAY, not generic observations about the week.
-   - Vary the structure. Do not always use "X and Y. Short comment." format.
-   - Examples: "Three Sage meetings before lunch.", "Quiet calendar — good day for the backlog.", "Running and a Gremly sprint. Not bad for a Tuesday."
-8. SPARSE DATA / NO CALENDAR STRATEGY: When there is no calendar data or very few items to work with:
-   - NEVER say "not much data", "quiet week", or "still getting started" without adding something specific. Even "Just the habits today. That counts." is better than nothing.
-   - Look for PATTERNS over individual items: "Third week of consistent yoga" is better than "You did yoga."
-   - Reference habit streaks or trends: "Running streak at 5 days" or "Social media habit building momentum."
-   - Note space activity shifts: "Kitchen renovation space getting active" or "Wedding planning winding down."
-   - If mood signals show a consistent direction, acknowledge it: "Good week by the numbers" or "Quieter week than usual."
-   - For users with a profile but thin recent data, bridge the two: use what you know about them to contextualize recent activity. "Still settling into the running habit — 2 of 3 this week."
-   - If a user has very few drops but they are concentrated in one space, reference that space.
-   - LAST RESORT: If there is genuinely almost nothing to work with, acknowledge the user's app engagement streak if one exists (consecutive days with drops or sweeps). Frame as observation, not cheerleading: "Day 4 in a row. Rhythm's there." NOT "Great streak, keep it up!"
+1. CROSS-REFERENCE FIRST. You must understand how facts relate to each other 
+   before producing any output field. A calendar event's relevance depends on 
+   what else is happening. A mood signal's weight depends on what caused it. 
+   A habit streak matters more or less depending on the life context. Do not 
+   treat any data point in isolation.
+
+2. HEADLINE IS ABOUT TODAY. The brief_headline answers "what does today look 
+   like for me?" — not "what happened this week." Lead with where the user is, 
+   what's ahead today, or what matters right now. Habit summaries and mood 
+   recaps belong in deltas and weekly_digest, not the headline.
+
+3. DELTA RULE. Every observation must compare against the previous DCO or 
+   recent baseline. If no previous DCO exists, note this is a first impression.
+
+4. ANTI-GENERIC RULE. If nothing specific stands out, set brief_headline to 
+   null. Silence is better than filler.
+
+5. VOICE RULE. Write brief_headline as Gremly speaking directly to the user. 
+   Short, warm, situationally specific. No exclamation marks. No corporate 
+   motivational tone. No third person.
+
+6. TONE REFLECTS THE DOMINANT CONTEXT. Tone should reflect the overall life 
+   situation, not individual secondary signals. Use your cross-referencing 
+   from Step 1 to determine what the dominant context is.
+
+7. ROUTINE WEEK STRATEGY. When there is no standout life event, do not force 
+   a dramatic life_moment. Set life_moment to a practical summary, set 
+   confidence to "low", and make the headline about what is practically 
+   relevant today — calendar events, active projects, or habit patterns. 
+   Vary the structure day to day.
+
+8. SPARSE DATA STRATEGY. When there is very little data, look for patterns 
+   over individual items. Reference streaks, trends, or space activity shifts. 
+   If there is genuinely almost nothing, acknowledge the user's engagement 
+   pattern as observation, not cheerleading. If there are fewer than 3 drops 
+   and no habits, set life_moment_confidence to "low".
+
+9. named_anchors: only include proper nouns explicitly present in the data. 
+   Never invent people or places.
 
 Output ONLY valid JSON, nothing else.`;
 
@@ -2117,6 +2316,284 @@ export default {
         });
       } catch (err) {
         console.error('[API] Error in force-generate-dco:', err);
+        return corsResponse({ error: err.message || 'Internal error' }, 500);
+      }
+    }
+
+    // Diagnostic: test what data fetchDcoInputDataForDate actually returns
+    if (url.pathname === '/api/debug-dco-data' && request.method === 'POST') {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const { user_id, target_date } = body;
+
+        if (!user_id || !target_date) {
+          return corsResponse({ error: 'Missing user_id or target_date' }, 400);
+        }
+
+        const supaHeaders = {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        };
+
+        const tzRes = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/notification_preferences?user_id=eq.${user_id}&select=user_id,timezone`,
+          { headers: supaHeaders },
+        );
+        const tzRows = tzRes.ok ? await tzRes.json() : [];
+        const timezone = tzRows[0]?.timezone || 'America/New_York';
+
+        // --- Inlined fetchDcoInputDataForDate for raw access ---
+        const target = new Date(target_date + 'T00:00:00Z');
+        const sevenBefore = new Date(target);
+        sevenBefore.setUTCDate(sevenBefore.getUTCDate() - 7);
+        const sevenDaysBeforeStr = formatDateOnly(sevenBefore);
+
+        const fourteenBefore = new Date(target);
+        fourteenBefore.setUTCDate(fourteenBefore.getUTCDate() - 14);
+        const fourteenDaysBeforeStr = formatDateOnly(fourteenBefore);
+
+        const fourteenAfter = new Date(target);
+        fourteenAfter.setUTCDate(fourteenAfter.getUTCDate() + 14);
+        const fourteenDaysAfterStr = formatDateOnly(fourteenAfter);
+
+        const targetEndOfDay = new Date(target_date + 'T23:59:59.999Z');
+
+        const [
+          todosRaw,
+          habits,
+          habitProgressRaw,
+          notesRaw,
+          spaces,
+          milestones,
+          eventNotes,
+          weeklySummaries,
+          previousDco,
+          userProfile,
+        ] = await Promise.all([
+          fetch(
+            `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${user_id}&created_at=gte.${sevenDaysBeforeStr}&select=id,name,status,completed_at,target_date,space_id,created_at&limit=100`,
+            { headers: supaHeaders },
+          ).then((r) => r.json()),
+          fetch(
+            `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${user_id}&archived=eq.false&select=id,name,frequency&limit=20`,
+            { headers: supaHeaders },
+          ).then((r) => r.json()),
+          fetch(
+            `${env.SUPABASE_URL}/rest/v1/habit_progress?owner_id=eq.${user_id}&occurred_day=gte.${sevenDaysBeforeStr}&select=habit_id,occurred_day`,
+            { headers: supaHeaders },
+          ).then((r) => r.json()),
+          fetch(
+            `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${user_id}&created_at=gte.${sevenDaysBeforeStr}&select=id,title,body,subtype,mood,space_id,created_at,target_date,is_goal&limit=100`,
+            { headers: supaHeaders },
+          ).then((r) => r.json()),
+          fetch(
+            `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${user_id}&archived_at=is.null&select=id,name&limit=20`,
+            { headers: supaHeaders },
+          ).then((r) => r.json()),
+          fetch(
+            `${env.SUPABASE_URL}/rest/v1/space_milestones?owner_id=eq.${user_id}&is_active=eq.true&select=name,date,space_id,completed&order=date.asc&limit=50`,
+            { headers: supaHeaders },
+          ).then((r) => r.json()),
+          fetch(
+            `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${user_id}&subtype=eq.event&archived=eq.false&target_date=gte.${fourteenDaysBeforeStr}&target_date=lte.${fourteenDaysAfterStr}&select=id,title,target_date,is_goal,space_id`,
+            { headers: supaHeaders },
+          ).then((r) => r.json()),
+          fetch(
+            `${env.SUPABASE_URL}/rest/v1/weekly_summaries?owner_id=eq.${user_id}&select=summary_text&order=created_at.desc&limit=1`,
+            { headers: supaHeaders },
+          ).then((r) => r.json()),
+          fetch(
+            `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${user_id}&date=lt.${target_date}&select=dco&order=date.desc&limit=1`,
+            { headers: supaHeaders },
+          ).then((r) => r.json()),
+          fetch(
+            `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${user_id}&select=profile_text&limit=1`,
+            { headers: supaHeaders },
+          ).then((r) => r.json()),
+        ]);
+
+        // JS filter
+        const todos = Array.isArray(todosRaw)
+          ? todosRaw.filter((t) => !t.created_at || new Date(t.created_at) <= targetEndOfDay)
+          : [];
+        const notes = Array.isArray(notesRaw)
+          ? notesRaw.filter((n) => !n.created_at || new Date(n.created_at) <= targetEndOfDay)
+          : [];
+        const habitProgress = Array.isArray(habitProgressRaw)
+          ? habitProgressRaw.filter((h) => !h.occurred_day || h.occurred_day <= target_date)
+          : [];
+
+        // Run extraction + prioritization (read-only, no DB writes)
+        const inputData = {
+          userId: user_id,
+          todayLocal: target_date,
+          timezone,
+          todos,
+          habits: Array.isArray(habits) ? habits : [],
+          habitProgress,
+          notes,
+          spaces: Array.isArray(spaces) ? spaces : [],
+          milestones: Array.isArray(milestones) ? milestones : [],
+          eventNotes: Array.isArray(eventNotes) ? eventNotes : [],
+          weeklySummary: weeklySummaries?.[0]?.summary_text || null,
+          previousDco: previousDco?.[0]?.dco || null,
+          userProfile: userProfile?.[0]?.profile_text || null,
+        };
+        const extraction = await runDcoExtraction(inputData, env);
+
+        return corsResponse({
+          target_date,
+          timezone,
+          extraction,
+          counts: {
+            todos: todos.length,
+            habits: Array.isArray(habits) ? habits.length : 0,
+            habitProgress: habitProgress.length,
+            notes: notes.length,
+            spaces: Array.isArray(spaces) ? spaces.length : 0,
+            milestones: Array.isArray(milestones) ? milestones.length : 0,
+            eventNotes: Array.isArray(eventNotes) ? eventNotes.length : 0,
+            hasWeeklySummary: !!(weeklySummaries?.[0]?.summary_text),
+            hasPreviousDco: !!(previousDco?.[0]?.dco),
+            hasUserProfile: !!(userProfile?.[0]?.profile_text),
+          },
+          sampleNotes: notes.slice(0, 10).map(n => ({
+            title: n.title,
+            subtype: n.subtype,
+            mood: n.mood,
+            created_at: n.created_at,
+          })),
+          sampleTodos: todos.slice(0, 5).map(t => ({
+            name: t.name,
+            status: t.status,
+            created_at: t.created_at,
+          })),
+          rawCounts: {
+            todosRaw: Array.isArray(todosRaw) ? todosRaw.length : 'not-array',
+            notesRaw: Array.isArray(notesRaw) ? notesRaw.length : 'not-array',
+            habitProgressRaw: Array.isArray(habitProgressRaw) ? habitProgressRaw.length : 'not-array',
+          },
+          notesRawSample: Array.isArray(notesRaw)
+            ? notesRaw.slice(0, 3).map(n => ({ title: n?.title, created_at: n?.created_at, subtype: n?.subtype }))
+            : notesRaw,
+        });
+      } catch (err) {
+        return corsResponse({ error: err.message || String(err) }, 500);
+      }
+    }
+
+    // Custom API endpoint: backfill historical DCOs for a user
+    if (url.pathname === '/api/backfill-dco' && request.method === 'POST') {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const { user_id, start_date, end_date } = body;
+
+        if (!user_id || !start_date || !end_date) {
+          return corsResponse(
+            { error: 'Missing required fields: user_id, start_date, end_date' },
+            400,
+          );
+        }
+
+        // Validate date format
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(start_date) || !/^\d{4}-\d{2}-\d{2}$/.test(end_date)) {
+          return corsResponse(
+            { error: 'Dates must be in YYYY-MM-DD format' },
+            400,
+          );
+        }
+
+        const supaHeaders = {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        };
+
+        // Look up timezone
+        const tzRes = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/notification_preferences?user_id=eq.${user_id}&select=user_id,timezone`,
+          { headers: supaHeaders },
+        );
+        const tzRows = tzRes.ok ? await tzRes.json() : [];
+        if (tzRows.length === 0) {
+          return corsResponse(
+            { error: `No notification_preferences row for user ${user_id}` },
+            404,
+          );
+        }
+        const timezone = tzRows[0].timezone || 'America/New_York';
+
+        const dates = getDateRange(start_date, end_date);
+        console.log(`[API] backfill-dco: ${dates.length} days for ${user_id} (${start_date} → ${end_date})`);
+
+        const results = [];
+
+        // Sequential loop — each day's DCO becomes previousDco for the next
+        for (const targetDate of dates) {
+          try {
+            const inputData = await fetchDcoInputDataForDate(user_id, timezone, targetDate, env);
+            const extraction = await runDcoExtraction(inputData, env);
+            const analysis = await runDcoAnalysis(extraction, inputData, env);
+
+            // Upsert into user_daily_state (90-day TTL for historical)
+            const now = new Date();
+            const expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+
+            const upsertRes = await fetch(
+              `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
+              {
+                method: 'POST',
+                headers: { ...supaHeaders, Prefer: 'resolution=merge-duplicates' },
+                body: JSON.stringify({
+                  user_id,
+                  date: targetDate,
+                  dco: analysis,
+                  extraction_raw: extraction,
+                  created_at: now.toISOString(),
+                  updated_at: now.toISOString(),
+                  expires_at: expiresAt.toISOString(),
+                }),
+              },
+            );
+
+            if (!upsertRes.ok) {
+              throw new Error(`Upsert failed: ${upsertRes.statusText}`);
+            }
+
+            console.log(`[API] backfill-dco: ${targetDate} → ${analysis.brief_headline || '(no headline)'}`);
+            results.push({
+              date: targetDate,
+              success: true,
+              headline: analysis.brief_headline || null,
+              life_moment: analysis.life_moment || null,
+            });
+          } catch (dayErr) {
+            console.error(`[API] backfill-dco: ${targetDate} failed:`, dayErr);
+            results.push({
+              date: targetDate,
+              success: false,
+              headline: null,
+              life_moment: null,
+              error: dayErr.message || String(dayErr),
+            });
+          }
+        }
+
+        const succeeded = results.filter((r) => r.success).length;
+        const failed = results.filter((r) => !r.success).length;
+
+        return corsResponse({
+          success: true,
+          user_id,
+          timezone,
+          total: results.length,
+          succeeded,
+          failed,
+          results,
+        });
+      } catch (err) {
+        console.error('[API] Error in backfill-dco:', err);
         return corsResponse({ error: err.message || 'Internal error' }, 500);
       }
     }
