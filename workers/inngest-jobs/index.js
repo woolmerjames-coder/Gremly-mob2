@@ -238,7 +238,14 @@ const generateSingleUserDco = inngest.createFunction(
         return runDcoAnalysis(extractionResult, inputData, env);
       });
 
-      // Step 4: Upsert DCO into user_daily_state
+      // Step 4: Headline pass (gpt-4.1-nano)
+      const headlineResult = await step.run('run-headline', async () => {
+        return runDcoHeadline(analysisResult, inputData, env);
+      });
+
+      analysisResult.brief_headline = headlineResult;
+
+      // Step 5: Upsert DCO into user_daily_state
       await step.run('store-dco', async () => {
         const headers = {
           apikey: env.SUPABASE_SERVICE_KEY,
@@ -815,7 +822,7 @@ Output this exact JSON shape:
   "life_moment": "short phrase describing their current life situation" | null,
   "life_moment_confidence": "high" | "medium" | "low",
   "tone": "relaxed" | "focused" | "stretched" | "recovering" | "celebratory",
-  "brief_headline": "one-liner Gremly says to the user about TODAY — where they are, what's ahead, or what matters right now" | null,
+  "brief_headline": null,
   "named_anchors": [{"label": "Name", "type": "person|trip|project|event", "source": "drop|space"}],
   "active_today": {
     "overdue_todos": number,
@@ -838,39 +845,26 @@ CRITICAL RULES:
    A habit streak matters more or less depending on the life context. Do not 
    treat any data point in isolation.
 
-2. HEADLINE IS ABOUT TODAY. The brief_headline answers "what does today look 
-   like for me?" — not "what happened this week." Lead with where the user is, 
-   what's ahead today, or what matters right now. Habit summaries and mood 
-   recaps belong in deltas and weekly_digest, not the headline.
-
-3. DELTA RULE. Every observation must compare against the previous DCO or 
+2. DELTA RULE. Every observation must compare against the previous DCO or 
    recent baseline. If no previous DCO exists, note this is a first impression.
 
-4. ANTI-GENERIC RULE. If nothing specific stands out, set brief_headline to 
-   null. Silence is better than filler.
-
-5. VOICE RULE. Write brief_headline as Gremly speaking directly to the user. 
-   Short, warm, situationally specific. No exclamation marks. No corporate 
-   motivational tone. No third person.
-
-6. TONE REFLECTS THE DOMINANT CONTEXT. Tone should reflect the overall life 
+3. TONE REFLECTS THE DOMINANT CONTEXT. Tone should reflect the overall life 
    situation, not individual secondary signals. Use your cross-referencing 
    from Step 1 to determine what the dominant context is.
 
-7. ROUTINE WEEK STRATEGY. When there is no standout life event, do not force 
+4. ROUTINE WEEK STRATEGY. When there is no standout life event, do not force 
    a dramatic life_moment. Set life_moment to a practical summary, set 
-   confidence to "low", and make the headline about what is practically 
-   relevant today — calendar events, active projects, or habit patterns. 
-   Vary the structure day to day.
+   confidence to "low".
 
-8. SPARSE DATA STRATEGY. When there is very little data, look for patterns 
-   over individual items. Reference streaks, trends, or space activity shifts. 
-   If there is genuinely almost nothing, acknowledge the user's engagement 
-   pattern as observation, not cheerleading. If there are fewer than 3 drops 
-   and no habits, set life_moment_confidence to "low".
+5. SPARSE DATA STRATEGY. When there is very little data, look for patterns 
+   over individual items. If there are fewer than 3 drops and no habits, 
+   set life_moment_confidence to "low".
 
-9. named_anchors: only include proper nouns explicitly present in the data. 
+6. named_anchors: only include proper nouns explicitly present in the data. 
    Never invent people or places.
+
+7. brief_headline must always be null. Do not generate a headline. This will 
+   be handled by a separate process.
 
 Output ONLY valid JSON, nothing else.`;
 
@@ -885,7 +879,7 @@ Output ONLY valid JSON, nothing else.`;
     body: JSON.stringify({
       model: 'gpt-4.1-mini',
       temperature: 0.4,
-      max_tokens: 800,
+      max_tokens: 1200,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: systemPrompt },
@@ -920,6 +914,81 @@ Output ONLY valid JSON, nothing else.`;
   dco.model_used = 'gpt-4.1-mini';
 
   return dco;
+}
+
+async function runDcoHeadline(analysis, inputData, env) {
+  const t0 = Date.now();
+
+  const systemPrompt = `Write a one-liner that Gremly says to the user about their day. 
+You will receive a summary of the user's current life context. Your ONLY job is to write 
+one short, warm line.
+
+TODAY'S DATE: ${inputData.todayLocal}
+
+CONTEXT:
+Life moment: ${analysis.life_moment || 'nothing notable'}
+Tone: ${analysis.tone || 'neutral'}
+Today's events: ${JSON.stringify(analysis.active_today?.upcoming_in_7d?.slice(0, 3) || [])}
+Weekly digest: ${analysis.weekly_digest || 'none'}
+
+${inputData.previousDco?.brief_headline ? `Yesterday's headline: ${inputData.previousDco.brief_headline}` : ''}
+
+RULES:
+- One sentence maximum. Short and warm.
+- About TODAY — where the user is, what's ahead, or what matters right now.
+- No habit counts, no streak numbers, no mood summaries.
+- No exclamation marks. No motivational filler. No corporate tone.
+- If there is nothing meaningful to say, respond with just the word: null
+- Do not repeat yesterday's headline. Vary your approach.
+- Speak directly to the user, as a friend who knows what's going on.
+
+Respond with ONLY the headline text, or the word null. Nothing else.`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  let response;
+  try {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: 'gpt-4.1-nano',
+        temperature: 0.6,
+        max_tokens: 60,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: 'Write the headline.' },
+        ],
+      }),
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      console.error('[DCO:Headline] Timed out');
+      return null;
+    }
+    throw err;
+  }
+  clearTimeout(timeout);
+
+  if (!response.ok) {
+    console.error(`[DCO:Headline] Failed: ${response.status}`);
+    return null;
+  }
+
+  const data = await response.json();
+  const raw = (data.choices?.[0]?.message?.content || '').trim();
+  const latency = Date.now() - t0;
+
+  const headline = raw.toLowerCase() === 'null' || !raw ? null : raw;
+
+  console.log(`[DCO:Headline] Complete in ${latency}ms: ${headline}`);
+  return headline;
 }
 
 // ============================================================================
@@ -2254,6 +2323,8 @@ export default {
             const inputData = await fetchDcoInputData(u.user_id, u.timezone, env);
             const extraction = await runDcoExtraction(inputData, env);
             const analysis = await runDcoAnalysis(extraction, inputData, env);
+            const headline = await runDcoHeadline(analysis, inputData, env);
+            analysis.brief_headline = headline;
 
             // Upsert into user_daily_state (same pattern as store-dco step)
             const now = new Date();
@@ -2441,11 +2512,19 @@ export default {
           userProfile: userProfile?.[0]?.profile_text || null,
         };
         const extraction = await runDcoExtraction(inputData, env);
+        const analysis = await runDcoAnalysis(extraction, inputData, env);
+        const headline = await runDcoHeadline(analysis, inputData, env);
 
         return corsResponse({
           target_date,
           timezone,
           extraction,
+          analysis_summary: {
+            life_moment: analysis.life_moment,
+            tone: analysis.tone,
+            weekly_digest: analysis.weekly_digest,
+          },
+          headline,
           counts: {
             todos: todos.length,
             habits: Array.isArray(habits) ? habits.length : 0,
@@ -2535,6 +2614,8 @@ export default {
             const inputData = await fetchDcoInputDataForDate(user_id, timezone, targetDate, env);
             const extraction = await runDcoExtraction(inputData, env);
             const analysis = await runDcoAnalysis(extraction, inputData, env);
+            const headline = await runDcoHeadline(analysis, inputData, env);
+            analysis.brief_headline = headline;
 
             // Upsert into user_daily_state (90-day TTL for historical)
             const now = new Date();
