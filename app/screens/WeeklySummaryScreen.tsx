@@ -2149,6 +2149,20 @@ export default function WeeklySummaryScreen() {
   const summary = paramSummary ?? currentWeekSummary;
   const content = summary?.content;
 
+  // Detect v2 summary format (has cards array) and redirect
+  const isV2Format = content && 'cards' in content && Array.isArray((content as any).cards);
+  
+  useEffect(() => {
+    if (isV2Format) {
+      navigation.replace('WeeklySummaryV2', { weekStartDate: weekStartParam });
+    }
+  }, [isV2Format, navigation, weekStartParam]);
+
+  // Don't render v1 UI while redirecting to v2
+  if (isV2Format) {
+    return <View style={{ flex: 1, backgroundColor: WS.bg }} />;
+  }
+
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const { submit: mindDropSubmit } = useMindDropSubmit();

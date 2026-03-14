@@ -1,0 +1,296 @@
+{
+  "_type": "summary_v2_test",
+  "summary": {
+    "cards": [
+      {
+        "body": "This week traced one of the most emotionally rich arcs in your Life Map: a perfect Tokyo night at Golden Gai, a first-class flight into Bora Bora, and then — mid-lagoon, mid-vacation — a quiet realization that shifted everything. You kept building Gremly (4 DCO features shipped from a poolside cabana), but by March 12 you named what mattered more: 'I need to step back sometimes and just enjoy him.' That's new. Prior weeks showed anxiety about not moving fast enough. This week showed you choosing.",
+        "mood": "grateful and present",
+        "type": "opening",
+        "quote": "Realizing that even though I love Gremly work, I need to step back sometimes and just enjoy him and being on a once in a lifetime vacation.",
+        "headline": "Japan concluded, Bora Bora bloomed, and you chose presence",
+        "image_url": "https://images.pexels.com/photos/30422271/pexels-photo-30422271/free-photo-of-scenic-aerial-view-of-bora-bora-lagoon.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2",
+        "engagement": {
+          "drops": 0,
+          "journals": 0,
+          "completions": 0
+        },
+        "image_hint": "bora_bora_lagoon",
+        "quote_date": "2026-03-12",
+        "subheadline": "Honeymoon Immersion"
+      },
+      {
+        "type": "thread_movements",
+        "title": "What Shifted",
+        "threads": [
+          {
+            "name": "Japan Trip (Tokyo & Kyoto)",
+            "detail": "Nine days ended March 6 with a single line that said everything: 'It was incredible and I cannot wait to be back.'",
+            "domain": "Honeymoon",
+            "direction": "concluded",
+            "icon_hint": "travel",
+            "badge_label": "complete",
+            "shift_label": "active → concluded",
+            "is_highlight": true
+          },
+          {
+            "name": "Partnership with Dave",
+            "detail": "Dave appears in every single journal entry this week — tennis matches, floaties, Michelin dinners, sake tastings — and you named him explicitly over Gremly on March 12.",
+            "domain": "Relationship & Home Life",
+            "direction": "milestone",
+            "icon_hint": "relationship",
+            "badge_label": "on fire",
+            "shift_label": "thriving → peak expression",
+            "is_highlight": true
+          },
+          {
+            "name": "App Development & Launch",
+            "detail": "Four DCO todos completed across March 8–13 from Bora Bora, with you noting 'I feel like the daily context I have built could be really powerful.'",
+            "domain": "Gremly improvements",
+            "direction": "up",
+            "icon_hint": "work",
+            "badge_label": "building",
+            "shift_label": "consistent → purposeful sprint",
+            "is_highlight": true
+          },
+          {
+            "name": "Running & Half Marathon Training",
+            "detail": "One 'quick run' on March 8 is the only logged run this week. Habit rate sits at 1.3/week against a 3x target — with the half marathon now 14 days away.",
+            "domain": "Fitness & Health",
+            "direction": "down",
+            "icon_hint": "fitness",
+            "badge_label": "at risk",
+            "shift_label": "building → underprepared",
+            "is_highlight": true
+          },
+          {
+            "name": "Strength Training",
+            "detail": "Weights completed in Bora Bora on March 8 alongside tennis — 6 sessions against a 3-session target over the 3-week window, sustained across two countries.",
+            "domain": "Fitness & Health",
+            "direction": "steady",
+            "icon_hint": "fitness",
+            "badge_label": "on fire",
+            "shift_label": "consistent → 200% of target",
+            "is_highlight": false
+          },
+          {
+            "name": "Yoga & Cycling",
+            "detail": "Yoga is at 0/3 (0%) over the past three weeks. Cycling at 2/3. Neither appears in any journal or todo this week — tennis and water sports are filling the gap for now.",
+            "domain": "Fitness & Health",
+            "direction": "down",
+            "icon_hint": "fitness",
+            "badge_label": "paused",
+            "shift_label": "sporadic → zero",
+            "is_highlight": false
+          }
+        ]
+      },
+      {
+        "type": "moments",
+        "moments": [
+          {
+            "body": "Golden Gai is one of Tokyo's most singular places — a warren of 200 tiny bars in Shinjuku, each seating maybe eight people, preserved since the 1970s. You hit it after a Michelin-star dinner, then Shibuya Crossing, an arcade, an onsen, and a sake tasting where you ended up drinking with a high-ranking member of the Japanese Air Defense. That's not a tourist itinerary — that's a perfect night. The kind you'll describe for years.",
+            "date": "2026-03-01",
+            "title": "A Perfect Night in Tokyo",
+            "day_label": "SUN",
+            "image_url": "https://www.youcouldtravel.com/u/g/golden-gai-guide-tokyo.jpg",
+            "image_hint": "tokyo_golden_gai",
+            "thread_tags": [
+              "Japan Trip (Tokyo & Kyoto)",
+              "Partnership with Dave"
+            ],
+            "connected_items": [
+              "Organize Sake Tasting in Japan",
+              "Travel to Tokyo"
+            ]
+          },
+          {
+            "body": "Tennis with Dave. A run. Weights. No alcohol. Three Gremly todos shipped. And you woke up feeling 'very very refreshed' after a long sleep in Bora Bora. You asked yourself whether the sleep made the difference — it probably did. This was the week's clearest proof that rest isn't the enemy of productivity; it's the engine. One of the fullest single days in your recent data.",
+            "date": "2026-03-08",
+            "title": "The Day You Had It All",
+            "day_label": "SAT",
+            "image_url": "https://assets.zyrosite.com/cdn-cgi/image/format=auto,w=768,h=576,fit=crop,trim=3.2967032967032965;0;0;0/A1aNQ5kRXZCnpJOv/st-regis-bora-bora-tennis-court-Aq2JkpWoX7SNPQnn.jpeg",
+            "image_hint": "bora_bora_tennis",
+            "thread_tags": [
+              "Bora Bora & Hawaii",
+              "Strength Training",
+              "Partnership with Dave",
+              "App Development & Launch"
+            ],
+            "connected_items": [
+              "Tennis Match with Dave",
+              "Book Poolside Cabana",
+              "Daily Context Object Integration"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "discoveries",
+        "trends": [
+          {
+            "title": "Running below race pace",
+            "detail": "1.3 runs/week average vs. 3x target, half marathon in 14 days",
+            "icon_hint": "activity",
+            "badge_type": "warning"
+          },
+          {
+            "title": "Sobriety selective, not full",
+            "detail": "6 logged alcohol-free days out of 21 (29%) — vacation context noted",
+            "icon_hint": "wine",
+            "badge_type": "info"
+          }
+        ],
+        "spotlight": {
+          "badge": "breakthrough",
+          "title": "The shift from guilt-driven to joy-driven work",
+          "takeaway": "You didn't stop building Gremly on vacation — you stopped feeling bad about the pace. That's a different thing entirely, and it showed up in your output.",
+          "evidence_trail": "Feb 27: 'can't help but feel like I'm not moving quick enough with the app.' Feb 26: 'Feeling guilty I'm not putting more into actual work.' Then: March 8 in Bora Bora — you completed 3 DCO todos and wrote about it with pride, not anxiety. March 9: 3 more todos completed, 3 new ones created. March 12: 'I need to step back sometimes and just enjoy him' — a conscious choice, not a collapse. March 13: you completed 'DCO Implementation Across Areas' and wrote your most purely grateful journal entry of the entire dataset. The work continued. The guilt didn't.",
+          "research_context": {
+            "body": "Psychological research on intrinsic vs. extrinsic motivation shows that when people shift from 'I must do this' to 'I want to do this,' creative output often improves even as hours decrease. The anxiety of 'not moving fast enough' is a form of self-imposed pressure that can paradoxically slow progress. Vacation — especially one with genuine presence and recovery sleep — can reset that pressure valve, allowing the same work to feel energizing rather than depleting.",
+            "title": "Why this happens"
+          }
+        }
+      },
+      {
+        "type": "week_ahead",
+        "intro": "Hawaii begins Saturday March 14 — the final honeymoon leg before the half marathon on March 22. That race is now 8 days away, and Hawaii is your last training window. The Work Plan for Hawaii todo you created on March 8 suggests you already know the balance you're trying to strike.",
+        "highlights": [
+          {
+            "date": "2026-03-14",
+            "title": "Fly to Hawaii",
+            "context": "Third and final honeymoon destination. Also your last full week before the half marathon.",
+            "day_label": "SAT",
+            "icon_hint": "plane",
+            "importance": 8,
+            "prep_nudge": "You created 'Work Plan for Hawaii' — worth reviewing before you land so the first day sets the right tone.",
+            "thread_connection": "Bora Bora & Hawaii"
+          },
+          {
+            "date": "2026-03-22",
+            "title": "Half Marathon",
+            "context": "This has been a goal since January. The training hasn't matched the ambition, but finishing is still finishing.",
+            "day_label": "SUN",
+            "icon_hint": "trophy",
+            "importance": 9,
+            "prep_nudge": "At 1.3 runs/week average, Hawaii needs to include at least 3 runs — including one longer effort — to give your legs any race-day memory.",
+            "thread_connection": "Running & Half Marathon Training"
+          },
+          {
+            "date": "2026-03-16",
+            "title": "Adam J - PTO (5 Days)",
+            "context": "Work is waking back up — timesheets and Merkury costs will need attention on return.",
+            "day_label": "MON",
+            "icon_hint": "briefcase",
+            "importance": 2,
+            "prep_nudge": "Plan around Adam's absence for any Sage coordination this week.",
+            "thread_connection": "Day-to-Day Client Work"
+          }
+        ],
+        "busy_day_warnings": [
+          {
+            "day": "Sunday March 22",
+            "detail": "Half marathon race day — plan travel, kit, and nutrition the night before"
+          }
+        ]
+      },
+      {
+        "body": "The first week of March captured a before-and-after: the anxious, depleted founder who shipped TestFlight on February 26 became someone floating on a lagoon in Bora Bora, genuinely choosing presence over productivity. Work didn't disappear — Gremly kept moving — but the relationship to it changed. The one thread that didn't follow the upward arc is running, which will define the final days of March.",
+        "type": "monthly_retro",
+        "headline": "March opened mid-honeymoon and immediately became the most emotionally rich month in your recent data.",
+        "month_name": "March",
+        "thread_arcs": [
+          {
+            "arc": "Arrived in Tokyo Feb 27, peaked with a perfect Golden Gai night, and concluded March 6 with 'incredible' as the final word.",
+            "thread": "Japan Trip (Tokyo & Kyoto)",
+            "direction": "concluded"
+          },
+          {
+            "arc": "Every journal entry in March mentions Dave — the month has been a sustained, documented deepening of the relationship across three countries.",
+            "thread": "Partnership with Dave",
+            "direction": "grew"
+          },
+          {
+            "arc": "TestFlight shipped the last day of February; March opened with the DCO feature sprint — 4 completions from vacation — marking the shift from launch anxiety to post-launch iteration confidence.",
+            "thread": "App Development & Launch",
+            "direction": "transformed"
+          },
+          {
+            "arc": "The half marathon goal set in January now has a race date (March 22) but not enough training miles — the month's biggest unresolved tension.",
+            "thread": "Running & Half Marathon Training",
+            "direction": "declined"
+          },
+          {
+            "arc": "February closed with anxiety and guilt; March opened with gratitude and presence — the habit rate improved from ~31% to 43% and the journal tone shifted completely.",
+            "thread": "Mental Wellbeing & Negative Thought Management",
+            "direction": "grew"
+          }
+        ]
+      },
+      {
+        "text": "Hawaii is your last training window. Lock in 3 runs before March 22 — even short ones count.",
+        "type": "recommendation",
+        "prefill": {
+          "name": "3 runs in Hawaii before half marathon",
+          "due_day": "2026-03-21",
+          "frequency": null
+        },
+        "trigger": "half_marathon_underprepared_final_week",
+        "action_type": "create_todo",
+        "action_label": "Add to Hawaii plan"
+      }
+    ],
+    "metadata": {
+      "mood": "grateful and present",
+      "week_type": "Honeymoon Immersion",
+      "card_count": 7,
+      "key_themes": [
+        "Japan conclusion and Bora Bora arrival",
+        "Conscious presence over productivity",
+        "DCO feature sprint from vacation",
+        "Half marathon preparation gap",
+        "Partnership deepening"
+      ],
+      "card_types_used": [
+        "opening",
+        "thread_movements",
+        "moments",
+        "discoveries",
+        "week_ahead",
+        "monthly_retro",
+        "recommendation"
+      ]
+    }
+  },
+  "analyst_metadata": {
+    "model": "claude-haiku-4-5-20251001",
+    "latency_ms": 167641,
+    "input_tokens": 8243,
+    "output_tokens": 20000,
+    "data_payload_chars": 15356,
+    "cleaned_events_count": 44
+  },
+  "rebuild_metadata": {
+    "model": "claude-sonnet-4-6",
+    "latency_ms": 124877,
+    "new_threads": 0,
+    "input_tokens": 21651,
+    "output_tokens": 7270,
+    "thread_updates": 16
+  },
+  "summary_metadata": {
+    "model": "claude-sonnet-4-6",
+    "card_count": 7,
+    "card_types": [
+      "opening",
+      "thread_movements",
+      "moments",
+      "discoveries",
+      "week_ahead",
+      "monthly_retro",
+      "recommendation"
+    ],
+    "latency_ms": 71788,
+    "input_tokens": 29335,
+    "output_tokens": 3436
+  }
+}

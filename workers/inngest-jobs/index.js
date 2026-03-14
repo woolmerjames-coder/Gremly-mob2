@@ -4399,12 +4399,18 @@ async function generateWeeklySummaryV2(
     .map(t => ({ title: t.title, date: t.completed_at, space: t.space }));
 
   // Stale items
-  const staleItems = (analystOutput.stale_items || []).map(s => ({
-    title: s.title,
-    days_stale: s.days_stale,
-    domain: s.domain_hint,
-    severity: s.severity,
-  }));
+  const staleItems = (analystOutput.stale_items || []).map(s => {
+    const matchingTodo = (weeklySnapshot.todosDetail || []).find(t =>
+      (t.title && s.title && t.title.toLowerCase() === s.title.toLowerCase())
+    );
+    return {
+      title: s.title,
+      days_stale: s.days_stale,
+      domain: s.domain_hint,
+      severity: s.severity,
+      item_id: matchingTodo?.id || null,
+    };
+  });
 
   // User profile
   const userProfile = weeklySnapshot.userProfile || null;
@@ -4431,7 +4437,12 @@ RESPOND WITH ONLY VALID JSON, no markdown:
       "mood": "2-4 words — emotional tone of the week",
       "quote": "REQUIRED — A direct journal quote that captures the week's feeling. Must be verbatim from journal data.",
       "quote_date": "REQUIRED — YYYY-MM-DD of the journal entry the quote came from.",
-      "image_hint": "REQUIRED — keyword for hero image — e.g. 'tokyo_skyline', 'bora_bora_lagoon', 'home_desk'"
+      "image_hint": "REQUIRED — keyword for hero image — e.g. 'tokyo_skyline', 'bora_bora_lagoon', 'home_desk'",
+      "engagement": {
+        "drops": "number — from engagement_stats in the data",
+        "journals": "number — from engagement_stats in the data",
+        "completions": "number — from engagement_stats in the data"
+      }
     },
 
     // REQUIRED: thread_movements card (this is your differentiator)
@@ -4501,7 +4512,8 @@ RESPOND WITH ONLY VALID JSON, no markdown:
           "title": "item title",
           "days_stale": 0,
           "domain": "domain name",
-          "context": "Why stale — e.g. 'honeymoon travel', 'deprioritized during sprint'"
+          "context": "Why stale — e.g. 'honeymoon travel', 'deprioritized during sprint'",
+          "item_id": "string — the todo UUID from the data, or null"
         }
       ]
     },
@@ -4629,6 +4641,11 @@ PROFILE AWARENESS:
     prior_weeks: priorContext,
     is_first_week_of_month: isFirstWeekOfMonth,
     user_profile: userProfile,
+    engagement_stats: {
+      drops: analystOutput.engagement_metrics?.drops_this_week || 0,
+      journals: analystOutput.engagement_metrics?.journals_written || 0,
+      completions: analystOutput.engagement_metrics?.completions_this_week || 0,
+    },
   };
 
   const userMessage = `Generate this user's weekly summary for ${weekStart} to ${weekEnd}.
@@ -4721,6 +4738,85 @@ ${JSON.stringify(storytellerData, null, 2)}`;
       console.error('[WeeklySummaryV2] jsonrepair also failed:', repairErr.message);
       console.error('[WeeklySummaryV2] First 500:', jsonStr.slice(0, 500));
       throw new Error(`Weekly summary v2 parse error: ${repairErr.message}`);
+    }
+  }
+
+  // Resolve image_hint keywords to real photo URLs via Tavily
+  if (parsed.cards && env.TAVILY_API_KEY) {
+    for (const card of parsed.cards) {
+      if (card.image_hint && !card.image_url) {
+        try {
+          const query = card.image_hint.replace(/_/g, ' ') + ' scenic photo';
+          const res = await fetch('https://api.tavily.com/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              api_key: env.TAVILY_API_KEY,
+              query,
+              include_images: true,
+              max_results: 1,
+            }),
+          });
+          const data = await res.json();
+          console.log('[WeeklySummaryV2] Tavily response for', card.image_hint, ':', JSON.stringify({ status: res.status, images: data.images?.length || 0 }));
+          if (data.images && data.images.length > 0) {
+            card.image_url = data.images[0];
+          }
+        } catch (e) {
+          console.warn('[WeeklySummaryV2] Image resolve failed:', card.image_hint, e.message);
+        }
+      }
+      if (card.moments) {
+        for (const moment of card.moments) {
+          if (moment.image_hint && !moment.image_url) {
+            try {
+              const query = moment.image_hint.replace(/_/g, ' ') + ' scenic photo';
+              const res = await fetch('https://api.tavily.com/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  api_key: env.TAVILY_API_KEY,
+                  query,
+                  include_images: true,
+                  max_results: 1,
+                }),
+              });
+              const data = await res.json();
+              console.log('[WeeklySummaryV2] Tavily moment response for', moment.image_hint, ':', JSON.stringify({ status: res.status, images: data.images?.length || 0 }));
+              if (data.images && data.images.length > 0) {
+                moment.image_url = data.images[0];
+              }
+            } catch (e) {
+              console.warn('[WeeklySummaryV2] Moment image failed:', moment.image_hint, e.message);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Inject engagement stats into opening card (don't rely on model)
+  if (parsed.cards) {
+    const openingCard = parsed.cards.find(c => c.type === 'opening');
+    if (openingCard) {
+      openingCard.engagement = {
+        drops: analystOutput.engagement_metrics?.drops_this_week || 0,
+        journals: analystOutput.engagement_metrics?.journals_written || 0,
+        completions: analystOutput.engagement_metrics?.completions_this_week || 0,
+      };
+    }
+
+    // Inject item_id into stale triage items by matching titles
+    const staleCard = parsed.cards.find(c => c.type === 'stale_triage');
+    if (staleCard && staleCard.items) {
+      for (const item of staleCard.items) {
+        if (!item.item_id) {
+          const match = (weeklySnapshot.todosDetail || []).find(t =>
+            t.title && item.title && t.title.toLowerCase() === item.title.toLowerCase()
+          );
+          if (match) item.item_id = match.id;
+        }
+      }
     }
   }
 
