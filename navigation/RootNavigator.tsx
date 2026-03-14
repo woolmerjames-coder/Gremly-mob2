@@ -33,6 +33,7 @@ import WhatGremlyKnowsScreen from '../app/screens/WhatGremlyKnowsScreen';
 import { HabitBuilderScreen } from '../screens/habits/HabitBuilderScreen';
 import { MorningBriefSheet } from '../app/components/morning-brief/MorningBriefSheet';
 import WeeklySummaryScreen from '../app/screens/WeeklySummaryScreen';
+import WeeklySummaryV2Screen from '../app/screens/WeeklySummaryV2Screen';
 
 // Wrapper to bridge navigation params to MorningBriefSheet props
 function MorningBriefWrapper({ navigation, route }: any) {
@@ -91,6 +92,7 @@ export type RootStackParamList = {
   HabitBuilder: { prefill?: string; spaceId?: string } | undefined;
   MorningBrief: { targetDate?: string } | undefined;
   WeeklySummary: { weekStartDate?: string } | undefined;
+  WeeklySummaryV2: { weekStartDate?: string } | undefined;
   SweepTest: undefined; // DEV only
 };
 
@@ -197,6 +199,11 @@ export default function RootNavigator() {
             name="WeeklySummary"
             component={WeeklySummaryScreen}
             options={{ headerShown: false, presentation: 'card', gestureEnabled: false }}
+          />
+          <Stack.Screen
+            name="WeeklySummaryV2"
+            component={WeeklySummaryV2Screen}
+            options={{ headerShown: false, presentation: 'fullScreenModal' }}
           />
           <Stack.Screen
             name="ArchivedItems"

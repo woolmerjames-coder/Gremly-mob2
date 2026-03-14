@@ -1238,6 +1238,158 @@ export interface WeeklySummary {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Weekly Summary V2 — Life Map powered, flexible card schema
+// ═══════════════════════════════════════════════════════════════════
+
+export interface WSV2OpeningCard {
+  type: 'opening';
+  headline: string;
+  subheadline: string;
+  body: string;
+  mood: string;
+  quote: string | null;
+  quote_date: string | null;
+  image_hint: string | null;
+}
+
+export interface WSV2Thread {
+  name: string;
+  domain: string;
+  direction: 'up' | 'down' | 'milestone' | 'concluded' | 'new' | 'steady' | 'paused';
+  icon_hint: string;
+  shift_label: string;
+  badge_label: string;
+  badge_type: 'success' | 'warning' | 'danger' | 'neutral' | 'info';
+  detail: string;
+  is_highlight: boolean;
+}
+
+export interface WSV2ThreadMovementsCard {
+  type: 'thread_movements';
+  title: string;
+  threads: WSV2Thread[];
+}
+
+export interface WSV2ResearchContext {
+  title: string;
+  body: string;
+}
+
+export interface WSV2Trend {
+  icon_hint: string;
+  badge_type: 'warning' | 'danger' | 'info';
+  title: string;
+  detail: string;
+}
+
+export interface WSV2DiscoveriesCard {
+  type: 'discoveries';
+  spotlight: {
+    badge: 'discovery' | 'shift' | 'breakthrough';
+    title: string;
+    evidence_trail: string;
+    takeaway: string;
+    research_context: WSV2ResearchContext | null;
+  };
+  trends: WSV2Trend[];
+}
+
+export interface WSV2Moment {
+  day_label: string;
+  date: string;
+  title: string;
+  body: string;
+  quote: string | null;
+  image_hint: string | null;
+  thread_tags: string[];
+}
+
+export interface WSV2MomentsCard {
+  type: 'moments';
+  moments: WSV2Moment[];
+}
+
+export interface WSV2StaleItem {
+  title: string;
+  days_stale: number;
+  domain: string;
+  context: string;
+}
+
+export interface WSV2StaleTriageCard {
+  type: 'stale_triage';
+  headline: string;
+  context: string;
+  items: WSV2StaleItem[];
+}
+
+export interface WSV2WeekAheadHighlight {
+  day_label: string;
+  date: string;
+  title: string;
+  icon_hint: string;
+  thread_connection: string | null;
+  prep_nudge: string | null;
+  context: string | null;
+}
+
+export interface WSV2WeekAheadCard {
+  type: 'week_ahead';
+  intro: string;
+  highlights: WSV2WeekAheadHighlight[];
+  busy_day_warnings: Array<{ day: string; detail: string }>;
+}
+
+export interface WSV2ThreadArc {
+  thread: string;
+  icon_hint: string;
+  arc: string;
+  direction: 'grew' | 'declined' | 'transformed' | 'emerged' | 'concluded';
+}
+
+export interface WSV2MonthlyRetroCard {
+  type: 'monthly_retro';
+  month_name: string;
+  headline: string;
+  thread_arcs: WSV2ThreadArc[];
+}
+
+export interface WSV2RecommendationCard {
+  type: 'recommendation';
+  text: string;
+  action_type: 'create_todo' | 'create_habit' | 'tip';
+  action_label: string;
+  prefill?: {
+    name: string;
+    frequency?: string | null;
+    due_day?: string | null;
+  };
+}
+
+export type WSV2Card =
+  | WSV2OpeningCard
+  | WSV2ThreadMovementsCard
+  | WSV2DiscoveriesCard
+  | WSV2MomentsCard
+  | WSV2StaleTriageCard
+  | WSV2WeekAheadCard
+  | WSV2MonthlyRetroCard
+  | WSV2RecommendationCard;
+
+export interface WSV2Metadata {
+  week_type: string;
+  mood: string;
+  key_themes: string[];
+  card_count: number;
+  card_types_used: string[];
+}
+
+export interface WeeklySummaryV2Content {
+  cards: WSV2Card[];
+  metadata: WSV2Metadata;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // DAILY CONTEXT OBJECT (DCO)
 // ═══════════════════════════════════════════════════════════════════
 

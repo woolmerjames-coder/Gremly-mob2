@@ -1,0 +1,286 @@
+{
+  "_type": "summary_v2_test",
+  "summary": {
+    "cards": [
+      {
+        "body": "You wrapped Japan with a Michelin dinner, sake with a Japanese Air Force officer, and three journal entries in one day — then flew first class to Bora Bora and hit the ground running (literally). Sunday the 8th was the week's defining moment: tennis with Dave, a run, weights, sobriety intact, and nine Gremly feature tasks planned before noon. The emotional arc from 'lower energy' on Monday to 'felt very very refreshed' by Sunday is the whole story.",
+        "mood": "grateful and fully alive",
+        "type": "opening",
+        "headline": "Tokyo closed perfectly. Bora Bora opened even better.",
+        "subheadline": "Honeymoon Peak Week"
+      },
+      {
+        "type": "thread_movements",
+        "title": "What Shifted",
+        "threads": [
+          {
+            "name": "Japan Trip (Tokyo & Kyoto)",
+            "detail": "Japan closed on March 6 with genuine grief and gratitude: 'It was incredible and I cannot wait to be back' — a rare thread that ended at full emotional peak.",
+            "domain": "Honeymoon",
+            "direction": "concluded",
+            "icon_hint": "travel",
+            "shift_label": "active → concluded",
+            "is_highlight": true
+          },
+          {
+            "name": "Partnership with Dave",
+            "detail": "March 12 marked a real shift: 'I need to step back sometimes and just enjoy him' — not venting, but a deliberate reorientation toward presence over founder ambition.",
+            "domain": "Relationship & Home Life",
+            "direction": "milestone",
+            "icon_hint": "relationship",
+            "shift_label": "present → consciously prioritised",
+            "is_highlight": true
+          },
+          {
+            "name": "Running & Half Marathon Training",
+            "detail": "The half marathon on March 22 is now two weeks out, and you're at 133% completion rate — the Bora Bora 'quick run' on the 8th was not casual; it was intentional final-window training.",
+            "domain": "Fitness & Health",
+            "direction": "milestone",
+            "icon_hint": "fitness",
+            "shift_label": "building → 14 days to race",
+            "is_highlight": true
+          },
+          {
+            "name": "App Development & Launch",
+            "detail": "Four DCO todos closed March 9–13 (Daily Context Object Integration, Fed Metaphor Exploration, DCO User Onboarding, DCO Implementation) — a full feature arc completed from a Bora Bora sun lounger.",
+            "domain": "Gremly improvements",
+            "direction": "up",
+            "icon_hint": "work",
+            "shift_label": "post-launch → DCO sprint complete",
+            "is_highlight": false
+          },
+          {
+            "name": "Strength Training",
+            "detail": "Six sessions against a three-per-week target across the honeymoon window — the most reliable habit in your stack, surviving Tokyo, Kyoto, and Bora Bora without a miss.",
+            "domain": "Fitness & Health",
+            "direction": "steady",
+            "icon_hint": "fitness",
+            "shift_label": "thriving → still thriving (200%)",
+            "is_highlight": false
+          },
+          {
+            "name": "Mental Wellbeing & Negative Thought Management",
+            "detail": "The arc from 'anxious about work' (Feb 26) to 'a big dose of vitamin D did me good' (March 13) with zero rumination in between is four weeks of genuine upward movement.",
+            "domain": "Fitness & Health",
+            "direction": "up",
+            "icon_hint": "personal",
+            "shift_label": "anxious pre-departure → grounded and reflective",
+            "is_highlight": false
+          }
+        ]
+      },
+      {
+        "type": "moments",
+        "moments": [
+          {
+            "body": "You wrote three journal entries on Monday — all capturing the day before. Michelin dinner, matcha, Shibuya crossing, an arcade, onsen, Golden Gai cocktails, and a sake tasting where you ended up chatting with a senior member of Japan's Air Self-Defense Force. Golden Gai's fifty-metre stretch of six-seat bars is one of Tokyo's great accidents — the kind of place you can't plan your way into. 'Yesterday was like a perfect day in Tokyo' is the sentence that earns its own memory.",
+            "date": "2026-03-02",
+            "title": "The Perfect Day (Told the Morning After)",
+            "day_label": "MON",
+            "image_hint": "tokyo_golden_gai",
+            "thread_tags": [
+              "Japan Trip (Tokyo & Kyoto)",
+              "Partnership with Dave"
+            ],
+            "connected_items": [
+              "Perfect Day Exploring Tokyo journal",
+              "Organize Sake Tasting in Japan (completed)"
+            ]
+          },
+          {
+            "body": "Tennis with Dave, a run, weights, sobriety held, poolside cabana booked, and nine Gremly tasks planned — all before the day was done. You credited the long sleep: 'Felt very very refreshed this morning.' Bora Bora's lagoon sits inside one of the world's largest barrier reefs; the light at that latitude in March is genuinely different. This was the week's peak integration moment — no tension between any of your competing desires, everything happening at once.",
+            "date": "2026-03-08",
+            "title": "Bora Bora's Best Morning",
+            "day_label": "SUN",
+            "image_hint": "bora_bora_overwater",
+            "thread_tags": [
+              "Bora Bora & Hawaii",
+              "Strength Training",
+              "Running & Half Marathon Training",
+              "Partnership with Dave",
+              "App Development & Launch"
+            ],
+            "connected_items": [
+              "Tennis Match with Dave (completed)",
+              "Book Poolside Cabana (completed)",
+              "Active Day in Bora Bora journal"
+            ]
+          }
+        ]
+      },
+      {
+        "body": "The March 8 burst of nine Gremly todos created in a single morning appears to have functioned as a release valve. Four days later, the journal entry that followed was your most present of the honeymoon: 'I need to step back sometimes and just enjoy him.' The pre-vacation guilt spiral (Feb 26: 'Feeling guilty I'm not putting more into actual work') resolved not through willpower but through a structured planning session that satisfied the productive urge — then freed you.",
+        "type": "pattern",
+        "headline": "You planned your way to vacation presence",
+        "is_novel": true,
+        "icon_hint": "work_guilt_to_presence_pivot",
+        "evidence_visual": "mood_over_time",
+        "secondary_patterns": [
+          {
+            "body": "You wrote 'Want a routine on vacation that includes a lot of running' on Feb 26 — and then ran in Tokyo, Kyoto, and Bora Bora.",
+            "headline": "Vacation fitness: intention met delivery"
+          }
+        ]
+      },
+      {
+        "body": "You've been across three countries in two weeks — the stale list makes complete sense. But Log Timesheet Entries (16 days) and Confirm Merkury Data Costs (17 days) are work-critical and will be waiting the moment you land in Hawaii. Resolve Double Notifications (16 days) is the one Gremly bug that keeps spawning new notification tasks around it.",
+        "type": "stale_triage",
+        "items": [
+          {
+            "title": "Log Timesheet Entries",
+            "domain": "Sage & Dentsu",
+            "context": "Created pre-honeymoon; Timesheets deadline was March 13 during Bora Bora stay",
+            "days_stale": 16
+          },
+          {
+            "title": "Confirm Merkury Data Costs",
+            "domain": "Sage & Dentsu",
+            "context": "Created Feb 24; no activity since — likely needs post-vacation follow-up",
+            "days_stale": 17
+          },
+          {
+            "title": "Resolve Double Notifications Issue",
+            "domain": "Gremly improvements",
+            "context": "Unresolved while three new notification-related tasks were created this week around it",
+            "days_stale": 16
+          }
+        ],
+        "headline": "3 high-priority items waiting since before Japan"
+      },
+      {
+        "body": "February ended in a pre-departure sprint — TestFlight shipped, work handed over, bags packed on fumes. March opened in Tokyo and hasn't slowed down since. The most significant shift isn't the destinations; it's the emotional one. You arrived in Japan grateful and excited. You arrived in Bora Bora refreshed and energised. And somewhere around March 12, floating on a lagoon, you made a decision about what actually matters on a once-in-a-lifetime trip. Hawaii is next — and the half marathon is waiting on the other side.",
+        "type": "monthly_retro",
+        "headline": "The month you stopped sprinting and started arriving",
+        "month_name": "March",
+        "thread_arcs": [
+          {
+            "arc": "Opened the month in Tokyo at full emotional peak — Michelin dinners, sake tastings, onsen — and concluded on March 6 with genuine gratitude and a promise to return.",
+            "thread": "Japan Trip (Tokyo & Kyoto)",
+            "direction": "concluded"
+          },
+          {
+            "arc": "Arrived March 6 in first class and spent the first two weeks finding the balance between founder mode and honeymoon presence — resolved toward presence by March 12.",
+            "thread": "Bora Bora & Hawaii",
+            "direction": "grew"
+          },
+          {
+            "arc": "Launched TestFlight in the final days of February, then completed the entire DCO feature arc (four todos) from a Bora Bora sun lounger by March 13.",
+            "thread": "App Development & Launch",
+            "direction": "grew"
+          },
+          {
+            "arc": "Maintained 133% completion through three countries; the half marathon on March 22 arrives as the month's fitness climax.",
+            "thread": "Running & Half Marathon Training",
+            "direction": "grew"
+          },
+          {
+            "arc": "Dave appeared in every journal entry across the month — and by March 12, you made the conscious choice to prioritise him over your app.",
+            "thread": "Partnership with Dave",
+            "direction": "transformed"
+          }
+        ]
+      },
+      {
+        "type": "week_ahead",
+        "intro": "Bora Bora's final days lead into the Hawaii transition on Saturday. The half marathon is now 14 days out — your last full training week before taper. Two stale work items need attention before the Hawaii leg picks up pace.",
+        "highlights": [
+          {
+            "date": "2026-03-14",
+            "title": "Fly to Hawaii",
+            "context": "Final honeymoon leg. You said you wanted to 'maximize the last few days before we head to Hawaii' — this is the handoff moment.",
+            "day_label": "SAT",
+            "importance": 1,
+            "prep_nudge": "You created 'Work Plan for Hawaii' on March 8 — worth reviewing before departure so the Hawaii leg starts with intention, not catch-up.",
+            "thread_connection": "Bora Bora & Hawaii"
+          },
+          {
+            "date": "2026-03-22",
+            "title": "Half Marathon",
+            "context": "The fitness thread you've been building since January, maintained through Tokyo, Kyoto, and Bora Bora, lands here. 133% completion rate going in.",
+            "day_label": "SUN",
+            "importance": 2,
+            "prep_nudge": "You return from Hawaii the same day as the race — confirm flight arrival time and race start time now. Gear, nutrition, and logistics need to survive the journey.",
+            "thread_connection": "Running & Half Marathon Training"
+          }
+        ],
+        "busy_day_warnings": [
+          {
+            "day": "Saturday",
+            "detail": "International travel day (Bora Bora → Hawaii) — likely a full travel day with time zone shift"
+          },
+          {
+            "day": "Sunday",
+            "detail": "Half marathon race day — same day as Hawaii return flight, logistics need confirming"
+          }
+        ]
+      },
+      {
+        "text": "Check your Hawaii return flight time against the half marathon start — same day, needs confirming now.",
+        "type": "recommendation",
+        "prefill": {
+          "name": "Confirm Half Marathon logistics vs. Hawaii return flight",
+          "due_day": "2026-03-14",
+          "frequency": null
+        },
+        "trigger": "race_day_travel_conflict",
+        "action_type": "create_todo",
+        "action_label": "Add to list"
+      }
+    ],
+    "metadata": {
+      "mood": "grateful and fully alive",
+      "week_type": "Honeymoon Peak & Transition",
+      "card_count": 8,
+      "key_themes": [
+        "Japan closure at emotional peak",
+        "Bora Bora arrival and presence shift",
+        "DCO feature sprint from vacation",
+        "Half marathon final training window",
+        "Partnership prioritised over ambition"
+      ],
+      "card_types_used": [
+        "opening",
+        "thread_movements",
+        "moments",
+        "pattern",
+        "stale_triage",
+        "monthly_retro",
+        "week_ahead",
+        "recommendation"
+      ]
+    }
+  },
+  "analyst_metadata": {
+    "model": "claude-haiku-4-5-20251001",
+    "latency_ms": 160590,
+    "input_tokens": 8253,
+    "output_tokens": 19273,
+    "data_payload_chars": 15364,
+    "cleaned_events_count": 44
+  },
+  "rebuild_metadata": {
+    "model": "claude-sonnet-4-6",
+    "latency_ms": 126910,
+    "new_threads": 0,
+    "input_tokens": 21477,
+    "output_tokens": 7144,
+    "thread_updates": 15
+  },
+  "summary_metadata": {
+    "model": "claude-sonnet-4-6",
+    "card_count": 8,
+    "card_types": [
+      "opening",
+      "thread_movements",
+      "moments",
+      "pattern",
+      "stale_triage",
+      "monthly_retro",
+      "week_ahead",
+      "recommendation"
+    ],
+    "latency_ms": 70901,
+    "input_tokens": 26832,
+    "output_tokens": 3370
+  }
+}

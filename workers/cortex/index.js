@@ -128,9 +128,11 @@
  * - IMPROVED: max_tokens 1200 → 4096 for larger task sets
  */
 
-import { getSessionContext } from './context/sessionContext.js';
-import { buildSessionContextString, buildDcoContextHeader } from './context/contextBuilder.js';
-import { getDcoContext } from './context/dcoContext.js';
+// DEPRECATED Phase 3 — replaced by chatProjection.js
+// import { getSessionContext } from './context/sessionContext.js';
+// import { buildSessionContextString, buildDcoContextHeader } from './context/contextBuilder.js';
+// import { getDcoContext } from './context/dcoContext.js';
+import { buildChatContext } from './context/chatProjection.js';
 import { getUserProfile } from './context/userProfile.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage } from './triage';
@@ -2568,18 +2570,17 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
         let userProfileContext = '';
         if (body.userId) {
           try {
-            const [sessionData, profile] = await Promise.all([
-              getSessionContext(body.userId, env),
+            const [chatContext, profile] = await Promise.all([
+              buildChatContext(body.userId, 'habit_builder', {}, env),
               getUserProfile(body.userId, env),
             ]);
-            const sessionStr = buildSessionContextString(sessionData, {});
             const ageInfo = getAgeGuidance(profile?.relationshipStartedAt, profile?.signals);
 
             if (profile?.profileText) {
               userProfileContext += `\n=== ABOUT THIS USER ===\n${profile.profileText}\n`;
             }
-            if (sessionStr) {
-              userProfileContext += `\n${sessionStr}`;
+            if (chatContext) {
+              userProfileContext += `\n${chatContext}`;
             }
             userProfileContext += `\n${ageInfo.promptGuidance}\n`;
           } catch (err) {
@@ -3282,19 +3283,14 @@ Almost never suggest creating a Space. Only if ALL true:
         let userProfile = null;
         if (body.userId) {
           try {
-            // Fetch both in parallel
-            const [sessionData, profile, dcoData] = await Promise.all([
-              getSessionContext(body.userId, env),
+            const [chatContext, profile] = await Promise.all([
+              buildChatContext(body.userId, 'entity', {
+                entityTitle: entity?.title || entity?.name || null,
+                entitySpaceId: entity?.spaceId || entity?.space_id || null,
+              }, env),
               getUserProfile(body.userId, env),
-              getDcoContext(body.userId, env),
             ]);
-            sessionContextStr = buildSessionContextString(sessionData, {
-              entityType: entity.type,
-            });
-            const dcoHeader = buildDcoContextHeader(dcoData);
-            if (dcoHeader) {
-              sessionContextStr = dcoHeader + '\n\n' + sessionContextStr;
-            }
+            sessionContextStr = chatContext;
             userProfile = profile;
             if (sessionContextStr || userProfile) {
               console.log('[EntityChat] Context loaded', {
@@ -8473,19 +8469,13 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         let spaceUserProfile = null;
         if (body.userId) {
           try {
-            // Fetch all context in parallel
-            const [sessionData, profile, dcoData] = await Promise.all([
-              getSessionContext(body.userId, env),
+            const [chatContext, profile] = await Promise.all([
+              buildChatContext(body.userId, 'space', {
+                spaceId: body.spaceId,
+              }, env),
               getUserProfile(body.userId, env),
-              getDcoContext(body.userId, env),
             ]);
-            spaceSessionContextStr = buildSessionContextString(sessionData, {
-              spaceId: body.spaceId,
-            });
-            const dcoHeader = buildDcoContextHeader(dcoData);
-            if (dcoHeader) {
-              spaceSessionContextStr = dcoHeader + '\n\n' + spaceSessionContextStr;
-            }
+            spaceSessionContextStr = chatContext;
             spaceUserProfile = profile;
             if (spaceSessionContextStr || spaceUserProfile) {
               console.log('[SpaceChat] Context loaded', {
@@ -9042,18 +9032,13 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         let userProfile = null;
         if (body.userId) {
           try {
-            const [sessionData, profile, dcoData] = await Promise.all([
-              getSessionContext(body.userId, env),
+            const [chatContext, profile] = await Promise.all([
+              buildChatContext(body.userId, 'space', {
+                spaceId: body.spaceId,
+              }, env),
               getUserProfile(body.userId, env),
-              getDcoContext(body.userId, env),
             ]);
-            sessionContextStr = buildSessionContextString(sessionData, {
-              spaceId: body.spaceId,
-            });
-            const dcoHeader = buildDcoContextHeader(dcoData);
-            if (dcoHeader) {
-              sessionContextStr = dcoHeader + '\n\n' + sessionContextStr;
-            }
+            sessionContextStr = chatContext;
             userProfile = profile;
             if (sessionContextStr || userProfile) {
               console.log('[SpaceChat:NonStreaming] Context loaded', {

@@ -1,0 +1,372 @@
+{
+  "_type": "summary_v2_test",
+  "summary": {
+    "cards": [
+      {
+        "body": "Three countries in six days, a Michelin dinner in Golden Gai, a first-class seat to the tropics, and a Saturday in Bora Bora where you fit tennis, a run, weights, four Gremly features, and sobriety into a single day. The Japan leg closed with rare emotional clarity — 'It was incredible and I cannot wait to be back' — and Bora Bora opened with the most refreshed you've felt all honeymoon. The week's quiet shift: by March 12 you were consciously choosing Dave over the app.",
+        "mood": "grateful and present",
+        "type": "opening",
+        "quote": "Wonder if the long sleep helped? Felt very very refreshed this morning. Very grateful to be here with Dave and so happy we have another week",
+        "headline": "Japan concluded, Bora Bora blooming — your best honeymoon week yet",
+        "image_hint": "bora_bora_overwater",
+        "quote_date": "2026-03-08",
+        "subheadline": "Honeymoon Immersion"
+      },
+      {
+        "type": "thread_movements",
+        "title": "What Shifted",
+        "threads": [
+          {
+            "name": "Japan Trip (Tokyo & Kyoto)",
+            "detail": "The Japan leg closed March 6 with a gratitude-filled journal entry and a first-class seat to Bora Bora — 'It was incredible and I cannot wait to be back' marks genuine emotional closure, not just a departure.",
+            "domain": "Honeymoon",
+            "direction": "milestone",
+            "icon_hint": "travel",
+            "badge_label": "complete",
+            "shift_label": "active → concluded",
+            "is_highlight": true
+          },
+          {
+            "name": "Partnership with Dave",
+            "detail": "Five journal entries across March 2–13 celebrate shared time — from Shibuya Crossing and sake tastings to Bora Bora floaties — culminating in the explicit March 12 recognition: 'I need to step back sometimes and just enjoy him.'",
+            "domain": "Relationship & Home Life",
+            "direction": "up",
+            "icon_hint": "relationship",
+            "badge_label": "on fire",
+            "shift_label": "thriving → peak",
+            "is_highlight": true
+          },
+          {
+            "name": "App Development & Launch",
+            "detail": "Four DCO tasks completed March 8–9 (Daily Context Object Integration, Fed Metaphor Exploration, DCO User Onboarding, DCO Implementation Across Areas) — a meaningful feature sprint executed from a Bora Bora resort.",
+            "domain": "Gremly improvements",
+            "direction": "up",
+            "icon_hint": "work",
+            "badge_label": "building",
+            "shift_label": "post-launch → feature push",
+            "is_highlight": true
+          },
+          {
+            "name": "Running & Half Marathon Training",
+            "detail": "Run completed March 8 in Bora Bora keeps the habit at 133% of target — and the half marathon on March 22 is now just 14 days away, with Hawaii as the final training window.",
+            "domain": "Fitness & Health",
+            "direction": "milestone",
+            "icon_hint": "fitness",
+            "badge_label": "race close",
+            "shift_label": "training → 14 days to race",
+            "is_highlight": true
+          },
+          {
+            "name": "Sobriety & Alcohol-Free Streak",
+            "detail": "Two confirmed alcohol-free days this week (March 8 and 13) are genuinely notable in a Bora Bora setting, but the 21-day window sits at 29% — the January 3-month commitment has quietly shifted into something more selective.",
+            "domain": "Fitness & Health",
+            "direction": "down",
+            "icon_hint": "health",
+            "badge_label": "at risk",
+            "shift_label": "strict goal → selective practice",
+            "is_highlight": false
+          },
+          {
+            "name": "Yoga & Cycling",
+            "detail": "Zero yoga or cycling this week — yoga is at 0% in the recent window as tennis, running, and weights take over the vacation fitness slot. Honeymoon context explains it, but the gap is now several weeks long.",
+            "domain": "Fitness & Health",
+            "direction": "down",
+            "icon_hint": "fitness",
+            "badge_label": "paused",
+            "shift_label": "active → paused",
+            "is_highlight": false
+          }
+        ]
+      },
+      {
+        "type": "moments",
+        "moments": [
+          {
+            "body": "You packed a full Tokyo life into a single day — matcha, a Michelin-star dinner, the electric chaos of Shibuya Crossing, a narrow Golden Gai bar, an onsen, and a sake tasting where you ended up chatting with a high-ranking member of the Japanese Air Self-Defense Force. Golden Gai's 200+ tiny bars have been a Tokyo institution since the 1940s — the kind of place that only reveals itself when you wander. Early March is the very beginning of cherry blossom season, so Tokyo would have been on the cusp of its most beautiful week.",
+            "date": "2026-03-02",
+            "title": "Perfect Tokyo Day: Michelin Stars, Golden Gai, and a Japanese Air Defense Officer",
+            "day_label": "MON",
+            "image_hint": "tokyo_golden_gai",
+            "thread_tags": [
+              "Japan Trip (Tokyo & Kyoto)",
+              "Partnership with Dave"
+            ],
+            "connected_items": [
+              "Perfect Day Exploring Tokyo journal entry",
+              "Organize Sake Tasting in Japan (completed)",
+              "Onsen experience with Dave"
+            ]
+          },
+          {
+            "body": "Tennis with Dave, a run, a weights session, four Gremly feature completions, no alcohol, and a long sleep that left you 'very very refreshed' — all in one tropical Saturday. Bora Bora's lagoon is one of the most photographed in the world, but the resort courts and gym mean you don't have to choose between paradise and routine. This was the week's clearest proof that the honeymoon rhythm you've been building since Tulum is working.",
+            "date": "2026-03-08",
+            "title": "The Bora Bora Day That Had Everything",
+            "day_label": "SAT",
+            "image_hint": "bora_bora_lagoon",
+            "thread_tags": [
+              "Bora Bora & Hawaii",
+              "Strength Training",
+              "Running & Half Marathon Training",
+              "App Development & Launch",
+              "Partnership with Dave"
+            ],
+            "connected_items": [
+              "Tennis Match with Dave (completed)",
+              "Daily Context Object Integration (completed)",
+              "Book Poolside Cabana (completed)",
+              "Active Day in Bora Bora journal entry"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "discoveries",
+        "trends": [
+          {
+            "title": "12 stale todos accumulating",
+            "detail": "Oldest items 18 days untouched — Gremly notification backlog growing",
+            "icon_hint": "alert-triangle",
+            "badge_type": "warning"
+          },
+          {
+            "title": "Race day = flight day",
+            "detail": "Half marathon and SF flight both March 22 — logistics need a plan",
+            "icon_hint": "calendar",
+            "badge_type": "danger"
+          }
+        ],
+        "spotlight": {
+          "badge": "discovery",
+          "title": "You're building the app you're living in real-time",
+          "takeaway": "The honeymoon is functioning as an unplanned live beta — the features you're shipping are the exact ones you're using to understand your own patterns. That feedback loop is unusually tight and probably making both the product and the self-awareness sharper.",
+          "evidence_trail": "March 8: You completed Daily Context Object Integration, Fed Metaphor Exploration, and DCO User Onboarding — all features designed to track daily context and activity. That same day, your journal logged tennis, a run, weights, sobriety, and gratitude for sleep quality. March 9: DCO Implementation Across Areas completed. The journal entry from March 8 makes the loop explicit: 'I feel like the daily context I have built could be really powerful' — written on the same day you used that context to reflect on your own refreshment, fitness, and mood. You're not just building Gremly; you're field-testing it on the most data-rich days of your life.",
+          "research_context": {
+            "body": "Research on 'user-innovators' — people who develop tools primarily for their own use — consistently shows they produce more functionally novel solutions than those building for others. The tight feedback loop between personal experience and product iteration compresses the usual gap between insight and implementation. For someone who journals daily and tracks habits closely, this effect is amplified: the data being generated is also the data informing the next build decision.",
+            "title": "Why building what you use accelerates both"
+          }
+        }
+      },
+      {
+        "body": "You've been across three countries in two weeks — none of this is neglect. The Gremly notification items are the ones worth a quick look before Hawaii, since you're actively building in that area anyway.",
+        "type": "stale_triage",
+        "items": [
+          {
+            "title": "Add Sweep Option in Spaces (Gremly improvements)",
+            "domain": "Gremly improvements",
+            "context": "Deprioritized during honeymoon travel",
+            "days_stale": 15
+          },
+          {
+            "title": "Fix Habit Drops Routing (Gremly improvements)",
+            "domain": "Gremly improvements",
+            "context": "Deprioritized during honeymoon travel",
+            "days_stale": 15
+          },
+          {
+            "title": "Laundry Reminder",
+            "domain": "Relationship & Home Life",
+            "context": "Home task — irrelevant while travelling",
+            "days_stale": 15
+          },
+          {
+            "title": "Manual Reminder Corrections",
+            "domain": "Gremly improvements",
+            "context": "Deprioritized during honeymoon travel",
+            "days_stale": 15
+          },
+          {
+            "title": "Laundry",
+            "domain": "Relationship & Home Life",
+            "context": "Home task — irrelevant while travelling",
+            "days_stale": 15
+          },
+          {
+            "title": "Respond to Rachel",
+            "domain": "Relationship & Home Life",
+            "context": "Social message — may need attention soon",
+            "days_stale": 15
+          },
+          {
+            "title": "Resolve Double Notifications Issue (Gremly improvements)",
+            "domain": "Gremly improvements",
+            "context": "Active notification bug — overlaps with new Fix Notification Issues todo",
+            "days_stale": 16
+          },
+          {
+            "title": "Log Timesheet Entries (Sage & Dentsu)",
+            "domain": "Sage & Dentsu",
+            "context": "Admin task stalled during honeymoon PTO",
+            "days_stale": 16
+          },
+          {
+            "title": "Confirm Merkury Data Costs (Sage & Dentsu)",
+            "domain": "Sage & Dentsu",
+            "context": "Work task — will need addressing on return",
+            "days_stale": 17
+          },
+          {
+            "title": "Should the App Update Daily?",
+            "domain": "Gremly improvements",
+            "context": "Strategic question — low urgency but worth revisiting post-DCO work",
+            "days_stale": 17
+          },
+          {
+            "title": "Investigate Stopped Spaces Recommendations (Gremly improvements)",
+            "domain": "Gremly improvements",
+            "context": "High severity — oldest stale item, needs prioritisation on return",
+            "days_stale": 18
+          },
+          {
+            "title": "Add Notifications to App (Gremly improvements)",
+            "domain": "Gremly improvements",
+            "context": "High severity — directly related to active notification bug work this week",
+            "days_stale": 18
+          }
+        ],
+        "headline": "12 items waiting while you've been in the Pacific"
+      },
+      {
+        "body": "March opened with the biggest travel week of the year — Tokyo to Kyoto to Bora Bora in six days — and the emotional tone followed: anxious pre-departure energy (Feb 27: 'I need this holiday') gave way to pure appreciation by March 13 ('So thankful to be here'). The month's defining arc isn't the destinations; it's the gradual shift from doing everything at once to consciously choosing presence. The half marathon on March 22 and the return to San Francisco the same day will close the month with a sprint finish.",
+        "type": "monthly_retro",
+        "headline": "The month the honeymoon peaked and the product found its footing",
+        "month_name": "March",
+        "thread_arcs": [
+          {
+            "arc": "Opened the month in Tokyo with three journal entries in a single day, closed it March 6 with a first-class seat to Bora Bora and a desire to return.",
+            "thread": "Japan Trip (Tokyo & Kyoto)",
+            "direction": "concluded"
+          },
+          {
+            "arc": "Arrived March 6 and built steadily toward the month's most present, joyful journaling — floaties, tennis, vitamin D, and the explicit choice to put Dave before the app.",
+            "thread": "Bora Bora & Hawaii",
+            "direction": "grew"
+          },
+          {
+            "arc": "TestFlight shipped in the final days of February; March opened with a DCO feature push (four completions March 8–9) executed from a Bora Bora resort, with a growing bug backlog waiting for return.",
+            "thread": "App Development & Launch",
+            "direction": "grew"
+          },
+          {
+            "arc": "Maintained above-target run frequency across Tokyo, Bora Bora, and now heading into Hawaii — the race on March 22 will be the month's fitness climax.",
+            "thread": "Running & Half Marathon Training",
+            "direction": "grew"
+          },
+          {
+            "arc": "Started the month as a strict 3-month commitment; by mid-March the pattern had shifted to selective sober days, with the honeymoon environment clearly influencing adherence.",
+            "thread": "Sobriety & Alcohol-Free Streak",
+            "direction": "transformed"
+          }
+        ]
+      },
+      {
+        "type": "week_ahead",
+        "intro": "Hawaii is the final act of the honeymoon — and with the half marathon on March 22 (the same day as your SF flight), the week ahead is the most logistically loaded of the entire trip. The Work Plan for Hawaii is already done; now it's about getting the race-day logistics right.",
+        "highlights": [
+          {
+            "date": "2026-03-14",
+            "title": "Fly to Hawaii",
+            "context": "The final honeymoon leg, and the last training window before the half marathon. You've maintained running across three countries; Hawaii is where it pays off.",
+            "day_label": "SAT",
+            "icon_hint": "plane",
+            "importance": 8,
+            "prep_nudge": "Confirm running routes or hotel gym access early — Hawaii gives you 8 days before the race and the taper should start mid-week.",
+            "thread_connection": "Bora Bora & Hawaii"
+          },
+          {
+            "date": "2026-03-22",
+            "title": "Half Marathon",
+            "context": "You've run through Tokyo, Bora Bora, and now Hawaii to get here. The 133% habit completion rate during a honeymoon is the training story — the race is just the punctuation.",
+            "day_label": "SUN",
+            "icon_hint": "trophy",
+            "importance": 9,
+            "prep_nudge": "Check your flight time out of Hawaii — if it's afternoon or evening, you have a race-morning window. Plan nutrition and a recovery buffer before the airport.",
+            "thread_connection": "Running & Half Marathon Training"
+          },
+          {
+            "date": "2026-03-22",
+            "title": "Flight to San Francisco",
+            "context": "Marks the end of the 4-week honeymoon. Bella will be waiting. The stale backlog will be waiting. Give yourself a day before diving back in.",
+            "day_label": "SUN",
+            "icon_hint": "plane",
+            "importance": 7,
+            "prep_nudge": "Race in the morning, fly in the afternoon — confirm the exact timing now so race-day isn't also logistics-day.",
+            "thread_connection": "Bora Bora & Hawaii"
+          }
+        ],
+        "busy_day_warnings": [
+          {
+            "day": "Sunday March 22",
+            "detail": "Half marathon race AND flight to San Francisco on the same day — the most logistically complex day of the entire honeymoon"
+          }
+        ]
+      },
+      {
+        "text": "Race day and flight day are the same — lock in the timing now before Hawaii fills up.",
+        "type": "recommendation",
+        "prefill": {
+          "name": "Confirm Half Marathon start time vs. Hawaii flight departure",
+          "due_day": "2026-03-15",
+          "frequency": null
+        },
+        "trigger": "race_day_flight_day_collision",
+        "action_type": "create_todo",
+        "action_label": "Add to list"
+      }
+    ],
+    "metadata": {
+      "mood": "grateful and present",
+      "week_type": "Honeymoon Peak",
+      "card_count": 8,
+      "key_themes": [
+        "Japan closure and Bora Bora immersion",
+        "Partnership prioritisation over work",
+        "DCO feature push from paradise",
+        "Half marathon countdown",
+        "Selective sobriety on honeymoon"
+      ],
+      "card_types_used": [
+        "opening",
+        "thread_movements",
+        "moments",
+        "discoveries",
+        "stale_triage",
+        "monthly_retro",
+        "week_ahead",
+        "recommendation"
+      ]
+    }
+  },
+  "analyst_metadata": {
+    "model": "claude-haiku-4-5-20251001",
+    "latency_ms": 156553,
+    "input_tokens": 8243,
+    "output_tokens": 18275,
+    "data_payload_chars": 15356,
+    "cleaned_events_count": 44
+  },
+  "rebuild_metadata": {
+    "model": "claude-sonnet-4-6",
+    "latency_ms": 117175,
+    "new_threads": 0,
+    "input_tokens": 20196,
+    "output_tokens": 6576,
+    "thread_updates": 14
+  },
+  "summary_metadata": {
+    "model": "claude-sonnet-4-6",
+    "card_count": 8,
+    "card_types": [
+      "opening",
+      "thread_movements",
+      "moments",
+      "discoveries",
+      "stale_triage",
+      "monthly_retro",
+      "week_ahead",
+      "recommendation"
+    ],
+    "latency_ms": 86633,
+    "input_tokens": 26862,
+    "output_tokens": 4586
+  }
+}

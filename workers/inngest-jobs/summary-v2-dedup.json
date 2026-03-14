@@ -1,0 +1,320 @@
+{
+  "_type": "summary_v2_test",
+  "summary": {
+    "cards": [
+      {
+        "body": "Three destinations, six journal entries, and a week that moved from Tokyo nostalgia to Bora Bora presence. The emotional arc is striking: you started Monday with lower energy and a work handover, and ended Friday sunburnt on floaties calling it 'really really great day.' The Japan leg closed beautifully — and Bora Bora delivered something quieter and deeper.",
+        "mood": "grateful and present",
+        "type": "opening",
+        "quote": "It was incredible and I cannot wait to be back. Being first class for Bora Bora flight also massively helps and I am so grateful.",
+        "headline": "Japan closed, Bora Bora peaked — the honeymoon found its rhythm",
+        "image_hint": "bora_bora_lagoon",
+        "quote_date": "2026-03-06",
+        "subheadline": "Honeymoon Immersion"
+      },
+      {
+        "type": "thread_movements",
+        "title": "What Shifted",
+        "threads": [
+          {
+            "name": "Japan Trip (Tokyo & Kyoto)",
+            "detail": "The Japan leg closed March 6 with a Michelin dinner, sake tasting with a Japanese air defense official, and Golden Gai — a genuinely perfect arc.",
+            "domain": "Honeymoon",
+            "direction": "milestone",
+            "icon_hint": "travel",
+            "badge_label": "complete",
+            "shift_label": "active → concluded",
+            "is_highlight": true
+          },
+          {
+            "name": "Partnership with Dave",
+            "detail": "You named it yourself on March 12: 'I need to step back sometimes and just enjoy him and being on a once in a lifetime vacation' — and then you did exactly that.",
+            "domain": "Relationship & Home Life",
+            "direction": "up",
+            "icon_hint": "relationship",
+            "badge_label": "on fire",
+            "shift_label": "connected → thriving",
+            "is_highlight": true
+          },
+          {
+            "name": "App Development & Launch",
+            "detail": "Four DCO todos closed in two days (March 9 and 13) — Daily Context Object Integration, Fed Metaphor Exploration, Dco User Onboarding, and Dco Implementation Across Areas — while you were mid-honeymoon in Bora Bora.",
+            "domain": "Gremly improvements",
+            "direction": "up",
+            "icon_hint": "work",
+            "badge_label": "building",
+            "shift_label": "iterating → DCO arc complete",
+            "is_highlight": true
+          },
+          {
+            "name": "Running & Half Marathon Training",
+            "detail": "One run logged (March 8) against a 3x/week target, with the half marathon now 14 days out. Either an intentional taper or a gap worth closing fast.",
+            "domain": "Fitness & Health",
+            "direction": "down",
+            "icon_hint": "fitness",
+            "badge_label": "at risk",
+            "shift_label": "3x/week → 1 run this week",
+            "is_highlight": true
+          },
+          {
+            "name": "Strength Training",
+            "detail": "2 of 3 sessions completed (March 8 and 13) despite three destination changes — the most travel-resilient habit in your stack.",
+            "domain": "Fitness & Health",
+            "direction": "steady",
+            "icon_hint": "fitness",
+            "badge_label": "steady",
+            "shift_label": "consistent across travel",
+            "is_highlight": false
+          },
+          {
+            "name": "Sobriety & Alcohol-Free Streak",
+            "detail": "Alcohol avoided on both March 8 and March 13 in Bora Bora — and both times you framed it as part of what made the day great, not as a sacrifice.",
+            "domain": "Fitness & Health",
+            "direction": "steady",
+            "icon_hint": "health",
+            "badge_label": "holding",
+            "shift_label": "holding in high-pleasure environment",
+            "is_highlight": false
+          }
+        ]
+      },
+      {
+        "type": "moments",
+        "moments": [
+          {
+            "body": "You wrote this the morning after — which says something. Michelin dinner, matcha, Golden Gai cocktails, Shibuya crossing, an arcade, onsen, and a sake tasting where you ended up chatting with a high-ranking member of the Japanese air defense. Golden Gai's maze of 200 tiny bars in Shinjuku is one of Tokyo's great surprises — each fits maybe eight people, and the conversations that happen there are exactly the kind you described. A crystalline honeymoon memory.",
+            "date": "2026-03-02",
+            "title": "The Perfect Tokyo Day (Recap)",
+            "day_label": "MON",
+            "image_hint": "tokyo_golden_gai",
+            "thread_tags": [
+              "Japan Trip (Tokyo & Kyoto)",
+              "Partnership with Dave"
+            ],
+            "connected_items": [
+              "Perfect Day Exploring Tokyo",
+              "Organize Sake Tasting in Japan",
+              "Train Journey to Kyoto"
+            ]
+          },
+          {
+            "body": "Tennis with Dave, a run, weights, Gremly progress, alcohol avoided — all before you described yourself as 'very very refreshed.' You wondered if the long sleep helped. Bora Bora's heat and the shift from three weeks of pre-honeymoon compression likely played a role too. This was the week's integration peak: every domain working at once, none crowding the others out.",
+            "date": "2026-03-08",
+            "title": "Very Very Refreshed",
+            "day_label": "SUN",
+            "image_hint": "bora_bora_overwater",
+            "thread_tags": [
+              "Bora Bora & Hawaii",
+              "Strength Training",
+              "Partnership with Dave",
+              "Sobriety & Alcohol-Free Streak"
+            ],
+            "connected_items": [
+              "Tennis Match with Dave",
+              "Book Poolside Cabana",
+              "Active Day in Bora Bora"
+            ]
+          },
+          {
+            "body": "'More sun burnt than I want to be but it feels like a big dose of vitamin D did me good.' The Bora Bora lagoon's turquoise clarity and equatorial sun hit differently after a British winter and a San Francisco grey spell. Spending the afternoon on the floaties with Dave — not planning, not building, just being — was the quiet counterpoint to March 8's productivity peak. Both days were great. They were great differently.",
+            "date": "2026-03-13",
+            "title": "Floaties and Vitamin D",
+            "day_label": "FRI",
+            "image_hint": "bora_bora_floaties",
+            "thread_tags": [
+              "Bora Bora & Hawaii",
+              "Partnership with Dave"
+            ],
+            "connected_items": [
+              "Vacation in Bora Bora",
+              "Dco Implementation Across Areas",
+              "Work Plan for Hawaii"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "discoveries",
+        "trends": [
+          {
+            "title": "Notification bugs piling up",
+            "detail": "4 new notification todos created across March 8–13; Double Notifications stale 16+ days",
+            "icon_hint": "bell-off",
+            "badge_type": "warning"
+          },
+          {
+            "title": "Timesheets 16 days stale",
+            "detail": "Log Timesheet Entries untouched since Feb 25 — needs attention before Hawaii ends",
+            "icon_hint": "clock",
+            "badge_type": "danger"
+          }
+        ],
+        "spotlight": {
+          "badge": "discovery",
+          "title": "High stimulation pauses your inner work",
+          "takeaway": "When life is externally rich, the internal practices are easiest to skip — and hardest to notice you've skipped. The habit may resume naturally when you're back in San Francisco, but it's worth watching whether it returns on its own.",
+          "evidence_trail": "The 'Stop negative thoughts' habit has averaged 43% completion across its full tracking window (9/21 days). This week: 0 completions across 7 days — the first complete drop since the habit began. What changed? The external environment shifted dramatically: Tokyo sensory overload (March 2), Kyoto travel (March 3), Bora Bora arrival (March 6), poolside cabana, tennis, jet skiing, floaties. Meanwhile, your journal mood tags were overwhelmingly positive — grateful, great, hopeful — with no anxiety or stress entries. The practice wasn't needed in the way it usually is. But it also wasn't practiced.",
+          "research_context": {
+            "body": "Novelty and high-reward environments flood the brain's attentional systems, making inward-facing practices feel less salient — not because they're unneeded, but because the signal that usually triggers them (low mood, rumination) is temporarily absent. For people who use structured habits to manage their inner state, high-stimulation travel can create a 'false floor' — things feel fine, so the scaffolding quietly disappears. The risk isn't this week. It's the week after you land back in Cole Valley.",
+            "title": "Why this happens"
+          }
+        }
+      },
+      {
+        "body": "You're on your honeymoon and the backlog reflects that — most of this is expected. But two Sage & Dentsu items are now high severity and will be waiting for you when Hawaii ends.",
+        "type": "stale_triage",
+        "items": [
+          {
+            "title": "Log Timesheet Entries",
+            "domain": "Sage & Dentsu",
+            "context": "High severity — 16 days untouched, recurring obligation that compounds",
+            "days_stale": 16
+          },
+          {
+            "title": "Confirm Merkury Data Costs",
+            "domain": "Sage & Dentsu",
+            "context": "High severity — created pre-honeymoon, no progress; client-facing item",
+            "days_stale": 17
+          },
+          {
+            "title": "Resolve Double Notifications Issue",
+            "domain": "Gremly improvements",
+            "context": "Persistent bug predating TestFlight launch; 3 related notification todos now also open",
+            "days_stale": 16
+          },
+          {
+            "title": "Investigate Stopped Spaces Recommendations",
+            "domain": "Gremly improvements",
+            "context": "Oldest open Gremly bug — may be superseded by DCO work this week",
+            "days_stale": 18
+          },
+          {
+            "title": "Should the App Update Daily?",
+            "domain": "Gremly improvements",
+            "context": "Strategic question, not urgent — good Hawaii flight thinking material",
+            "days_stale": 17
+          }
+        ],
+        "headline": "12 items floating — most can wait, two can't"
+      },
+      {
+        "body": "The first week of March answered a question that's been building since January: what happens to all your threads when you're fully immersed in something extraordinary? Most held. Strength training survived three destination changes. Sobriety held in Bora Bora. Gremly kept moving. What slipped — running, negative thought tracking — slipped quietly, without drama. The month is young, but the pattern is already clear: you carry more with you than most people do.",
+        "type": "monthly_retro",
+        "headline": "March opened mid-honeymoon and immediately asked: can you hold everything at once?",
+        "month_name": "March",
+        "thread_arcs": [
+          {
+            "arc": "Opened and closed in the first six days — a crystalline arc from shabu shabu on arrival to sake tastings in Shinjuku to a grateful farewell on March 6.",
+            "thread": "Japan Trip (Tokyo & Kyoto)",
+            "direction": "concluded"
+          },
+          {
+            "arc": "Arrived March 6 and deepened steadily — from logistics (cabana, tennis) to the conscious rebalancing of March 12 to the floaties peak of March 13; Hawaii begins March 14.",
+            "thread": "Bora Bora & Hawaii",
+            "direction": "grew"
+          },
+          {
+            "arc": "The DCO feature arc — four completions across March 9 and 13 — represents the most focused product sprint since the TestFlight launch, executed entirely from a Bora Bora resort.",
+            "thread": "App Development & Launch",
+            "direction": "grew"
+          },
+          {
+            "arc": "Dropped to 1 run in the first week of March with the half marathon on March 22 approaching — the month's most pressing unresolved tension.",
+            "thread": "Running & Half Marathon Training",
+            "direction": "declined"
+          },
+          {
+            "arc": "Emerged as the month's emotional center — from shared Tokyo exploration to the deliberate choice on March 12 to put the app down and just be present.",
+            "thread": "Partnership with Dave",
+            "direction": "grew"
+          }
+        ]
+      },
+      {
+        "type": "week_ahead",
+        "intro": "Hawaii begins Saturday — the final leg before you're back in San Francisco with a half marathon 8 days after landing. The DCO arc is closed; the notification cluster and two stale Sage items will be waiting.",
+        "highlights": [
+          {
+            "date": "2026-03-14",
+            "title": "Fly to Hawaii",
+            "context": "Final honeymoon destination before returning to San Francisco. You have 8 days until the half marathon.",
+            "day_label": "SAT",
+            "icon_hint": "plane",
+            "importance": 1,
+            "prep_nudge": "Work Plan for Hawaii is already done — you completed it March 13. Pack the speakers you charged.",
+            "thread_connection": "Bora Bora & Hawaii"
+          },
+          {
+            "date": "2026-03-22",
+            "title": "Half Marathon",
+            "context": "This has been building since January. The milestone lands 8 days after you arrive in Hawaii — tight but doable if you stay active.",
+            "day_label": "SUN",
+            "icon_hint": "trophy",
+            "importance": 2,
+            "prep_nudge": "One run this week against a 3x target. Worth deciding now whether Hawaii includes a couple of short runs to stay loose, or whether this is an intentional taper.",
+            "thread_connection": "Running & Half Marathon Training"
+          }
+        ],
+        "busy_day_warnings": [
+          {
+            "day": "Saturday",
+            "detail": "Travel day to Hawaii — final leg of three-destination honeymoon"
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "mood": "grateful and present",
+      "week_type": "Honeymoon Immersion",
+      "card_count": 7,
+      "key_themes": [
+        "Japan arc concluded",
+        "Bora Bora presence deepened",
+        "DCO feature sprint",
+        "Partnership prioritized",
+        "Half marathon approaching"
+      ],
+      "card_types_used": [
+        "opening",
+        "thread_movements",
+        "moments",
+        "discoveries",
+        "stale_triage",
+        "monthly_retro",
+        "week_ahead"
+      ]
+    }
+  },
+  "analyst_metadata": {
+    "model": "claude-haiku-4-5-20251001",
+    "latency_ms": 146368,
+    "input_tokens": 8243,
+    "output_tokens": 17868,
+    "data_payload_chars": 15356,
+    "cleaned_events_count": 44
+  },
+  "rebuild_metadata": {
+    "model": "claude-sonnet-4-6",
+    "latency_ms": 115070,
+    "new_threads": 0,
+    "input_tokens": 19235,
+    "output_tokens": 6383,
+    "thread_updates": 13
+  },
+  "summary_metadata": {
+    "model": "claude-sonnet-4-6",
+    "card_count": 7,
+    "card_types": [
+      "opening",
+      "thread_movements",
+      "moments",
+      "discoveries",
+      "stale_triage",
+      "monthly_retro",
+      "week_ahead"
+    ],
+    "latency_ms": 77860,
+    "input_tokens": 26377,
+    "output_tokens": 3801
+  }
+}

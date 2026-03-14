@@ -2403,7 +2403,14 @@ export const selectEventNotesForDate = createSelector(
   [selectEventNotes, (_state: GremlyState, dateStr: string) => dateStr],
   (eventNotes, dateStr): Note[] =>
     eventNotes
-      .filter((n) => n.target_date === dateStr)
+      .filter((n) => {
+        if (n.target_date === dateStr) return true;
+        // Multi-day events: include if dateStr falls within target_date..end_date
+        if (n.target_date && n.end_date) {
+          return dateStr >= n.target_date && dateStr <= n.end_date;
+        }
+        return false;
+      })
       .sort((a, b) => {
         // All-day events first (null event_time), then ascending by time
         if (!a.event_time && b.event_time) return -1;
@@ -2423,9 +2430,14 @@ export const selectEventNotesForRange = createSelector(
     (_state: GremlyState, _startDate: string, endDate: string) => endDate,
   ],
   (eventNotes, startDate, endDate): Note[] =>
-    eventNotes.filter(
-      (n) => n.target_date != null && n.target_date >= startDate && n.target_date <= endDate,
-    ),
+    eventNotes.filter((n) => {
+      if (n.target_date == null) return false;
+      // Event starts within the range
+      if (n.target_date >= startDate && n.target_date <= endDate) return true;
+      // Multi-day event that started before range but extends into it
+      if (n.end_date && n.target_date < startDate && n.end_date >= startDate) return true;
+      return false;
+    }),
 );
 
 /**
@@ -2437,7 +2449,14 @@ export const selectUpcomingEventNotes = createSelector(
     const today = getTodayDayString();
     const endDate = ds().addDays(today, days);
     return eventNotes
-      .filter((n) => n.target_date != null && n.target_date >= today && n.target_date <= endDate)
+      .filter((n) => {
+        if (n.target_date == null) return false;
+        // Event starts within the range
+        if (n.target_date >= today && n.target_date <= endDate) return true;
+        // Multi-day event that started before today but extends into range
+        if (n.end_date && n.target_date < today && n.end_date >= today) return true;
+        return false;
+      })
       .sort((a, b) => {
         // Sort by date first, then by time
         const dateCmp = (a.target_date ?? '').localeCompare(b.target_date ?? '');
