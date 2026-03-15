@@ -575,12 +575,49 @@ const testWeeklySummaryV2 = inngest.createFunction(
       return { delta: result.delta, mergedLifeMap, metadata: result.metadata };
     });
 
+    const engagementStats = await step.run('fetch-engagement', async () => {
+      const headers = {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+      };
+
+      // Drops from daily_ritual_progress
+      const dropsRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/daily_ritual_progress?owner_id=eq.${userId}&ritual_day=gte.${weekDates.weekStart}&ritual_day=lte.${weekDates.weekEnd}&select=drops_count`,
+        { headers },
+      );
+      const dropsRows = await dropsRes.json();
+      const totalDrops = (dropsRows || []).reduce((sum, r) => sum + (r.drops_count || 0), 0);
+
+      // Completed sweeps from events table
+      const sweepsRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/events?owner_id=eq.${userId}&kind=eq.sweep_completed&created_at=gte.${weekDates.weekStart}&created_at=lt.${weekDates.weekEnd}T23:59:59Z&select=id`,
+        { headers },
+      );
+      const sweepsRows = await sweepsRes.json();
+      const totalSweeps = (sweepsRows || []).length;
+
+      // Journals count
+      const journals = (snapshot.raw?.journals || snapshot.raw?.drops || [])
+        .filter(j => j.subtype === 'journal')
+        .length;
+
+      // Completions
+      const completions = (snapshot.raw?.todos || [])
+        .filter(t => t.status === 'completed')
+        .length;
+
+      return { drops: totalDrops, sweeps: totalSweeps, journals, completions };
+    });
+
     const summaryResult = await step.run('generate-summary-v2', async () => {
       const weeklySnapshot = buildWeeklySnapshot(snapshot);
       const priorSummaries = snapshot.raw.weeklySummaries || [];
       return generateWeeklySummaryV2(
         analystResult.analysis, rebuildResult.delta, rebuildResult.mergedLifeMap,
         weeklySnapshot, weekDates.weekStart, weekDates.weekEnd, priorSummaries, env,
+        engagementStats,
       );
     });
 
@@ -4347,6 +4384,7 @@ async function generateWeeklySummaryV2(
   weekEnd,
   priorSummaries,
   env,
+  engagementStats,
 ) {
   const t0 = Date.now();
 
@@ -4880,18 +4918,14 @@ Respond with ONLY the modified JSON cards array. No explanation.`;
 
   // Post-parse: inject data fields the model can't reliably produce
   if (parsed.cards) {
-    // 1. Engagement stats on opening card — compute from real data, don't trust the model
+    // 1. Engagement stats on opening card — from real Supabase data
     const openingCard = parsed.cards.find(c => c.type === 'opening');
-    if (openingCard) {
-      const weekDrops = Object.entries(weeklySnapshot.dropsByDay || {}).reduce((sum, [_day, drops]) => {
-        return sum + drops.length;
-      }, 0);
-      const weekJournals = (weeklySnapshot.journals || []).length;
-      const weekCompletions = (weeklySnapshot.todosDetail || []).filter(t => t.completed_at).length;
+    if (openingCard && engagementStats) {
       openingCard.engagement = {
-        drops: weekDrops,
-        journals: weekJournals,
-        completions: weekCompletions,
+        drops: engagementStats.drops || 0,
+        sweeps: engagementStats.sweeps || 0,
+        journals: engagementStats.journals || 0,
+        completions: engagementStats.completions || 0,
       };
     }
 

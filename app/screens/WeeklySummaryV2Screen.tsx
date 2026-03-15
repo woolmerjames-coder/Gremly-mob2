@@ -283,7 +283,7 @@ function OpeningCard({
           <View style={openingStyles.pulseRow}>
             <Sparkles size={13} color={WS.sageDark} strokeWidth={2} />
             <Text style={openingStyles.pulseText}>
-              {card.engagement.drops > 0 ? `${card.engagement.drops} drops · ` : ''}{card.engagement.journals} journals · {card.engagement.completions} completed this week
+              {card.engagement.drops > 0 ? `${card.engagement.drops} drops · ` : ''}{card.engagement.sweeps > 0 ? `${card.engagement.sweeps} sweeps · ` : ''}{card.engagement.journals} journals · {card.engagement.completions} completed
             </Text>
           </View>
         </Animated.View>
