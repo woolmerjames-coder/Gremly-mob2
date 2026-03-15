@@ -11,6 +11,7 @@ import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   Pressable,
   ScrollView,
@@ -21,7 +22,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import Animated, {
   FadeIn,
@@ -69,6 +70,8 @@ import { getDateService } from '../../lib/date';
 import { scheduleItemReminder } from '../../lib/notifications/itemReminderService';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useCurrentWeekSummary } from '../../lib/store/selectors';
+import { selectSummaryByWeek } from '../../lib/store/selectors';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import type {
   WSV2Card,
@@ -145,6 +148,21 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; color?: stri
   'alert-triangle': AlertTriangle,
   check: Check,
   'book-open': BookOpen,
+  // Aliases for descriptive AI outputs
+  travel: MapPin,
+  fitness: Dumbbell,
+  health: Activity,
+  relationship: Heart,
+  personal: Heart,
+  work: Code,
+  creative: Sparkles,
+  admin: Calendar,
+  briefcase: Code,
+  running: Timer,
+  strength: Dumbbell,
+  yoga: Activity,
+  sobriety: Wine,
+  mental: Brain,
 };
 
 function resolveIcon(hint: string | undefined | null) {
@@ -233,12 +251,16 @@ function OpeningCard({
         <Text style={openingStyles.body}>{card.body}</Text>
       </Animated.View>
 
-      {/* Hero image placeholder */}
-      {card.image_hint ? (
+      {/* Hero image */}
+      {(card.image_url || card.image_hint) ? (
         <Animated.View entering={FadeInUp.delay(500).duration(350)}>
-          <View style={openingStyles.heroImage}>
-            <Text style={openingStyles.heroImageLabel}>{card.image_hint}</Text>
-          </View>
+          {card.image_url ? (
+            <Image source={{ uri: card.image_url }} style={openingStyles.heroImage} resizeMode="cover" />
+          ) : (
+            <View style={[openingStyles.heroImage, { alignItems: 'center', justifyContent: 'center' }]}>
+              <Text style={openingStyles.heroImageLabel}>{card.image_hint}</Text>
+            </View>
+          )}
         </Animated.View>
       ) : null}
 
@@ -256,14 +278,16 @@ function OpeningCard({
       ) : null}
 
       {/* Engagement pulse */}
-      <Animated.View entering={FadeInUp.delay(700).duration(350)}>
-        <View style={openingStyles.pulseRow}>
-          <Sparkles size={13} color={WS.sageDark} strokeWidth={2} />
-          <Text style={openingStyles.pulseText}>
-            12 drops · 5 journals · 3 sweeps this week
-          </Text>
-        </View>
-      </Animated.View>
+      {card.engagement ? (
+        <Animated.View entering={FadeInUp.delay(700).duration(350)}>
+          <View style={openingStyles.pulseRow}>
+            <Sparkles size={13} color={WS.sageDark} strokeWidth={2} />
+            <Text style={openingStyles.pulseText}>
+              {card.engagement.drops > 0 ? `${card.engagement.drops} drops · ` : ''}{card.engagement.journals} journals · {card.engagement.completions} completed this week
+            </Text>
+          </View>
+        </Animated.View>
+      ) : null}
     </Animated.View>
   );
 }
@@ -289,7 +313,7 @@ const BADGE_COLOR: Record<string, string> = {
 };
 
 function ThreadTile({ thread }: { thread: WSV2Thread }) {
-  const Icon = resolveIcon(thread.icon_hint);
+  const Icon = useMemo(() => resolveIcon(thread.icon_hint), [thread.icon_hint]);
   const bg = TILE_BG[thread.badge_type] ?? TILE_BG.neutral;
   const badgeColor = BADGE_COLOR[thread.badge_type] ?? BADGE_COLOR.neutral;
 
@@ -298,7 +322,7 @@ function ThreadTile({ thread }: { thread: WSV2Thread }) {
       {/* Icon + Badge row */}
       <View style={tileStyles.topRow}>
         <View style={tileStyles.iconSquare}>
-          <Icon size={14} color={WS.sageDark} strokeWidth={2} />
+          <Icon size={14} color={badgeColor} strokeWidth={2} />
         </View>
         {thread.badge_label ? (
           <View style={[tileStyles.badge, { backgroundColor: badgeColor }]}>
@@ -314,13 +338,13 @@ function ThreadTile({ thread }: { thread: WSV2Thread }) {
 
       {/* Shift label */}
       {thread.shift_label ? (
-        <Text style={tileStyles.shiftLabel} numberOfLines={1}>
+        <Text style={tileStyles.shiftLabel}>
           {thread.shift_label}
         </Text>
       ) : null}
 
       {/* Detail */}
-      <Text style={tileStyles.detail} numberOfLines={3}>
+      <Text style={tileStyles.detail}>
         {thread.detail}
       </Text>
     </Animated.View>
@@ -466,10 +490,18 @@ function MomentsCard({ card }: { card: WSV2MomentsCard }) {
           {/* Divider between moments */}
           {i > 0 ? <View style={momStyles.divider} /> : null}
 
-          {/* Image placeholder */}
-          <View style={momStyles.imagePlaceholder}>
-            <Text style={momStyles.imageLabel}>{moment.image_hint ?? 'moment'}</Text>
-          </View>
+          {/* Image */}
+          {moment.image_url ? (
+            <Image
+              source={{ uri: moment.image_url }}
+              style={momStyles.imagePlaceholder}
+              resizeMode="cover"
+            />
+          ) : moment.image_hint ? (
+            <View style={[momStyles.imagePlaceholder, { justifyContent: 'flex-end' }]}>
+              <Text style={momStyles.imageLabel}>{moment.image_hint}</Text>
+            </View>
+          ) : null}
 
           {/* Day label */}
           <Text style={momStyles.dayLabel}>{moment.day_label}</Text>
@@ -1032,11 +1064,16 @@ function RecommendationCard({ card }: { card: WSV2RecommendationCard }) {
 
 export default function WeeklySummaryV2Screen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<NativeStackScreenProps<RootStackParamList, 'WeeklySummaryV2'>['route']>();
   const insets = useSafeAreaInsets();
-
-  // TODO: Wire to real store selector once routing is connected
-  const summaryContent: WeeklySummaryV2Content | null = null;
-  const cards: WSV2Card[] = summaryContent?.cards ?? [];
+  const weekStartParam = route.params?.weekStartDate;
+  const currentWeekSummary = useCurrentWeekSummary();
+  const paramSummary = useGremlyStore((state) =>
+    weekStartParam ? selectSummaryByWeek(state, weekStartParam) : undefined,
+  );
+  const summary = paramSummary ?? currentWeekSummary;
+  const content = summary?.content as WeeklySummaryV2Content | undefined;
+  const cards: WSV2Card[] = content?.cards ?? [];
 
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
@@ -1082,7 +1119,7 @@ export default function WeeklySummaryV2Screen() {
   }, []);
 
   // ── Empty state ──────────────────────────────────────────────────────
-  if (!summaryContent || cards.length === 0) {
+  if (cards.length === 0) {
     return (
       <View style={styles.screen}>
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
@@ -1105,14 +1142,17 @@ export default function WeeklySummaryV2Screen() {
   // ── Render card by type (placeholders) ───────────────────────────────
   const renderCard = (card: WSV2Card) => {
     switch (card.type) {
-      case 'opening':
+      case 'opening': {
+        const ws = weekStartParam ?? format(new Date(), 'yyyy-MM-dd');
+        const we = format(addDays(new Date(ws + 'T00:00:00'), 6), 'yyyy-MM-dd');
         return (
           <OpeningCard
             card={card}
-            weekStart="2026-03-03"
-            weekEnd="2026-03-09"
+            weekStart={ws}
+            weekEnd={we}
           />
         );
+      }
       case 'thread_movements':
         return <LifeInMotionCard card={card} />;
       case 'moments':
@@ -1416,9 +1456,8 @@ const openingStyles = StyleSheet.create({
     height: 160,
     borderRadius: 12,
     backgroundColor: WS.sage,
-    alignItems: 'center',
-    justifyContent: 'center',
     marginBottom: 20,
+    overflow: 'hidden',
   },
   heroImageLabel: {
     fontSize: 13,
@@ -1475,9 +1514,6 @@ const openingStyles = StyleSheet.create({
 // Life in Motion tile styles
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TILE_GAP = 8;
-const TILE_WIDTH = (SCREEN_WIDTH - 40 - 48 - TILE_GAP) / 2; // screen - cardScroll padding - card padding - gap
-
 const tileStyles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
@@ -1493,10 +1529,11 @@ const tileStyles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: TILE_GAP,
+    justifyContent: 'space-between',
+    rowGap: 8,
   },
   tile: {
-    width: TILE_WIDTH,
+    width: '48.5%',
     borderRadius: 10,
     padding: 10,
   },
@@ -1699,9 +1736,8 @@ const momStyles = StyleSheet.create({
     height: 140,
     borderRadius: 10,
     backgroundColor: WS.sage,
-    justifyContent: 'flex-end',
-    padding: 10,
     marginBottom: 12,
+    overflow: 'hidden',
   },
   imageLabel: {
     fontSize: 11,

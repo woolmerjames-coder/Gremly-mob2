@@ -4746,7 +4746,7 @@ ${JSON.stringify(storytellerData, null, 2)}`;
     for (const card of parsed.cards) {
       if (card.image_hint && !card.image_url) {
         try {
-          const query = card.image_hint.replace(/_/g, ' ') + ' scenic photo';
+          const query = card.image_hint.replace(/_/g, ' ') + ' landscape photography high quality';
           const res = await fetch('https://api.tavily.com/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -4770,7 +4770,7 @@ ${JSON.stringify(storytellerData, null, 2)}`;
         for (const moment of card.moments) {
           if (moment.image_hint && !moment.image_url) {
             try {
-              const query = moment.image_hint.replace(/_/g, ' ') + ' scenic photo';
+              const query = moment.image_hint.replace(/_/g, ' ') + ' landscape photography high quality';
               const res = await fetch('https://api.tavily.com/search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -4795,24 +4795,135 @@ ${JSON.stringify(storytellerData, null, 2)}`;
     }
   }
 
-  // Inject engagement stats into opening card (don't rely on model)
+  // Compression pass: Haiku enforces word limits and structural rules
   if (parsed.cards) {
+    try {
+      const compressionPrompt = `You are a strict editor. You receive a weekly summary JSON with cards. Your job: compress every text field to fit hard character limits. Do NOT change meaning, structure, or data. Only shorten text.
+
+RULES:
+- opening.headline: max 60 characters
+- opening.body: max 250 characters. NEVER recap what the user did. Only state what CHANGED, what it MEANS, or what they didn't notice.
+- thread detail: max 80 characters each. One stat or fact, not a story.
+- moment body: max 200 characters. Real-world color about the PLACE or EXPERIENCE, not a recap of what the user did. They know.
+- spotlight evidence_trail: max 400 characters. Dates and specific items only — no narrative filler.
+- spotlight takeaway: max 150 characters.
+- research_context body: max 200 characters.
+- week_ahead intro: max 150 characters.
+- monthly_retro headline: max 60 characters.
+- thread_arcs arc: max 80 characters each.
+
+STRUCTURAL RULES:
+- Maximum 6 cards total. If there are more than 6, combine monthly_retro into the week_ahead card as a section. Combine recommendation into week_ahead as well.
+- Maximum 2 moments. If there are more, keep the 2 most unique. Drop any that overlap with the opening card's location.
+- Remove any moment body text that recaps what the user did. Replace with real-world context about the place, season, or cultural significance.
+
+Respond with ONLY the modified JSON cards array. No explanation.`;
+
+      const compressRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 4000,
+          temperature: 0,
+          messages: [
+            {
+              role: 'user',
+              content: `Compress this weekly summary JSON. Apply all character limits and structural rules strictly.\n\n${JSON.stringify(parsed.cards)}`,
+            },
+          ],
+          system: compressionPrompt,
+        }),
+      });
+
+      if (compressRes.ok) {
+        const compressData = await compressRes.json();
+        const compressText = compressData.content
+          ?.map(b => (b.type === 'text' ? b.text : ''))
+          .filter(Boolean)
+          .join('');
+
+        if (compressText) {
+          let compressedStr = compressText.trim();
+          if (compressedStr.startsWith('```')) {
+            compressedStr = compressedStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+          }
+          try {
+            const compressedCards = JSON.parse(compressedStr);
+            if (Array.isArray(compressedCards) && compressedCards.length > 0) {
+              parsed.cards = compressedCards;
+              console.log(`[WeeklySummaryV2] Haiku compression: ${parsed.cards.length} → ${compressedCards.length} cards`);
+            }
+          } catch (ce) {
+            try {
+              const repaired = JSON.parse(jsonrepair(compressedStr));
+              if (Array.isArray(repaired) && repaired.length > 0) {
+                parsed.cards = repaired;
+                console.log('[WeeklySummaryV2] Haiku compression succeeded with jsonrepair');
+              }
+            } catch {
+              console.warn('[WeeklySummaryV2] Haiku compression parse failed, using Sonnet output as-is');
+            }
+          }
+        }
+      } else {
+        console.warn('[WeeklySummaryV2] Haiku compression call failed:', compressRes.status);
+      }
+    } catch (e) {
+      console.warn('[WeeklySummaryV2] Haiku compression error, using Sonnet output as-is:', e.message);
+    }
+  }
+
+  // Post-parse: inject data fields the model can't reliably produce
+  if (parsed.cards) {
+    // 1. Engagement stats on opening card — compute from real data, don't trust the model
     const openingCard = parsed.cards.find(c => c.type === 'opening');
     if (openingCard) {
+      const weekDrops = Object.entries(weeklySnapshot.dropsByDay || {}).reduce((sum, [_day, drops]) => {
+        return sum + drops.length;
+      }, 0);
+      const weekJournals = (weeklySnapshot.journals || []).length;
+      const weekCompletions = (weeklySnapshot.todosDetail || []).filter(t => t.completed_at).length;
       openingCard.engagement = {
-        drops: analystOutput.engagement_metrics?.drops_this_week || 0,
-        journals: analystOutput.engagement_metrics?.journals_written || 0,
-        completions: analystOutput.engagement_metrics?.completions_this_week || 0,
+        drops: weekDrops,
+        journals: weekJournals,
+        completions: weekCompletions,
       };
     }
 
-    // Inject item_id into stale triage items by matching titles
+    // 2. badge_type on thread movements — infer from direction, model ignores this field
+    const tmCard = parsed.cards.find(c => c.type === 'thread_movements');
+    if (tmCard && tmCard.threads) {
+      const directionToBadgeType = {
+        up: 'success',
+        steady: 'info',
+        milestone: 'warning',
+        concluded: 'neutral',
+        down: 'danger',
+        paused: 'danger',
+        new: 'info',
+      };
+      for (const thread of tmCard.threads) {
+        if (!thread.badge_type) {
+          thread.badge_type = directionToBadgeType[thread.direction] || 'neutral';
+        }
+      }
+    }
+
+    // 3. Stale item IDs — match by title to real todos
     const staleCard = parsed.cards.find(c => c.type === 'stale_triage');
     if (staleCard && staleCard.items) {
       for (const item of staleCard.items) {
         if (!item.item_id) {
           const match = (weeklySnapshot.todosDetail || []).find(t =>
-            t.title && item.title && t.title.toLowerCase() === item.title.toLowerCase()
+            t.title && item.title &&
+            (t.title.toLowerCase() === item.title.toLowerCase() ||
+             t.title.toLowerCase().includes(item.title.toLowerCase()) ||
+             item.title.toLowerCase().includes(t.title.toLowerCase()))
           );
           if (match) item.item_id = match.id;
         }
@@ -5912,8 +6023,19 @@ STALE ITEMS:
     dataLines.push('  No mood data.');
   }
 
+  // Count drops and journals for the full week window
+  const weekDropsCount = Object.entries(weeklySnapshot.dropsByDay || {}).reduce((sum, [day, drops]) => {
+    if (day >= weekStart && day <= weekEnd) return sum + drops.length;
+    return sum;
+  }, 0);
+  const weekJournalsCount = (weeklySnapshot.journals || []).filter(j => j.date >= weekStart && j.date <= weekEnd).length;
+  const weekCompletions = (weeklySnapshot.todosDetail || []).filter(t => t.completed_at && t.completed_at >= weekStart && t.completed_at <= weekEnd).length;
+
   dataLines.push('\n=== ENGAGEMENT STATS ===');
-  dataLines.push(`  Todos: ${weeklySnapshot.todoStats.overdue} overdue, ${weeklySnapshot.todoStats.active} active, ${weeklySnapshot.todoStats.completedRecently} completed recently`);
+  dataLines.push(`  Total drops this week: ${weekDropsCount}`);
+  dataLines.push(`  Journals written this week: ${weekJournalsCount}`);
+  dataLines.push(`  Todos completed this week: ${weekCompletions}`);
+  dataLines.push(`  Todos: ${weeklySnapshot.todoStats.overdue} overdue, ${weeklySnapshot.todoStats.active} active`);
   dataLines.push(`  Drop velocity: ${weeklySnapshot.dropVelocity.velocity} (${weeklySnapshot.dropVelocity.dropsLast3} last 3d, ${weeklySnapshot.dropVelocity.dropsPrev3} prev 3d)`);
 
   dataLines.push('\n=== SPACES (with recent activity) ===');
