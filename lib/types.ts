@@ -1273,11 +1273,17 @@ export interface WSV2ThreadMovementsCard {
 export interface WSV2ResearchContext {
   title: string;
   body: string;
+  sources?: string[];
 }
 
 export interface WSV2Trend {
   icon_hint: string;
   badge_type: 'warning' | 'danger' | 'info';
+  title: string;
+  detail: string;
+}
+
+export interface WSV2MiniDiscovery {
   title: string;
   detail: string;
 }
@@ -1292,6 +1298,7 @@ export interface WSV2DiscoveriesCard {
     research_context: WSV2ResearchContext | null;
   };
   trends: WSV2Trend[];
+  mini_discoveries?: WSV2MiniDiscovery[];
 }
 
 export interface WSV2Moment {

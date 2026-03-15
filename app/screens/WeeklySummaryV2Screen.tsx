@@ -278,12 +278,16 @@ function OpeningCard({
       ) : null}
 
       {/* Engagement pulse */}
-      {card.engagement ? (
+      {card.engagement && (card.engagement.drops > 0 || card.engagement.sweeps > 0 || card.engagement.journals > 0) ? (
         <Animated.View entering={FadeInUp.delay(700).duration(350)}>
           <View style={openingStyles.pulseRow}>
             <Sparkles size={13} color={WS.sageDark} strokeWidth={2} />
             <Text style={openingStyles.pulseText}>
-              {card.engagement.drops > 0 ? `${card.engagement.drops} drops · ` : ''}{card.engagement.sweeps > 0 ? `${card.engagement.sweeps} sweeps · ` : ''}{card.engagement.journals} journals
+              {[
+                card.engagement.drops > 0 ? `${card.engagement.drops} drops` : null,
+                card.engagement.sweeps > 0 ? `${card.engagement.sweeps} sweeps` : null,
+                card.engagement.journals > 0 ? `${card.engagement.journals} journals` : null,
+              ].filter(Boolean).join(' · ')}
             </Text>
           </View>
         </Animated.View>
@@ -401,7 +405,6 @@ const TREND_ICON_COLOR: Record<string, string> = {
 
 function DiscoveriesCard({ card }: { card: WSV2DiscoveriesCard }) {
   const { spotlight, trends = [], mini_discoveries = [] } = card as any;
-  const discoveries = mini_discoveries.length > 0 ? mini_discoveries : trends;
   const badgeStyle = SPOTLIGHT_BADGE_STYLES[spotlight.badge] ?? SPOTLIGHT_BADGE_STYLES.discovery;
 
   return (
@@ -452,10 +455,23 @@ function DiscoveriesCard({ card }: { card: WSV2DiscoveriesCard }) {
         ) : null}
       </Animated.View>
 
-      {/* Mini-discoveries / Trends row */}
-      {discoveries.length > 0 ? (
+      {/* Mini-discoveries */}
+      {mini_discoveries.length > 0 ? (
+        <Animated.View entering={FadeInUp.delay(500).duration(350)} style={discStyles.miniDiscoveriesContainer}>
+          {mini_discoveries.map((mini: any, i: number) => (
+            <View key={mini.title + i} style={discStyles.miniDiscoveryRow}>
+              <View style={discStyles.miniDiscoveryDot} />
+              <View style={{ flex: 1 }}>
+                <Text style={discStyles.miniDiscoveryTitle}>{mini.title}</Text>
+                <Text style={discStyles.miniDiscoveryDetail}>{mini.detail}</Text>
+              </View>
+            </View>
+          ))}
+        </Animated.View>
+      ) : trends.length > 0 ? (
+        /* Fallback: legacy trends row */
         <Animated.View entering={FadeInUp.delay(500).duration(350)} style={discStyles.trendsRow}>
-          {discoveries.map((item: any, i: number) => {
+          {trends.map((item: any, i: number) => {
             const TrendIcon = resolveIcon(item.icon_hint);
             const circleBg = TREND_CIRCLE_COLOR[item.badge_type] ?? TREND_CIRCLE_COLOR.info;
             const iconColor = TREND_ICON_COLOR[item.badge_type] ?? TREND_ICON_COLOR.info;
@@ -896,6 +912,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function WeekAheadCard({ card }: { card: WSV2WeekAheadCard }) {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   return (
     <Animated.View entering={FadeIn.duration(400)} style={styles.card}>
       {/* Section header */}
@@ -956,6 +973,7 @@ function WeekAheadCard({ card }: { card: WSV2WeekAheadCard }) {
       >
         <Pressable
           style={({ pressed }) => [waStyles.calendarLink, pressed && { opacity: 0.7 }]}
+          onPress={() => navigation.navigate('Tabs')}
         >
           <Calendar size={14} color={WS.sageDark} strokeWidth={2} />
           <Text style={waStyles.calendarLinkText}>View full week in calendar</Text>
@@ -1723,6 +1741,35 @@ const discStyles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#888888',
     textAlign: 'center',
+  },
+  miniDiscoveriesContainer: {
+    marginTop: 16,
+    gap: 12,
+  },
+  miniDiscoveryRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  miniDiscoveryDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: WS.sageDark,
+    marginTop: 7,
+  },
+  miniDiscoveryTitle: {
+    fontFamily: 'DMSans-SemiBold',
+    fontSize: 14,
+    color: WS.textPrimary,
+    lineHeight: 20,
+  },
+  miniDiscoveryDetail: {
+    fontFamily: 'DMSans-Regular',
+    fontSize: 13,
+    color: WS.textSubtle,
+    lineHeight: 18,
+    marginTop: 2,
   },
 });
 
