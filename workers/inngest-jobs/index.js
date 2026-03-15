@@ -598,17 +598,12 @@ const testWeeklySummaryV2 = inngest.createFunction(
       const sweepsRows = await sweepsRes.json();
       const totalSweeps = (sweepsRows || []).length;
 
-      // Journals count
+      // Journals count — scoped to this week
       const journals = (snapshot.raw?.journals || snapshot.raw?.drops || [])
-        .filter(j => j.subtype === 'journal')
+        .filter(j => j.subtype === 'journal' && j.created_at && j.created_at.split('T')[0] >= weekDates.weekStart && j.created_at.split('T')[0] <= weekDates.weekEnd)
         .length;
 
-      // Completions
-      const completions = (snapshot.raw?.todos || [])
-        .filter(t => t.status === 'completed')
-        .length;
-
-      return { drops: totalDrops, sweeps: totalSweeps, journals, completions };
+      return { drops: totalDrops, sweeps: totalSweeps, journals };
     });
 
     const summaryResult = await step.run('generate-summary-v2', async () => {
@@ -640,8 +635,11 @@ const testWeeklySummaryV2 = inngest.createFunction(
               _type: 'summary_v2_test',
               summary: summaryResult.summary,
               summary_metadata: summaryResult.metadata,
-              analyst_metadata: analystResult.metadata,
+              analyst_output: analystResult.analysis,
+              life_map_delta: rebuildResult.delta,
+              rebuilt_life_map: rebuildResult.mergedLifeMap,
               rebuild_metadata: rebuildResult.metadata,
+              analyst_metadata: analystResult.metadata,
             },
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -4469,18 +4467,13 @@ RESPOND WITH ONLY VALID JSON, no markdown:
     // REQUIRED: opening card (always first)
     {
       "type": "opening",
-      "headline": "Bold statement — max 12 words. The one thing that defines this week. Not a mood label. An observation that proves you've been watching. Use trajectory context when powerful — 'first time since January', '8 weeks running', 'the shift you've been building toward'.",
+      "headline": "(MAX 60 CHARS) Bold statement — max 12 words. The one thing that defines this week. Not a mood label. An observation that proves you've been watching. Use trajectory context when powerful — 'first time since January', '8 weeks running', 'the shift you've been building toward'.",
       "subheadline": "2-4 word week type label",
-      "body": "2-3 sentences. The narrative hook. Lead with the most interesting thing — a shift, a milestone, a contradiction, a pattern break. Reference specific items by name. If a Life Map thread changed trajectory, that's often the lead.",
-      "mood": "2-4 words — emotional tone of the week",
+      "body": "(MAX 250 CHARS) 2-3 sentences. The narrative hook. Lead with the most interesting thing — a shift, a milestone, a contradiction, a pattern break. Reference specific items by name. If a Life Map thread changed trajectory, that's often the lead.",
+      "mood": "(MAX 20 CHARS) 2-4 words — emotional tone of the week",
       "quote": "REQUIRED — A direct journal quote that captures the week's feeling. Must be verbatim from journal data.",
       "quote_date": "REQUIRED — YYYY-MM-DD of the journal entry the quote came from.",
-      "image_hint": "REQUIRED — keyword for hero image — e.g. 'tokyo_skyline', 'bora_bora_lagoon', 'home_desk'",
-      "engagement": {
-        "drops": "number — from engagement_stats in the data",
-        "journals": "number — from engagement_stats in the data",
-        "completions": "number — from engagement_stats in the data"
-      }
+      "image_hint": "REQUIRED — keyword for hero image — e.g. 'tokyo_skyline', 'bora_bora_lagoon', 'home_desk'"
     },
 
     // REQUIRED: thread_movements card (this is your differentiator)
@@ -4493,9 +4486,9 @@ RESPOND WITH ONLY VALID JSON, no markdown:
           "domain": "domain name",
           "direction": "up | down | milestone | concluded | new | steady",
           "icon_hint": "fitness | travel | work | personal | health | creative | relationship | admin",
-          "shift_label": "e.g. 'consistent → thriving' or 'active → paused' or '10 days to half marathon'",
-          "badge_label": "REQUIRED — 1-2 word status e.g. 'on fire', 'paused', 'new', 'at risk', 'complete'",
-          "detail": "One specific sentence — the evidence. Quote user's words or cite specific data.",
+          "shift_label": "(MAX 40 CHARS) e.g. 'consistent → thriving' or 'active → paused' or '10 days to half marathon'",
+          "badge_label": "(MAX 15 CHARS) REQUIRED — 1-2 word status e.g. 'on fire', 'paused', 'new', 'at risk', 'complete'",
+          "detail": "(MAX 100 CHARS) One specific sentence — the evidence. Quote user's words or cite specific data.",
           "is_highlight": true
         }
       ]
@@ -4508,8 +4501,8 @@ RESPOND WITH ONLY VALID JSON, no markdown:
         {
           "day_label": "MON | TUE | WED | THU | FRI | SAT | SUN",
           "date": "YYYY-MM-DD",
-          "title": "Short evocative title",
-          "body": "2-4 sentences. This is where you add real-world knowledge — destination character, cultural context, travel tips, milestone significance. Be the well-traveled friend. Quote the user's journal if they captured the moment.",
+          "title": "(MAX 40 CHARS) Short evocative title reflecting the user's experience, not the place name.",
+          "body": "(MAX 200 CHARS) Lead with what the user FELT or what SHIFTED during this moment — connect it to their Life Map threads. Add brief real-world color about the place or season, but the moment is about the person, not the destination. The title should reflect the user's experience, not the place name. NEVER recap what the user did — they know.",
           "connected_items": ["related item titles"],
           "image_hint": "keyword for image — e.g. 'tokyo_golden_gai', 'bora_bora_overwater', 'gym_weights', 'bullet_train'",
           "thread_tags": ["thread names this moment connects to"]
@@ -4522,20 +4515,19 @@ RESPOND WITH ONLY VALID JSON, no markdown:
       "type": "discoveries",
       "spotlight": {
         "badge": "discovery | shift | breakthrough",
-        "title": "Short punchy label — max 8 words",
-        "evidence_trail": "The specific data points that led to this insight. Name the actual dates, item titles, journal quotes, and numbers from the user's data. Show every step of the reasoning — what you observed first, what you noticed next, how the two connect. The user should be able to follow your logic from raw data to conclusion. Show the receipts FIRST, before any interpretation.",
-        "takeaway": "1-2 sentences. The insight that follows from the evidence. Only state this AFTER the trail makes it obvious.",
+        "title": "(MAX 50 CHARS) Short punchy label — max 8 words",
+        "evidence_trail": "(MAX 400 CHARS) The specific data points that led to this insight. Name the actual dates, item titles, journal quotes, and numbers from the user's data. Show every step of the reasoning — what you observed first, what you noticed next, how the two connect. The user should be able to follow your logic from raw data to conclusion. Show the receipts FIRST, before any interpretation.",
+        "takeaway": "(MAX 150 CHARS) 1-2 sentences. The insight that follows from the evidence. Only state this AFTER the trail makes it obvious.",
         "research_context": {
           "title": "Why this happens",
-          "body": "2-3 sentences connecting this personal pattern to behavioral science, psychology, or research. Only include when genuine. If the user's profile contains relevant self-described traits, let that inform which research you surface. Never name or diagnose — let the connection emerge naturally."
+          "body": "(MAX 200 CHARS) 2-3 sentences connecting this personal pattern to behavioral science, psychology, or research. Be specific — name the researcher, study, or framework.",
+          "sources": ["Author (Year) or Framework name — max 3 sources"]
         }
       },
-      "trends": [
+      "mini_discoveries": [
         {
-          "icon_hint": "lucide icon name",
-          "badge_type": "warning | danger | info",
-          "title": "max 5 words",
-          "detail": "max 15 words — specific numbers"
+          "title": "(MAX 40 CHARS) Short punchy finding",
+          "detail": "(MAX 80 CHARS) One sentence with specific evidence"
         }
       ]
     },
@@ -4543,14 +4535,14 @@ RESPOND WITH ONLY VALID JSON, no markdown:
     // OPTIONAL: stale_triage card (only if stale items exist and matter)
     {
       "type": "stale_triage",
-      "headline": "Short headline — e.g. '7 items still floating'",
-      "body": "1-2 sentences. Use Life Map context — if they've been on honeymoon, acknowledge that. If it's work items during a vacation, frame appropriately. Don't guilt-trip.",
+      "headline": "(MAX 50 CHARS) Short headline — e.g. '7 items still floating'",
+      "body": "(MAX 150 CHARS) 1-2 sentences. Use Life Map context — if they've been on honeymoon, acknowledge that. If it's work items during a vacation, frame appropriately. Don't guilt-trip.",
       "items": [
         {
           "title": "item title",
           "days_stale": 0,
           "domain": "domain name",
-          "context": "Why stale — e.g. 'honeymoon travel', 'deprioritized during sprint'",
+          "context": "(MAX 60 CHARS) Why stale — e.g. 'honeymoon travel', 'deprioritized during sprint'",
           "item_id": "string — the todo UUID from the data, or null"
         }
       ]
@@ -4559,7 +4551,7 @@ RESPOND WITH ONLY VALID JSON, no markdown:
     // REQUIRED: week_ahead card (always present)
     {
       "type": "week_ahead",
-      "intro": "2-3 sentences. What's coming and how it connects to this week's threads. Forward-looking, specific.",
+      "intro": "(MAX 150 CHARS) 2-3 sentences. What's coming and how it connects to this week's threads. Forward-looking, specific.",
       "highlights": [
         {
           "day_label": "MON | TUE | WED | THU | FRI | SAT | SUN",
@@ -4581,11 +4573,11 @@ RESPOND WITH ONLY VALID JSON, no markdown:
     {
       "type": "monthly_retro",
       "month_name": "${monthName}",
-      "headline": "The month in one sentence",
+      "headline": "(MAX 60 CHARS) The month in one sentence",
       "thread_arcs": [
         {
           "thread": "thread name",
-          "arc": "One sentence — how this thread moved across the month. Reference specific weeks.",
+          "arc": "(MAX 80 CHARS) One sentence — how this thread moved across the month. Reference specific weeks.",
           "direction": "grew | declined | transformed | emerged | concluded"
         }
       ],
@@ -4621,6 +4613,7 @@ CARD SELECTION RULES:
 - thread_movements: ALWAYS include. Always second. Show 3-6 threads — prioritize: trajectory changes > milestones > new discoveries > declines > steady high-importance. Don't show every thread — show the ones that MOVED or MATTER.
 - moments: Include if there are moments scoring 7+ in the analyst's magic_moment_candidates. Skip on quiet weeks. 1-4 moments max.
 - pattern: Include if the analyst found behavioral fingerprints that are novel or backed by strong evidence. Skip if patterns are weak or repetitive from prior weeks.
+- discoveries: Include 2-3 mini_discoveries — smaller patterns or observations that don't warrant a full spotlight but are worth noting. Each is just a title + one line of detail.
 - stale_triage: Include if stale items exist. The items array MUST list every single item from the stale_items data provided. Do not filter, prioritize, summarize, or omit any. If the data contains 7 items, output 7. If it contains 12, output 12. The user cannot act on items they cannot see.
 - week_ahead: ALWAYS include. Always last or second-to-last.
 - monthly_retro: Include ONLY if this is the first summary of a new month (${isFirstWeekOfMonth ? 'YES — include monthly retro this week' : 'No — skip monthly retro'}).
@@ -4628,7 +4621,6 @@ CARD SELECTION RULES:
 
 WRITING RULES:
 - DEDUPLICATION: Never repeat the same observation across cards. If the opening mentions the gratitude shift, the pattern card should surface something DIFFERENT.
-- WORD BUDGET: opening body max 60 words. Each moment body max 80 words. Pattern body max 60 words. Week ahead intro max 40 words. Tight writing only.
 - SPECIFICITY: Every sentence must contain at least one specific detail — a name, date, number, or quote. No "you had a productive week" or "keep up the good work."
 - TRAJECTORY LANGUAGE: Use the Life Map. "Running has been building for 4 weeks" is more powerful than "you ran twice." "First gratitude-dominant week since January" beats "you felt grateful."
 - JOURNAL QUOTES: Use the user's actual words when they capture something real. Put them in quotes. They're more powerful than your paraphrase.
@@ -4654,7 +4646,10 @@ PROFILE AWARENESS:
 - The user_profile field contains the user's own description of themselves — their traits, challenges, goals, and how they think about their own patterns. READ IT CAREFULLY before writing discoveries.
 - When writing research_context on the discoveries spotlight, check: does the user's profile describe traits or patterns that make this research ESPECIALLY relevant to them? If so, frame the research through that lens — acknowledging that the pattern has extra significance given how the user has described themselves.
 - Never name conditions, diagnose, or label. The connection should feel natural — like a knowledgeable friend who knows you well.
-- If the profile contains nothing relevant to the current insight, write generic research. Forced connections are worse than none.`;
+- If the profile contains nothing relevant to the current insight, write generic research. Forced connections are worse than none.
+
+FINAL SELF-CHECK — CRITICAL:
+Before outputting your JSON, re-read every text field you wrote. For any field that exceeds its (MAX N CHARS) limit, rewrite it shorter while preserving natural grammar and meaning. Do not truncate or strip words — rewrite the sentence to be tighter. Every field must read as polished, natural English. Sentence fragments like 'sobriety win framed as element of balanced day' are unacceptable — always write complete, grammatical sentences.`;
 
   // Build the data payload for Sonnet
   const storytellerData = {
@@ -4784,7 +4779,7 @@ ${JSON.stringify(storytellerData, null, 2)}`;
     for (const card of parsed.cards) {
       if (card.image_hint && !card.image_url) {
         try {
-          const query = card.image_hint.replace(/_/g, ' ') + ' landscape photography high quality';
+          const query = card.image_hint.replace(/_/g, ' ') + ' scenic photo no text no watermark';
           const res = await fetch('https://api.tavily.com/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -4808,7 +4803,7 @@ ${JSON.stringify(storytellerData, null, 2)}`;
         for (const moment of card.moments) {
           if (moment.image_hint && !moment.image_url) {
             try {
-              const query = moment.image_hint.replace(/_/g, ' ') + ' landscape photography high quality';
+              const query = moment.image_hint.replace(/_/g, ' ') + ' scenic photo no text no watermark';
               const res = await fetch('https://api.tavily.com/search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -4833,87 +4828,47 @@ ${JSON.stringify(storytellerData, null, 2)}`;
     }
   }
 
-  // Compression pass: Haiku enforces word limits and structural rules
+  // Structural card enforcement (deterministic — no AI)
   if (parsed.cards) {
-    try {
-      const compressionPrompt = `You are a strict editor. You receive a weekly summary JSON with cards. Your job: compress every text field to fit hard character limits. Do NOT change meaning, structure, or data. Only shorten text.
+    const originalCount = parsed.cards.length;
+    const removedTypes = [];
 
-RULES:
-- opening.headline: max 60 characters
-- opening.body: max 250 characters. NEVER recap what the user did. Only state what CHANGED, what it MEANS, or what they didn't notice.
-- thread detail: max 80 characters each. One stat or fact, not a story.
-- moment body: max 200 characters. Real-world color about the PLACE or EXPERIENCE, not a recap of what the user did. They know.
-- spotlight evidence_trail: max 400 characters. Dates and specific items only — no narrative filler.
-- spotlight takeaway: max 150 characters.
-- research_context body: max 200 characters.
-- week_ahead intro: max 150 characters.
-- monthly_retro headline: max 60 characters.
-- thread_arcs arc: max 80 characters each.
-
-STRUCTURAL RULES:
-- Maximum 6 cards total. If there are more than 6, combine monthly_retro into the week_ahead card as a section. Combine recommendation into week_ahead as well.
-- Maximum 2 moments. If there are more, keep the 2 most unique. Drop any that overlap with the opening card's location.
-- Remove any moment body text that recaps what the user did. Replace with real-world context about the place, season, or cultural significance.
-
-Respond with ONLY the modified JSON cards array. No explanation.`;
-
-      const compressRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 4000,
-          temperature: 0,
-          messages: [
-            {
-              role: 'user',
-              content: `Compress this weekly summary JSON. Apply all character limits and structural rules strictly.\n\n${JSON.stringify(parsed.cards)}`,
-            },
-          ],
-          system: compressionPrompt,
-        }),
-      });
-
-      if (compressRes.ok) {
-        const compressData = await compressRes.json();
-        const compressText = compressData.content
-          ?.map(b => (b.type === 'text' ? b.text : ''))
-          .filter(Boolean)
-          .join('');
-
-        if (compressText) {
-          let compressedStr = compressText.trim();
-          if (compressedStr.startsWith('```')) {
-            compressedStr = compressedStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-          }
-          try {
-            const compressedCards = JSON.parse(compressedStr);
-            if (Array.isArray(compressedCards) && compressedCards.length > 0) {
-              parsed.cards = compressedCards;
-              console.log(`[WeeklySummaryV2] Haiku compression: ${parsed.cards.length} → ${compressedCards.length} cards`);
-            }
-          } catch (ce) {
-            try {
-              const repaired = JSON.parse(jsonrepair(compressedStr));
-              if (Array.isArray(repaired) && repaired.length > 0) {
-                parsed.cards = repaired;
-                console.log('[WeeklySummaryV2] Haiku compression succeeded with jsonrepair');
-              }
-            } catch {
-              console.warn('[WeeklySummaryV2] Haiku compression parse failed, using Sonnet output as-is');
-            }
-          }
-        }
-      } else {
-        console.warn('[WeeklySummaryV2] Haiku compression call failed:', compressRes.status);
+    // a. Enforce max 6 cards
+    if (parsed.cards.length > 6) {
+      const recIdx = parsed.cards.findIndex(c => c.type === 'recommendation');
+      if (recIdx !== -1) {
+        removedTypes.push('recommendation');
+        parsed.cards.splice(recIdx, 1);
       }
-    } catch (e) {
-      console.warn('[WeeklySummaryV2] Haiku compression error, using Sonnet output as-is:', e.message);
     }
+    if (parsed.cards.length > 6) {
+      const mrIdx = parsed.cards.findIndex(c => c.type === 'monthly_retro');
+      if (mrIdx !== -1) {
+        const mrCard = parsed.cards[mrIdx];
+        const waCard = parsed.cards.find(c => c.type === 'week_ahead');
+        if (waCard) {
+          waCard.monthly_retro = {
+            headline: mrCard.headline,
+            body: mrCard.body,
+            thread_arcs: mrCard.thread_arcs,
+          };
+        }
+        removedTypes.push('monthly_retro');
+        parsed.cards.splice(mrIdx, 1);
+      }
+    }
+
+    // b. Enforce max 2 moments
+    const momentsCard = parsed.cards.find(c => c.type === 'moments');
+    if (momentsCard && momentsCard.moments && momentsCard.moments.length > 2) {
+      momentsCard.moments = momentsCard.moments.slice(0, 2);
+    }
+
+    console.log('[WeeklySummaryV2] Card enforcement:', {
+      original_count: originalCount,
+      final_count: parsed.cards.length,
+      removed_types: removedTypes,
+    });
   }
 
   // Post-parse: inject data fields the model can't reliably produce
@@ -4925,7 +4880,6 @@ Respond with ONLY the modified JSON cards array. No explanation.`;
         drops: engagementStats.drops || 0,
         sweeps: engagementStats.sweeps || 0,
         journals: engagementStats.journals || 0,
-        completions: engagementStats.completions || 0,
       };
     }
 

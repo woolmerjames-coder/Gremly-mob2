@@ -283,7 +283,7 @@ function OpeningCard({
           <View style={openingStyles.pulseRow}>
             <Sparkles size={13} color={WS.sageDark} strokeWidth={2} />
             <Text style={openingStyles.pulseText}>
-              {card.engagement.drops > 0 ? `${card.engagement.drops} drops · ` : ''}{card.engagement.sweeps > 0 ? `${card.engagement.sweeps} sweeps · ` : ''}{card.engagement.journals} journals · {card.engagement.completions} completed
+              {card.engagement.drops > 0 ? `${card.engagement.drops} drops · ` : ''}{card.engagement.sweeps > 0 ? `${card.engagement.sweeps} sweeps · ` : ''}{card.engagement.journals} journals
             </Text>
           </View>
         </Animated.View>
@@ -400,7 +400,8 @@ const TREND_ICON_COLOR: Record<string, string> = {
 };
 
 function DiscoveriesCard({ card }: { card: WSV2DiscoveriesCard }) {
-  const { spotlight, trends } = card;
+  const { spotlight, trends = [], mini_discoveries = [] } = card as any;
+  const discoveries = mini_discoveries.length > 0 ? mini_discoveries : trends;
   const badgeStyle = SPOTLIGHT_BADGE_STYLES[spotlight.badge] ?? SPOTLIGHT_BADGE_STYLES.discovery;
 
   return (
@@ -442,24 +443,31 @@ function DiscoveriesCard({ card }: { card: WSV2DiscoveriesCard }) {
               </Text>
             </View>
             <Text style={discStyles.researchBody}>{spotlight.research_context.body}</Text>
+            {spotlight.research_context.sources && spotlight.research_context.sources.length > 0 ? (
+              <Text style={discStyles.researchSources}>
+                {spotlight.research_context.sources.join(' · ')}
+              </Text>
+            ) : null}
           </Animated.View>
         ) : null}
       </Animated.View>
 
-      {/* Trends row */}
-      {trends.length > 0 ? (
+      {/* Mini-discoveries / Trends row */}
+      {discoveries.length > 0 ? (
         <Animated.View entering={FadeInUp.delay(500).duration(350)} style={discStyles.trendsRow}>
-          {trends.map((trend, i) => {
-            const TrendIcon = resolveIcon(trend.icon_hint);
-            const circleBg = TREND_CIRCLE_COLOR[trend.badge_type] ?? TREND_CIRCLE_COLOR.info;
-            const iconColor = TREND_ICON_COLOR[trend.badge_type] ?? TREND_ICON_COLOR.info;
+          {discoveries.map((item: any, i: number) => {
+            const TrendIcon = resolveIcon(item.icon_hint);
+            const circleBg = TREND_CIRCLE_COLOR[item.badge_type] ?? TREND_CIRCLE_COLOR.info;
+            const iconColor = TREND_ICON_COLOR[item.badge_type] ?? TREND_ICON_COLOR.info;
             return (
-              <View key={trend.title + i} style={discStyles.trendTile}>
-                <View style={[discStyles.trendCircle, { backgroundColor: circleBg }]}>
-                  <TrendIcon size={14} color={iconColor} strokeWidth={2} />
-                </View>
-                <Text style={discStyles.trendTitle} numberOfLines={2}>{trend.title}</Text>
-                <Text style={discStyles.trendDetail} numberOfLines={2}>{trend.detail}</Text>
+              <View key={(item.title || '') + i} style={discStyles.trendTile}>
+                {item.icon_hint ? (
+                  <View style={[discStyles.trendCircle, { backgroundColor: circleBg }]}>
+                    <TrendIcon size={14} color={iconColor} strokeWidth={2} />
+                  </View>
+                ) : null}
+                <Text style={discStyles.trendTitle} numberOfLines={2}>{item.title}</Text>
+                <Text style={discStyles.trendDetail} numberOfLines={2}>{item.detail}</Text>
               </View>
             );
           })}
@@ -902,7 +910,7 @@ function WeekAheadCard({ card }: { card: WSV2WeekAheadCard }) {
       </Animated.Text>
 
       {/* Highlights */}
-      {card.highlights.map((h, i) => {
+      {(card.highlights || []).map((h, i) => {
         const Icon = resolveIcon(h.icon_hint);
         return (
           <Animated.View
@@ -926,12 +934,12 @@ function WeekAheadCard({ card }: { card: WSV2WeekAheadCard }) {
       })}
 
       {/* Busy day warnings */}
-      {card.busy_day_warnings.length > 0 ? (
+      {(card.busy_day_warnings || []).length > 0 ? (
         <Animated.View
-          entering={FadeInUp.delay(250 + card.highlights.length * 100).duration(300)}
+          entering={FadeInUp.delay(250 + (card.highlights || []).length * 100).duration(300)}
           style={waStyles.warningBox}
         >
-          {card.busy_day_warnings.map((w, i) => (
+          {(card.busy_day_warnings || []).map((w, i) => (
             <View key={w.day + i} style={waStyles.warningRow}>
               <AlertTriangle size={14} color={WS.golden} strokeWidth={2} />
               <Text style={waStyles.warningText}>
@@ -944,7 +952,7 @@ function WeekAheadCard({ card }: { card: WSV2WeekAheadCard }) {
 
       {/* Calendar link */}
       <Animated.View
-        entering={FadeInUp.delay(350 + card.highlights.length * 100).duration(300)}
+        entering={FadeInUp.delay(350 + (card.highlights || []).length * 100).duration(300)}
       >
         <Pressable
           style={({ pressed }) => [waStyles.calendarLink, pressed && { opacity: 0.7 }]}
@@ -1674,6 +1682,13 @@ const discStyles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#666666',
     lineHeight: 16,
+  },
+  researchSources: {
+    fontSize: 10,
+    fontFamily: 'Inter-Medium',
+    color: WS.periwinkle,
+    marginTop: 6,
+    lineHeight: 14,
   },
   trendsRow: {
     flexDirection: 'row',

@@ -1,0 +1,202 @@
+{
+  "_type": "summary_v2_test",
+  "summary": {
+    "cards": [
+      {
+        "body": "Japan chapter closed with a perfect Tokyo day. Bora Bora opened a new one. Between jet skiing and Daily Context Object work, you found sustainable pace: tennis, a run, weights, Gremly progress, sobriety — all one day. The anxiety from two weeks ago ('not moving quick enough') dissolved into something quieter.",
+        "mood": "grateful and alive",
+        "type": "opening",
+        "quote": "I feel like the daily context I have built could be really powerful.",
+        "headline": "Japan closed, Bora Bora blooming — rhythm found",
+        "image_url": "https://media.istockphoto.com/id/1172291314/photo/bora-bora-aerial-drone-image-of-travel-vacation-paradise-and-overwater-bungalows.jpg?s=612x612&w=0&k=20&c=oZvgBj8NcdiuVppcyQsuOcG2A2PG6wx0oXbrlau6Nik=",
+        "engagement": {
+          "drops": 15,
+          "sweeps": 4,
+          "journals": 13,
+          "completions": 0
+        },
+        "image_hint": "bora_bora_lagoon",
+        "quote_date": "2026-03-08",
+        "subheadline": "Honeymoon Immersion"
+      },
+      {
+        "type": "thread_movements",
+        "title": "What Shifted",
+        "threads": [
+          {
+            "name": "Japan Trip (Tokyo & Kyoto)",
+            "detail": "Closed March 6 with first-class flight to Bora Bora. Michelin dinner, sake tasting, Golden Gai, Kyoto train.",
+            "domain": "Honeymoon",
+            "direction": "concluded",
+            "icon_hint": "travel",
+            "badge_type": "neutral",
+            "badge_label": "complete",
+            "shift_label": "thriving → concluded",
+            "is_highlight": true
+          },
+          {
+            "name": "App Development & Launch",
+            "detail": "Four DCO tasks completed March 8–13 from honeymoon. Resolved prior-week pace anxiety.",
+            "domain": "Gremly improvements",
+            "direction": "up",
+            "icon_hint": "work",
+            "badge_type": "success",
+            "badge_label": "on fire",
+            "shift_label": "anxious → sustainable momentum",
+            "is_highlight": true
+          },
+          {
+            "name": "Partnership with Dave",
+            "detail": "Named tension explicitly March 12: 'I need to step back and just enjoy him.' Itinerary pivoted to French Polynesia.",
+            "domain": "Relationship & Home Life",
+            "direction": "milestone",
+            "icon_hint": "relationship",
+            "badge_type": "warning",
+            "badge_label": "thriving",
+            "shift_label": "present → consciously prioritised",
+            "is_highlight": true
+          },
+          {
+            "name": "Running & Half Marathon Training",
+            "detail": "One run logged in Bora Bora March 8. Half marathon March 22. No taper plan captured.",
+            "domain": "Fitness & Health",
+            "direction": "milestone",
+            "icon_hint": "fitness",
+            "badge_type": "warning",
+            "badge_label": "race soon",
+            "shift_label": "training → 14 days to race",
+            "is_highlight": false
+          },
+          {
+            "name": "Sobriety & Alcohol-Free Streak",
+            "detail": "March 8 marked deliberate sobriety win framed as one element of balanced day, no shame language.",
+            "domain": "Fitness & Health",
+            "direction": "up",
+            "icon_hint": "health",
+            "badge_type": "success",
+            "badge_label": "steady",
+            "shift_label": "struggling → proud win",
+            "is_highlight": false
+          },
+          {
+            "name": "Yoga & Cycling",
+            "detail": "Both practices on hold during honeymoon. No logged activity since before departure.",
+            "domain": "Fitness & Health",
+            "direction": "down",
+            "icon_hint": "fitness",
+            "badge_type": "danger",
+            "badge_label": "paused",
+            "shift_label": "active → paused",
+            "is_highlight": false
+          }
+        ]
+      },
+      {
+        "type": "moments",
+        "moments": [
+          {
+            "body": "Golden Gai is Tokyo's most atmospheric pocket: narrow alleys of tiny bars seating eight, where strangers become extraordinary. Late February is ume (plum blossom) season — quieter, intimate precursor to sakura.",
+            "date": "2026-03-02",
+            "title": "Perfect Day Recounted in Shinjuku",
+            "day_label": "MON",
+            "image_url": "https://www.alojapan.com/wp-content/uploads/2023/01/1673532188_maxresdefault.jpg",
+            "image_hint": "tokyo_golden_gai",
+            "thread_tags": [
+              "Japan Trip (Tokyo & Kyoto)",
+              "Partnership with Dave"
+            ],
+            "connected_items": [
+              "Perfect Day Exploring Tokyo",
+              "Exploring Shinjuku and Tokyo Connections",
+              "Train Journey to Kyoto"
+            ]
+          },
+          {
+            "body": "Bora Bora's lagoon — warm water, ambient sounds, no commute — is genuinely restorative. The doubled emphasis ('very very refreshed') marks a day where everything compounded.",
+            "date": "2026-03-08",
+            "title": "Everything Clicked in Bora Bora",
+            "day_label": "SUN",
+            "image_url": "https://wallpaperaccess.com/full/24328.jpg",
+            "image_hint": "bora_bora_overwater",
+            "thread_tags": [
+              "Bora Bora & Hawaii",
+              "Strength Training",
+              "App Development & Launch",
+              "Partnership with Dave",
+              "Sobriety & Alcohol-Free Streak"
+            ],
+            "connected_items": [
+              "Book Poolside Cabana",
+              "Tennis Match with Dave",
+              "Jet Skiing Basics",
+              "Daily Context Object Integration"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "discoveries",
+        "spotlight": {
+          "badge": "discovery",
+          "title": "Your best Gremly days happen inside vacation",
+          "takeaway": "Vacation sharpens Gremly work. Removed from 'moving quick enough' pressure, you complete features faster with clarity about what matters.",
+          "evidence_trail": "Feb 27: 'not moving quick enough with the app.' March 8–13 (Bora Bora): Daily Context Object Integration, Fed Metaphor Exploration, Dco User Onboarding, Dco Implementation all completed. Four feature tasks in six days on honeymoon — more DCO progress than pre-departure sprint week. Pattern repeated Feb 16 (Tulum): critical fixes completed mid-travel."
+        }
+      },
+      {
+        "type": "week_ahead",
+        "intro": "Next week: island flight Sunday, work resumes Monday March 16, half marathon March 22 collides with return flight. Bug backlog and Merkury costs await. Monthly retro: March opened with launch and flight intertwined. Vacation vs. productivity trade-off never materialized — shipped features from lagoon, ran in heat, wrote best journal entries in months. Pre-honeymoon anxiety ('not moving quick enough') shifted to March 14 tone: 'more chill and able to work on Gremly whilst present.'",
+        "highlights": [
+          {
+            "date": "2026-03-15",
+            "title": "Island transition",
+            "detail": "Flight between French Polynesian islands",
+            "day_label": "SUN"
+          },
+          {
+            "date": "2026-03-16",
+            "title": "Work resumes",
+            "detail": "Confirm Merkury costs (18 days stale), log timesheets (17 days stale)",
+            "day_label": "MON"
+          },
+          {
+            "date": "2026-03-22",
+            "title": "Half marathon + return flight",
+            "detail": "Race day collides with San Francisco departure",
+            "day_label": "SUN"
+          }
+        ]
+      }
+    ]
+  },
+  "analyst_metadata": {
+    "model": "claude-haiku-4-5-20251001",
+    "latency_ms": 167439,
+    "input_tokens": 8216,
+    "output_tokens": 20000,
+    "data_payload_chars": 15039,
+    "cleaned_events_count": 43
+  },
+  "rebuild_metadata": {
+    "model": "claude-sonnet-4-6",
+    "latency_ms": 101761,
+    "new_threads": 0,
+    "input_tokens": 20552,
+    "output_tokens": 5535,
+    "thread_updates": 12
+  },
+  "summary_metadata": {
+    "model": "claude-sonnet-4-6",
+    "card_count": 5,
+    "card_types": [
+      "opening",
+      "thread_movements",
+      "moments",
+      "discoveries",
+      "week_ahead"
+    ],
+    "latency_ms": 118417,
+    "input_tokens": 29074,
+    "output_tokens": 5000
+  }
+}
