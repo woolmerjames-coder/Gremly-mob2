@@ -222,8 +222,8 @@ function GremlyMoodCard({ card }: { card: any }) {
       <Animated.View
         entering={FadeInUp.delay(100).duration(400)}
         style={{
-          width: 80,
-          height: 80,
+          width: 120,
+          height: 120,
           alignItems: 'center',
           justifyContent: 'center',
           marginBottom: 24,
@@ -231,7 +231,7 @@ function GremlyMoodCard({ card }: { card: any }) {
       >
         <Image
           source={require('../../assets/gremlywaving.png')}
-          style={{ width: 70, height: 70, borderRadius: 35 }}
+          style={{ width: 100, height: 100, borderRadius: 50 }}
           resizeMode="contain"
         />
       </Animated.View>

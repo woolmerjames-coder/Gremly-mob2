@@ -4386,6 +4386,22 @@ async function resolveImageUrl(imageHint, env) {
     if (data.results && data.results.length > 0) {
       return data.results[0].urls.regular;
     }
+
+    // Fallback: try shorter query (first two words only)
+    const shortQuery = query.split(' ').slice(0, 2).join(' ');
+    if (shortQuery !== query) {
+      console.log(`[WeeklySummaryV2] Unsplash retry with shorter query: "${shortQuery}"`);
+      const retryRes = await fetch(
+        `https://api.unsplash.com/search/photos?query=${encodeURIComponent(shortQuery)}&per_page=1&orientation=landscape`,
+        { headers: { 'Authorization': `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } }
+      );
+      const retryData = await retryRes.json();
+      if (retryData.results && retryData.results.length > 0) {
+        return retryData.results[0].urls.regular;
+      }
+    }
+
+    console.warn(`[WeeklySummaryV2] No Unsplash results for: "${query}"`);
     return null;
   } catch (e) {
     console.warn('[WeeklySummaryV2] Unsplash failed:', imageHint, e.message);
@@ -4507,7 +4523,8 @@ You must output a JSON plan with these sections:
         "body": "(MAX 100 CHARS) Brief reasoning",
         "type": "thought | experiment | habit_idea | mindset_shift"
       }
-    ]
+    ],
+    "_rule": "Each recommendation must reference at least one specific data point from this week (a date, a todo title, a journal quote, a habit stat). Recommendations that could apply to anyone are too generic — they must be grounded in THIS user's THIS week."
   },
 
   "card_decisions": {
@@ -4700,11 +4717,13 @@ Schema:
       "date": "YYYY-MM-DD",
       "title": "(MAX 40 CHARS) Reflects the user's experience, not the place.",
       "body": "(MAX 300 CHARS) Lead with what the user FELT or what SHIFTED. Use ONLY details from the allocated moment_details for this moment. Brief real-world color is fine but the moment is about the person. NEVER recap what the user did.",
-      "image_hint": "keyword for image search",
+      "image_hint": "broad scenic/location keywords for photo search",
       "thread_tags": ["from plan"]
     }
   ]
 }
+
+image_hint RULES: Use broad scenic or location keywords suitable for a photo search engine. Good hints: 'ocean sunset palms', 'city street evening lights', 'mountain trail morning'. Bad hints: anything referencing specific activities, objects, or people — photo libraries do not index these. Strip activity words entirely. If the moment happened at a beach, the hint is the beach setting, not what the user did there.
 
 Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
       break;
@@ -4788,7 +4807,7 @@ Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL
             max_tokens: 1500,
             temperature: 0.2,
             messages: [{ role: 'user', content: cardPrompt }],
-            system: 'You are building a single \'recommends\' card for a weekly summary. This card is Gremly being a thoughtful coach — suggesting ideas the user can consider, not tasks to complete. The tone is warm, curious, and thought-provoking. Frame suggestions as invitations, not instructions. Output ONLY valid JSON for this single card. Stay within ALL character limits.',
+            system: 'You are building a single \'recommends\' card for a weekly summary. This card is Gremly being a thoughtful coach — suggesting ideas the user can consider, not tasks to complete. The tone is warm, curious, and thought-provoking. Frame suggestions as invitations, not instructions.\n\nQUALITY RULES FOR RECOMMENDATIONS:\n- Be specific and concrete. The user should understand what you are suggesting within 2 seconds of reading.\n- Ground every recommendation in evidence from this week\'s data. Reference specific dates, items, or patterns.\n- Frame as clear actions or experiments, not poetic metaphors.\n- Bad: abstract, clever, requires interpretation to understand.\n- Good: direct, references a specific moment or pattern, suggests something the user can actually try.\n- The primary recommendation should be the single most impactful thing the user could do differently based on what you observed this week.\n- Secondary recommendations should each address a different dimension of the user\'s life — don\'t cluster all suggestions around the same theme.\n\nOutput ONLY valid JSON for this single card. Stay within ALL character limits.',
           }),
         });
 
@@ -4972,19 +4991,36 @@ async function generateWeeklySummaryV2(
     .filter(t => t.completed_at)
     .map(t => ({ title: t.title, date: t.completed_at, space: t.space }));
 
-  // Stale items
-  const staleItems = (analystOutput.stale_items || []).map(s => {
-    const matchingTodo = (weeklySnapshot.todosDetail || []).find(t =>
-      (t.title && s.title && t.title.toLowerCase() === s.title.toLowerCase())
-    );
-    return {
-      title: s.title,
-      days_stale: s.days_stale,
-      domain: s.domain_hint,
-      severity: s.severity,
-      item_id: matchingTodo?.id || null,
-    };
-  });
+  // Stale items — built from raw snapshot data, NOT dependent on analyst
+  const staleItems = (weeklySnapshot.todosDetail || [])
+    .filter(t => {
+      if (t.status !== 'active' || t.archived) return false;
+      if (!t.created_at) return false;
+      const targetDate = weeklySnapshot.targetDate || weekEnd;
+      const daysSince = Math.floor(
+        (new Date(targetDate + 'T00:00:00Z') - new Date(t.created_at.split('T')[0] + 'T00:00:00Z')) / 86400000
+      );
+      return daysSince > 14;
+    })
+    .map(t => {
+      const targetDate = weeklySnapshot.targetDate || weekEnd;
+      const daysSince = Math.floor(
+        (new Date(targetDate + 'T00:00:00Z') - new Date(t.created_at.split('T')[0] + 'T00:00:00Z')) / 86400000
+      );
+      // Try to find analyst enrichment for this item
+      const analystMatch = (analystOutput.stale_items || []).find(
+        s => s.title && t.title && s.title.toLowerCase() === t.title.toLowerCase()
+      );
+      return {
+        title: t.title,
+        days_stale: daysSince,
+        domain: analystMatch?.domain_hint || t.space || 'Uncategorized',
+        severity: daysSince > 30 ? 'high' : daysSince > 21 ? 'medium' : 'low',
+        item_id: t.id || null,
+      };
+    });
+
+  console.log(`[WeeklySummaryV2] Stale items from snapshot: ${staleItems.length} (analyst had: ${(analystOutput.stale_items || []).length})`);
 
   // User profile
   const userProfile = weeklySnapshot.userProfile || null;
@@ -5052,8 +5088,8 @@ async function generateWeeklySummaryV2(
   // Always: recommends
   cardBuilds.push(buildCard('recommends', plan, storytellerData, staleItems, weekStart, weekEnd, env));
 
-  // Conditional: stale_triage
-  if (plan.card_decisions?.include_stale_triage && staleItems.length > 0) {
+  // Data-driven: stale_triage — always build if stale items exist
+  if (staleItems.length > 0) {
     cardBuilds.push(buildCard('stale_triage', plan, storytellerData, staleItems, weekStart, weekEnd, env));
   }
 
