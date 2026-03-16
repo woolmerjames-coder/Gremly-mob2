@@ -1387,12 +1387,25 @@ export interface WSV2RecommendationCard {
   };
 }
 
+export interface WSV2RecommendsItem {
+  title: string;
+  body: string;
+  type: 'thought' | 'experiment' | 'habit_idea' | 'mindset_shift';
+}
+
+export interface WSV2RecommendsCard {
+  type: 'recommends';
+  primary: WSV2RecommendsItem;
+  secondary: WSV2RecommendsItem[];
+}
+
 export type WSV2Card =
   | WSV2GremlyMoodCard
   | WSV2OpeningCard
   | WSV2ThreadMovementsCard
   | WSV2DiscoveriesCard
   | WSV2MomentsCard
+  | WSV2RecommendsCard
   | WSV2StaleTriageCard
   | WSV2WeekAheadCard
   | WSV2MonthlyRetroCard

@@ -195,23 +195,45 @@ function ProgressDots({ total, current }: { total: number; current: number }) {
 // Gremly Mood card renderer
 // ─────────────────────────────────────────────────────────────────────────────
 
+function formatWeekLabel(raw: string): string {
+  try {
+    const parts = raw.split(' to ');
+    if (parts.length !== 2) return raw;
+    const start = new Date(parts[0] + 'T00:00:00Z');
+    const end = new Date(parts[1] + 'T00:00:00Z');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const sMonth = monthNames[start.getUTCMonth()];
+    const eMonth = monthNames[end.getUTCMonth()];
+    const sDay = start.getUTCDate();
+    const eDay = end.getUTCDate();
+    if (sMonth === eMonth) {
+      return `${sMonth} ${sDay} – ${eDay}`;
+    }
+    return `${sMonth} ${sDay} – ${eMonth} ${eDay}`;
+  } catch {
+    return raw;
+  }
+}
+
 function GremlyMoodCard({ card }: { card: any }) {
   return (
     <Animated.View entering={FadeIn.duration(500)} style={[styles.card, { alignItems: 'center', paddingVertical: 48 }]}>
-      {/* Mascot placeholder — replace with Lottie when ready */}
+      {/* Mascot image */}
       <Animated.View
         entering={FadeInUp.delay(100).duration(400)}
         style={{
           width: 80,
           height: 80,
-          borderRadius: 40,
-          backgroundColor: '#BFD8C0',
           alignItems: 'center',
           justifyContent: 'center',
           marginBottom: 24,
         }}
       >
-        <Text style={{ fontSize: 36 }}>🧌</Text>
+        <Image
+          source={require('../../assets/gremlywaving.png')}
+          style={{ width: 70, height: 70, borderRadius: 35 }}
+          resizeMode="contain"
+        />
       </Animated.View>
 
       {/* Mood line */}
@@ -268,7 +290,7 @@ function GremlyMoodCard({ card }: { card: any }) {
           opacity: 0.6,
         }}
       >
-        {card.week_label}
+        {formatWeekLabel(card.week_label)}
       </Animated.Text>
     </Animated.View>
   );
@@ -676,11 +698,14 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
 
   const matchedItems: MatchedStaleItem[] = useMemo(() => {
     return card.items.map((item, idx) => {
-      const match = todos.find(
-        (t) =>
-          (t.title ?? '').toLowerCase() === item.title.toLowerCase() ||
-          (t.name ?? '').toLowerCase() === item.title.toLowerCase(),
-      );
+      const itemTitle = (item.title ?? '').toLowerCase();
+      const match = itemTitle
+        ? todos.find(
+            (t) =>
+              (t.title ?? '').toLowerCase() === itemTitle ||
+              (t.name ?? '').toLowerCase() === itemTitle,
+          )
+        : undefined;
       return { ...item, todoId: match?.id ?? null, idx };
     });
   }, [card.items, todos]);
@@ -1136,6 +1161,107 @@ function MonthlyRetroCard({ card }: { card: WSV2MonthlyRetroCard }) {
 // Recommendation card — Mind Drop submit pattern from v1
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Recommends card — Gremly's coaching suggestions
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RECOMMEND_TYPE_ICON: Record<string, any> = {
+  thought: Brain,
+  experiment: Sparkles,
+  habit_idea: Activity,
+  mindset_shift: Eye,
+};
+
+const RECOMMEND_TYPE_LABEL: Record<string, string> = {
+  thought: 'Something to consider',
+  experiment: 'Try this',
+  habit_idea: 'Habit idea',
+  mindset_shift: 'Reframe',
+};
+
+function RecommendsCard({ card }: { card: any }) {
+  const primary = card.primary;
+  const secondary = card.secondary || [];
+  const PrimaryIcon = RECOMMEND_TYPE_ICON[primary?.type] || Sparkles;
+
+  return (
+    <Animated.View entering={FadeIn.duration(400)} style={styles.card}>
+      {/* Section header */}
+      <Animated.View entering={FadeInUp.delay(100).duration(350)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        <Sparkles size={18} color={WS.sageDark} strokeWidth={2} />
+        <Text style={{ fontFamily: 'Instrument Serif', fontSize: 22, color: WS.text }}>
+          Gremly recommends
+        </Text>
+      </Animated.View>
+
+      {/* Primary recommendation */}
+      {primary ? (
+        <Animated.View
+          entering={FadeInUp.delay(200).duration(350)}
+          style={{
+            backgroundColor: 'rgba(191, 216, 192, 0.15)',
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 16,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <PrimaryIcon size={14} color={WS.sageDark} strokeWidth={2} />
+            <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 11, color: WS.sageDark, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+              {RECOMMEND_TYPE_LABEL[primary.type] || 'Consider this'}
+            </Text>
+          </View>
+          <Text style={{ fontFamily: 'DMSans-SemiBold', fontSize: 16, color: WS.text, lineHeight: 22, marginBottom: 6 }}>
+            {primary.title}
+          </Text>
+          <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 14, color: WS.textSubtle, lineHeight: 20 }}>
+            {primary.body}
+          </Text>
+        </Animated.View>
+      ) : null}
+
+      {/* Secondary recommendations */}
+      {secondary.map((rec: any, i: number) => {
+        const SecIcon = RECOMMEND_TYPE_ICON[rec.type] || Sparkles;
+        return (
+          <Animated.View
+            key={rec.title + i}
+            entering={FadeInUp.delay(350 + i * 100).duration(300)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'flex-start',
+              gap: 12,
+              paddingVertical: 12,
+              borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
+              borderTopColor: 'rgba(0,0,0,0.06)',
+            }}
+          >
+            <View style={{
+              width: 28,
+              height: 28,
+              borderRadius: 14,
+              backgroundColor: 'rgba(191, 216, 192, 0.2)',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginTop: 2,
+            }}>
+              <SecIcon size={13} color={WS.sageDark} strokeWidth={2} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: 'DMSans-SemiBold', fontSize: 14, color: WS.text, lineHeight: 20 }}>
+                {rec.title}
+              </Text>
+              <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 13, color: WS.textSubtle, lineHeight: 18, marginTop: 2 }}>
+                {rec.body}
+              </Text>
+            </View>
+          </Animated.View>
+        );
+      })}
+    </Animated.View>
+  );
+}
+
 function RecommendationCard({ card }: { card: WSV2RecommendationCard }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { submit: mindDropSubmit } = useMindDropSubmit();
@@ -1283,6 +1409,8 @@ export default function WeeklySummaryV2Screen() {
         return <MomentsCard card={card} />;
       case 'discoveries':
         return <DiscoveriesCard card={card} />;
+      case 'recommends':
+        return <RecommendsCard card={card} />;
       case 'stale_triage':
         return <StaleTriageCard card={card} />;
       case 'week_ahead':
@@ -2294,7 +2422,7 @@ const mrStyles = StyleSheet.create({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Recommendation card styles
+// Legacy recommendation card styles
 // ─────────────────────────────────────────────────────────────────────────────
 
 const rcStyles = StyleSheet.create({

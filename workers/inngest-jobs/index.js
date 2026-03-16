@@ -4458,9 +4458,12 @@ async function readSSEStream(response) {
 
 // ── PASS 1: Sonnet Narrative Planner ────────────────────────────────────────
 async function runNarrativePlanner(storytellerData, weekStart, weekEnd, staleItems, isFirstWeekOfMonth, env) {
-  const plannerSystem = `You are Gremly's narrative planner. You receive a user's weekly data and must plan a weekly summary across 7 card types. Your job is NOT to write the final text — it's to decide WHAT goes WHERE so that no detail, quote, or observation appears on more than one card.
+  const plannerSystem = `You are Gremly's narrative planner. You receive a user's weekly data and must plan a weekly summary across 8 card types. Your job is NOT to write the final text — it's to decide WHAT goes WHERE so that no detail, quote, or observation appears on more than one card.
 
 WEEK: ${weekStart} to ${weekEnd}
+
+CARD FLOW (this is the narrative order — feel it → see it → relive it → zoom out → understand it → coach it → clear it → look ahead):
+gremly_mood → opening → moments → thread_movements → discoveries → recommends → stale_triage → week_ahead
 
 You must output a JSON plan with these sections:
 
@@ -4488,29 +4491,75 @@ You must output a JSON plan with these sections:
       "spotlight_evidence": ["specific data points ONLY for the discovery — dates, items, quotes"],
       "mini_discoveries": [{ "topic": "short label", "evidence": "one specific fact" }]
     },
+    "recommends_details": ["specific evidence ONLY for recommendations — max 3"],
     "week_ahead_details": ["facts ONLY for week ahead"]
+  },
+
+  "recommendations": {
+    "primary": {
+      "title": "(MAX 50 CHARS) The main thing Gremly would suggest",
+      "body": "(MAX 150 CHARS) Why this matters — connect it to specific evidence from this week",
+      "type": "thought | experiment | habit_idea | mindset_shift"
+    },
+    "secondary": [
+      {
+        "title": "(MAX 40 CHARS) Shorter suggestion",
+        "body": "(MAX 100 CHARS) Brief reasoning",
+        "type": "thought | experiment | habit_idea | mindset_shift"
+      }
+    ]
   },
 
   "card_decisions": {
     "include_moments": true,
     "include_discoveries": true,
+    "include_recommends": true,
     "include_stale_triage": ${staleItems.length > 0 ? 'true' : 'false'},
     "include_monthly_retro": ${isFirstWeekOfMonth ? 'true' : 'false'},
     "thread_names_to_show": ["3-6 thread names that MOVED or MATTER most"],
     "moment_count": 1
   },
 
+  "stale_headline": null,
+
   "factual_notes": ["Any cross-references the builders need — e.g. 'user was working from Bora Bora, do not say work resumes on return', 'sobriety data only covers March 8, do not generalize to the whole week'"]
 }
 
-CRITICAL RULES:
-- Every specific detail (activity name, date, todo title, habit stat, journal excerpt) must appear in EXACTLY ONE allocation bucket. If "tennis" is in opening_details, it CANNOT appear in thread_details or moment_details.
+EXCLUSIVE DETAIL ALLOCATION — ZERO TOLERANCE:
+This is the most important structural rule. Every specific detail (activity name, todo title, habit stat, journal quote excerpt, event name) must appear in EXACTLY ONE allocation bucket. This is a hard partition — like dealing cards into hands.
+
+Before finalizing your plan, run this check:
+- List every specific noun/activity you allocated (e.g. 'tennis', 'DCO Integration', 'floaties', 'jet skiing')
+- Verify each one appears in exactly one bucket
+- If any detail appears in two or more buckets, REMOVE it from all but the one where it has the most impact
+
+Common violations to avoid:
+- Opening mentions 'tennis, weights, run' AND thread_movements mentions them again in individual thread details — WRONG. Opening gets the list, threads get different evidence.
+- Moments describes an activity AND discoveries uses the same activity as evidence — WRONG. Pick one.
+- Gremly mood hook references a specific choice AND opening body describes the same choice — WRONG. The hook is emotional, the body tells the story with different specifics.
+
+MOMENT UNIQUENESS:
+The moment's core insight must be DIFFERENT from the gremly_mood hook and the opening body's conclusion. If those cards already cover a theme (e.g. 'choosing presence over work'), the moment must surface a completely different angle or a different day. A moment should surprise the user — not confirm what they just read on the previous two cards.
+
+WEEK AHEAD EVENT FILTERING — CRITICAL:
+Only include events with genuine significance to the user's life narrative. NEVER include:
+- Recurring meetings that happen every week (standups, syncs, 1:1s, all-hands, status updates)
+- Routine admin tasks (timesheets, office hours)
+- Events where is_recurring is true in the analyst data
+- Events with importance < 5 in the analyst data
+Only include events that are: one-off, milestone-related, travel-related, deadline-related, or connected to a Life Map thread that is actively moving. The user does not need Gremly to tell them about their weekly standup.
+
+STALE TRIAGE:
+- If stale_items exist in the data, ALWAYS set include_stale_triage to true.
+- Do NOT write a stale headline in the plan. Set stale_headline to null. The real item count will be injected by code after the build, because the planner's count may differ from the actual data.
+
+FACTUAL CROSS-REFERENCE RULE:
+Check thread_movements data before making factual claims in any allocation. If a thread shows the user was actively working during a period (e.g. shipping features from a vacation location), do not plan text that says 'work resumes' or 'returning to work' about a later date. The planner must be factually consistent with the Life Map data.
+
+ADDITIONAL RULES:
 - Quotes are allocated once. A quote used on the opening cannot appear on any moment or discovery.
-- The detail_allocation is an EXCLUSIVE partition. Think of it like dealing cards — each fact goes to one hand only.
-- Check thread_movements data before making factual claims. If a thread shows the user was active during a period, don't plan text that says otherwise (e.g. don't say "work resumes" if the user was shipping features from vacation).
 - For moments: choose moments where the user FELT something or where something SHIFTED, not just interesting days. The moment is about the person's inner experience, not the place.
 - For discoveries: choose a behavioral pattern the user hasn't been told about before. Avoid restating what the thread_movements already show.
-- Stale items: if stale_items exist in the data, ALWAYS set include_stale_triage to true.
 
 RESPOND WITH ONLY VALID JSON, no markdown.`;
 
@@ -4624,7 +4673,7 @@ Schema:
       "icon_hint": "fitness | travel | work | personal | health | creative | relationship | admin",
       "shift_label": "(MAX 40 CHARS) transition label e.g. 'consistent → thriving'",
       "badge_label": "(MAX 15 CHARS) 1-2 word status e.g. 'on fire', 'paused'",
-      "detail": "(MAX 100 CHARS) Use ONLY the evidence from thread_details for this thread.",
+      "detail": "(MAX 140 CHARS) Use ONLY the evidence from thread_details for this thread.",
       "is_highlight": true
     }
   ]
@@ -4697,6 +4746,69 @@ Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL
       break;
     }
 
+    case 'recommends': {
+      const recs = plan.recommendations || {};
+      const recsDetails = alloc.recommends_details || [];
+      cardPrompt = `Output a single JSON object for the recommends card.
+Primary recommendation from plan: ${JSON.stringify(recs.primary || {})}
+Secondary recommendations from plan: ${JSON.stringify(recs.secondary || [])}
+Allocated evidence (use ONLY these): ${JSON.stringify(recsDetails)}
+Narrative arc: ${plan.narrative_arc || ''}
+${notesBlock}
+
+Schema:
+{
+  "type": "recommends",
+  "primary": {
+    "title": "(MAX 50 CHARS) from plan recommendations.primary.title",
+    "body": "(MAX 150 CHARS) from plan recommendations.primary.body",
+    "type": "thought | experiment | habit_idea | mindset_shift"
+  },
+  "secondary": [
+    {
+      "title": "(MAX 40 CHARS) from plan recommendations.secondary",
+      "body": "(MAX 100 CHARS) brief reasoning",
+      "type": "thought | experiment | habit_idea | mindset_shift"
+    }
+  ]
+}
+
+Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
+      // Custom system prompt for recommends — warm coach tone
+      try {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': env.ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 1500,
+            temperature: 0.2,
+            messages: [{ role: 'user', content: cardPrompt }],
+            system: 'You are building a single \'recommends\' card for a weekly summary. This card is Gremly being a thoughtful coach — suggesting ideas the user can consider, not tasks to complete. The tone is warm, curious, and thought-provoking. Frame suggestions as invitations, not instructions. Output ONLY valid JSON for this single card. Stay within ALL character limits.',
+          }),
+        });
+
+        if (!response.ok) {
+          const errBody = await response.text().catch(() => '');
+          console.error(`[WeeklySummaryV2:Builder:recommends] Failed: ${response.status} ${errBody.slice(0, 200)}`);
+          return null;
+        }
+
+        const result = await response.json();
+        const text = result.content?.[0]?.text || '';
+        const card = safeParseJSON(text, 'Builder:recommends');
+        console.log(`[WeeklySummaryV2:Builder:recommends] OK. In: ${result.usage?.input_tokens || 0}, Out: ${result.usage?.output_tokens || 0}`);
+        return card;
+      } catch (e) {
+        console.error(`[WeeklySummaryV2:Builder:recommends] Error:`, e.message);
+        return null;
+      }
+    }
+
     case 'stale_triage': {
       cardPrompt = `Output a single JSON object for the stale_triage card.
 Narrative arc: ${plan.narrative_arc || ''}
@@ -4732,6 +4844,8 @@ Output ONLY valid JSON. Stay within ALL character limits. Write in complete, nat
 Allocated details (use ONLY these): ${JSON.stringify(waDetails)}
 Event data for reference: ${JSON.stringify(eventData)}
 ${notesBlock}
+
+ONLY include events the planner specifically selected in week_ahead_details. Do NOT add recurring meetings, office hours, status updates, timesheets, or weekly syncs — even if they appear in the raw data. If the planner selected fewer than 3 events, that's fine. A week ahead with 2 significant events is better than one padded with routine noise.
 
 Schema:
 {
@@ -4914,24 +5028,29 @@ async function generateWeeklySummaryV2(
   // ── PASS 2: Parallel Haiku Card Builders ────────────────────────────────
   const cardBuilds = [];
 
+  // Card flow: gremly_mood → opening → moments → thread_movements → discoveries → recommends → stale_triage → week_ahead
+
   // Always: gremly_mood
   cardBuilds.push(buildCard('gremly_mood', plan, storytellerData, staleItems, weekStart, weekEnd, env));
 
   // Always: opening
   cardBuilds.push(buildCard('opening', plan, storytellerData, staleItems, weekStart, weekEnd, env));
 
-  // Always: thread_movements
-  cardBuilds.push(buildCard('thread_movements', plan, storytellerData, staleItems, weekStart, weekEnd, env));
-
   // Conditional: moments
   if (plan.card_decisions?.include_moments) {
     cardBuilds.push(buildCard('moments', plan, storytellerData, staleItems, weekStart, weekEnd, env));
   }
 
+  // Always: thread_movements
+  cardBuilds.push(buildCard('thread_movements', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+
   // Conditional: discoveries
   if (plan.card_decisions?.include_discoveries) {
     cardBuilds.push(buildCard('discoveries', plan, storytellerData, staleItems, weekStart, weekEnd, env));
   }
+
+  // Always: recommends
+  cardBuilds.push(buildCard('recommends', plan, storytellerData, staleItems, weekStart, weekEnd, env));
 
   // Conditional: stale_triage
   if (plan.card_decisions?.include_stale_triage && staleItems.length > 0) {
@@ -4947,8 +5066,13 @@ async function generateWeeklySummaryV2(
 
   console.log(`[WeeklySummaryV2] Builders: ${builderCalls} calls`);
 
-  // Assemble cards in order, filter out failures
-  const assembledCards = builtCards.filter(c => c !== null);
+  // Assemble cards in canonical narrative order, filter out failures
+  const orderedTypes = ['gremly_mood', 'opening', 'moments', 'thread_movements', 'discoveries', 'recommends', 'stale_triage', 'week_ahead'];
+  const assembledCards = [];
+  for (const type of orderedTypes) {
+    const card = builtCards.find(c => c && c.type === type);
+    if (card) assembledCards.push(card);
+  }
 
   // ── IMAGE RESOLUTION — Unsplash ──────────────────────────────────────────
   const imagePromises = [];
@@ -4988,29 +5112,33 @@ async function generateWeeklySummaryV2(
     const originalCount = parsed.cards.length;
     const removedTypes = [];
 
-    // a. Enforce max 7 cards (gremly_mood + 6)
-    if (parsed.cards.length > 7) {
-      const recIdx = parsed.cards.findIndex(c => c.type === 'recommendation');
-      if (recIdx !== -1) {
-        removedTypes.push('recommendation');
-        parsed.cards.splice(recIdx, 1);
-      }
-    }
-    if (parsed.cards.length > 7) {
-      const mrIdx = parsed.cards.findIndex(c => c.type === 'monthly_retro');
-      if (mrIdx !== -1) {
-        const mrCard = parsed.cards[mrIdx];
-        const waCard = parsed.cards.find(c => c.type === 'week_ahead');
-        if (waCard) {
-          waCard.monthly_retro = {
-            headline: mrCard.headline,
-            body: mrCard.body,
-            thread_arcs: mrCard.thread_arcs,
-          };
+    // a. Enforce max 8 cards — removal priority: recommendation (legacy) → monthly_retro → recommends → moments
+    // NEVER remove: stale_triage, opening, gremly_mood, thread_movements, week_ahead
+    const removalPriority = ['recommendation', 'monthly_retro', 'recommends', 'moments'];
+    while (parsed.cards.length > 8) {
+      let removed = false;
+      for (const targetType of removalPriority) {
+        const idx = parsed.cards.findIndex(c => c.type === targetType);
+        if (idx !== -1) {
+          // Special handling: fold monthly_retro into week_ahead before removing
+          if (targetType === 'monthly_retro') {
+            const mrCard = parsed.cards[idx];
+            const waCard = parsed.cards.find(c => c.type === 'week_ahead');
+            if (waCard) {
+              waCard.monthly_retro = {
+                headline: mrCard.headline,
+                body: mrCard.body,
+                thread_arcs: mrCard.thread_arcs,
+              };
+            }
+          }
+          removedTypes.push(targetType);
+          parsed.cards.splice(idx, 1);
+          removed = true;
+          break;
         }
-        removedTypes.push('monthly_retro');
-        parsed.cards.splice(mrIdx, 1);
       }
+      if (!removed) break; // nothing left to remove safely
     }
 
     // b. Enforce max 2 moments
@@ -5057,8 +5185,21 @@ async function generateWeeklySummaryV2(
       }
     }
 
-    // 3. Stale item IDs — match by title to real todos
+    // 3. Stale headline — inject real count from data
     const staleCard = parsed.cards.find(c => c.type === 'stale_triage');
+    if (staleCard) {
+      const realCount = staleItems.length;
+      // Keep the builder's body/context but override the headline with real count
+      if (staleCard.headline) {
+        staleCard.headline = staleCard.headline.replace(/\d+/, String(realCount));
+      }
+      // Also ensure items array length matches
+      if (staleCard.items && staleCard.items.length !== realCount) {
+        console.warn(`[WeeklySummaryV2] Stale count mismatch: headline implies ${realCount}, items has ${staleCard.items.length}`);
+      }
+    }
+
+    // 4. Stale item IDs — match by title to real todos
     if (staleCard && staleCard.items) {
       for (const item of staleCard.items) {
         if (!item.item_id) {
