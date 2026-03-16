@@ -192,6 +192,89 @@ function ProgressDots({ total, current }: { total: number; current: number }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Gremly Mood card renderer
+// ─────────────────────────────────────────────────────────────────────────────
+
+function GremlyMoodCard({ card }: { card: any }) {
+  return (
+    <Animated.View entering={FadeIn.duration(500)} style={[styles.card, { alignItems: 'center', paddingVertical: 48 }]}>
+      {/* Mascot placeholder — replace with Lottie when ready */}
+      <Animated.View
+        entering={FadeInUp.delay(100).duration(400)}
+        style={{
+          width: 80,
+          height: 80,
+          borderRadius: 40,
+          backgroundColor: '#BFD8C0',
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginBottom: 24,
+        }}
+      >
+        <Text style={{ fontSize: 36 }}>🧌</Text>
+      </Animated.View>
+
+      {/* Mood line */}
+      <Animated.Text
+        entering={FadeInUp.delay(300).duration(400)}
+        style={{
+          fontFamily: 'DMSans-Regular',
+          fontSize: 14,
+          color: WS.textSubtle,
+          letterSpacing: 1.5,
+          textTransform: 'uppercase',
+          marginBottom: 8,
+        }}
+      >
+        This week felt
+      </Animated.Text>
+      <Animated.Text
+        entering={FadeInUp.delay(400).duration(400)}
+        style={{
+          fontFamily: 'Instrument Serif',
+          fontSize: 28,
+          color: WS.text,
+          textAlign: 'center',
+          marginBottom: 20,
+          paddingHorizontal: 24,
+        }}
+      >
+        {card.mood_line}
+      </Animated.Text>
+
+      {/* Hook */}
+      <Animated.Text
+        entering={FadeInUp.delay(550).duration(400)}
+        style={{
+          fontFamily: 'DMSans-Regular',
+          fontSize: 15,
+          color: WS.textSubtle,
+          textAlign: 'center',
+          lineHeight: 22,
+          paddingHorizontal: 32,
+          marginBottom: 16,
+        }}
+      >
+        {card.hook}
+      </Animated.Text>
+
+      {/* Week date */}
+      <Animated.Text
+        entering={FadeInUp.delay(650).duration(350)}
+        style={{
+          fontFamily: 'DMSans-Regular',
+          fontSize: 12,
+          color: WS.textSubtle,
+          opacity: 0.6,
+        }}
+      >
+        {card.week_label}
+      </Animated.Text>
+    </Animated.View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Opening card renderer
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -371,6 +454,19 @@ function LifeInMotionCard({ card }: { card: WSV2ThreadMovementsCard }) {
         <Text style={tileStyles.sectionTitle}>Life in motion</Text>
       </Animated.View>
 
+      <Animated.Text
+        entering={FadeInUp.delay(150).duration(300)}
+        style={{
+          fontFamily: 'DMSans-Regular',
+          fontSize: 14,
+          color: WS.textSubtle,
+          marginBottom: 12,
+          lineHeight: 20,
+        }}
+      >
+        Here's what moved this week.
+      </Animated.Text>
+
       {/* Tile grid */}
       <Animated.View entering={FadeInUp.delay(200).duration(350)} style={tileStyles.grid}>
         {sorted.map((thread, i) => (
@@ -427,14 +523,14 @@ function DiscoveriesCard({ card }: { card: WSV2DiscoveriesCard }) {
         {/* Title */}
         <Text style={discStyles.spotlightTitle}>{spotlight.title}</Text>
 
-        {/* Evidence trail */}
-        <Text style={discStyles.evidenceTrail}>{spotlight.evidence_trail}</Text>
-
         {/* Takeaway with left accent */}
         <View style={discStyles.takeawayRow}>
           <View style={discStyles.takeawayAccent} />
           <Text style={discStyles.takeawayText}>{spotlight.takeaway}</Text>
         </View>
+
+        {/* Evidence trail */}
+        <Text style={discStyles.evidenceTrail}>{spotlight.evidence_trail}</Text>
 
         {/* Research context */}
         {spotlight.research_context ? (
@@ -973,7 +1069,7 @@ function WeekAheadCard({ card }: { card: WSV2WeekAheadCard }) {
       >
         <Pressable
           style={({ pressed }) => [waStyles.calendarLink, pressed && { opacity: 0.7 }]}
-          onPress={() => navigation.navigate('Tabs')}
+          onPress={() => navigation.navigate('CalendarScreen')}
         >
           <Calendar size={14} color={WS.sageDark} strokeWidth={2} />
           <Text style={waStyles.calendarLinkText}>View full week in calendar</Text>
@@ -1168,6 +1264,8 @@ export default function WeeklySummaryV2Screen() {
   // ── Render card by type (placeholders) ───────────────────────────────
   const renderCard = (card: WSV2Card) => {
     switch (card.type) {
+      case 'gremly_mood':
+        return <GremlyMoodCard card={card} />;
       case 'opening': {
         const ws = weekStartParam ?? format(new Date(), 'yyyy-MM-dd');
         const we = format(addDays(new Date(ws + 'T00:00:00'), 6), 'yyyy-MM-dd');
@@ -1761,7 +1859,7 @@ const discStyles = StyleSheet.create({
   miniDiscoveryTitle: {
     fontFamily: 'DMSans-SemiBold',
     fontSize: 14,
-    color: WS.textPrimary,
+    color: WS.text,
     lineHeight: 20,
   },
   miniDiscoveryDetail: {

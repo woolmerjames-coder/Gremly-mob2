@@ -1257,6 +1257,12 @@ export interface WSV2OpeningCard {
   quote: string | null;
   quote_date: string | null;
   image_hint: string | null;
+  image_url?: string;
+  engagement?: {
+    drops: number;
+    sweeps: number;
+    journals: number;
+  };
 }
 
 export interface WSV2Thread {
@@ -1315,6 +1321,7 @@ export interface WSV2Moment {
   body: string;
   quote: string | null;
   image_hint: string | null;
+  image_url?: string;
   thread_tags: string[];
 }
 
