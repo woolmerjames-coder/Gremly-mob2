@@ -4373,6 +4373,430 @@ function mergeWeeklyLifeMapUpdates(lifeMap, delta) {
 //   - AI decides emphasis — a launch week looks different from a quiet week
 // ============================================================================
 
+// ── Unsplash image resolution ────────────────────────────────────────────────
+async function resolveImageUrl(imageHint, env) {
+  if (!imageHint || !env.UNSPLASH_ACCESS_KEY) return null;
+  try {
+    const query = imageHint.replace(/_/g, ' ');
+    const res = await fetch(
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`,
+      { headers: { 'Authorization': `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } }
+    );
+    const data = await res.json();
+    if (data.results && data.results.length > 0) {
+      return data.results[0].urls.regular;
+    }
+    return null;
+  } catch (e) {
+    console.warn('[WeeklySummaryV2] Unsplash failed:', imageHint, e.message);
+    return null;
+  }
+}
+
+// ── Safe JSON parse with jsonrepair ─────────────────────────────────────────
+function safeParseJSON(raw, label) {
+  let jsonStr = raw.trim();
+  if (jsonStr.startsWith('```')) {
+    jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  }
+  try {
+    return JSON.parse(jsonStr);
+  } catch (parseErr) {
+    console.warn(`[WeeklySummaryV2:${label}] Initial parse failed, using jsonrepair:`, parseErr.message);
+    try {
+      const result = JSON.parse(jsonrepair(jsonStr));
+      console.log(`[WeeklySummaryV2:${label}] jsonrepair succeeded`);
+      return result;
+    } catch (repairErr) {
+      console.error(`[WeeklySummaryV2:${label}] jsonrepair also failed:`, repairErr.message);
+      console.error(`[WeeklySummaryV2:${label}] First 500:`, jsonStr.slice(0, 500));
+      throw new Error(`${label} parse error: ${repairErr.message}`);
+    }
+  }
+}
+
+// ── SSE stream reader (reusable for Sonnet streaming) ───────────────────────
+async function readSSEStream(response) {
+  let fullText = '';
+  let inputTokens = 0;
+  let outputTokens = 0;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (data === '[DONE]') continue;
+
+      try {
+        const event = JSON.parse(data);
+        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+          fullText += event.delta.text;
+        }
+        if (event.type === 'message_delta' && event.usage) {
+          outputTokens = event.usage.output_tokens || 0;
+        }
+        if (event.type === 'message_start' && event.message?.usage) {
+          inputTokens = event.message.usage.input_tokens || 0;
+        }
+      } catch {
+        // Skip unparseable lines
+      }
+    }
+  }
+  return { fullText, inputTokens, outputTokens };
+}
+
+// ── PASS 1: Sonnet Narrative Planner ────────────────────────────────────────
+async function runNarrativePlanner(storytellerData, weekStart, weekEnd, staleItems, isFirstWeekOfMonth, env) {
+  const plannerSystem = `You are Gremly's narrative planner. You receive a user's weekly data and must plan a weekly summary across 7 card types. Your job is NOT to write the final text — it's to decide WHAT goes WHERE so that no detail, quote, or observation appears on more than one card.
+
+WEEK: ${weekStart} to ${weekEnd}
+
+You must output a JSON plan with these sections:
+
+{
+  "narrative_arc": "One sentence describing the emotional throughline of this week — what changed from start to end.",
+
+  "gremly_mood": {
+    "mood_line": "(MAX 30 CHARS) 2-4 word emotional read. e.g. 'grateful and present', 'depleted but committed', 'finally settling in'",
+    "hook": "(MAX 120 CHARS) One sentence that makes the user go '...yeah.' The single most important thing about this week."
+  },
+
+  "quote_allocation": {
+    "opening_quote": { "text": "verbatim journal quote", "date": "YYYY-MM-DD" },
+    "moment_quotes": [{ "text": "quote or null", "date": "YYYY-MM-DD", "moment_index": 0 }]
+  },
+
+  "detail_allocation": {
+    "opening_details": ["specific facts/activities ONLY used on opening — max 4"],
+    "thread_details": { "Thread Name": "specific fact/evidence ONLY for this thread — max 1 per thread" },
+    "moment_details": [
+      { "day": "MON-SUN", "date": "YYYY-MM-DD", "title_idea": "short title", "unique_details": ["facts ONLY for this moment — max 3"], "thread_tags": ["thread names"] }
+    ],
+    "discovery_details": {
+      "spotlight_topic": "what the main discovery is about",
+      "spotlight_evidence": ["specific data points ONLY for the discovery — dates, items, quotes"],
+      "mini_discoveries": [{ "topic": "short label", "evidence": "one specific fact" }]
+    },
+    "week_ahead_details": ["facts ONLY for week ahead"]
+  },
+
+  "card_decisions": {
+    "include_moments": true,
+    "include_discoveries": true,
+    "include_stale_triage": ${staleItems.length > 0 ? 'true' : 'false'},
+    "include_monthly_retro": ${isFirstWeekOfMonth ? 'true' : 'false'},
+    "thread_names_to_show": ["3-6 thread names that MOVED or MATTER most"],
+    "moment_count": 1
+  },
+
+  "factual_notes": ["Any cross-references the builders need — e.g. 'user was working from Bora Bora, do not say work resumes on return', 'sobriety data only covers March 8, do not generalize to the whole week'"]
+}
+
+CRITICAL RULES:
+- Every specific detail (activity name, date, todo title, habit stat, journal excerpt) must appear in EXACTLY ONE allocation bucket. If "tennis" is in opening_details, it CANNOT appear in thread_details or moment_details.
+- Quotes are allocated once. A quote used on the opening cannot appear on any moment or discovery.
+- The detail_allocation is an EXCLUSIVE partition. Think of it like dealing cards — each fact goes to one hand only.
+- Check thread_movements data before making factual claims. If a thread shows the user was active during a period, don't plan text that says otherwise (e.g. don't say "work resumes" if the user was shipping features from vacation).
+- For moments: choose moments where the user FELT something or where something SHIFTED, not just interesting days. The moment is about the person's inner experience, not the place.
+- For discoveries: choose a behavioral pattern the user hasn't been told about before. Avoid restating what the thread_movements already show.
+- Stale items: if stale_items exist in the data, ALWAYS set include_stale_triage to true.
+
+RESPOND WITH ONLY VALID JSON, no markdown.`;
+
+  const userMsg = `Plan the narrative for ${weekStart} to ${weekEnd}.\n\n${JSON.stringify(storytellerData, null, 2)}`;
+
+  console.log(`[WeeklySummaryV2:Planner] Calling Sonnet. Payload: ${userMsg.length} chars`);
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 3000,
+      temperature: 0.3,
+      stream: true,
+      messages: [{ role: 'user', content: userMsg }],
+      system: plannerSystem,
+    }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => '');
+    throw new Error(`Planner Sonnet call failed: ${response.status} ${errBody.slice(0, 300)}`);
+  }
+
+  const { fullText, inputTokens, outputTokens } = await readSSEStream(response);
+  console.log(`[WeeklySummaryV2:Planner] Stream complete. Text: ${fullText.length} chars, In: ${inputTokens}, Out: ${outputTokens}`);
+
+  const plan = safeParseJSON(fullText, 'Planner');
+  return { plan, inputTokens, outputTokens };
+}
+
+// ── PASS 2: Haiku Card Builder ──────────────────────────────────────────────
+async function buildCard(cardType, plan, storytellerData, staleItems, weekStart, weekEnd, env) {
+  const alloc = plan.detail_allocation || {};
+  const decisions = plan.card_decisions || {};
+  const notes = (plan.factual_notes || []).join('\n- ');
+  const notesBlock = notes ? `\nFACTUAL NOTES (respect these):\n- ${notes}` : '';
+
+  let cardPrompt = '';
+  let cardData = {};
+
+  switch (cardType) {
+    case 'gremly_mood': {
+      cardPrompt = `Output a single JSON object for the gremly_mood card.
+Narrative arc: ${plan.narrative_arc || ''}
+Mood line from plan: ${plan.gremly_mood?.mood_line || ''}
+Hook from plan: ${plan.gremly_mood?.hook || ''}
+${notesBlock}
+
+Schema:
+{
+  "type": "gremly_mood",
+  "mood_line": "(MAX 30 CHARS) 2-4 word emotional read",
+  "hook": "(MAX 120 CHARS) One sentence — the single most important thing about this week",
+  "week_label": "${weekStart} to ${weekEnd}"
+}
+
+Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
+      break;
+    }
+
+    case 'opening': {
+      const openingDetails = alloc.opening_details || [];
+      const openingQuote = plan.quote_allocation?.opening_quote || {};
+      cardPrompt = `Output a single JSON object for the opening card.
+Narrative arc: ${plan.narrative_arc || ''}
+Allocated details (use ONLY these): ${JSON.stringify(openingDetails)}
+Quote: ${JSON.stringify(openingQuote)}
+${notesBlock}
+
+Schema:
+{
+  "type": "opening",
+  "headline": "(MAX 60 CHARS) Bold statement — max 12 words. The one thing that defines this week.",
+  "subheadline": "(MAX 25 CHARS) 2-4 word week type label",
+  "body": "(MAX 350 CHARS) 2-3 sentences. Use ONLY the details from allocated opening_details. NEVER mention details allocated to other cards.",
+  "mood": "(MAX 20 CHARS) 2-4 words",
+  "quote": "from allocated opening_quote — verbatim, or null",
+  "quote_date": "YYYY-MM-DD from allocation",
+  "image_hint": "keyword for image search — e.g. 'bora_bora_lagoon', 'tokyo_skyline'"
+}
+
+Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
+      break;
+    }
+
+    case 'thread_movements': {
+      const threadDetails = alloc.thread_details || {};
+      const threadNames = decisions.thread_names_to_show || [];
+      cardData = { thread_updates: storytellerData.life_map_delta?.thread_updates || [], new_threads: storytellerData.life_map_delta?.new_threads || [] };
+      cardPrompt = `Output a single JSON object for the thread_movements card.
+Thread names to show: ${JSON.stringify(threadNames)}
+Thread details (one evidence fact per thread): ${JSON.stringify(threadDetails)}
+Thread data for reference: ${JSON.stringify(cardData)}
+${notesBlock}
+
+Schema:
+{
+  "type": "thread_movements",
+  "title": "Life in motion",
+  "threads": [
+    {
+      "name": "thread name — from thread_names_to_show",
+      "domain": "domain name",
+      "direction": "up | down | milestone | concluded | new | steady | paused",
+      "icon_hint": "fitness | travel | work | personal | health | creative | relationship | admin",
+      "shift_label": "(MAX 40 CHARS) transition label e.g. 'consistent → thriving'",
+      "badge_label": "(MAX 15 CHARS) 1-2 word status e.g. 'on fire', 'paused'",
+      "detail": "(MAX 100 CHARS) Use ONLY the evidence from thread_details for this thread.",
+      "is_highlight": true
+    }
+  ]
+}
+
+Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
+      break;
+    }
+
+    case 'moments': {
+      const momentDetails = alloc.moment_details || [];
+      const momentQuotes = plan.quote_allocation?.moment_quotes || [];
+      cardPrompt = `Output a single JSON object for the moments card.
+Moment details (use ONLY these): ${JSON.stringify(momentDetails)}
+Moment quotes: ${JSON.stringify(momentQuotes)}
+${notesBlock}
+
+Schema:
+{
+  "type": "moments",
+  "moments": [
+    {
+      "day_label": "MON | TUE | WED | THU | FRI | SAT | SUN",
+      "date": "YYYY-MM-DD",
+      "title": "(MAX 40 CHARS) Reflects the user's experience, not the place.",
+      "body": "(MAX 300 CHARS) Lead with what the user FELT or what SHIFTED. Use ONLY details from the allocated moment_details for this moment. Brief real-world color is fine but the moment is about the person. NEVER recap what the user did.",
+      "image_hint": "keyword for image search",
+      "thread_tags": ["from plan"]
+    }
+  ]
+}
+
+Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
+      break;
+    }
+
+    case 'discoveries': {
+      const disco = alloc.discovery_details || {};
+      const userProfile = storytellerData.user_profile || null;
+      cardPrompt = `Output a single JSON object for the discoveries card.
+Spotlight topic: ${disco.spotlight_topic || ''}
+Spotlight evidence (use ONLY these): ${JSON.stringify(disco.spotlight_evidence || [])}
+Mini-discoveries: ${JSON.stringify(disco.mini_discoveries || [])}
+User profile (for research framing): ${userProfile ? JSON.stringify(userProfile) : 'none'}
+${notesBlock}
+
+Schema:
+{
+  "type": "discoveries",
+  "spotlight": {
+    "badge": "discovery | shift | breakthrough",
+    "title": "(MAX 50 CHARS) Short punchy label",
+    "evidence_trail": "(MAX 400 CHARS) Specific data points from spotlight_evidence. Dates, item titles, journal quotes, numbers. Show the receipts.",
+    "takeaway": "(MAX 150 CHARS) The insight that follows from the evidence.",
+    "research_context": {
+      "title": "Why this happens",
+      "body": "(MAX 250 CHARS) Connect to behavioral science. Name researchers, studies, or frameworks.",
+      "sources": ["Author (Year) or Framework name — max 3"]
+    }
+  },
+  "mini_discoveries": [
+    {
+      "title": "(MAX 40 CHARS) from plan mini_discoveries",
+      "detail": "(MAX 100 CHARS) One sentence with specific evidence"
+    }
+  ]
+}
+
+Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
+      break;
+    }
+
+    case 'stale_triage': {
+      cardPrompt = `Output a single JSON object for the stale_triage card.
+Narrative arc: ${plan.narrative_arc || ''}
+Stale items data (include ALL of these — do NOT filter or omit any): ${JSON.stringify(staleItems)}
+${notesBlock}
+
+Schema:
+{
+  "type": "stale_triage",
+  "headline": "(MAX 50 CHARS) Short headline — mention count and context",
+  "body": "(MAX 150 CHARS) 1-2 sentences. Compassionate framing using life context.",
+  "items": [
+    {
+      "title": "exact item title from data",
+      "days_stale": 0,
+      "domain": "domain name from data",
+      "context": "(MAX 60 CHARS) Why stale — brief context",
+      "item_id": "from data or null"
+    }
+  ]
+}
+
+The items array MUST contain every single item from the stale_items data provided. Do not filter or omit any. If the data contains 18 items, output 18.
+
+Output ONLY valid JSON. Stay within ALL character limits. Write in complete, natural English sentences.`;
+      break;
+    }
+
+    case 'week_ahead': {
+      const waDetails = alloc.week_ahead_details || [];
+      const eventData = storytellerData.analyst?.event_analysis || {};
+      cardPrompt = `Output a single JSON object for the week_ahead card.
+Allocated details (use ONLY these): ${JSON.stringify(waDetails)}
+Event data for reference: ${JSON.stringify(eventData)}
+${notesBlock}
+
+Schema:
+{
+  "type": "week_ahead",
+  "intro": "(MAX 200 CHARS) What's coming and how it connects. Use ONLY allocated week_ahead_details. Check factual_notes before claiming anything starts or stops.",
+  "highlights": [
+    {
+      "day_label": "MON | TUE | WED | THU | FRI | SAT | SUN",
+      "date": "YYYY-MM-DD",
+      "title": "event title",
+      "icon_hint": "lucide icon name e.g. 'plane', 'trophy', 'briefcase'",
+      "thread_connection": "thread name or null",
+      "prep_nudge": "(MAX 100 CHARS) practical suggestion or null",
+      "context": "(MAX 120 CHARS) bigger picture or null",
+      "importance": 1
+    }
+  ],
+  "busy_day_warnings": [
+    { "day": "day name", "detail": "(MAX 80 CHARS)" }
+  ]
+}
+
+Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
+      break;
+    }
+
+    default:
+      return null;
+  }
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1500,
+        temperature: 0.2,
+        messages: [{ role: 'user', content: cardPrompt }],
+        system: 'You are a JSON card builder for Gremly\'s weekly summary. Output ONLY valid JSON for a single card. No markdown, no explanation. Use ONLY the allocated details provided — do not add details from other cards. Stay within ALL character limits. Write in complete, natural English sentences — never telegraphic fragments.',
+      }),
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => '');
+      console.error(`[WeeklySummaryV2:Builder:${cardType}] Failed: ${response.status} ${errBody.slice(0, 200)}`);
+      return null;
+    }
+
+    const result = await response.json();
+    const text = result.content?.[0]?.text || '';
+    const card = safeParseJSON(text, `Builder:${cardType}`);
+    console.log(`[WeeklySummaryV2:Builder:${cardType}] OK. In: ${result.usage?.input_tokens || 0}, Out: ${result.usage?.output_tokens || 0}`);
+    return card;
+  } catch (e) {
+    console.error(`[WeeklySummaryV2:Builder:${cardType}] Error:`, e.message);
+    return null;
+  }
+}
+
+// ── Main: Two-Pass generateWeeklySummaryV2 ──────────────────────────────────
 async function generateWeeklySummaryV2(
   analystOutput,
   lifeMapDelta,
@@ -4451,207 +4875,7 @@ async function generateWeeklySummaryV2(
   // User profile
   const userProfile = weeklySnapshot.userProfile || null;
 
-  const systemPrompt = `You are Gremly, a warm and perceptive life companion. You're generating a weekly summary for a user. You have something no other productivity app has: a Life Map — accumulated understanding of what matters in this person's life, with thread trajectories that span weeks and months.
-
-WEEK: ${weekStart} to ${weekEnd}
-
-YOUR SUPERPOWER: You can see how threads in someone's life are MOVING — building, declining, approaching milestones, going dormant. You don't just know what happened this week. You know how it connects to last week and the week before. Use this.
-
-YOUR VOICE: Warm, specific, direct. Like a perceptive friend who notices what actually matters. Never generic. Every sentence should contain a specific detail that proves you were paying attention. Quote the user's own words when they reveal something real.
-
-OUTPUT: An ordered array of cards. You decide WHICH cards to include and in WHAT ORDER based on what matters most this week. A honeymoon week looks different from a launch sprint which looks different from a quiet recovery week. The template is flexible — you shape it to fit the week.
-
-RESPOND WITH ONLY VALID JSON, no markdown:
-{
-  "cards": [
-    // REQUIRED: opening card (always first)
-    {
-      "type": "opening",
-      "headline": "(MAX 60 CHARS) Bold statement — max 12 words. The one thing that defines this week. Not a mood label. An observation that proves you've been watching. Use trajectory context when powerful — 'first time since January', '8 weeks running', 'the shift you've been building toward'.",
-      "subheadline": "2-4 word week type label",
-      "body": "(MAX 250 CHARS) 2-3 sentences. The narrative hook. Lead with the most interesting thing — a shift, a milestone, a contradiction, a pattern break. Reference specific items by name. If a Life Map thread changed trajectory, that's often the lead.",
-      "mood": "(MAX 20 CHARS) 2-4 words — emotional tone of the week",
-      "quote": "REQUIRED — A direct journal quote that captures the week's feeling. Must be verbatim from journal data.",
-      "quote_date": "REQUIRED — YYYY-MM-DD of the journal entry the quote came from.",
-      "image_hint": "REQUIRED — keyword for hero image — e.g. 'tokyo_skyline', 'bora_bora_lagoon', 'home_desk'"
-    },
-
-    // REQUIRED: thread_movements card (this is your differentiator)
-    {
-      "type": "thread_movements",
-      "title": "What Shifted",
-      "threads": [
-        {
-          "name": "thread name",
-          "domain": "domain name",
-          "direction": "up | down | milestone | concluded | new | steady",
-          "icon_hint": "fitness | travel | work | personal | health | creative | relationship | admin",
-          "shift_label": "(MAX 40 CHARS) e.g. 'consistent → thriving' or 'active → paused' or '10 days to half marathon'",
-          "badge_label": "(MAX 15 CHARS) REQUIRED — 1-2 word status e.g. 'on fire', 'paused', 'new', 'at risk', 'complete'",
-          "detail": "(MAX 100 CHARS) One specific sentence — the evidence. Quote user's words or cite specific data.",
-          "is_highlight": true
-        }
-      ]
-    },
-
-    // OPTIONAL: moments card (0-1, only if there are genuinely interesting moments)
-    {
-      "type": "moments",
-      "moments": [
-        {
-          "day_label": "MON | TUE | WED | THU | FRI | SAT | SUN",
-          "date": "YYYY-MM-DD",
-          "title": "(MAX 40 CHARS) Short evocative title reflecting the user's experience, not the place name.",
-          "body": "(MAX 200 CHARS) Lead with what the user FELT or what SHIFTED during this moment — connect it to their Life Map threads. Add brief real-world color about the place or season, but the moment is about the person, not the destination. The title should reflect the user's experience, not the place name. NEVER recap what the user did — they know.",
-          "connected_items": ["related item titles"],
-          "image_hint": "keyword for image — e.g. 'tokyo_golden_gai', 'bora_bora_overwater', 'gym_weights', 'bullet_train'",
-          "thread_tags": ["thread names this moment connects to"]
-        }
-      ]
-    },
-
-    // OPTIONAL: pattern card (0-1, only if there's a genuinely interesting behavioral finding)
-    {
-      "type": "discoveries",
-      "spotlight": {
-        "badge": "discovery | shift | breakthrough",
-        "title": "(MAX 50 CHARS) Short punchy label — max 8 words",
-        "evidence_trail": "(MAX 400 CHARS) The specific data points that led to this insight. Name the actual dates, item titles, journal quotes, and numbers from the user's data. Show every step of the reasoning — what you observed first, what you noticed next, how the two connect. The user should be able to follow your logic from raw data to conclusion. Show the receipts FIRST, before any interpretation.",
-        "takeaway": "(MAX 150 CHARS) 1-2 sentences. The insight that follows from the evidence. Only state this AFTER the trail makes it obvious.",
-        "research_context": {
-          "title": "Why this happens",
-          "body": "(MAX 200 CHARS) 2-3 sentences connecting this personal pattern to behavioral science, psychology, or research. Be specific — name the researcher, study, or framework.",
-          "sources": ["Author (Year) or Framework name — max 3 sources"]
-        }
-      },
-      "mini_discoveries": [
-        {
-          "title": "(MAX 40 CHARS) Short punchy finding",
-          "detail": "(MAX 80 CHARS) One sentence with specific evidence"
-        }
-      ]
-    },
-
-    // OPTIONAL: stale_triage card (only if stale items exist and matter)
-    {
-      "type": "stale_triage",
-      "headline": "(MAX 50 CHARS) Short headline — e.g. '7 items still floating'",
-      "body": "(MAX 150 CHARS) 1-2 sentences. Use Life Map context — if they've been on honeymoon, acknowledge that. If it's work items during a vacation, frame appropriately. Don't guilt-trip.",
-      "items": [
-        {
-          "title": "item title",
-          "days_stale": 0,
-          "domain": "domain name",
-          "context": "(MAX 60 CHARS) Why stale — e.g. 'honeymoon travel', 'deprioritized during sprint'",
-          "item_id": "string — the todo UUID from the data, or null"
-        }
-      ]
-    },
-
-    // REQUIRED: week_ahead card (always present)
-    {
-      "type": "week_ahead",
-      "intro": "(MAX 150 CHARS) 2-3 sentences. What's coming and how it connects to this week's threads. Forward-looking, specific.",
-      "highlights": [
-        {
-          "day_label": "MON | TUE | WED | THU | FRI | SAT | SUN",
-          "date": "YYYY-MM-DD",
-          "title": "event title",
-          "icon_hint": "REQUIRED — lucide icon name e.g. 'plane', 'trophy', 'briefcase', 'heart', 'calendar'",
-          "thread_connection": "which Life Map thread this connects to",
-          "prep_nudge": "Practical suggestion, or null",
-          "context": "Why this matters in the bigger picture, or null",
-          "importance": 1
-        }
-      ],
-      "busy_day_warnings": [
-        { "day": "day name", "detail": "what makes it busy" }
-      ]
-    },
-
-    // OPTIONAL: monthly_retro card (only on first summary of a new month)
-    {
-      "type": "monthly_retro",
-      "month_name": "${monthName}",
-      "headline": "(MAX 60 CHARS) The month in one sentence",
-      "thread_arcs": [
-        {
-          "thread": "thread name",
-          "arc": "(MAX 80 CHARS) One sentence — how this thread moved across the month. Reference specific weeks.",
-          "direction": "grew | declined | transformed | emerged | concluded"
-        }
-      ],
-      "body": "2-3 sentences. The month's narrative arc. What changed between the first week and the last? Use Life Map trajectories."
-    },
-
-    // OPTIONAL: recommendation card (only if genuinely useful, max 2)
-    {
-      "type": "recommendation",
-      "text": "max 20 words. Direct, actionable, warm.",
-      "action_type": "create_todo | create_habit | tip",
-      "action_label": "button label",
-      "trigger": "short snake_case pattern — e.g. 'travel_return_work_spike'",
-      "prefill": {
-        "name": "pre-filled name for todo or habit",
-        "frequency": "for habits only, or null",
-        "due_day": "YYYY-MM-DD for todos, or null"
-      }
-    }
-  ],
-
-  "metadata": {
-    "week_type": "2-3 word label",
-    "mood": "2-4 words",
-    "key_themes": ["3-5 theme labels"],
-    "card_count": 0,
-    "card_types_used": ["opening", "thread_movements", ...]
-  }
-}
-
-CARD SELECTION RULES:
-- opening: ALWAYS include. Always first.
-- thread_movements: ALWAYS include. Always second. Show 3-6 threads — prioritize: trajectory changes > milestones > new discoveries > declines > steady high-importance. Don't show every thread — show the ones that MOVED or MATTER.
-- moments: Include if there are moments scoring 7+ in the analyst's magic_moment_candidates. Skip on quiet weeks. 1-4 moments max.
-- pattern: Include if the analyst found behavioral fingerprints that are novel or backed by strong evidence. Skip if patterns are weak or repetitive from prior weeks.
-- discoveries: Include 2-3 mini_discoveries — smaller patterns or observations that don't warrant a full spotlight but are worth noting. Each is just a title + one line of detail.
-- stale_triage: Include if stale items exist. The items array MUST list every single item from the stale_items data provided. Do not filter, prioritize, summarize, or omit any. If the data contains 7 items, output 7. If it contains 12, output 12. The user cannot act on items they cannot see.
-- week_ahead: ALWAYS include. Always last or second-to-last.
-- monthly_retro: Include ONLY if this is the first summary of a new month (${isFirstWeekOfMonth ? 'YES — include monthly retro this week' : 'No — skip monthly retro'}).
-- recommendation: Include only if genuinely actionable. Max 2. Skip rather than be generic.
-
-WRITING RULES:
-- DEDUPLICATION: Never repeat the same observation across cards. If the opening mentions the gratitude shift, the pattern card should surface something DIFFERENT.
-- SPECIFICITY: Every sentence must contain at least one specific detail — a name, date, number, or quote. No "you had a productive week" or "keep up the good work."
-- TRAJECTORY LANGUAGE: Use the Life Map. "Running has been building for 4 weeks" is more powerful than "you ran twice." "First gratitude-dominant week since January" beats "you felt grateful."
-- JOURNAL QUOTES: Use the user's actual words when they capture something real. Put them in quotes. They're more powerful than your paraphrase.
-- HONESTY: If sobriety is struggling, say so warmly. If yoga dropped off, name it. The user trusts Gremly because it's honest, not because it's cheerful.
-- NO ADVICE: Gremly observes and reflects. It does not coach, motivate, or prescribe. Recommendations are the exception — and even those are suggestions, not commands.
-
-EVIDENCE TRAIL RULE — CRITICAL:
-Every insight in the discoveries spotlight MUST show its working. The user should see the SPECIFIC data points — dates, item titles, journal excerpts — that led to the conclusion. Format: evidence first, then takeaway. If you can't point to specific data, the insight isn't real.
-
-DEDUPLICATION RULES — THIS IS THE MOST IMPORTANT RULE:
-Before generating ANY card after the first, mentally list every quote and location you have already used. Then:
-- QUOTES: A journal quote used on ANY card is BURNED. It cannot appear on any other card — not even paraphrased, not even partially. If a quote appears in the opening, it MUST NOT appear on thread_movements, moments, discoveries, or monthly_retro. If you run out of unique quotes, use null.
-- LOCATIONS: If the opening card's image_hint is a location, moments MUST show DIFFERENT locations only.
-- OBSERVATIONS: If thread_movements shows a thread's state, monthly_retro MUST NOT repeat the same observation about that thread. Add a DIFFERENT angle or skip that thread in the retro.
-- TEST YOURSELF: After generating all cards, scan every quote and detail. If anything appears twice, you have failed. Remove the duplicate and replace with new content or null.
-
-DATA FLEXIBILITY:
-- Build from whatever data is RICHEST. Some users have calendar, some don't. Some journal heavily, some barely write.
-- NEVER pad thin weeks. A quiet week gets 4 tight cards, not 6 cards of filler.
-- The week_ahead card works without calendar — use approaching milestones, deadlines, and thread trajectories.
-
-PROFILE AWARENESS:
-- The user_profile field contains the user's own description of themselves — their traits, challenges, goals, and how they think about their own patterns. READ IT CAREFULLY before writing discoveries.
-- When writing research_context on the discoveries spotlight, check: does the user's profile describe traits or patterns that make this research ESPECIALLY relevant to them? If so, frame the research through that lens — acknowledging that the pattern has extra significance given how the user has described themselves.
-- Never name conditions, diagnose, or label. The connection should feel natural — like a knowledgeable friend who knows you well.
-- If the profile contains nothing relevant to the current insight, write generic research. Forced connections are worse than none.
-
-FINAL SELF-CHECK — CRITICAL:
-Before outputting your JSON, re-read every text field you wrote. For any field that exceeds its (MAX N CHARS) limit, rewrite it shorter while preserving natural grammar and meaning. Do not truncate or strip words — rewrite the sentence to be tighter. Every field must read as polished, natural English. Sentence fragments like 'sobriety win framed as element of balanced day' are unacceptable — always write complete, grammatical sentences.`;
-
-  // Build the data payload for Sonnet
+  // Build the data payload shared by planner and builders
   const storytellerData = {
     analyst: {
       themes: analystOutput.themes,
@@ -4681,167 +4905,98 @@ Before outputting your JSON, re-read every text field you wrote. For any field t
     },
   };
 
-  const userMessage = `Generate this user's weekly summary for ${weekStart} to ${weekEnd}.
+  // ── PASS 1: Sonnet Narrative Planner ────────────────────────────────────
+  const { plan, inputTokens: plannerInputTokens, outputTokens: plannerOutputTokens } =
+    await runNarrativePlanner(storytellerData, weekStart, weekEnd, staleItems, isFirstWeekOfMonth, env);
 
-Here is everything you need:
+  console.log(`[WeeklySummaryV2] Planner: ${plannerInputTokens} in / ${plannerOutputTokens} out`);
 
-${JSON.stringify(storytellerData, null, 2)}`;
+  // ── PASS 2: Parallel Haiku Card Builders ────────────────────────────────
+  const cardBuilds = [];
 
-  console.log(`[WeeklySummaryV2] Calling Sonnet. Payload: ${userMessage.length} chars, stale_items: ${staleItems.length}`);
+  // Always: gremly_mood
+  cardBuilds.push(buildCard('gremly_mood', plan, storytellerData, staleItems, weekStart, weekEnd, env));
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
+  // Always: opening
+  cardBuilds.push(buildCard('opening', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+
+  // Always: thread_movements
+  cardBuilds.push(buildCard('thread_movements', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+
+  // Conditional: moments
+  if (plan.card_decisions?.include_moments) {
+    cardBuilds.push(buildCard('moments', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+  }
+
+  // Conditional: discoveries
+  if (plan.card_decisions?.include_discoveries) {
+    cardBuilds.push(buildCard('discoveries', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+  }
+
+  // Conditional: stale_triage
+  if (plan.card_decisions?.include_stale_triage && staleItems.length > 0) {
+    cardBuilds.push(buildCard('stale_triage', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+  }
+
+  // Always: week_ahead
+  cardBuilds.push(buildCard('week_ahead', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+
+  // Run all card builds in parallel
+  const builtCards = await Promise.all(cardBuilds);
+  const builderCalls = builtCards.length;
+
+  console.log(`[WeeklySummaryV2] Builders: ${builderCalls} calls`);
+
+  // Assemble cards in order, filter out failures
+  const assembledCards = builtCards.filter(c => c !== null);
+
+  // ── IMAGE RESOLUTION — Unsplash ──────────────────────────────────────────
+  const imagePromises = [];
+  const openingCard = assembledCards.find(c => c.type === 'opening');
+  if (openingCard?.image_hint) {
+    imagePromises.push(
+      resolveImageUrl(openingCard.image_hint, env).then(url => { if (url) openingCard.image_url = url; })
+    );
+  }
+  const momentsCard = assembledCards.find(c => c.type === 'moments');
+  if (momentsCard?.moments) {
+    for (const moment of momentsCard.moments) {
+      if (moment.image_hint) {
+        imagePromises.push(
+          resolveImageUrl(moment.image_hint, env).then(url => { if (url) moment.image_url = url; })
+        );
+      }
+    }
+  }
+  await Promise.all(imagePromises);
+
+  // Build the parsed object for enforcement/injection
+  let parsed = {
+    cards: assembledCards,
+    metadata: {
+      week_type: plan.gremly_mood?.mood_line || '',
+      mood: plan.gremly_mood?.mood_line || '',
+      key_themes: (plan.detail_allocation?.opening_details || []).slice(0, 5),
+      card_count: assembledCards.length,
+      card_types_used: assembledCards.map(c => c.type),
+      narrative_arc: plan.narrative_arc || '',
     },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 5000,
-      temperature: 0.5,
-      stream: true,
-      messages: [
-        { role: 'user', content: userMessage },
-      ],
-      system: systemPrompt,
-    }),
-  });
+  };
 
-  if (!response.ok) {
-    const errBody = await response.text().catch(() => '');
-    throw new Error(`Weekly summary v2 Sonnet call failed: ${response.status} ${errBody.slice(0, 300)}`);
-  }
-
-  // Read SSE stream
-  let fullText = '';
-  let inputTokens = 0;
-  let outputTokens = 0;
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') continue;
-
-      try {
-        const event = JSON.parse(data);
-        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-          fullText += event.delta.text;
-        }
-        if (event.type === 'message_delta' && event.usage) {
-          outputTokens = event.usage.output_tokens || 0;
-        }
-        if (event.type === 'message_start' && event.message?.usage) {
-          inputTokens = event.message.usage.input_tokens || 0;
-        }
-      } catch {
-        // Skip unparseable lines
-      }
-    }
-  }
-
-  console.log(`[WeeklySummaryV2] Stream complete. Text length: ${fullText.length}, Input: ${inputTokens}, Output: ${outputTokens}`);
-
-  // Parse JSON with jsonrepair fallback
-  let jsonStr = fullText.trim();
-  if (jsonStr.startsWith('```')) {
-    jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch (parseErr) {
-    console.warn('[WeeklySummaryV2] Initial parse failed, using jsonrepair:', parseErr.message);
-    try {
-      parsed = JSON.parse(jsonrepair(jsonStr));
-      console.log('[WeeklySummaryV2] jsonrepair succeeded');
-    } catch (repairErr) {
-      console.error('[WeeklySummaryV2] jsonrepair also failed:', repairErr.message);
-      console.error('[WeeklySummaryV2] First 500:', jsonStr.slice(0, 500));
-      throw new Error(`Weekly summary v2 parse error: ${repairErr.message}`);
-    }
-  }
-
-  // Resolve image_hint keywords to real photo URLs via Tavily
-  if (parsed.cards && env.TAVILY_API_KEY) {
-    for (const card of parsed.cards) {
-      if (card.image_hint && !card.image_url) {
-        try {
-          const query = card.image_hint.replace(/_/g, ' ') + ' scenic photo no text no watermark';
-          const res = await fetch('https://api.tavily.com/search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              api_key: env.TAVILY_API_KEY,
-              query,
-              include_images: true,
-              max_results: 1,
-            }),
-          });
-          const data = await res.json();
-          console.log('[WeeklySummaryV2] Tavily response for', card.image_hint, ':', JSON.stringify({ status: res.status, images: data.images?.length || 0 }));
-          if (data.images && data.images.length > 0) {
-            card.image_url = data.images[0];
-          }
-        } catch (e) {
-          console.warn('[WeeklySummaryV2] Image resolve failed:', card.image_hint, e.message);
-        }
-      }
-      if (card.moments) {
-        for (const moment of card.moments) {
-          if (moment.image_hint && !moment.image_url) {
-            try {
-              const query = moment.image_hint.replace(/_/g, ' ') + ' scenic photo no text no watermark';
-              const res = await fetch('https://api.tavily.com/search', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  api_key: env.TAVILY_API_KEY,
-                  query,
-                  include_images: true,
-                  max_results: 1,
-                }),
-              });
-              const data = await res.json();
-              console.log('[WeeklySummaryV2] Tavily moment response for', moment.image_hint, ':', JSON.stringify({ status: res.status, images: data.images?.length || 0 }));
-              if (data.images && data.images.length > 0) {
-                moment.image_url = data.images[0];
-              }
-            } catch (e) {
-              console.warn('[WeeklySummaryV2] Moment image failed:', moment.image_hint, e.message);
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // Structural card enforcement (deterministic — no AI)
+  // ── STRUCTURAL ENFORCEMENT (deterministic — no AI) ──────────────────────
   if (parsed.cards) {
     const originalCount = parsed.cards.length;
     const removedTypes = [];
 
-    // a. Enforce max 6 cards
-    if (parsed.cards.length > 6) {
+    // a. Enforce max 7 cards (gremly_mood + 6)
+    if (parsed.cards.length > 7) {
       const recIdx = parsed.cards.findIndex(c => c.type === 'recommendation');
       if (recIdx !== -1) {
         removedTypes.push('recommendation');
         parsed.cards.splice(recIdx, 1);
       }
     }
-    if (parsed.cards.length > 6) {
+    if (parsed.cards.length > 7) {
       const mrIdx = parsed.cards.findIndex(c => c.type === 'monthly_retro');
       if (mrIdx !== -1) {
         const mrCard = parsed.cards[mrIdx];
@@ -4859,9 +5014,9 @@ ${JSON.stringify(storytellerData, null, 2)}`;
     }
 
     // b. Enforce max 2 moments
-    const momentsCard = parsed.cards.find(c => c.type === 'moments');
-    if (momentsCard && momentsCard.moments && momentsCard.moments.length > 2) {
-      momentsCard.moments = momentsCard.moments.slice(0, 2);
+    const momCard = parsed.cards.find(c => c.type === 'moments');
+    if (momCard && momCard.moments && momCard.moments.length > 2) {
+      momCard.moments = momCard.moments.slice(0, 2);
     }
 
     console.log('[WeeklySummaryV2] Card enforcement:', {
@@ -4871,19 +5026,19 @@ ${JSON.stringify(storytellerData, null, 2)}`;
     });
   }
 
-  // Post-parse: inject data fields the model can't reliably produce
+  // ── POST-PARSE INJECTION ────────────────────────────────────────────────
   if (parsed.cards) {
     // 1. Engagement stats on opening card — from real Supabase data
-    const openingCard = parsed.cards.find(c => c.type === 'opening');
-    if (openingCard && engagementStats) {
-      openingCard.engagement = {
+    const oCard = parsed.cards.find(c => c.type === 'opening');
+    if (oCard && engagementStats) {
+      oCard.engagement = {
         drops: engagementStats.drops || 0,
         sweeps: engagementStats.sweeps || 0,
         journals: engagementStats.journals || 0,
       };
     }
 
-    // 2. badge_type on thread movements — infer from direction, model ignores this field
+    // 2. badge_type on thread movements — infer from direction
     const tmCard = parsed.cards.find(c => c.type === 'thread_movements');
     if (tmCard && tmCard.threads) {
       const directionToBadgeType = {
@@ -4922,8 +5077,9 @@ ${JSON.stringify(storytellerData, null, 2)}`;
   const latency = Date.now() - t0;
 
   console.log(`[WeeklySummaryV2] Complete in ${latency}ms`, {
-    input_tokens: inputTokens,
-    output_tokens: outputTokens,
+    planner_in: plannerInputTokens,
+    planner_out: plannerOutputTokens,
+    builder_calls: builderCalls,
     card_count: parsed.cards?.length || 0,
     card_types: parsed.cards?.map(c => c.type) || [],
     mood: parsed.metadata?.mood,
@@ -4933,9 +5089,11 @@ ${JSON.stringify(storytellerData, null, 2)}`;
     summary: parsed,
     metadata: {
       latency_ms: latency,
-      input_tokens: inputTokens,
-      output_tokens: outputTokens,
-      model: 'claude-sonnet-4-6',
+      planner_input_tokens: plannerInputTokens,
+      planner_output_tokens: plannerOutputTokens,
+      builder_calls: builderCalls,
+      model_planner: 'claude-sonnet-4-6',
+      model_builder: 'claude-haiku-4-5-20251001',
       card_count: parsed.cards?.length || 0,
       card_types: parsed.cards?.map(c => c.type) || [],
     },
