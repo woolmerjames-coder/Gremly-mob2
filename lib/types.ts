@@ -1241,6 +1241,13 @@ export interface WeeklySummary {
 // Weekly Summary V2 — Life Map powered, flexible card schema
 // ═══════════════════════════════════════════════════════════════════
 
+export interface WSV2GremlyMoodCard {
+  type: 'gremly_mood';
+  mood_line: string;
+  hook: string;
+  week_label: string;
+}
+
 export interface WSV2OpeningCard {
   type: 'opening';
   headline: string;
@@ -1374,6 +1381,7 @@ export interface WSV2RecommendationCard {
 }
 
 export type WSV2Card =
+  | WSV2GremlyMoodCard
   | WSV2OpeningCard
   | WSV2ThreadMovementsCard
   | WSV2DiscoveriesCard
