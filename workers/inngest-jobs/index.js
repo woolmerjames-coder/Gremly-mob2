@@ -5230,6 +5230,7 @@ async function generateWeeklySummaryV2(
   const cardBuilds = [];
 
   // Card flow: gremly_mood → opening → moments → thread_movements → discoveries → recommends → stale_triage → week_ahead
+  // All core cards always build — if the builder gets empty data it returns null and won't appear.
 
   // Always: gremly_mood
   cardBuilds.push(buildCard('gremly_mood', plan, storytellerData, staleItems, weekStart, weekEnd, env));
@@ -5237,18 +5238,14 @@ async function generateWeeklySummaryV2(
   // Always: opening
   cardBuilds.push(buildCard('opening', plan, storytellerData, staleItems, weekStart, weekEnd, env));
 
-  // Conditional: moments
-  if (plan.card_decisions?.include_moments) {
-    cardBuilds.push(buildCard('moments', plan, storytellerData, staleItems, weekStart, weekEnd, env));
-  }
+  // Always: moments (builder returns null if no moment_details)
+  cardBuilds.push(buildCard('moments', plan, storytellerData, staleItems, weekStart, weekEnd, env));
 
   // Always: thread_movements
   cardBuilds.push(buildCard('thread_movements', plan, storytellerData, staleItems, weekStart, weekEnd, env));
 
-  // Conditional: discoveries
-  if (plan.card_decisions?.include_discoveries) {
-    cardBuilds.push(buildCard('discoveries', plan, storytellerData, staleItems, weekStart, weekEnd, env));
-  }
+  // Always: discoveries (builder returns null if no discovery_details)
+  cardBuilds.push(buildCard('discoveries', plan, storytellerData, staleItems, weekStart, weekEnd, env));
 
   // Always: recommends
   cardBuilds.push(buildCard('recommends', plan, storytellerData, staleItems, weekStart, weekEnd, env));
@@ -5363,6 +5360,18 @@ async function generateWeeklySummaryV2(
       card_count: assembledCards.length,
       card_types_used: assembledCards.map(c => c.type),
       narrative_arc: plan.narrative_arc || '',
+    },
+    planner_debug: {
+      has_candidates: !!(plan.candidates),
+      has_selections: !!(plan.selections),
+      diversity_check: plan.selections?.diversity_check || null,
+      candidate_counts: plan.candidates ? {
+        discovery: (plan.candidates.discovery_candidates || []).length,
+        recommendation: (plan.candidates.recommendation_candidates || []).length,
+        moment: (plan.candidates.moment_candidates || []).length,
+        thread: (plan.candidates.thread_candidates || []).length,
+      } : null,
+      card_decisions: plan.card_decisions || null,
     },
   };
 
