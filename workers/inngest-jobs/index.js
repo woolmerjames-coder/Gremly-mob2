@@ -4653,7 +4653,7 @@ RESPOND WITH ONLY VALID JSON, no markdown.`;
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 3000,
+      max_tokens: 8000,
       temperature: 0.3,
       stream: true,
       messages: [{ role: 'user', content: userMsg }],
@@ -5136,12 +5136,67 @@ async function generateWeeklySummaryV2(
   console.log(`[WeeklySummaryV2] Planner: ${plannerInputTokens} in / ${plannerOutputTokens} out`);
 
   // ── CANDIDATE → PLAN WIRING (extract selections into builder-friendly fields) ──
-  if (plan.candidates && plan.selections) {
+  if (plan.candidates) {
     const cands = plan.candidates;
-    const sels = plan.selections;
+    let sels = plan.selections;
 
     console.log(`[WeeklySummaryV2] Candidate mode: discovery_candidates=${(cands.discovery_candidates || []).length}, recommendation_candidates=${(cands.recommendation_candidates || []).length}, moment_candidates=${(cands.moment_candidates || []).length}, thread_candidates=${(cands.thread_candidates || []).length}`);
-    console.log(`[WeeklySummaryV2] Diversity check: ${sels.diversity_check || 'not provided'}`);
+
+    // AUTO-SELECT FALLBACK: if planner generated candidates but hit token limit before selections,
+    // build selections deterministically with diversity constraint
+    if (!sels) {
+      console.log(`[WeeklySummaryV2] No selections found — auto-selecting from candidates with diversity constraint`);
+      const discoveryCands = cands.discovery_candidates || [];
+      const recCands = cands.recommendation_candidates || [];
+      const momentCands = cands.moment_candidates || [];
+      const threadCands = cands.thread_candidates || [];
+
+      // Pick first discovery
+      const discoveryDomain = discoveryCands[0]?.domain || null;
+
+      // Pick primary recommendation from a DIFFERENT domain than discovery
+      let primaryRecIdx = 0;
+      for (let i = 0; i < recCands.length; i++) {
+        if (recCands[i].domain !== discoveryDomain) {
+          primaryRecIdx = i;
+          break;
+        }
+      }
+      const primaryRecDomain = recCands[primaryRecIdx]?.domain || null;
+
+      // Pick secondary recommendations (all others except primary)
+      const secondaryIndices = recCands
+        .map((_, i) => i)
+        .filter(i => i !== primaryRecIdx)
+        .slice(0, 2);
+
+      // Pick moment from a DIFFERENT domain than discovery and primary rec
+      let momentIdx = 0;
+      for (let i = 0; i < momentCands.length; i++) {
+        if (momentCands[i].domain !== discoveryDomain && momentCands[i].domain !== primaryRecDomain) {
+          momentIdx = i;
+          break;
+        }
+      }
+
+      // Pick thread names — all thread candidates
+      const threadPickNames = threadCands.map(tc => tc.name).filter(Boolean).slice(0, 6);
+
+      sels = {
+        discovery_pick: { index: 0, domain: discoveryDomain },
+        recommendation_picks: {
+          primary_index: primaryRecIdx,
+          primary_domain: primaryRecDomain,
+          secondary_indices: secondaryIndices,
+        },
+        moment_pick_indices: [momentIdx],
+        thread_pick_names: threadPickNames,
+        diversity_check: `Auto-selected. Discovery: ${discoveryDomain}, Primary rec: ${primaryRecDomain}, Moment: ${momentCands[momentIdx]?.domain || 'N/A'}`,
+      };
+      console.log(`[WeeklySummaryV2] Auto-selection diversity: ${sels.diversity_check}`);
+    } else {
+      console.log(`[WeeklySummaryV2] Planner provided selections. Diversity check: ${sels.diversity_check || 'not provided'}`);
+    }
 
     if (!plan.detail_allocation) plan.detail_allocation = {};
     if (!plan.card_decisions) plan.card_decisions = {};
@@ -5154,7 +5209,6 @@ async function generateWeeklySummaryV2(
         spotlight_evidence: selectedDiscovery.spotlight_evidence_for_builder || selectedDiscovery.key_evidence || [],
         mini_discoveries: selectedDiscovery.mini_discoveries || [],
       };
-      // Force discoveries on when we have a selected candidate
       plan.card_decisions.include_discoveries = true;
       console.log(`[WeeklySummaryV2] Discovery selected: "${selectedDiscovery.title}" (${selectedDiscovery.domain})`);
     }
@@ -5177,7 +5231,6 @@ async function generateWeeklySummaryV2(
           type: r.type,
         })),
       };
-      // Also populate recommends_details from supporting evidence
       plan.detail_allocation.recommends_details = [
         ...(primaryRec.supporting_evidence || []),
         ...secondaryRecs.flatMap(r => r.supporting_evidence || []),
@@ -5198,16 +5251,30 @@ async function generateWeeklySummaryV2(
         unique_details: m.unique_details || [],
         thread_tags: m.thread_tags || [],
       }));
-      // Force moments on when we have selected candidates
       plan.card_decisions.include_moments = true;
       plan.card_decisions.moment_count = selectedMoments.length;
       console.log(`[WeeklySummaryV2] Moments selected: ${selectedMoments.map(m => m.title_idea).join(', ')}`);
     }
 
     // Wire thread selections into card_decisions AND detail_allocation.thread_details
-    const threadNames = sels.thread_pick_names || [];
-    if (threadNames.length > 0) {
-      plan.card_decisions.thread_names_to_show = threadNames;
+    let threadNames = sels.thread_pick_names || [];
+
+    // FALLBACK: if no thread candidates from planner, build from life map delta
+    if (threadNames.length === 0) {
+      const deltaThreads = storytellerData.life_map_delta?.thread_updates || [];
+      threadNames = deltaThreads
+        .sort((a, b) => (b.importance || 0) - (a.importance || 0))
+        .slice(0, 6)
+        .map(t => t.thread);
+      if (threadNames.length > 0) {
+        console.log(`[WeeklySummaryV2] Thread fallback from life map delta: ${threadNames.join(', ')}`);
+        // Build thread_details from delta data
+        plan.detail_allocation.thread_details = {};
+        for (const t of deltaThreads.slice(0, 6)) {
+          plan.detail_allocation.thread_details[t.thread] = t.recent_update || '';
+        }
+      }
+    } else {
       // Build thread_details from thread_candidates for the selected names
       if (!plan.detail_allocation.thread_details || Object.keys(plan.detail_allocation.thread_details).length === 0) {
         plan.detail_allocation.thread_details = {};
@@ -5220,7 +5287,11 @@ async function generateWeeklySummaryV2(
           }
         }
       }
-      console.log(`[WeeklySummaryV2] Threads selected: ${threadNames.join(', ')}`);
+    }
+
+    if (threadNames.length > 0) {
+      plan.card_decisions.thread_names_to_show = threadNames;
+      console.log(`[WeeklySummaryV2] Threads final: ${threadNames.join(', ')}`);
     }
   } else {
     console.log(`[WeeklySummaryV2] Legacy planner mode (no candidates section)`);
