@@ -4572,6 +4572,8 @@ You must output a JSON plan with these sections:
     "moment_count": 1
   },
 
+NOTE ON card_decisions: include_moments and include_discoveries must ALWAYS be true when you have selected candidates for those cards. The only reason to set them false is if the user's week had literally zero meaningful data (no journals, no todos, no habits). If you generated candidates, you MUST include those cards.
+
   "stale_headline": null,
 
   "factual_notes": ["Any cross-references the builders need — e.g. 'user was working from Bora Bora, do not say work resumes on return', 'sobriety data only covers March 8, do not generalize to the whole week'"]
@@ -5141,15 +5143,20 @@ async function generateWeeklySummaryV2(
     console.log(`[WeeklySummaryV2] Candidate mode: discovery_candidates=${(cands.discovery_candidates || []).length}, recommendation_candidates=${(cands.recommendation_candidates || []).length}, moment_candidates=${(cands.moment_candidates || []).length}, thread_candidates=${(cands.thread_candidates || []).length}`);
     console.log(`[WeeklySummaryV2] Diversity check: ${sels.diversity_check || 'not provided'}`);
 
+    if (!plan.detail_allocation) plan.detail_allocation = {};
+    if (!plan.card_decisions) plan.card_decisions = {};
+
     // Wire selected discovery into detail_allocation.discovery_details
     const selectedDiscovery = (cands.discovery_candidates || [])[sels.discovery_pick?.index ?? 0];
     if (selectedDiscovery) {
-      if (!plan.detail_allocation) plan.detail_allocation = {};
       plan.detail_allocation.discovery_details = {
         spotlight_topic: selectedDiscovery.title || selectedDiscovery.one_line_pitch || '',
         spotlight_evidence: selectedDiscovery.spotlight_evidence_for_builder || selectedDiscovery.key_evidence || [],
         mini_discoveries: selectedDiscovery.mini_discoveries || [],
       };
+      // Force discoveries on when we have a selected candidate
+      plan.card_decisions.include_discoveries = true;
+      console.log(`[WeeklySummaryV2] Discovery selected: "${selectedDiscovery.title}" (${selectedDiscovery.domain})`);
     }
 
     // Wire selected recommendations into plan.recommendations
@@ -5171,11 +5178,12 @@ async function generateWeeklySummaryV2(
         })),
       };
       // Also populate recommends_details from supporting evidence
-      if (!plan.detail_allocation) plan.detail_allocation = {};
       plan.detail_allocation.recommends_details = [
         ...(primaryRec.supporting_evidence || []),
         ...secondaryRecs.flatMap(r => r.supporting_evidence || []),
       ].slice(0, 5);
+      plan.card_decisions.include_recommends = true;
+      console.log(`[WeeklySummaryV2] Primary rec: "${primaryRec.title}" (${primaryRec.domain})`);
     }
 
     // Wire selected moments into detail_allocation.moment_details
@@ -5183,7 +5191,6 @@ async function generateWeeklySummaryV2(
       .map(i => (cands.moment_candidates || [])[i])
       .filter(Boolean);
     if (selectedMoments.length > 0) {
-      if (!plan.detail_allocation) plan.detail_allocation = {};
       plan.detail_allocation.moment_details = selectedMoments.map(m => ({
         day: m.day_label,
         date: m.date,
@@ -5191,12 +5198,29 @@ async function generateWeeklySummaryV2(
         unique_details: m.unique_details || [],
         thread_tags: m.thread_tags || [],
       }));
+      // Force moments on when we have selected candidates
+      plan.card_decisions.include_moments = true;
+      plan.card_decisions.moment_count = selectedMoments.length;
+      console.log(`[WeeklySummaryV2] Moments selected: ${selectedMoments.map(m => m.title_idea).join(', ')}`);
     }
 
-    // Wire thread selections into card_decisions
-    if (sels.thread_pick_names && sels.thread_pick_names.length > 0) {
-      if (!plan.card_decisions) plan.card_decisions = {};
-      plan.card_decisions.thread_names_to_show = sels.thread_pick_names;
+    // Wire thread selections into card_decisions AND detail_allocation.thread_details
+    const threadNames = sels.thread_pick_names || [];
+    if (threadNames.length > 0) {
+      plan.card_decisions.thread_names_to_show = threadNames;
+      // Build thread_details from thread_candidates for the selected names
+      if (!plan.detail_allocation.thread_details || Object.keys(plan.detail_allocation.thread_details).length === 0) {
+        plan.detail_allocation.thread_details = {};
+        for (const name of threadNames) {
+          const candidate = (cands.thread_candidates || []).find(
+            tc => tc.name && tc.name.toLowerCase() === name.toLowerCase()
+          );
+          if (candidate) {
+            plan.detail_allocation.thread_details[name] = candidate.one_line_evidence || '';
+          }
+        }
+      }
+      console.log(`[WeeklySummaryV2] Threads selected: ${threadNames.join(', ')}`);
     }
   } else {
     console.log(`[WeeklySummaryV2] Legacy planner mode (no candidates section)`);
