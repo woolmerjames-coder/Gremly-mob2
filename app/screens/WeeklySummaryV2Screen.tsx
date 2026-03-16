@@ -217,21 +217,22 @@ function formatWeekLabel(raw: string): string {
 
 function GremlyMoodCard({ card }: { card: any }) {
   return (
-    <Animated.View entering={FadeIn.duration(500)} style={[styles.card, { alignItems: 'center', paddingVertical: 48 }]}>
+    <Animated.View entering={FadeIn.duration(500)} style={[styles.card, { alignItems: 'center', paddingTop: 72, paddingBottom: 48, overflow: 'visible' }]}>
       {/* Mascot image */}
       <Animated.View
         entering={FadeInUp.delay(100).duration(400)}
         style={{
-          width: 120,
-          height: 120,
+          width: 140,
+          height: 140,
           alignItems: 'center',
           justifyContent: 'center',
           marginBottom: 24,
+          overflow: 'visible',
         }}
       >
         <Image
           source={require('../../assets/gremlywaving.png')}
-          style={{ width: 100, height: 100, borderRadius: 50 }}
+          style={{ width: 120, height: 120 }}
           resizeMode="contain"
         />
       </Animated.View>

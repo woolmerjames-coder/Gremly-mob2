@@ -4805,7 +4805,7 @@ Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL
           body: JSON.stringify({
             model: 'claude-haiku-4-5-20251001',
             max_tokens: 1500,
-            temperature: 0.2,
+            temperature: 0.1,
             messages: [{ role: 'user', content: cardPrompt }],
             system: 'You are building a single \'recommends\' card for a weekly summary. This card is Gremly being a thoughtful coach — suggesting ideas the user can consider, not tasks to complete. The tone is warm, curious, and thought-provoking. Frame suggestions as invitations, not instructions.\n\nQUALITY RULES FOR RECOMMENDATIONS:\n- Be specific and concrete. The user should understand what you are suggesting within 2 seconds of reading.\n- Ground every recommendation in evidence from this week\'s data. Reference specific dates, items, or patterns.\n- Frame as clear actions or experiments, not poetic metaphors.\n- Bad: abstract, clever, requires interpretation to understand.\n- Good: direct, references a specific moment or pattern, suggests something the user can actually try.\n- The primary recommendation should be the single most impactful thing the user could do differently based on what you observed this week.\n- Secondary recommendations should each address a different dimension of the user\'s life — don\'t cluster all suggestions around the same theme.\n\nOutput ONLY valid JSON for this single card. Stay within ALL character limits.',
           }),
@@ -4906,7 +4906,7 @@ Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1500,
-        temperature: 0.2,
+        temperature: 0.1,
         messages: [{ role: 'user', content: cardPrompt }],
         system: 'You are a JSON card builder for Gremly\'s weekly summary. Output ONLY valid JSON for a single card. No markdown, no explanation. Use ONLY the allocated details provided — do not add details from other cards. Stay within ALL character limits. Write in complete, natural English sentences — never telegraphic fragments.',
       }),
@@ -4927,6 +4927,20 @@ Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL
     console.error(`[WeeklySummaryV2:Builder:${cardType}] Error:`, e.message);
     return null;
   }
+}
+
+// ── Text length safety net ──────────────────────────────────────────────────
+function trimToLimit(text, maxChars) {
+  if (!text || text.length <= maxChars) return text;
+  const truncated = text.slice(0, maxChars);
+  const lastPeriod = truncated.lastIndexOf('.');
+  const lastSemicolon = truncated.lastIndexOf(';');
+  const lastDash = truncated.lastIndexOf('\u2014');
+  const cutPoint = Math.max(lastPeriod, lastSemicolon, lastDash);
+  if (cutPoint > maxChars * 0.6) {
+    return text.slice(0, cutPoint + 1).trim();
+  }
+  return truncated.trim();
 }
 
 // ── Main: Two-Pass generateWeeklySummaryV2 ──────────────────────────────────
@@ -5129,6 +5143,64 @@ async function generateWeeklySummaryV2(
     }
   }
   await Promise.all(imagePromises);
+
+  // ── TEXT LENGTH SAFETY NET ─────────────────────────────────────────────────
+  for (const card of assembledCards) {
+    switch (card.type) {
+      case 'opening':
+        card.headline = trimToLimit(card.headline, 60);
+        card.body = trimToLimit(card.body, 350);
+        break;
+      case 'thread_movements':
+        if (card.threads) {
+          for (const thread of card.threads) {
+            thread.detail = trimToLimit(thread.detail, 140);
+            thread.shift_label = trimToLimit(thread.shift_label, 40);
+          }
+        }
+        break;
+      case 'moments':
+        if (card.moments) {
+          for (const moment of card.moments) {
+            moment.body = trimToLimit(moment.body, 300);
+            moment.title = trimToLimit(moment.title, 40);
+          }
+        }
+        break;
+      case 'discoveries':
+        if (card.spotlight) {
+          card.spotlight.evidence_trail = trimToLimit(card.spotlight.evidence_trail, 400);
+          card.spotlight.takeaway = trimToLimit(card.spotlight.takeaway, 150);
+          if (card.spotlight.research_context) {
+            card.spotlight.research_context.body = trimToLimit(card.spotlight.research_context.body, 250);
+          }
+        }
+        break;
+      case 'week_ahead':
+        card.intro = trimToLimit(card.intro, 200);
+        break;
+      case 'stale_triage':
+        card.headline = trimToLimit(card.headline, 50);
+        card.body = trimToLimit(card.body, 150);
+        break;
+      case 'gremly_mood':
+        card.mood_line = trimToLimit(card.mood_line, 30);
+        card.hook = trimToLimit(card.hook, 120);
+        break;
+      case 'recommends':
+        if (card.primary) {
+          card.primary.title = trimToLimit(card.primary.title, 50);
+          card.primary.body = trimToLimit(card.primary.body, 150);
+        }
+        if (card.secondary) {
+          for (const rec of card.secondary) {
+            rec.title = trimToLimit(rec.title, 40);
+            rec.body = trimToLimit(rec.body, 100);
+          }
+        }
+        break;
+    }
+  }
 
   // Build the parsed object for enforcement/injection
   let parsed = {
@@ -5923,6 +5995,7 @@ function buildWeeklySnapshot(snapshot) {
     // Habits full detail
     habits: computed.habitHealth,
     habitProgressByWeek,
+    rawHabitProgress: raw.habitProgress || [],
 
     // Milestones
     milestones: milestonesDetail,
@@ -6315,12 +6388,34 @@ STALE ITEMS:
     dataLines.push('  Active: none');
   }
 
-  dataLines.push('\n=== HABITS (with completion rates) ===');
+  dataLines.push('\n=== HABITS (with completion rates and day-by-day detail) ===');
   if ((weeklySnapshot.habits || []).length === 0) {
     dataLines.push('  No active habits.');
   }
+
+  // Build a map of habit_id -> [occurred_day, occurred_day, ...]
+  const habitDayMap = {};
+  const rawHabitProgressEntries = weeklySnapshot.rawHabitProgress || [];
+  for (const hp of rawHabitProgressEntries) {
+    if (!habitDayMap[hp.habit_id]) habitDayMap[hp.habit_id] = [];
+    habitDayMap[hp.habit_id].push(hp.occurred_day);
+  }
+
   for (const h of (weeklySnapshot.habits || [])) {
     dataLines.push(`  ${h.name}: ${h.completions}/${h.expected} (${h.score_pct}%) — frequency: ${h.frequency}`);
+    // Add day-by-day completions
+    const days = (habitDayMap[h.id] || []).sort();
+    if (days.length > 0) {
+      // Split into this week vs other weeks
+      const thisWeek = days.filter(d => d >= weekStart && d <= weekEnd);
+      const otherWeeks = days.filter(d => d < weekStart || d > weekEnd);
+      dataLines.push(`    THIS WEEK (${weekStart} to ${weekEnd}): ${thisWeek.length > 0 ? thisWeek.join(', ') : 'none'}`);
+      if (otherWeeks.length > 0) {
+        dataLines.push(`    Prior weeks: ${otherWeeks.join(', ')}`);
+      }
+    } else {
+      dataLines.push(`    No completions logged in 21-day window.`);
+    }
   }
 
   dataLines.push('\n=== MILESTONES ===');
