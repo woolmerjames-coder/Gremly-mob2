@@ -4481,6 +4481,8 @@ WEEK: ${weekStart} to ${weekEnd}
 CARD FLOW (this is the narrative order — feel it → see it → relive it → zoom out → understand it → coach it → clear it → look ahead):
 gremly_mood → opening → moments → thread_movements → discoveries → recommends → stale_triage → week_ahead
 
+Your plan has TWO PHASES: generate CANDIDATES across different life domains, then SELECT from them with a hard diversity constraint.
+
 You must output a JSON plan with these sections:
 
 {
@@ -4496,35 +4498,68 @@ You must output a JSON plan with these sections:
     "moment_quotes": [{ "text": "quote or null", "date": "YYYY-MM-DD", "moment_index": 0 }]
   },
 
-  "detail_allocation": {
-    "opening_details": ["specific facts/activities ONLY used on opening — max 4"],
-    "thread_details": { "Thread Name": "specific fact/evidence ONLY for this thread — max 1 per thread" },
-    "moment_details": [
-      { "day": "MON-SUN", "date": "YYYY-MM-DD", "title_idea": "short title", "unique_details": ["facts ONLY for this moment — max 3"], "thread_tags": ["thread names"] }
-    ],
-    "discovery_details": {
-      "spotlight_topic": "what the main discovery is about",
-      "spotlight_evidence": ["specific data points ONLY for the discovery — dates, items, quotes"],
-      "mini_discoveries": [{ "topic": "short label", "evidence": "one specific fact" }]
-    },
-    "recommends_details": ["specific evidence ONLY for recommendations — max 3"],
-    "week_ahead_details": ["facts ONLY for week ahead"]
-  },
-
-  "recommendations": {
-    "primary": {
-      "title": "(MAX 50 CHARS) The main thing Gremly would suggest",
-      "body": "(MAX 150 CHARS) Why this matters — connect it to specific evidence from this week",
-      "type": "thought | experiment | habit_idea | mindset_shift"
-    },
-    "secondary": [
+  "candidates": {
+    "discovery_candidates": [
       {
-        "title": "(MAX 40 CHARS) Shorter suggestion",
-        "body": "(MAX 100 CHARS) Brief reasoning",
-        "type": "thought | experiment | habit_idea | mindset_shift"
+        "domain": "which life domain this is about",
+        "thread": "which thread if applicable, or null",
+        "title": "short punchy label",
+        "one_line_pitch": "one sentence — what this discovery is and why it matters",
+        "key_evidence": ["2-3 specific data points"],
+        "spotlight_evidence_for_builder": ["specific data points ONLY for this discovery — dates, items, quotes"],
+        "mini_discoveries": [{ "topic": "short label", "evidence": "one specific fact" }]
       }
     ],
-    "_rule": "Each recommendation must reference at least one specific data point from this week (a date, a todo title, a journal quote, a habit stat). Recommendations that could apply to anyone are too generic — they must be grounded in THIS user's THIS week."
+    "recommendation_candidates": [
+      {
+        "domain": "which life domain this addresses",
+        "title": "(MAX 50 CHARS) suggestion title",
+        "body": "(MAX 150 CHARS) why this recommendation and what evidence supports it",
+        "type": "thought | experiment | habit_idea | mindset_shift",
+        "supporting_evidence": ["1-2 specific data points from this week"]
+      }
+    ],
+    "moment_candidates": [
+      {
+        "date": "YYYY-MM-DD",
+        "day_label": "MON-SUN",
+        "domain": "primary life domain",
+        "title_idea": "evocative title",
+        "one_line_pitch": "what makes this moment special — what shifted or what the user felt",
+        "unique_details": ["2-3 specific details ONLY for this moment"],
+        "thread_tags": ["thread names"]
+      }
+    ],
+    "thread_candidates": [
+      {
+        "name": "thread name",
+        "domain": "life domain",
+        "direction": "up | down | milestone | concluded | new | steady | paused",
+        "one_line_evidence": "single most important fact about this thread's movement"
+      }
+    ]
+  },
+
+  "selections": {
+    "discovery_pick": {
+      "index": 0,
+      "domain": "the domain of the picked discovery"
+    },
+    "recommendation_picks": {
+      "primary_index": 0,
+      "primary_domain": "domain of primary recommendation",
+      "secondary_indices": [1, 2]
+    },
+    "moment_pick_indices": [0],
+    "thread_pick_names": ["3-6 thread names to show"],
+    "diversity_check": "Discovery domain: [X]. Primary recommendation domain: [Y]. Moment domain: [Z]. Verify no two share the same domain."
+  },
+
+  "detail_allocation": {
+    "opening_details": ["specific facts/activities ONLY used on opening — max 4"],
+    "thread_details": { "Thread Name": "specific fact/evidence ONLY for this thread — max 1 per thread — use ONLY threads from selections.thread_pick_names" },
+    "recommends_details": ["specific evidence ONLY for recommendations — max 3"],
+    "week_ahead_details": ["facts ONLY for week ahead"]
   },
 
   "card_decisions": {
@@ -4533,7 +4568,7 @@ You must output a JSON plan with these sections:
     "include_recommends": true,
     "include_stale_triage": ${staleItems.length > 0 ? 'true' : 'false'},
     "include_monthly_retro": ${isFirstWeekOfMonth ? 'true' : 'false'},
-    "thread_names_to_show": ["3-6 thread names that MOVED or MATTER most"],
+    "thread_names_to_show": ["copy from selections.thread_pick_names"],
     "moment_count": 1
   },
 
@@ -4542,18 +4577,41 @@ You must output a JSON plan with these sections:
   "factual_notes": ["Any cross-references the builders need — e.g. 'user was working from Bora Bora, do not say work resumes on return', 'sobriety data only covers March 8, do not generalize to the whole week'"]
 }
 
+CANDIDATE GENERATION RULES:
+- discovery_candidates: Generate 3-4 candidates. Each MUST be from a DIFFERENT life domain. If the user has activity in fitness, work, relationship, and travel — there should be one candidate from each, not three from the same domain.
+- recommendation_candidates: Generate 3-4 candidates. Each MUST address a DIFFERENT life domain. Each must reference at least one specific data point from this week (a date, a todo title, a journal quote, a habit stat). Recommendations that could apply to anyone are too generic — they must be grounded in THIS user's THIS week.
+- moment_candidates: Generate 2-3 candidates from DIFFERENT days and ideally different domains.
+- thread_candidates: List ALL threads that moved or matter this week — 4-8 candidates.
+
+DIVERSITY CONSTRAINT — THIS IS THE MOST IMPORTANT SELECTION RULE:
+When making selections, enforce this: the discovery spotlight domain, the primary recommendation domain, and the moment's primary domain must each be DIFFERENT. Three cards in a row about the same life area makes the summary feel obsessive.
+
+Before finalizing selections, write out the diversity_check field:
+- Discovery domain: [X]
+- Primary recommendation domain: [Y]
+- Moment domain: [Z]
+
+If any two match, go back and pick a different candidate for the one that's easiest to swap. This check is mandatory — do not skip it.
+
+SELECTION RULES:
+- recommendation_picks.primary_domain MUST differ from discovery_pick.domain
+- moment domain should ideally differ from both discovery and primary recommendation domains
+- thread_pick_names: pick 3-6 threads that MOVED or MATTER most
+- detail_allocation references ONLY the SELECTED candidates, not all of them
+
 EXCLUSIVE DETAIL ALLOCATION — ZERO TOLERANCE:
-This is the most important structural rule. Every specific detail (activity name, todo title, habit stat, journal quote excerpt, event name) must appear in EXACTLY ONE allocation bucket. This is a hard partition — like dealing cards into hands.
+This is the most important structural rule. Every specific detail (activity name, todo title, habit stat, journal quote excerpt, event name) must appear in EXACTLY ONE allocation bucket or ONE candidate. This is a hard partition — like dealing cards into hands.
 
 Before finalizing your plan, run this check:
 - List every specific noun/activity you allocated (e.g. 'tennis', 'DCO Integration', 'floaties', 'jet skiing')
-- Verify each one appears in exactly one bucket
-- If any detail appears in two or more buckets, REMOVE it from all but the one where it has the most impact
+- Verify each one appears in exactly one bucket OR exactly one candidate
+- If any detail appears in two or more places, REMOVE it from all but the one where it has the most impact
 
 Common violations to avoid:
 - Opening mentions 'tennis, weights, run' AND thread_movements mentions them again in individual thread details — WRONG. Opening gets the list, threads get different evidence.
-- Moments describes an activity AND discoveries uses the same activity as evidence — WRONG. Pick one.
+- A moment describes an activity AND the selected discovery uses the same activity as evidence — WRONG. Pick one.
 - Gremly mood hook references a specific choice AND opening body describes the same choice — WRONG. The hook is emotional, the body tells the story with different specifics.
+- The selected discovery and the primary recommendation both lean on the same evidence — WRONG. They must use different data points.
 
 MOMENT UNIQUENESS:
 The moment's core insight must be DIFFERENT from the gremly_mood hook and the opening body's conclusion. If those cards already cover a theme (e.g. 'choosing presence over work'), the moment must surface a completely different angle or a different day. A moment should surprise the user — not confirm what they just read on the previous two cards.
@@ -5074,6 +5132,75 @@ async function generateWeeklySummaryV2(
     await runNarrativePlanner(storytellerData, weekStart, weekEnd, staleItems, isFirstWeekOfMonth, env);
 
   console.log(`[WeeklySummaryV2] Planner: ${plannerInputTokens} in / ${plannerOutputTokens} out`);
+
+  // ── CANDIDATE → PLAN WIRING (extract selections into builder-friendly fields) ──
+  if (plan.candidates && plan.selections) {
+    const cands = plan.candidates;
+    const sels = plan.selections;
+
+    console.log(`[WeeklySummaryV2] Candidate mode: discovery_candidates=${(cands.discovery_candidates || []).length}, recommendation_candidates=${(cands.recommendation_candidates || []).length}, moment_candidates=${(cands.moment_candidates || []).length}, thread_candidates=${(cands.thread_candidates || []).length}`);
+    console.log(`[WeeklySummaryV2] Diversity check: ${sels.diversity_check || 'not provided'}`);
+
+    // Wire selected discovery into detail_allocation.discovery_details
+    const selectedDiscovery = (cands.discovery_candidates || [])[sels.discovery_pick?.index ?? 0];
+    if (selectedDiscovery) {
+      if (!plan.detail_allocation) plan.detail_allocation = {};
+      plan.detail_allocation.discovery_details = {
+        spotlight_topic: selectedDiscovery.title || selectedDiscovery.one_line_pitch || '',
+        spotlight_evidence: selectedDiscovery.spotlight_evidence_for_builder || selectedDiscovery.key_evidence || [],
+        mini_discoveries: selectedDiscovery.mini_discoveries || [],
+      };
+    }
+
+    // Wire selected recommendations into plan.recommendations
+    const primaryRec = (cands.recommendation_candidates || [])[sels.recommendation_picks?.primary_index ?? 0];
+    const secondaryRecs = (sels.recommendation_picks?.secondary_indices || [])
+      .map(i => (cands.recommendation_candidates || [])[i])
+      .filter(Boolean);
+    if (primaryRec) {
+      plan.recommendations = {
+        primary: {
+          title: primaryRec.title,
+          body: primaryRec.body,
+          type: primaryRec.type,
+        },
+        secondary: secondaryRecs.map(r => ({
+          title: r.title,
+          body: r.body,
+          type: r.type,
+        })),
+      };
+      // Also populate recommends_details from supporting evidence
+      if (!plan.detail_allocation) plan.detail_allocation = {};
+      plan.detail_allocation.recommends_details = [
+        ...(primaryRec.supporting_evidence || []),
+        ...secondaryRecs.flatMap(r => r.supporting_evidence || []),
+      ].slice(0, 5);
+    }
+
+    // Wire selected moments into detail_allocation.moment_details
+    const selectedMoments = (sels.moment_pick_indices || [])
+      .map(i => (cands.moment_candidates || [])[i])
+      .filter(Boolean);
+    if (selectedMoments.length > 0) {
+      if (!plan.detail_allocation) plan.detail_allocation = {};
+      plan.detail_allocation.moment_details = selectedMoments.map(m => ({
+        day: m.day_label,
+        date: m.date,
+        title_idea: m.title_idea,
+        unique_details: m.unique_details || [],
+        thread_tags: m.thread_tags || [],
+      }));
+    }
+
+    // Wire thread selections into card_decisions
+    if (sels.thread_pick_names && sels.thread_pick_names.length > 0) {
+      if (!plan.card_decisions) plan.card_decisions = {};
+      plan.card_decisions.thread_names_to_show = sels.thread_pick_names;
+    }
+  } else {
+    console.log(`[WeeklySummaryV2] Legacy planner mode (no candidates section)`);
+  }
 
   // ── PASS 2: Parallel Haiku Card Builders ────────────────────────────────
   const cardBuilds = [];
