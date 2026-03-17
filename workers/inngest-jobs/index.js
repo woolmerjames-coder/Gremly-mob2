@@ -6398,7 +6398,9 @@ OUTPUT FORMAT — respond with ONLY valid JSON, no markdown, no backticks:
       "evidence_refs": ["type:specific item — e.g. habit:Run 3x Week 2/3, journal:2026-03-08 'very refreshed', todo:Book 10km completed"],
       "lifecycle_signal": "active | approaching_dormant | concluded | reactivated | null",
       "lifecycle_reasoning": "max 10 words — why this lifecycle state",
-      "importance": "high | medium | low"
+      "importance": "high | medium | low",
+      "narrative_interest": 0,
+      "narrative_interest_reasoning": "one sentence — why this score"
     }
   ],
 
@@ -6449,7 +6451,10 @@ OUTPUT FORMAT — respond with ONLY valid JSON, no markdown, no backticks:
     {
       "pattern": "short label — e.g. weekend_sprinter, stress_skips_exercise, travel_fitness_maintainer",
       "evidence": "specific data — e.g. '11 of 15 completions landed Thu-Sun'",
-      "is_novel": false
+      "is_novel": false,
+      "narrative_interest": 0,
+      "threads_involved": ["thread names this pattern spans"],
+      "is_discovery_candidate": false
     }
   ],
 
@@ -6458,7 +6463,8 @@ OUTPUT FORMAT — respond with ONLY valid JSON, no markdown, no backticks:
       "connection": "how two or more threads interacted this week",
       "threads": ["thread name 1", "thread name 2"],
       "items": ["specific item titles showing the connection"],
-      "significance": "why this connection matters for the user's story"
+      "significance": "why this connection matters for the user's story",
+      "narrative_interest": 0
     }
   ],
 
@@ -6520,6 +6526,11 @@ THEME MAPPING:
 - Include a theme entry for every Life Map thread that had ANY activity this week, even minimal.
 - For threads with ZERO activity this week, only include them if the absence is notable (e.g. a daily habit with no completions).
 
+BUNDLED HABIT THEMES:
+When a single theme contains multiple habits and their trajectories diverge (one hitting target, one not), you MUST note BOTH signals separately in the trajectory_reasoning. Do not let a declining habit drag down the trajectory label of a theme where another habit is succeeding. If the theme overall is "declining" because one habit dominates, add a field:
+      "individual_habit_wins": ["Habit Name: X/Y this week — hit target"]
+This ensures individual wins are visible even in a declining theme. Only include habits that met or exceeded their weekly target.
+
 EVENT SCORING:
 - HIGH (7-10): Travel (flights, trips, arrivals), personal milestones, PTO/vacation, one-off significant social events, health appointments, multi-day events.
 - MEDIUM (4-6): One-off work meetings, deadlines, project milestones, personal errands.
@@ -6534,6 +6545,19 @@ RECURRING MEETING DETECTION:
 BEHAVIORAL FINGERPRINTS:
 - Look for patterns across entity types: completion day-of-week clustering, mood vs productivity correlation, habit completion timing.
 - Only flag patterns with clear evidence from THIS week's data.
+- When a behavioral fingerprint spans 3 or more threads, set is_discovery_candidate to true. Multi-thread patterns (e.g. maintaining discipline across several life areas during a challenging period) are strong candidates for the weekly summary's discovery card because they reveal something the user couldn't see from any single thread alone.
+
+NARRATIVE INTEREST SCORING (1-10):
+Apply this score to every theme, behavioral fingerprint, and cross-reference. This measures how SURPRISING, EMOTIONALLY RESONANT, or NOVEL something would be for the user to read about in their weekly summary. It is separate from importance.
+
+Scoring criteria:
+- 9-10: Life transitions, first-time behaviors, major spontaneous decisions, relationship milestones, emergence of entirely new life threads, profound emotional shifts captured in the user's own words
+- 7-8: Multi-thread patterns showing discipline or growth across different life areas, contradictions between intention and behavior, the user noticing something about themselves for the first time (evidenced by journal reflection), achieving goals while in challenging circumstances
+- 5-6: Consistent progress on established habits, expected milestones approaching on schedule, steady-state thread activity with some emotional signal
+- 3-4: Routine habit completions or misses with no emotional context, incremental progress, administrative activity
+- 1-2: Pure data points with no story — a number went up or down with no surrounding context
+
+Key principle: a clean stat (habit went from 0 to 4 completions) scores LOWER than a messy human story (user spontaneously changed travel plans, or started researching something that signals a new life chapter). Numbers are easy to report but hard to feel. Stories are what make people stop scrolling.
 
 MAGIC MOMENTS:
 - Only genuinely interesting moments (importance 7+). 0-4 candidates. Never force them.
