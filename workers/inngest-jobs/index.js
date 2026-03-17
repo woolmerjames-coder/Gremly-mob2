@@ -4581,9 +4581,23 @@ NOTE ON card_decisions: include_moments and include_discoveries must ALWAYS be t
 
 CANDIDATE GENERATION RULES:
 - discovery_candidates: Generate 3-4 candidates. Each MUST be from a DIFFERENT life domain. If the user has activity in fitness, work, relationship, and travel — there should be one candidate from each, not three from the same domain.
-- recommendation_candidates: Generate 3-4 candidates. Each MUST address a DIFFERENT life domain. Each must reference at least one specific data point from this week (a date, a todo title, a journal quote, a habit stat). Recommendations that could apply to anyone are too generic — they must be grounded in THIS user's THIS week.
+- recommendation_candidates: Generate 3-4 candidates. Each MUST address a DIFFERENT life domain. Each must reference at least one specific data point from this week (a date, a todo title, a journal quote, a habit stat). Recommendations that could apply to anyone are too generic — they must be grounded in THIS user's THIS week. At least one recommendation candidate should address the user's UPCOMING week, not just reflect on the past week. Check the analyst's next_week_events and cross_references for upcoming inflection points, deadlines, or thread collisions. The most useful recommendation is often 'here is how to navigate what is coming' rather than 'here is what you should have done differently.'
 - moment_candidates: Generate 2-3 candidates from DIFFERENT days and ideally different domains.
 - thread_candidates: List ALL threads that moved or matter this week — 4-8 candidates.
+
+NARRATIVE INTEREST PRIORITY:
+The analyst data includes narrative_interest scores (1-10) on themes, behavioral_fingerprints, and cross_references. When generating discovery candidates and moment candidates, PRIORITIZE items with the highest narrative_interest scores.
+
+For discovery_candidates specifically:
+- Check the analyst's behavioral_fingerprints where is_discovery_candidate is true — these are strong candidates because they span multiple life threads
+- Check cross_references with narrative_interest >= 7
+- Check themes with narrative_interest >= 7
+- A discovery about maintaining discipline across several areas during a challenging period is MORE interesting than a discovery about a single habit streak, even if the streak has cleaner numbers
+- A discovery about a new life thread emerging or a spontaneous decision is MORE interesting than progress on an existing pattern
+
+For moment_candidates:
+- Prioritize moments connected to high narrative_interest themes or cross_references
+- Moments where the user made a decision, had a realization, or experienced something for the first time score higher than moments that were just pleasant or productive
 
 DIVERSITY CONSTRAINT — THIS IS THE MOST IMPORTANT SELECTION RULE:
 When making selections, enforce this: the discovery spotlight domain, the primary recommendation domain, and the moment's primary domain must each be DIFFERENT. Three cards in a row about the same life area makes the summary feel obsessive.
@@ -4600,6 +4614,7 @@ SELECTION RULES:
 - moment domain should ideally differ from both discovery and primary recommendation domains
 - thread_pick_names: pick 3-6 threads that MOVED or MATTER most
 - detail_allocation references ONLY the SELECTED candidates, not all of them
+- When choosing between candidates of the same domain diversity, always pick the one with higher narrative_interest from the source analyst data. If a discovery candidate about a life transition (narrative_interest: 9) competes with one about a habit streak (narrative_interest: 5), pick the life transition even if the habit streak has cleaner evidence.
 
 EXCLUSIVE DETAIL ALLOCATION — ZERO TOLERANCE:
 This is the most important structural rule. Every specific detail (activity name, todo title, habit stat, journal quote excerpt, event name) must appear in EXACTLY ONE allocation bucket or ONE candidate. This is a hard partition — like dealing cards into hands.
@@ -4625,6 +4640,13 @@ Only include events with genuine significance to the user's life narrative. NEVE
 - Events where is_recurring is true in the analyst data
 - Events with importance < 5 in the analyst data
 Only include events that are: one-off, milestone-related, travel-related, deadline-related, or connected to a Life Map thread that is actively moving. The user does not need Gremly to tell them about their weekly standup.
+
+WEEK AHEAD — BIGGEST STORY FIRST:
+The week ahead card should lead with the single most significant life transition or inflection point in the coming week. Check the analyst's cross_references and next_week_events for:
+- Transitions between life phases (returning from leave, starting a new role, moving cities)
+- Collisions between major threads on the same day (a race + a flight, a deadline + a celebration)
+- The user's context changing (working remotely from a new location, re-entering a routine after travel)
+These are the stories the user cares about most. Recurring meetings, routine admin, and standard work events should NEVER lead the week ahead — they are background, not foreground.
 
 STALE TRIAGE:
 - If stale_items exist in the data, ALWAYS set include_stale_triage to true.
