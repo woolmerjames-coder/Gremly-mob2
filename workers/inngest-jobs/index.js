@@ -2544,18 +2544,52 @@ function mergeWeeklyLifeMapUpdates(lifeMap, delta) {
     if (update.new_evidence && Array.isArray(update.new_evidence)) {
       if (!thread.evidence) thread.evidence = [];
       for (const e of update.new_evidence) {
-        const isDuplicate = thread.evidence.some(
+        // Exact duplicate check (same date + same signal)
+        const exactDuplicate = thread.evidence.some(
           (existing) => existing.date === e.date && existing.signal === e.signal,
         );
-        if (!isDuplicate) {
-          thread.evidence.push({
-            type: e.type || 'drop',
-            source: e.source || null,
-            date: e.date,
-            signal: e.signal,
-            salience: e.salience || 'medium',
-          });
+        if (exactDuplicate) continue;
+
+        // Rolling-value deduplication: for milestones and habits, check if a recent
+        // entry of the same type exists with a signal that's essentially the same
+        // metric with a different number (e.g. "5 days away" vs "6 days away",
+        // or "200% of target" vs "300% of target"). If so, UPDATE the existing
+        // entry with the newer date and value instead of appending.
+        const isRollingType = e.type === 'milestone' || e.type === 'habit';
+        if (isRollingType) {
+          // Normalize signal to a pattern by replacing numbers with a placeholder
+          const normalize = (sig) => (sig || '').replace(/\d+/g, '#').toLowerCase().trim();
+          const newPattern = normalize(e.signal);
+
+          // Look for a recent entry (last 7 days) with the same type and same pattern
+          const recentCutoff = new Date(e.date);
+          recentCutoff.setDate(recentCutoff.getDate() - 7);
+          const recentCutoffStr = recentCutoff.toISOString().split('T')[0];
+
+          const existingIdx = thread.evidence.findIndex(
+            (existing) =>
+              existing.type === e.type &&
+              existing.date >= recentCutoffStr &&
+              normalize(existing.signal) === newPattern,
+          );
+
+          if (existingIdx !== -1) {
+            // Update in place with newer date and signal value
+            thread.evidence[existingIdx].date = e.date;
+            thread.evidence[existingIdx].signal = e.signal;
+            thread.evidence[existingIdx].salience = e.salience || thread.evidence[existingIdx].salience;
+            continue;
+          }
         }
+
+        // No duplicate found — append as new
+        thread.evidence.push({
+          type: e.type || 'drop',
+          source: e.source || null,
+          date: e.date,
+          signal: e.signal,
+          salience: e.salience || 'medium',
+        });
       }
     }
   }

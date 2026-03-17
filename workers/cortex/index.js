@@ -1496,6 +1496,32 @@ function extractUrlsFromText(text) {
   });
 }
 
+function truncateAtSentence(text, maxChars) {
+  if (!text || text.length <= maxChars) return text;
+
+  // Find the last sentence boundary within the limit
+  const truncated = text.slice(0, maxChars);
+  const lastSentenceEnd = Math.max(
+    truncated.lastIndexOf('. '),
+    truncated.lastIndexOf('! '),
+    truncated.lastIndexOf('? '),
+    truncated.lastIndexOf('.'),
+  );
+
+  // If we found a sentence boundary after at least half the budget, use it
+  if (lastSentenceEnd > maxChars * 0.5) {
+    return truncated.slice(0, lastSentenceEnd + 1).trim();
+  }
+
+  // Fallback: cut at last space to avoid mid-word
+  const lastSpace = truncated.lastIndexOf(' ');
+  if (lastSpace > maxChars * 0.5) {
+    return truncated.slice(0, lastSpace).trim() + '...';
+  }
+
+  return truncated.trim() + '...';
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // RUNNING SUMMARY — fire-and-forget after Space Chat replies
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1507,6 +1533,7 @@ async function generateRunningSummary(conversationMessages, lastAssistantRespons
   const userMessages = conversationMessages.filter(m => m.role === 'user');
   const totalUserChars = userMessages.reduce((sum, m) => sum + (m.content || '').length, 0);
   if (userMessages.length < 3 || totalUserChars < 200) {
+    console.log(`[RunningSummary] Gated out: ${userMessages.length} msgs, ${totalUserChars} chars`);
     return;
   }
 
@@ -1562,7 +1589,7 @@ SUMMARY:`;
     let summary = (data.choices?.[0]?.message?.content || '').trim();
     if (!summary) return;
 
-    summary = summary.slice(0, 500).replace(/[\x00-\x1F\x7F]/g, ' ').trim();
+    summary = truncateAtSentence(summary.replace(/[\x00-\x1F\x7F]/g, ' ').trim(), 500);
 
     const patchRes = await fetch(
       `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${chatId}`,
@@ -1597,7 +1624,9 @@ async function generateEntityChatSummary(conversationMessages, lastAssistantResp
   // Gate: only summarize substantive conversations
   const userMessages = conversationMessages.filter(m => m.role === 'user');
   const totalUserChars = userMessages.reduce((sum, m) => sum + (m.content || '').length, 0);
+
   if (userMessages.length < 3 || totalUserChars < 200) {
+    console.log(`[EntityChatSummary] Gated out: ${userMessages.length} msgs, ${totalUserChars} chars`);
     return;
   }
 
@@ -1653,7 +1682,7 @@ SUMMARY:`;
     let summary = (data.choices?.[0]?.message?.content || '').trim();
     if (!summary) return;
 
-    summary = summary.slice(0, 400).replace(/[\x00-\x1F\x7F]/g, ' ').trim();
+    summary = truncateAtSentence(summary.replace(/[\x00-\x1F\x7F]/g, ' ').trim(), 400);
 
     const rpcRes = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/set_chat_summary`, {
       method: 'POST',
@@ -2076,7 +2105,7 @@ Return ONLY valid JSON matching this exact schema. No markdown, no backticks, no
 - All data sparse: Produce a shorter, genuine summary. Short is better than padded.`;
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     // --- CORS preflight ---
     if (request.method === 'OPTIONS') {
       return new Response(null, {
@@ -4155,35 +4184,36 @@ Almost never suggest creating a Space. Only if ALL true:
                 const entityId = entity.id || null;
                 const entityType = entity.type || null;
                 if (entityId && entityType) {
-                  // Fetch previous summary for accumulation
-                  let previousEntitySummary = null;
-                  try {
-                    const tableName = entityType === 'habit' ? 'habits' : entityType === 'note' ? 'notes' : 'todos';
-                    const prevRes = await fetch(
-                      `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
-                      {
-                        headers: {
-                          apikey: env.SUPABASE_SERVICE_KEY,
-                          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                  const summaryPromise = (async () => {
+                    try {
+                      const tableName = entityType === 'habit' ? 'habits' : entityType === 'note' ? 'notes' : 'todos';
+                      const prevRes = await fetch(
+                        `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
+                        {
+                          headers: {
+                            apikey: env.SUPABASE_SERVICE_KEY,
+                            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                          },
                         },
-                      },
-                    );
-                    if (prevRes.ok) {
-                      const prevRows = await prevRes.json();
-                      previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
-                    }
-                  } catch {}
+                      );
+                      const prevRows = prevRes.ok ? await prevRes.json() : [];
+                      const previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
 
-                  generateEntityChatSummary(
-                    messages.filter(m => m.role !== 'system'),
-                    fullContent,
-                    entityId,
-                    entityType,
-                    entity.title || entity.name || null,
-                    entity.space_name || null,
-                    previousEntitySummary,
-                    env,
-                  ).catch(err => console.warn('[EntityChat] Chat summary failed:', err.message));
+                      await generateEntityChatSummary(
+                        messages.filter(m => m.role !== 'system'),
+                        fullContent,
+                        entityId,
+                        entityType,
+                        entity.title || entity.name || null,
+                        entity.space_name || null,
+                        previousEntitySummary,
+                        env,
+                      );
+                    } catch (err) {
+                      console.warn('[EntityChat] Chat summary failed:', err.message);
+                    }
+                  })();
+                  ctx.waitUntil(summaryPromise);
                 }
               }
             } catch (streamErr) {
@@ -4351,34 +4381,36 @@ Almost never suggest creating a Space. Only if ALL true:
             const entityId = entity.id || null;
             const entityType = entity.type || null;
             if (entityId && entityType) {
-              let previousEntitySummary = null;
-              try {
-                const tableName = entityType === 'habit' ? 'habits' : entityType === 'note' ? 'notes' : 'todos';
-                const prevRes = await fetch(
-                  `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
-                  {
-                    headers: {
-                      apikey: env.SUPABASE_SERVICE_KEY,
-                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+              const summaryPromise = (async () => {
+                try {
+                  const tableName = entityType === 'habit' ? 'habits' : entityType === 'note' ? 'notes' : 'todos';
+                  const prevRes = await fetch(
+                    `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
+                    {
+                      headers: {
+                        apikey: env.SUPABASE_SERVICE_KEY,
+                        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                      },
                     },
-                  },
-                );
-                if (prevRes.ok) {
-                  const prevRows = await prevRes.json();
-                  previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
-                }
-              } catch {}
+                  );
+                  const prevRows = prevRes.ok ? await prevRes.json() : [];
+                  const previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
 
-              generateEntityChatSummary(
-                messages.filter(m => m.role !== 'system'),
-                content,
-                entityId,
-                entityType,
-                entity.title || entity.name || null,
-                entity.space_name || null,
-                previousEntitySummary,
-                env,
-              ).catch(err => console.warn('[EntityChat:NonStreaming] Chat summary failed:', err.message));
+                  await generateEntityChatSummary(
+                    messages.filter(m => m.role !== 'system'),
+                    content,
+                    entityId,
+                    entityType,
+                    entity.title || entity.name || null,
+                    entity.space_name || null,
+                    previousEntitySummary,
+                    env,
+                  );
+                } catch (err) {
+                  console.warn('[EntityChat:NonStreaming] Chat summary failed:', err.message);
+                }
+              })();
+              ctx.waitUntil(summaryPromise);
             }
           }
 
@@ -9255,27 +9287,33 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             // ── POST-STREAM: Update running summary (non-blocking) ──
             if (body.chatId && body.userId && fullContent) {
-              // Fetch previous summary for accumulation
-              const prevSummaryRes = await fetch(
-                `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
-                {
-                  headers: {
-                    apikey: env.SUPABASE_SERVICE_KEY,
-                    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-                  },
-                },
-              ).catch(() => null);
-              const prevData = prevSummaryRes?.ok ? await prevSummaryRes.json().catch(() => []) : [];
-              const previousSummary = prevData?.[0]?.running_summary || null;
+              const summaryPromise = (async () => {
+                try {
+                  const prevSummaryRes = await fetch(
+                    `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                    {
+                      headers: {
+                        apikey: env.SUPABASE_SERVICE_KEY,
+                        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                      },
+                    },
+                  );
+                  const prevData = prevSummaryRes?.ok ? await prevSummaryRes.json().catch(() => []) : [];
+                  const previousSummary = prevData?.[0]?.running_summary || null;
 
-              generateRunningSummary(
-                messages.filter(m => m.role !== 'system'),
-                fullContent,
-                body.chatId,
-                body.spaceName || null,
-                previousSummary,
-                env,
-              ).catch(err => console.warn('[SpaceChat] Running summary failed:', err.message));
+                  await generateRunningSummary(
+                    messages.filter(m => m.role !== 'system'),
+                    fullContent,
+                    body.chatId,
+                    body.spaceName || null,
+                    previousSummary,
+                    env,
+                  );
+                } catch (err) {
+                  console.warn('[SpaceChat] Running summary failed:', err.message);
+                }
+              })();
+              ctx.waitUntil(summaryPromise);
             }
           } catch (streamErr) {
             console.log('[SpaceChat:Streaming] Stream error', { error: String(streamErr) });
@@ -9493,30 +9531,38 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
         // ── POST-RESPONSE: Update running summary (non-blocking) ──
         if (body.chatId && body.userId && content) {
-          const prevSummaryRes = await fetch(
-            `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
-            {
-              headers: {
-                apikey: env.SUPABASE_SERVICE_KEY,
-                Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-              },
-            },
-          ).catch(() => null);
-          const prevData = prevSummaryRes?.ok ? await prevSummaryRes.json().catch(() => []) : [];
-          const previousSummary = prevData?.[0]?.running_summary || null;
+          const summaryPromise = (async () => {
+            try {
+              const prevSummaryRes = await fetch(
+                `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                {
+                  headers: {
+                    apikey: env.SUPABASE_SERVICE_KEY,
+                    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                  },
+                },
+              );
+              const prevData = prevSummaryRes?.ok ? await prevSummaryRes.json().catch(() => []) : [];
+              const previousSummary = prevData?.[0]?.running_summary || null;
 
-          generateRunningSummary(
-            messages.filter(m => m.role !== 'system'),
-            content,
-            body.chatId,
-            body.spaceName || null,
-            previousSummary,
-            env,
-          ).catch(err => console.warn('[SpaceChat:NonStreaming] Running summary failed:', err.message));
+              await generateRunningSummary(
+                messages.filter(m => m.role !== 'system'),
+                content,
+                body.chatId,
+                body.spaceName || null,
+                previousSummary,
+                env,
+              );
+            } catch (err) {
+              console.warn('[SpaceChat:NonStreaming] Running summary failed:', err.message);
+            }
+          })();
+          ctx.waitUntil(summaryPromise);
         }
 
         return j({
           id: String((oj.id || '').replace(/^chatcmpl-/, 'cmpl-')),
+
           content,
           model: oj.model,
           usage: oj.usage || null,
