@@ -241,28 +241,25 @@ const generateSingleUserDco = inngest.createFunction(
           };
           const todayLocal = getUserLocalDate(timezone);
           const now = new Date();
-          await fetch(
-            `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
-            {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({
-                user_id: userId,
-                date: todayLocal,
-                dco: {
-                  day_type: 'routine_day',
-                  life_moment: null,
-                  tone: 'relaxed',
-                  brief_headline: null,
-                  pipeline: 'no-life-map-fallback',
-                  generated_at: now.toISOString(),
-                },
-                created_at: now.toISOString(),
-                updated_at: now.toISOString(),
-                expires_at: new Date(now.getTime() + 7 * 86400000).toISOString(),
-              }),
-            },
-          );
+          await fetch(`${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              user_id: userId,
+              date: todayLocal,
+              dco: {
+                day_type: 'routine_day',
+                life_moment: null,
+                tone: 'relaxed',
+                brief_headline: null,
+                pipeline: 'no-life-map-fallback',
+                generated_at: now.toISOString(),
+              },
+              created_at: now.toISOString(),
+              updated_at: now.toISOString(),
+              expires_at: new Date(now.getTime() + 7 * 86400000).toISOString(),
+            }),
+          });
         });
         return { user_id: userId, success: true, pipeline: 'no-life-map-fallback' };
       }
@@ -405,20 +402,17 @@ const testUnifiedAnalyst = inngest.createFunction(
         Prefer: 'resolution=merge-duplicates',
       };
 
-      await fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            user_id: userId,
-            date: '1999-01-01',
-            dco: { _type: 'analyst_test', ...result },
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }),
-        },
-      );
+      await fetch(`${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          user_id: userId,
+          date: '1999-01-01',
+          dco: { _type: 'analyst_test', ...result },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }),
+      });
     });
 
     return { success: true, themes: result.analysis?.themes?.length || 0 };
@@ -463,7 +457,7 @@ const testLifeMapRebuild = inngest.createFunction(
 
       const userProfile = snapshot.raw.userProfile?.profile_text || null;
       const spaces = snapshot.raw.spaces || [];
-      const journals = (snapshot.raw.journals || []).map(j => ({
+      const journals = (snapshot.raw.journals || []).map((j) => ({
         title: j.title,
         body: j.body,
         mood: j.mood,
@@ -471,7 +465,14 @@ const testLifeMapRebuild = inngest.createFunction(
         created_at: j.created_at,
       }));
 
-      const result = await rebuildLifeMap(currentLifeMap, analystResult.analysis, userProfile, spaces, journals, env);
+      const result = await rebuildLifeMap(
+        currentLifeMap,
+        analystResult.analysis,
+        userProfile,
+        spaces,
+        journals,
+        env,
+      );
 
       // Apply delta to get merged Life Map
       const mergedLifeMap = mergeWeeklyLifeMapUpdates(
@@ -494,26 +495,23 @@ const testLifeMapRebuild = inngest.createFunction(
         Prefer: 'resolution=merge-duplicates',
       };
 
-      await fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            user_id: userId,
-            date: '1999-01-02',
-            dco: {
-              _type: 'rebuild_test',
-              delta: rebuildResult.delta,
-              rebuilt_life_map: rebuildResult.mergedLifeMap,
-              rebuild_metadata: rebuildResult.metadata,
-              analyst_metadata: analystResult.metadata,
-            },
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }),
-        },
-      );
+      await fetch(`${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          user_id: userId,
+          date: '1999-01-02',
+          dco: {
+            _type: 'rebuild_test',
+            delta: rebuildResult.delta,
+            rebuilt_life_map: rebuildResult.mergedLifeMap,
+            rebuild_metadata: rebuildResult.metadata,
+            analyst_metadata: analystResult.metadata,
+          },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }),
+      });
     });
 
     return {
@@ -555,7 +553,13 @@ const testWeeklySummaryV2 = inngest.createFunction(
     const analystResult = await step.run('run-analyst', async () => {
       const weeklySnapshot = buildWeeklySnapshot(snapshot);
       const lifeMap = snapshot.raw.currentLifeMap?.life_map || null;
-      return runUnifiedAnalyst(weeklySnapshot, lifeMap, weekDates.weekStart, weekDates.weekEnd, env);
+      return runUnifiedAnalyst(
+        weeklySnapshot,
+        lifeMap,
+        weekDates.weekStart,
+        weekDates.weekEnd,
+        env,
+      );
     });
 
     const rebuildResult = await step.run('rebuild-life-map', async () => {
@@ -563,11 +567,20 @@ const testWeeklySummaryV2 = inngest.createFunction(
       if (!currentLifeMap) throw new Error('No existing Life Map found');
       const userProfile = snapshot.raw.userProfile?.profile_text || null;
       const spaces = snapshot.raw.spaces || [];
-      const journals = (snapshot.raw.journals || []).map(j => ({
-        title: j.title, body: j.body, mood: j.mood,
+      const journals = (snapshot.raw.journals || []).map((j) => ({
+        title: j.title,
+        body: j.body,
+        mood: j.mood,
         date: j.created_at ? j.created_at.split('T')[0] : null,
       }));
-      const result = await rebuildLifeMap(currentLifeMap, analystResult.analysis, userProfile, spaces, journals, env);
+      const result = await rebuildLifeMap(
+        currentLifeMap,
+        analystResult.analysis,
+        userProfile,
+        spaces,
+        journals,
+        env,
+      );
       const mergedLifeMap = mergeWeeklyLifeMapUpdates(
         JSON.parse(JSON.stringify(currentLifeMap)),
         result.delta,
@@ -599,9 +612,13 @@ const testWeeklySummaryV2 = inngest.createFunction(
       const totalSweeps = (sweepsRows || []).length;
 
       // Journals count — scoped to this week
-      const journals = (snapshot.raw?.journals || snapshot.raw?.drops || [])
-        .filter(j => j.subtype === 'journal' && j.created_at && j.created_at.split('T')[0] >= weekDates.weekStart && j.created_at.split('T')[0] <= weekDates.weekEnd)
-        .length;
+      const journals = (snapshot.raw?.journals || snapshot.raw?.drops || []).filter(
+        (j) =>
+          j.subtype === 'journal' &&
+          j.created_at &&
+          j.created_at.split('T')[0] >= weekDates.weekStart &&
+          j.created_at.split('T')[0] <= weekDates.weekEnd,
+      ).length;
 
       return { drops: totalDrops, sweeps: totalSweeps, journals };
     });
@@ -610,8 +627,14 @@ const testWeeklySummaryV2 = inngest.createFunction(
       const weeklySnapshot = buildWeeklySnapshot(snapshot);
       const priorSummaries = snapshot.raw.weeklySummaries || [];
       return generateWeeklySummaryV2(
-        analystResult.analysis, rebuildResult.delta, rebuildResult.mergedLifeMap,
-        weeklySnapshot, weekDates.weekStart, weekDates.weekEnd, priorSummaries, env,
+        analystResult.analysis,
+        rebuildResult.delta,
+        rebuildResult.mergedLifeMap,
+        weeklySnapshot,
+        weekDates.weekStart,
+        weekDates.weekEnd,
+        priorSummaries,
+        env,
         engagementStats,
       );
     });
@@ -623,35 +646,32 @@ const testWeeklySummaryV2 = inngest.createFunction(
         'Content-Type': 'application/json',
         Prefer: 'resolution=merge-duplicates',
       };
-      await fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            user_id: userId,
-            date: '1999-01-03',
-            dco: {
-              _type: 'summary_v2_test',
-              summary: summaryResult.summary,
-              summary_metadata: summaryResult.metadata,
-              analyst_output: analystResult.analysis,
-              life_map_delta: rebuildResult.delta,
-              rebuilt_life_map: rebuildResult.mergedLifeMap,
-              rebuild_metadata: rebuildResult.metadata,
-              analyst_metadata: analystResult.metadata,
-            },
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }),
-        },
-      );
+      await fetch(`${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          user_id: userId,
+          date: '1999-01-03',
+          dco: {
+            _type: 'summary_v2_test',
+            summary: summaryResult.summary,
+            summary_metadata: summaryResult.metadata,
+            analyst_output: analystResult.analysis,
+            life_map_delta: rebuildResult.delta,
+            rebuilt_life_map: rebuildResult.mergedLifeMap,
+            rebuild_metadata: rebuildResult.metadata,
+            analyst_metadata: analystResult.metadata,
+          },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }),
+      });
     });
 
     return {
       success: true,
       card_count: summaryResult.summary?.cards?.length || 0,
-      card_types: summaryResult.summary?.cards?.map(c => c.type) || [],
+      card_types: summaryResult.summary?.cards?.map((c) => c.type) || [],
     };
   },
 );
@@ -702,20 +722,17 @@ const bootstrapSingleUserLifeMap = inngest.createFunction(
           Prefer: 'resolution=merge-duplicates',
         };
 
-        const res = await fetch(
-          `${env.SUPABASE_URL}/rest/v1/user_life_map?on_conflict=user_id`,
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              user_id: userId,
-              life_map: lifeMap,
-              version: 1,
-              rebuilt_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            }),
-          },
-        );
+        const res = await fetch(`${env.SUPABASE_URL}/rest/v1/user_life_map?on_conflict=user_id`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            user_id: userId,
+            life_map: lifeMap,
+            version: 1,
+            rebuilt_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }),
+        });
 
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
@@ -729,7 +746,7 @@ const bootstrapSingleUserLifeMap = inngest.createFunction(
         user_id: userId,
         success: true,
         domain_count: lifeMap.domains?.length || 0,
-        domains: (lifeMap.domains || []).map(d => ({
+        domains: (lifeMap.domains || []).map((d) => ({
           name: d.name,
           source: d.source,
           thread_count: d.threads?.length || 0,
@@ -769,7 +786,7 @@ function getDateRange(startDate, endDate) {
   const current = new Date(startDate + 'T00:00:00Z');
   const end = new Date(endDate + 'T00:00:00Z');
   while (current <= end) {
-    dates.push(current.toISOString().split('T')[0]);
+    dates.push(current.toISOString().split('T')[0]); // eslint-disable-line no-restricted-syntax -- UTC-only date range util
     current.setUTCDate(current.getUTCDate() + 1);
   }
   return dates;
@@ -797,9 +814,7 @@ async function fetchDcoInputData(userId, timezone, env) {
 
   // Determine the "since" cutoff — when was the last DCO generated?
   // If no previous DCO, fall back to 7 days ago
-  const sinceCutoff = previousDate
-    ? previousDate
-    : sevenDaysAgo();
+  const sinceCutoff = previousDate ? previousDate : sevenDaysAgo();
 
   // Compute end-of-week for forward event window
   // Get days until Sunday (0=Sun, 1=Mon, ..., 6=Sat)
@@ -1026,7 +1041,9 @@ async function fetchDcoInputDataForDate(userId, timezone, targetDate, env) {
     ? habitProgressRaw.filter((h) => !h.occurred_day || h.occurred_day <= targetDate)
     : [];
 
-  console.log(`[DCO:Backfill] ${targetDate}: ${todos.length} todos, ${notes.length} notes, ${habitProgress.length} habit_progress, hasPrevDco: ${!!previousDco?.[0]?.dco}`);
+  console.log(
+    `[DCO:Backfill] ${targetDate}: ${todos.length} todos, ${notes.length} notes, ${habitProgress.length} habit_progress, hasPrevDco: ${!!previousDco?.[0]?.dco}`,
+  );
 
   return {
     userId,
@@ -1104,61 +1121,61 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
     fetch(
       `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&archived=eq.false&target_date=lte.${fourteenAfterStr}&or=(target_date.gte.${fourteenBeforeStr},end_date.gte.${fourteenBeforeStr})&select=id,title,target_date,end_date,event_time,location,is_all_day,space_id,external_source&order=target_date.asc&limit=500`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // Recent drops: last 7 days, NOT events
     fetch(
       `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=neq.event&archived=eq.false&created_at=gte.${sevenBeforeStr}&select=id,title,body,subtype,mood,space_id,created_at,is_goal&order=created_at.desc&limit=100`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // Todos: last 7 days
     fetch(
       `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&created_at=gte.${sevenBeforeStr}&select=id,name,status,completed_at,target_date,space_id,created_at&limit=100`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // Habits: active
     fetch(
       `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,frequency&limit=20`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // Habit progress: last 7 days
     fetch(
       `${env.SUPABASE_URL}/rest/v1/habit_progress?owner_id=eq.${userId}&occurred_day=gte.${sevenBeforeStr}&select=habit_id,occurred_day`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // Spaces: active
     fetch(
       `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&archived_at=is.null&select=id,name&limit=20`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // Space milestones: active
     fetch(
       `${env.SUPABASE_URL}/rest/v1/space_milestones?owner_id=eq.${userId}&is_active=eq.true&select=name,date,space_id,completed&order=date.asc&limit=50`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // Weekly summary: latest
     fetch(
       `${env.SUPABASE_URL}/rest/v1/weekly_summaries?owner_id=eq.${userId}&select=summary_text&order=created_at.desc&limit=1`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // Previous DCO: most recent before target date
     fetch(
       `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=lt.${targetDate}&select=dco,date&order=date.desc&limit=1`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // User profile
     fetch(
       `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=profile_text&limit=1`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
   ]);
 
   // Safe array helpers
@@ -1180,14 +1197,12 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
   // ========================================================
   // FILTER: only data that existed on or before target date
   // ========================================================
-  const todos = todosAll.filter(
-    t => !t.created_at || new Date(t.created_at) <= targetEndOfDay
-  );
+  const todos = todosAll.filter((t) => !t.created_at || new Date(t.created_at) <= targetEndOfDay);
   const recentDrops = recentDropsAll.filter(
-    n => !n.created_at || new Date(n.created_at) <= targetEndOfDay
+    (n) => !n.created_at || new Date(n.created_at) <= targetEndOfDay,
   );
   const habitProgress = habitProgressAll.filter(
-    h => !h.occurred_day || h.occurred_day <= targetDate
+    (h) => !h.occurred_day || h.occurred_day <= targetDate,
   );
 
   // ========================================================
@@ -1199,10 +1214,12 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
 
   for (const evt of allEventNotes) {
     // Skip cancelled
-    if (evt.title && (
-      evt.title.toLowerCase().startsWith('canceled:') ||
-      evt.title.toLowerCase().startsWith('cancelled:')
-    )) continue;
+    if (
+      evt.title &&
+      (evt.title.toLowerCase().startsWith('canceled:') ||
+        evt.title.toLowerCase().startsWith('cancelled:'))
+    )
+      continue;
 
     if (evt.external_source && evt.external_source.externalId) {
       const extId = evt.external_source.externalId;
@@ -1224,8 +1241,8 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
   // BUILD: Calendar events for today
   // ========================================================
   const todaysEvents = dedupedEvents
-    .filter(e => e.target_date === targetDate)
-    .map(e => ({
+    .filter((e) => e.target_date === targetDate)
+    .map((e) => ({
       title: e.title,
       time: e.event_time || null,
       location: e.location || null,
@@ -1247,10 +1264,14 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
   const fiveAfterStr = formatDateOnly(fiveAfter);
 
   const spaceKeyDates = dedupedEvents
-    .filter(e => !e.external_source && e.space_id
-      && e.target_date >= fiveBeforeStr
-      && e.target_date <= fiveAfterStr)
-    .map(e => ({
+    .filter(
+      (e) =>
+        !e.external_source &&
+        e.space_id &&
+        e.target_date >= fiveBeforeStr &&
+        e.target_date <= fiveAfterStr,
+    )
+    .map((e) => ({
       date: e.target_date,
       title: e.title,
       space: spaceMap[e.space_id] || null,
@@ -1264,9 +1285,9 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
   const sevenAfterStr = formatDateOnly(sevenAfter);
 
   const upcomingEvents = dedupedEvents
-    .filter(e => e.target_date > targetDate && e.target_date <= sevenAfterStr)
+    .filter((e) => e.target_date > targetDate && e.target_date <= sevenAfterStr)
     .slice(0, 15)
-    .map(e => ({
+    .map((e) => ({
       title: e.title,
       date: e.target_date,
       space: spaceMap[e.space_id] || null,
@@ -1277,10 +1298,10 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
   // COMPUTE: Todo stats
   // ========================================================
   const todosOverdue = todos.filter(
-    t => t.target_date && t.target_date < targetDate && t.status !== 'completed'
+    (t) => t.target_date && t.target_date < targetDate && t.status !== 'completed',
   ).length;
-  const todosActive = todos.filter(t => t.status === 'active').length;
-  const todosCompletedRecently = todos.filter(t => t.status === 'completed').length;
+  const todosActive = todos.filter((t) => t.status === 'active').length;
+  const todosCompletedRecently = todos.filter((t) => t.status === 'completed').length;
 
   // ========================================================
   // COMPUTE: Habit health
@@ -1290,7 +1311,7 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
     habitCompletionMap[hp.habit_id] = (habitCompletionMap[hp.habit_id] || 0) + 1;
   }
 
-  const habitHealth = habitsArr.map(h => {
+  const habitHealth = habitsArr.map((h) => {
     const done = habitCompletionMap[h.id] || 0;
     const expected = getExpectedCompletionsForDays(h.frequency, 7);
     const score = expected > 0 ? Math.round((done / expected) * 100) : 0;
@@ -1306,11 +1327,11 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
   // ========================================================
   // COMPUTE: Drop velocity
   // ========================================================
-  const dropsLast3 = recentDrops.filter(n => {
+  const dropsLast3 = recentDrops.filter((n) => {
     const d = n.created_at ? n.created_at.split('T')[0] : null;
     return d && d >= threeBeforeStr && d <= targetDate;
   }).length;
-  const dropsPrev3 = recentDrops.filter(n => {
+  const dropsPrev3 = recentDrops.filter((n) => {
     const d = n.created_at ? n.created_at.split('T')[0] : null;
     return d && d >= sixBeforeStr && d < threeBeforeStr;
   }).length;
@@ -1322,7 +1343,7 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
   // ========================================================
   // COMPUTE: Mood signal from journal drops
   // ========================================================
-  const journals = recentDrops.filter(n => n.subtype === 'journal');
+  const journals = recentDrops.filter((n) => n.subtype === 'journal');
   const moodCounts = {};
   let totalMoodTags = 0;
   for (const j of journals) {
@@ -1335,12 +1356,13 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
   }
 
   // Top moods ranked by frequency (top 3)
-  const topMoods = totalMoodTags > 0
-    ? Object.entries(moodCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([mood, count]) => ({ mood, count, pct: Math.round((count / totalMoodTags) * 100) }))
-    : [];
+  const topMoods =
+    totalMoodTags > 0
+      ? Object.entries(moodCounts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([mood, count]) => ({ mood, count, pct: Math.round((count / totalMoodTags) * 100) }))
+      : [];
 
   const moodSignal = {
     top_moods: topMoods,
@@ -1359,12 +1381,12 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
   const twoDaysBeforeStr = formatDateOnly(twoDaysBefore);
 
   const recentDropsForModel = recentDrops
-    .filter(n => {
+    .filter((n) => {
       const d = n.created_at ? n.created_at.split('T')[0] : null;
       return d && d >= twoDaysBeforeStr && d < targetDate;
     })
     .slice(0, 15)
-    .map(n => ({
+    .map((n) => ({
       title: n.title,
       body: n.body ? n.body.slice(0, 200) : null,
       subtype: n.subtype,
@@ -1388,7 +1410,7 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
     }
   }
 
-  const activeSpaces = spacesArr.map(s => ({
+  const activeSpaces = spacesArr.map((s) => ({
     name: s.name,
     recent_activity: spaceDropCounts[s.id] || 0,
   }));
@@ -1396,7 +1418,7 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
   // ========================================================
   // BUILD: Milestones
   // ========================================================
-  const milestonesFormatted = milestonesArr.slice(0, 10).map(m => ({
+  const milestonesFormatted = milestonesArr.slice(0, 10).map((m) => ({
     name: m.name,
     date: m.date || null,
     space: spaceMap[m.space_id] || null,
@@ -1434,12 +1456,14 @@ async function buildDcoContext(userId, timezone, targetDate, env) {
     spaces: activeSpaces,
     milestones: milestonesFormatted,
     weekly_digest: weeklySummaries?.[0]?.summary_text || null,
-    previous: previousDco ? {
-      headline: previousDco.brief_headline || null,
-      life_moment: previousDco.life_moment || null,
-      tone: previousDco.tone || null,
-      date: previousDcoRows?.[0]?.date || null,
-    } : null,
+    previous: previousDco
+      ? {
+          headline: previousDco.brief_headline || null,
+          life_moment: previousDco.life_moment || null,
+          tone: previousDco.tone || null,
+          date: previousDcoRows?.[0]?.date || null,
+        }
+      : null,
   };
 }
 
@@ -1559,74 +1583,105 @@ OUTPUT — return ONLY this JSON:
   const userMessage = `TODAY'S DATE: ${context.target_date}
 TIMEZONE: ${context.timezone}
 
-${context.previous ? `PREVIOUS DCO (${context.previous.date}):
+${
+  context.previous
+    ? `PREVIOUS DCO (${context.previous.date}):
   headline: ${context.previous.headline || 'null'}
   life_moment: ${context.previous.life_moment || 'null'}
   tone: ${context.previous.tone || 'null'}
 DO NOT repeat or rephrase the previous headline. Find a completely different angle.
-` : 'No previous DCO — this is the first generation for this user.'}
+`
+    : 'No previous DCO — this is the first generation for this user.'
+}
 
 TODAY'S CALENDAR EVENTS:
-${context.todays_events.length > 0
-    ? context.todays_events.map(e => {
-        const time = e.time ? ` at ${e.time}` : '';
-        const loc = e.location ? ` (${e.location})` : '';
-        const space = e.space ? ` [${e.space}]` : '';
-        const src = e.is_synced ? ' {synced}' : ' {key date}';
-        return `- ${e.title}${time}${loc}${space}${src}`;
-      }).join('\n')
-    : 'No events today.'}
+${
+  context.todays_events.length > 0
+    ? context.todays_events
+        .map((e) => {
+          const time = e.time ? ` at ${e.time}` : '';
+          const loc = e.location ? ` (${e.location})` : '';
+          const space = e.space ? ` [${e.space}]` : '';
+          const src = e.is_synced ? ' {synced}' : ' {key date}';
+          return `- ${e.title}${time}${loc}${space}${src}`;
+        })
+        .join('\n')
+    : 'No events today.'
+}
 
 SPACE KEY DATES (user-created milestones — some imply travel/location, some are goals or deadlines):
-${context.space_key_dates.length > 0
-    ? context.space_key_dates.map(e => `- ${e.date}: ${e.title} [${e.space}]`).join('\n')
-    : 'None.'}
+${
+  context.space_key_dates.length > 0
+    ? context.space_key_dates.map((e) => `- ${e.date}: ${e.title} [${e.space}]`).join('\n')
+    : 'None.'
+}
 
 UPCOMING EVENTS (next 7 days):
-${context.upcoming_events.length > 0
-    ? context.upcoming_events.slice(0, 10).map(e => {
-        const space = e.space ? ` [${e.space}]` : '';
-        return `- ${e.date}: ${e.title}${space}`;
-      }).join('\n')
-    : 'Nothing scheduled.'}
+${
+  context.upcoming_events.length > 0
+    ? context.upcoming_events
+        .slice(0, 10)
+        .map((e) => {
+          const space = e.space ? ` [${e.space}]` : '';
+          return `- ${e.date}: ${e.title}${space}`;
+        })
+        .join('\n')
+    : 'Nothing scheduled.'
+}
 
 TODOS: ${context.todos.overdue} overdue, ${context.todos.active} active, ${context.todos.completed_recently} completed recently
 
 HABITS (7-day health):
-${context.habits.length > 0
-    ? context.habits.map(h => `- ${h.name}: ${h.completions_7d}/${h.expected_7d} (${h.score_pct}%)`).join('\n')
-    : 'No habits tracked.'}
+${
+  context.habits.length > 0
+    ? context.habits
+        .map((h) => `- ${h.name}: ${h.completions_7d}/${h.expected_7d} (${h.score_pct}%)`)
+        .join('\n')
+    : 'No habits tracked.'
+}
 
 DROP ACTIVITY: ${context.drop_velocity} (${context.drops_last_3d} drops last 3 days vs ${context.drops_prev_3d} previous 3 days)
 
 MOOD (from journal entries, last 7 days — ${context.mood.journal_count_7d} journals):
-${context.mood.top_moods.length > 0
-    ? context.mood.top_moods.map(m => `- ${m.mood}: ${m.count} times (${m.pct}%)`).join('\n')
-    : 'No mood data.'}
+${
+  context.mood.top_moods.length > 0
+    ? context.mood.top_moods.map((m) => `- ${m.mood}: ${m.count} times (${m.pct}%)`).join('\n')
+    : 'No mood data.'
+}
 
 RECENT DROPS (last 1-2 days — what the user captured or journaled):
-${context.recent_drops.length > 0
-    ? context.recent_drops.map(d => {
-        const mood = d.mood && d.mood.length > 0 ? ` [mood: ${d.mood.join(', ')}]` : '';
-        const space = d.space ? ` (${d.space})` : '';
-        const body = d.body ? `\n  "${d.body}"` : '';
-        return `- ${d.title} [${d.subtype}]${mood}${space}${body}`;
-      }).join('\n')
-    : 'No recent drops.'}
+${
+  context.recent_drops.length > 0
+    ? context.recent_drops
+        .map((d) => {
+          const mood = d.mood && d.mood.length > 0 ? ` [mood: ${d.mood.join(', ')}]` : '';
+          const space = d.space ? ` (${d.space})` : '';
+          const body = d.body ? `\n  "${d.body}"` : '';
+          return `- ${d.title} [${d.subtype}]${mood}${space}${body}`;
+        })
+        .join('\n')
+    : 'No recent drops.'
+}
 
 ACTIVE SPACES:
-${context.spaces.length > 0
-    ? context.spaces.map(s => `- ${s.name}: ${s.recent_activity} items in last 7 days`).join('\n')
-    : 'No spaces.'}
+${
+  context.spaces.length > 0
+    ? context.spaces.map((s) => `- ${s.name}: ${s.recent_activity} items in last 7 days`).join('\n')
+    : 'No spaces.'
+}
 
 MILESTONES:
-${context.milestones.length > 0
-    ? context.milestones.map(m => {
-        const space = m.space ? ` [${m.space}]` : '';
-        const done = m.completed ? ' ✓' : '';
-        return `- ${m.name}: ${m.date}${space}${done}`;
-      }).join('\n')
-    : 'None.'}
+${
+  context.milestones.length > 0
+    ? context.milestones
+        .map((m) => {
+          const space = m.space ? ` [${m.space}]` : '';
+          const done = m.completed ? ' ✓' : '';
+          return `- ${m.name}: ${m.date}${space}${done}`;
+        })
+        .join('\n')
+    : 'None.'
+}
 
 ${context.weekly_digest ? `WEEKLY DIGEST: ${context.weekly_digest}` : ''}
 
@@ -1710,12 +1765,14 @@ Produce the DCO JSON now.`;
   if (context.user_profile) dco.input_sources.push('user_profile');
   dco.model_used = 'gemini-2.5-flash';
   dco._latency_ms = latency;
-  dco._token_usage = usage ? {
-    input: usage.promptTokenCount,
-    output: usage.candidatesTokenCount,
-    thinking: usage.thoughtsTokenCount || 0,
-    total: usage.totalTokenCount,
-  } : null;
+  dco._token_usage = usage
+    ? {
+        input: usage.promptTokenCount,
+        output: usage.candidatesTokenCount,
+        thinking: usage.thoughtsTokenCount || 0,
+        total: usage.totalTokenCount,
+      }
+    : null;
 
   console.log(`[DCO:Flash] Generated in ${latency}ms`, {
     day_type: dco.day_type,
@@ -1735,30 +1792,34 @@ async function generateHeadline(dco, context, env) {
   const t0 = Date.now();
 
   // Build a minimal payload — only what the headline writer needs
-  const todaysEventsList = context.todays_events
-    .map(e => {
-      const space = e.space ? ` [${e.space}]` : '';
-      return `${e.title}${space}`;
-    })
-    .join(', ') || 'nothing scheduled';
+  const todaysEventsList =
+    context.todays_events
+      .map((e) => {
+        const space = e.space ? ` [${e.space}]` : '';
+        return `${e.title}${space}`;
+      })
+      .join(', ') || 'nothing scheduled';
 
-  const recentDropTitles = context.recent_drops
-    .slice(0, 5)
-    .map(d => {
-      const mood = d.mood && d.mood.length > 0 ? ` (${d.mood.join(', ')})` : '';
-      return `${d.title}${mood}`;
-    })
-    .join('; ') || 'none';
+  const recentDropTitles =
+    context.recent_drops
+      .slice(0, 5)
+      .map((d) => {
+        const mood = d.mood && d.mood.length > 0 ? ` (${d.mood.join(', ')})` : '';
+        return `${d.title}${mood}`;
+      })
+      .join('; ') || 'none';
 
-  const habitRisks = context.habits
-    .filter(h => h.score_pct < 50)
-    .map(h => h.name)
-    .join(', ') || 'none';
+  const habitRisks =
+    context.habits
+      .filter((h) => h.score_pct < 50)
+      .map((h) => h.name)
+      .join(', ') || 'none';
 
-  const habitWins = context.habits
-    .filter(h => h.score_pct >= 100)
-    .map(h => h.name)
-    .join(', ') || 'none';
+  const habitWins =
+    context.habits
+      .filter((h) => h.score_pct >= 100)
+      .map((h) => h.name)
+      .join(', ') || 'none';
 
   // Count days at current location from space key dates
   // (helps the model say "day 3 in Tokyo" naturally)
@@ -1767,7 +1828,7 @@ async function generateHeadline(dco, context, env) {
     // Find the most recent key date ON or BEFORE today that looks
     // like an arrival (it's in the same space as life_moment context)
     const sortedPast = context.space_key_dates
-      .filter(k => k.date <= context.target_date)
+      .filter((k) => k.date <= context.target_date)
       .sort((a, b) => b.date.localeCompare(a.date));
 
     if (sortedPast.length > 0) {
@@ -1787,14 +1848,12 @@ async function generateHeadline(dco, context, env) {
   let journeySpace = null;
   if (context.space_key_dates.length >= 2) {
     // Find the earliest key date in the same space as today's event
-    const todaySpaces = context.todays_events
-      .map(e => e.space)
-      .filter(Boolean);
+    const todaySpaces = context.todays_events.map((e) => e.space).filter(Boolean);
     const relevantSpace = todaySpaces[0] || null;
 
     if (relevantSpace) {
       const allDatesInSpace = context.space_key_dates
-        .filter(k => k.space === relevantSpace && k.date <= context.target_date)
+        .filter((k) => k.space === relevantSpace && k.date <= context.target_date)
         .sort((a, b) => a.date.localeCompare(b.date));
 
       if (allDatesInSpace.length > 0) {
@@ -1809,11 +1868,12 @@ async function generateHeadline(dco, context, env) {
     }
   }
 
-  const upcomingNotable = context.upcoming_events
-    .filter(e => !e.is_synced)
-    .slice(0, 3)
-    .map(e => `${e.title} (${e.date})`)
-    .join(', ') || 'nothing notable';
+  const upcomingNotable =
+    context.upcoming_events
+      .filter((e) => !e.is_synced)
+      .slice(0, 3)
+      .map((e) => `${e.title} (${e.date})`)
+      .join(', ') || 'nothing notable';
 
   const prompt = `You write a single line that appears on a companion app's morning screen. Your job is to OBSERVE what is true about today — not to give advice, encouragement, or motivation.
 
@@ -1863,9 +1923,7 @@ Respond with ONLY the headline text or null. Nothing else.`;
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 60,
         temperature: 0.7,
-        messages: [
-          { role: 'user', content: prompt },
-        ],
+        messages: [{ role: 'user', content: prompt }],
       }),
     });
 
@@ -2013,7 +2071,11 @@ ${weekCalendar.length > 0 ? weekCalendar.join('\n') : 'Nothing scheduled'}
 RECENT USER DROPS (journals, ideas, captures — NOT calendar events):
 ${dropDetails.length > 0 ? dropDetails.join('\n') : 'No recent drops'}
 
-MOOD SIGNALS FROM DROPS: ${Object.entries(moodCounts).map(([k, v]) => `${k}:${v}`).join(', ') || 'none'}
+MOOD SIGNALS FROM DROPS: ${
+    Object.entries(moodCounts)
+      .map(([k, v]) => `${k}:${v}`)
+      .join(', ') || 'none'
+  }
 
 TODOS: ${todosActive} active, ${todosCompleted} completed recently, ${todosOverdue} overdue
 
@@ -2158,14 +2220,26 @@ INPUT HIERARCHY — in order of importance:
 4. PREVIOUS EXTRACTION — scan for items that may have become 
    time-relevant today.
 
-${inputData.previousDco ? `PREVIOUS DCO:
-${JSON.stringify(inputData.previousDco, null, 2)}` : 'No previous DCO available (new user or first generation).'}
+${
+  inputData.previousDco
+    ? `PREVIOUS DCO:
+${JSON.stringify(inputData.previousDco, null, 2)}`
+    : 'No previous DCO available (new user or first generation).'
+}
 
-${inputData.previousExtraction ? `PREVIOUS EXTRACTION (scan for items that may now be time-relevant):
-${JSON.stringify(inputData.previousExtraction, null, 2)}` : ''}
+${
+  inputData.previousExtraction
+    ? `PREVIOUS EXTRACTION (scan for items that may now be time-relevant):
+${JSON.stringify(inputData.previousExtraction, null, 2)}`
+    : ''
+}
 
-${inputData.userProfile ? `USER PROFILE (durable identity):
-${inputData.userProfile}` : 'No user profile available yet.'}
+${
+  inputData.userProfile
+    ? `USER PROFILE (durable identity):
+${inputData.userProfile}`
+    : 'No user profile available yet.'
+}
 
 USER TIMEZONE: ${inputData.timezone}
 TODAY'S DATE: ${inputData.todayLocal}
@@ -2296,7 +2370,10 @@ Output ONLY valid JSON, nothing else.`;
   try {
     dco = JSON.parse(jsonStr);
   } catch (parseErr) {
-    console.error('[DCO:Gemini] JSON parse failed. Raw content (first 500 chars):', content.slice(0, 500));
+    console.error(
+      '[DCO:Gemini] JSON parse failed. Raw content (first 500 chars):',
+      content.slice(0, 500),
+    );
     console.error('[DCO:Gemini] Cleaned jsonStr (first 500 chars):', jsonStr.slice(0, 500));
     throw new Error(`${parseErr.message} | raw_start: ${jsonStr.slice(0, 200)}`);
   }
@@ -2304,7 +2381,9 @@ Output ONLY valid JSON, nothing else.`;
   // Log token usage
   const usage = data.usageMetadata;
   if (usage) {
-    console.log(`[DCO:Gemini] Tokens — input: ${usage.promptTokenCount}, output: ${usage.candidatesTokenCount}, thinking: ${usage.thoughtsTokenCount || 0}, total: ${usage.totalTokenCount}`);
+    console.log(
+      `[DCO:Gemini] Tokens — input: ${usage.promptTokenCount}, output: ${usage.candidatesTokenCount}, thinking: ${usage.thoughtsTokenCount || 0}, total: ${usage.totalTokenCount}`,
+    );
   }
 
   const latency = Date.now() - t0;
@@ -2316,12 +2395,14 @@ Output ONLY valid JSON, nothing else.`;
   });
 
   // Attach token usage metadata (not persisted, used by callers for logging)
-  dco._token_usage = usage ? {
-    input: usage.promptTokenCount,
-    output: usage.candidatesTokenCount,
-    thinking: usage.thoughtsTokenCount || 0,
-    total: usage.totalTokenCount,
-  } : null;
+  dco._token_usage = usage
+    ? {
+        input: usage.promptTokenCount,
+        output: usage.candidatesTokenCount,
+        thinking: usage.thoughtsTokenCount || 0,
+        total: usage.totalTokenCount,
+      }
+    : null;
   dco._latency_ms = latency;
 
   // Attach metadata
@@ -2613,16 +2694,26 @@ function getExpectedCompletions(frequency) {
 
 function getExpectedCompletionsForDays(frequency, days) {
   switch (frequency) {
-    case 'daily': return days;
-    case 'weekly': return Math.ceil(days / 7);
-    case '2x/week': return Math.ceil((days / 7) * 2);
-    case '3x/week': return Math.ceil((days / 7) * 3);
-    case '4x/week': return Math.ceil((days / 7) * 4);
-    case '5x/week': return Math.ceil((days / 7) * 5);
-    case '6x/week': return Math.ceil((days / 7) * 6);
-    case '5x/month': return Math.ceil((days / 30) * 5);
-    case 'monthly': return days >= 30 ? 1 : 0;
-    default: return days;
+    case 'daily':
+      return days;
+    case 'weekly':
+      return Math.ceil(days / 7);
+    case '2x/week':
+      return Math.ceil((days / 7) * 2);
+    case '3x/week':
+      return Math.ceil((days / 7) * 3);
+    case '4x/week':
+      return Math.ceil((days / 7) * 4);
+    case '5x/week':
+      return Math.ceil((days / 7) * 5);
+    case '6x/week':
+      return Math.ceil((days / 7) * 6);
+    case '5x/month':
+      return Math.ceil((days / 30) * 5);
+    case 'monthly':
+      return days >= 30 ? 1 : 0;
+    default:
+      return days;
   }
 }
 
@@ -3568,24 +3659,67 @@ async function fetchFullHistoricalSnapshot(userId, env) {
   };
 
   const [
-    todos, notes, habits, habitProgress, spaces,
-    milestones, spaceChatMessages, userProfileRows,
-    weeklySummaries, dcoHistory, overrides,
+    todos,
+    notes,
+    habits,
+    habitProgress,
+    spaces,
+    milestones,
+    spaceChatMessages,
+    userProfileRows,
+    weeklySummaries,
+    dcoHistory,
+    overrides,
   ] = await Promise.all([
-    fetch(`${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&select=id,title,name,status,completed_at,space_id,created_at,tags,target_date,archived&order=created_at.asc&limit=1000`, { headers }).then(r => r.json()),
-    fetch(`${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&select=id,title,body,subtype,mood,space_id,created_at,target_date,is_goal,archived&order=created_at.asc&limit=1000`, { headers }).then(r => r.json()),
-    fetch(`${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&select=id,name,frequency,space_id,created_at,archived,completed_at,commitment,subtype&order=created_at.asc&limit=100`, { headers }).then(r => r.json()),
-    fetch(`${env.SUPABASE_URL}/rest/v1/habit_progress?owner_id=eq.${userId}&select=habit_id,occurred_day&order=occurred_day.asc&limit=5000`, { headers }).then(r => r.json()),
-    fetch(`${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&select=id,name,archived_at,created_at&order=created_at.asc`, { headers }).then(r => r.json()),
-    fetch(`${env.SUPABASE_URL}/rest/v1/space_milestones?owner_id=eq.${userId}&select=id,title,name,date,space_id,completed,is_active,completed_at&order=date.asc`, { headers }).then(r => r.json()),
-    fetch(`${env.SUPABASE_URL}/rest/v1/space_chat_messages?user_id=eq.${userId}&role=eq.user&select=content,created_at,space_id&order=created_at.desc&limit=200`, { headers }).then(r => r.json()),
-    fetch(`${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=profile_text,signals`, { headers }).then(r => r.json()),
-    fetch(`${env.SUPABASE_URL}/rest/v1/weekly_summaries?user_id=eq.${userId}&select=week_start_date,week_end_date,content,stats_snapshot,key_themes&order=week_start_date.asc`, { headers }).then(r => r.json()),
-    fetch(`${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&select=date,dco&order=date.desc&limit=30`, { headers }).then(r => r.json()),
-    fetch(`${env.SUPABASE_URL}/rest/v1/user_profile_overrides?user_id=eq.${userId}&select=action,fact_text`, { headers }).then(r => r.json()).catch(() => []),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&select=id,title,name,status,completed_at,space_id,created_at,tags,target_date,archived&order=created_at.asc&limit=1000`,
+      { headers },
+    ).then((r) => r.json()),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&select=id,title,body,subtype,mood,space_id,created_at,target_date,is_goal,archived&order=created_at.asc&limit=1000`,
+      { headers },
+    ).then((r) => r.json()),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&select=id,name,frequency,space_id,created_at,archived,completed_at,commitment,subtype&order=created_at.asc&limit=100`,
+      { headers },
+    ).then((r) => r.json()),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/habit_progress?owner_id=eq.${userId}&select=habit_id,occurred_day&order=occurred_day.asc&limit=5000`,
+      { headers },
+    ).then((r) => r.json()),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&select=id,name,archived_at,created_at&order=created_at.asc`,
+      { headers },
+    ).then((r) => r.json()),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/space_milestones?owner_id=eq.${userId}&select=id,title,name,date,space_id,completed,is_active,completed_at&order=date.asc`,
+      { headers },
+    ).then((r) => r.json()),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/space_chat_messages?user_id=eq.${userId}&role=eq.user&select=content,created_at,space_id&order=created_at.desc&limit=200`,
+      { headers },
+    ).then((r) => r.json()),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=profile_text,signals`,
+      { headers },
+    ).then((r) => r.json()),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/weekly_summaries?user_id=eq.${userId}&select=week_start_date,week_end_date,content,stats_snapshot,key_themes&order=week_start_date.asc`,
+      { headers },
+    ).then((r) => r.json()),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&select=date,dco&order=date.desc&limit=30`,
+      { headers },
+    ).then((r) => r.json()),
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_profile_overrides?user_id=eq.${userId}&select=action,fact_text`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
   ]);
 
-  const safeArr = v => (Array.isArray(v) ? v : []);
+  const safeArr = (v) => (Array.isArray(v) ? v : []);
 
   return {
     userId,
@@ -3614,133 +3748,174 @@ function compressSnapshotForBootstrap(snapshot) {
   }
 
   // --- Spaces with entity inventory ---
-  const spaceSections = snapshot.spaces.map(s => {
-    const spaceTodos = snapshot.todos.filter(t => t.space_id === s.id && !t.archived);
-    const spaceNotes = snapshot.notes.filter(n => n.space_id === s.id && !n.archived && n.subtype !== 'event');
-    const spaceHabits = snapshot.habits.filter(h => h.space_id === s.id);
-    const spaceMilestones = snapshot.milestones.filter(m => m.space_id === s.id);
-    const active = spaceTodos.filter(t => t.status === 'active').length;
-    const completed = spaceTodos.filter(t => t.completed_at).length;
+  const spaceSections = snapshot.spaces
+    .map((s) => {
+      const spaceTodos = snapshot.todos.filter((t) => t.space_id === s.id && !t.archived);
+      const spaceNotes = snapshot.notes.filter(
+        (n) => n.space_id === s.id && !n.archived && n.subtype !== 'event',
+      );
+      const spaceHabits = snapshot.habits.filter((h) => h.space_id === s.id);
+      const spaceMilestones = snapshot.milestones.filter((m) => m.space_id === s.id);
+      const active = spaceTodos.filter((t) => t.status === 'active').length;
+      const completed = spaceTodos.filter((t) => t.completed_at).length;
 
-    let section = `SPACE: "${s.name}"${s.archived_at ? ' [ARCHIVED]' : ''}\n`;
-    section += `  Todos: ${active} active, ${completed} completed\n`;
-    if (spaceTodos.length > 0) {
-      section += `  Recent todos: ${spaceTodos.slice(-10).map(t => `${t.title || t.name} [${t.status}]`).join('; ')}\n`;
-    }
-    if (spaceNotes.length > 0) {
-      section += `  Notes (${spaceNotes.length}): ${spaceNotes.slice(-8).map(n => {
-        const mood = n.mood?.length > 0 ? ` (mood: ${n.mood.join(',')})` : '';
-        const body = n.subtype === 'journal' && n.body ? ` — "${n.body.slice(0, 200)}"` : '';
-        return `[${n.subtype || 'note'}] ${n.title}${mood}${body}`;
-      }).join('; ')}\n`;
-    }
-    if (spaceHabits.length > 0) {
-      section += `  Habits: ${spaceHabits.map(h => `${h.name} (${h.frequency})${h.archived ? ' [archived]' : ''}`).join(', ')}\n`;
-    }
-    if (spaceMilestones.length > 0) {
-      section += `  Milestones: ${spaceMilestones.map(m => `${m.title || m.name}: ${m.date}${m.completed ? ' ✓' : ''}`).join('; ')}\n`;
-    }
-    return section;
-  }).join('\n');
+      let section = `SPACE: "${s.name}"${s.archived_at ? ' [ARCHIVED]' : ''}\n`;
+      section += `  Todos: ${active} active, ${completed} completed\n`;
+      if (spaceTodos.length > 0) {
+        section += `  Recent todos: ${spaceTodos
+          .slice(-10)
+          .map((t) => `${t.title || t.name} [${t.status}]`)
+          .join('; ')}\n`;
+      }
+      if (spaceNotes.length > 0) {
+        section += `  Notes (${spaceNotes.length}): ${spaceNotes
+          .slice(-8)
+          .map((n) => {
+            const mood = n.mood?.length > 0 ? ` (mood: ${n.mood.join(',')})` : '';
+            const body = n.subtype === 'journal' && n.body ? ` — "${n.body.slice(0, 200)}"` : '';
+            return `[${n.subtype || 'note'}] ${n.title}${mood}${body}`;
+          })
+          .join('; ')}\n`;
+      }
+      if (spaceHabits.length > 0) {
+        section += `  Habits: ${spaceHabits.map((h) => `${h.name} (${h.frequency})${h.archived ? ' [archived]' : ''}`).join(', ')}\n`;
+      }
+      if (spaceMilestones.length > 0) {
+        section += `  Milestones: ${spaceMilestones.map((m) => `${m.title || m.name}: ${m.date}${m.completed ? ' ✓' : ''}`).join('; ')}\n`;
+      }
+      return section;
+    })
+    .join('\n');
 
   // --- Unassigned items ---
-  const unassignedTodos = snapshot.todos.filter(t => !t.space_id && !t.archived);
-  const unassignedNotes = snapshot.notes.filter(n => !n.space_id && !n.archived && n.subtype !== 'event');
+  const unassignedTodos = snapshot.todos.filter((t) => !t.space_id && !t.archived);
+  const unassignedNotes = snapshot.notes.filter(
+    (n) => !n.space_id && !n.archived && n.subtype !== 'event',
+  );
 
   let unassignedSection = '';
   if (unassignedTodos.length > 0 || unassignedNotes.length > 0) {
     unassignedSection = `UNASSIGNED ITEMS:\n`;
     if (unassignedTodos.length > 0) {
-      unassignedSection += `  Todos (${unassignedTodos.length}): ${unassignedTodos.slice(-15).map(t => `${t.title || t.name} [${t.status}]`).join('; ')}\n`;
+      unassignedSection += `  Todos (${unassignedTodos.length}): ${unassignedTodos
+        .slice(-15)
+        .map((t) => `${t.title || t.name} [${t.status}]`)
+        .join('; ')}\n`;
     }
     if (unassignedNotes.length > 0) {
-      unassignedSection += `  Notes (${unassignedNotes.length}): ${unassignedNotes.slice(-10).map(n => {
-        const mood = n.mood?.length > 0 ? ` (mood: ${n.mood.join(',')})` : '';
-        return `[${n.subtype || 'note'}] ${n.title}${mood}`;
-      }).join('; ')}\n`;
+      unassignedSection += `  Notes (${unassignedNotes.length}): ${unassignedNotes
+        .slice(-10)
+        .map((n) => {
+          const mood = n.mood?.length > 0 ? ` (mood: ${n.mood.join(',')})` : '';
+          return `[${n.subtype || 'note'}] ${n.title}${mood}`;
+        })
+        .join('; ')}\n`;
     }
   }
 
   // --- Journals (full — these are the richest signal) ---
   const journals = snapshot.notes
-    .filter(n => n.subtype === 'journal' && !n.archived)
+    .filter((n) => n.subtype === 'journal' && !n.archived)
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
-  const journalSection = journals.length > 0
-    ? 'ALL JOURNAL ENTRIES (chronological):\n' + journals.map(j => {
-        const date = j.created_at?.split('T')[0] || 'unknown';
-        const mood = j.mood?.length > 0 ? ` [mood: ${j.mood.join(', ')}]` : '';
-        const space = j.space_id ? ` (${spaceMap[j.space_id] || 'unknown space'})` : '';
-        const body = j.body ? `\n  "${j.body.slice(0, 300)}"` : '';
-        return `${date}: ${j.title}${mood}${space}${body}`;
-      }).join('\n')
-    : '';
+  const journalSection =
+    journals.length > 0
+      ? 'ALL JOURNAL ENTRIES (chronological):\n' +
+        journals
+          .map((j) => {
+            const date = j.created_at?.split('T')[0] || 'unknown';
+            const mood = j.mood?.length > 0 ? ` [mood: ${j.mood.join(', ')}]` : '';
+            const space = j.space_id ? ` (${spaceMap[j.space_id] || 'unknown space'})` : '';
+            const body = j.body ? `\n  "${j.body.slice(0, 300)}"` : '';
+            return `${date}: ${j.title}${mood}${space}${body}`;
+          })
+          .join('\n')
+      : '';
 
   // --- Habit completion patterns ---
-  const habitSection = snapshot.habits.length > 0
-    ? 'HABITS AND COMPLETION HISTORY:\n' + snapshot.habits.map(h => {
-        const completions = snapshot.habitProgress.filter(hp => hp.habit_id === h.id);
-        const totalDone = completions.length;
-        const space = h.space_id ? ` [${spaceMap[h.space_id] || 'space'}]` : '';
-        const status = h.archived ? ' [ARCHIVED]' : '';
+  const habitSection =
+    snapshot.habits.length > 0
+      ? 'HABITS AND COMPLETION HISTORY:\n' +
+        snapshot.habits
+          .map((h) => {
+            const completions = snapshot.habitProgress.filter((hp) => hp.habit_id === h.id);
+            const totalDone = completions.length;
+            const space = h.space_id ? ` [${spaceMap[h.space_id] || 'space'}]` : '';
+            const status = h.archived ? ' [ARCHIVED]' : '';
 
-        // Weekly completion pattern (last 8 weeks)
-        const weeks = {};
-        for (const c of completions) {
-          const d = new Date(c.occurred_day + 'T00:00:00Z');
-          const weekStart = new Date(d);
-          weekStart.setUTCDate(d.getUTCDate() - d.getUTCDay());
-          const wk = weekStart.toISOString().split('T')[0];
-          weeks[wk] = (weeks[wk] || 0) + 1;
-        }
-        const weekPattern = Object.entries(weeks).slice(-8).map(([w, c]) => `${w}:${c}`).join(', ');
+            // Weekly completion pattern (last 8 weeks)
+            const weeks = {};
+            for (const c of completions) {
+              const d = new Date(c.occurred_day + 'T00:00:00Z');
+              const weekStart = new Date(d);
+              weekStart.setUTCDate(d.getUTCDate() - d.getUTCDay());
+              const wk = weekStart.toISOString().split('T')[0]; // eslint-disable-line no-restricted-syntax -- UTC week bucketing
+              weeks[wk] = (weeks[wk] || 0) + 1;
+            }
+            const weekPattern = Object.entries(weeks)
+              .slice(-8)
+              .map(([w, c]) => `${w}:${c}`)
+              .join(', ');
 
-        return `- ${h.name} (${h.frequency})${space}${status}: ${totalDone} total completions. Weekly: ${weekPattern || 'none'}`;
-      }).join('\n')
-    : '';
+            return `- ${h.name} (${h.frequency})${space}${status}: ${totalDone} total completions. Weekly: ${weekPattern || 'none'}`;
+          })
+          .join('\n')
+      : '';
 
   // --- Calendar events timeline (deduplicated) ---
   const events = snapshot.notes
-    .filter(n => n.subtype === 'event' && !n.archived)
-    .sort((a, b) => (a.target_date || a.created_at || '').localeCompare(b.target_date || b.created_at || ''));
+    .filter((n) => n.subtype === 'event' && !n.archived)
+    .sort((a, b) =>
+      (a.target_date || a.created_at || '').localeCompare(b.target_date || b.created_at || ''),
+    );
 
   const seenEvents = new Set();
-  const dedupedEvents = events.filter(e => {
+  const dedupedEvents = events.filter((e) => {
     const key = `${(e.title || '').toLowerCase().trim()}|${e.target_date}`;
     if (seenEvents.has(key)) return false;
     seenEvents.add(key);
     return true;
   });
 
-  const eventSection = dedupedEvents.length > 0
-    ? 'CALENDAR EVENTS TIMELINE:\n' + dedupedEvents.slice(-60).map(e => {
-        const space = e.space_id ? ` [${spaceMap[e.space_id] || 'space'}]` : '';
-        return `${e.target_date || 'no date'}: ${e.title}${space}`;
-      }).join('\n')
-    : '';
+  const eventSection =
+    dedupedEvents.length > 0
+      ? 'CALENDAR EVENTS TIMELINE:\n' +
+        dedupedEvents
+          .slice(-60)
+          .map((e) => {
+            const space = e.space_id ? ` [${spaceMap[e.space_id] || 'space'}]` : '';
+            return `${e.target_date || 'no date'}: ${e.title}${space}`;
+          })
+          .join('\n')
+      : '';
 
   // --- Weekly summaries (highest quality pre-digested context) ---
-  const weeklySummarySection = snapshot.weeklySummaries.length > 0
-    ? 'WEEKLY SUMMARIES (AI-generated, chronological — treat as high-quality context):\n' +
-      snapshot.weeklySummaries.map(ws => {
-        const themes = ws.key_themes?.length > 0 ? `Themes: ${ws.key_themes.join(', ')}` : '';
-        // Extract the narrative content from the content JSONB
-        let narrative = '';
-        if (ws.content) {
-          if (typeof ws.content === 'string') narrative = ws.content;
-          else if (ws.content.narrative) narrative = ws.content.narrative;
-          else if (ws.content.summary) narrative = ws.content.summary;
-          else if (ws.content.sections) {
-            narrative = Object.values(ws.content.sections || {}).filter(v => typeof v === 'string').join(' ');
-          }
-          // Fallback: stringify the whole thing but truncate
-          if (!narrative && typeof ws.content === 'object') {
-            narrative = JSON.stringify(ws.content).slice(0, 1500);
-          }
-        }
-        return `WEEK OF ${ws.week_start_date} to ${ws.week_end_date}:\n${themes}\n${narrative}`;
-      }).join('\n\n')
-    : '';
+  const weeklySummarySection =
+    snapshot.weeklySummaries.length > 0
+      ? 'WEEKLY SUMMARIES (AI-generated, chronological — treat as high-quality context):\n' +
+        snapshot.weeklySummaries
+          .map((ws) => {
+            const themes = ws.key_themes?.length > 0 ? `Themes: ${ws.key_themes.join(', ')}` : '';
+            // Extract the narrative content from the content JSONB
+            let narrative = '';
+            if (ws.content) {
+              if (typeof ws.content === 'string') narrative = ws.content;
+              else if (ws.content.narrative) narrative = ws.content.narrative;
+              else if (ws.content.summary) narrative = ws.content.summary;
+              else if (ws.content.sections) {
+                narrative = Object.values(ws.content.sections || {})
+                  .filter((v) => typeof v === 'string')
+                  .join(' ');
+              }
+              // Fallback: stringify the whole thing but truncate
+              if (!narrative && typeof ws.content === 'object') {
+                narrative = JSON.stringify(ws.content).slice(0, 1500);
+              }
+            }
+            return `WEEK OF ${ws.week_start_date} to ${ws.week_end_date}:\n${themes}\n${narrative}`;
+          })
+          .join('\n\n')
+      : '';
 
   // --- User profile ---
   const profileSection = snapshot.profile?.profile_text
@@ -3748,13 +3923,17 @@ function compressSnapshotForBootstrap(snapshot) {
     : '';
 
   // --- Chat message themes (compressed — just user messages for fact context) ---
-  const chatSection = snapshot.chatMessages.length > 0
-    ? 'USER CHAT MESSAGES (most recent, for personal context):\n' +
-      snapshot.chatMessages.slice(0, 50).map(m => {
-        const space = m.space_id ? ` [${spaceMap[m.space_id] || 'space'}]` : '';
-        return `${m.created_at?.split('T')[0] || ''}${space}: ${(m.content || '').slice(0, 200)}`;
-      }).join('\n')
-    : '';
+  const chatSection =
+    snapshot.chatMessages.length > 0
+      ? 'USER CHAT MESSAGES (most recent, for personal context):\n' +
+        snapshot.chatMessages
+          .slice(0, 50)
+          .map((m) => {
+            const space = m.space_id ? ` [${spaceMap[m.space_id] || 'space'}]` : '';
+            return `${m.created_at?.split('T')[0] || ''}${space}: ${(m.content || '').slice(0, 200)}`;
+          })
+          .join('\n')
+      : '';
 
   return [
     profileSection,
@@ -3765,7 +3944,9 @@ function compressSnapshotForBootstrap(snapshot) {
     eventSection,
     weeklySummarySection,
     chatSection,
-  ].filter(Boolean).join('\n\n');
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 // ============================================================================
@@ -3777,8 +3958,8 @@ async function bootstrapLifeMap(snapshot, env) {
   const compressedData = compressSnapshotForBootstrap(snapshot);
 
   const spaceList = snapshot.spaces
-    .filter(s => !s.archived_at)
-    .map(s => `"${s.name}" (id: ${s.id})`)
+    .filter((s) => !s.archived_at)
+    .map((s) => `"${s.name}" (id: ${s.id})`)
     .join(', ');
 
   const systemPrompt = `You are building the initial Life Map for a user of Gremly, a productivity companion app. This is a ONE-TIME bootstrap from their full history (~2 months of data). The Life Map is a structured model of what matters in this person's life, organized into domains and threads.
@@ -3871,16 +4052,16 @@ RULES:
       max_tokens: 12000,
       temperature: 0.3,
       stream: true,
-      messages: [
-        { role: 'user', content: userMessage },
-      ],
+      messages: [{ role: 'user', content: userMessage }],
       system: systemPrompt,
     }),
   });
 
   if (!response.ok) {
     const errBody = await response.text().catch(() => '');
-    throw new Error(`Life Map bootstrap Sonnet call failed: ${response.status} ${errBody.slice(0, 300)}`);
+    throw new Error(
+      `Life Map bootstrap Sonnet call failed: ${response.status} ${errBody.slice(0, 300)}`,
+    );
   }
 
   // Read the SSE stream and accumulate text
@@ -3892,6 +4073,7 @@ RULES:
   let buffer = '';
 
   while (true) {
+    // eslint-disable-line no-constant-condition -- SSE stream reader
     const { done, value } = await reader.read();
     if (done) break;
 
@@ -3924,7 +4106,9 @@ RULES:
     }
   }
 
-  console.log(`[LifeMap:Bootstrap] Stream complete. Text length: ${fullText.length}, Input: ${inputTokens}, Output: ${outputTokens}`);
+  console.log(
+    `[LifeMap:Bootstrap] Stream complete. Text length: ${fullText.length}, Input: ${inputTokens}, Output: ${outputTokens}`,
+  );
 
   // Parse JSON — strip markdown fences if present
   let jsonStr = fullText.trim();
@@ -3949,10 +4133,13 @@ RULES:
 
   const latency = Date.now() - t0;
 
-  console.log(`[LifeMap:Bootstrap] Complete in ${latency}ms. Domains: ${lifeMap.domains?.length || 0}`, {
-    input_tokens: inputTokens,
-    output_tokens: outputTokens,
-  });
+  console.log(
+    `[LifeMap:Bootstrap] Complete in ${latency}ms. Domains: ${lifeMap.domains?.length || 0}`,
+    {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+    },
+  );
 
   return lifeMap;
 }
@@ -3961,12 +4148,12 @@ async function rebuildLifeMap(currentLifeMap, analystOutput, userProfile, spaces
   const t0 = Date.now();
 
   // Format current Life Map as compact reference (summaries + metadata, skip evidence arrays)
-  const compactMap = (currentLifeMap.domains || []).map(d => ({
+  const compactMap = (currentLifeMap.domains || []).map((d) => ({
     name: d.name,
     source: d.source,
     space_id: d.space_id,
     attention: d.attention,
-    threads: (d.threads || []).map(t => ({
+    threads: (d.threads || []).map((t) => ({
       name: t.name,
       status: t.status,
       momentum: t.momentum,
@@ -3982,19 +4169,23 @@ async function rebuildLifeMap(currentLifeMap, analystOutput, userProfile, spaces
   const currentMapText = JSON.stringify(compactMap, null, 2);
 
   // Format analyst output — all sections Sonnet needs
-  const analystText = JSON.stringify({
-    themes: analystOutput.themes,
-    new_theme_candidates: analystOutput.new_theme_candidates,
-    week_shape: analystOutput.week_shape,
-    cross_references: analystOutput.cross_references,
-    engagement_metrics: analystOutput.engagement_metrics,
-    stale_items: analystOutput.stale_items,
-  }, null, 2);
+  const analystText = JSON.stringify(
+    {
+      themes: analystOutput.themes,
+      new_theme_candidates: analystOutput.new_theme_candidates,
+      week_shape: analystOutput.week_shape,
+      cross_references: analystOutput.cross_references,
+      engagement_metrics: analystOutput.engagement_metrics,
+      stale_items: analystOutput.stale_items,
+    },
+    null,
+    2,
+  );
 
   // Format raw journals for cross-reference
   let journalText = '';
   if (journals && journals.length > 0) {
-    const journalLines = journals.map(j => {
+    const journalLines = journals.map((j) => {
       const mood = j.mood?.length > 0 ? ` [mood: ${j.mood.join(', ')}]` : '';
       const body = j.body ? `\n    "${j.body.slice(0, 600)}"` : '';
       return `  ${j.date || j.created_at?.split('T')[0] || 'unknown'}: ${j.title}${mood}${body}`;
@@ -4003,8 +4194,8 @@ async function rebuildLifeMap(currentLifeMap, analystOutput, userProfile, spaces
   }
 
   const spaceList = spaces
-    .filter(s => !s.archived_at)
-    .map(s => `"${s.name}" (id: ${s.id})`)
+    .filter((s) => !s.archived_at)
+    .map((s) => `"${s.name}" (id: ${s.id})`)
     .join(', ');
 
   const systemPrompt = `You are updating a Life Map — a structured model of what matters in a person's life. An analyst AI has already organized this week's raw data by thread. Your job: decide what changed and output ONLY THE CHANGES.
@@ -4111,7 +4302,9 @@ ${userProfile ? `USER PROFILE:\n${userProfile}` : ''}
 
 Produce the delta JSON — only what changed this week.`;
 
-  console.log(`[LifeMap:Rebuild] Calling Sonnet (delta mode). Payload: ${userMessage.length} chars`);
+  console.log(
+    `[LifeMap:Rebuild] Calling Sonnet (delta mode). Payload: ${userMessage.length} chars`,
+  );
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -4125,16 +4318,16 @@ Produce the delta JSON — only what changed this week.`;
       max_tokens: 8000,
       temperature: 0.3,
       stream: true,
-      messages: [
-        { role: 'user', content: userMessage },
-      ],
+      messages: [{ role: 'user', content: userMessage }],
       system: systemPrompt,
     }),
   });
 
   if (!response.ok) {
     const errBody = await response.text().catch(() => '');
-    throw new Error(`Life Map rebuild Sonnet call failed: ${response.status} ${errBody.slice(0, 300)}`);
+    throw new Error(
+      `Life Map rebuild Sonnet call failed: ${response.status} ${errBody.slice(0, 300)}`,
+    );
   }
 
   // Read SSE stream
@@ -4146,6 +4339,7 @@ Produce the delta JSON — only what changed this week.`;
   let buffer = '';
 
   while (true) {
+    // eslint-disable-line no-constant-condition -- SSE stream reader
     const { done, value } = await reader.read();
     if (done) break;
 
@@ -4175,7 +4369,9 @@ Produce the delta JSON — only what changed this week.`;
     }
   }
 
-  console.log(`[LifeMap:Rebuild] Stream complete. Text length: ${fullText.length}, Input: ${inputTokens}, Output: ${outputTokens}`);
+  console.log(
+    `[LifeMap:Rebuild] Stream complete. Text length: ${fullText.length}, Input: ${inputTokens}, Output: ${outputTokens}`,
+  );
 
   // Parse JSON with jsonrepair fallback
   let jsonStr = fullText.trim();
@@ -4221,7 +4417,6 @@ Produce the delta JSON — only what changed this week.`;
   };
 }
 
-
 // ============================================================================
 // Merge weekly Life Map delta into existing Life Map
 //
@@ -4239,16 +4434,18 @@ function mergeWeeklyLifeMapUpdates(lifeMap, delta) {
   const now = new Date().toISOString();
 
   // --- Apply thread updates ---
-  for (const update of (delta.thread_updates || [])) {
-    const domain = lifeMap.domains.find(d => d.name === update.domain_name);
+  for (const update of delta.thread_updates || []) {
+    const domain = lifeMap.domains.find((d) => d.name === update.domain_name);
     if (!domain) {
       console.warn(`[LifeMap:WeeklyMerge] Domain not found: "${update.domain_name}"`);
       continue;
     }
 
-    const thread = (domain.threads || []).find(t => t.name === update.thread_name);
+    const thread = (domain.threads || []).find((t) => t.name === update.thread_name);
     if (!thread) {
-      console.warn(`[LifeMap:WeeklyMerge] Thread not found: "${update.domain_name}" → "${update.thread_name}"`);
+      console.warn(
+        `[LifeMap:WeeklyMerge] Thread not found: "${update.domain_name}" → "${update.thread_name}"`,
+      );
       continue;
     }
 
@@ -4267,7 +4464,7 @@ function mergeWeeklyLifeMapUpdates(lifeMap, delta) {
       if (!thread.evidence) thread.evidence = [];
       for (const e of update.new_evidence) {
         const isDuplicate = thread.evidence.some(
-          existing => existing.date === e.date && existing.signal === e.signal,
+          (existing) => existing.date === e.date && existing.signal === e.signal,
         );
         if (!isDuplicate) {
           thread.evidence.push({
@@ -4283,14 +4480,16 @@ function mergeWeeklyLifeMapUpdates(lifeMap, delta) {
   }
 
   // --- Add new threads ---
-  for (const newThread of (delta.new_threads || [])) {
+  for (const newThread of delta.new_threads || []) {
     let targetDomain;
 
     if (newThread.domain_name) {
       // Add to existing domain
-      targetDomain = lifeMap.domains.find(d => d.name === newThread.domain_name);
+      targetDomain = lifeMap.domains.find((d) => d.name === newThread.domain_name);
       if (!targetDomain) {
-        console.warn(`[LifeMap:WeeklyMerge] Domain for new thread not found: "${newThread.domain_name}"`);
+        console.warn(
+          `[LifeMap:WeeklyMerge] Domain for new thread not found: "${newThread.domain_name}"`,
+        );
         continue;
       }
     } else if (newThread.new_domain_name) {
@@ -4305,12 +4504,14 @@ function mergeWeeklyLifeMapUpdates(lifeMap, delta) {
       lifeMap.domains.push(targetDomain);
       console.log(`[LifeMap:WeeklyMerge] Created new domain: "${newThread.new_domain_name}"`);
     } else {
-      console.warn(`[LifeMap:WeeklyMerge] New thread has no domain_name or new_domain_name: "${newThread.name}"`);
+      console.warn(
+        `[LifeMap:WeeklyMerge] New thread has no domain_name or new_domain_name: "${newThread.name}"`,
+      );
       continue;
     }
 
     // Check for duplicate thread name
-    const existing = (targetDomain.threads || []).find(t => t.name === newThread.name);
+    const existing = (targetDomain.threads || []).find((t) => t.name === newThread.name);
     if (existing) {
       console.warn(`[LifeMap:WeeklyMerge] Thread already exists, skipping: "${newThread.name}"`);
       continue;
@@ -4326,7 +4527,7 @@ function mergeWeeklyLifeMapUpdates(lifeMap, delta) {
       recent_update: newThread.recent_update || '',
       momentum: newThread.momentum || 'upward',
       lifecycle: newThread.lifecycle || 'active',
-      evidence: (newThread.evidence || []).map(e => ({
+      evidence: (newThread.evidence || []).map((e) => ({
         type: e.type || 'drop',
         source: e.source || null,
         date: e.date,
@@ -4335,12 +4536,14 @@ function mergeWeeklyLifeMapUpdates(lifeMap, delta) {
       })),
       last_activity: newThread.last_activity || null,
     });
-    console.log(`[LifeMap:WeeklyMerge] Added new thread: "${newThread.name}" in "${targetDomain.name}"`);
+    console.log(
+      `[LifeMap:WeeklyMerge] Added new thread: "${newThread.name}" in "${targetDomain.name}"`,
+    );
   }
 
   // --- Apply domain attention updates ---
   for (const [domainName, attention] of Object.entries(delta.domain_attention_updates || {})) {
-    const domain = lifeMap.domains.find(d => d.name === domainName);
+    const domain = lifeMap.domains.find((d) => d.name === domainName);
     if (domain) {
       domain.attention = attention;
     }
@@ -4380,7 +4583,7 @@ async function resolveImageUrl(imageHint, env) {
     const query = imageHint.replace(/_/g, ' ');
     const res = await fetch(
       `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`,
-      { headers: { 'Authorization': `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } }
+      { headers: { Authorization: `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } },
     );
     const data = await res.json();
     if (data.results && data.results.length > 0) {
@@ -4393,7 +4596,7 @@ async function resolveImageUrl(imageHint, env) {
       console.log(`[WeeklySummaryV2] Unsplash retry with shorter query: "${shortQuery}"`);
       const retryRes = await fetch(
         `https://api.unsplash.com/search/photos?query=${encodeURIComponent(shortQuery)}&per_page=1&orientation=landscape`,
-        { headers: { 'Authorization': `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } }
+        { headers: { Authorization: `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } },
       );
       const retryData = await retryRes.json();
       if (retryData.results && retryData.results.length > 0) {
@@ -4418,7 +4621,10 @@ function safeParseJSON(raw, label) {
   try {
     return JSON.parse(jsonStr);
   } catch (parseErr) {
-    console.warn(`[WeeklySummaryV2:${label}] Initial parse failed, using jsonrepair:`, parseErr.message);
+    console.warn(
+      `[WeeklySummaryV2:${label}] Initial parse failed, using jsonrepair:`,
+      parseErr.message,
+    );
     try {
       const result = JSON.parse(jsonrepair(jsonStr));
       console.log(`[WeeklySummaryV2:${label}] jsonrepair succeeded`);
@@ -4441,6 +4647,7 @@ async function readSSEStream(response) {
   let buffer = '';
 
   while (true) {
+    // eslint-disable-line no-constant-condition -- SSE stream reader
     const { done, value } = await reader.read();
     if (done) break;
 
@@ -4473,7 +4680,14 @@ async function readSSEStream(response) {
 }
 
 // ── PASS 1: Sonnet Narrative Planner ────────────────────────────────────────
-async function runNarrativePlanner(storytellerData, weekStart, weekEnd, staleItems, isFirstWeekOfMonth, env) {
+async function runNarrativePlanner(
+  storytellerData,
+  weekStart,
+  weekEnd,
+  staleItems,
+  isFirstWeekOfMonth,
+  env,
+) {
   const plannerSystem = `You are Gremly's narrative planner. You receive a user's weekly data and must plan a weekly summary across 8 card types. Your job is NOT to write the final text — it's to decide WHAT goes WHERE so that no detail, quote, or observation appears on more than one card.
 
 WEEK: ${weekStart} to ${weekEnd}
@@ -4689,7 +4903,9 @@ RESPOND WITH ONLY VALID JSON, no markdown.`;
   }
 
   const { fullText, inputTokens, outputTokens } = await readSSEStream(response);
-  console.log(`[WeeklySummaryV2:Planner] Stream complete. Text: ${fullText.length} chars, In: ${inputTokens}, Out: ${outputTokens}`);
+  console.log(
+    `[WeeklySummaryV2:Planner] Stream complete. Text: ${fullText.length} chars, In: ${inputTokens}, Out: ${outputTokens}`,
+  );
 
   const plan = safeParseJSON(fullText, 'Planner');
   return { plan, inputTokens, outputTokens };
@@ -4753,7 +4969,10 @@ Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL
     case 'thread_movements': {
       const threadDetails = alloc.thread_details || {};
       const threadNames = decisions.thread_names_to_show || [];
-      cardData = { thread_updates: storytellerData.life_map_delta?.thread_updates || [], new_threads: storytellerData.life_map_delta?.new_threads || [] };
+      cardData = {
+        thread_updates: storytellerData.life_map_delta?.thread_updates || [],
+        new_threads: storytellerData.life_map_delta?.new_threads || [],
+      };
       cardPrompt = `Output a single JSON object for the thread_movements card.
 Thread names to show: ${JSON.stringify(threadNames)}
 Thread details (one evidence fact per thread): ${JSON.stringify(threadDetails)}
@@ -4888,20 +5107,25 @@ Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL
             max_tokens: 1500,
             temperature: 0.1,
             messages: [{ role: 'user', content: cardPrompt }],
-            system: 'You are building a single \'recommends\' card for a weekly summary. This card is Gremly being a thoughtful coach — suggesting ideas the user can consider, not tasks to complete. The tone is warm, curious, and thought-provoking. Frame suggestions as invitations, not instructions.\n\nQUALITY RULES FOR RECOMMENDATIONS:\n- Be specific and concrete. The user should understand what you are suggesting within 2 seconds of reading.\n- Ground every recommendation in evidence from this week\'s data. Reference specific dates, items, or patterns.\n- Frame as clear actions or experiments, not poetic metaphors.\n- Bad: abstract, clever, requires interpretation to understand.\n- Good: direct, references a specific moment or pattern, suggests something the user can actually try.\n- The primary recommendation should be the single most impactful thing the user could do differently based on what you observed this week.\n- Secondary recommendations should each address a different dimension of the user\'s life — don\'t cluster all suggestions around the same theme.\n\nOutput ONLY valid JSON for this single card. Stay within ALL character limits.',
+            system:
+              "You are building a single 'recommends' card for a weekly summary. This card is Gremly being a thoughtful coach — suggesting ideas the user can consider, not tasks to complete. The tone is warm, curious, and thought-provoking. Frame suggestions as invitations, not instructions.\n\nQUALITY RULES FOR RECOMMENDATIONS:\n- Be specific and concrete. The user should understand what you are suggesting within 2 seconds of reading.\n- Ground every recommendation in evidence from this week's data. Reference specific dates, items, or patterns.\n- Frame as clear actions or experiments, not poetic metaphors.\n- Bad: abstract, clever, requires interpretation to understand.\n- Good: direct, references a specific moment or pattern, suggests something the user can actually try.\n- The primary recommendation should be the single most impactful thing the user could do differently based on what you observed this week.\n- Secondary recommendations should each address a different dimension of the user's life — don't cluster all suggestions around the same theme.\n\nOutput ONLY valid JSON for this single card. Stay within ALL character limits.",
           }),
         });
 
         if (!response.ok) {
           const errBody = await response.text().catch(() => '');
-          console.error(`[WeeklySummaryV2:Builder:recommends] Failed: ${response.status} ${errBody.slice(0, 200)}`);
+          console.error(
+            `[WeeklySummaryV2:Builder:recommends] Failed: ${response.status} ${errBody.slice(0, 200)}`,
+          );
           return null;
         }
 
         const result = await response.json();
         const text = result.content?.[0]?.text || '';
         const card = safeParseJSON(text, 'Builder:recommends');
-        console.log(`[WeeklySummaryV2:Builder:recommends] OK. In: ${result.usage?.input_tokens || 0}, Out: ${result.usage?.output_tokens || 0}`);
+        console.log(
+          `[WeeklySummaryV2:Builder:recommends] OK. In: ${result.usage?.input_tokens || 0}, Out: ${result.usage?.output_tokens || 0}`,
+        );
         return card;
       } catch (e) {
         console.error(`[WeeklySummaryV2:Builder:recommends] Error:`, e.message);
@@ -4988,20 +5212,25 @@ Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL
         max_tokens: 1500,
         temperature: 0.1,
         messages: [{ role: 'user', content: cardPrompt }],
-        system: 'You are a JSON card builder for Gremly\'s weekly summary. Output ONLY valid JSON for a single card. No markdown, no explanation. Use ONLY the allocated details provided — do not add details from other cards. Stay within ALL character limits. Write in complete, natural English sentences — never telegraphic fragments.',
+        system:
+          "You are a JSON card builder for Gremly's weekly summary. Output ONLY valid JSON for a single card. No markdown, no explanation. Use ONLY the allocated details provided — do not add details from other cards. Stay within ALL character limits. Write in complete, natural English sentences — never telegraphic fragments.",
       }),
     });
 
     if (!response.ok) {
       const errBody = await response.text().catch(() => '');
-      console.error(`[WeeklySummaryV2:Builder:${cardType}] Failed: ${response.status} ${errBody.slice(0, 200)}`);
+      console.error(
+        `[WeeklySummaryV2:Builder:${cardType}] Failed: ${response.status} ${errBody.slice(0, 200)}`,
+      );
       return null;
     }
 
     const result = await response.json();
     const text = result.content?.[0]?.text || '';
     const card = safeParseJSON(text, `Builder:${cardType}`);
-    console.log(`[WeeklySummaryV2:Builder:${cardType}] OK. In: ${result.usage?.input_tokens || 0}, Out: ${result.usage?.output_tokens || 0}`);
+    console.log(
+      `[WeeklySummaryV2:Builder:${cardType}] OK. In: ${result.usage?.input_tokens || 0}, Out: ${result.usage?.output_tokens || 0}`,
+    );
     return card;
   } catch (e) {
     console.error(`[WeeklySummaryV2:Builder:${cardType}] Error:`, e.message);
@@ -5038,7 +5267,7 @@ async function generateWeeklySummaryV2(
   const t0 = Date.now();
 
   // Build compact thread movements from delta
-  const threadMovements = (lifeMapDelta.thread_updates || []).map(u => ({
+  const threadMovements = (lifeMapDelta.thread_updates || []).map((u) => ({
     thread: u.thread_name,
     domain: u.domain_name,
     status: u.status,
@@ -5049,14 +5278,14 @@ async function generateWeeklySummaryV2(
   }));
 
   // Build new threads list
-  const newThreads = (lifeMapDelta.new_threads || []).map(t => ({
+  const newThreads = (lifeMapDelta.new_threads || []).map((t) => ({
     name: t.name,
     domain: t.domain_name || t.new_domain_name,
     summary: t.summary,
   }));
 
   // Format prior summaries for trend context
-  const priorContext = (priorSummaries || []).slice(0, 4).map(ws => {
+  const priorContext = (priorSummaries || []).slice(0, 4).map((ws) => {
     const content = ws.content || ws;
     return {
       week_start: ws.week_start_date,
@@ -5073,7 +5302,7 @@ async function generateWeeklySummaryV2(
   const monthName = weekStartDate.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
 
   // Raw journals for quote verification
-  const journalExcerpts = (weeklySnapshot.journals || []).map(j => ({
+  const journalExcerpts = (weeklySnapshot.journals || []).map((j) => ({
     date: j.date,
     title: j.title,
     body: j.body ? j.body.slice(0, 500) : null,
@@ -5082,28 +5311,32 @@ async function generateWeeklySummaryV2(
 
   // Completed todos
   const completedTodos = (weeklySnapshot.todosDetail || [])
-    .filter(t => t.completed_at)
-    .map(t => ({ title: t.title, date: t.completed_at, space: t.space }));
+    .filter((t) => t.completed_at)
+    .map((t) => ({ title: t.title, date: t.completed_at, space: t.space }));
 
   // Stale items — built from raw snapshot data, NOT dependent on analyst
   const staleItems = (weeklySnapshot.todosDetail || [])
-    .filter(t => {
+    .filter((t) => {
       if (t.status !== 'active' || t.archived) return false;
       if (!t.created_at) return false;
       const targetDate = weeklySnapshot.targetDate || weekEnd;
       const daysSince = Math.floor(
-        (new Date(targetDate + 'T00:00:00Z') - new Date(t.created_at.split('T')[0] + 'T00:00:00Z')) / 86400000
+        (new Date(targetDate + 'T00:00:00Z') -
+          new Date(t.created_at.split('T')[0] + 'T00:00:00Z')) /
+          86400000,
       );
       return daysSince > 14;
     })
-    .map(t => {
+    .map((t) => {
       const targetDate = weeklySnapshot.targetDate || weekEnd;
       const daysSince = Math.floor(
-        (new Date(targetDate + 'T00:00:00Z') - new Date(t.created_at.split('T')[0] + 'T00:00:00Z')) / 86400000
+        (new Date(targetDate + 'T00:00:00Z') -
+          new Date(t.created_at.split('T')[0] + 'T00:00:00Z')) /
+          86400000,
       );
       // Try to find analyst enrichment for this item
       const analystMatch = (analystOutput.stale_items || []).find(
-        s => s.title && t.title && s.title.toLowerCase() === t.title.toLowerCase()
+        (s) => s.title && t.title && s.title.toLowerCase() === t.title.toLowerCase(),
       );
       return {
         title: t.title,
@@ -5114,7 +5347,9 @@ async function generateWeeklySummaryV2(
       };
     });
 
-  console.log(`[WeeklySummaryV2] Stale items from snapshot: ${staleItems.length} (analyst had: ${(analystOutput.stale_items || []).length})`);
+  console.log(
+    `[WeeklySummaryV2] Stale items from snapshot: ${staleItems.length} (analyst had: ${(analystOutput.stale_items || []).length})`,
+  );
 
   // User profile
   const userProfile = weeklySnapshot.userProfile || null;
@@ -5150,8 +5385,18 @@ async function generateWeeklySummaryV2(
   };
 
   // ── PASS 1: Sonnet Narrative Planner ────────────────────────────────────
-  const { plan, inputTokens: plannerInputTokens, outputTokens: plannerOutputTokens } =
-    await runNarrativePlanner(storytellerData, weekStart, weekEnd, staleItems, isFirstWeekOfMonth, env);
+  const {
+    plan,
+    inputTokens: plannerInputTokens,
+    outputTokens: plannerOutputTokens,
+  } = await runNarrativePlanner(
+    storytellerData,
+    weekStart,
+    weekEnd,
+    staleItems,
+    isFirstWeekOfMonth,
+    env,
+  );
 
   console.log(`[WeeklySummaryV2] Planner: ${plannerInputTokens} in / ${plannerOutputTokens} out`);
 
@@ -5160,12 +5405,16 @@ async function generateWeeklySummaryV2(
     const cands = plan.candidates;
     let sels = plan.selections;
 
-    console.log(`[WeeklySummaryV2] Candidate mode: discovery_candidates=${(cands.discovery_candidates || []).length}, recommendation_candidates=${(cands.recommendation_candidates || []).length}, moment_candidates=${(cands.moment_candidates || []).length}, thread_candidates=${(cands.thread_candidates || []).length}`);
+    console.log(
+      `[WeeklySummaryV2] Candidate mode: discovery_candidates=${(cands.discovery_candidates || []).length}, recommendation_candidates=${(cands.recommendation_candidates || []).length}, moment_candidates=${(cands.moment_candidates || []).length}, thread_candidates=${(cands.thread_candidates || []).length}`,
+    );
 
     // AUTO-SELECT FALLBACK: if planner generated candidates but hit token limit before selections,
     // build selections deterministically with diversity constraint
     if (!sels) {
-      console.log(`[WeeklySummaryV2] No selections found — auto-selecting from candidates with diversity constraint`);
+      console.log(
+        `[WeeklySummaryV2] No selections found — auto-selecting from candidates with diversity constraint`,
+      );
       const discoveryCands = cands.discovery_candidates || [];
       const recCands = cands.recommendation_candidates || [];
       const momentCands = cands.moment_candidates || [];
@@ -5187,20 +5436,26 @@ async function generateWeeklySummaryV2(
       // Pick secondary recommendations (all others except primary)
       const secondaryIndices = recCands
         .map((_, i) => i)
-        .filter(i => i !== primaryRecIdx)
+        .filter((i) => i !== primaryRecIdx)
         .slice(0, 2);
 
       // Pick moment from a DIFFERENT domain than discovery and primary rec
       let momentIdx = 0;
       for (let i = 0; i < momentCands.length; i++) {
-        if (momentCands[i].domain !== discoveryDomain && momentCands[i].domain !== primaryRecDomain) {
+        if (
+          momentCands[i].domain !== discoveryDomain &&
+          momentCands[i].domain !== primaryRecDomain
+        ) {
           momentIdx = i;
           break;
         }
       }
 
       // Pick thread names — all thread candidates
-      const threadPickNames = threadCands.map(tc => tc.name).filter(Boolean).slice(0, 6);
+      const threadPickNames = threadCands
+        .map((tc) => tc.name)
+        .filter(Boolean)
+        .slice(0, 6);
 
       sels = {
         discovery_pick: { index: 0, domain: discoveryDomain },
@@ -5215,7 +5470,9 @@ async function generateWeeklySummaryV2(
       };
       console.log(`[WeeklySummaryV2] Auto-selection diversity: ${sels.diversity_check}`);
     } else {
-      console.log(`[WeeklySummaryV2] Planner provided selections. Diversity check: ${sels.diversity_check || 'not provided'}`);
+      console.log(
+        `[WeeklySummaryV2] Planner provided selections. Diversity check: ${sels.diversity_check || 'not provided'}`,
+      );
     }
 
     if (!plan.detail_allocation) plan.detail_allocation = {};
@@ -5226,17 +5483,22 @@ async function generateWeeklySummaryV2(
     if (selectedDiscovery) {
       plan.detail_allocation.discovery_details = {
         spotlight_topic: selectedDiscovery.title || selectedDiscovery.one_line_pitch || '',
-        spotlight_evidence: selectedDiscovery.spotlight_evidence_for_builder || selectedDiscovery.key_evidence || [],
+        spotlight_evidence:
+          selectedDiscovery.spotlight_evidence_for_builder || selectedDiscovery.key_evidence || [],
         mini_discoveries: selectedDiscovery.mini_discoveries || [],
       };
       plan.card_decisions.include_discoveries = true;
-      console.log(`[WeeklySummaryV2] Discovery selected: "${selectedDiscovery.title}" (${selectedDiscovery.domain})`);
+      console.log(
+        `[WeeklySummaryV2] Discovery selected: "${selectedDiscovery.title}" (${selectedDiscovery.domain})`,
+      );
     }
 
     // Wire selected recommendations into plan.recommendations
-    const primaryRec = (cands.recommendation_candidates || [])[sels.recommendation_picks?.primary_index ?? 0];
+    const primaryRec = (cands.recommendation_candidates || [])[
+      sels.recommendation_picks?.primary_index ?? 0
+    ];
     const secondaryRecs = (sels.recommendation_picks?.secondary_indices || [])
-      .map(i => (cands.recommendation_candidates || [])[i])
+      .map((i) => (cands.recommendation_candidates || [])[i])
       .filter(Boolean);
     if (primaryRec) {
       plan.recommendations = {
@@ -5245,7 +5507,7 @@ async function generateWeeklySummaryV2(
           body: primaryRec.body,
           type: primaryRec.type,
         },
-        secondary: secondaryRecs.map(r => ({
+        secondary: secondaryRecs.map((r) => ({
           title: r.title,
           body: r.body,
           type: r.type,
@@ -5253,7 +5515,7 @@ async function generateWeeklySummaryV2(
       };
       plan.detail_allocation.recommends_details = [
         ...(primaryRec.supporting_evidence || []),
-        ...secondaryRecs.flatMap(r => r.supporting_evidence || []),
+        ...secondaryRecs.flatMap((r) => r.supporting_evidence || []),
       ].slice(0, 5);
       plan.card_decisions.include_recommends = true;
       console.log(`[WeeklySummaryV2] Primary rec: "${primaryRec.title}" (${primaryRec.domain})`);
@@ -5261,10 +5523,10 @@ async function generateWeeklySummaryV2(
 
     // Wire selected moments into detail_allocation.moment_details
     const selectedMoments = (sels.moment_pick_indices || [])
-      .map(i => (cands.moment_candidates || [])[i])
+      .map((i) => (cands.moment_candidates || [])[i])
       .filter(Boolean);
     if (selectedMoments.length > 0) {
-      plan.detail_allocation.moment_details = selectedMoments.map(m => ({
+      plan.detail_allocation.moment_details = selectedMoments.map((m) => ({
         day: m.day_label,
         date: m.date,
         title_idea: m.title_idea,
@@ -5273,16 +5535,22 @@ async function generateWeeklySummaryV2(
       }));
       plan.card_decisions.include_moments = true;
       plan.card_decisions.moment_count = selectedMoments.length;
-      console.log(`[WeeklySummaryV2] Moments selected: ${selectedMoments.map(m => m.title_idea).join(', ')}`);
+      console.log(
+        `[WeeklySummaryV2] Moments selected: ${selectedMoments.map((m) => m.title_idea).join(', ')}`,
+      );
     }
 
     // Override: if analyst has 2+ magic moments and planner only picked 1, force a second moment
     const analystMoments = storytellerData.analyst?.magic_moment_candidates || [];
-    if (selectedMoments.length === 1 && analystMoments.length >= 2 && (cands.moment_candidates || []).length >= 2) {
+    if (
+      selectedMoments.length === 1 &&
+      analystMoments.length >= 2 &&
+      (cands.moment_candidates || []).length >= 2
+    ) {
       // Find a second moment candidate that's on a different day
       const firstDate = selectedMoments[0]?.date;
-      const secondIdx = (cands.moment_candidates || []).findIndex((m, i) => 
-        !sels.moment_pick_indices.includes(i) && m.date !== firstDate
+      const secondIdx = (cands.moment_candidates || []).findIndex(
+        (m, i) => !sels.moment_pick_indices.includes(i) && m.date !== firstDate,
       );
       if (secondIdx !== -1) {
         const secondMoment = cands.moment_candidates[secondIdx];
@@ -5295,7 +5563,9 @@ async function generateWeeklySummaryV2(
           thread_tags: secondMoment.thread_tags || [],
         });
         plan.card_decisions.moment_count = 2;
-        console.log(`[WeeklySummaryV2] Moment override: added second moment "${secondMoment.title_idea}" (${secondMoment.date})`);
+        console.log(
+          `[WeeklySummaryV2] Moment override: added second moment "${secondMoment.title_idea}" (${secondMoment.date})`,
+        );
       }
     }
 
@@ -5308,9 +5578,11 @@ async function generateWeeklySummaryV2(
       threadNames = deltaThreads
         .sort((a, b) => (b.importance || 0) - (a.importance || 0))
         .slice(0, 6)
-        .map(t => t.thread);
+        .map((t) => t.thread);
       if (threadNames.length > 0) {
-        console.log(`[WeeklySummaryV2] Thread fallback from life map delta: ${threadNames.join(', ')}`);
+        console.log(
+          `[WeeklySummaryV2] Thread fallback from life map delta: ${threadNames.join(', ')}`,
+        );
         // Build thread_details from delta data
         plan.detail_allocation.thread_details = {};
         for (const t of deltaThreads.slice(0, 6)) {
@@ -5319,11 +5591,14 @@ async function generateWeeklySummaryV2(
       }
     } else {
       // Build thread_details from thread_candidates for the selected names
-      if (!plan.detail_allocation.thread_details || Object.keys(plan.detail_allocation.thread_details).length === 0) {
+      if (
+        !plan.detail_allocation.thread_details ||
+        Object.keys(plan.detail_allocation.thread_details).length === 0
+      ) {
         plan.detail_allocation.thread_details = {};
         for (const name of threadNames) {
           const candidate = (cands.thread_candidates || []).find(
-            tc => tc.name && tc.name.toLowerCase() === name.toLowerCase()
+            (tc) => tc.name && tc.name.toLowerCase() === name.toLowerCase(),
           );
           if (candidate) {
             plan.detail_allocation.thread_details[name] = candidate.one_line_evidence || '';
@@ -5347,7 +5622,9 @@ async function generateWeeklySummaryV2(
   // All core cards always build — if the builder gets empty data it returns null and won't appear.
 
   // Always: gremly_mood
-  cardBuilds.push(buildCard('gremly_mood', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+  cardBuilds.push(
+    buildCard('gremly_mood', plan, storytellerData, staleItems, weekStart, weekEnd, env),
+  );
 
   // Always: opening
   cardBuilds.push(buildCard('opening', plan, storytellerData, staleItems, weekStart, weekEnd, env));
@@ -5356,21 +5633,31 @@ async function generateWeeklySummaryV2(
   cardBuilds.push(buildCard('moments', plan, storytellerData, staleItems, weekStart, weekEnd, env));
 
   // Always: thread_movements
-  cardBuilds.push(buildCard('thread_movements', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+  cardBuilds.push(
+    buildCard('thread_movements', plan, storytellerData, staleItems, weekStart, weekEnd, env),
+  );
 
   // Always: discoveries (builder returns null if no discovery_details)
-  cardBuilds.push(buildCard('discoveries', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+  cardBuilds.push(
+    buildCard('discoveries', plan, storytellerData, staleItems, weekStart, weekEnd, env),
+  );
 
   // Always: recommends
-  cardBuilds.push(buildCard('recommends', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+  cardBuilds.push(
+    buildCard('recommends', plan, storytellerData, staleItems, weekStart, weekEnd, env),
+  );
 
   // Data-driven: stale_triage — always build if stale items exist
   if (staleItems.length > 0) {
-    cardBuilds.push(buildCard('stale_triage', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+    cardBuilds.push(
+      buildCard('stale_triage', plan, storytellerData, staleItems, weekStart, weekEnd, env),
+    );
   }
 
   // Always: week_ahead
-  cardBuilds.push(buildCard('week_ahead', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+  cardBuilds.push(
+    buildCard('week_ahead', plan, storytellerData, staleItems, weekStart, weekEnd, env),
+  );
 
   // Run all card builds in parallel
   const builtCards = await Promise.all(cardBuilds);
@@ -5379,10 +5666,19 @@ async function generateWeeklySummaryV2(
   console.log(`[WeeklySummaryV2] Builders: ${builderCalls} calls`);
 
   // Assemble cards in canonical narrative order, filter out failures
-  const orderedTypes = ['gremly_mood', 'opening', 'moments', 'thread_movements', 'discoveries', 'recommends', 'stale_triage', 'week_ahead'];
+  const orderedTypes = [
+    'gremly_mood',
+    'opening',
+    'moments',
+    'thread_movements',
+    'discoveries',
+    'recommends',
+    'stale_triage',
+    'week_ahead',
+  ];
   const assembledCards = [];
   for (const type of orderedTypes) {
-    const card = builtCards.find(c => c && c.type === type);
+    const card = builtCards.find((c) => c && c.type === type);
     if (card) assembledCards.push(card);
   }
 
@@ -5469,24 +5765,30 @@ async function generateWeeklySummaryV2(
     }
 
     if (deduped > 0) {
-      console.log(`[WeeklySummaryV2] Quote dedup: removed ${deduped} duplicate quote(s) across cards`);
+      console.log(
+        `[WeeklySummaryV2] Quote dedup: removed ${deduped} duplicate quote(s) across cards`,
+      );
     }
   }
 
   // ── IMAGE RESOLUTION — Unsplash ──────────────────────────────────────────
   const imagePromises = [];
-  const openingCard = assembledCards.find(c => c.type === 'opening');
+  const openingCard = assembledCards.find((c) => c.type === 'opening');
   if (openingCard?.image_hint) {
     imagePromises.push(
-      resolveImageUrl(openingCard.image_hint, env).then(url => { if (url) openingCard.image_url = url; })
+      resolveImageUrl(openingCard.image_hint, env).then((url) => {
+        if (url) openingCard.image_url = url;
+      }),
     );
   }
-  const momentsCard = assembledCards.find(c => c.type === 'moments');
+  const momentsCard = assembledCards.find((c) => c.type === 'moments');
   if (momentsCard?.moments) {
     for (const moment of momentsCard.moments) {
       if (moment.image_hint) {
         imagePromises.push(
-          resolveImageUrl(moment.image_hint, env).then(url => { if (url) moment.image_url = url; })
+          resolveImageUrl(moment.image_hint, env).then((url) => {
+            if (url) moment.image_url = url;
+          }),
         );
       }
     }
@@ -5521,7 +5823,10 @@ async function generateWeeklySummaryV2(
           card.spotlight.evidence_trail = trimToLimit(card.spotlight.evidence_trail, 400);
           card.spotlight.takeaway = trimToLimit(card.spotlight.takeaway, 150);
           if (card.spotlight.research_context) {
-            card.spotlight.research_context.body = trimToLimit(card.spotlight.research_context.body, 250);
+            card.spotlight.research_context.body = trimToLimit(
+              card.spotlight.research_context.body,
+              250,
+            );
           }
         }
         break;
@@ -5559,19 +5864,21 @@ async function generateWeeklySummaryV2(
       mood: plan.gremly_mood?.mood_line || '',
       key_themes: (plan.detail_allocation?.opening_details || []).slice(0, 5),
       card_count: assembledCards.length,
-      card_types_used: assembledCards.map(c => c.type),
+      card_types_used: assembledCards.map((c) => c.type),
       narrative_arc: plan.narrative_arc || '',
     },
     planner_debug: {
-      has_candidates: !!(plan.candidates),
-      has_selections: !!(plan.selections),
+      has_candidates: !!plan.candidates,
+      has_selections: !!plan.selections,
       diversity_check: plan.selections?.diversity_check || null,
-      candidate_counts: plan.candidates ? {
-        discovery: (plan.candidates.discovery_candidates || []).length,
-        recommendation: (plan.candidates.recommendation_candidates || []).length,
-        moment: (plan.candidates.moment_candidates || []).length,
-        thread: (plan.candidates.thread_candidates || []).length,
-      } : null,
+      candidate_counts: plan.candidates
+        ? {
+            discovery: (plan.candidates.discovery_candidates || []).length,
+            recommendation: (plan.candidates.recommendation_candidates || []).length,
+            moment: (plan.candidates.moment_candidates || []).length,
+            thread: (plan.candidates.thread_candidates || []).length,
+          }
+        : null,
       card_decisions: plan.card_decisions || null,
     },
   };
@@ -5587,21 +5894,27 @@ async function generateWeeklySummaryV2(
         const nameLower = name.toLowerCase();
         // Count substantial mentions (in primary fields, not just tags)
         let isPrimary = false;
-        if (card.type === 'discoveries' && card.spotlight?.title?.toLowerCase().includes(nameLower)) isPrimary = true;
-        if (card.type === 'recommends' && card.primary?.title?.toLowerCase().includes(nameLower)) isPrimary = true;
-        if (card.type === 'moments' && card.moments?.[0]?.title?.toLowerCase().includes(nameLower)) isPrimary = true;
-        if (card.type === 'gremly_mood' && card.hook?.toLowerCase().includes(nameLower)) isPrimary = true;
-        
+        if (card.type === 'discoveries' && card.spotlight?.title?.toLowerCase().includes(nameLower))
+          isPrimary = true;
+        if (card.type === 'recommends' && card.primary?.title?.toLowerCase().includes(nameLower))
+          isPrimary = true;
+        if (card.type === 'moments' && card.moments?.[0]?.title?.toLowerCase().includes(nameLower))
+          isPrimary = true;
+        if (card.type === 'gremly_mood' && card.hook?.toLowerCase().includes(nameLower))
+          isPrimary = true;
+
         if (isPrimary) {
           if (!themeMentions[name]) themeMentions[name] = [];
           themeMentions[name].push(card.type);
         }
       }
     }
-    
+
     for (const [theme, cards] of Object.entries(themeMentions)) {
       if (cards.length >= 3) {
-        console.warn(`[WeeklySummaryV2] THEME CLUSTERING: "${theme}" is primary focus on ${cards.length} cards: ${cards.join(', ')}`);
+        console.warn(
+          `[WeeklySummaryV2] THEME CLUSTERING: "${theme}" is primary focus on ${cards.length} cards: ${cards.join(', ')}`,
+        );
       }
     }
   }
@@ -5617,12 +5930,12 @@ async function generateWeeklySummaryV2(
     while (parsed.cards.length > 8) {
       let removed = false;
       for (const targetType of removalPriority) {
-        const idx = parsed.cards.findIndex(c => c.type === targetType);
+        const idx = parsed.cards.findIndex((c) => c.type === targetType);
         if (idx !== -1) {
           // Special handling: fold monthly_retro into week_ahead before removing
           if (targetType === 'monthly_retro') {
             const mrCard = parsed.cards[idx];
-            const waCard = parsed.cards.find(c => c.type === 'week_ahead');
+            const waCard = parsed.cards.find((c) => c.type === 'week_ahead');
             if (waCard) {
               waCard.monthly_retro = {
                 headline: mrCard.headline,
@@ -5641,7 +5954,7 @@ async function generateWeeklySummaryV2(
     }
 
     // b. Enforce max 2 moments
-    const momCard = parsed.cards.find(c => c.type === 'moments');
+    const momCard = parsed.cards.find((c) => c.type === 'moments');
     if (momCard && momCard.moments && momCard.moments.length > 2) {
       momCard.moments = momCard.moments.slice(0, 2);
     }
@@ -5656,7 +5969,7 @@ async function generateWeeklySummaryV2(
   // ── POST-PARSE INJECTION ────────────────────────────────────────────────
   if (parsed.cards) {
     // 1. Engagement stats on opening card — from real Supabase data
-    const oCard = parsed.cards.find(c => c.type === 'opening');
+    const oCard = parsed.cards.find((c) => c.type === 'opening');
     if (oCard && engagementStats) {
       oCard.engagement = {
         drops: engagementStats.drops || 0,
@@ -5666,7 +5979,7 @@ async function generateWeeklySummaryV2(
     }
 
     // 2. badge_type on thread movements — infer from direction
-    const tmCard = parsed.cards.find(c => c.type === 'thread_movements');
+    const tmCard = parsed.cards.find((c) => c.type === 'thread_movements');
     if (tmCard && tmCard.threads) {
       const directionToBadgeType = {
         up: 'success',
@@ -5685,7 +5998,7 @@ async function generateWeeklySummaryV2(
     }
 
     // 3. Stale headline — inject real count from data
-    const staleCard = parsed.cards.find(c => c.type === 'stale_triage');
+    const staleCard = parsed.cards.find((c) => c.type === 'stale_triage');
     if (staleCard) {
       const realCount = staleItems.length;
       // Keep the builder's body/context but override the headline with real count
@@ -5694,7 +6007,9 @@ async function generateWeeklySummaryV2(
       }
       // Also ensure items array length matches
       if (staleCard.items && staleCard.items.length !== realCount) {
-        console.warn(`[WeeklySummaryV2] Stale count mismatch: headline implies ${realCount}, items has ${staleCard.items.length}`);
+        console.warn(
+          `[WeeklySummaryV2] Stale count mismatch: headline implies ${realCount}, items has ${staleCard.items.length}`,
+        );
       }
     }
 
@@ -5702,11 +6017,13 @@ async function generateWeeklySummaryV2(
     if (staleCard && staleCard.items) {
       for (const item of staleCard.items) {
         if (!item.item_id) {
-          const match = (weeklySnapshot.todosDetail || []).find(t =>
-            t.title && item.title &&
-            (t.title.toLowerCase() === item.title.toLowerCase() ||
-             t.title.toLowerCase().includes(item.title.toLowerCase()) ||
-             item.title.toLowerCase().includes(t.title.toLowerCase()))
+          const match = (weeklySnapshot.todosDetail || []).find(
+            (t) =>
+              t.title &&
+              item.title &&
+              (t.title.toLowerCase() === item.title.toLowerCase() ||
+                t.title.toLowerCase().includes(item.title.toLowerCase()) ||
+                item.title.toLowerCase().includes(t.title.toLowerCase())),
           );
           if (match) item.item_id = match.id;
         }
@@ -5721,7 +6038,7 @@ async function generateWeeklySummaryV2(
     planner_out: plannerOutputTokens,
     builder_calls: builderCalls,
     card_count: parsed.cards?.length || 0,
-    card_types: parsed.cards?.map(c => c.type) || [],
+    card_types: parsed.cards?.map((c) => c.type) || [],
     mood: parsed.metadata?.mood,
   });
 
@@ -5735,7 +6052,7 @@ async function generateWeeklySummaryV2(
       model_planner: 'claude-sonnet-4-6',
       model_builder: 'claude-haiku-4-5-20251001',
       card_count: parsed.cards?.length || 0,
-      card_types: parsed.cards?.map(c => c.type) || [],
+      card_types: parsed.cards?.map((c) => c.type) || [],
     },
   };
 }
@@ -5798,44 +6115,44 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
     fetch(
       `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&created_at=gte.${windowStartStr}&select=id,title,name,status,completed_at,target_date,space_id,created_at,tags,archived,due_day&order=created_at.desc&limit=500`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // 1: Notes (non-events) — within window
     fetch(
       `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=neq.event&archived=eq.false&created_at=gte.${windowStartStr}&select=id,title,body,subtype,mood,space_id,created_at,is_goal&order=created_at.desc&limit=500`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // 2: Calendar events (notes with subtype=event) — window + 14 day forward look
     // Also fetches multi-day events that started before the window but are still active (end_date >= windowStart)
     fetch(
       `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&archived=eq.false&or=(and(target_date.gte.${windowStartStr},target_date.lte.${forwardWindowStr}),and(target_date.lt.${windowStartStr},end_date.gte.${windowStartStr}))&select=id,title,target_date,end_date,event_time,location,is_all_day,space_id,external_source&order=target_date.asc&limit=500`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // 3: Habits — all active
     fetch(
       `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&archived=eq.false&select=id,name,frequency,space_id,created_at,subtype,commitment&limit=50`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // 4: Habit progress — within window
     fetch(
       `${env.SUPABASE_URL}/rest/v1/habit_progress?owner_id=eq.${userId}&occurred_day=gte.${windowStartStr}&select=habit_id,occurred_day&limit=2000`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // 5: Spaces — active
     fetch(
       `${env.SUPABASE_URL}/rest/v1/spaces?owner_id=eq.${userId}&archived_at=is.null&select=id,name&limit=20`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
 
     // 6: Space milestones — active
     fetch(
       `${env.SUPABASE_URL}/rest/v1/space_milestones?owner_id=eq.${userId}&is_active=eq.true&select=id,title,name,date,space_id,completed,completed_at&order=date.asc&limit=50`,
       { headers },
-    ).then(r => r.json()),
+    ).then((r) => r.json()),
   ];
 
   // Conditional queries
@@ -5845,7 +6162,7 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
       fetch(
         `${env.SUPABASE_URL}/rest/v1/user_life_map?user_id=eq.${userId}&select=life_map,version,rebuilt_at,updated_at`,
         { headers },
-      ).then(r => r.json()),
+      ).then((r) => r.json()),
     );
   }
 
@@ -5855,7 +6172,7 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
       fetch(
         `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=lt.${targetDate}&select=dco,date&order=date.desc&limit=1`,
         { headers },
-      ).then(r => r.json()),
+      ).then((r) => r.json()),
     );
   }
 
@@ -5865,7 +6182,7 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
       fetch(
         `${env.SUPABASE_URL}/rest/v1/weekly_summaries?user_id=eq.${userId}&select=week_start_date,content,stats_snapshot,key_themes&order=week_start_date.desc&limit=4`,
         { headers },
-      ).then(r => r.json()),
+      ).then((r) => r.json()),
     );
   }
 
@@ -5875,12 +6192,12 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
       fetch(
         `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=profile_text,signals`,
         { headers },
-      ).then(r => r.json()),
+      ).then((r) => r.json()),
     );
   }
 
   const results = await Promise.all(queries);
-  const safeArr = v => (Array.isArray(v) ? v : []);
+  const safeArr = (v) => (Array.isArray(v) ? v : []);
 
   // Unpack results
   const todosRaw = safeArr(results[0]);
@@ -5918,14 +6235,10 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
   }
 
   // --- Filter: only data on or before target date ---
-  const todos = todosRaw.filter(
-    t => !t.created_at || new Date(t.created_at) <= targetEndOfDay,
-  );
-  const drops = dropsRaw.filter(
-    n => !n.created_at || new Date(n.created_at) <= targetEndOfDay,
-  );
+  const todos = todosRaw.filter((t) => !t.created_at || new Date(t.created_at) <= targetEndOfDay);
+  const drops = dropsRaw.filter((n) => !n.created_at || new Date(n.created_at) <= targetEndOfDay);
   const habitProgress = habitProgressRaw.filter(
-    h => !h.occurred_day || h.occurred_day <= targetDate,
+    (h) => !h.occurred_day || h.occurred_day <= targetDate,
   );
 
   // --- Build space lookup ---
@@ -5948,14 +6261,14 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
   const todoStats = snapshotComputeTodoStats(todos, targetDate);
   const habitHealth = snapshotComputeHabitHealth(habits, habitProgress, windowDays);
   const dropVelocity = snapshotComputeDropVelocity(drops, targetDate);
-  const journals = drops.filter(n => n.subtype === 'journal');
+  const journals = drops.filter((n) => n.subtype === 'journal');
   const moodSignal = snapshotComputeMoodSignal(journals);
   const spaceActivity = snapshotComputeSpaceActivity(drops, todos, spaceMap);
 
   // --- Calendar projections ---
   const todaysEvents = calendarEvents
-    .filter(e => eventActiveOnDate(e, targetDate))
-    .map(e => ({
+    .filter((e) => eventActiveOnDate(e, targetDate))
+    .map((e) => ({
       title: e.title,
       time: e.event_time || null,
       location: e.location || null,
@@ -5970,15 +6283,17 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
   const sevenAfterStr = formatDateOnly(sevenAfter);
 
   const upcomingEvents = calendarEvents
-    .filter(e => {
+    .filter((e) => {
       const start = e.target_date;
       const end = e.end_date || e.target_date;
       // Event is upcoming if it starts after today, OR if it's multi-day and extends past today
-      return (start > targetDate && start <= sevenAfterStr) ||
-             (start <= targetDate && end > targetDate && end <= sevenAfterStr);
+      return (
+        (start > targetDate && start <= sevenAfterStr) ||
+        (start <= targetDate && end > targetDate && end <= sevenAfterStr)
+      );
     })
     .slice(0, 15)
-    .map(e => ({
+    .map((e) => ({
       title: e.title,
       date: e.target_date,
       space: spaceMap[e.space_id] || null,
@@ -5990,30 +6305,33 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
   const fiveAfterStr = formatDateOnly(new Date(target.getTime() + 5 * 86400000));
 
   const spaceKeyDates = calendarEvents
-    .filter(e => {
+    .filter((e) => {
       if (e.external_source || !e.space_id) return false;
       const end = e.end_date || e.target_date;
       return e.target_date <= fiveAfterStr && end >= fiveBeforeStr;
     })
-    .map(e => ({
+    .map((e) => ({
       date: e.target_date,
       title: e.title,
       space: spaceMap[e.space_id] || null,
       space_id: e.space_id || null,
     }));
 
-  console.log(`[Snapshot] Built for ${userId.slice(0, 8)} (${targetDate}, ${windowDays}d window):`, {
-    todos: todos.length,
-    drops: drops.length,
-    events: calendarEvents.length,
-    habits: habits.length,
-    habitProgress: habitProgress.length,
-    spaces: spaces.length,
-    milestones: milestones.length,
-    hasLifeMap: !!currentLifeMap,
-    hasPreviousDco: !!previousDco,
-    weeklySummaries: weeklySummaries.length,
-  });
+  console.log(
+    `[Snapshot] Built for ${userId.slice(0, 8)} (${targetDate}, ${windowDays}d window):`,
+    {
+      todos: todos.length,
+      drops: drops.length,
+      events: calendarEvents.length,
+      habits: habits.length,
+      habitProgress: habitProgress.length,
+      spaces: spaces.length,
+      milestones: milestones.length,
+      hasLifeMap: !!currentLifeMap,
+      hasPreviousDco: !!previousDco,
+      weeklySummaries: weeklySummaries.length,
+    },
+  );
 
   return {
     userId,
@@ -6077,10 +6395,12 @@ function snapshotDeduplicateEvents(events) {
 
   for (const evt of events) {
     // Skip cancelled
-    if (evt.title && (
-      evt.title.toLowerCase().startsWith('canceled:') ||
-      evt.title.toLowerCase().startsWith('cancelled:')
-    )) continue;
+    if (
+      evt.title &&
+      (evt.title.toLowerCase().startsWith('canceled:') ||
+        evt.title.toLowerCase().startsWith('cancelled:'))
+    )
+      continue;
 
     if (evt.external_source && evt.external_source.externalId) {
       const extId = evt.external_source.externalId;
@@ -6102,10 +6422,10 @@ function snapshotDeduplicateEvents(events) {
 
 function snapshotComputeTodoStats(todos, targetDate) {
   const overdue = todos.filter(
-    t => t.target_date && t.target_date < targetDate && t.status !== 'completed' && !t.archived,
+    (t) => t.target_date && t.target_date < targetDate && t.status !== 'completed' && !t.archived,
   ).length;
-  const active = todos.filter(t => t.status === 'active' && !t.archived).length;
-  const completedRecently = todos.filter(t => t.completed_at).length;
+  const active = todos.filter((t) => t.status === 'active' && !t.archived).length;
+  const completedRecently = todos.filter((t) => t.completed_at).length;
 
   return { overdue, active, completedRecently };
 }
@@ -6116,7 +6436,7 @@ function snapshotComputeHabitHealth(habits, habitProgress, windowDays) {
     completionMap[hp.habit_id] = (completionMap[hp.habit_id] || 0) + 1;
   }
 
-  return habits.map(h => {
+  return habits.map((h) => {
     const done = completionMap[h.id] || 0;
     const expected = getExpectedCompletionsForDays(h.frequency, windowDays);
     const score = expected > 0 ? Math.round((done / expected) * 100) : 0;
@@ -6143,12 +6463,12 @@ function snapshotComputeDropVelocity(drops, targetDate) {
   sixBefore.setUTCDate(sixBefore.getUTCDate() - 6);
   const sixBeforeStr = formatDateOnly(sixBefore);
 
-  const dropsLast3 = drops.filter(n => {
+  const dropsLast3 = drops.filter((n) => {
     const d = n.created_at ? n.created_at.split('T')[0] : null;
     return d && d >= threeBeforeStr && d <= targetDate;
   }).length;
 
-  const dropsPrev3 = drops.filter(n => {
+  const dropsPrev3 = drops.filter((n) => {
     const d = n.created_at ? n.created_at.split('T')[0] : null;
     return d && d >= sixBeforeStr && d < threeBeforeStr;
   }).length;
@@ -6173,12 +6493,13 @@ function snapshotComputeMoodSignal(journals) {
     }
   }
 
-  const topMoods = totalMoodTags > 0
-    ? Object.entries(moodCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([mood, count]) => ({ mood, count, pct: Math.round((count / totalMoodTags) * 100) }))
-    : [];
+  const topMoods =
+    totalMoodTags > 0
+      ? Object.entries(moodCounts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([mood, count]) => ({ mood, count, pct: Math.round((count / totalMoodTags) * 100) }))
+      : [];
 
   return {
     topMoods,
@@ -6192,8 +6513,8 @@ function snapshotComputeSpaceActivity(drops, todos, spaceMap) {
   const activity = {};
 
   for (const spaceId of Object.keys(spaceMap)) {
-    const dropCount = drops.filter(n => n.space_id === spaceId).length;
-    const todoCount = todos.filter(t => t.space_id === spaceId && !t.archived).length;
+    const dropCount = drops.filter((n) => n.space_id === spaceId).length;
+    const todoCount = todos.filter((t) => t.space_id === spaceId && !t.archived).length;
     activity[spaceId] = {
       name: spaceMap[spaceId],
       recentDrops: dropCount,
@@ -6224,12 +6545,12 @@ function buildDailySnapshot(snapshot) {
   const twoDaysAgoStr = formatDateOnly(twoDaysAgo);
 
   const recentDrops = raw.drops
-    .filter(n => {
+    .filter((n) => {
       const d = n.created_at ? n.created_at.split('T')[0] : null;
       return d && d >= twoDaysAgoStr && d <= snapshot.targetDate;
     })
     .slice(0, 15)
-    .map(d => ({
+    .map((d) => ({
       title: d.title,
       subtype: d.subtype,
       mood: d.mood || [],
@@ -6239,11 +6560,11 @@ function buildDailySnapshot(snapshot) {
     }));
 
   // Habit completions — yesterday and today only
-  const yesterdayStr = formatDateOnly(new Date(
-    new Date(snapshot.targetDate + 'T00:00:00Z').getTime() - 86400000
-  ));
+  const yesterdayStr = formatDateOnly(
+    new Date(new Date(snapshot.targetDate + 'T00:00:00Z').getTime() - 86400000),
+  );
   const recentHabitCompletions = raw.habitProgress
-    .filter(hp => hp.occurred_day >= yesterdayStr)
+    .filter((hp) => hp.occurred_day >= yesterdayStr)
     .reduce((acc, hp) => {
       acc[hp.habit_id] = (acc[hp.habit_id] || 0) + 1;
       return acc;
@@ -6255,12 +6576,17 @@ function buildDailySnapshot(snapshot) {
   const sevenFromTargetStr = formatDateOnly(sevenFromTarget);
 
   const approachingMilestones = raw.milestones
-    .filter(m => !m.completed && m.date && m.date >= snapshot.targetDate && m.date <= sevenFromTargetStr)
-    .map(m => ({
+    .filter(
+      (m) =>
+        !m.completed && m.date && m.date >= snapshot.targetDate && m.date <= sevenFromTargetStr,
+    )
+    .map((m) => ({
       title: m.title || m.name,
       date: m.date,
       space: computed.spaceMap[m.space_id] || null,
-      daysAway: Math.ceil((new Date(m.date + 'T00:00:00Z') - new Date(snapshot.targetDate + 'T00:00:00Z')) / 86400000),
+      daysAway: Math.ceil(
+        (new Date(m.date + 'T00:00:00Z') - new Date(snapshot.targetDate + 'T00:00:00Z')) / 86400000,
+      ),
     }));
 
   return {
@@ -6291,7 +6617,7 @@ function buildDailySnapshot(snapshot) {
     weeklyDigest: raw.weeklySummaries?.[0] || null,
 
     // Spaces list
-    spaces: raw.spaces.map(s => ({
+    spaces: raw.spaces.map((s) => ({
       id: s.id,
       name: s.name,
       activity: computed.spaceActivity[s.id]?.totalRecent || 0,
@@ -6323,7 +6649,7 @@ function buildWeeklySnapshot(snapshot) {
   }
 
   // Todos with full detail
-  const todosDetail = raw.todos.map(t => ({
+  const todosDetail = raw.todos.map((t) => ({
     id: t.id,
     title: t.title || t.name,
     status: t.status,
@@ -6347,14 +6673,17 @@ function buildWeeklySnapshot(snapshot) {
   }
 
   // Milestones with status
-  const milestonesDetail = raw.milestones.map(m => ({
+  const milestonesDetail = raw.milestones.map((m) => ({
     title: m.title || m.name,
     date: m.date,
     space: computed.spaceMap[m.space_id] || null,
     space_id: m.space_id || null,
     completed: m.completed,
     daysFromTarget: m.date
-      ? Math.ceil((new Date(m.date + 'T00:00:00Z') - new Date(snapshot.targetDate + 'T00:00:00Z')) / 86400000)
+      ? Math.ceil(
+          (new Date(m.date + 'T00:00:00Z') - new Date(snapshot.targetDate + 'T00:00:00Z')) /
+            86400000,
+        )
       : null,
   }));
 
@@ -6366,7 +6695,7 @@ function buildWeeklySnapshot(snapshot) {
     // Full data
     dropsByDay,
     todosDetail,
-    journals: raw.journals.map(j => ({
+    journals: raw.journals.map((j) => ({
       id: j.id,
       title: j.title,
       body: j.body ? j.body.slice(0, 500) : null,
@@ -6376,7 +6705,7 @@ function buildWeeklySnapshot(snapshot) {
       date: j.created_at ? j.created_at.split('T')[0] : null,
     })),
     calendarEvents: calendar.todaysEvents.concat(calendar.upcomingEvents),
-    allCalendarEvents: raw.calendarEvents.map(e => ({
+    allCalendarEvents: raw.calendarEvents.map((e) => ({
       title: e.title,
       date: e.target_date,
       space: computed.spaceMap[e.space_id] || null,
@@ -6398,7 +6727,7 @@ function buildWeeklySnapshot(snapshot) {
     spaceActivity: computed.spaceActivity,
 
     // Context
-    spaces: raw.spaces.map(s => ({
+    spaces: raw.spaces.map((s) => ({
       id: s.id,
       name: s.name,
       activity: computed.spaceActivity[s.id] || { recentDrops: 0, recentTodos: 0, totalRecent: 0 },
@@ -6447,14 +6776,25 @@ function cleanCalendarForAnalyst(calendarEvents, targetDate) {
       }
       cleaned.push(entry);
     } else {
-      const dates = events.map(e => e.target_date || e.date).filter(Boolean).sort();
-      const weekdays = dates.map(d => new Date(d + 'T00:00:00Z').getUTCDay());
+      const dates = events
+        .map((e) => e.target_date || e.date)
+        .filter(Boolean)
+        .sort();
+      const weekdays = dates.map((d) => new Date(d + 'T00:00:00Z').getUTCDay());
       const uniqueWeekdays = [...new Set(weekdays)];
       const isRecurring = events.length >= 2 && uniqueWeekdays.length <= 2;
 
       if (isRecurring) {
-        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const recurringDays = uniqueWeekdays.map(d => dayNames[d]).join(' & ');
+        const dayNames = [
+          'Sunday',
+          'Monday',
+          'Tuesday',
+          'Wednesday',
+          'Thursday',
+          'Friday',
+          'Saturday',
+        ];
+        const recurringDays = uniqueWeekdays.map((d) => dayNames[d]).join(' & ');
         cleaned.push({
           title: events[0].title,
           date: dates[0],
@@ -6495,9 +6835,11 @@ function formatLifeMapForAnalyst(lifeMap) {
   const lines = [];
   for (const domain of lifeMap.domains) {
     lines.push(`\nDOMAIN: "${domain.name}" [${domain.source}]`);
-    for (const thread of (domain.threads || [])) {
+    for (const thread of domain.threads || []) {
       const firstSentence = thread.summary ? thread.summary.split(/\.\s/)[0] + '.' : 'No summary.';
-      lines.push(`  THREAD: "${thread.name}" | ${thread.status} | ${thread.momentum} | ${thread.importance} | ${thread.lifecycle}`);
+      lines.push(
+        `  THREAD: "${thread.name}" | ${thread.status} | ${thread.momentum} | ${thread.importance} | ${thread.lifecycle}`,
+      );
       lines.push(`    ${firstSentence}`);
     }
   }
@@ -6516,7 +6858,7 @@ async function runUnifiedAnalyst(weeklySnapshot, lifeMap, weekStart, weekEnd, en
   // Build day-by-day habit progress from raw data
   const habitDayDetail = {};
   const habitNameMap = {};
-  for (const h of (weeklySnapshot.habits || [])) {
+  for (const h of weeklySnapshot.habits || []) {
     habitNameMap[h.id] = h.name;
   }
   const rawHabitProgress = weeklySnapshot.habitProgressByWeek
@@ -6761,7 +7103,7 @@ STALE ITEMS:
   dataLines.push('\n=== DROPS BY DAY (non-journal — notes, ideas, captures) ===');
   let hasDrops = false;
   for (const [day, drops] of Object.entries(weeklySnapshot.dropsByDay || {})) {
-    const nonJournal = drops.filter(d => d.subtype !== 'journal');
+    const nonJournal = drops.filter((d) => d.subtype !== 'journal');
     if (nonJournal.length > 0) {
       hasDrops = true;
       dataLines.push(`  ${day}:`);
@@ -6776,8 +7118,10 @@ STALE ITEMS:
   }
 
   dataLines.push('\n=== TODOS ===');
-  const completed = (weeklySnapshot.todosDetail || []).filter(t => t.completed_at);
-  const active = (weeklySnapshot.todosDetail || []).filter(t => t.status === 'active' && !t.archived);
+  const completed = (weeklySnapshot.todosDetail || []).filter((t) => t.completed_at);
+  const active = (weeklySnapshot.todosDetail || []).filter(
+    (t) => t.status === 'active' && !t.archived,
+  );
   if (completed.length > 0) {
     dataLines.push(`  Completed (${completed.length}):`);
     for (const t of completed) {
@@ -6791,12 +7135,17 @@ STALE ITEMS:
     dataLines.push(`  Active (${active.length}):`);
     for (const t of active.slice(0, 40)) {
       const space = t.space ? ` (${t.space})` : '';
-      const targetDate = weeklySnapshot.targetDate || new Date().toISOString().split('T')[0];
+      const targetDate = weeklySnapshot.targetDate || new Date().toISOString().split('T')[0]; // eslint-disable-line no-restricted-syntax -- UTC fallback only
       const daysSinceCreation = t.created_at
-        ? Math.floor((new Date(targetDate + 'T00:00:00Z') - new Date(t.created_at + 'T00:00:00Z')) / 86400000)
+        ? Math.floor(
+            (new Date(targetDate + 'T00:00:00Z') - new Date(t.created_at + 'T00:00:00Z')) /
+              86400000,
+          )
         : null;
-      const stale = daysSinceCreation !== null && daysSinceCreation > 14
-        ? ` [STALE ${daysSinceCreation}d]` : '';
+      const stale =
+        daysSinceCreation !== null && daysSinceCreation > 14
+          ? ` [STALE ${daysSinceCreation}d]`
+          : '';
       dataLines.push(`    ${t.title}${space}${stale} (created ${t.created_at})`);
     }
   } else {
@@ -6816,15 +7165,19 @@ STALE ITEMS:
     habitDayMap[hp.habit_id].push(hp.occurred_day);
   }
 
-  for (const h of (weeklySnapshot.habits || [])) {
-    dataLines.push(`  ${h.name}: ${h.completions}/${h.expected} (${h.score_pct}%) — frequency: ${h.frequency}`);
+  for (const h of weeklySnapshot.habits || []) {
+    dataLines.push(
+      `  ${h.name}: ${h.completions}/${h.expected} (${h.score_pct}%) — frequency: ${h.frequency}`,
+    );
     // Add day-by-day completions
     const days = (habitDayMap[h.id] || []).sort();
     if (days.length > 0) {
       // Split into this week vs other weeks
-      const thisWeek = days.filter(d => d >= weekStart && d <= weekEnd);
-      const otherWeeks = days.filter(d => d < weekStart || d > weekEnd);
-      dataLines.push(`    THIS WEEK (${weekStart} to ${weekEnd}): ${thisWeek.length > 0 ? thisWeek.join(', ') : 'none'}`);
+      const thisWeek = days.filter((d) => d >= weekStart && d <= weekEnd);
+      const otherWeeks = days.filter((d) => d < weekStart || d > weekEnd);
+      dataLines.push(
+        `    THIS WEEK (${weekStart} to ${weekEnd}): ${thisWeek.length > 0 ? thisWeek.join(', ') : 'none'}`,
+      );
       if (otherWeeks.length > 0) {
         dataLines.push(`    Prior weeks: ${otherWeeks.join(', ')}`);
       }
@@ -6837,11 +7190,12 @@ STALE ITEMS:
   if ((weeklySnapshot.milestones || []).length === 0) {
     dataLines.push('  No active milestones.');
   }
-  for (const m of (weeklySnapshot.milestones || [])) {
+  for (const m of weeklySnapshot.milestones || []) {
     const status = m.completed ? ' [COMPLETED]' : '';
-    const days = m.daysFromTarget !== null
-      ? ` (${m.daysFromTarget > 0 ? m.daysFromTarget + ' days away' : m.daysFromTarget === 0 ? 'TODAY' : Math.abs(m.daysFromTarget) + ' days ago'})`
-      : '';
+    const days =
+      m.daysFromTarget !== null
+        ? ` (${m.daysFromTarget > 0 ? m.daysFromTarget + ' days away' : m.daysFromTarget === 0 ? 'TODAY' : Math.abs(m.daysFromTarget) + ' days ago'})`
+        : '';
     const space = m.space ? ` [${m.space}]` : '';
     dataLines.push(`  ${m.title}: ${m.date || 'no date'}${days}${space}${status}`);
   }
@@ -6849,7 +7203,7 @@ STALE ITEMS:
   dataLines.push('\n=== MOOD SUMMARY ===');
   if (weeklySnapshot.moodSignal?.topMoods?.length > 0) {
     const moodStr = weeklySnapshot.moodSignal.topMoods
-      .map(m => `${m.mood}: ${m.count} (${m.pct}%)`)
+      .map((m) => `${m.mood}: ${m.count} (${m.pct}%)`)
       .join(', ');
     dataLines.push(`  ${moodStr} — from ${weeklySnapshot.moodSignal.journalCount} journal(s)`);
   } else {
@@ -6857,25 +7211,38 @@ STALE ITEMS:
   }
 
   // Count drops and journals for the full week window
-  const weekDropsCount = Object.entries(weeklySnapshot.dropsByDay || {}).reduce((sum, [day, drops]) => {
-    if (day >= weekStart && day <= weekEnd) return sum + drops.length;
-    return sum;
-  }, 0);
-  const weekJournalsCount = (weeklySnapshot.journals || []).filter(j => j.date >= weekStart && j.date <= weekEnd).length;
-  const weekCompletions = (weeklySnapshot.todosDetail || []).filter(t => t.completed_at && t.completed_at >= weekStart && t.completed_at <= weekEnd).length;
+  const weekDropsCount = Object.entries(weeklySnapshot.dropsByDay || {}).reduce(
+    (sum, [day, drops]) => {
+      if (day >= weekStart && day <= weekEnd) return sum + drops.length;
+      return sum;
+    },
+    0,
+  );
+  const weekJournalsCount = (weeklySnapshot.journals || []).filter(
+    (j) => j.date >= weekStart && j.date <= weekEnd,
+  ).length;
+  const weekCompletions = (weeklySnapshot.todosDetail || []).filter(
+    (t) => t.completed_at && t.completed_at >= weekStart && t.completed_at <= weekEnd,
+  ).length;
 
   dataLines.push('\n=== ENGAGEMENT STATS ===');
   dataLines.push(`  Total drops this week: ${weekDropsCount}`);
   dataLines.push(`  Journals written this week: ${weekJournalsCount}`);
   dataLines.push(`  Todos completed this week: ${weekCompletions}`);
-  dataLines.push(`  Todos: ${weeklySnapshot.todoStats.overdue} overdue, ${weeklySnapshot.todoStats.active} active`);
-  dataLines.push(`  Drop velocity: ${weeklySnapshot.dropVelocity.velocity} (${weeklySnapshot.dropVelocity.dropsLast3} last 3d, ${weeklySnapshot.dropVelocity.dropsPrev3} prev 3d)`);
+  dataLines.push(
+    `  Todos: ${weeklySnapshot.todoStats.overdue} overdue, ${weeklySnapshot.todoStats.active} active`,
+  );
+  dataLines.push(
+    `  Drop velocity: ${weeklySnapshot.dropVelocity.velocity} (${weeklySnapshot.dropVelocity.dropsLast3} last 3d, ${weeklySnapshot.dropVelocity.dropsPrev3} prev 3d)`,
+  );
 
   dataLines.push('\n=== SPACES (with recent activity) ===');
-  for (const s of (weeklySnapshot.spaces || [])) {
+  for (const s of weeklySnapshot.spaces || []) {
     const a = s.activity || {};
     if (a.totalRecent > 0) {
-      dataLines.push(`  ${s.name}: ${a.recentDrops} drops, ${a.recentTodos} todos (${a.totalRecent} total recent)`);
+      dataLines.push(
+        `  ${s.name}: ${a.recentDrops} drops, ${a.recentTodos} todos (${a.totalRecent} total recent)`,
+      );
     } else {
       dataLines.push(`  ${s.name}: no recent activity`);
     }
@@ -6887,7 +7254,9 @@ STALE ITEMS:
   }
 
   if (weeklySnapshot.weeklySummaries?.length > 0) {
-    dataLines.push('\n=== PRIOR WEEKLY SUMMARIES (trend context — these are PAST weeks, not this week) ===');
+    dataLines.push(
+      '\n=== PRIOR WEEKLY SUMMARIES (trend context — these are PAST weeks, not this week) ===',
+    );
     for (const ws of weeklySnapshot.weeklySummaries.slice(0, 3)) {
       const content = ws.content || ws;
       const commentary = content.weeklyCommentary || content.commentary || 'N/A';
@@ -6936,6 +7305,7 @@ STALE ITEMS:
   let buffer = '';
 
   while (true) {
+    // eslint-disable-line no-constant-condition -- SSE stream reader
     const { done, value } = await reader.read();
     if (done) break;
 
@@ -7043,7 +7413,7 @@ function buildWorldPicture(snapshot) {
     const spaceLabel = domain.source === 'space' ? `space: ${domain.space_id}` : 'ai_detected';
     parts.push(`\nDOMAIN: "${domain.name}" [${spaceLabel}]`);
 
-    for (const thread of (domain.threads || [])) {
+    for (const thread of domain.threads || []) {
       parts.push(`\n  THREAD: "${thread.name}"`);
       parts.push(`    status: ${thread.status}`);
       parts.push(`    momentum: ${thread.momentum}`);
@@ -7069,7 +7439,7 @@ function buildWorldPicture(snapshot) {
   }
 
   // ── Section 3: Today's calendar ──
-  parts.push('\n=== TODAY\'S CALENDAR EVENTS ===');
+  parts.push("\n=== TODAY'S CALENDAR EVENTS ===");
   if (calendar.todaysEvents.length > 0) {
     for (const e of calendar.todaysEvents) {
       const time = e.time ? ` at ${e.time}` : '';
@@ -7086,9 +7456,7 @@ function buildWorldPicture(snapshot) {
   parts.push('\n=== UPCOMING EVENTS (next 7 days) ===');
   if (calendar.upcomingEvents.length > 0) {
     for (const e of calendar.upcomingEvents) {
-      const daysAway = Math.ceil(
-        (new Date(e.date + 'T00:00:00Z') - target) / 86400000,
-      );
+      const daysAway = Math.ceil((new Date(e.date + 'T00:00:00Z') - target) / 86400000);
       const space = e.space ? ` [${e.space}]` : '';
       parts.push(`  ${e.date} (${daysAway} days): ${e.title}${space}`);
     }
@@ -7105,9 +7473,7 @@ function buildWorldPicture(snapshot) {
       const done = m.completed ? ' ✓ COMPLETED' : '';
       let dateInfo = '';
       if (m.date) {
-        const daysAway = Math.ceil(
-          (new Date(m.date + 'T00:00:00Z') - target) / 86400000,
-        );
+        const daysAway = Math.ceil((new Date(m.date + 'T00:00:00Z') - target) / 86400000);
         if (daysAway === 0) dateInfo = ' — TODAY';
         else if (daysAway > 0) dateInfo = ` — ${daysAway} days away`;
         else dateInfo = ` — ${Math.abs(daysAway)} days ago`;
@@ -7121,7 +7487,7 @@ function buildWorldPicture(snapshot) {
   // ── Section 6: Recent drops (last 2 days) ──
   const twoDaysAgo = formatDateOnly(new Date(target.getTime() - 2 * 86400000));
   const recentDrops = raw.drops
-    .filter(n => {
+    .filter((n) => {
       const d = n.created_at ? n.created_at.split('T')[0] : null;
       return d && d >= twoDaysAgo;
     })
@@ -7147,7 +7513,9 @@ function buildWorldPicture(snapshot) {
     for (const h of computed.habitHealth) {
       const space = computed.spaceMap[h.space_id] || null;
       const spaceLabel = space ? ` [${space}]` : '';
-      parts.push(`  ${h.name} (${h.frequency}): ${h.completions}/${h.expected} (${h.score_pct}%)${spaceLabel}`);
+      parts.push(
+        `  ${h.name} (${h.frequency}): ${h.completions}/${h.expected} (${h.score_pct}%)${spaceLabel}`,
+      );
     }
   } else {
     parts.push('  No habits tracked.');
@@ -7157,7 +7525,7 @@ function buildWorldPicture(snapshot) {
   parts.push('\n=== MOOD (from journals, last 7 days) ===');
   if (computed.moodSignal.topMoods.length > 0) {
     const moodStr = computed.moodSignal.topMoods
-      .map(m => `${m.mood}: ${m.count} (${m.pct}%)`)
+      .map((m) => `${m.mood}: ${m.count} (${m.pct}%)`)
       .join(', ');
     parts.push(`  ${moodStr} — from ${computed.moodSignal.journalCount} journal(s)`);
   } else {
@@ -7166,11 +7534,15 @@ function buildWorldPicture(snapshot) {
 
   // ── Section 9: Todo stats ──
   parts.push('\n=== TODOS ===');
-  parts.push(`  ${computed.todoStats.overdue} overdue, ${computed.todoStats.active} active, ${computed.todoStats.completedRecently} completed recently`);
+  parts.push(
+    `  ${computed.todoStats.overdue} overdue, ${computed.todoStats.active} active, ${computed.todoStats.completedRecently} completed recently`,
+  );
 
   // ── Section 10: Drop velocity ──
   parts.push('\n=== DROP VELOCITY ===');
-  parts.push(`  ${computed.dropVelocity.velocity} (${computed.dropVelocity.dropsLast3} last 3 days, ${computed.dropVelocity.dropsPrev3} previous 3 days)`);
+  parts.push(
+    `  ${computed.dropVelocity.velocity} (${computed.dropVelocity.dropsLast3} last 3 days, ${computed.dropVelocity.dropsPrev3} previous 3 days)`,
+  );
 
   // ── Section 11: Previous headline ──
   const prevDco = raw.previousDco?.dco;
@@ -7188,7 +7560,9 @@ function buildWorldPicture(snapshot) {
 
   const text = parts.join('\n');
 
-  console.log(`[WorldPicture] Built for ${snapshot.userId.slice(0, 8)}: ${text.length} chars, ${lifeMap.domains.length} domains`);
+  console.log(
+    `[WorldPicture] Built for ${snapshot.userId.slice(0, 8)}: ${text.length} chars, ${lifeMap.domains.length} domains`,
+  );
 
   return { text, lifeMap };
 }
@@ -7361,13 +7735,13 @@ function mergeLifeMapUpdates(lifeMap, threadUpdates) {
 
   for (const update of threadUpdates) {
     // Find the matching domain and thread
-    const domain = lifeMap.domains.find(d => d.name === update.domain);
+    const domain = lifeMap.domains.find((d) => d.name === update.domain);
     if (!domain) {
       console.warn(`[LifeMap:Merge] Domain not found: "${update.domain}"`);
       continue;
     }
 
-    const thread = (domain.threads || []).find(t => t.name === update.thread);
+    const thread = (domain.threads || []).find((t) => t.name === update.thread);
     if (!thread) {
       console.warn(`[LifeMap:Merge] Thread not found: "${update.domain}" → "${update.thread}"`);
       continue;
@@ -7389,7 +7763,7 @@ function mergeLifeMapUpdates(lifeMap, threadUpdates) {
       if (!thread.evidence) thread.evidence = [];
       for (const e of update.new_evidence) {
         const isDuplicate = thread.evidence.some(
-          existing => existing.date === e.date && existing.signal === e.signal,
+          (existing) => existing.date === e.date && existing.signal === e.signal,
         );
         if (!isDuplicate) {
           thread.evidence.push({
@@ -7428,14 +7802,13 @@ function assembleDcoFromFocus(dailyFocus, headline, snapshot) {
     : null;
 
   // Habit streak risk
-  const habitStreakRisk = computed.habitHealth
-    .filter(h => h.score_pct < 50)
-    .map(h => h.name);
+  const habitStreakRisk = computed.habitHealth.filter((h) => h.score_pct < 50).map((h) => h.name);
 
   // Overall habit health signal
-  const avgHabitScore = computed.habitHealth.length > 0
-    ? computed.habitHealth.reduce((sum, h) => sum + h.score_pct, 0) / computed.habitHealth.length
-    : 0;
+  const avgHabitScore =
+    computed.habitHealth.length > 0
+      ? computed.habitHealth.reduce((sum, h) => sum + h.score_pct, 0) / computed.habitHealth.length
+      : 0;
   let habitHealthSignal = 'mixed';
   if (avgHabitScore >= 75) habitHealthSignal = 'strong';
   else if (avgHabitScore < 40) habitHealthSignal = 'declining';
@@ -7450,9 +7823,10 @@ function assembleDcoFromFocus(dailyFocus, headline, snapshot) {
 
   // Today focus items
   const todayFocusItems = [];
-  if (computed.todoStats.overdue > 0) todayFocusItems.push(`${computed.todoStats.overdue} overdue todos`);
+  if (computed.todoStats.overdue > 0)
+    todayFocusItems.push(`${computed.todoStats.overdue} overdue todos`);
   if (calendar.todaysEvents.length > 0) {
-    todayFocusItems.push(...calendar.todaysEvents.slice(0, 2).map(e => e.title));
+    todayFocusItems.push(...calendar.todaysEvents.slice(0, 2).map((e) => e.title));
   }
   if (dailyFocus.lead_story) {
     todayFocusItems.push(dailyFocus.lead_story.detail);
@@ -7467,10 +7841,10 @@ function assembleDcoFromFocus(dailyFocus, headline, snapshot) {
     brief_headline: headline,
     named_anchors: [],
     active_today: {
-      calendar_events: calendar.todaysEvents.map(e => e.title),
+      calendar_events: calendar.todaysEvents.map((e) => e.title),
       overdue_todos: computed.todoStats.overdue,
       habit_streak_risk: habitStreakRisk,
-      upcoming_in_7d: calendar.upcomingEvents.slice(0, 5).map(e => `${e.date}: ${e.title}`),
+      upcoming_in_7d: calendar.upcomingEvents.slice(0, 5).map((e) => `${e.date}: ${e.title}`),
     },
     deltas: {
       drop_velocity: computed.dropVelocity.velocity,
@@ -7518,14 +7892,22 @@ THE LEAD STORY (already selected — write about THIS):
   Detail: ${lead.detail}
   Why today: ${lead.why_today}
 
-${secondary ? `SECONDARY (for optional color):
-  ${secondary.domain} → ${secondary.thread}: ${secondary.detail}` : ''}
+${
+  secondary
+    ? `SECONDARY (for optional color):
+  ${secondary.domain} → ${secondary.thread}: ${secondary.detail}`
+    : ''
+}
 
 TONE: ${dailyFocus.tone}
 LIFE MOMENT: ${dailyFocus.life_moment || 'none'}
 
-${prevHeadline ? `PREVIOUS HEADLINE: "${prevHeadline}"
-Write something with a completely different structure.` : ''}
+${
+  prevHeadline
+    ? `PREVIOUS HEADLINE: "${prevHeadline}"
+Write something with a completely different structure.`
+    : ''
+}
 
 RULES:
 - Maximum 10 words.
@@ -7601,7 +7983,16 @@ function corsResponse(body, status = 200) {
 // Inngest serve handler
 const inngestHandler = serve({
   client: inngest,
-  functions: [dailySynthesisDispatcher, synthesizeSingleUser, dcoDispatcher, generateSingleUserDco, bootstrapSingleUserLifeMap, testUnifiedAnalyst, testLifeMapRebuild, testWeeklySummaryV2],
+  functions: [
+    dailySynthesisDispatcher,
+    synthesizeSingleUser,
+    dcoDispatcher,
+    generateSingleUserDco,
+    bootstrapSingleUserLifeMap,
+    testUnifiedAnalyst,
+    testLifeMapRebuild,
+    testWeeklySummaryV2,
+  ],
   servePath: '/',
 });
 
@@ -7712,49 +8103,51 @@ export default {
             }
 
             const worldPicture = buildWorldPicture(snapshot);
-            const flashResult = await updateLifeMapAndFocus(worldPicture.lifeMap, worldPicture.text, env);
+            const flashResult = await updateLifeMapAndFocus(
+              worldPicture.lifeMap,
+              worldPicture.text,
+              env,
+            );
             const mapCopy = JSON.parse(JSON.stringify(worldPicture.lifeMap));
             const updatedMap = mergeLifeMapUpdates(mapCopy, flashResult.thread_updates);
-            const headline = await generateHeadlineFromFocus(flashResult.daily_focus, snapshot, env);
+            const headline = await generateHeadlineFromFocus(
+              flashResult.daily_focus,
+              snapshot,
+              env,
+            );
             const dco = assembleDcoFromFocus(flashResult.daily_focus, headline, snapshot);
 
             const now = new Date();
             const todayLocal = getUserLocalDate(u.timezone);
             const expiresAt = new Date(now.getTime() + 7 * 86400000);
 
-            await fetch(
-              `${env.SUPABASE_URL}/rest/v1/user_life_map?on_conflict=user_id`,
-              {
-                method: 'POST',
-                headers: { ...supaHeaders, Prefer: 'resolution=merge-duplicates' },
-                body: JSON.stringify({
-                  user_id: u.user_id,
-                  life_map: updatedMap,
-                  version: snapshot.raw.currentLifeMap.version || 1,
-                  updated_at: now.toISOString(),
-                }),
-              },
-            );
+            await fetch(`${env.SUPABASE_URL}/rest/v1/user_life_map?on_conflict=user_id`, {
+              method: 'POST',
+              headers: { ...supaHeaders, Prefer: 'resolution=merge-duplicates' },
+              body: JSON.stringify({
+                user_id: u.user_id,
+                life_map: updatedMap,
+                version: snapshot.raw.currentLifeMap.version || 1,
+                updated_at: now.toISOString(),
+              }),
+            });
 
-            await fetch(
-              `${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`,
-              {
-                method: 'POST',
-                headers: { ...supaHeaders, Prefer: 'resolution=merge-duplicates' },
-                body: JSON.stringify({
-                  user_id: u.user_id,
-                  date: todayLocal,
-                  dco,
-                  extraction_raw: {
-                    world_picture_length: worldPicture.text.length,
-                    lead_story: flashResult.daily_focus?.lead_story || null,
-                  },
-                  created_at: now.toISOString(),
-                  updated_at: now.toISOString(),
-                  expires_at: expiresAt.toISOString(),
-                }),
-              },
-            );
+            await fetch(`${env.SUPABASE_URL}/rest/v1/user_daily_state?on_conflict=user_id,date`, {
+              method: 'POST',
+              headers: { ...supaHeaders, Prefer: 'resolution=merge-duplicates' },
+              body: JSON.stringify({
+                user_id: u.user_id,
+                date: todayLocal,
+                dco,
+                extraction_raw: {
+                  world_picture_length: worldPicture.text.length,
+                  lead_story: flashResult.daily_focus?.lead_story || null,
+                },
+                created_at: now.toISOString(),
+                updated_at: now.toISOString(),
+                expires_at: expiresAt.toISOString(),
+              }),
+            });
 
             console.log(`[API] DCO generated for ${u.user_id} (${todayLocal})`);
             results.push({
@@ -7836,11 +8229,12 @@ export default {
             todos: context.todos,
             habits_count: context.habits.length,
             drop_velocity: context.drop_velocity,
-            mood_top: context.mood.top_moods.map(m => `${m.mood}(${m.pct}%)`).join(', ') || 'none',
+            mood_top:
+              context.mood.top_moods.map((m) => `${m.mood}(${m.pct}%)`).join(', ') || 'none',
             has_profile: !!context.user_profile,
             has_previous_dco: !!context.previous,
             has_weekly_digest: !!context.weekly_digest,
-            spaces: context.spaces.map(s => `${s.name} (${s.recent_activity})`),
+            spaces: context.spaces.map((s) => `${s.name} (${s.recent_activity})`),
           },
         });
       } catch (err) {
@@ -7863,10 +8257,7 @@ export default {
 
         // Validate date format
         if (!/^\d{4}-\d{2}-\d{2}$/.test(start_date) || !/^\d{4}-\d{2}-\d{2}$/.test(end_date)) {
-          return corsResponse(
-            { error: 'Dates must be in YYYY-MM-DD format' },
-            400,
-          );
+          return corsResponse({ error: 'Dates must be in YYYY-MM-DD format' }, 400);
         }
 
         const supaHeaders = {
@@ -7890,7 +8281,9 @@ export default {
         const timezone = tzRows[0].timezone || 'America/New_York';
 
         const dates = getDateRange(start_date, end_date);
-        console.log(`[API] backfill-dco: ${dates.length} days for ${user_id} (${start_date} → ${end_date})`);
+        console.log(
+          `[API] backfill-dco: ${dates.length} days for ${user_id} (${start_date} → ${end_date})`,
+        );
 
         const results = [];
 
@@ -7929,7 +8322,9 @@ export default {
               throw new Error(`Upsert failed: ${upsertRes.statusText}`);
             }
 
-            console.log(`[API] backfill-dco: ${targetDate} → ${analysis.brief_headline || '(no headline)'}`);
+            console.log(
+              `[API] backfill-dco: ${targetDate} → ${analysis.brief_headline || '(no headline)'}`,
+            );
             results.push({
               date: targetDate,
               success: true,
@@ -7992,13 +8387,16 @@ export default {
 
         if (!inngestRes.ok) {
           const errText = await inngestRes.text().catch(() => '');
-          throw new Error(`Failed to send Inngest event: ${inngestRes.status} ${errText.slice(0, 200)}`);
+          throw new Error(
+            `Failed to send Inngest event: ${inngestRes.status} ${errText.slice(0, 200)}`,
+          );
         }
 
         return corsResponse({
           success: true,
           user_id,
-          message: 'Life Map bootstrap job dispatched. Check Inngest dashboard or use /api/debug-life-map to view results.',
+          message:
+            'Life Map bootstrap job dispatched. Check Inngest dashboard or use /api/debug-life-map to view results.',
         });
       } catch (err) {
         console.error('[API] bootstrap-life-map error:', err);
@@ -8033,12 +8431,12 @@ export default {
           return corsResponse({ exists: false, user_id });
         }
 
-        const domainSummary = (row.life_map?.domains || []).map(d => ({
+        const domainSummary = (row.life_map?.domains || []).map((d) => ({
           name: d.name,
           source: d.source,
           attention: d.attention,
           thread_count: d.threads?.length || 0,
-          threads: (d.threads || []).map(t => ({
+          threads: (d.threads || []).map((t) => ({
             name: t.name,
             status: t.status,
             attention: t.attention,
@@ -8164,10 +8562,16 @@ export default {
               headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
             });
           }
-          return new Response(JSON.stringify({ status: 'not_ready', message: 'Result not stored yet. Check Inngest dashboard.' }), {
-            status: 202,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-          });
+          return new Response(
+            JSON.stringify({
+              status: 'not_ready',
+              message: 'Result not stored yet. Check Inngest dashboard.',
+            }),
+            {
+              status: 202,
+              headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+            },
+          );
         }
 
         // Trigger Inngest event via HTTP (env bindings not available to inngest.send in CF Workers)
@@ -8188,7 +8592,8 @@ export default {
         return new Response(
           JSON.stringify({
             status: 'triggered',
-            message: 'Analyst test dispatched via Inngest. Fetch result with: {"user_id": "...", "fetch_result": true}',
+            message:
+              'Analyst test dispatched via Inngest. Fetch result with: {"user_id": "...", "fetch_result": true}',
           }),
           {
             status: 202,
@@ -8237,10 +8642,16 @@ export default {
               headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
             });
           }
-          return new Response(JSON.stringify({ status: 'not_ready', message: 'Result not stored yet. Check Inngest dashboard.' }), {
-            status: 202,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-          });
+          return new Response(
+            JSON.stringify({
+              status: 'not_ready',
+              message: 'Result not stored yet. Check Inngest dashboard.',
+            }),
+            {
+              status: 202,
+              headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+            },
+          );
         }
 
         // Trigger Inngest event via HTTP (env bindings not available to inngest.send in CF Workers)
@@ -8261,7 +8672,8 @@ export default {
         return new Response(
           JSON.stringify({
             status: 'triggered',
-            message: 'Life Map rebuild dispatched via Inngest. Fetch result with: {"user_id": "...", "fetch_result": true}',
+            message:
+              'Life Map rebuild dispatched via Inngest. Fetch result with: {"user_id": "...", "fetch_result": true}',
           }),
           {
             status: 202,
@@ -8331,7 +8743,10 @@ export default {
         }
 
         return new Response(
-          JSON.stringify({ status: 'triggered', message: 'Full pipeline: analyst → rebuild → summary v2. Fetch with fetch_result: true' }),
+          JSON.stringify({
+            status: 'triggered',
+            message: 'Full pipeline: analyst → rebuild → summary v2. Fetch with fetch_result: true',
+          }),
           { status: 202, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
         );
       } catch (err) {
@@ -8375,7 +8790,10 @@ export default {
 
         for (const evt of events) {
           const ext = evt.external_source;
-          if (!ext) { skippedNoEndData++; continue; }
+          if (!ext) {
+            skippedNoEndData++;
+            continue;
+          }
 
           let rawEndDate = null;
 
@@ -8424,15 +8842,12 @@ export default {
           const batch = updates.slice(i, i + 50);
 
           const results = await Promise.allSettled(
-            batch.map(u =>
-              fetch(
-                `${env.SUPABASE_URL}/rest/v1/notes?id=eq.${u.id}`,
-                {
-                  method: 'PATCH',
-                  headers: supaHeaders,
-                  body: JSON.stringify({ end_date: u.end_date }),
-                },
-              ),
+            batch.map((u) =>
+              fetch(`${env.SUPABASE_URL}/rest/v1/notes?id=eq.${u.id}`, {
+                method: 'PATCH',
+                headers: supaHeaders,
+                body: JSON.stringify({ end_date: u.end_date }),
+              }),
             ),
           );
 
@@ -8445,7 +8860,9 @@ export default {
           }
         }
 
-        console.log(`[API] backfill-event-end-dates: checked=${events.length} updated=${updated} skipped_same=${skippedSameDay} skipped_no_end=${skippedNoEndData} errors=${errors}`);
+        console.log(
+          `[API] backfill-event-end-dates: checked=${events.length} updated=${updated} skipped_same=${skippedSameDay} skipped_no_end=${skippedNoEndData} errors=${errors}`,
+        );
 
         return corsResponse({
           success: true,
