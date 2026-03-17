@@ -6124,147 +6124,228 @@ Data outside this range is CONTEXT (prior weeks for trends). Do not conflate pas
 EXISTING LIFE MAP — organize your theme-level findings against these threads:
 ${lifeMapRef}
 
-OUTPUT FORMAT — respond with ONLY valid JSON, no markdown, no backticks:
+OUTPUT FORMAT — respond with each section wrapped in XML tags. Inside each tag, output valid JSON for that section. This allows each section to be parsed independently.
+
+<themes>
+[
+  ... themes array ...
+]
+</themes>
+
+<week_timeline>
 {
-  "themes": [
-    {
-      "life_map_thread": "exact thread name from Life Map, or null if new",
-      "life_map_domain": "exact domain name from Life Map, or null if new",
-      "label": "use thread name if mapped, descriptive label if new",
-      "this_week": {
-        "activity_count": 0,
-        "notable_items": ["specific items with dates — journal titles, todo names, event names. Include ALL relevant items, not just top 3"],
-        "journal_quotes": ["YYYY-MM-DD: 'actual quoted text from journal body' — include every quote relevant to this thread"],
-        "completed_todos": ["todo titles completed this week connected to this thread"],
-        "active_todos": ["todo titles still active connected to this thread"],
-        "habit_data": "habit name: X/Y completions this week, completed on [specific days] — or null if no habit for this thread",
-        "events": ["YYYY-MM-DD: event title — brief note on significance"],
-        "day_pattern": "which specific days had activity and what kind"
-      },
-      "trajectory": "building | consistent | declining | milestone_approaching | stalled | concluded | reactivated",
-      "trajectory_reasoning": "one sentence explaining why, referencing specific data from this week AND trend from prior weeks",
-      "emotional_signal": "mood tags and journal sentiment connected to this theme — quote the user's words. Or null if no emotional data",
-      "evidence_refs": ["type:specific item — e.g. habit:Habit Name X/Y, journal:YYYY-MM-DD 'quote text', todo:Todo Title completed"],
-      "lifecycle_signal": "active | approaching_dormant | concluded | reactivated | null",
-      "lifecycle_reasoning": "max 10 words — why this lifecycle state",
-      "importance": "high | medium | low",
-      "narrative_interest": 0,
-      "narrative_interest_reasoning": "one sentence — why this score"
-    }
-  ],
-
-  "week_timeline": {
-    "narrative": "3-5 sentence chronological reconstruction of what happened this week, day by day. Focus on the STORY. Reference specific events, completions, and journal entries by name.",
-    "significant_days": [
-      {
-        "date": "YYYY-MM-DD",
-        "day_name": "Monday|Tuesday|...",
-        "what_happened": "DETAILED — list every notable event, completion, journal entry, habit completion that day. Do not summarize.",
-        "significance": "routine | notable | significant | milestone",
-        "thread_connections": ["which Life Map threads were active this day"]
-      }
-    ]
-  },
-
-  "event_analysis": {
-    "this_week_events": [
-      {
-        "title": "event title",
-        "date": "YYYY-MM-DD",
-        "importance": 1,
-        "importance_reason": "one sentence — why this score",
-        "category": "travel | work_meeting | personal | social | health | deadline | milestone | admin | recurring",
-        "is_recurring": false,
-        "space": "space name or null",
-        "thread_connection": "Life Map thread name or null",
-        "connected_journal": "journal excerpt if a journal entry matches this event by date/topic, or null",
-        "connected_todos": ["titles of completed todos related to this event"]
-      }
-    ],
-    "next_week_events": [
-      {
-        "title": "event title",
-        "date": "YYYY-MM-DD",
-        "importance": 1,
-        "importance_reason": "one sentence",
-        "category": "string",
-        "is_recurring": false,
-        "thread_connection": "Life Map thread name or null",
-        "thread_from_this_week": "how this connects to something that happened this week, or null",
-        "prep_suggestion": "practical prep the user might want, or null"
-      }
-    ]
-  },
-
-  "behavioral_fingerprints": [
-    {
-      "pattern": "short label — e.g. weekend_sprinter, stress_skips_exercise, deadline_procrastinator",
-      "evidence": "specific data — e.g. '11 of 15 completions landed Thu-Sun'",
-      "is_novel": false,
-      "narrative_interest": 0,
-      "threads_involved": ["thread names this pattern spans"],
-      "is_discovery_candidate": false
-    }
-  ],
-
-  "cross_references": [
-    {
-      "connection": "how two or more threads interacted this week",
-      "threads": ["thread name 1", "thread name 2"],
-      "items": ["specific item titles showing the connection"],
-      "significance": "why this connection matters for the user's story",
-      "narrative_interest": 0
-    }
-  ],
-
-  "magic_moment_candidates": [
-    {
-      "title": "short evocative title",
-      "date": "YYYY-MM-DD",
-      "why": "why this moment stands out — be specific",
-      "connected_items": ["related item titles"],
-      "enrichment_hint": "what real-world knowledge would make this richer — e.g. 'seasonal weather context', 'local cultural significance', 'historical context of a landmark'",
-      "journal_quote": "the user's own words about this moment if available, or null"
-    }
-  ],
-
-  "stale_items": [
-    {
-      "title": "item title",
-      "days_stale": 0,
-      "domain_hint": "which Life Map domain this likely belongs to",
-      "severity": "low | medium | high"
-    }
-  ],
-
-  "engagement_metrics": {
-    "drops_this_week": 0,
-    "completions_this_week": 0,
-    "habit_overall_rate": "X% — across all habits",
-    "active_todos": 0,
-    "stale_todos_over_14d": 0,
-    "journals_written": 0
-  },
-
-  "new_theme_candidates": [
-    {
-      "label": "descriptive name for the pattern",
-      "unmatched_items": ["specific titles/dates that don't fit existing threads"],
-      "evidence_count": 0,
-      "date_span": ["earliest date", "latest date"],
-      "suggested_domain": "existing domain name this might belong to, or null for genuinely new",
-      "reasoning": "why this is distinct from existing threads"
-    }
-  ],
-
-  "week_shape": {
-    "classification": "2-4 word week type — e.g. 'launch sprint', 'recovery week', 'travel immersion', 'deadline crunch'",
-    "dominant_theme": "the single thread/domain that dominated this week",
-    "mood_arc": "how emotional tone shifted across the week — reference specific journal entries by date",
-    "highlight": "single most notable moment with date and brief description",
-    "concern": "single most notable concern or risk, or null"
-  }
+  ... week_timeline object ...
 }
+</week_timeline>
+
+<event_analysis>
+{
+  ... event_analysis object ...
+}
+</event_analysis>
+
+<behavioral_fingerprints>
+[
+  ... behavioral_fingerprints array ...
+]
+</behavioral_fingerprints>
+
+<cross_references>
+[
+  ... cross_references array ...
+]
+</cross_references>
+
+<magic_moment_candidates>
+[
+  ... magic_moment_candidates array ...
+]
+</magic_moment_candidates>
+
+<stale_items>
+[
+  ... stale_items array ...
+]
+</stale_items>
+
+<engagement_metrics>
+{
+  ... engagement_metrics object ...
+}
+</engagement_metrics>
+
+<new_theme_candidates>
+[
+  ... new_theme_candidates array ...
+]
+</new_theme_candidates>
+
+<week_shape>
+{
+  ... week_shape object ...
+}
+</week_shape>
+
+Here are the schemas for each section:
+
+<themes>
+[
+  {
+    "life_map_thread": "exact thread name from Life Map, or null if new",
+    "life_map_domain": "exact domain name from Life Map, or null if new",
+    "label": "use thread name if mapped, descriptive label if new",
+    "this_week": {
+      "activity_count": 0,
+      "notable_items": ["specific items with dates — journal titles, todo names, event names. Include ALL relevant items, not just top 3"],
+      "journal_refs": ["YYYY-MM-DD — dates of journal entries relevant to this thread. Just the dates, no quote text. Code will join the full text from the source data."],
+      "completed_todo_refs": ["todo title only — code will join dates and IDs from source data"],
+      "active_todo_refs": ["todo title only — code will join details from source data"],
+      "habit_data": "habit name: X/Y completions this week, completed on [specific days] — or null if no habit for this thread",
+      "events": ["YYYY-MM-DD: event title — brief note on significance"],
+      "day_pattern": "which specific days had activity and what kind"
+    },
+    "trajectory": "building | consistent | declining | milestone_approaching | stalled | concluded | reactivated",
+    "trajectory_reasoning": "one sentence explaining why, referencing specific data from this week AND trend from prior weeks",
+    "emotional_signal": "mood tags and journal sentiment connected to this theme — quote the user's words. Or null if no emotional data",
+    "evidence_refs": ["type:specific item — e.g. habit:Habit Name X/Y, journal:YYYY-MM-DD 'quote text', todo:Todo Title completed"],
+    "lifecycle_signal": "active | approaching_dormant | concluded | reactivated | null",
+    "lifecycle_reasoning": "max 10 words — why this lifecycle state",
+    "importance": "high | medium | low",
+    "narrative_interest": 0,
+    "narrative_interest_reasoning": "one sentence — why this score"
+  }
+]
+</themes>
+
+<week_timeline>
+{
+  "narrative": "3-5 sentence chronological reconstruction of what happened this week, day by day. Focus on the STORY. Reference specific events, completions, and journal entries by name.",
+  "significant_days": [
+    {
+      "date": "YYYY-MM-DD",
+      "day_name": "Monday|Tuesday|...",
+      "what_happened": "DETAILED — list every notable event, completion, journal entry, habit completion that day. Do not summarize.",
+      "significance": "routine | notable | significant | milestone",
+      "thread_connections": ["which Life Map threads were active this day"]
+    }
+  ]
+}
+</week_timeline>
+
+<event_analysis>
+{
+  "this_week_events": [
+    {
+      "title": "event title",
+      "date": "YYYY-MM-DD",
+      "importance": 1,
+      "importance_reason": "one sentence — why this score",
+      "category": "travel | work_meeting | personal | social | health | deadline | milestone | admin | recurring",
+      "is_recurring": false,
+      "space": "space name or null",
+      "thread_connection": "Life Map thread name or null",
+      "connected_journal": "journal excerpt if a journal entry matches this event by date/topic, or null",
+      "connected_todos": ["titles of completed todos related to this event"]
+    }
+  ],
+  "next_week_events": [
+    {
+      "title": "event title",
+      "date": "YYYY-MM-DD",
+      "importance": 1,
+      "importance_reason": "one sentence",
+      "category": "string",
+      "is_recurring": false,
+      "thread_connection": "Life Map thread name or null",
+      "thread_from_this_week": "how this connects to something that happened this week, or null",
+      "prep_suggestion": "practical prep the user might want, or null"
+    }
+  ]
+}
+</event_analysis>
+
+<behavioral_fingerprints>
+[
+  {
+    "pattern": "short label — e.g. weekend_sprinter, stress_skips_exercise, deadline_procrastinator",
+    "evidence": "specific data — e.g. '11 of 15 completions landed Thu-Sun'",
+    "is_novel": false,
+    "narrative_interest": 0,
+    "threads_involved": ["thread names this pattern spans"],
+    "is_discovery_candidate": false
+  }
+]
+</behavioral_fingerprints>
+
+<cross_references>
+[
+  {
+    "connection": "how two or more threads interacted this week",
+    "threads": ["thread name 1", "thread name 2"],
+    "items": ["specific item titles showing the connection"],
+    "significance": "why this connection matters for the user's story",
+    "narrative_interest": 0
+  }
+]
+</cross_references>
+
+<magic_moment_candidates>
+[
+  {
+    "title": "short evocative title",
+    "date": "YYYY-MM-DD",
+    "why": "why this moment stands out — be specific",
+    "connected_items": ["related item titles"],
+    "enrichment_hint": "what real-world knowledge would make this richer — e.g. 'seasonal weather context', 'local cultural significance', 'historical context of a landmark'",
+    "journal_quote": "the user's own words about this moment if available, or null"
+  }
+]
+</magic_moment_candidates>
+
+<stale_items>
+[
+  {
+    "title": "item title",
+    "days_stale": 0,
+    "domain_hint": "which Life Map domain this likely belongs to",
+    "severity": "low | medium | high"
+  }
+]
+</stale_items>
+
+<engagement_metrics>
+{
+  "drops_this_week": 0,
+  "completions_this_week": 0,
+  "habit_overall_rate": "X% — across all habits",
+  "active_todos": 0,
+  "stale_todos_over_14d": 0,
+  "journals_written": 0
+}
+</engagement_metrics>
+
+<new_theme_candidates>
+[
+  {
+    "label": "descriptive name for the pattern",
+    "unmatched_items": ["specific titles/dates that don't fit existing threads"],
+    "evidence_count": 0,
+    "date_span": ["earliest date", "latest date"],
+    "suggested_domain": "existing domain name this might belong to, or null for genuinely new",
+    "reasoning": "why this is distinct from existing threads"
+  }
+]
+</new_theme_candidates>
+
+<week_shape>
+{
+  "classification": "2-4 word week type — e.g. 'launch sprint', 'recovery week', 'travel immersion', 'deadline crunch'",
+  "dominant_theme": "the single thread/domain that dominated this week",
+  "mood_arc": "how emotional tone shifted across the week — reference specific journal entries by date",
+  "highlight": "single most notable moment with date and brief description",
+  "concern": "single most notable concern or risk, or null"
+}
+</week_shape>
 
 ANALYSIS RULES:
 
@@ -6532,7 +6613,7 @@ STALE ITEMS:
       messages: [
         {
           role: 'user',
-          content: `Analyze this user's data for the week of ${weekStart} to ${weekEnd}. Produce the comprehensive unified analysis. Preserve all specifics — journal quotes, todo titles, event names, habit details.\n\n${dataPayload}`,
+          content: `Analyze this user's data for the week of ${weekStart} to ${weekEnd}. Produce the comprehensive unified analysis. Preserve all specifics — event names, habit details, dates, and evidence references. For journal quotes and todo items, output ONLY date references or titles — do not include full quote text. The full text will be joined from source data by code.\n\n${dataPayload}`,
         },
       ],
     }),
@@ -6587,19 +6668,121 @@ STALE ITEMS:
   const usage = { input_tokens: inputTokens, output_tokens: outputTokens };
 
   const cleanedText = fullText.replace(/```json\n?|```\n?/g, '').trim();
-  let parsed;
-  try {
-    parsed = JSON.parse(cleanedText);
-  } catch (e) {
-    console.warn('[UnifiedAnalyst] Initial parse failed, using jsonrepair:', e.message);
+
+  function extractSection(text, tag) {
+    const regex = new RegExp(`<${tag}>\\s*([\\s\\S]*?)\\s*</${tag}>`, 'i');
+    const match = text.match(regex);
+    if (!match) return null;
+    const content = match[1].trim();
     try {
-      parsed = JSON.parse(jsonrepair(cleanedText));
-      console.log('[UnifiedAnalyst] jsonrepair succeeded');
-    } catch (repairErr) {
-      console.error('[UnifiedAnalyst] jsonrepair also failed:', repairErr.message);
-      console.error('[UnifiedAnalyst] First 500:', cleanedText.substring(0, 500));
-      parsed = { parseError: e.message, raw: cleanedText };
+      return JSON.parse(content);
+    } catch (e) {
+      try {
+        return JSON.parse(jsonrepair(content));
+      } catch (e2) {
+        console.warn(`[UnifiedAnalyst] Failed to parse section <${tag}>: ${e2.message}`);
+        return null;
+      }
     }
+  }
+
+  const sections = {
+    themes: extractSection(cleanedText, 'themes'),
+    week_timeline: extractSection(cleanedText, 'week_timeline'),
+    event_analysis: extractSection(cleanedText, 'event_analysis'),
+    behavioral_fingerprints: extractSection(cleanedText, 'behavioral_fingerprints'),
+    cross_references: extractSection(cleanedText, 'cross_references'),
+    magic_moment_candidates: extractSection(cleanedText, 'magic_moment_candidates'),
+    stale_items: extractSection(cleanedText, 'stale_items'),
+    engagement_metrics: extractSection(cleanedText, 'engagement_metrics'),
+    new_theme_candidates: extractSection(cleanedText, 'new_theme_candidates'),
+    week_shape: extractSection(cleanedText, 'week_shape'),
+  };
+
+  const parsedSections = Object.entries(sections).filter(([k, v]) => v !== null).length;
+  console.log(`[UnifiedAnalyst] Parsed ${parsedSections}/10 sections`);
+
+  // If NO sections parsed at all, try legacy full-JSON parse as fallback
+  let parsed;
+  if (parsedSections === 0) {
+    console.warn('[UnifiedAnalyst] No XML sections found, trying legacy JSON parse');
+    try {
+      parsed = JSON.parse(cleanedText);
+    } catch (e) {
+      try {
+        parsed = JSON.parse(jsonrepair(cleanedText));
+        console.log('[UnifiedAnalyst] Legacy jsonrepair succeeded');
+      } catch (e2) {
+        console.error('[UnifiedAnalyst] All parsing failed:', e2.message);
+        parsed = { parseError: e.message, raw: cleanedText };
+      }
+    }
+  } else {
+    parsed = {};
+    for (const [key, value] of Object.entries(sections)) {
+      if (value !== null) parsed[key] = value;
+    }
+  }
+
+  // Join journal text and todo details back into themes from source data
+  if (parsed.themes && Array.isArray(parsed.themes)) {
+    const journalsByDate = {};
+    for (const j of (weeklySnapshot.journals || [])) {
+      const date = j.date || (j.created_at ? j.created_at.split('T')[0] : null);
+      if (date) {
+        if (!journalsByDate[date]) journalsByDate[date] = [];
+        journalsByDate[date].push(j);
+      }
+    }
+
+    const todosMap = {};
+    for (const t of (weeklySnapshot.todosDetail || [])) {
+      const titleKey = (t.title || '').toLowerCase().trim();
+      if (titleKey) todosMap[titleKey] = t;
+    }
+
+    for (const theme of parsed.themes) {
+      const tw = theme.this_week;
+      if (!tw) continue;
+
+      // Join journal quotes from refs
+      if (tw.journal_refs && Array.isArray(tw.journal_refs)) {
+        tw.journal_quotes = [];
+        for (const ref of tw.journal_refs) {
+          // ref is a date string like "2026-03-12" or "2026-03-12 — description"
+          const date = ref.split(/[\s\u2014-]/)[0].trim(); // eslint-disable-line no-misleading-character-class
+          const matches = journalsByDate[date] || [];
+          for (const j of matches) {
+            const bodySlice = j.body ? j.body.slice(0, 400) : '';
+            tw.journal_quotes.push(`${date}: '${bodySlice}'`);
+          }
+        }
+      }
+
+      // Join completed todo details from refs
+      if (tw.completed_todo_refs && Array.isArray(tw.completed_todo_refs)) {
+        tw.completed_todos = tw.completed_todo_refs.map(title => {
+          const key = (title || '').toLowerCase().trim();
+          const match = todosMap[key];
+          return match
+            ? `${match.title} (${match.completed_at || 'unknown date'})`
+            : title;
+        });
+      }
+
+      // Join active todo details from refs
+      if (tw.active_todo_refs && Array.isArray(tw.active_todo_refs)) {
+        tw.active_todos = tw.active_todo_refs.map(title => {
+          const key = (title || '').toLowerCase().trim();
+          const match = todosMap[key];
+          return match
+            ? `${match.title} (created ${match.created_at || 'unknown'})`
+            : title;
+        });
+      }
+    }
+
+    console.log(`[UnifiedAnalyst] Joined journal text for ${parsed.themes.length} themes`);
   }
 
   const latency = Date.now() - t0;

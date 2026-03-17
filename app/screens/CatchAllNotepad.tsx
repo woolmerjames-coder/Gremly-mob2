@@ -155,9 +155,9 @@ import {
   runMindDropStageAClassification,
   runMindDropStageBPrefill,
 } from '../../lib/minddrop/pipelineStages';
-import GREMLY_TOP from '../../assets/mascot/gremly-mascot.png';
 import MINDDROP_HEADER from '../../assets/minddroplogo1.22.png';
 import MascotIcon from '../../components/MascotIcon';
+import MascotLottie, { type MascotLottieHandle } from '../components/MascotLottie';
 import RitualProgressIndicator from '../../components/ritual/RitualProgressIndicator';
 import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
@@ -5827,6 +5827,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Phase 1B: Submission mutex to prevent rapid duplicate submits
   const submissionMutex = useRef<Map<string, boolean>>(new Map());
 
+  const mascotRef = useRef<MascotLottieHandle>(null);
+
   // Metrics tracking for Mind Drop refinements
   const metricsRef = useRef({
     timingShown: 0,
@@ -7984,11 +7986,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           clearTimeout(gremlySpeechTimeoutRef.current);
           gremlySpeechTimeoutRef.current = null;
         }
+        mascotRef.current?.celebrate();
         const speech = getPostFirstDropSpeech();
         setGremlySpeech(speech.message);
         setShowSweepDemoPrompt(true);
         markFirstDropComplete();
       } else if (result.createdDetails?.length > 0) {
+        mascotRef.current?.celebrate();
         // Show speech based on classification result using full getGremlySpeech logic
         try {
           const detail = result.createdDetails[0];
@@ -8564,12 +8568,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               accessibilityLabel="Help"
               style={styles.inputGremly}
             >
-              <Image
-                source={GREMLY_TOP}
-                style={{ width: 95, height: 95 }}
-                resizeMode="contain"
-                accessibilityIgnoresInvertColors
-              />
+              <MascotLottie ref={mascotRef} />
             </Pressable>
             <MindDropInput
               value={note}
@@ -9024,10 +9023,10 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     inputGremly: {
       position: 'absolute',
-      top: -50, // Head peeks above input field, body overlaps camera area
+      top: -66, // Head peeks above input field, body overlaps camera area
       right: 0, // Flush with right edge
       width: 95,
-      height: 95,
+      height: 111,
       zIndex: 10,
     },
     inputContainer: {
