@@ -4593,7 +4593,6 @@ async function resolveImageUrl(imageHint, env) {
     // Fallback: try shorter query (first two words only)
     const shortQuery = query.split(' ').slice(0, 2).join(' ');
     if (shortQuery !== query) {
-      console.log(`[WeeklySummaryV2] Unsplash retry with shorter query: "${shortQuery}"`);
       const retryRes = await fetch(
         `https://api.unsplash.com/search/photos?query=${encodeURIComponent(shortQuery)}&per_page=1&orientation=landscape`,
         { headers: { Authorization: `Client-ID ${env.UNSPLASH_ACCESS_KEY}` } },
@@ -4604,7 +4603,6 @@ async function resolveImageUrl(imageHint, env) {
       }
     }
 
-    console.warn(`[WeeklySummaryV2] No Unsplash results for: "${query}"`);
     return null;
   } catch (e) {
     console.warn('[WeeklySummaryV2] Unsplash failed:', imageHint, e.message);
@@ -4679,580 +4677,7 @@ async function readSSEStream(response) {
   return { fullText, inputTokens, outputTokens };
 }
 
-// ── PASS 1: Sonnet Narrative Planner ────────────────────────────────────────
-async function runNarrativePlanner(
-  storytellerData,
-  weekStart,
-  weekEnd,
-  staleItems,
-  isFirstWeekOfMonth,
-  env,
-) {
-  const plannerSystem = `You are Gremly's narrative planner. You receive a user's weekly data and must plan a weekly summary across 8 card types. Your job is NOT to write the final text — it's to decide WHAT goes WHERE so that no detail, quote, or observation appears on more than one card.
-
-WEEK: ${weekStart} to ${weekEnd}
-
-CARD FLOW (this is the narrative order — feel it → see it → relive it → zoom out → understand it → coach it → clear it → look ahead):
-gremly_mood → opening → moments → thread_movements → discoveries → recommends → stale_triage → week_ahead
-
-Your plan has TWO PHASES: generate CANDIDATES across different life domains, then SELECT from them with a hard diversity constraint.
-
-You must output a JSON plan with these sections:
-
-{
-  "narrative_arc": "One sentence describing the emotional throughline of this week — what changed from start to end.",
-
-  "gremly_mood": {
-    "mood_line": "(MAX 30 CHARS) 2-4 word emotional read. e.g. 'grateful and present', 'depleted but committed', 'finally settling in'",
-    "hook": "(MAX 120 CHARS) One sentence that makes the user go '...yeah.' The single most important thing about this week."
-  },
-
-  "quote_allocation": {
-    "opening_quote": { "text": "verbatim journal quote", "date": "YYYY-MM-DD" },
-    "moment_quotes": [{ "text": "quote or null", "date": "YYYY-MM-DD", "moment_index": 0 }]
-  },
-
-  "candidates": {
-    "discovery_candidates": [
-      {
-        "domain": "which life domain this is about",
-        "thread": "which thread if applicable, or null",
-        "title": "short punchy label",
-        "one_line_pitch": "one sentence — what this discovery is and why it matters",
-        "key_evidence": ["2-3 specific data points"],
-        "spotlight_evidence_for_builder": ["specific data points ONLY for this discovery — dates, items, quotes"],
-        "mini_discoveries": [{ "topic": "short label", "evidence": "one specific fact" }]
-      }
-    ],
-    "recommendation_candidates": [
-      {
-        "domain": "which life domain this addresses",
-        "title": "(MAX 50 CHARS) suggestion title",
-        "body": "(MAX 150 CHARS) why this recommendation and what evidence supports it",
-        "type": "thought | experiment | habit_idea | mindset_shift",
-        "supporting_evidence": ["1-2 specific data points from this week"]
-      }
-    ],
-    "moment_candidates": [
-      {
-        "date": "YYYY-MM-DD",
-        "day_label": "MON-SUN",
-        "domain": "primary life domain",
-        "title_idea": "evocative title",
-        "one_line_pitch": "what makes this moment special — what shifted or what the user felt",
-        "unique_details": ["2-3 specific details ONLY for this moment"],
-        "thread_tags": ["thread names"]
-      }
-    ],
-    "thread_candidates": [
-      {
-        "name": "thread name",
-        "domain": "life domain",
-        "direction": "up | down | milestone | concluded | new | steady | paused",
-        "one_line_evidence": "single most important fact about this thread's movement"
-      }
-    ]
-  },
-
-  "selections": {
-    "discovery_pick": {
-      "index": 0,
-      "domain": "the domain of the picked discovery"
-    },
-    "recommendation_picks": {
-      "primary_index": 0,
-      "primary_domain": "domain of primary recommendation",
-      "secondary_indices": [1, 2]
-    },
-    "moment_pick_indices": [0],
-    "thread_pick_names": ["3-6 thread names to show"],
-    "diversity_check": "Discovery domain: [X]. Primary recommendation domain: [Y]. Moment domain: [Z]. Verify no two share the same domain."
-  },
-
-  "detail_allocation": {
-    "opening_details": ["specific facts/activities ONLY used on opening — max 4"],
-    "thread_details": { "Thread Name": "specific fact/evidence ONLY for this thread — max 1 per thread — use ONLY threads from selections.thread_pick_names" },
-    "recommends_details": ["specific evidence ONLY for recommendations — max 3"],
-    "week_ahead_details": ["facts ONLY for week ahead"]
-  },
-
-  "card_decisions": {
-    "include_moments": true,
-    "include_discoveries": true,
-    "include_recommends": true,
-    "include_stale_triage": ${staleItems.length > 0 ? 'true' : 'false'},
-    "include_monthly_retro": ${isFirstWeekOfMonth ? 'true' : 'false'},
-    "thread_names_to_show": ["copy from selections.thread_pick_names"],
-    "moment_count": 1
-  },
-
-NOTE ON card_decisions: include_moments and include_discoveries must ALWAYS be true when you have selected candidates for those cards. The only reason to set them false is if the user's week had literally zero meaningful data (no journals, no todos, no habits). If you generated candidates, you MUST include those cards.
-
-  "stale_headline": null,
-
-  "factual_notes": ["Any cross-references the builders need — e.g. 'user was working from Bora Bora, do not say work resumes on return', 'sobriety data only covers March 8, do not generalize to the whole week'"]
-}
-
-CANDIDATE GENERATION RULES:
-- discovery_candidates: Generate 3-4 candidates. Each MUST be from a DIFFERENT life domain. If the user has activity in fitness, work, relationship, and travel — there should be one candidate from each, not three from the same domain.
-- recommendation_candidates: Generate 3-4 candidates. Each MUST address a DIFFERENT life domain. Each must reference at least one specific data point from this week (a date, a todo title, a journal quote, a habit stat). Recommendations that could apply to anyone are too generic — they must be grounded in THIS user's THIS week. At least one recommendation candidate should address the user's UPCOMING week, not just reflect on the past week. Check the analyst's next_week_events and cross_references for upcoming inflection points, deadlines, or thread collisions. The most useful recommendation is often 'here is how to navigate what is coming' rather than 'here is what you should have done differently.'
-- moment_candidates: Generate 2-3 candidates from DIFFERENT days and ideally different domains.
-- thread_candidates: List ALL threads that moved or matter this week — 4-8 candidates.
-
-NARRATIVE INTEREST PRIORITY:
-The analyst data includes narrative_interest scores (1-10) on themes, behavioral_fingerprints, and cross_references. When generating discovery candidates and moment candidates, PRIORITIZE items with the highest narrative_interest scores.
-
-For discovery_candidates specifically:
-- Check the analyst's behavioral_fingerprints where is_discovery_candidate is true — these are strong candidates because they span multiple life threads
-- Check cross_references with narrative_interest >= 7
-- Check themes with narrative_interest >= 7
-- A discovery about maintaining discipline across several areas during a challenging period is MORE interesting than a discovery about a single habit streak, even if the streak has cleaner numbers
-- A discovery about a new life thread emerging or a spontaneous decision is MORE interesting than progress on an existing pattern
-
-For moment_candidates:
-- Prioritize moments connected to high narrative_interest themes or cross_references
-- Moments where the user made a decision, had a realization, or experienced something for the first time score higher than moments that were just pleasant or productive
-
-DIVERSITY CONSTRAINT — THIS IS THE MOST IMPORTANT SELECTION RULE:
-When making selections, enforce this: the discovery spotlight domain, the primary recommendation domain, and the moment's primary domain must each be DIFFERENT. Three cards in a row about the same life area makes the summary feel obsessive.
-
-Before finalizing selections, write out the diversity_check field:
-- Discovery domain: [X]
-- Primary recommendation domain: [Y]
-- Moment domain: [Z]
-
-If any two match, go back and pick a different candidate for the one that's easiest to swap. This check is mandatory — do not skip it.
-
-SELECTION RULES:
-- recommendation_picks.primary_domain MUST differ from discovery_pick.domain
-- moment domain should ideally differ from both discovery and primary recommendation domains
-- thread_pick_names: pick 3-6 threads that MOVED or MATTER most
-- detail_allocation references ONLY the SELECTED candidates, not all of them
-- When choosing between candidates of the same domain diversity, always pick the one with higher narrative_interest from the source analyst data. If a discovery candidate about a life transition (narrative_interest: 9) competes with one about a habit streak (narrative_interest: 5), pick the life transition even if the habit streak has cleaner evidence.
-
-EXCLUSIVE DETAIL ALLOCATION — ZERO TOLERANCE:
-This is the most important structural rule. Every specific detail (activity name, todo title, habit stat, journal quote excerpt, event name) must appear in EXACTLY ONE allocation bucket or ONE candidate. This is a hard partition — like dealing cards into hands.
-
-Before finalizing your plan, run this check:
-- List every specific noun/activity you allocated (e.g. 'tennis', 'DCO Integration', 'floaties', 'jet skiing')
-- Verify each one appears in exactly one bucket OR exactly one candidate
-- If any detail appears in two or more places, REMOVE it from all but the one where it has the most impact
-
-Common violations to avoid:
-- Opening mentions 'tennis, weights, run' AND thread_movements mentions them again in individual thread details — WRONG. Opening gets the list, threads get different evidence.
-- A moment describes an activity AND the selected discovery uses the same activity as evidence — WRONG. Pick one.
-- Gremly mood hook references a specific choice AND opening body describes the same choice — WRONG. The hook is emotional, the body tells the story with different specifics.
-- The selected discovery and the primary recommendation both lean on the same evidence — WRONG. They must use different data points.
-
-MOMENT UNIQUENESS:
-The moment's core insight must be DIFFERENT from the gremly_mood hook and the opening body's conclusion. If those cards already cover a theme (e.g. 'choosing presence over work'), the moment must surface a completely different angle or a different day. A moment should surprise the user — not confirm what they just read on the previous two cards.
-
-WEEK AHEAD EVENT FILTERING — CRITICAL:
-Only include events with genuine significance to the user's life narrative. NEVER include:
-- Recurring meetings that happen every week (standups, syncs, 1:1s, all-hands, status updates)
-- Routine admin tasks (timesheets, office hours)
-- Events where is_recurring is true in the analyst data
-- Events with importance < 5 in the analyst data
-Only include events that are: one-off, milestone-related, travel-related, deadline-related, or connected to a Life Map thread that is actively moving. The user does not need Gremly to tell them about their weekly standup.
-
-WEEK AHEAD — BIGGEST STORY FIRST:
-The week ahead card should lead with the single most significant life transition or inflection point in the coming week. Check the analyst's cross_references and next_week_events for:
-- Transitions between life phases (returning from leave, starting a new role, moving cities)
-- Collisions between major threads on the same day (a race + a flight, a deadline + a celebration)
-- The user's context changing (working remotely from a new location, re-entering a routine after travel)
-These are the stories the user cares about most. Recurring meetings, routine admin, and standard work events should NEVER lead the week ahead — they are background, not foreground.
-
-STALE TRIAGE:
-- If stale_items exist in the data, ALWAYS set include_stale_triage to true.
-- Do NOT write a stale headline in the plan. Set stale_headline to null. The real item count will be injected by code after the build, because the planner's count may differ from the actual data.
-
-FACTUAL CROSS-REFERENCE RULE:
-Check thread_movements data before making factual claims in any allocation. If a thread shows the user was actively working during a period (e.g. shipping features from a vacation location), do not plan text that says 'work resumes' or 'returning to work' about a later date. The planner must be factually consistent with the Life Map data.
-
-ADDITIONAL RULES:
-- Quotes are allocated once. A quote used on the opening cannot appear on any moment or discovery.
-- For moments: choose moments where the user FELT something or where something SHIFTED, not just interesting days. The moment is about the person's inner experience, not the place.
-- For discoveries: choose a behavioral pattern the user hasn't been told about before. Avoid restating what the thread_movements already show.
-
-RESPOND WITH ONLY VALID JSON, no markdown.`;
-
-  const userMsg = `Plan the narrative for ${weekStart} to ${weekEnd}.\n\n${JSON.stringify(storytellerData, null, 2)}`;
-
-  console.log(`[WeeklySummaryV2:Planner] Calling Sonnet. Payload: ${userMsg.length} chars`);
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 8000,
-      temperature: 0.3,
-      stream: true,
-      messages: [{ role: 'user', content: userMsg }],
-      system: plannerSystem,
-    }),
-  });
-
-  if (!response.ok) {
-    const errBody = await response.text().catch(() => '');
-    throw new Error(`Planner Sonnet call failed: ${response.status} ${errBody.slice(0, 300)}`);
-  }
-
-  const { fullText, inputTokens, outputTokens } = await readSSEStream(response);
-  console.log(
-    `[WeeklySummaryV2:Planner] Stream complete. Text: ${fullText.length} chars, In: ${inputTokens}, Out: ${outputTokens}`,
-  );
-
-  const plan = safeParseJSON(fullText, 'Planner');
-  return { plan, inputTokens, outputTokens };
-}
-
-// ── PASS 2: Haiku Card Builder ──────────────────────────────────────────────
-async function buildCard(cardType, plan, storytellerData, staleItems, weekStart, weekEnd, env) {
-  const alloc = plan.detail_allocation || {};
-  const decisions = plan.card_decisions || {};
-  const notes = (plan.factual_notes || []).join('\n- ');
-  const notesBlock = notes ? `\nFACTUAL NOTES (respect these):\n- ${notes}` : '';
-
-  let cardPrompt = '';
-  let cardData = {};
-
-  switch (cardType) {
-    case 'gremly_mood': {
-      cardPrompt = `Output a single JSON object for the gremly_mood card.
-Narrative arc: ${plan.narrative_arc || ''}
-Mood line from plan: ${plan.gremly_mood?.mood_line || ''}
-Hook from plan: ${plan.gremly_mood?.hook || ''}
-${notesBlock}
-
-Schema:
-{
-  "type": "gremly_mood",
-  "mood_line": "(MAX 30 CHARS) 2-4 word emotional read",
-  "hook": "(MAX 120 CHARS) One sentence — the single most important thing about this week",
-  "week_label": "${weekStart} to ${weekEnd}"
-}
-
-Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
-      break;
-    }
-
-    case 'opening': {
-      const openingDetails = alloc.opening_details || [];
-      const openingQuote = plan.quote_allocation?.opening_quote || {};
-      cardPrompt = `Output a single JSON object for the opening card.
-Narrative arc: ${plan.narrative_arc || ''}
-Allocated details (use ONLY these): ${JSON.stringify(openingDetails)}
-Quote: ${JSON.stringify(openingQuote)}
-${notesBlock}
-
-Schema:
-{
-  "type": "opening",
-  "headline": "(MAX 60 CHARS) Bold statement — max 12 words. The one thing that defines this week.",
-  "subheadline": "(MAX 25 CHARS) 2-4 word week type label",
-  "body": "(MAX 350 CHARS) 2-3 sentences. Use ONLY the details from allocated opening_details. NEVER mention details allocated to other cards.",
-  "mood": "(MAX 20 CHARS) 2-4 words",
-  "quote": "from allocated opening_quote — verbatim, or null",
-  "quote_date": "YYYY-MM-DD from allocation",
-  "image_hint": "keyword for image search — e.g. 'bora_bora_lagoon', 'tokyo_skyline'"
-}
-
-Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
-      break;
-    }
-
-    case 'thread_movements': {
-      const threadDetails = alloc.thread_details || {};
-      const threadNames = decisions.thread_names_to_show || [];
-      cardData = {
-        thread_updates: storytellerData.life_map_delta?.thread_updates || [],
-        new_threads: storytellerData.life_map_delta?.new_threads || [],
-      };
-      cardPrompt = `Output a single JSON object for the thread_movements card.
-Thread names to show: ${JSON.stringify(threadNames)}
-Thread details (one evidence fact per thread): ${JSON.stringify(threadDetails)}
-Thread data for reference: ${JSON.stringify(cardData)}
-${notesBlock}
-
-Schema:
-{
-  "type": "thread_movements",
-  "title": "Life in motion",
-  "threads": [
-    {
-      "name": "thread name — from thread_names_to_show",
-      "domain": "domain name",
-      "direction": "up | down | milestone | concluded | new | steady | paused",
-      "icon_hint": "fitness | travel | work | personal | health | creative | relationship | admin",
-      "shift_label": "(MAX 40 CHARS) transition label e.g. 'consistent → thriving'",
-      "badge_label": "(MAX 15 CHARS) 1-2 word status e.g. 'on fire', 'paused'",
-      "detail": "(MAX 140 CHARS) Use ONLY the evidence from thread_details for this thread.",
-      "is_highlight": true
-    }
-  ]
-}
-
-Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
-      break;
-    }
-
-    case 'moments': {
-      const momentDetails = alloc.moment_details || [];
-      const momentQuotes = plan.quote_allocation?.moment_quotes || [];
-      cardPrompt = `Output a single JSON object for the moments card.
-Moment details (use ONLY these): ${JSON.stringify(momentDetails)}
-Moment quotes: ${JSON.stringify(momentQuotes)}
-${notesBlock}
-
-Schema:
-{
-  "type": "moments",
-  "moments": [
-    {
-      "day_label": "MON | TUE | WED | THU | FRI | SAT | SUN",
-      "date": "YYYY-MM-DD",
-      "title": "(MAX 40 CHARS) Reflects the user's experience, not the place.",
-      "body": "(MAX 300 CHARS) Lead with what the user FELT or what SHIFTED. Use ONLY details from the allocated moment_details for this moment. Brief real-world color is fine but the moment is about the person. NEVER recap what the user did.",
-      "image_hint": "broad scenic/location keywords for photo search",
-      "thread_tags": ["from plan"]
-    }
-  ]
-}
-
-image_hint RULES: Use broad scenic or location keywords suitable for a photo search engine. Good hints: 'ocean sunset palms', 'city street evening lights', 'mountain trail morning'. Bad hints: anything referencing specific activities, objects, or people — photo libraries do not index these. Strip activity words entirely. If the moment happened at a beach, the hint is the beach setting, not what the user did there.
-
-Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
-      break;
-    }
-
-    case 'discoveries': {
-      const disco = alloc.discovery_details || {};
-      const userProfile = storytellerData.user_profile || null;
-      cardPrompt = `Output a single JSON object for the discoveries card.
-Spotlight topic: ${disco.spotlight_topic || ''}
-Spotlight evidence (use ONLY these): ${JSON.stringify(disco.spotlight_evidence || [])}
-Mini-discoveries: ${JSON.stringify(disco.mini_discoveries || [])}
-User profile (for research framing): ${userProfile ? JSON.stringify(userProfile) : 'none'}
-${notesBlock}
-
-Schema:
-{
-  "type": "discoveries",
-  "spotlight": {
-    "badge": "discovery | shift | breakthrough",
-    "title": "(MAX 50 CHARS) Short punchy label",
-    "evidence_trail": "(MAX 400 CHARS) Specific data points from spotlight_evidence. Dates, item titles, journal quotes, numbers. Show the receipts.",
-    "takeaway": "(MAX 150 CHARS) The insight that follows from the evidence.",
-    "research_context": {
-      "title": "Why this happens",
-      "body": "(MAX 250 CHARS) Connect to behavioral science. Name researchers, studies, or frameworks.",
-      "sources": ["Author (Year) or Framework name — max 3"]
-    }
-  },
-  "mini_discoveries": [
-    {
-      "title": "(MAX 40 CHARS) from plan mini_discoveries",
-      "detail": "(MAX 100 CHARS) One sentence with specific evidence"
-    }
-  ]
-}
-
-Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
-      break;
-    }
-
-    case 'recommends': {
-      const recs = plan.recommendations || {};
-      const recsDetails = alloc.recommends_details || [];
-      cardPrompt = `Output a single JSON object for the recommends card.
-Primary recommendation from plan: ${JSON.stringify(recs.primary || {})}
-Secondary recommendations from plan: ${JSON.stringify(recs.secondary || [])}
-Allocated evidence (use ONLY these): ${JSON.stringify(recsDetails)}
-${notesBlock}
-
-Schema:
-{
-  "type": "recommends",
-  "primary": {
-    "title": "(MAX 50 CHARS) from plan recommendations.primary.title",
-    "body": "(MAX 150 CHARS) from plan recommendations.primary.body",
-    "type": "thought | experiment | habit_idea | mindset_shift"
-  },
-  "secondary": [
-    {
-      "title": "(MAX 40 CHARS) from plan recommendations.secondary",
-      "body": "(MAX 100 CHARS) brief reasoning",
-      "type": "thought | experiment | habit_idea | mindset_shift"
-    }
-  ]
-}
-
-Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
-      // Custom system prompt for recommends — warm coach tone
-      try {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': env.ANTHROPIC_API_KEY,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 1500,
-            temperature: 0.1,
-            messages: [{ role: 'user', content: cardPrompt }],
-            system:
-              "You are building a single 'recommends' card for a weekly summary. This card is Gremly being a thoughtful coach — suggesting ideas the user can consider, not tasks to complete. The tone is warm, curious, and thought-provoking. Frame suggestions as invitations, not instructions.\n\nQUALITY RULES FOR RECOMMENDATIONS:\n- Be specific and concrete. The user should understand what you are suggesting within 2 seconds of reading.\n- Ground every recommendation in evidence from this week's data. Reference specific dates, items, or patterns.\n- Frame as clear actions or experiments, not poetic metaphors.\n- Bad: abstract, clever, requires interpretation to understand.\n- Good: direct, references a specific moment or pattern, suggests something the user can actually try.\n- The primary recommendation should be the single most impactful thing the user could do differently based on what you observed this week.\n- Secondary recommendations should each address a different dimension of the user's life — don't cluster all suggestions around the same theme.\n\nOutput ONLY valid JSON for this single card. Stay within ALL character limits.",
-          }),
-        });
-
-        if (!response.ok) {
-          const errBody = await response.text().catch(() => '');
-          console.error(
-            `[WeeklySummaryV2:Builder:recommends] Failed: ${response.status} ${errBody.slice(0, 200)}`,
-          );
-          return null;
-        }
-
-        const result = await response.json();
-        const text = result.content?.[0]?.text || '';
-        const card = safeParseJSON(text, 'Builder:recommends');
-        console.log(
-          `[WeeklySummaryV2:Builder:recommends] OK. In: ${result.usage?.input_tokens || 0}, Out: ${result.usage?.output_tokens || 0}`,
-        );
-        return card;
-      } catch (e) {
-        console.error(`[WeeklySummaryV2:Builder:recommends] Error:`, e.message);
-        return null;
-      }
-    }
-
-    case 'stale_triage': {
-      cardPrompt = `Output a single JSON object for the stale_triage card.
-Stale items data (include ALL of these — do NOT filter or omit any): ${JSON.stringify(staleItems)}
-${notesBlock}
-
-Schema:
-{
-  "type": "stale_triage",
-  "headline": "(MAX 50 CHARS) Short headline — mention count and context",
-  "body": "(MAX 150 CHARS) 1-2 sentences. Compassionate framing using life context.",
-  "items": [
-    {
-      "title": "exact item title from data",
-      "days_stale": 0,
-      "domain": "domain name from data",
-      "context": "(MAX 60 CHARS) Why stale — brief context",
-      "item_id": "from data or null"
-    }
-  ]
-}
-
-The items array MUST contain every single item from the stale_items data provided. Do not filter or omit any. If the data contains 18 items, output 18.
-
-Output ONLY valid JSON. Stay within ALL character limits. Write in complete, natural English sentences.`;
-      break;
-    }
-
-    case 'week_ahead': {
-      const waDetails = alloc.week_ahead_details || [];
-      const eventData = storytellerData.analyst?.event_analysis || {};
-      cardPrompt = `Output a single JSON object for the week_ahead card.
-Allocated details (use ONLY these): ${JSON.stringify(waDetails)}
-Event data for reference: ${JSON.stringify(eventData)}
-${notesBlock}
-
-ONLY include events the planner specifically selected in week_ahead_details. Do NOT add recurring meetings, office hours, status updates, timesheets, or weekly syncs — even if they appear in the raw data. If the planner selected fewer than 3 events, that's fine. A week ahead with 2 significant events is better than one padded with routine noise.
-
-Schema:
-{
-  "type": "week_ahead",
-  "intro": "(MAX 200 CHARS) What's coming and how it connects. Use ONLY allocated week_ahead_details. Check factual_notes before claiming anything starts or stops.",
-  "highlights": [
-    {
-      "day_label": "MON | TUE | WED | THU | FRI | SAT | SUN",
-      "date": "YYYY-MM-DD",
-      "title": "event title",
-      "icon_hint": "lucide icon name e.g. 'plane', 'trophy', 'briefcase'",
-      "thread_connection": "thread name or null",
-      "prep_nudge": "(MAX 100 CHARS) practical suggestion or null",
-      "context": "(MAX 120 CHARS) bigger picture or null",
-      "importance": 1
-    }
-  ],
-  "busy_day_warnings": [
-    { "day": "day name", "detail": "(MAX 80 CHARS)" }
-  ]
-}
-
-Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL character limits. Write in complete, natural English sentences.`;
-      break;
-    }
-
-    default:
-      return null;
-  }
-
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1500,
-        temperature: 0.1,
-        messages: [{ role: 'user', content: cardPrompt }],
-        system:
-          "You are a JSON card builder for Gremly's weekly summary. Output ONLY valid JSON for a single card. No markdown, no explanation. Use ONLY the allocated details provided — do not add details from other cards. Stay within ALL character limits. Write in complete, natural English sentences — never telegraphic fragments.",
-      }),
-    });
-
-    if (!response.ok) {
-      const errBody = await response.text().catch(() => '');
-      console.error(
-        `[WeeklySummaryV2:Builder:${cardType}] Failed: ${response.status} ${errBody.slice(0, 200)}`,
-      );
-      return null;
-    }
-
-    const result = await response.json();
-    const text = result.content?.[0]?.text || '';
-    const card = safeParseJSON(text, `Builder:${cardType}`);
-    console.log(
-      `[WeeklySummaryV2:Builder:${cardType}] OK. In: ${result.usage?.input_tokens || 0}, Out: ${result.usage?.output_tokens || 0}`,
-    );
-    return card;
-  } catch (e) {
-    console.error(`[WeeklySummaryV2:Builder:${cardType}] Error:`, e.message);
-    return null;
-  }
-}
-
-// ── Text length safety net ──────────────────────────────────────────────────
-function trimToLimit(text, maxChars) {
-  if (!text || text.length <= maxChars) return text;
-  const truncated = text.slice(0, maxChars);
-  const lastPeriod = truncated.lastIndexOf('.');
-  const lastSemicolon = truncated.lastIndexOf(';');
-  const lastDash = truncated.lastIndexOf('\u2014');
-  const cutPoint = Math.max(lastPeriod, lastSemicolon, lastDash);
-  if (cutPoint > maxChars * 0.6) {
-    return text.slice(0, cutPoint + 1).trim();
-  }
-  return truncated.trim();
-}
-
-// ── Main: Two-Pass generateWeeklySummaryV2 ──────────────────────────────────
+// ── Main: generateWeeklySummaryV2 ───────────────────────────────────────────
 async function generateWeeklySummaryV2(
   analystOutput,
   lifeMapDelta,
@@ -5354,7 +4779,10 @@ async function generateWeeklySummaryV2(
   // User profile
   const userProfile = weeklySnapshot.userProfile || null;
 
-  // Build the data payload shared by planner and builders
+  // ════════════════════════════════════════════════════════════════════
+  // BUILD STORYTELLER DATA PAYLOAD
+  // ════════════════════════════════════════════════════════════════════
+  
   const storytellerData = {
     analyst: {
       themes: analystOutput.themes,
@@ -5377,682 +4805,501 @@ async function generateWeeklySummaryV2(
     prior_weeks: priorContext,
     is_first_week_of_month: isFirstWeekOfMonth,
     user_profile: userProfile,
-    engagement_stats: {
-      drops: analystOutput.engagement_metrics?.drops_this_week || 0,
-      journals: analystOutput.engagement_metrics?.journals_written || 0,
-      completions: analystOutput.engagement_metrics?.completions_this_week || 0,
-    },
   };
 
-  // ── PASS 1: Sonnet Narrative Planner ────────────────────────────────────
-  const {
-    plan,
-    inputTokens: plannerInputTokens,
-    outputTokens: plannerOutputTokens,
-  } = await runNarrativePlanner(
-    storytellerData,
-    weekStart,
-    weekEnd,
-    staleItems,
-    isFirstWeekOfMonth,
-    env,
-  );
+  // ════════════════════════════════════════════════════════════════════
+  // BUILD FACTUAL CONTEXT (code-generated, prevents hallucination)
+  // ════════════════════════════════════════════════════════════════════
 
-  console.log(`[WeeklySummaryV2] Planner: ${plannerInputTokens} in / ${plannerOutputTokens} out`);
+  const nextWeekEvents = (analystOutput.event_analysis?.next_week_events || []);
+  const significantNextWeek = nextWeekEvents
+    .filter(e => (e.importance || 0) >= 5 && !e.is_recurring)
+    .sort((a, b) => (b.importance || 0) - (a.importance || 0));
+  const recurringMeetings = nextWeekEvents.filter(e => e.is_recurring || (e.importance || 0) <= 3);
 
-  // ── CANDIDATE → PLAN WIRING (extract selections into builder-friendly fields) ──
-  if (plan.candidates) {
-    const cands = plan.candidates;
-    let sels = plan.selections;
+  const factualContext = [
+    `WEEK: ${weekStart} to ${weekEnd}`,
+    `STALE ITEMS: ${staleItems.length} items over 14 days old`,
+    `UPCOMING SIGNIFICANT EVENTS (importance >= 5, non-recurring): ${significantNextWeek.map(e => `${e.date} ${e.title} (importance: ${e.importance})`).join('; ') || 'none'}`,
+    `RECURRING/LOW-IMPORTANCE MEETINGS (DO NOT feature in week ahead): ${recurringMeetings.map(e => e.title).join(', ') || 'none'}`,
+    `MAGIC MOMENT CANDIDATES FROM ANALYST (${(analystOutput.magic_moment_candidates || []).length}): ${(analystOutput.magic_moment_candidates || []).map(m => `${m.date}: ${m.title}`).join('; ')}`,
+    `HIGH NARRATIVE-INTEREST THEMES: ${(analystOutput.themes || []).filter(t => (t.narrative_interest || 0) >= 7).map(t => `[${t.narrative_interest}] ${t.label}`).join('; ')}`,
+    `DISCOVERY-CANDIDATE FINGERPRINTS: ${(analystOutput.behavioral_fingerprints || []).filter(f => f.is_discovery_candidate).map(f => `[${f.narrative_interest || '?'}] ${f.pattern}`).join('; ')}`,
+  ].join('\n');
 
-    console.log(
-      `[WeeklySummaryV2] Candidate mode: discovery_candidates=${(cands.discovery_candidates || []).length}, recommendation_candidates=${(cands.recommendation_candidates || []).length}, moment_candidates=${(cands.moment_candidates || []).length}, thread_candidates=${(cands.thread_candidates || []).length}`,
-    );
+  console.log(`[WeeklySummaryV2] Starting. Stale: ${staleItems.length}, Moments: ${(analystOutput.magic_moment_candidates || []).length}, Themes: ${(analystOutput.themes || []).length}`);
 
-    // AUTO-SELECT FALLBACK: if planner generated candidates but hit token limit before selections,
-    // build selections deterministically with diversity constraint
-    if (!sels) {
-      console.log(
-        `[WeeklySummaryV2] No selections found — auto-selecting from candidates with diversity constraint`,
-      );
-      const discoveryCands = cands.discovery_candidates || [];
-      const recCands = cands.recommendation_candidates || [];
-      const momentCands = cands.moment_candidates || [];
-      const threadCands = cands.thread_candidates || [];
+  // ════════════════════════════════════════════════════════════════════
+  // STEP 1: SONNET EDITORIAL BRIEF (free-form, ~500 tokens)
+  // ════════════════════════════════════════════════════════════════════
 
-      // Pick first discovery
-      const discoveryDomain = discoveryCands[0]?.domain || null;
+  const editorialSystem = `You are an editor at a magazine for personal growth. You're planning this week's feature story about one person's life. You have rich data from an analyst — themes with narrative_interest scores, behavioral fingerprints, magic moments, cross-references, and a week timeline.
 
-      // Pick primary recommendation from a DIFFERENT domain than discovery
-      let primaryRecIdx = 0;
-      for (let i = 0; i < recCands.length; i++) {
-        if (recCands[i].domain !== discoveryDomain) {
-          primaryRecIdx = i;
-          break;
-        }
-      }
-      const primaryRecDomain = recCands[primaryRecIdx]?.domain || null;
+Your job: write a short editorial brief (250-350 words, plain English, no JSON) that answers:
 
-      // Pick secondary recommendations (all others except primary)
-      const secondaryIndices = recCands
-        .map((_, i) => i)
-        .filter((i) => i !== primaryRecIdx)
-        .slice(0, 2);
+1. EMOTIONAL ARC: What is the emotional shape of this week? How did it start vs end?
 
-      // Pick moment from a DIFFERENT domain than discovery and primary rec
-      let momentIdx = 0;
-      for (let i = 0; i < momentCands.length; i++) {
-        if (
-          momentCands[i].domain !== discoveryDomain &&
-          momentCands[i].domain !== primaryRecDomain
-        ) {
-          momentIdx = i;
-          break;
-        }
-      }
+2. TOP STORIES (pick 3-4 from DIFFERENT life domains): What are the most interesting stories? Prioritize by narrative_interest score. The best stories are surprising, emotionally resonant, or reveal something the person didn't notice. A clean stat (habit went from 0 to 4) is LESS interesting than a messy human story (a spontaneous life decision, a contradiction between intention and behavior, a new life chapter beginning). Pick stories from different domains — never cluster around one theme.
 
-      // Pick thread names — all thread candidates
-      const threadPickNames = threadCands
-        .map((tc) => tc.name)
-        .filter(Boolean)
-        .slice(0, 6);
+3. MOMENTS (pick 2 from different days): Which days had the most vivid, emotionally charged experiences? Reference specific journal quotes or events. These should be days where something SHIFTED or was FELT deeply, not just busy or productive days.
 
-      sels = {
-        discovery_pick: { index: 0, domain: discoveryDomain },
-        recommendation_picks: {
-          primary_index: primaryRecIdx,
-          primary_domain: primaryRecDomain,
-          secondary_indices: secondaryIndices,
-        },
-        moment_pick_indices: [momentIdx],
-        thread_pick_names: threadPickNames,
-        diversity_check: `Auto-selected. Discovery: ${discoveryDomain}, Primary rec: ${primaryRecDomain}, Moment: ${momentCands[momentIdx]?.domain || 'N/A'}`,
-      };
-      console.log(`[WeeklySummaryV2] Auto-selection diversity: ${sels.diversity_check}`);
-    } else {
-      console.log(
-        `[WeeklySummaryV2] Planner provided selections. Diversity check: ${sels.diversity_check || 'not provided'}`,
-      );
-    }
+4. DISCOVERY: What is the single most surprising behavioral pattern the person wouldn't have noticed on their own? This should span multiple life threads if possible. Avoid the most obvious quantitative finding — dig for the insight that connects dots across different areas.
 
-    if (!plan.detail_allocation) plan.detail_allocation = {};
-    if (!plan.card_decisions) plan.card_decisions = {};
+5. WHAT'S COMING: What are the 2-3 most significant events next week? Only mention events with importance >= 5. Never mention recurring meetings, standups, syncs, or routine admin.
 
-    // Wire selected discovery into detail_allocation.discovery_details
-    const selectedDiscovery = (cands.discovery_candidates || [])[sels.discovery_pick?.index ?? 0];
-    if (selectedDiscovery) {
-      plan.detail_allocation.discovery_details = {
-        spotlight_topic: selectedDiscovery.title || selectedDiscovery.one_line_pitch || '',
-        spotlight_evidence:
-          selectedDiscovery.spotlight_evidence_for_builder || selectedDiscovery.key_evidence || [],
-        mini_discoveries: selectedDiscovery.mini_discoveries || [],
-      };
-      plan.card_decisions.include_discoveries = true;
-      console.log(
-        `[WeeklySummaryV2] Discovery selected: "${selectedDiscovery.title}" (${selectedDiscovery.domain})`,
-      );
-    }
+6. QUOTES: Which 2-3 journal quotes best capture the week? Assign each to a specific card (opening, moment 1, moment 2). Each quote used only once.
 
-    // Wire selected recommendations into plan.recommendations
-    const primaryRec = (cands.recommendation_candidates || [])[
-      sels.recommendation_picks?.primary_index ?? 0
-    ];
-    const secondaryRecs = (sels.recommendation_picks?.secondary_indices || [])
-      .map((i) => (cands.recommendation_candidates || [])[i])
-      .filter(Boolean);
-    if (primaryRec) {
-      plan.recommendations = {
-        primary: {
-          title: primaryRec.title,
-          body: primaryRec.body,
-          type: primaryRec.type,
-        },
-        secondary: secondaryRecs.map((r) => ({
-          title: r.title,
-          body: r.body,
-          type: r.type,
-        })),
-      };
-      plan.detail_allocation.recommends_details = [
-        ...(primaryRec.supporting_evidence || []),
-        ...secondaryRecs.flatMap((r) => r.supporting_evidence || []),
-      ].slice(0, 5);
-      plan.card_decisions.include_recommends = true;
-      console.log(`[WeeklySummaryV2] Primary rec: "${primaryRec.title}" (${primaryRec.domain})`);
-    }
+7. FACTUAL WARNINGS: Note anything the storyteller must get right — the person's current location, whether they're traveling or home, whether they're on leave or working, any common misinterpretation the data might invite.`;
 
-    // Wire selected moments into detail_allocation.moment_details
-    const selectedMoments = (sels.moment_pick_indices || [])
-      .map((i) => (cands.moment_candidates || [])[i])
-      .filter(Boolean);
-    if (selectedMoments.length > 0) {
-      plan.detail_allocation.moment_details = selectedMoments.map((m) => ({
-        day: m.day_label,
-        date: m.date,
-        title_idea: m.title_idea,
-        unique_details: m.unique_details || [],
-        thread_tags: m.thread_tags || [],
-      }));
-      plan.card_decisions.include_moments = true;
-      plan.card_decisions.moment_count = selectedMoments.length;
-      console.log(
-        `[WeeklySummaryV2] Moments selected: ${selectedMoments.map((m) => m.title_idea).join(', ')}`,
-      );
-    }
+  const editorialUser = `Write the editorial brief for ${weekStart} to ${weekEnd}.
 
-    // Override: if analyst has 2+ magic moments and planner only picked 1, force a second moment
-    const analystMoments = storytellerData.analyst?.magic_moment_candidates || [];
-    if (
-      selectedMoments.length === 1 &&
-      analystMoments.length >= 2 &&
-      (cands.moment_candidates || []).length >= 2
-    ) {
-      // Find a second moment candidate that's on a different day
-      const firstDate = selectedMoments[0]?.date;
-      const secondIdx = (cands.moment_candidates || []).findIndex(
-        (m, i) => !sels.moment_pick_indices.includes(i) && m.date !== firstDate,
-      );
-      if (secondIdx !== -1) {
-        const secondMoment = cands.moment_candidates[secondIdx];
-        selectedMoments.push(secondMoment);
-        plan.detail_allocation.moment_details.push({
-          day: secondMoment.day_label,
-          date: secondMoment.date,
-          title_idea: secondMoment.title_idea,
-          unique_details: secondMoment.unique_details || [],
-          thread_tags: secondMoment.thread_tags || [],
-        });
-        plan.card_decisions.moment_count = 2;
-        console.log(
-          `[WeeklySummaryV2] Moment override: added second moment "${secondMoment.title_idea}" (${secondMoment.date})`,
-        );
-      }
-    }
+FACTUAL CONTEXT (verified by code — trust these):
+${factualContext}
 
-    // Wire thread selections into card_decisions AND detail_allocation.thread_details
-    let threadNames = sels.thread_pick_names || [];
+FULL ANALYST DATA:
+${JSON.stringify(storytellerData, null, 2)}`;
 
-    // FALLBACK: if no thread candidates from planner, build from life map delta
-    if (threadNames.length === 0) {
-      const deltaThreads = storytellerData.life_map_delta?.thread_updates || [];
-      threadNames = deltaThreads
-        .sort((a, b) => (b.importance || 0) - (a.importance || 0))
-        .slice(0, 6)
-        .map((t) => t.thread);
-      if (threadNames.length > 0) {
-        console.log(
-          `[WeeklySummaryV2] Thread fallback from life map delta: ${threadNames.join(', ')}`,
-        );
-        // Build thread_details from delta data
-        plan.detail_allocation.thread_details = {};
-        for (const t of deltaThreads.slice(0, 6)) {
-          plan.detail_allocation.thread_details[t.thread] = t.recent_update || '';
-        }
-      }
-    } else {
-      // Build thread_details from thread_candidates for the selected names
-      if (
-        !plan.detail_allocation.thread_details ||
-        Object.keys(plan.detail_allocation.thread_details).length === 0
-      ) {
-        plan.detail_allocation.thread_details = {};
-        for (const name of threadNames) {
-          const candidate = (cands.thread_candidates || []).find(
-            (tc) => tc.name && tc.name.toLowerCase() === name.toLowerCase(),
-          );
-          if (candidate) {
-            plan.detail_allocation.thread_details[name] = candidate.one_line_evidence || '';
-          }
-        }
-      }
-    }
+  console.log(`[WeeklySummaryV2] Calling Sonnet editorial brief...`);
+  const briefT0 = Date.now();
 
-    if (threadNames.length > 0) {
-      plan.card_decisions.thread_names_to_show = threadNames;
-      console.log(`[WeeklySummaryV2] Threads final: ${threadNames.join(', ')}`);
-    }
+  const briefResponse = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1500,
+      temperature: 0.6,
+      messages: [{ role: 'user', content: editorialUser }],
+      system: editorialSystem,
+    }),
+  });
+
+  let editorialBrief = '';
+  let briefInputTokens = 0;
+  let briefOutputTokens = 0;
+
+  if (briefResponse.ok) {
+    const briefData = await briefResponse.json();
+    editorialBrief = (briefData.content || []).map(b => b.type === 'text' ? b.text : '').join('');
+    briefInputTokens = briefData.usage?.input_tokens || 0;
+    briefOutputTokens = briefData.usage?.output_tokens || 0;
+    console.log(`[WeeklySummaryV2] Editorial brief: ${briefOutputTokens} tokens, ${Date.now() - briefT0}ms`);
   } else {
-    console.log(`[WeeklySummaryV2] Legacy planner mode (no candidates section)`);
+    console.warn(`[WeeklySummaryV2] Editorial brief failed: ${briefResponse.status}. Continuing without it.`);
   }
 
-  // ── PASS 2: Parallel Haiku Card Builders ────────────────────────────────
-  const cardBuilds = [];
+  // ════════════════════════════════════════════════════════════════════
+  // STEP 2: SONNET STORYTELLER (guided by brief, outputs full cards)
+  // ════════════════════════════════════════════════════════════════════
 
-  // Card flow: gremly_mood → opening → moments → thread_movements → discoveries → recommends → stale_triage → week_ahead
-  // All core cards always build — if the builder gets empty data it returns null and won't appear.
+  const storytellerSystem = `You are Gremly, a warm and perceptive life companion. You're writing a weekly summary as an ordered set of cards. You have two inputs:
 
-  // Always: gremly_mood
-  cardBuilds.push(
-    buildCard('gremly_mood', plan, storytellerData, staleItems, weekStart, weekEnd, env),
-  );
+1. An EDITORIAL BRIEF from a senior editor telling you which stories to focus on, which moments to highlight, and which quotes to use where. FOLLOW THE BRIEF. It has already made the editorial decisions — your job is to write beautifully within that direction.
 
-  // Always: opening
-  cardBuilds.push(buildCard('opening', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+2. ANALYST DATA containing the structured evidence — themes, habit stats, journal quotes, events, behavioral fingerprints. Every claim you make must trace to this data. Never invent facts.
 
-  // Always: moments (builder returns null if no moment_details)
-  cardBuilds.push(buildCard('moments', plan, storytellerData, staleItems, weekStart, weekEnd, env));
+FACTUAL CONTEXT (from code — these are ground truth):
+${factualContext}
 
-  // Always: thread_movements
-  cardBuilds.push(
-    buildCard('thread_movements', plan, storytellerData, staleItems, weekStart, weekEnd, env),
-  );
+YOUR VOICE: Warm, specific, direct. Like a perceptive friend who notices what matters. Never generic. Every sentence must contain a specific detail.
 
-  // Always: discoveries (builder returns null if no discovery_details)
-  cardBuilds.push(
-    buildCard('discoveries', plan, storytellerData, staleItems, weekStart, weekEnd, env),
-  );
-
-  // Always: recommends
-  cardBuilds.push(
-    buildCard('recommends', plan, storytellerData, staleItems, weekStart, weekEnd, env),
-  );
-
-  // Data-driven: stale_triage — always build if stale items exist
-  if (staleItems.length > 0) {
-    cardBuilds.push(
-      buildCard('stale_triage', plan, storytellerData, staleItems, weekStart, weekEnd, env),
-    );
-  }
-
-  // Always: week_ahead
-  cardBuilds.push(
-    buildCard('week_ahead', plan, storytellerData, staleItems, weekStart, weekEnd, env),
-  );
-
-  // Run all card builds in parallel
-  const builtCards = await Promise.all(cardBuilds);
-  const builderCalls = builtCards.length;
-
-  console.log(`[WeeklySummaryV2] Builders: ${builderCalls} calls`);
-
-  // Assemble cards in canonical narrative order, filter out failures
-  const orderedTypes = [
-    'gremly_mood',
-    'opening',
-    'moments',
-    'thread_movements',
-    'discoveries',
-    'recommends',
-    'stale_triage',
-    'week_ahead',
-  ];
-  const assembledCards = [];
-  for (const type of orderedTypes) {
-    const card = builtCards.find((c) => c && c.type === type);
-    if (card) assembledCards.push(card);
-  }
-
-  // ── QUOTE DEDUPLICATION (code-enforced) ───────────────────────────────
-  // Extract all quoted phrases from every card. If any quote appears on
-  // more than one card, blank it from every card except the first one.
-  {
-    const quoteRegex = /['"][^'"]{15,}['"]/g;
-    const seenQuotes = new Map(); // quote text → first card type that used it
-
-    for (const card of assembledCards) {
-      const cardJson = JSON.stringify(card);
-      const matches = cardJson.match(quoteRegex) || [];
-
-      for (const match of matches) {
-        const cleaned = match.slice(1, -1).toLowerCase().trim();
-        if (!seenQuotes.has(cleaned)) {
-          seenQuotes.set(cleaned, card.type);
+CARD SCHEMAS — output an ordered JSON array of cards. Respond with ONLY valid JSON, no markdown:
+{
+  "cards": [
+    {
+      "type": "gremly_mood",
+      "mood_line": "2-4 word emotional read (max 30 chars)",
+      "hook": "One sentence — the week's most important thing (max 120 chars)",
+      "week_label": "${weekStart} to ${weekEnd}"
+    },
+    {
+      "type": "opening",
+      "headline": "Bold statement, max 60 chars",
+      "subheadline": "2-4 word week type, max 25 chars",
+      "body": "2-3 sentences, max 350 chars. The narrative hook.",
+      "mood": "2-4 words, max 20 chars",
+      "quote": "Verbatim journal quote assigned to opening by the brief, or null",
+      "quote_date": "YYYY-MM-DD",
+      "image_hint": "Broad scenic keyword for photo search — location name + scene type. Never activity-specific words."
+    },
+    {
+      "type": "moments",
+      "moments": [
+        {
+          "day_label": "MON|TUE|WED|THU|FRI|SAT|SUN",
+          "date": "YYYY-MM-DD",
+          "title": "Short evocative title reflecting the experience, max 40 chars",
+          "body": "What the user FELT or what SHIFTED. Not a recap. Max 300 chars.",
+          "image_hint": "Broad scenic keyword — location + scene. Never activity words.",
+          "thread_tags": ["thread names"]
         }
-      }
+      ]
+    },
+    {
+      "type": "thread_movements",
+      "title": "Life in motion",
+      "threads": [
+        {
+          "name": "thread name from Life Map",
+          "domain": "domain name",
+          "direction": "up|down|milestone|concluded|new|steady|paused",
+          "icon_hint": "fitness|travel|work|personal|health|creative|relationship|admin",
+          "shift_label": "Transition label, max 40 chars",
+          "badge_label": "1-2 word status, max 15 chars",
+          "detail": "One evidence sentence, max 140 chars. MUST be different from any detail used on other cards.",
+          "is_highlight": true
+        }
+      ]
+    },
+    {
+      "type": "discoveries",
+      "spotlight": {
+        "badge": "discovery|shift|breakthrough",
+        "title": "Short punchy label, max 50 chars",
+        "takeaway": "The insight — what it means. Max 150 chars. This appears FIRST visually.",
+        "evidence_trail": "Specific data points — dates, items, quotes, numbers. Max 400 chars.",
+        "research_context": {
+          "title": "Why this happens",
+          "body": "Connect to behavioral science. Name researchers or frameworks. Max 250 chars.",
+          "sources": ["Author (Year) — Topic (max 3)"]
+        }
+      },
+      "mini_discoveries": [
+        {
+          "title": "Short finding, max 40 chars",
+          "detail": "One sentence with evidence, max 100 chars"
+        }
+      ]
+    },
+    {
+      "type": "recommends",
+      "primary": {
+        "title": "Main suggestion, max 50 chars",
+        "body": "Why this matters — grounded in this week's data. Max 200 chars.",
+        "type": "thought|experiment|habit_idea|mindset_shift"
+      },
+      "secondary": [
+        {
+          "title": "Suggestion, max 50 chars",
+          "body": "Brief reasoning, max 150 chars",
+          "type": "thought|experiment|habit_idea|mindset_shift"
+        }
+      ]
+    },
+    ${staleItems.length > 0 ? `{
+      "type": "stale_triage",
+      "headline": "${staleItems.length} items need attention",
+      "body": "1-2 sentences. Compassionate framing. Max 150 chars.",
+      "items": ${JSON.stringify(staleItems)}
+    },` : ''}
+    {
+      "type": "week_ahead",
+      "intro": "What's coming — max 200 chars. Reference only SIGNIFICANT upcoming events. NEVER mention recurring meetings or routine admin.",
+      "highlights": [
+        {
+          "day_label": "MON|TUE|...",
+          "date": "YYYY-MM-DD",
+          "title": "Event title",
+          "icon_hint": "lucide icon name",
+          "thread_connection": "thread name or null",
+          "prep_nudge": "Practical suggestion, max 100 chars, or null",
+          "context": "Why this matters, max 120 chars, or null",
+          "importance": 1
+        }
+      ],
+      "busy_day_warnings": [
+        { "day": "day name", "detail": "What makes it busy, max 80 chars" }
+      ]
     }
+  ],
+  "metadata": {
+    "week_type": "2-3 word label",
+    "mood": "2-4 words",
+    "key_themes": ["3-5 theme labels"],
+    "card_count": 0,
+    "card_types_used": []
+  }
+}
 
-    // Second pass: for each card that isn't the first user of a quote, remove it
-    let deduped = 0;
-    for (const card of assembledCards) {
-      if (card.type === 'gremly_mood' || card.type === 'opening') continue; // protect these
+CRITICAL RULES:
+1. FOLLOW THE EDITORIAL BRIEF for story selection, moment choices, discovery topic, and quote assignments. The brief made the editorial decisions — you execute them.
+2. MOMENTS: Always include 2 moments from different days unless the brief explicitly says otherwise. Each moment is about what the person FELT, not what they did.
+3. DEDUPLICATION: Each journal quote on exactly ONE card. Each specific detail (activity, stat, event) on exactly ONE card. If a fact appears on the opening, it cannot appear on any other card.
+4. THREAD MOVEMENTS: Show 4-6 threads. Each thread's detail must be a DIFFERENT fact from anything used elsewhere. If a habit hit its target, say so — don't let a bundled theme's overall trajectory hide individual wins.
+5. DISCOVERY: Follow the brief's discovery recommendation. The discovery must be from a DIFFERENT life domain than the primary recommendation.
+6. RECOMMENDATIONS: Concrete, specific, grounded in evidence. At least one should address what's coming next week. Max 200 chars for primary body, max 150 chars for secondary body.
+7. WEEK AHEAD: Only events with importance >= 5. NEVER include recurring meetings, syncs, standups, status updates, or routine admin. Check the factual context for the explicit list of meetings to exclude.
+8. STALE TRIAGE: If stale items are provided in the schema above, include them exactly as given. Do not modify the items array.
+9. IMAGE HINTS: Broad scenic location keywords only. Never reference specific activities, objects, or people.
+10. HONESTY: If a habit is struggling, name it warmly. If something was skipped, say so. The user trusts Gremly because it's honest.`;
 
-      const removeQuote = (text) => {
-        if (!text) return text;
-        let result = text;
-        for (const [quote, firstCardType] of seenQuotes.entries()) {
-          if (firstCardType === card.type) continue; // this card owns the quote
-          // Check if this text contains the quote (case-insensitive)
-          const idx = result.toLowerCase().indexOf(quote);
-          if (idx !== -1) {
-            // Find the sentence containing this quote and remove it
-            const before = result.lastIndexOf('.', idx);
-            const after = result.indexOf('.', idx + quote.length);
-            if (before !== -1 && after !== -1) {
-              result = result.slice(0, before + 1).trim() + ' ' + result.slice(after + 1).trim();
-            } else if (after !== -1) {
-              result = result.slice(after + 1).trim();
+  const storytellerUser = `Write this user's weekly summary for ${weekStart} to ${weekEnd}.
+
+EDITORIAL BRIEF:
+${editorialBrief || 'No brief available — use your best editorial judgment based on the analyst data.'}
+
+ANALYST DATA:
+${JSON.stringify(storytellerData, null, 2)}`;
+
+  console.log(`[WeeklySummaryV2] Calling Sonnet storyteller. Payload: ${storytellerUser.length} chars`);
+  const storyT0 = Date.now();
+
+  const storyResponse = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 6000,
+      temperature: 0.5,
+      stream: true,
+      messages: [{ role: 'user', content: storytellerUser }],
+      system: storytellerSystem,
+    }),
+  });
+
+  if (!storyResponse.ok) {
+    const errBody = await storyResponse.text().catch(() => '');
+    throw new Error(`Storyteller Sonnet call failed: ${storyResponse.status} ${errBody.slice(0, 300)}`);
+  }
+
+  // Read SSE stream
+  let fullText = '';
+  let storyInputTokens = 0;
+  let storyOutputTokens = 0;
+  const reader = storyResponse.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) { // eslint-disable-line no-constant-condition -- SSE stream reader
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (data === '[DONE]') continue;
+      try {
+        const event = JSON.parse(data);
+        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+          fullText += event.delta.text;
+        }
+        if (event.type === 'message_delta' && event.usage) {
+          storyOutputTokens = event.usage.output_tokens || 0;
+        }
+        if (event.type === 'message_start' && event.message?.usage) {
+          storyInputTokens = event.message.usage.input_tokens || 0;
+        }
+      } catch {}
+    }
+  }
+
+  console.log(`[WeeklySummaryV2] Storyteller complete: ${fullText.length} chars, ${storyInputTokens} in / ${storyOutputTokens} out, ${Date.now() - storyT0}ms`);
+
+  // Parse JSON
+  let jsonStr = fullText.trim();
+  if (jsonStr.startsWith('```')) {
+    jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch (parseErr) {
+    console.warn('[WeeklySummaryV2] Parse failed, using jsonrepair:', parseErr.message);
+    try {
+      parsed = JSON.parse(jsonrepair(jsonStr));
+    } catch (repairErr) {
+      console.error('[WeeklySummaryV2] jsonrepair also failed:', repairErr.message);
+      throw new Error(`Weekly summary parse error: ${repairErr.message}`);
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // STEP 3: HAIKU CONSTRAINT CHECK (mechanical fixes only)
+  // ════════════════════════════════════════════════════════════════════
+
+  if (parsed.cards) {
+    const constraintSystem = `You are a strict copy editor. You receive a weekly summary as a JSON cards array. Your ONLY job is to fix mechanical violations. Do NOT change meaning, tone, style, or content. Do NOT rewrite prose. Only fix these specific issues:
+
+1. CHARACTER LIMITS: If any field exceeds its limit, shorten it by removing the least important clause or trimming the end at a natural sentence boundary (period, semicolon, em dash). NEVER cut mid-word. NEVER leave a sentence fragment. If you cannot shorten without cutting mid-word, leave it as-is.
+   Limits: gremly_mood.mood_line: 30, gremly_mood.hook: 120, opening.headline: 60, opening.body: 350, thread detail: 140, thread shift_label: 40, thread badge_label: 15, moment title: 40, moment body: 300, spotlight title: 50, evidence_trail: 400, takeaway: 150, research_context body: 250, week_ahead intro: 200, stale headline: 50, stale body: 150, recommends primary title: 50, recommends primary body: 200, recommends secondary title: 50, recommends secondary body: 150.
+
+2. QUOTE DUPLICATION: If the exact same journal quote (or substantial substring of 10+ words) appears on more than one card, remove it from every card EXCEPT the first card it appears on. Replace the removed quote with a different observation or set to null.
+
+3. STALE ITEMS: Do NOT modify the stale_triage items array. It was injected by code and is correct.
+
+Respond with ONLY the corrected JSON cards array. If nothing needs fixing, return the array unchanged.`;
+
+    try {
+      const constraintRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 6000,
+          temperature: 0,
+          messages: [{
+            role: 'user',
+            content: `Check and fix this weekly summary JSON. Apply character limits and quote deduplication rules strictly. NEVER cut mid-word.\n\n${JSON.stringify(parsed.cards)}`,
+          }],
+          system: constraintSystem,
+        }),
+      });
+
+      if (constraintRes.ok) {
+        const constraintData = await constraintRes.json();
+        const constraintText = (constraintData.content || []).map(b => b.type === 'text' ? b.text : '').join('');
+        if (constraintText) {
+          let cleaned = constraintText.trim();
+          if (cleaned.startsWith('```')) {
+            cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+          }
+          try {
+            const fixedCards = JSON.parse(cleaned);
+            if (Array.isArray(fixedCards) && fixedCards.length > 0) {
+              parsed.cards = fixedCards;
+              console.log(`[WeeklySummaryV2] Constraint check applied: ${fixedCards.length} cards`);
             }
-            deduped++;
+          } catch {
+            try {
+              const repaired = JSON.parse(jsonrepair(cleaned));
+              if (Array.isArray(repaired) && repaired.length > 0) {
+                parsed.cards = repaired;
+                console.log(`[WeeklySummaryV2] Constraint check applied (with jsonrepair)`);
+              }
+            } catch {
+              console.warn(`[WeeklySummaryV2] Constraint check parse failed — using storyteller output as-is`);
+            }
           }
         }
-        return result.trim();
-      };
-
-      // Apply to text fields based on card type
-      switch (card.type) {
-        case 'thread_movements':
-          if (card.threads) {
-            for (const thread of card.threads) {
-              thread.detail = removeQuote(thread.detail);
-            }
-          }
-          break;
-        case 'moments':
-          if (card.moments) {
-            for (const moment of card.moments) {
-              moment.body = removeQuote(moment.body);
-            }
-          }
-          break;
-        case 'discoveries':
-          if (card.spotlight) {
-            card.spotlight.evidence_trail = removeQuote(card.spotlight.evidence_trail);
-            card.spotlight.takeaway = removeQuote(card.spotlight.takeaway);
-          }
-          break;
-        case 'recommends':
-          if (card.primary) card.primary.body = removeQuote(card.primary.body);
-          if (card.secondary) {
-            for (const rec of card.secondary) {
-              rec.body = removeQuote(rec.body);
-            }
-          }
-          break;
-        case 'week_ahead':
-          card.intro = removeQuote(card.intro);
-          break;
+      } else {
+        console.warn(`[WeeklySummaryV2] Constraint check failed: ${constraintRes.status}`);
       }
+    } catch (e) {
+      console.warn(`[WeeklySummaryV2] Constraint check error: ${e.message}`);
     }
+  }
 
-    if (deduped > 0) {
-      console.log(
-        `[WeeklySummaryV2] Quote dedup: removed ${deduped} duplicate quote(s) across cards`,
+  // ════════════════════════════════════════════════════════════════════
+  // STEP 4: IMAGE RESOLUTION (Unsplash)
+  // ════════════════════════════════════════════════════════════════════
+
+  if (parsed.cards && env.UNSPLASH_ACCESS_KEY) {
+    const imagePromises = [];
+    const openingCard = parsed.cards.find(c => c.type === 'opening');
+    if (openingCard?.image_hint) {
+      imagePromises.push(
+        resolveImageUrl(openingCard.image_hint, env).then(url => { if (url) openingCard.image_url = url; })
       );
     }
-  }
-
-  // ── IMAGE RESOLUTION — Unsplash ──────────────────────────────────────────
-  const imagePromises = [];
-  const openingCard = assembledCards.find((c) => c.type === 'opening');
-  if (openingCard?.image_hint) {
-    imagePromises.push(
-      resolveImageUrl(openingCard.image_hint, env).then((url) => {
-        if (url) openingCard.image_url = url;
-      }),
-    );
-  }
-  const momentsCard = assembledCards.find((c) => c.type === 'moments');
-  if (momentsCard?.moments) {
-    for (const moment of momentsCard.moments) {
-      if (moment.image_hint) {
-        imagePromises.push(
-          resolveImageUrl(moment.image_hint, env).then((url) => {
-            if (url) moment.image_url = url;
-          }),
-        );
-      }
-    }
-  }
-  await Promise.all(imagePromises);
-
-  // ── TEXT LENGTH SAFETY NET ─────────────────────────────────────────────────
-  for (const card of assembledCards) {
-    switch (card.type) {
-      case 'opening':
-        card.headline = trimToLimit(card.headline, 60);
-        card.body = trimToLimit(card.body, 350);
-        break;
-      case 'thread_movements':
-        if (card.threads) {
-          for (const thread of card.threads) {
-            thread.detail = trimToLimit(thread.detail, 140);
-            thread.shift_label = trimToLimit(thread.shift_label, 40);
-          }
-        }
-        break;
-      case 'moments':
-        if (card.moments) {
-          for (const moment of card.moments) {
-            moment.body = trimToLimit(moment.body, 300);
-            moment.title = trimToLimit(moment.title, 40);
-          }
-        }
-        break;
-      case 'discoveries':
-        if (card.spotlight) {
-          card.spotlight.evidence_trail = trimToLimit(card.spotlight.evidence_trail, 400);
-          card.spotlight.takeaway = trimToLimit(card.spotlight.takeaway, 150);
-          if (card.spotlight.research_context) {
-            card.spotlight.research_context.body = trimToLimit(
-              card.spotlight.research_context.body,
-              250,
-            );
-          }
-        }
-        break;
-      case 'week_ahead':
-        card.intro = trimToLimit(card.intro, 200);
-        break;
-      case 'stale_triage':
-        card.headline = trimToLimit(card.headline, 50);
-        card.body = trimToLimit(card.body, 150);
-        break;
-      case 'gremly_mood':
-        card.mood_line = trimToLimit(card.mood_line, 30);
-        card.hook = trimToLimit(card.hook, 120);
-        break;
-      case 'recommends':
-        if (card.primary) {
-          card.primary.title = trimToLimit(card.primary.title, 50);
-          card.primary.body = trimToLimit(card.primary.body, 150);
-        }
-        if (card.secondary) {
-          for (const rec of card.secondary) {
-            rec.title = trimToLimit(rec.title, 40);
-            rec.body = trimToLimit(rec.body, 100);
-          }
-        }
-        break;
-    }
-  }
-
-  // Build the parsed object for enforcement/injection
-  let parsed = {
-    cards: assembledCards,
-    metadata: {
-      week_type: plan.gremly_mood?.mood_line || '',
-      mood: plan.gremly_mood?.mood_line || '',
-      key_themes: (plan.detail_allocation?.opening_details || []).slice(0, 5),
-      card_count: assembledCards.length,
-      card_types_used: assembledCards.map((c) => c.type),
-      narrative_arc: plan.narrative_arc || '',
-    },
-    planner_debug: {
-      has_candidates: !!plan.candidates,
-      has_selections: !!plan.selections,
-      diversity_check: plan.selections?.diversity_check || null,
-      candidate_counts: plan.candidates
-        ? {
-            discovery: (plan.candidates.discovery_candidates || []).length,
-            recommendation: (plan.candidates.recommendation_candidates || []).length,
-            moment: (plan.candidates.moment_candidates || []).length,
-            thread: (plan.candidates.thread_candidates || []).length,
-          }
-        : null,
-      card_decisions: plan.card_decisions || null,
-    },
-  };
-
-  // ── THEMATIC CLUSTERING MONITOR ──────────────────────────────────────
-  {
-    const themeMentions = {};
-    for (const card of assembledCards) {
-      const cardText = JSON.stringify(card).toLowerCase();
-      // Check each thread name from the planner's thread picks
-      const threadNames = plan.card_decisions?.thread_names_to_show || [];
-      for (const name of threadNames) {
-        const nameLower = name.toLowerCase();
-        // Count substantial mentions (in primary fields, not just tags)
-        let isPrimary = false;
-        if (card.type === 'discoveries' && card.spotlight?.title?.toLowerCase().includes(nameLower))
-          isPrimary = true;
-        if (card.type === 'recommends' && card.primary?.title?.toLowerCase().includes(nameLower))
-          isPrimary = true;
-        if (card.type === 'moments' && card.moments?.[0]?.title?.toLowerCase().includes(nameLower))
-          isPrimary = true;
-        if (card.type === 'gremly_mood' && card.hook?.toLowerCase().includes(nameLower))
-          isPrimary = true;
-
-        if (isPrimary) {
-          if (!themeMentions[name]) themeMentions[name] = [];
-          themeMentions[name].push(card.type);
+    const momentsCard = parsed.cards.find(c => c.type === 'moments');
+    if (momentsCard?.moments) {
+      for (const moment of momentsCard.moments) {
+        if (moment.image_hint) {
+          imagePromises.push(
+            resolveImageUrl(moment.image_hint, env).then(url => { if (url) moment.image_url = url; })
+          );
         }
       }
     }
-
-    for (const [theme, cards] of Object.entries(themeMentions)) {
-      if (cards.length >= 3) {
-        console.warn(
-          `[WeeklySummaryV2] THEME CLUSTERING: "${theme}" is primary focus on ${cards.length} cards: ${cards.join(', ')}`,
-        );
-      }
-    }
+    await Promise.all(imagePromises);
   }
 
-  // ── STRUCTURAL ENFORCEMENT (deterministic — no AI) ──────────────────────
+  // ════════════════════════════════════════════════════════════════════
+  // STEP 5: POST-PARSE CODE INJECTION
+  // ════════════════════════════════════════════════════════════════════
+
   if (parsed.cards) {
-    const originalCount = parsed.cards.length;
-    const removedTypes = [];
-
-    // a. Enforce max 8 cards — removal priority: recommendation (legacy) → monthly_retro → recommends → moments
-    // NEVER remove: stale_triage, opening, gremly_mood, thread_movements, week_ahead
-    const removalPriority = ['recommendation', 'monthly_retro', 'recommends', 'moments'];
-    while (parsed.cards.length > 8) {
-      let removed = false;
-      for (const targetType of removalPriority) {
-        const idx = parsed.cards.findIndex((c) => c.type === targetType);
-        if (idx !== -1) {
-          // Special handling: fold monthly_retro into week_ahead before removing
-          if (targetType === 'monthly_retro') {
-            const mrCard = parsed.cards[idx];
-            const waCard = parsed.cards.find((c) => c.type === 'week_ahead');
-            if (waCard) {
-              waCard.monthly_retro = {
-                headline: mrCard.headline,
-                body: mrCard.body,
-                thread_arcs: mrCard.thread_arcs,
-              };
-            }
-          }
-          removedTypes.push(targetType);
-          parsed.cards.splice(idx, 1);
-          removed = true;
-          break;
-        }
-      }
-      if (!removed) break; // nothing left to remove safely
-    }
-
-    // b. Enforce max 2 moments
-    const momCard = parsed.cards.find((c) => c.type === 'moments');
-    if (momCard && momCard.moments && momCard.moments.length > 2) {
-      momCard.moments = momCard.moments.slice(0, 2);
-    }
-
-    console.log('[WeeklySummaryV2] Card enforcement:', {
-      original_count: originalCount,
-      final_count: parsed.cards.length,
-      removed_types: removedTypes,
-    });
-  }
-
-  // ── POST-PARSE INJECTION ────────────────────────────────────────────────
-  if (parsed.cards) {
-    // 1. Engagement stats on opening card — from real Supabase data
-    const oCard = parsed.cards.find((c) => c.type === 'opening');
-    if (oCard && engagementStats) {
-      oCard.engagement = {
+    // Engagement stats on opening card
+    const openingCard = parsed.cards.find(c => c.type === 'opening');
+    if (openingCard && engagementStats) {
+      openingCard.engagement = {
         drops: engagementStats.drops || 0,
         sweeps: engagementStats.sweeps || 0,
         journals: engagementStats.journals || 0,
       };
     }
 
-    // 2. badge_type on thread movements — infer from direction
-    const tmCard = parsed.cards.find((c) => c.type === 'thread_movements');
+    // badge_type on thread movements
+    const tmCard = parsed.cards.find(c => c.type === 'thread_movements');
     if (tmCard && tmCard.threads) {
-      const directionToBadgeType = {
-        up: 'success',
-        steady: 'info',
-        milestone: 'warning',
-        concluded: 'neutral',
-        down: 'danger',
-        paused: 'danger',
-        new: 'info',
-      };
+      const dirToBadge = { up: 'success', steady: 'info', milestone: 'warning', concluded: 'neutral', down: 'danger', paused: 'danger', new: 'info' };
       for (const thread of tmCard.threads) {
-        if (!thread.badge_type) {
-          thread.badge_type = directionToBadgeType[thread.direction] || 'neutral';
-        }
+        if (!thread.badge_type) thread.badge_type = dirToBadge[thread.direction] || 'neutral';
       }
     }
 
-    // 3. Stale headline — inject real count from data
-    const staleCard = parsed.cards.find((c) => c.type === 'stale_triage');
-    if (staleCard) {
-      const realCount = staleItems.length;
-      // Keep the builder's body/context but override the headline with real count
-      if (staleCard.headline) {
-        staleCard.headline = staleCard.headline.replace(/\d+/, String(realCount));
-      }
-      // Also ensure items array length matches
-      if (staleCard.items && staleCard.items.length !== realCount) {
-        console.warn(
-          `[WeeklySummaryV2] Stale count mismatch: headline implies ${realCount}, items has ${staleCard.items.length}`,
-        );
-      }
-    }
-
-    // 4. Stale item IDs — match by title to real todos
+    // Stale item IDs — fuzzy match to real todos
+    const staleCard = parsed.cards.find(c => c.type === 'stale_triage');
     if (staleCard && staleCard.items) {
       for (const item of staleCard.items) {
         if (!item.item_id) {
-          const match = (weeklySnapshot.todosDetail || []).find(
-            (t) =>
-              t.title &&
-              item.title &&
-              (t.title.toLowerCase() === item.title.toLowerCase() ||
-                t.title.toLowerCase().includes(item.title.toLowerCase()) ||
-                item.title.toLowerCase().includes(t.title.toLowerCase())),
+          const match = (weeklySnapshot.todosDetail || []).find(t =>
+            t.title && item.title &&
+            (t.title.toLowerCase() === item.title.toLowerCase() ||
+             t.title.toLowerCase().includes(item.title.toLowerCase()) ||
+             item.title.toLowerCase().includes(t.title.toLowerCase()))
           );
           if (match) item.item_id = match.id;
         }
       }
     }
+
+    // Structural enforcement — max 8 cards
+    if (parsed.cards.length > 8) {
+      const recIdx = parsed.cards.findIndex(c => c.type === 'recommendation');
+      if (recIdx !== -1) parsed.cards.splice(recIdx, 1);
+    }
+    if (parsed.cards.length > 8) {
+      const mrIdx = parsed.cards.findIndex(c => c.type === 'monthly_retro');
+      if (mrIdx !== -1) {
+        const mrCard = parsed.cards[mrIdx];
+        const waCard = parsed.cards.find(c => c.type === 'week_ahead');
+        if (waCard) waCard.monthly_retro = { headline: mrCard.headline, body: mrCard.body, thread_arcs: mrCard.thread_arcs };
+        parsed.cards.splice(mrIdx, 1);
+      }
+    }
   }
+
+  // ════════════════════════════════════════════════════════════════════
+  // RETURN
+  // ════════════════════════════════════════════════════════════════════
 
   const latency = Date.now() - t0;
 
   console.log(`[WeeklySummaryV2] Complete in ${latency}ms`, {
-    planner_in: plannerInputTokens,
-    planner_out: plannerOutputTokens,
-    builder_calls: builderCalls,
+    brief_tokens: `${briefInputTokens}/${briefOutputTokens}`,
+    story_tokens: `${storyInputTokens}/${storyOutputTokens}`,
     card_count: parsed.cards?.length || 0,
-    card_types: parsed.cards?.map((c) => c.type) || [],
-    mood: parsed.metadata?.mood,
+    card_types: parsed.cards?.map(c => c.type) || [],
   });
 
   return {
     summary: parsed,
     metadata: {
       latency_ms: latency,
-      planner_input_tokens: plannerInputTokens,
-      planner_output_tokens: plannerOutputTokens,
-      builder_calls: builderCalls,
-      model_planner: 'claude-sonnet-4-6',
-      model_builder: 'claude-haiku-4-5-20251001',
+      brief_input_tokens: briefInputTokens,
+      brief_output_tokens: briefOutputTokens,
+      story_input_tokens: storyInputTokens,
+      story_output_tokens: storyOutputTokens,
+      model_brief: 'claude-sonnet-4-6',
+      model_storyteller: 'claude-sonnet-4-6',
       card_count: parsed.cards?.length || 0,
-      card_types: parsed.cards?.map((c) => c.type) || [],
+      card_types: parsed.cards?.map(c => c.type) || [],
     },
   };
 }
@@ -6897,7 +6144,7 @@ OUTPUT FORMAT — respond with ONLY valid JSON, no markdown, no backticks:
       "trajectory": "building | consistent | declining | milestone_approaching | stalled | concluded | reactivated",
       "trajectory_reasoning": "one sentence explaining why, referencing specific data from this week AND trend from prior weeks",
       "emotional_signal": "mood tags and journal sentiment connected to this theme — quote the user's words. Or null if no emotional data",
-      "evidence_refs": ["type:specific item — e.g. habit:Run 3x Week 2/3, journal:2026-03-08 'very refreshed', todo:Book 10km completed"],
+      "evidence_refs": ["type:specific item — e.g. habit:Habit Name X/Y, journal:YYYY-MM-DD 'quote text', todo:Todo Title completed"],
       "lifecycle_signal": "active | approaching_dormant | concluded | reactivated | null",
       "lifecycle_reasoning": "max 10 words — why this lifecycle state",
       "importance": "high | medium | low",
@@ -6951,7 +6198,7 @@ OUTPUT FORMAT — respond with ONLY valid JSON, no markdown, no backticks:
 
   "behavioral_fingerprints": [
     {
-      "pattern": "short label — e.g. weekend_sprinter, stress_skips_exercise, travel_fitness_maintainer",
+      "pattern": "short label — e.g. weekend_sprinter, stress_skips_exercise, deadline_procrastinator",
       "evidence": "specific data — e.g. '11 of 15 completions landed Thu-Sun'",
       "is_novel": false,
       "narrative_interest": 0,
@@ -6976,7 +6223,7 @@ OUTPUT FORMAT — respond with ONLY valid JSON, no markdown, no backticks:
       "date": "YYYY-MM-DD",
       "why": "why this moment stands out — be specific",
       "connected_items": ["related item titles"],
-      "enrichment_hint": "what real-world knowledge would make this richer — e.g. 'late February Tokyo weather', 'shinkansen Mount Fuji views'",
+      "enrichment_hint": "what real-world knowledge would make this richer — e.g. 'seasonal weather context', 'local cultural significance', 'historical context of a landmark'",
       "journal_quote": "the user's own words about this moment if available, or null"
     }
   ],
@@ -7011,7 +6258,7 @@ OUTPUT FORMAT — respond with ONLY valid JSON, no markdown, no backticks:
   ],
 
   "week_shape": {
-    "classification": "2-4 word week type — e.g. 'honeymoon immersion', 'launch sprint', 'recovery week'",
+    "classification": "2-4 word week type — e.g. 'launch sprint', 'recovery week', 'travel immersion', 'deadline crunch'",
     "dominant_theme": "the single thread/domain that dominated this week",
     "mood_arc": "how emotional tone shifted across the week — reference specific journal entries by date",
     "highlight": "single most notable moment with date and brief description",
@@ -7037,7 +6284,7 @@ EVENT SCORING:
 - HIGH (7-10): Travel (flights, trips, arrivals), personal milestones, PTO/vacation, one-off significant social events, health appointments, multi-day events.
 - MEDIUM (4-6): One-off work meetings, deadlines, project milestones, personal errands.
 - LOW (1-3): Recurring meetings (daily standups, weekly syncs, bi-weekly 1:1s, all-hands, internal huddles), admin tasks (timesheets). These are routine noise.
-- Events with a non-work space (Honeymoon, Health, etc.) score higher.
+- Events with a non-work space (Vacation, Health, etc.) score higher.
 - Events tied to a Life Map thread with high importance score higher.
 
 RECURRING MEETING DETECTION:
