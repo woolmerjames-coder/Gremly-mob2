@@ -292,27 +292,7 @@ async function sendScheduledNotifications(env) {
       }
     }
 
-    // Check weekly summary notification
-    if (pref.weekly_enabled && pref.weekly_time) {
-      const [weeklyHour, weeklyMin] = parseTime(pref.weekly_time);
-      const configuredDay = pref.weekly_day ?? 0; // 0 = Sunday
-
-      // Check if today is the configured day
-      const userDayOfWeek = getDayOfWeekInTimezone(now, timezone);
-      const isCorrectDay = userDayOfWeek === configuredDay;
-
-      if (
-        isCorrectDay &&
-        isWithinWindow(userTime.hour, userTime.minute, weeklyHour, weeklyMin, 5)
-      ) {
-        usersToNotify.push({
-          user_id: pref.user_id,
-          token: token,
-          type: 'weekly_summary',
-          timezone: timezone,
-        });
-      }
-    }
+    // Weekly summary scheduling has moved to weeklySummaryV2Dispatcher in inngest-jobs worker
 
     // Check afternoon check-in notification
     if (pref.afternoon_enabled && pref.afternoon_time) {
@@ -341,11 +321,8 @@ async function sendScheduledNotifications(env) {
     };
   }
 
-  // Split users into immediate (morning/evening) and weekly
-  const immediateUsers = usersToNotify.filter(
-    (u) => u.type !== 'weekly_summary' && u.type !== 'afternoon',
-  );
-  const weeklyUsers = usersToNotify.filter((u) => u.type === 'weekly_summary');
+  // Split users into immediate (morning/evening) and afternoon
+  const immediateUsers = usersToNotify.filter((u) => u.type !== 'afternoon');
   const afternoonUsers = usersToNotify.filter((u) => u.type === 'afternoon');
 
   // Send notifications and update last_sent
@@ -392,228 +369,6 @@ async function sendScheduledNotifications(env) {
     } catch (err) {
       errors.push({ user_id: user.user_id, error: err.message });
       console.error(`[Notifications] Failed for ${user.user_id}:`, err.message);
-    }
-  }
-
-  // --- Process weekly summary notifications in parallel batches ---
-  if (weeklyUsers.length > 0) {
-    // Claim slots for all weekly users before starting expensive generation
-    const claimedWeeklyUsers = [];
-    for (const user of weeklyUsers) {
-      const { weekStart } = computeWeekBoundaries(new Date(), user.timezone);
-      const weekStartDate = weekStart.split('T')[0];
-      const claimed = await claimNotificationSlot(
-        supabaseUrl,
-        supabaseKey,
-        user.user_id,
-        'weekly',
-        weekStartDate,
-      );
-      if (claimed) {
-        claimedWeeklyUsers.push(user);
-      } else {
-        console.log(`[Notifications] Weekly slot already claimed for ${user.user_id}, skipping`);
-      }
-    }
-
-    const WEEKLY_BATCH_SIZE = 5;
-    console.log(
-      `[Notifications] Processing ${claimedWeeklyUsers.length} weekly summaries in batches of ${WEEKLY_BATCH_SIZE}`,
-    );
-
-    const batchResults = await processInBatches(
-      claimedWeeklyUsers,
-      WEEKLY_BATCH_SIZE,
-      async (user) => {
-        console.log(`[Notifications] Generating weekly summary for ${user.user_id}`);
-
-        let pushSent = false;
-        try {
-          // Step 1: Build payload
-          console.log(`[WeeklySummary] Step 1: Starting payload build for ${user.user_id}`);
-          let payload;
-          try {
-            payload = await buildServerSidePayload(env, user.user_id, user.timezone);
-            console.log(
-              `[WeeklySummary] Step 1 complete: Payload built successfully. Keys: ${Object.keys(payload).join(', ')}`,
-            );
-          } catch (payloadErr) {
-            console.error(
-              `[WeeklySummary] Step 1 FAILED (buildServerSidePayload) for ${user.user_id}:`,
-              payloadErr.message,
-              payloadErr.stack || payloadErr,
-            );
-            throw payloadErr;
-          }
-
-          // Run summary pipeline and space discovery in parallel
-          const [summaryResult, spaceResult] = await Promise.all([
-            // Pipeline 1: Weekly summary (analyst → storyteller → save)
-            (async () => {
-              // Step 2a: Analyst pass (Haiku)
-              console.log(
-                `[WeeklySummary] Step 2a: Running analyst pass (Haiku) for ${user.user_id}`,
-              );
-              const analysisBrief = await runAnalystPass(env, payload);
-              console.log(
-                `[WeeklySummary] Step 2a complete: Analyst brief received. Keys: ${Object.keys(analysisBrief).join(', ')}`,
-              );
-
-              // Step 2b: Storyteller pass (Sonnet)
-              console.log(
-                `[WeeklySummary] Step 2b: Running storyteller pass (Sonnet) for ${user.user_id}`,
-              );
-              const aiResponse = await generateWeeklySummary(env, payload, analysisBrief);
-              console.log(
-                `[WeeklySummary] Step 2b complete: AI response received. Keys: ${Object.keys(aiResponse).join(', ')}`,
-              );
-
-              // Step 3: Save to Supabase
-              console.log(`[WeeklySummary] Step 3: Saving to Supabase for ${user.user_id}`);
-              await saveWeeklySummary(
-                env,
-                user.user_id,
-                payload.weekStartDate,
-                payload.weekEndDate,
-                aiResponse,
-                payload,
-              );
-              console.log(
-                `[WeeklySummary] Step 3 complete: Saved successfully for ${user.user_id}`,
-              );
-              return { analysisBrief, aiResponse };
-            })(),
-
-            // Pipeline 2: Space discovery (Nano → Mini → Haiku) — independent, non-fatal
-            (async () => {
-              if (!payload.spaceDiscovery) return null;
-              try {
-                console.log(
-                  `[WeeklySummary] Space discovery: Starting pipeline for ${user.user_id}`,
-                );
-                return await runSpaceDiscoveryPipeline(env, payload, null);
-              } catch (err) {
-                console.error('[SpaceDiscovery] Pipeline failed:', err.message);
-                return null;
-              }
-            })(),
-          ]);
-
-          const { aiResponse } = summaryResult;
-
-          // Step 3b: Save space suggestion if pipeline returned one
-          if (spaceResult?.shouldSuggest && spaceResult.suggestion) {
-            try {
-              const suggestion = spaceResult.suggestion;
-              if (suggestion.confidence >= 0.75 && suggestion.dropIds?.length >= 2) {
-                // Expire any existing pending new_space suggestions first
-                await fetch(
-                  `${env.SUPABASE_URL}/rest/v1/space_suggestions?user_id=eq.${user.user_id}&status=eq.pending&suggestion_type=eq.new_space`,
-                  {
-                    method: 'PATCH',
-                    headers: {
-                      apikey: env.SUPABASE_SERVICE_KEY,
-                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-                      'Content-Type': 'application/json',
-                      Prefer: 'return=minimal',
-                    },
-                    body: JSON.stringify({
-                      status: 'expired',
-                      updated_at: new Date().toISOString(),
-                    }),
-                  },
-                );
-
-                // Insert new suggestion
-                await fetch(`${env.SUPABASE_URL}/rest/v1/space_suggestions`, {
-                  method: 'POST',
-                  headers: {
-                    apikey: env.SUPABASE_SERVICE_KEY,
-                    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-                    'Content-Type': 'application/json',
-                    Prefer: 'return=minimal',
-                  },
-                  body: JSON.stringify({
-                    user_id: user.user_id,
-                    suggestion_type: 'new_space',
-                    space_id: null,
-                    suggested_name: suggestion.suggestedName,
-                    reason: suggestion.reason,
-                    drop_ids: suggestion.dropIds,
-                    confidence: suggestion.confidence,
-                    status: 'pending',
-                  }),
-                });
-
-                console.log(
-                  `[WeeklySummary] Space suggestion saved — "${suggestion.suggestedName}"`,
-                );
-              } else {
-                console.log(
-                  `[WeeklySummary] Space suggestion below threshold (confidence=${suggestion.confidence}, drops=${suggestion.dropIds?.length})`,
-                );
-              }
-            } catch (spaceSaveErr) {
-              console.error('[WeeklySummary] Space suggestion save failed:', spaceSaveErr.message);
-            }
-          }
-
-          // Step 4: Send push notification with dynamic body
-          const firstSentence = aiResponse.weeklyCommentary?.split(/[.!]/)[0]?.trim() || '';
-          const notificationBody = firstSentence
-            ? `${firstSentence}.`
-            : 'Your weekly summary is ready.';
-
-          await sendExpoPush(
-            user.token,
-            'Your week in review is ready',
-            notificationBody,
-            'weekly_summary',
-          );
-          pushSent = true;
-
-          console.log(`[Notifications] Weekly summary generated and sent for ${user.user_id}`);
-          return { success: true, user_id: user.user_id };
-        } catch (genErr) {
-          console.error(
-            `[Notifications] Weekly generation failed for ${user.user_id}:`,
-            genErr.message,
-            genErr.stack || genErr,
-          );
-
-          // Only send fallback if the primary push wasn't already sent
-          if (!pushSent) {
-            try {
-              await sendExpoPush(
-                user.token,
-                'Your week in review is ready',
-                'Tap to see your weekly summary.',
-                'weekly_summary',
-              );
-              console.log(`[Notifications] Weekly fallback notification sent for ${user.user_id}`);
-            } catch (fallbackErr) {
-              console.error(
-                `[WeeklySummary] Fallback also failed for ${user.user_id}:`,
-                fallbackErr.message,
-                fallbackErr.stack || fallbackErr,
-              );
-            }
-          }
-
-          return { success: pushSent, user_id: user.user_id, error: genErr.message };
-        }
-      },
-    );
-
-    // Aggregate batch results
-    for (const result of batchResults) {
-      if (result.status === 'fulfilled' && result.value.success) {
-        sent++;
-      } else if (result.status === 'fulfilled' && !result.value.success) {
-        errors.push({ user_id: result.value.user_id, error: result.value.error });
-      } else if (result.status === 'rejected') {
-        errors.push({ user_id: 'unknown', error: result.reason?.message || 'Unknown batch error' });
-      }
     }
   }
 
@@ -1118,6 +873,7 @@ async function getAfternoonContext(supabaseUrl, supabaseKey, userId, todayDate) 
 // Weekly Summary Payload Builder
 // =============================================================================
 
+/** @deprecated V1 weekly pipeline — only used by /backfill-weekly. Production pipeline is now weeklySummaryV2Worker in inngest-jobs. */
 /**
  * Build the weekly summary payload server-side by querying Supabase directly.
  * This replicates what buildWeeklySummaryPayload.ts does client-side from Zustand.
@@ -1970,6 +1726,7 @@ function buildTrendContextFromPriorSummaries(priorSummaries, currentStats) {
  * @param {object} env - Worker env with ANTHROPIC_API_KEY
  * @param {object} payload - Raw aggregated payload from buildServerSidePayload
  * @returns {object} Structured analysis brief for the storyteller
+ * @deprecated V1 analyst — only used by /backfill-weekly. Replaced by runUnifiedAnalyst in inngest-jobs.
  */
 async function runAnalystPass(env, payload) {
   const analystPrompt = `You are a meticulous data analyst for a personal productivity app called Gremly. Your ONLY job is to deeply analyze a user's weekly data and produce a structured analysis brief. You are NOT writing the user-facing summary — a separate AI will do that using your analysis. Be thorough, precise, and show your reasoning.
@@ -2470,6 +2227,7 @@ async function runSpaceDiscoveryPipeline(env, payload, analysisBrief = null) {
  * @param {object} payload - Raw payload (for stats and raw data access)
  * @param {object} analysisBrief - Structured analysis from the analyst pass
  * @returns {object} Parsed JSON matching the weekly summary content schema
+ * @deprecated V1 storyteller — only used by /backfill-weekly. Replaced by generateWeeklySummaryV2 in inngest-jobs.
  */
 async function generateWeeklySummary(env, payload, analysisBrief) {
   const systemPrompt = `You are Gremly, a warm and perceptive life companion. You are generating a weekly summary for a user based on a pre-analyzed data brief from an analyst AI plus key raw data. Your voice is conversational, specific, and human — like a thoughtful friend who notices what actually matters in someone's life.
@@ -2661,6 +2419,7 @@ SPACE SUGGESTION INSIGHT (optional):
   return parsed;
 }
 
+/** @deprecated V1 save — only used by /backfill-weekly. Production pipeline saves directly in weeklySummaryV2Worker. */
 /**
  * Save the generated weekly summary to the weekly_summaries table.
  * Uses UPSERT via Prefer: resolution=merge-duplicates on the

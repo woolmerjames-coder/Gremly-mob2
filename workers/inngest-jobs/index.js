@@ -677,6 +677,335 @@ const testWeeklySummaryV2 = inngest.createFunction(
 );
 
 // ============================================================================
+// Weekly Summary V2: Dispatcher (cron + manual trigger)
+// ============================================================================
+
+const weeklySummaryV2Dispatcher = inngest.createFunction(
+  {
+    id: 'weekly-summary-v2-dispatcher',
+    name: 'Weekly Summary V2 Dispatcher',
+  },
+  [
+    { cron: '*/5 * * * *' },  // Every 5 minutes — matches notifications cron cadence
+    { event: 'app/weekly-summary-v2.dispatch' },  // Manual trigger
+  ],
+  async ({ step, env }) => {
+    // Step 1: Fetch all users with weekly_enabled = true, including their push tokens
+    const usersAndTokens = await step.run('fetch-weekly-users', async () => {
+      const headers = {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      };
+
+      const [prefsRes, tokensRes] = await Promise.all([
+        fetch(
+          `${env.SUPABASE_URL}/rest/v1/notification_preferences?weekly_enabled=eq.true&select=user_id,weekly_time,weekly_day,timezone`,
+          { headers },
+        ),
+        fetch(
+          `${env.SUPABASE_URL}/rest/v1/push_tokens?select=user_id,token`,
+          { headers },
+        ),
+      ]);
+
+      if (!prefsRes.ok) throw new Error(`Failed to fetch weekly prefs: ${prefsRes.statusText}`);
+      const prefs = await prefsRes.json();
+      const tokens = tokensRes.ok ? await tokensRes.json() : [];
+      const tokenMap = {};
+      for (const t of tokens) tokenMap[t.user_id] = t.token;
+
+      return prefs.map(p => ({
+        user_id: p.user_id,
+        timezone: p.timezone || 'America/Los_Angeles',
+        weekly_time: p.weekly_time,
+        weekly_day: p.weekly_day ?? 0,  // 0 = Sunday
+        push_token: tokenMap[p.user_id] || null,
+      }));
+    });
+
+    // Step 2: Filter to users whose local time is within the 5-minute window of their configured weekly time AND it's their configured day
+    const readyUsers = await step.run('filter-by-timezone-window', async () => {
+      const now = new Date();
+      return usersAndTokens.filter(u => {
+        if (!u.weekly_time) return false;
+        try {
+          // Check day of week
+          const dayStr = new Intl.DateTimeFormat('en-US', {
+            timeZone: u.timezone,
+            weekday: 'short',
+          }).format(now);
+          const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+          const userDayOfWeek = dayMap[dayStr] ?? 0;
+          if (userDayOfWeek !== u.weekly_day) return false;
+
+          // Check time window
+          const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: u.timezone,
+            hour: 'numeric',
+            minute: 'numeric',
+            hour12: false,
+          }).formatToParts(now);
+          const userHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
+          const userMin = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
+
+          const [targetHour, targetMin] = u.weekly_time.split(':').map(Number);
+          const currentTotal = userHour * 60 + userMin;
+          const targetTotal = targetHour * 60 + (targetMin || 0);
+          const diff = Math.abs(currentTotal - targetTotal);
+          const wrappedDiff = Math.min(diff, 1440 - diff);
+          return wrappedDiff <= 5;
+        } catch {
+          return false;
+        }
+      });
+    });
+
+    console.log(`[Weekly V2 Dispatcher] ${usersAndTokens.length} weekly-enabled users, ${readyUsers.length} in window now`);
+
+    // Step 3: Fan out per-user events
+    if (readyUsers.length > 0) {
+      await step.sendEvent(
+        'dispatch-weekly-users',
+        readyUsers.map(u => ({
+          name: 'app/weekly-summary-v2.run',
+          data: {
+            user_id: u.user_id,
+            timezone: u.timezone,
+            push_token: u.push_token,
+          },
+        })),
+      );
+    }
+
+    return { total_weekly_users: usersAndTokens.length, dispatched: readyUsers.length };
+  },
+);
+
+const weeklySummaryV2Worker = inngest.createFunction(
+  {
+    id: 'weekly-summary-v2-worker',
+    name: 'Weekly Summary V2 Worker',
+    concurrency: { limit: 3 },
+    retries: 2,
+  },
+  { event: 'app/weekly-summary-v2.run' },
+  async ({ event, step, env }) => {
+    const userId = event.data.user_id;
+    const timezone = event.data.timezone || 'Pacific/Tahiti';
+    const pushToken = event.data.push_token || null;
+
+    // Step 0: Claim notification slot — if already claimed, exit early (idempotency for retries)
+    const claimed = await step.run('claim-slot', async () => {
+      // Compute week start for the slot key
+      const now = new Date();
+      const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(now);
+      const today = new Date(todayStr + 'T00:00:00Z');
+      const dayOfWeek = today.getUTCDay();
+      const monday = new Date(today);
+      monday.setUTCDate(today.getUTCDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+      const weekStartKey = formatDateOnly(monday);
+
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/claim_notification_slot`, {
+        method: 'POST',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          p_user_id: userId,
+          p_type: 'weekly',
+          p_date_key: weekStartKey,
+        }),
+      });
+
+      if (!res.ok) {
+        console.warn(`[Weekly V2] Slot claim RPC error for ${userId}: ${res.statusText}`);
+        return false;
+      }
+      return await res.json();
+    });
+
+    if (claimed !== true) {
+      console.log(`[Weekly V2] Slot already claimed for ${userId}, skipping`);
+      return { success: true, skipped: true, reason: 'slot_already_claimed' };
+    }
+
+    // Steps 1-6: identical to testWeeklySummaryV2
+    const snapshot = await step.run('fetch-snapshot', async () => {
+      return fetchUserSnapshot(userId, timezone, 21, env);
+    });
+
+    const weekDates = await step.run('compute-week', async () => {
+      const target = new Date(snapshot.targetDate + 'T00:00:00Z');
+      const dayOfWeek = target.getUTCDay();
+      const weekEndDate = new Date(target);
+      weekEndDate.setUTCDate(target.getUTCDate() - (dayOfWeek === 0 ? 0 : dayOfWeek));
+      const weekStartDate = new Date(weekEndDate);
+      weekStartDate.setUTCDate(weekEndDate.getUTCDate() - 6);
+      return {
+        weekStart: formatDateOnly(weekStartDate),
+        weekEnd: formatDateOnly(weekEndDate),
+      };
+    });
+
+    const analystResult = await step.run('run-analyst', async () => {
+      const weeklySnapshot = buildWeeklySnapshot(snapshot);
+      const lifeMap = snapshot.raw.currentLifeMap?.life_map || null;
+      return runUnifiedAnalyst(weeklySnapshot, lifeMap, weekDates.weekStart, weekDates.weekEnd, env);
+    });
+
+    const rebuildResult = await step.run('rebuild-life-map', async () => {
+      const currentLifeMap = snapshot.raw.currentLifeMap?.life_map || null;
+      if (!currentLifeMap) throw new Error('No existing Life Map found');
+      const userProfile = snapshot.raw.userProfile?.profile_text || null;
+      const spaces = snapshot.raw.spaces || [];
+      const journals = (snapshot.raw.journals || []).map(j => ({
+        title: j.title,
+        body: j.body,
+        mood: j.mood,
+        date: j.created_at ? j.created_at.split('T')[0] : null,
+      }));
+      const result = await rebuildLifeMap(currentLifeMap, analystResult.analysis, userProfile, spaces, journals, env);
+      const mergedLifeMap = mergeWeeklyLifeMapUpdates(
+        JSON.parse(JSON.stringify(currentLifeMap)),
+        result.delta,
+      );
+      return { delta: result.delta, mergedLifeMap, metadata: result.metadata };
+    });
+
+    const engagementStats = await step.run('fetch-engagement', async () => {
+      const headers = {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+      };
+      const dropsRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/daily_ritual_progress?owner_id=eq.${userId}&ritual_day=gte.${weekDates.weekStart}&ritual_day=lte.${weekDates.weekEnd}&select=drops_count`,
+        { headers },
+      );
+      const dropsRows = await dropsRes.json();
+      const totalDrops = (dropsRows || []).reduce((sum, r) => sum + (r.drops_count || 0), 0);
+
+      const sweepsRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/events?owner_id=eq.${userId}&kind=eq.sweep_completed&created_at=gte.${weekDates.weekStart}&created_at=lt.${weekDates.weekEnd}T23:59:59Z&select=id`,
+        { headers },
+      );
+      const sweepsRows = await sweepsRes.json();
+      const totalSweeps = (sweepsRows || []).length;
+
+      const journals = (snapshot.raw?.journals || snapshot.raw?.drops || []).filter(
+        j => j.subtype === 'journal' && j.created_at &&
+          j.created_at.split('T')[0] >= weekDates.weekStart &&
+          j.created_at.split('T')[0] <= weekDates.weekEnd,
+      ).length;
+
+      return { drops: totalDrops, sweeps: totalSweeps, journals };
+    });
+
+    const summaryResult = await step.run('generate-summary-v2', async () => {
+      const weeklySnapshot = buildWeeklySnapshot(snapshot);
+      const priorSummaries = snapshot.raw.weeklySummaries || [];
+      return generateWeeklySummaryV2(
+        analystResult.analysis,
+        rebuildResult.delta,
+        rebuildResult.mergedLifeMap,
+        weeklySnapshot,
+        weekDates.weekStart,
+        weekDates.weekEnd,
+        priorSummaries,
+        env,
+        engagementStats,
+      );
+    });
+
+    // Step 7: Save rebuilt Life Map
+    await step.run('save-life-map', async () => {
+      const headers = {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates',
+      };
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/user_life_map?on_conflict=user_id`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          user_id: userId,
+          life_map: rebuildResult.mergedLifeMap,
+          version: snapshot.raw.currentLifeMap?.version || 1,
+          rebuilt_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      if (!res.ok) {
+        console.error(`[Weekly V2] Failed to save Life Map for ${userId}: ${res.statusText}`);
+      }
+    });
+
+    // Step 8: Save weekly summary (delete existing first, then insert)
+    await step.run('save-weekly-summary', async () => {
+      const headers = {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+      };
+
+      // Delete any existing summary for this week
+      await fetch(
+        `${env.SUPABASE_URL}/rest/v1/weekly_summaries?user_id=eq.${userId}&week_start_date=eq.${weekDates.weekStart}`,
+        { method: 'DELETE', headers },
+      );
+
+      // Insert new summary
+      const insertRes = await fetch(`${env.SUPABASE_URL}/rest/v1/weekly_summaries`, {
+        method: 'POST',
+        headers: { ...headers, Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          user_id: userId,
+          week_start_date: weekDates.weekStart,
+          week_end_date: weekDates.weekEnd,
+          content: summaryResult.summary,
+          stats_snapshot: {
+            card_count: summaryResult.summary?.cards?.length || 0,
+            card_types: summaryResult.summary?.cards?.map(c => c.type) || [],
+          },
+          key_themes: summaryResult.summary?.metadata?.key_themes || [],
+          viewed: false,
+          banner_dismissed: false,
+          generated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      if (!insertRes.ok) {
+        const errText = await insertRes.text();
+        throw new Error(`Failed to save weekly summary: ${errText}`);
+      }
+    });
+
+    // Step 9: Send push notification (non-fatal)
+    await step.run('send-push', async () => {
+      if (!pushToken) {
+        console.log(`[Weekly V2] No push token for ${userId}, skipping notification`);
+        return;
+      }
+      const gremlyMood = summaryResult.summary?.cards?.find(c => c.type === 'gremly_mood');
+      const body = gremlyMood?.hook || 'Your weekly summary is ready.';
+      await sendExpoPush(pushToken, 'Your week in review is ready', body, 'weekly_summary');
+      console.log(`[Weekly V2] Push sent for ${userId}`);
+    });
+
+    return {
+      success: true,
+      user_id: userId,
+      card_count: summaryResult.summary?.cards?.length || 0,
+      card_types: summaryResult.summary?.cards?.map(c => c.type) || [],
+      week_start: weekDates.weekStart,
+    };
+  },
+);
+
+// ============================================================================
 // Life Map: Bootstrap (async Inngest job)
 // ============================================================================
 
@@ -7406,6 +7735,35 @@ function corsResponse(body, status = 200) {
   });
 }
 
+// ── Expo Push Helper ─────────────────────────────────────────────────────────
+async function sendExpoPush(token, title, body, notificationType) {
+  if (!token) return null;
+  const pushPayload = {
+    to: token,
+    title,
+    body,
+    sound: 'default',
+    data: {
+      type: notificationType,
+      action: 'open_flow',
+    },
+  };
+  try {
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pushPayload),
+    });
+    if (!response.ok) {
+      console.warn(`[Push] Expo push failed: ${response.status}`);
+    }
+    return response;
+  } catch (err) {
+    console.warn(`[Push] Expo push error: ${err.message}`);
+    return null;
+  }
+}
+
 // ============================================================================
 // Worker entry point
 // ============================================================================
@@ -7422,6 +7780,8 @@ const inngestHandler = serve({
     testUnifiedAnalyst,
     testLifeMapRebuild,
     testWeeklySummaryV2,
+    weeklySummaryV2Dispatcher,
+    weeklySummaryV2Worker,
   ],
   servePath: '/',
 });
