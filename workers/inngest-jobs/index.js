@@ -86,7 +86,7 @@ const dailySynthesisDispatcher = inngest.createFunction(
   },
 );
 
-// Per-user worker: synthesize profile + generate suggestions as separate steps
+// Per-user worker: synthesize profile (space suggestions now run weekly in weeklySummaryV2Worker)
 const synthesizeSingleUser = inngest.createFunction(
   {
     id: 'synthesize-single-user',
@@ -102,14 +102,9 @@ const synthesizeSingleUser = inngest.createFunction(
       return synthesizeUserProfile(userId, env);
     });
 
-    const suggestionsResult = await step.run('generate-suggestions', async () => {
-      return generateSpaceSuggestions(userId, env);
-    });
-
     return {
       user_id: userId,
       profile: profileResult,
-      suggestions: suggestionsResult,
     };
   },
 );
@@ -983,7 +978,263 @@ const weeklySummaryV2Worker = inngest.createFunction(
       }
     });
 
-    // Step 9: Send push notification (non-fatal)
+    // Step 9: Process space suggestions (non-fatal)
+    await step.run('process-space-suggestions', async () => {
+      const headers = {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+      };
+
+      // 1. Check if user has space suggestions enabled
+      const prefRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=enable_space_suggestions`,
+        { headers },
+      );
+      const prefData = await prefRes.json();
+      const enabled = prefData?.[0]?.enable_space_suggestions ?? true;
+      if (!enabled) {
+        console.log(`[Weekly V2:SpaceSuggestions] Disabled for ${userId}`);
+        return { skipped: 'user_disabled' };
+      }
+
+      // 2. Fetch unassigned drops (last 14 days)
+      const fourteenDaysAgo = formatDateOnly(new Date(Date.now() - 14 * 86400000));
+      const [unassignedTodos, unassignedNotes, unassignedHabits] = await Promise.all([
+        fetch(
+          `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&completed_at=is.null&created_at=gte.${fourteenDaysAgo}&select=id,title,tags,created_at&limit=50`,
+          { headers },
+        ).then(r => r.json()),
+        fetch(
+          `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&subtype=neq.journal&created_at=gte.${fourteenDaysAgo}&select=id,title,tags,subtype,created_at&limit=50`,
+          { headers },
+        ).then(r => r.json()),
+        fetch(
+          `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&space_id=is.null&archived_at=is.null&created_at=gte.${fourteenDaysAgo}&select=id,name,tags,created_at&limit=20`,
+          { headers },
+        ).then(r => r.json()),
+      ]);
+
+      const unassignedDrops = [
+        ...(Array.isArray(unassignedTodos) ? unassignedTodos : []).map(t => ({
+          id: t.id, title: t.title, type: 'todo', tags: t.tags || [],
+        })),
+        ...(Array.isArray(unassignedNotes) ? unassignedNotes : []).map(n => ({
+          id: n.id, title: n.title, type: n.subtype || 'note', tags: n.tags || [],
+        })),
+        ...(Array.isArray(unassignedHabits) ? unassignedHabits : []).map(h => ({
+          id: h.id, title: h.name, type: 'habit', tags: h.tags || [],
+        })),
+      ];
+
+      console.log(`[Weekly V2:SpaceSuggestions] ${unassignedDrops.length} unassigned drops`);
+
+      // 3. Fetch recently dismissed new_space suggestions (to avoid re-suggesting)
+      const dismissedRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/space_suggestions?user_id=eq.${userId}&suggestion_type=eq.new_space&status=eq.dismissed&select=suggested_name&order=updated_at.desc&limit=20`,
+        { headers },
+      );
+      const dismissedData = await dismissedRes.json();
+      const dismissedNames = (Array.isArray(dismissedData) ? dismissedData : [])
+        .map(d => (d.suggested_name || '').toLowerCase())
+        .filter(Boolean);
+
+      // 4. Read the rebuilt Life Map
+      const lifeMap = rebuildResult.mergedLifeMap;
+      if (!lifeMap?.domains) {
+        console.log(`[Weekly V2:SpaceSuggestions] No Life Map domains, skipping`);
+        return { skipped: 'no_life_map' };
+      }
+
+      const suggestionsToInsert = [];
+
+      // ═══════════════════════════════════════════════════════════════
+      // PART A: ASSIGN-TO-EXISTING (nano AI call using Life Map domains)
+      // ═══════════════════════════════════════════════════════════════
+
+      if (unassignedDrops.length >= 3) {
+        // Build matching context from space-backed domains in the Life Map
+        const spaceDomains = lifeMap.domains
+          .filter(d => d.source === 'space' && d.space_id)
+          .map(d => ({
+            space_id: d.space_id,
+            name: d.name,
+            threads: (d.threads || [])
+              .filter(t => t.lifecycle === 'active' || t.lifecycle === undefined)
+              .slice(0, 5)
+              .map(t => ({ name: t.name, summary: t.summary })),
+          }));
+
+        if (spaceDomains.length > 0) {
+          const matchPrompt = `Match unassigned items to existing Spaces. Each Space has threads describing what it contains.
+
+SPACES:
+${spaceDomains.map(d => `Space "${d.name}" (ID: ${d.space_id}):\n  Threads: ${d.threads.map(t => `${t.name}: ${t.summary}`).join('; ')}`).join('\n')}
+
+UNASSIGNED ITEMS:
+${unassignedDrops.map(d => `ID: ${d.id} | "${d.title}" (${d.type})`).join('\n')}
+
+Respond with ONLY JSON:
+{ "assign": [{ "space_id": "uuid", "drop_ids": ["uuid"], "reason": "why these belong", "confidence": 0.0-1.0 }] }
+
+Rules:
+- Only assign if confidence >= 0.70.
+- Think about what the item is ABOUT, not just keyword overlap.
+- Items that don't clearly fit any Space — leave them out.
+- Group drop_ids by space_id.`;
+
+          try {
+            const matchRes = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'gpt-4.1-nano',
+                messages: [{ role: 'user', content: matchPrompt }],
+                max_tokens: 2048,
+                temperature: 0.2,
+              }),
+            });
+
+            if (matchRes.ok) {
+              const matchData = await matchRes.json();
+              let matchText = (matchData.choices?.[0]?.message?.content || '').trim();
+              if (matchText.startsWith('```')) {
+                matchText = matchText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+              }
+              try {
+                const parsed = JSON.parse(matchText);
+                const validSpaceIds = new Set(spaceDomains.map(d => d.space_id));
+                const validDropIds = new Set(unassignedDrops.map(d => d.id));
+
+                for (const suggestion of (parsed.assign || [])) {
+                  if (!validSpaceIds.has(suggestion.space_id)) continue;
+                  const validDrops = (suggestion.drop_ids || []).filter(id => validDropIds.has(id));
+                  if (validDrops.length === 0) continue;
+                  if ((suggestion.confidence || 0) < 0.70) continue;
+
+                  suggestionsToInsert.push({
+                    user_id: userId,
+                    suggestion_type: 'assign_to_space',
+                    space_id: suggestion.space_id,
+                    suggested_name: null,
+                    reason: suggestion.reason || null,
+                    drop_ids: validDrops,
+                    confidence: suggestion.confidence || 0.80,
+                    status: 'pending',
+                  });
+                }
+                console.log(`[Weekly V2:SpaceSuggestions] Assign-to-existing: ${suggestionsToInsert.length} suggestions`);
+              } catch (parseErr) {
+                console.warn(`[Weekly V2:SpaceSuggestions] Assign parse failed: ${parseErr.message}`);
+              }
+            }
+          } catch (err) {
+            console.warn(`[Weekly V2:SpaceSuggestions] Assign AI call failed: ${err.message}`);
+          }
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // PART B: NEW SPACE DISCOVERY (deterministic from Life Map)
+      // ═══════════════════════════════════════════════════════════════
+
+      const aiDetectedDomains = lifeMap.domains.filter(d => d.source === 'ai_detected');
+
+      for (const domain of aiDetectedDomains) {
+        const activeThreads = (domain.threads || []).filter(
+          t => t.lifecycle === 'active' || t.lifecycle === undefined,
+        );
+
+        // Thresholds: 2+ active threads, domain has enough substance
+        if (activeThreads.length < 2) continue;
+
+        // Check not recently dismissed
+        if (dismissedNames.includes(domain.name.toLowerCase())) continue;
+
+        // Count total evidence across threads
+        const totalEvidence = activeThreads.reduce(
+          (sum, t) => sum + (t.evidence?.length || 0), 0,
+        );
+        if (totalEvidence < 3) continue;
+
+        // Find drop_ids that belong to this domain's threads
+        // Match by checking if drop titles appear in thread evidence or names
+        const domainKeywords = [
+          domain.name.toLowerCase(),
+          ...activeThreads.map(t => t.name.toLowerCase()),
+        ];
+        const matchingDropIds = unassignedDrops
+          .filter(d => {
+            const title = (d.title || '').toLowerCase();
+            return domainKeywords.some(kw =>
+              title.includes(kw) || kw.includes(title) ||
+              (d.tags || []).some(tag => kw.includes(tag.toLowerCase()))
+            );
+          })
+          .map(d => d.id)
+          .slice(0, 20);
+
+        // Build a rich "why" from thread context
+        const threadContext = activeThreads
+          .slice(0, 3)
+          .map(t => t.summary || t.recent_update || t.name)
+          .filter(Boolean)
+          .join('. ');
+        const reason = threadContext.length > 200
+          ? threadContext.slice(0, 197) + '...'
+          : threadContext;
+
+        suggestionsToInsert.push({
+          user_id: userId,
+          suggestion_type: 'new_space',
+          space_id: null,
+          suggested_name: domain.name,
+          reason: reason || `Gremly noticed a pattern across ${activeThreads.length} threads in your life`,
+          drop_ids: matchingDropIds,
+          confidence: Math.min(0.95, 0.70 + (activeThreads.length * 0.05) + (totalEvidence * 0.01)),
+          status: 'pending',
+        });
+      }
+
+      console.log(`[Weekly V2:SpaceSuggestions] New space discovery: ${suggestionsToInsert.filter(s => s.suggestion_type === 'new_space').length} candidates`);
+
+      // ═══════════════════════════════════════════════════════════════
+      // PART C: EXPIRE OLD + INSERT NEW
+      // ═══════════════════════════════════════════════════════════════
+
+      // Expire all old pending suggestions for this user
+      await fetch(
+        `${env.SUPABASE_URL}/rest/v1/space_suggestions?user_id=eq.${userId}&status=eq.pending`,
+        {
+          method: 'PATCH',
+          headers: { ...headers, Prefer: 'return=minimal' },
+          body: JSON.stringify({ status: 'expired', updated_at: new Date().toISOString() }),
+        },
+      );
+
+      // Insert new suggestions
+      if (suggestionsToInsert.length > 0) {
+        const insertRes = await fetch(`${env.SUPABASE_URL}/rest/v1/space_suggestions`, {
+          method: 'POST',
+          headers: { ...headers, Prefer: 'return=minimal' },
+          body: JSON.stringify(suggestionsToInsert),
+        });
+        if (!insertRes.ok) {
+          console.error(`[Weekly V2:SpaceSuggestions] Insert failed: ${insertRes.statusText}`);
+        }
+      }
+
+      console.log(`[Weekly V2:SpaceSuggestions] Complete: ${suggestionsToInsert.length} suggestions saved`);
+      return {
+        assign_to_existing: suggestionsToInsert.filter(s => s.suggestion_type === 'assign_to_space').length,
+        new_space: suggestionsToInsert.filter(s => s.suggestion_type === 'new_space').length,
+      };
+    });
+
+    // Step 10: Send push notification (non-fatal)
     await step.run('send-push', async () => {
       if (!pushToken) {
         console.log(`[Weekly V2] No push token for ${userId}, skipping notification`);
@@ -3244,6 +3495,7 @@ async function getFirstActivityDate(userId, env) {
 // Space Suggestions Generation
 // ============================================================================
 
+/** @deprecated Replaced by 'process-space-suggestions' step in weeklySummaryV2Worker. Kept for manual API trigger only. Will be removed in Phase 5. */
 async function generateSpaceSuggestions(userId, env) {
   const headers = {
     apikey: env.SUPABASE_SERVICE_KEY,
@@ -7376,7 +7628,8 @@ named_anchors: People, places, trips, or projects explicitly mentioned in today'
 
 CRITICAL:
 - lead_story and secondary MUST use exact domain and thread names from the Life Map.
-- "detail" must be specific and concrete to TODAY — dates, locations, countdowns, recent events. Not a restatement of the thread summary.
+- "detail" adds COLOR to the headline — a short, specific note (max 1 sentence, max 80 chars) that gives context the headline can't. Written in second person — "you" not "the user". Must NOT repeat the same information as lead_story. Instead, surface what makes today different: a feeling, a tension, a countdown, a contrast. If the headline says "island transition today", the detail should NOT say "travel day with a flight" — it should say something the headline missed.
+- "detail" is written TO the user in second person ("you", "your"). NEVER say "the user". Max 80 characters.
 - "why_today" is your editorial reasoning in one sentence — why this thread matters more than others TODAY specifically.
 
 OUTPUT — return ONLY this JSON:
@@ -7403,13 +7656,13 @@ OUTPUT — return ONLY this JSON:
     "lead_story": {
       "domain": "exact domain name",
       "thread": "exact thread name",
-      "detail": "specific to today — concrete, with dates or countdowns",
+      "detail": "max 80 chars, second person, adds context the headline misses",
       "why_today": "one sentence editorial reasoning"
     },
     "secondary": {
       "domain": "exact domain name",
       "thread": "exact thread name",
-      "detail": "specific to today"
+      "detail": "max 80 chars, second person, adds context"
     },
     "life_moment": "short phrase or null",
     "tone": "relaxed|focused|stretched|recovering|celebratory",

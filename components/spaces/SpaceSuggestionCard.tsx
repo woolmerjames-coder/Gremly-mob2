@@ -92,11 +92,16 @@ export default function SpaceSuggestionCard({
       <Text style={styles.spaceName}>"{suggestion.suggested_name}"</Text>
 
       {/* Reason */}
-      {suggestion.reason && (
-        <Text style={styles.reason} numberOfLines={2}>
-          {itemText} — {suggestion.reason}
-        </Text>
-      )}
+      <View style={styles.reasonSection}>
+        <View style={styles.itemBadge}>
+          <Text style={styles.itemBadgeText}>{itemText}</Text>
+        </View>
+        {suggestion.reason && (
+          <Text style={styles.reasonText} numberOfLines={3}>
+            {suggestion.reason}
+          </Text>
+        )}
+      </View>
 
       {/* Actions */}
       <View style={styles.actions}>
@@ -178,10 +183,26 @@ const styles = StyleSheet.create({
     color: '#222222',
     marginBottom: 4,
   },
-  reason: {
+  reasonSection: {
+    marginBottom: 16,
+    gap: 8,
+  },
+  itemBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(46, 85, 64, 0.1)',
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+  },
+  itemBadgeText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#2E5540',
+  },
+  reasonText: {
     fontSize: 14,
     color: '#6A6F76',
-    marginBottom: 16,
+    lineHeight: 20,
   },
   actions: {
     flexDirection: 'row',
