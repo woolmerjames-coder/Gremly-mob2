@@ -1497,6 +1497,189 @@ function extractUrlsFromText(text) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// RUNNING SUMMARY — fire-and-forget after Space Chat replies
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function generateRunningSummary(conversationMessages, lastAssistantResponse, chatId, spaceName, previousSummary, env) {
+  const t0 = Date.now();
+
+  // Gate: only summarize substantive conversations
+  const userMessages = conversationMessages.filter(m => m.role === 'user');
+  const totalUserChars = userMessages.reduce((sum, m) => sum + (m.content || '').length, 0);
+  if (userMessages.length < 3 || totalUserChars < 200) {
+    return;
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+
+  const turns = [
+    ...conversationMessages.slice(-8).map(m =>
+      `${m.role === 'user' ? 'User' : 'Gremly'}: ${(m.content || '').slice(0, 300)}`
+    ),
+    `Gremly: ${lastAssistantResponse.slice(0, 300)}`,
+  ].join('\n');
+
+  const priorContext = previousSummary
+    ? `\nPRIOR SUMMARY (build on this — preserve important context from earlier in the conversation, update with new developments):\n${previousSummary}`
+    : '';
+
+  const prompt = `Today is ${today}. Summarize this conversation${spaceName ? ` (in the user's "${spaceName}" life area)` : ''} in 2-4 sentences.${priorContext}
+
+Capture:
+- What was discussed or explored
+- Any decisions made, conclusions reached, or plans formed
+- Emotional tone or signals the user expressed
+- Open questions or unresolved threads
+
+Write as factual notes about the conversation. Be specific — include names, dates, numbers, and details mentioned. Reference when things were discussed relative to today.
+
+CONVERSATION:
+${turns}
+
+SUMMARY:`;
+
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-nano',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 200,
+        temperature: 0.3,
+      }),
+    });
+
+    if (!res.ok) {
+      console.warn(`[RunningSummary] Nano call failed: ${res.status}`);
+      return;
+    }
+
+    const data = await res.json();
+    let summary = (data.choices?.[0]?.message?.content || '').trim();
+    if (!summary) return;
+
+    summary = summary.slice(0, 500).replace(/[\x00-\x1F\x7F]/g, ' ').trim();
+
+    const patchRes = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${chatId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          running_summary: summary,
+          updated_at: new Date().toISOString(),
+        }),
+      },
+    );
+
+    if (!patchRes.ok) {
+      console.warn(`[RunningSummary] PATCH failed: ${patchRes.statusText}`);
+    } else {
+      console.log(`[RunningSummary] Updated chat ${chatId} (${Date.now() - t0}ms): "${summary.slice(0, 60)}..."`);
+    }
+  } catch (err) {
+    console.warn(`[RunningSummary] Error: ${err.message}`);
+  }
+}
+
+async function generateEntityChatSummary(conversationMessages, lastAssistantResponse, entityId, entityType, entityTitle, spaceName, previousSummary, env) {
+  const t0 = Date.now();
+
+  // Gate: only summarize substantive conversations
+  const userMessages = conversationMessages.filter(m => m.role === 'user');
+  const totalUserChars = userMessages.reduce((sum, m) => sum + (m.content || '').length, 0);
+  if (userMessages.length < 3 || totalUserChars < 200) {
+    return;
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+
+  const turns = [
+    ...conversationMessages.slice(-8).map(m =>
+      `${m.role === 'user' ? 'User' : 'Gremly'}: ${(m.content || '').slice(0, 300)}`
+    ),
+    `Gremly: ${lastAssistantResponse.slice(0, 300)}`,
+  ].join('\n');
+
+  const entityContext = [
+    entityTitle ? `about "${entityTitle}"` : '',
+    entityType ? `(${entityType})` : '',
+    spaceName ? `in the "${spaceName}" area` : '',
+  ].filter(Boolean).join(' ');
+
+  const priorContext = previousSummary
+    ? `\nPRIOR SUMMARY (build on this — preserve important context, update with new developments):\n${previousSummary}`
+    : '';
+
+  const prompt = `Today is ${today}. Summarize this conversation ${entityContext} in 1-3 sentences.${priorContext}
+
+Capture: what was explored, any decisions or plans made, emotional signals, and open questions. Write as factual notes. Be specific with names, dates, and details.
+
+CONVERSATION:
+${turns}
+
+SUMMARY:`;
+
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-nano',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 150,
+        temperature: 0.3,
+      }),
+    });
+
+    if (!res.ok) {
+      console.warn(`[EntityChatSummary] Nano call failed: ${res.status}`);
+      return;
+    }
+
+    const data = await res.json();
+    let summary = (data.choices?.[0]?.message?.content || '').trim();
+    if (!summary) return;
+
+    summary = summary.slice(0, 400).replace(/[\x00-\x1F\x7F]/g, ' ').trim();
+
+    const rpcRes = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/set_chat_summary`, {
+      method: 'POST',
+      headers: {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        p_entity_type: entityType,
+        p_entity_id: entityId,
+        p_summary: summary,
+      }),
+    });
+
+    if (!rpcRes.ok) {
+      console.warn(`[EntityChatSummary] RPC failed: ${rpcRes.statusText}`);
+    } else {
+      console.log(`[EntityChatSummary] Updated ${entityType} ${entityId} (${Date.now() - t0}ms): "${summary.slice(0, 60)}..."`);
+    }
+  } catch (err) {
+    console.warn(`[EntityChatSummary] Error: ${err.message}`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // OPENAI FUNCTION TOOL DEFINITIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -3965,6 +4148,44 @@ Almost never suggest creating a Space. Only if ALL true:
                 used_search: !!searchQuery,
                 images_sent: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
               });
+
+              // ── POST-STREAM: Update entity chat summary (non-blocking) ──
+              if (body.userId && fullContent) {
+                const entity = body.entity || {};
+                const entityId = entity.id || null;
+                const entityType = entity.type || null;
+                if (entityId && entityType) {
+                  // Fetch previous summary for accumulation
+                  let previousEntitySummary = null;
+                  try {
+                    const tableName = entityType === 'habit' ? 'habits' : entityType === 'note' ? 'notes' : 'todos';
+                    const prevRes = await fetch(
+                      `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
+                      {
+                        headers: {
+                          apikey: env.SUPABASE_SERVICE_KEY,
+                          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                        },
+                      },
+                    );
+                    if (prevRes.ok) {
+                      const prevRows = await prevRes.json();
+                      previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
+                    }
+                  } catch {}
+
+                  generateEntityChatSummary(
+                    messages.filter(m => m.role !== 'system'),
+                    fullContent,
+                    entityId,
+                    entityType,
+                    entity.title || entity.name || null,
+                    entity.space_name || null,
+                    previousEntitySummary,
+                    env,
+                  ).catch(err => console.warn('[EntityChat] Chat summary failed:', err.message));
+                }
+              }
             } catch (streamErr) {
               console.log('[EntityChat:Streaming] Stream error', { error: String(streamErr) });
               const errorData = JSON.stringify({
@@ -4123,6 +4344,43 @@ Almost never suggest creating a Space. Only if ALL true:
             has_promotion: promotion?.suggested,
             used_search: !!searchQuery,
           });
+
+          // ── POST-RESPONSE: Update entity chat summary (non-blocking) ──
+          if (body.userId && content) {
+            const entity = body.entity || {};
+            const entityId = entity.id || null;
+            const entityType = entity.type || null;
+            if (entityId && entityType) {
+              let previousEntitySummary = null;
+              try {
+                const tableName = entityType === 'habit' ? 'habits' : entityType === 'note' ? 'notes' : 'todos';
+                const prevRes = await fetch(
+                  `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
+                  {
+                    headers: {
+                      apikey: env.SUPABASE_SERVICE_KEY,
+                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                    },
+                  },
+                );
+                if (prevRes.ok) {
+                  const prevRows = await prevRes.json();
+                  previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
+                }
+              } catch {}
+
+              generateEntityChatSummary(
+                messages.filter(m => m.role !== 'system'),
+                content,
+                entityId,
+                entityType,
+                entity.title || entity.name || null,
+                entity.space_name || null,
+                previousEntitySummary,
+                env,
+              ).catch(err => console.warn('[EntityChat:NonStreaming] Chat summary failed:', err.message));
+            }
+          }
 
           return j({
             content,
@@ -8994,6 +9252,31 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               content_length: fullContent.length,
               used_search: !!searchQuery,
             });
+
+            // ── POST-STREAM: Update running summary (non-blocking) ──
+            if (body.chatId && body.userId && fullContent) {
+              // Fetch previous summary for accumulation
+              const prevSummaryRes = await fetch(
+                `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                {
+                  headers: {
+                    apikey: env.SUPABASE_SERVICE_KEY,
+                    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                  },
+                },
+              ).catch(() => null);
+              const prevData = prevSummaryRes?.ok ? await prevSummaryRes.json().catch(() => []) : [];
+              const previousSummary = prevData?.[0]?.running_summary || null;
+
+              generateRunningSummary(
+                messages.filter(m => m.role !== 'system'),
+                fullContent,
+                body.chatId,
+                body.spaceName || null,
+                previousSummary,
+                env,
+              ).catch(err => console.warn('[SpaceChat] Running summary failed:', err.message));
+            }
           } catch (streamErr) {
             console.log('[SpaceChat:Streaming] Stream error', { error: String(streamErr) });
             const errorData = JSON.stringify({
@@ -9207,6 +9490,30 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
           used_search: !!searchQuery,
           triage_mode: triage.mode,
         });
+
+        // ── POST-RESPONSE: Update running summary (non-blocking) ──
+        if (body.chatId && body.userId && content) {
+          const prevSummaryRes = await fetch(
+            `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+            {
+              headers: {
+                apikey: env.SUPABASE_SERVICE_KEY,
+                Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+              },
+            },
+          ).catch(() => null);
+          const prevData = prevSummaryRes?.ok ? await prevSummaryRes.json().catch(() => []) : [];
+          const previousSummary = prevData?.[0]?.running_summary || null;
+
+          generateRunningSummary(
+            messages.filter(m => m.role !== 'system'),
+            content,
+            body.chatId,
+            body.spaceName || null,
+            previousSummary,
+            env,
+          ).catch(err => console.warn('[SpaceChat:NonStreaming] Running summary failed:', err.message));
+        }
 
         return j({
           id: String((oj.id || '').replace(/^chatcmpl-/, 'cmpl-')),
