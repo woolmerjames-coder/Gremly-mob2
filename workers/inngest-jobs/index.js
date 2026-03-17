@@ -4854,7 +4854,6 @@ Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL
 Primary recommendation from plan: ${JSON.stringify(recs.primary || {})}
 Secondary recommendations from plan: ${JSON.stringify(recs.secondary || [])}
 Allocated evidence (use ONLY these): ${JSON.stringify(recsDetails)}
-Narrative arc: ${plan.narrative_arc || ''}
 ${notesBlock}
 
 Schema:
@@ -4912,7 +4911,6 @@ Output ONLY valid JSON. Use ONLY the allocated details provided. Stay within ALL
 
     case 'stale_triage': {
       cardPrompt = `Output a single JSON object for the stale_triage card.
-Narrative arc: ${plan.narrative_arc || ''}
 Stale items data (include ALL of these — do NOT filter or omit any): ${JSON.stringify(staleItems)}
 ${notesBlock}
 
@@ -5278,6 +5276,29 @@ async function generateWeeklySummaryV2(
       console.log(`[WeeklySummaryV2] Moments selected: ${selectedMoments.map(m => m.title_idea).join(', ')}`);
     }
 
+    // Override: if analyst has 2+ magic moments and planner only picked 1, force a second moment
+    const analystMoments = storytellerData.analyst?.magic_moment_candidates || [];
+    if (selectedMoments.length === 1 && analystMoments.length >= 2 && (cands.moment_candidates || []).length >= 2) {
+      // Find a second moment candidate that's on a different day
+      const firstDate = selectedMoments[0]?.date;
+      const secondIdx = (cands.moment_candidates || []).findIndex((m, i) => 
+        !sels.moment_pick_indices.includes(i) && m.date !== firstDate
+      );
+      if (secondIdx !== -1) {
+        const secondMoment = cands.moment_candidates[secondIdx];
+        selectedMoments.push(secondMoment);
+        plan.detail_allocation.moment_details.push({
+          day: secondMoment.day_label,
+          date: secondMoment.date,
+          title_idea: secondMoment.title_idea,
+          unique_details: secondMoment.unique_details || [],
+          thread_tags: secondMoment.thread_tags || [],
+        });
+        plan.card_decisions.moment_count = 2;
+        console.log(`[WeeklySummaryV2] Moment override: added second moment "${secondMoment.title_idea}" (${secondMoment.date})`);
+      }
+    }
+
     // Wire thread selections into card_decisions AND detail_allocation.thread_details
     let threadNames = sels.thread_pick_names || [];
 
@@ -5363,6 +5384,93 @@ async function generateWeeklySummaryV2(
   for (const type of orderedTypes) {
     const card = builtCards.find(c => c && c.type === type);
     if (card) assembledCards.push(card);
+  }
+
+  // ── QUOTE DEDUPLICATION (code-enforced) ───────────────────────────────
+  // Extract all quoted phrases from every card. If any quote appears on
+  // more than one card, blank it from every card except the first one.
+  {
+    const quoteRegex = /['"][^'"]{15,}['"]/g;
+    const seenQuotes = new Map(); // quote text → first card type that used it
+
+    for (const card of assembledCards) {
+      const cardJson = JSON.stringify(card);
+      const matches = cardJson.match(quoteRegex) || [];
+
+      for (const match of matches) {
+        const cleaned = match.slice(1, -1).toLowerCase().trim();
+        if (!seenQuotes.has(cleaned)) {
+          seenQuotes.set(cleaned, card.type);
+        }
+      }
+    }
+
+    // Second pass: for each card that isn't the first user of a quote, remove it
+    let deduped = 0;
+    for (const card of assembledCards) {
+      if (card.type === 'gremly_mood' || card.type === 'opening') continue; // protect these
+
+      const removeQuote = (text) => {
+        if (!text) return text;
+        let result = text;
+        for (const [quote, firstCardType] of seenQuotes.entries()) {
+          if (firstCardType === card.type) continue; // this card owns the quote
+          // Check if this text contains the quote (case-insensitive)
+          const idx = result.toLowerCase().indexOf(quote);
+          if (idx !== -1) {
+            // Find the sentence containing this quote and remove it
+            const before = result.lastIndexOf('.', idx);
+            const after = result.indexOf('.', idx + quote.length);
+            if (before !== -1 && after !== -1) {
+              result = result.slice(0, before + 1).trim() + ' ' + result.slice(after + 1).trim();
+            } else if (after !== -1) {
+              result = result.slice(after + 1).trim();
+            }
+            deduped++;
+          }
+        }
+        return result.trim();
+      };
+
+      // Apply to text fields based on card type
+      switch (card.type) {
+        case 'thread_movements':
+          if (card.threads) {
+            for (const thread of card.threads) {
+              thread.detail = removeQuote(thread.detail);
+            }
+          }
+          break;
+        case 'moments':
+          if (card.moments) {
+            for (const moment of card.moments) {
+              moment.body = removeQuote(moment.body);
+            }
+          }
+          break;
+        case 'discoveries':
+          if (card.spotlight) {
+            card.spotlight.evidence_trail = removeQuote(card.spotlight.evidence_trail);
+            card.spotlight.takeaway = removeQuote(card.spotlight.takeaway);
+          }
+          break;
+        case 'recommends':
+          if (card.primary) card.primary.body = removeQuote(card.primary.body);
+          if (card.secondary) {
+            for (const rec of card.secondary) {
+              rec.body = removeQuote(rec.body);
+            }
+          }
+          break;
+        case 'week_ahead':
+          card.intro = removeQuote(card.intro);
+          break;
+      }
+    }
+
+    if (deduped > 0) {
+      console.log(`[WeeklySummaryV2] Quote dedup: removed ${deduped} duplicate quote(s) across cards`);
+    }
   }
 
   // ── IMAGE RESOLUTION — Unsplash ──────────────────────────────────────────
@@ -5467,6 +5575,36 @@ async function generateWeeklySummaryV2(
       card_decisions: plan.card_decisions || null,
     },
   };
+
+  // ── THEMATIC CLUSTERING MONITOR ──────────────────────────────────────
+  {
+    const themeMentions = {};
+    for (const card of assembledCards) {
+      const cardText = JSON.stringify(card).toLowerCase();
+      // Check each thread name from the planner's thread picks
+      const threadNames = plan.card_decisions?.thread_names_to_show || [];
+      for (const name of threadNames) {
+        const nameLower = name.toLowerCase();
+        // Count substantial mentions (in primary fields, not just tags)
+        let isPrimary = false;
+        if (card.type === 'discoveries' && card.spotlight?.title?.toLowerCase().includes(nameLower)) isPrimary = true;
+        if (card.type === 'recommends' && card.primary?.title?.toLowerCase().includes(nameLower)) isPrimary = true;
+        if (card.type === 'moments' && card.moments?.[0]?.title?.toLowerCase().includes(nameLower)) isPrimary = true;
+        if (card.type === 'gremly_mood' && card.hook?.toLowerCase().includes(nameLower)) isPrimary = true;
+        
+        if (isPrimary) {
+          if (!themeMentions[name]) themeMentions[name] = [];
+          themeMentions[name].push(card.type);
+        }
+      }
+    }
+    
+    for (const [theme, cards] of Object.entries(themeMentions)) {
+      if (cards.length >= 3) {
+        console.warn(`[WeeklySummaryV2] THEME CLUSTERING: "${theme}" is primary focus on ${cards.length} cards: ${cards.join(', ')}`);
+      }
+    }
+  }
 
   // ── STRUCTURAL ENFORCEMENT (deterministic — no AI) ──────────────────────
   if (parsed.cards) {
