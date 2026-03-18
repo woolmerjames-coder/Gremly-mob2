@@ -1496,6 +1496,109 @@ function extractUrlsFromText(text) {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLANNER PROJECTION — Life Map + daily state context for organize-day
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function fetchPlannerProjection(userId, timezone, env) {
+  if (!userId) return '';
+
+  try {
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    };
+
+    // Fetch Life Map + today's daily state in parallel
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
+
+    const [mapRes, dcoRes] = await Promise.all([
+      fetch(`${env.SUPABASE_URL}/rest/v1/user_life_map?user_id=eq.${userId}&select=life_map`, {
+        headers,
+      }),
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${today}&select=dco`,
+        { headers },
+      ),
+    ]);
+
+    const mapData = mapRes.ok ? await mapRes.json() : [];
+    const dcoData = dcoRes.ok ? await dcoRes.json() : [];
+    const lifeMap = mapData?.[0]?.life_map;
+    const dco = dcoData?.[0]?.dco;
+
+    if (!lifeMap?.domains) return '';
+
+    const parts = [];
+    parts.push('=== LIFE CONTEXT (from accumulated understanding of this person) ===');
+
+    // Daily focus — what matters today
+    if (dco) {
+      if (dco.day_type) parts.push(`Day type: ${dco.day_type}`);
+      if (dco.tone) parts.push(`Today's tone: ${dco.tone}`);
+      if (dco.life_moment) parts.push(`Life moment: ${dco.life_moment}`);
+      if (dco.lead_story) parts.push(`Lead story: ${dco.lead_story}`);
+    }
+
+    // Thread priorities — what to protect and prioritize
+    const priorityThreads = [];
+    const streakProtection = [];
+
+    for (const domain of lifeMap.domains) {
+      if (domain.attention === 'background') continue;
+
+      for (const thread of domain.threads || []) {
+        if (thread.lifecycle !== 'active' && thread.lifecycle !== undefined) continue;
+
+        // Front-of-mind threads get priority
+        if (thread.attention === 'front_of_mind' || domain.attention === 'front_of_mind') {
+          priorityThreads.push(
+            `${domain.name}: ${thread.name} (${thread.status}, ${thread.momentum})`,
+          );
+        }
+
+        // Streak protection — habits that are building or at risk
+        if (thread.momentum === 'strong_upward' || thread.momentum === 'upward') {
+          streakProtection.push(
+            `PROTECT: ${thread.name} — momentum is ${thread.momentum}, don't let it slip`,
+          );
+        }
+        if (
+          thread.status === 'struggling' ||
+          thread.status === 'declining' ||
+          thread.momentum === 'declining'
+        ) {
+          streakProtection.push(
+            `NEEDS ATTENTION: ${thread.name} — ${thread.status}, schedule related tasks early`,
+          );
+        }
+        if (thread.status === 'approaching_milestone') {
+          const milestoneEvidence = (thread.evidence || []).find((e) => e.type === 'milestone');
+          const detail = milestoneEvidence ? milestoneEvidence.signal : 'milestone approaching';
+          streakProtection.push(`MILESTONE: ${thread.name} — ${detail}`);
+        }
+      }
+    }
+
+    if (priorityThreads.length > 0) {
+      parts.push(`\nPriority life threads (schedule related tasks first):`);
+      for (const t of priorityThreads.slice(0, 6)) parts.push(`  ${t}`);
+    }
+
+    if (streakProtection.length > 0) {
+      parts.push(`\nStreak & momentum flags:`);
+      for (const s of streakProtection.slice(0, 6)) parts.push(`  ${s}`);
+    }
+
+    const result = parts.join('\n');
+    console.log(`[organize-day] Planner projection: ${result.length} chars`);
+    return result;
+  } catch (err) {
+    console.warn(`[organize-day] Planner projection failed: ${err.message}`);
+    return '';
+  }
+}
+
 function truncateAtSentence(text, maxChars) {
   if (!text || text.length <= maxChars) return text;
 
@@ -1526,23 +1629,30 @@ function truncateAtSentence(text, maxChars) {
 // RUNNING SUMMARY — fire-and-forget after Space Chat replies
 // ═══════════════════════════════════════════════════════════════════════════════
 
-async function generateRunningSummary(conversationMessages, lastAssistantResponse, chatId, spaceName, previousSummary, env) {
+async function generateRunningSummary(
+  conversationMessages,
+  lastAssistantResponse,
+  chatId,
+  spaceName,
+  previousSummary,
+  env,
+) {
   const t0 = Date.now();
 
   // Gate: only summarize substantive conversations
-  const userMessages = conversationMessages.filter(m => m.role === 'user');
+  const userMessages = conversationMessages.filter((m) => m.role === 'user');
   const totalUserChars = userMessages.reduce((sum, m) => sum + (m.content || '').length, 0);
   if (userMessages.length < 3 || totalUserChars < 200) {
     console.log(`[RunningSummary] Gated out: ${userMessages.length} msgs, ${totalUserChars} chars`);
     return;
   }
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
 
   const turns = [
-    ...conversationMessages.slice(-8).map(m =>
-      `${m.role === 'user' ? 'User' : 'Gremly'}: ${(m.content || '').slice(0, 300)}`
-    ),
+    ...conversationMessages
+      .slice(-8)
+      .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${(m.content || '').slice(0, 300)}`),
     `Gremly: ${lastAssistantResponse.slice(0, 300)}`,
   ].join('\n');
 
@@ -1589,53 +1699,64 @@ SUMMARY:`;
     let summary = (data.choices?.[0]?.message?.content || '').trim();
     if (!summary) return;
 
-    summary = truncateAtSentence(summary.replace(/[\x00-\x1F\x7F]/g, ' ').trim(), 500);
+    // eslint-disable-next-line no-control-regex
+    summary = truncateAtSentence(summary.replace(/[\0-\x1f\x7f]/g, ' ').trim(), 500);
 
-    const patchRes = await fetch(
-      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${chatId}`,
-      {
-        method: 'PATCH',
-        headers: {
-          apikey: env.SUPABASE_SERVICE_KEY,
-          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-          'Content-Type': 'application/json',
-          Prefer: 'return=minimal',
-        },
-        body: JSON.stringify({
-          running_summary: summary,
-          updated_at: new Date().toISOString(),
-        }),
+    const patchRes = await fetch(`${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${chatId}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
       },
-    );
+      body: JSON.stringify({
+        running_summary: summary,
+        updated_at: new Date().toISOString(),
+      }),
+    });
 
     if (!patchRes.ok) {
       console.warn(`[RunningSummary] PATCH failed: ${patchRes.statusText}`);
     } else {
-      console.log(`[RunningSummary] Updated chat ${chatId} (${Date.now() - t0}ms): "${summary.slice(0, 60)}..."`);
+      console.log(
+        `[RunningSummary] Updated chat ${chatId} (${Date.now() - t0}ms): "${summary.slice(0, 60)}..."`,
+      );
     }
   } catch (err) {
     console.warn(`[RunningSummary] Error: ${err.message}`);
   }
 }
 
-async function generateEntityChatSummary(conversationMessages, lastAssistantResponse, entityId, entityType, entityTitle, spaceName, previousSummary, env) {
+async function generateEntityChatSummary(
+  conversationMessages,
+  lastAssistantResponse,
+  entityId,
+  entityType,
+  entityTitle,
+  spaceName,
+  previousSummary,
+  env,
+) {
   const t0 = Date.now();
 
   // Gate: only summarize substantive conversations
-  const userMessages = conversationMessages.filter(m => m.role === 'user');
+  const userMessages = conversationMessages.filter((m) => m.role === 'user');
   const totalUserChars = userMessages.reduce((sum, m) => sum + (m.content || '').length, 0);
 
   if (userMessages.length < 3 || totalUserChars < 200) {
-    console.log(`[EntityChatSummary] Gated out: ${userMessages.length} msgs, ${totalUserChars} chars`);
+    console.log(
+      `[EntityChatSummary] Gated out: ${userMessages.length} msgs, ${totalUserChars} chars`,
+    );
     return;
   }
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
 
   const turns = [
-    ...conversationMessages.slice(-8).map(m =>
-      `${m.role === 'user' ? 'User' : 'Gremly'}: ${(m.content || '').slice(0, 300)}`
-    ),
+    ...conversationMessages
+      .slice(-8)
+      .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${(m.content || '').slice(0, 300)}`),
     `Gremly: ${lastAssistantResponse.slice(0, 300)}`,
   ].join('\n');
 
@@ -1643,7 +1764,9 @@ async function generateEntityChatSummary(conversationMessages, lastAssistantResp
     entityTitle ? `about "${entityTitle}"` : '',
     entityType ? `(${entityType})` : '',
     spaceName ? `in the "${spaceName}" area` : '',
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   const priorContext = previousSummary
     ? `\nPRIOR SUMMARY (build on this — preserve important context, update with new developments):\n${previousSummary}`
@@ -1682,7 +1805,8 @@ SUMMARY:`;
     let summary = (data.choices?.[0]?.message?.content || '').trim();
     if (!summary) return;
 
-    summary = truncateAtSentence(summary.replace(/[\x00-\x1F\x7F]/g, ' ').trim(), 400);
+    // eslint-disable-next-line no-control-regex
+    summary = truncateAtSentence(summary.replace(/[\0-\x1f\x7f]/g, ' ').trim(), 400);
 
     const rpcRes = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/set_chat_summary`, {
       method: 'POST',
@@ -1701,7 +1825,9 @@ SUMMARY:`;
     if (!rpcRes.ok) {
       console.warn(`[EntityChatSummary] RPC failed: ${rpcRes.statusText}`);
     } else {
-      console.log(`[EntityChatSummary] Updated ${entityType} ${entityId} (${Date.now() - t0}ms): "${summary.slice(0, 60)}..."`);
+      console.log(
+        `[EntityChatSummary] Updated ${entityType} ${entityId} (${Date.now() - t0}ms): "${summary.slice(0, 60)}..."`,
+      );
     }
   } catch (err) {
     console.warn(`[EntityChatSummary] Error: ${err.message}`);
@@ -3496,10 +3622,15 @@ Almost never suggest creating a Space. Only if ALL true:
         if (body.userId) {
           try {
             const [chatContext, profile] = await Promise.all([
-              buildChatContext(body.userId, 'entity', {
-                entityTitle: entity?.title || entity?.name || null,
-                entitySpaceId: entity?.spaceId || entity?.space_id || null,
-              }, env),
+              buildChatContext(
+                body.userId,
+                'entity',
+                {
+                  entityTitle: entity?.title || entity?.name || null,
+                  entitySpaceId: entity?.spaceId || entity?.space_id || null,
+                },
+                env,
+              ),
               getUserProfile(body.userId, env),
             ]);
             sessionContextStr = chatContext;
@@ -4186,7 +4317,12 @@ Almost never suggest creating a Space. Only if ALL true:
                 if (entityId && entityType) {
                   const summaryPromise = (async () => {
                     try {
-                      const tableName = entityType === 'habit' ? 'habits' : entityType === 'note' ? 'notes' : 'todos';
+                      const tableName =
+                        entityType === 'habit'
+                          ? 'habits'
+                          : entityType === 'note'
+                            ? 'notes'
+                            : 'todos';
                       const prevRes = await fetch(
                         `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
                         {
@@ -4200,7 +4336,7 @@ Almost never suggest creating a Space. Only if ALL true:
                       const previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
 
                       await generateEntityChatSummary(
-                        messages.filter(m => m.role !== 'system'),
+                        messages.filter((m) => m.role !== 'system'),
                         fullContent,
                         entityId,
                         entityType,
@@ -4383,7 +4519,8 @@ Almost never suggest creating a Space. Only if ALL true:
             if (entityId && entityType) {
               const summaryPromise = (async () => {
                 try {
-                  const tableName = entityType === 'habit' ? 'habits' : entityType === 'note' ? 'notes' : 'todos';
+                  const tableName =
+                    entityType === 'habit' ? 'habits' : entityType === 'note' ? 'notes' : 'todos';
                   const prevRes = await fetch(
                     `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
                     {
@@ -4397,7 +4534,7 @@ Almost never suggest creating a Space. Only if ALL true:
                   const previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
 
                   await generateEntityChatSummary(
-                    messages.filter(m => m.role !== 'system'),
+                    messages.filter((m) => m.role !== 'system'),
                     content,
                     entityId,
                     entityType,
@@ -4942,6 +5079,12 @@ ${formatGaps(blocks.evening?.gaps)}`;
               .join('\n') + '\n';
         }
 
+        // === Life Map planner projection ===
+        let plannerProjection = '';
+        if (userId) {
+          plannerProjection = await fetchPlannerProjection(userId, timezone, env);
+        }
+
         // === Static system prompt (cached) ===
         const ORGANIZE_SYSTEM_PROMPT = `You are a task scheduler for a productivity app called Gremly. Your job is to place tasks into time blocks to create a calm, focused, achievable day.
 
@@ -5072,13 +5215,14 @@ Each task includes:
 - space: which life domain this belongs to
 - locked (boolean) — true if the user has committed to completing this task today. Prioritize scheduling these.
 ${expandedContext}
+${plannerProjection ? '\n' + plannerProjection + '\n' : ''}
 Schedule these tasks now. Respond with ONLY valid JSON.`;
 
         // === API Call ===
-        const anthropicKey = env.ANTHROPIC_API_KEY;
-        if (!anthropicKey) {
-          console.log('[organize-day] ANTHROPIC_API_KEY not configured');
-          return j({ error: 'anthropic_key_not_configured' }, 500);
+        const apiKey = env.GOOGLE_API_KEY;
+        if (!apiKey) {
+          console.log('[organize-day] GOOGLE_API_KEY not configured');
+          return j({ error: 'google_key_not_configured' }, 500);
         }
 
         const t0 = Date.now();
@@ -5087,25 +5231,22 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
 
-          const res = await fetch('https://api.anthropic.com/v1/messages', {
+          const res = await fetch(GEMINI_BASE_URL, {
             signal: controller.signal,
             method: 'POST',
             headers: {
+              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
               'Content-Type': 'application/json',
-              'x-api-key': anthropicKey,
-              'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-5-20250929',
-              max_tokens: 4096,
-              system: [
-                {
-                  type: 'text',
-                  text: ORGANIZE_SYSTEM_PROMPT,
-                  cache_control: { type: 'ephemeral' },
-                },
+              model: 'gemini-2.5-flash',
+              messages: [
+                { role: 'system', content: ORGANIZE_SYSTEM_PROMPT },
+                { role: 'user', content: userMessage },
               ],
-              messages: [{ role: 'user', content: userMessage }],
+              max_tokens: 8192,
+              temperature: 0.2,
+              reasoning_effort: 'low',
             }),
           });
 
@@ -5133,16 +5274,13 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             );
           }
 
-          const anthropicResponse = await res.json();
-          const rawContent = anthropicResponse.content?.[0]?.text || '';
+          const geminiResponse = await res.json();
+          const rawContent = geminiResponse.choices?.[0]?.message?.content || '';
 
-          // Log cache performance
-          const usage = anthropicResponse.usage || {};
-          console.log('[organize-day] Anthropic usage', {
-            input_tokens: usage.input_tokens,
-            output_tokens: usage.output_tokens,
-            cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
-            cache_read_input_tokens: usage.cache_read_input_tokens || 0,
+          const usage = geminiResponse.usage || {};
+          console.log('[organize-day] Gemini usage', {
+            prompt_tokens: usage.prompt_tokens,
+            completion_tokens: usage.completion_tokens,
             latency_ms: latency,
           });
 
@@ -5253,7 +5391,6 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             overflow: overflow.length,
             total_tasks: tasksToAssign.length,
             latency_ms: latency,
-            cached: (usage.cache_read_input_tokens || 0) > 0,
           });
 
           return j({
@@ -5263,10 +5400,9 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             summary,
             latency_ms: latency,
             _debug: {
-              model: 'claude-sonnet-4-5',
-              cached: (usage.cache_read_input_tokens || 0) > 0,
-              input_tokens: usage.input_tokens,
-              output_tokens: usage.output_tokens,
+              model: 'gemini-2.5-flash',
+              prompt_tokens: usage.prompt_tokens,
+              completion_tokens: usage.completion_tokens,
             },
           });
         } catch (err) {
@@ -8760,9 +8896,14 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         if (body.userId) {
           try {
             const [chatContext, profile] = await Promise.all([
-              buildChatContext(body.userId, 'space', {
-                spaceId: body.spaceId,
-              }, env),
+              buildChatContext(
+                body.userId,
+                'space',
+                {
+                  spaceId: body.spaceId,
+                },
+                env,
+              ),
               getUserProfile(body.userId, env),
             ]);
             spaceSessionContextStr = chatContext;
@@ -9298,11 +9439,13 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       },
                     },
                   );
-                  const prevData = prevSummaryRes?.ok ? await prevSummaryRes.json().catch(() => []) : [];
+                  const prevData = prevSummaryRes?.ok
+                    ? await prevSummaryRes.json().catch(() => [])
+                    : [];
                   const previousSummary = prevData?.[0]?.running_summary || null;
 
                   await generateRunningSummary(
-                    messages.filter(m => m.role !== 'system'),
+                    messages.filter((m) => m.role !== 'system'),
                     fullContent,
                     body.chatId,
                     body.spaceName || null,
@@ -9354,9 +9497,14 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         if (body.userId) {
           try {
             const [chatContext, profile] = await Promise.all([
-              buildChatContext(body.userId, 'space', {
-                spaceId: body.spaceId,
-              }, env),
+              buildChatContext(
+                body.userId,
+                'space',
+                {
+                  spaceId: body.spaceId,
+                },
+                env,
+              ),
               getUserProfile(body.userId, env),
             ]);
             sessionContextStr = chatContext;
@@ -9542,11 +9690,13 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   },
                 },
               );
-              const prevData = prevSummaryRes?.ok ? await prevSummaryRes.json().catch(() => []) : [];
+              const prevData = prevSummaryRes?.ok
+                ? await prevSummaryRes.json().catch(() => [])
+                : [];
               const previousSummary = prevData?.[0]?.running_summary || null;
 
               await generateRunningSummary(
-                messages.filter(m => m.role !== 'system'),
+                messages.filter((m) => m.role !== 'system'),
                 content,
                 body.chatId,
                 body.spaceName || null,
