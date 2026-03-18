@@ -3267,8 +3267,8 @@ ${JSON.stringify(storytellerData, null, 2)}`;
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // eslint-disable-next-line no-constant-condition -- SSE stream reader
   while (true) {
-    // eslint-disable-line no-constant-condition -- SSE stream reader
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
