@@ -2,7 +2,9 @@ import React, { useRef, useCallback, useState, useImperativeHandle, forwardRef, 
 import { View, ViewStyle, StyleSheet, Platform } from 'react-native';
 import LottieView from 'lottie-react-native';
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const IDLE_ANIM = require('../../assets/lottie/character1_B.json');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const CELEBRATE_ANIM = require('../../assets/lottie/character2_B.json');
 
 export type MascotLottieHandle = { celebrate: () => void };

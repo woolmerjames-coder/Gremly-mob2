@@ -22,7 +22,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+import type {
+  NativeStackNavigationProp,
+  NativeStackScreenProps,
+} from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import Animated, {
   FadeIn,
@@ -126,7 +129,10 @@ const WS_CARD_SHADOW = {
 // Lucide icon resolver — maps icon_hint strings to components
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ICON_MAP: Record<string, React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>> = {
+const ICON_MAP: Record<
+  string,
+  React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>
+> = {
   'map-pin': MapPin,
   timer: Timer,
   dumbbell: Dumbbell,
@@ -201,7 +207,20 @@ function formatWeekLabel(raw: string): string {
     if (parts.length !== 2) return raw;
     const start = new Date(parts[0] + 'T00:00:00Z');
     const end = new Date(parts[1] + 'T00:00:00Z');
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthNames = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     const sMonth = monthNames[start.getUTCMonth()];
     const eMonth = monthNames[end.getUTCMonth()];
     const sDay = start.getUTCDate();
@@ -217,7 +236,13 @@ function formatWeekLabel(raw: string): string {
 
 function GremlyMoodCard({ card }: { card: any }) {
   return (
-    <Animated.View entering={FadeIn.duration(500)} style={[styles.card, { alignItems: 'center', paddingTop: 72, paddingBottom: 48, overflow: 'visible' }]}>
+    <Animated.View
+      entering={FadeIn.duration(500)}
+      style={[
+        styles.card,
+        { alignItems: 'center', paddingTop: 72, paddingBottom: 48, overflow: 'visible' },
+      ]}
+    >
       {/* Mascot image */}
       <Animated.View
         entering={FadeInUp.delay(100).duration(400)}
@@ -358,12 +383,18 @@ function OpeningCard({
       </Animated.View>
 
       {/* Hero image */}
-      {(card.image_url || card.image_hint) ? (
+      {card.image_url || card.image_hint ? (
         <Animated.View entering={FadeInUp.delay(500).duration(350)}>
           {card.image_url ? (
-            <Image source={{ uri: card.image_url }} style={openingStyles.heroImage} resizeMode="cover" />
+            <Image
+              source={{ uri: card.image_url }}
+              style={openingStyles.heroImage}
+              resizeMode="cover"
+            />
           ) : (
-            <View style={[openingStyles.heroImage, { alignItems: 'center', justifyContent: 'center' }]}>
+            <View
+              style={[openingStyles.heroImage, { alignItems: 'center', justifyContent: 'center' }]}
+            >
               <Text style={openingStyles.heroImageLabel}>{card.image_hint}</Text>
             </View>
           )}
@@ -384,7 +415,8 @@ function OpeningCard({
       ) : null}
 
       {/* Engagement pulse */}
-      {card.engagement && (card.engagement.drops > 0 || card.engagement.sweeps > 0 || card.engagement.journals > 0) ? (
+      {card.engagement &&
+      (card.engagement.drops > 0 || card.engagement.sweeps > 0 || card.engagement.journals > 0) ? (
         <Animated.View entering={FadeInUp.delay(700).duration(350)}>
           <View style={openingStyles.pulseRow}>
             <Sparkles size={13} color={WS.sageDark} strokeWidth={2} />
@@ -393,7 +425,9 @@ function OpeningCard({
                 card.engagement.drops > 0 ? `${card.engagement.drops} drops` : null,
                 card.engagement.sweeps > 0 ? `${card.engagement.sweeps} sweeps` : null,
                 card.engagement.journals > 0 ? `${card.engagement.journals} journals` : null,
-              ].filter(Boolean).join(' · ')}
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </Text>
           </View>
         </Animated.View>
@@ -423,15 +457,20 @@ const BADGE_COLOR: Record<string, string> = {
 };
 
 function ThreadTile({ thread }: { thread: WSV2Thread }) {
-  const Icon = useMemo(() => resolveIcon(thread.icon_hint), [thread.icon_hint]);
+  // eslint-disable-next-line react-hooks/static-components -- pure ICON_MAP lookup, not dynamic creation
+  const Icon = resolveIcon(thread.icon_hint);
   const bg = TILE_BG[thread.badge_type] ?? TILE_BG.neutral;
   const badgeColor = BADGE_COLOR[thread.badge_type] ?? BADGE_COLOR.neutral;
 
   return (
-    <Animated.View entering={FadeInUp.duration(350)} style={[tileStyles.tile, { backgroundColor: bg }]}>
+    <Animated.View
+      entering={FadeInUp.duration(350)}
+      style={[tileStyles.tile, { backgroundColor: bg }]}
+    >
       {/* Icon + Badge row */}
       <View style={tileStyles.topRow}>
         <View style={tileStyles.iconSquare}>
+          {/* eslint-disable-next-line react-hooks/static-components -- pure ICON_MAP lookup, not dynamic creation */}
           <Icon size={14} color={badgeColor} strokeWidth={2} />
         </View>
         {thread.badge_label ? (
@@ -447,16 +486,10 @@ function ThreadTile({ thread }: { thread: WSV2Thread }) {
       </Text>
 
       {/* Shift label */}
-      {thread.shift_label ? (
-        <Text style={tileStyles.shiftLabel}>
-          {thread.shift_label}
-        </Text>
-      ) : null}
+      {thread.shift_label ? <Text style={tileStyles.shiftLabel}>{thread.shift_label}</Text> : null}
 
       {/* Detail */}
-      <Text style={tileStyles.detail}>
-        {thread.detail}
-      </Text>
+      <Text style={tileStyles.detail}>{thread.detail}</Text>
     </Animated.View>
   );
 }
@@ -557,7 +590,10 @@ function DiscoveriesCard({ card }: { card: WSV2DiscoveriesCard }) {
 
         {/* Research context */}
         {spotlight.research_context ? (
-          <Animated.View entering={FadeInUp.delay(400).duration(350)} style={discStyles.researchCard}>
+          <Animated.View
+            entering={FadeInUp.delay(400).duration(350)}
+            style={discStyles.researchCard}
+          >
             <View style={discStyles.researchHeader}>
               <Brain size={12} color={WS.periwinkle} strokeWidth={2} />
               <Text style={discStyles.researchLabel}>
@@ -576,7 +612,10 @@ function DiscoveriesCard({ card }: { card: WSV2DiscoveriesCard }) {
 
       {/* Mini-discoveries */}
       {mini_discoveries.length > 0 ? (
-        <Animated.View entering={FadeInUp.delay(500).duration(350)} style={discStyles.miniDiscoveriesContainer}>
+        <Animated.View
+          entering={FadeInUp.delay(500).duration(350)}
+          style={discStyles.miniDiscoveriesContainer}
+        >
           {mini_discoveries.map((mini: any, i: number) => (
             <View key={mini.title + i} style={discStyles.miniDiscoveryRow}>
               <View style={discStyles.miniDiscoveryDot} />
@@ -601,8 +640,12 @@ function DiscoveriesCard({ card }: { card: WSV2DiscoveriesCard }) {
                     <TrendIcon size={14} color={iconColor} strokeWidth={2} />
                   </View>
                 ) : null}
-                <Text style={discStyles.trendTitle} numberOfLines={2}>{item.title}</Text>
-                <Text style={discStyles.trendDetail} numberOfLines={2}>{item.detail}</Text>
+                <Text style={discStyles.trendTitle} numberOfLines={2}>
+                  {item.title}
+                </Text>
+                <Text style={discStyles.trendDetail} numberOfLines={2}>
+                  {item.detail}
+                </Text>
               </View>
             );
           })}
@@ -626,10 +669,7 @@ function MomentsCard({ card }: { card: WSV2MomentsCard }) {
       </Animated.View>
 
       {card.moments.map((moment, i) => (
-        <Animated.View
-          key={moment.date + i}
-          entering={FadeInUp.delay(200 + i * 150).duration(350)}
-        >
+        <Animated.View key={moment.date + i} entering={FadeInUp.delay(200 + i * 150).duration(350)}>
           {/* Divider between moments */}
           {i > 0 ? <View style={momStyles.divider} /> : null}
 
@@ -899,7 +939,8 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
 
                   {/* Domain + context subtitle */}
                   <Text style={staleStyles.itemSubtitle} numberOfLines={1}>
-                    {item.domain}{item.context ? ` · ${item.context}` : ''}
+                    {item.domain}
+                    {item.context ? ` · ${item.context}` : ''}
                   </Text>
 
                   {/* Reminder confirmation chip */}
@@ -1062,12 +1103,8 @@ function WeekAheadCard({ card }: { card: WSV2WeekAheadCard }) {
               <Icon size={14} color={WS.sageDark} strokeWidth={2} />
               <Text style={waStyles.highlightTitle}>{h.title}</Text>
             </View>
-            {h.context ? (
-              <Text style={waStyles.highlightContext}>{h.context}</Text>
-            ) : null}
-            {h.prep_nudge ? (
-              <Text style={waStyles.prepNudge}>{h.prep_nudge}</Text>
-            ) : null}
+            {h.context ? <Text style={waStyles.highlightContext}>{h.context}</Text> : null}
+            {h.prep_nudge ? <Text style={waStyles.prepNudge}>{h.prep_nudge}</Text> : null}
           </Animated.View>
         );
       })}
@@ -1188,7 +1225,10 @@ function RecommendsCard({ card }: { card: any }) {
   return (
     <Animated.View entering={FadeIn.duration(400)} style={styles.card}>
       {/* Section header */}
-      <Animated.View entering={FadeInUp.delay(100).duration(350)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+      <Animated.View
+        entering={FadeInUp.delay(100).duration(350)}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}
+      >
         <Sparkles size={18} color={WS.sageDark} strokeWidth={2} />
         <Text style={{ fontFamily: 'Instrument Serif', fontSize: 22, color: WS.text }}>
           Gremly recommends
@@ -1208,14 +1248,37 @@ function RecommendsCard({ card }: { card: any }) {
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <PrimaryIcon size={14} color={WS.sageDark} strokeWidth={2} />
-            <Text style={{ fontFamily: 'DMSans-Medium', fontSize: 11, color: WS.sageDark, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+            <Text
+              style={{
+                fontFamily: 'DMSans-Medium',
+                fontSize: 11,
+                color: WS.sageDark,
+                letterSpacing: 0.5,
+                textTransform: 'uppercase',
+              }}
+            >
               {RECOMMEND_TYPE_LABEL[primary.type] || 'Consider this'}
             </Text>
           </View>
-          <Text style={{ fontFamily: 'DMSans-SemiBold', fontSize: 16, color: WS.text, lineHeight: 22, marginBottom: 6 }}>
+          <Text
+            style={{
+              fontFamily: 'DMSans-SemiBold',
+              fontSize: 16,
+              color: WS.text,
+              lineHeight: 22,
+              marginBottom: 6,
+            }}
+          >
             {primary.title}
           </Text>
-          <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 14, color: WS.textSubtle, lineHeight: 20 }}>
+          <Text
+            style={{
+              fontFamily: 'DMSans-Regular',
+              fontSize: 14,
+              color: WS.textSubtle,
+              lineHeight: 20,
+            }}
+          >
             {primary.body}
           </Text>
         </Animated.View>
@@ -1237,22 +1300,39 @@ function RecommendsCard({ card }: { card: any }) {
               borderTopColor: 'rgba(0,0,0,0.06)',
             }}
           >
-            <View style={{
-              width: 28,
-              height: 28,
-              borderRadius: 14,
-              backgroundColor: 'rgba(191, 216, 192, 0.2)',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginTop: 2,
-            }}>
+            <View
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 14,
+                backgroundColor: 'rgba(191, 216, 192, 0.2)',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: 2,
+              }}
+            >
               <SecIcon size={13} color={WS.sageDark} strokeWidth={2} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'DMSans-SemiBold', fontSize: 14, color: WS.text, lineHeight: 20 }}>
+              <Text
+                style={{
+                  fontFamily: 'DMSans-SemiBold',
+                  fontSize: 14,
+                  color: WS.text,
+                  lineHeight: 20,
+                }}
+              >
                 {rec.title}
               </Text>
-              <Text style={{ fontFamily: 'DMSans-Regular', fontSize: 13, color: WS.textSubtle, lineHeight: 18, marginTop: 2 }}>
+              <Text
+                style={{
+                  fontFamily: 'DMSans-Regular',
+                  fontSize: 13,
+                  color: WS.textSubtle,
+                  lineHeight: 18,
+                  marginTop: 2,
+                }}
+              >
                 {rec.body}
               </Text>
             </View>
@@ -1355,10 +1435,12 @@ export default function WeeklySummaryV2Screen() {
   }));
 
   const handleButtonPressIn = () => {
+    // eslint-disable-next-line react-hooks/immutability
     buttonScale.value = withSpring(0.96, { damping: 15, stiffness: 200 });
   };
 
   const handleButtonPressOut = () => {
+    // eslint-disable-next-line react-hooks/immutability
     buttonScale.value = withSpring(1, { damping: 12, stiffness: 150 });
   };
 
@@ -1396,13 +1478,7 @@ export default function WeeklySummaryV2Screen() {
       case 'opening': {
         const ws = weekStartParam ?? format(new Date(), 'yyyy-MM-dd');
         const we = format(addDays(new Date(ws + 'T00:00:00'), 6), 'yyyy-MM-dd');
-        return (
-          <OpeningCard
-            card={card}
-            weekStart={ws}
-            weekEnd={we}
-          />
-        );
+        return <OpeningCard card={card} weekStart={ws} weekEnd={we} />;
       }
       case 'thread_movements':
         return <LifeInMotionCard card={card} />;

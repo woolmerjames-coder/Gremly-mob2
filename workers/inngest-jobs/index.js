@@ -681,8 +681,8 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
     name: 'Weekly Summary V2 Dispatcher',
   },
   [
-    { cron: '*/5 * * * *' },  // Every 5 minutes — matches notifications cron cadence
-    { event: 'app/weekly-summary-v2.dispatch' },  // Manual trigger
+    { cron: '*/5 * * * *' }, // Every 5 minutes — matches notifications cron cadence
+    { event: 'app/weekly-summary-v2.dispatch' }, // Manual trigger
   ],
   async ({ step, env }) => {
     // Step 1: Fetch all users with weekly_enabled = true, including their push tokens
@@ -697,10 +697,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
           `${env.SUPABASE_URL}/rest/v1/notification_preferences?weekly_enabled=eq.true&select=user_id,weekly_time,weekly_day,timezone`,
           { headers },
         ),
-        fetch(
-          `${env.SUPABASE_URL}/rest/v1/push_tokens?select=user_id,token`,
-          { headers },
-        ),
+        fetch(`${env.SUPABASE_URL}/rest/v1/push_tokens?select=user_id,token`, { headers }),
       ]);
 
       if (!prefsRes.ok) throw new Error(`Failed to fetch weekly prefs: ${prefsRes.statusText}`);
@@ -709,11 +706,11 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
       const tokenMap = {};
       for (const t of tokens) tokenMap[t.user_id] = t.token;
 
-      return prefs.map(p => ({
+      return prefs.map((p) => ({
         user_id: p.user_id,
         timezone: p.timezone || 'America/Los_Angeles',
         weekly_time: p.weekly_time,
-        weekly_day: p.weekly_day ?? 0,  // 0 = Sunday
+        weekly_day: p.weekly_day ?? 0, // 0 = Sunday
         push_token: tokenMap[p.user_id] || null,
       }));
     });
@@ -721,7 +718,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
     // Step 2: Filter to users whose local time is within the 5-minute window of their configured weekly time AND it's their configured day
     const readyUsers = await step.run('filter-by-timezone-window', async () => {
       const now = new Date();
-      return usersAndTokens.filter(u => {
+      return usersAndTokens.filter((u) => {
         if (!u.weekly_time) return false;
         try {
           // Check day of week
@@ -740,8 +737,8 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
             minute: 'numeric',
             hour12: false,
           }).formatToParts(now);
-          const userHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
-          const userMin = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
+          const userHour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0');
+          const userMin = parseInt(parts.find((p) => p.type === 'minute')?.value || '0');
 
           const [targetHour, targetMin] = u.weekly_time.split(':').map(Number);
           const currentTotal = userHour * 60 + userMin;
@@ -755,13 +752,15 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
       });
     });
 
-    console.log(`[Weekly V2 Dispatcher] ${usersAndTokens.length} weekly-enabled users, ${readyUsers.length} in window now`);
+    console.log(
+      `[Weekly V2 Dispatcher] ${usersAndTokens.length} weekly-enabled users, ${readyUsers.length} in window now`,
+    );
 
     // Step 3: Fan out per-user events
     if (readyUsers.length > 0) {
       await step.sendEvent(
         'dispatch-weekly-users',
-        readyUsers.map(u => ({
+        readyUsers.map((u) => ({
           name: 'app/weekly-summary-v2.run',
           data: {
             user_id: u.user_id,
@@ -847,7 +846,13 @@ const weeklySummaryV2Worker = inngest.createFunction(
     const analystResult = await step.run('run-analyst', async () => {
       const weeklySnapshot = buildWeeklySnapshot(snapshot);
       const lifeMap = snapshot.raw.currentLifeMap?.life_map || null;
-      return runUnifiedAnalyst(weeklySnapshot, lifeMap, weekDates.weekStart, weekDates.weekEnd, env);
+      return runUnifiedAnalyst(
+        weeklySnapshot,
+        lifeMap,
+        weekDates.weekStart,
+        weekDates.weekEnd,
+        env,
+      );
     });
 
     const rebuildResult = await step.run('rebuild-life-map', async () => {
@@ -855,13 +860,20 @@ const weeklySummaryV2Worker = inngest.createFunction(
       if (!currentLifeMap) throw new Error('No existing Life Map found');
       const userProfile = snapshot.raw.userProfile?.profile_text || null;
       const spaces = snapshot.raw.spaces || [];
-      const journals = (snapshot.raw.journals || []).map(j => ({
+      const journals = (snapshot.raw.journals || []).map((j) => ({
         title: j.title,
         body: j.body,
         mood: j.mood,
         date: j.created_at ? j.created_at.split('T')[0] : null,
       }));
-      const result = await rebuildLifeMap(currentLifeMap, analystResult.analysis, userProfile, spaces, journals, env);
+      const result = await rebuildLifeMap(
+        currentLifeMap,
+        analystResult.analysis,
+        userProfile,
+        spaces,
+        journals,
+        env,
+      );
       const mergedLifeMap = mergeWeeklyLifeMapUpdates(
         JSON.parse(JSON.stringify(currentLifeMap)),
         result.delta,
@@ -890,7 +902,9 @@ const weeklySummaryV2Worker = inngest.createFunction(
       const totalSweeps = (sweepsRows || []).length;
 
       const journals = (snapshot.raw?.journals || snapshot.raw?.drops || []).filter(
-        j => j.subtype === 'journal' && j.created_at &&
+        (j) =>
+          j.subtype === 'journal' &&
+          j.created_at &&
           j.created_at.split('T')[0] >= weekDates.weekStart &&
           j.created_at.split('T')[0] <= weekDates.weekEnd,
       ).length;
@@ -963,7 +977,7 @@ const weeklySummaryV2Worker = inngest.createFunction(
           content: summaryResult.summary,
           stats_snapshot: {
             card_count: summaryResult.summary?.cards?.length || 0,
-            card_types: summaryResult.summary?.cards?.map(c => c.type) || [],
+            card_types: summaryResult.summary?.cards?.map((c) => c.type) || [],
           },
           key_themes: summaryResult.summary?.metadata?.key_themes || [],
           viewed: false,
@@ -1004,26 +1018,35 @@ const weeklySummaryV2Worker = inngest.createFunction(
         fetch(
           `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&completed_at=is.null&created_at=gte.${fourteenDaysAgo}&select=id,title,tags,created_at&limit=50`,
           { headers },
-        ).then(r => r.json()),
+        ).then((r) => r.json()),
         fetch(
           `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&space_id=is.null&archived=eq.false&subtype=neq.journal&created_at=gte.${fourteenDaysAgo}&select=id,title,tags,subtype,created_at&limit=50`,
           { headers },
-        ).then(r => r.json()),
+        ).then((r) => r.json()),
         fetch(
           `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&space_id=is.null&archived_at=is.null&created_at=gte.${fourteenDaysAgo}&select=id,name,tags,created_at&limit=20`,
           { headers },
-        ).then(r => r.json()),
+        ).then((r) => r.json()),
       ]);
 
       const unassignedDrops = [
-        ...(Array.isArray(unassignedTodos) ? unassignedTodos : []).map(t => ({
-          id: t.id, title: t.title, type: 'todo', tags: t.tags || [],
+        ...(Array.isArray(unassignedTodos) ? unassignedTodos : []).map((t) => ({
+          id: t.id,
+          title: t.title,
+          type: 'todo',
+          tags: t.tags || [],
         })),
-        ...(Array.isArray(unassignedNotes) ? unassignedNotes : []).map(n => ({
-          id: n.id, title: n.title, type: n.subtype || 'note', tags: n.tags || [],
+        ...(Array.isArray(unassignedNotes) ? unassignedNotes : []).map((n) => ({
+          id: n.id,
+          title: n.title,
+          type: n.subtype || 'note',
+          tags: n.tags || [],
         })),
-        ...(Array.isArray(unassignedHabits) ? unassignedHabits : []).map(h => ({
-          id: h.id, title: h.name, type: 'habit', tags: h.tags || [],
+        ...(Array.isArray(unassignedHabits) ? unassignedHabits : []).map((h) => ({
+          id: h.id,
+          title: h.name,
+          type: 'habit',
+          tags: h.tags || [],
         })),
       ];
 
@@ -1036,7 +1059,7 @@ const weeklySummaryV2Worker = inngest.createFunction(
       );
       const dismissedData = await dismissedRes.json();
       const dismissedNames = (Array.isArray(dismissedData) ? dismissedData : [])
-        .map(d => (d.suggested_name || '').toLowerCase())
+        .map((d) => (d.suggested_name || '').toLowerCase())
         .filter(Boolean);
 
       // 4. Read the rebuilt Life Map
@@ -1055,24 +1078,24 @@ const weeklySummaryV2Worker = inngest.createFunction(
       if (unassignedDrops.length >= 3) {
         // Build matching context from space-backed domains in the Life Map
         const spaceDomains = lifeMap.domains
-          .filter(d => d.source === 'space' && d.space_id)
-          .map(d => ({
+          .filter((d) => d.source === 'space' && d.space_id)
+          .map((d) => ({
             space_id: d.space_id,
             name: d.name,
             threads: (d.threads || [])
-              .filter(t => t.lifecycle === 'active' || t.lifecycle === undefined)
+              .filter((t) => t.lifecycle === 'active' || t.lifecycle === undefined)
               .slice(0, 5)
-              .map(t => ({ name: t.name, summary: t.summary })),
+              .map((t) => ({ name: t.name, summary: t.summary })),
           }));
 
         if (spaceDomains.length > 0) {
           const matchPrompt = `Match unassigned items to existing Spaces. Each Space has threads describing what it contains.
 
 SPACES:
-${spaceDomains.map(d => `Space "${d.name}" (ID: ${d.space_id}):\n  Threads: ${d.threads.map(t => `${t.name}: ${t.summary}`).join('; ')}`).join('\n')}
+${spaceDomains.map((d) => `Space "${d.name}" (ID: ${d.space_id}):\n  Threads: ${d.threads.map((t) => `${t.name}: ${t.summary}`).join('; ')}`).join('\n')}
 
 UNASSIGNED ITEMS:
-${unassignedDrops.map(d => `ID: ${d.id} | "${d.title}" (${d.type})`).join('\n')}
+${unassignedDrops.map((d) => `ID: ${d.id} | "${d.title}" (${d.type})`).join('\n')}
 
 Respond with ONLY JSON:
 { "assign": [{ "space_id": "uuid", "drop_ids": ["uuid"], "reason": "why these belong", "confidence": 0.0-1.0 }] }
@@ -1106,14 +1129,16 @@ Rules:
               }
               try {
                 const parsed = JSON.parse(matchText);
-                const validSpaceIds = new Set(spaceDomains.map(d => d.space_id));
-                const validDropIds = new Set(unassignedDrops.map(d => d.id));
+                const validSpaceIds = new Set(spaceDomains.map((d) => d.space_id));
+                const validDropIds = new Set(unassignedDrops.map((d) => d.id));
 
-                for (const suggestion of (parsed.assign || [])) {
+                for (const suggestion of parsed.assign || []) {
                   if (!validSpaceIds.has(suggestion.space_id)) continue;
-                  const validDrops = (suggestion.drop_ids || []).filter(id => validDropIds.has(id));
+                  const validDrops = (suggestion.drop_ids || []).filter((id) =>
+                    validDropIds.has(id),
+                  );
                   if (validDrops.length === 0) continue;
-                  if ((suggestion.confidence || 0) < 0.70) continue;
+                  if ((suggestion.confidence || 0) < 0.7) continue;
 
                   suggestionsToInsert.push({
                     user_id: userId,
@@ -1122,13 +1147,17 @@ Rules:
                     suggested_name: null,
                     reason: suggestion.reason || null,
                     drop_ids: validDrops,
-                    confidence: suggestion.confidence || 0.80,
+                    confidence: suggestion.confidence || 0.8,
                     status: 'pending',
                   });
                 }
-                console.log(`[Weekly V2:SpaceSuggestions] Assign-to-existing: ${suggestionsToInsert.length} suggestions`);
+                console.log(
+                  `[Weekly V2:SpaceSuggestions] Assign-to-existing: ${suggestionsToInsert.length} suggestions`,
+                );
               } catch (parseErr) {
-                console.warn(`[Weekly V2:SpaceSuggestions] Assign parse failed: ${parseErr.message}`);
+                console.warn(
+                  `[Weekly V2:SpaceSuggestions] Assign parse failed: ${parseErr.message}`,
+                );
               }
             }
           } catch (err) {
@@ -1141,11 +1170,11 @@ Rules:
       // PART B: NEW SPACE DISCOVERY (deterministic from Life Map)
       // ═══════════════════════════════════════════════════════════════
 
-      const aiDetectedDomains = lifeMap.domains.filter(d => d.source === 'ai_detected');
+      const aiDetectedDomains = lifeMap.domains.filter((d) => d.source === 'ai_detected');
 
       for (const domain of aiDetectedDomains) {
         const activeThreads = (domain.threads || []).filter(
-          t => t.lifecycle === 'active' || t.lifecycle === undefined,
+          (t) => t.lifecycle === 'active' || t.lifecycle === undefined,
         );
 
         // Thresholds: 2+ active threads, domain has enough substance
@@ -1155,51 +1184,54 @@ Rules:
         if (dismissedNames.includes(domain.name.toLowerCase())) continue;
 
         // Count total evidence across threads
-        const totalEvidence = activeThreads.reduce(
-          (sum, t) => sum + (t.evidence?.length || 0), 0,
-        );
+        const totalEvidence = activeThreads.reduce((sum, t) => sum + (t.evidence?.length || 0), 0);
         if (totalEvidence < 3) continue;
 
         // Find drop_ids that belong to this domain's threads
         // Match by checking if drop titles appear in thread evidence or names
         const domainKeywords = [
           domain.name.toLowerCase(),
-          ...activeThreads.map(t => t.name.toLowerCase()),
+          ...activeThreads.map((t) => t.name.toLowerCase()),
         ];
         const matchingDropIds = unassignedDrops
-          .filter(d => {
+          .filter((d) => {
             const title = (d.title || '').toLowerCase();
-            return domainKeywords.some(kw =>
-              title.includes(kw) || kw.includes(title) ||
-              (d.tags || []).some(tag => kw.includes(tag.toLowerCase()))
+            return domainKeywords.some(
+              (kw) =>
+                title.includes(kw) ||
+                kw.includes(title) ||
+                (d.tags || []).some((tag) => kw.includes(tag.toLowerCase())),
             );
           })
-          .map(d => d.id)
+          .map((d) => d.id)
           .slice(0, 20);
 
         // Build a rich "why" from thread context
         const threadContext = activeThreads
           .slice(0, 3)
-          .map(t => t.summary || t.recent_update || t.name)
+          .map((t) => t.summary || t.recent_update || t.name)
           .filter(Boolean)
           .join('. ');
-        const reason = threadContext.length > 200
-          ? threadContext.slice(0, 197) + '...'
-          : threadContext;
+        const reason =
+          threadContext.length > 200 ? threadContext.slice(0, 197) + '...' : threadContext;
 
         suggestionsToInsert.push({
           user_id: userId,
           suggestion_type: 'new_space',
           space_id: null,
           suggested_name: domain.name,
-          reason: reason || `Gremly noticed a pattern across ${activeThreads.length} threads in your life`,
+          reason:
+            reason ||
+            `Gremly noticed a pattern across ${activeThreads.length} threads in your life`,
           drop_ids: matchingDropIds,
-          confidence: Math.min(0.95, 0.70 + (activeThreads.length * 0.05) + (totalEvidence * 0.01)),
+          confidence: Math.min(0.95, 0.7 + activeThreads.length * 0.05 + totalEvidence * 0.01),
           status: 'pending',
         });
       }
 
-      console.log(`[Weekly V2:SpaceSuggestions] New space discovery: ${suggestionsToInsert.filter(s => s.suggestion_type === 'new_space').length} candidates`);
+      console.log(
+        `[Weekly V2:SpaceSuggestions] New space discovery: ${suggestionsToInsert.filter((s) => s.suggestion_type === 'new_space').length} candidates`,
+      );
 
       // ═══════════════════════════════════════════════════════════════
       // PART C: EXPIRE OLD + INSERT NEW
@@ -1227,10 +1259,14 @@ Rules:
         }
       }
 
-      console.log(`[Weekly V2:SpaceSuggestions] Complete: ${suggestionsToInsert.length} suggestions saved`);
+      console.log(
+        `[Weekly V2:SpaceSuggestions] Complete: ${suggestionsToInsert.length} suggestions saved`,
+      );
       return {
-        assign_to_existing: suggestionsToInsert.filter(s => s.suggestion_type === 'assign_to_space').length,
-        new_space: suggestionsToInsert.filter(s => s.suggestion_type === 'new_space').length,
+        assign_to_existing: suggestionsToInsert.filter(
+          (s) => s.suggestion_type === 'assign_to_space',
+        ).length,
+        new_space: suggestionsToInsert.filter((s) => s.suggestion_type === 'new_space').length,
       };
     });
 
@@ -1247,31 +1283,36 @@ Rules:
         fetch(
           `${env.SUPABASE_URL}/rest/v1/space_chat_messages?user_id=eq.${userId}&role=eq.user&created_at=gte.${weekDates.weekStart}&select=content&limit=100`,
           { headers },
-        ).then(r => r.json()),
+        ).then((r) => r.json()),
         fetch(
           `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&created_at=gte.${weekDates.weekStart}&select=views&limit=100`,
           { headers },
-        ).then(r => r.json()),
-        fetch(
-          `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&select=views&limit=20`,
-          { headers },
-        ).then(r => r.json()),
+        ).then((r) => r.json()),
+        fetch(`${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&select=views&limit=20`, {
+          headers,
+        }).then((r) => r.json()),
         fetch(
           `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&created_at=gte.${weekDates.weekStart}&select=views&limit=50`,
           { headers },
-        ).then(r => r.json()),
+        ).then((r) => r.json()),
         fetch(
           `${env.SUPABASE_URL}/rest/v1/user_profile_overrides?user_id=eq.${userId}&select=action,fact_text`,
           { headers },
-        ).then(r => r.json()).catch(() => []),
+        )
+          .then((r) => r.json())
+          .catch(() => []),
       ]);
 
       // Extract user messages from all chat sources
       const userMessages = [];
-      for (const msg of (Array.isArray(spaceChatMsgs) ? spaceChatMsgs : [])) {
+      for (const msg of Array.isArray(spaceChatMsgs) ? spaceChatMsgs : []) {
         if (msg.content) userMessages.push(msg.content);
       }
-      for (const item of [...(Array.isArray(todos) ? todos : []), ...(Array.isArray(habits) ? habits : []), ...(Array.isArray(notes) ? notes : [])]) {
+      for (const item of [
+        ...(Array.isArray(todos) ? todos : []),
+        ...(Array.isArray(habits) ? habits : []),
+        ...(Array.isArray(notes) ? notes : []),
+      ]) {
         const chat = item.views?.chat;
         if (chat && Array.isArray(chat)) {
           for (const msg of chat) {
@@ -1294,35 +1335,36 @@ Rules:
       const overrides = Array.isArray(existingOverrides) ? existingOverrides : [];
       if (overrides.length > 0) {
         const removedFacts = overrides
-          .filter(o => o.action === 'remove')
-          .map(o => o.fact_text.toLowerCase());
+          .filter((o) => o.action === 'remove')
+          .map((o) => o.fact_text.toLowerCase());
         extractedFacts = extractedFacts.filter(
-          fact => !removedFacts.some(
-            removed => fact.toLowerCase().includes(removed) || removed.includes(fact.toLowerCase()),
-          ),
+          (fact) =>
+            !removedFacts.some(
+              (removed) =>
+                fact.toLowerCase().includes(removed) || removed.includes(fact.toLowerCase()),
+            ),
         );
-        const addedFacts = overrides.filter(o => o.action === 'add').map(o => o.fact_text);
+        const addedFacts = overrides.filter((o) => o.action === 'add').map((o) => o.fact_text);
         extractedFacts = [...extractedFacts, ...addedFacts];
       }
 
       // Render profile_text from Life Map domains + extracted facts
       const lifeMap = rebuildResult.mergedLifeMap;
       const domainSummaries = (lifeMap?.domains || [])
-        .filter(d => d.attention !== 'background')
-        .map(d => {
+        .filter((d) => d.attention !== 'background')
+        .map((d) => {
           const activeThreads = (d.threads || [])
-            .filter(t => t.lifecycle === 'active' || t.lifecycle === undefined)
+            .filter((t) => t.lifecycle === 'active' || t.lifecycle === undefined)
             .slice(0, 3);
           const threadSummary = activeThreads
-            .map(t => t.summary || t.recent_update || t.name)
+            .map((t) => t.summary || t.recent_update || t.name)
             .join('. ');
           return `${d.name}: ${threadSummary}`;
         })
         .join('\n');
 
-      const factsSection = extractedFacts.length > 0
-        ? `\n\nPersonal context: ${extractedFacts.join('. ')}.`
-        : '';
+      const factsSection =
+        extractedFacts.length > 0 ? `\n\nPersonal context: ${extractedFacts.join('. ')}.` : '';
 
       const profileText = domainSummaries + factsSection;
 
@@ -1330,7 +1372,7 @@ Rules:
       const existingProfile = await fetch(
         `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=user_id`,
         { headers },
-      ).then(r => r.json());
+      ).then((r) => r.json());
 
       const profileData = {
         user_id: userId,
@@ -1355,7 +1397,9 @@ Rules:
         body: JSON.stringify(profileData),
       });
 
-      console.log(`[Weekly V2:Facts] Updated profile for ${userId}: ${extractedFacts.length} facts`);
+      console.log(
+        `[Weekly V2:Facts] Updated profile for ${userId}: ${extractedFacts.length} facts`,
+      );
       return { facts_extracted: extractedFacts.length };
     });
 
@@ -1365,7 +1409,7 @@ Rules:
         console.log(`[Weekly V2] No push token for ${userId}, skipping notification`);
         return;
       }
-      const gremlyMood = summaryResult.summary?.cards?.find(c => c.type === 'gremly_mood');
+      const gremlyMood = summaryResult.summary?.cards?.find((c) => c.type === 'gremly_mood');
       const body = gremlyMood?.hook || 'Your weekly summary is ready.';
       await sendExpoPush(pushToken, 'Your week in review is ready', body, 'weekly_summary');
       console.log(`[Weekly V2] Push sent for ${userId}`);
@@ -1375,7 +1419,7 @@ Rules:
       success: true,
       user_id: userId,
       card_count: summaryResult.summary?.cards?.length || 0,
-      card_types: summaryResult.summary?.cards?.map(c => c.type) || [],
+      card_types: summaryResult.summary?.cards?.map((c) => c.type) || [],
       week_start: weekDates.weekStart,
     };
   },
@@ -1510,18 +1554,19 @@ async function synthesizeUserProfile(userId, env) {
   try {
     // Parallel fetch: Life Map, existing profile, overrides
     const [lifeMapRes, profileRes, overridesRes] = await Promise.all([
-      fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_life_map?user_id=eq.${userId}&select=life_map`,
-        { headers },
-      ).then(r => r.json()),
+      fetch(`${env.SUPABASE_URL}/rest/v1/user_life_map?user_id=eq.${userId}&select=life_map`, {
+        headers,
+      }).then((r) => r.json()),
       fetch(
         `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=user_id,signals,relationship_started_at`,
         { headers },
-      ).then(r => r.json()),
+      ).then((r) => r.json()),
       fetch(
         `${env.SUPABASE_URL}/rest/v1/user_profile_overrides?user_id=eq.${userId}&select=action,fact_text`,
         { headers },
-      ).then(r => r.json()).catch(() => []),
+      )
+        .then((r) => r.json())
+        .catch(() => []),
     ]);
 
     const lifeMap = lifeMapRes?.[0]?.life_map || null;
@@ -1534,14 +1579,16 @@ async function synthesizeUserProfile(userId, env) {
     // Apply overrides
     if (overrides.length > 0) {
       const removedFacts = overrides
-        .filter(o => o.action === 'remove')
-        .map(o => o.fact_text.toLowerCase());
+        .filter((o) => o.action === 'remove')
+        .map((o) => o.fact_text.toLowerCase());
       facts = facts.filter(
-        fact => !removedFacts.some(
-          removed => fact.toLowerCase().includes(removed) || removed.includes(fact.toLowerCase()),
-        ),
+        (fact) =>
+          !removedFacts.some(
+            (removed) =>
+              fact.toLowerCase().includes(removed) || removed.includes(fact.toLowerCase()),
+          ),
       );
-      const addedFacts = overrides.filter(o => o.action === 'add').map(o => o.fact_text);
+      const addedFacts = overrides.filter((o) => o.action === 'add').map((o) => o.fact_text);
       facts = [...facts, ...addedFacts];
     }
 
@@ -1550,13 +1597,13 @@ async function synthesizeUserProfile(userId, env) {
 
     if (lifeMap?.domains) {
       const domainSummaries = lifeMap.domains
-        .filter(d => d.attention !== 'background')
-        .map(d => {
+        .filter((d) => d.attention !== 'background')
+        .map((d) => {
           const activeThreads = (d.threads || [])
-            .filter(t => t.lifecycle === 'active' || t.lifecycle === undefined)
+            .filter((t) => t.lifecycle === 'active' || t.lifecycle === undefined)
             .slice(0, 3);
           const threadSummary = activeThreads
-            .map(t => t.summary || t.recent_update || t.name)
+            .map((t) => t.summary || t.recent_update || t.name)
             .join('. ');
           return `${d.name}: ${threadSummary}`;
         })
@@ -1595,7 +1642,9 @@ async function synthesizeUserProfile(userId, env) {
       body: JSON.stringify(profileData),
     });
 
-    console.log(`[UserSynth] Profile rendered for ${userId}: ${facts.length} facts, ${lifeMap ? 'with' : 'without'} Life Map`);
+    console.log(
+      `[UserSynth] Profile rendered for ${userId}: ${facts.length} facts, ${lifeMap ? 'with' : 'without'} Life Map`,
+    );
 
     return {
       success: true,
@@ -1632,7 +1681,6 @@ function getExpectedCompletionsForDays(frequency, days) {
       return days;
   }
 }
-
 
 // ============================================================================
 // LLM: Fact extraction from chat messages
@@ -2153,8 +2201,8 @@ RULES:
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // eslint-disable-next-line no-constant-condition -- SSE stream reader
   while (true) {
-    // eslint-disable-line no-constant-condition -- SSE stream reader
     const { done, value } = await reader.read();
     if (done) break;
 
@@ -2419,8 +2467,8 @@ Produce the delta JSON — only what changed this week.`;
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // eslint-disable-next-line no-constant-condition -- SSE stream reader
   while (true) {
-    // eslint-disable-line no-constant-condition -- SSE stream reader
     const { done, value } = await reader.read();
     if (done) break;
 
@@ -2564,6 +2612,7 @@ function mergeWeeklyLifeMapUpdates(lifeMap, delta) {
           // Look for a recent entry (last 7 days) with the same type and same pattern
           const recentCutoff = new Date(e.date);
           recentCutoff.setDate(recentCutoff.getDate() - 7);
+          // eslint-disable-next-line no-restricted-syntax -- worker-side date comparison, UTC is acceptable
           const recentCutoffStr = recentCutoff.toISOString().split('T')[0];
 
           const existingIdx = thread.evidence.findIndex(
@@ -2577,7 +2626,8 @@ function mergeWeeklyLifeMapUpdates(lifeMap, delta) {
             // Update in place with newer date and signal value
             thread.evidence[existingIdx].date = e.date;
             thread.evidence[existingIdx].signal = e.signal;
-            thread.evidence[existingIdx].salience = e.salience || thread.evidence[existingIdx].salience;
+            thread.evidence[existingIdx].salience =
+              e.salience || thread.evidence[existingIdx].salience;
             continue;
           }
         }
@@ -2759,8 +2809,8 @@ async function readSSEStream(response) {
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // eslint-disable-next-line no-constant-condition -- SSE stream reader
   while (true) {
-    // eslint-disable-line no-constant-condition -- SSE stream reader
     const { done, value } = await reader.read();
     if (done) break;
 
@@ -2897,7 +2947,7 @@ async function generateWeeklySummaryV2(
   // ════════════════════════════════════════════════════════════════════
   // BUILD STORYTELLER DATA PAYLOAD
   // ════════════════════════════════════════════════════════════════════
-  
+
   const storytellerData = {
     analyst: {
       themes: analystOutput.themes,
@@ -2926,23 +2976,33 @@ async function generateWeeklySummaryV2(
   // BUILD FACTUAL CONTEXT (code-generated, prevents hallucination)
   // ════════════════════════════════════════════════════════════════════
 
-  const nextWeekEvents = (analystOutput.event_analysis?.next_week_events || []);
+  const nextWeekEvents = analystOutput.event_analysis?.next_week_events || [];
   const significantNextWeek = nextWeekEvents
-    .filter(e => (e.importance || 0) >= 5 && !e.is_recurring)
+    .filter((e) => (e.importance || 0) >= 5 && !e.is_recurring)
     .sort((a, b) => (b.importance || 0) - (a.importance || 0));
-  const recurringMeetings = nextWeekEvents.filter(e => e.is_recurring || (e.importance || 0) <= 3);
+  const recurringMeetings = nextWeekEvents.filter(
+    (e) => e.is_recurring || (e.importance || 0) <= 3,
+  );
 
   const factualContext = [
     `WEEK: ${weekStart} to ${weekEnd}`,
     `STALE ITEMS: ${staleItems.length} items over 14 days old`,
-    `UPCOMING SIGNIFICANT EVENTS (importance >= 5, non-recurring): ${significantNextWeek.map(e => `${e.date} ${e.title} (importance: ${e.importance})`).join('; ') || 'none'}`,
-    `RECURRING/LOW-IMPORTANCE MEETINGS (DO NOT feature in week ahead): ${recurringMeetings.map(e => e.title).join(', ') || 'none'}`,
-    `MAGIC MOMENT CANDIDATES FROM ANALYST (${(analystOutput.magic_moment_candidates || []).length}): ${(analystOutput.magic_moment_candidates || []).map(m => `${m.date}: ${m.title}`).join('; ')}`,
-    `HIGH NARRATIVE-INTEREST THEMES: ${(analystOutput.themes || []).filter(t => (t.narrative_interest || 0) >= 7).map(t => `[${t.narrative_interest}] ${t.label}`).join('; ')}`,
-    `DISCOVERY-CANDIDATE FINGERPRINTS: ${(analystOutput.behavioral_fingerprints || []).filter(f => f.is_discovery_candidate).map(f => `[${f.narrative_interest || '?'}] ${f.pattern}`).join('; ')}`,
+    `UPCOMING SIGNIFICANT EVENTS (importance >= 5, non-recurring): ${significantNextWeek.map((e) => `${e.date} ${e.title} (importance: ${e.importance})`).join('; ') || 'none'}`,
+    `RECURRING/LOW-IMPORTANCE MEETINGS (DO NOT feature in week ahead): ${recurringMeetings.map((e) => e.title).join(', ') || 'none'}`,
+    `MAGIC MOMENT CANDIDATES FROM ANALYST (${(analystOutput.magic_moment_candidates || []).length}): ${(analystOutput.magic_moment_candidates || []).map((m) => `${m.date}: ${m.title}`).join('; ')}`,
+    `HIGH NARRATIVE-INTEREST THEMES: ${(analystOutput.themes || [])
+      .filter((t) => (t.narrative_interest || 0) >= 7)
+      .map((t) => `[${t.narrative_interest}] ${t.label}`)
+      .join('; ')}`,
+    `DISCOVERY-CANDIDATE FINGERPRINTS: ${(analystOutput.behavioral_fingerprints || [])
+      .filter((f) => f.is_discovery_candidate)
+      .map((f) => `[${f.narrative_interest || '?'}] ${f.pattern}`)
+      .join('; ')}`,
   ].join('\n');
 
-  console.log(`[WeeklySummaryV2] Starting. Stale: ${staleItems.length}, Moments: ${(analystOutput.magic_moment_candidates || []).length}, Themes: ${(analystOutput.themes || []).length}`);
+  console.log(
+    `[WeeklySummaryV2] Starting. Stale: ${staleItems.length}, Moments: ${(analystOutput.magic_moment_candidates || []).length}, Themes: ${(analystOutput.themes || []).length}`,
+  );
 
   // ════════════════════════════════════════════════════════════════════
   // STEP 1: SONNET EDITORIAL BRIEF (free-form, ~500 tokens)
@@ -2999,12 +3059,18 @@ ${JSON.stringify(storytellerData, null, 2)}`;
 
   if (briefResponse.ok) {
     const briefData = await briefResponse.json();
-    editorialBrief = (briefData.content || []).map(b => b.type === 'text' ? b.text : '').join('');
+    editorialBrief = (briefData.content || [])
+      .map((b) => (b.type === 'text' ? b.text : ''))
+      .join('');
     briefInputTokens = briefData.usage?.input_tokens || 0;
     briefOutputTokens = briefData.usage?.output_tokens || 0;
-    console.log(`[WeeklySummaryV2] Editorial brief: ${briefOutputTokens} tokens, ${Date.now() - briefT0}ms`);
+    console.log(
+      `[WeeklySummaryV2] Editorial brief: ${briefOutputTokens} tokens, ${Date.now() - briefT0}ms`,
+    );
   } else {
-    console.warn(`[WeeklySummaryV2] Editorial brief failed: ${briefResponse.status}. Continuing without it.`);
+    console.warn(
+      `[WeeklySummaryV2] Editorial brief failed: ${briefResponse.status}. Continuing without it.`,
+    );
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -3105,12 +3171,16 @@ CARD SCHEMAS — output an ordered JSON array of cards. Respond with ONLY valid 
         }
       ]
     },
-    ${staleItems.length > 0 ? `{
+    ${
+      staleItems.length > 0
+        ? `{
       "type": "stale_triage",
       "headline": "${staleItems.length} items need attention",
       "body": "1-2 sentences. Compassionate framing. Max 150 chars.",
       "items": ${JSON.stringify(staleItems)}
-    },` : ''}
+    },`
+        : ''
+    }
     {
       "type": "week_ahead",
       "intro": "What's coming — max 200 chars. Reference only SIGNIFICANT upcoming events. NEVER mention recurring meetings or routine admin.",
@@ -3160,7 +3230,9 @@ ${editorialBrief || 'No brief available — use your best editorial judgment bas
 ANALYST DATA:
 ${JSON.stringify(storytellerData, null, 2)}`;
 
-  console.log(`[WeeklySummaryV2] Calling Sonnet storyteller. Payload: ${storytellerUser.length} chars`);
+  console.log(
+    `[WeeklySummaryV2] Calling Sonnet storyteller. Payload: ${storytellerUser.length} chars`,
+  );
   const storyT0 = Date.now();
 
   const storyResponse = await fetch('https://api.anthropic.com/v1/messages', {
@@ -3182,7 +3254,9 @@ ${JSON.stringify(storytellerData, null, 2)}`;
 
   if (!storyResponse.ok) {
     const errBody = await storyResponse.text().catch(() => '');
-    throw new Error(`Storyteller Sonnet call failed: ${storyResponse.status} ${errBody.slice(0, 300)}`);
+    throw new Error(
+      `Storyteller Sonnet call failed: ${storyResponse.status} ${errBody.slice(0, 300)}`,
+    );
   }
 
   // Read SSE stream
@@ -3193,7 +3267,8 @@ ${JSON.stringify(storytellerData, null, 2)}`;
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) { // eslint-disable-line no-constant-condition -- SSE stream reader
+  while (true) {
+    // eslint-disable-line no-constant-condition -- SSE stream reader
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
@@ -3214,11 +3289,15 @@ ${JSON.stringify(storytellerData, null, 2)}`;
         if (event.type === 'message_start' && event.message?.usage) {
           storyInputTokens = event.message.usage.input_tokens || 0;
         }
-      } catch {}
+      } catch {
+        /* ignore malformed SSE events */
+      }
     }
   }
 
-  console.log(`[WeeklySummaryV2] Storyteller complete: ${fullText.length} chars, ${storyInputTokens} in / ${storyOutputTokens} out, ${Date.now() - storyT0}ms`);
+  console.log(
+    `[WeeklySummaryV2] Storyteller complete: ${fullText.length} chars, ${storyInputTokens} in / ${storyOutputTokens} out, ${Date.now() - storyT0}ms`,
+  );
 
   // Parse JSON
   let jsonStr = fullText.trim();
@@ -3267,17 +3346,21 @@ Respond with ONLY the corrected JSON cards array. If nothing needs fixing, retur
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 6000,
           temperature: 0,
-          messages: [{
-            role: 'user',
-            content: `Check and fix this weekly summary JSON. Apply character limits and quote deduplication rules strictly. NEVER cut mid-word.\n\n${JSON.stringify(parsed.cards)}`,
-          }],
+          messages: [
+            {
+              role: 'user',
+              content: `Check and fix this weekly summary JSON. Apply character limits and quote deduplication rules strictly. NEVER cut mid-word.\n\n${JSON.stringify(parsed.cards)}`,
+            },
+          ],
           system: constraintSystem,
         }),
       });
 
       if (constraintRes.ok) {
         const constraintData = await constraintRes.json();
-        const constraintText = (constraintData.content || []).map(b => b.type === 'text' ? b.text : '').join('');
+        const constraintText = (constraintData.content || [])
+          .map((b) => (b.type === 'text' ? b.text : ''))
+          .join('');
         if (constraintText) {
           let cleaned = constraintText.trim();
           if (cleaned.startsWith('```')) {
@@ -3297,7 +3380,9 @@ Respond with ONLY the corrected JSON cards array. If nothing needs fixing, retur
                 console.log(`[WeeklySummaryV2] Constraint check applied (with jsonrepair)`);
               }
             } catch {
-              console.warn(`[WeeklySummaryV2] Constraint check parse failed — using storyteller output as-is`);
+              console.warn(
+                `[WeeklySummaryV2] Constraint check parse failed — using storyteller output as-is`,
+              );
             }
           }
         }
@@ -3315,18 +3400,22 @@ Respond with ONLY the corrected JSON cards array. If nothing needs fixing, retur
 
   if (parsed.cards && env.UNSPLASH_ACCESS_KEY) {
     const imagePromises = [];
-    const openingCard = parsed.cards.find(c => c.type === 'opening');
+    const openingCard = parsed.cards.find((c) => c.type === 'opening');
     if (openingCard?.image_hint) {
       imagePromises.push(
-        resolveImageUrl(openingCard.image_hint, env).then(url => { if (url) openingCard.image_url = url; })
+        resolveImageUrl(openingCard.image_hint, env).then((url) => {
+          if (url) openingCard.image_url = url;
+        }),
       );
     }
-    const momentsCard = parsed.cards.find(c => c.type === 'moments');
+    const momentsCard = parsed.cards.find((c) => c.type === 'moments');
     if (momentsCard?.moments) {
       for (const moment of momentsCard.moments) {
         if (moment.image_hint) {
           imagePromises.push(
-            resolveImageUrl(moment.image_hint, env).then(url => { if (url) moment.image_url = url; })
+            resolveImageUrl(moment.image_hint, env).then((url) => {
+              if (url) moment.image_url = url;
+            }),
           );
         }
       }
@@ -3340,7 +3429,7 @@ Respond with ONLY the corrected JSON cards array. If nothing needs fixing, retur
 
   if (parsed.cards) {
     // Engagement stats on opening card
-    const openingCard = parsed.cards.find(c => c.type === 'opening');
+    const openingCard = parsed.cards.find((c) => c.type === 'opening');
     if (openingCard && engagementStats) {
       openingCard.engagement = {
         drops: engagementStats.drops || 0,
@@ -3350,24 +3439,34 @@ Respond with ONLY the corrected JSON cards array. If nothing needs fixing, retur
     }
 
     // badge_type on thread movements
-    const tmCard = parsed.cards.find(c => c.type === 'thread_movements');
+    const tmCard = parsed.cards.find((c) => c.type === 'thread_movements');
     if (tmCard && tmCard.threads) {
-      const dirToBadge = { up: 'success', steady: 'info', milestone: 'warning', concluded: 'neutral', down: 'danger', paused: 'danger', new: 'info' };
+      const dirToBadge = {
+        up: 'success',
+        steady: 'info',
+        milestone: 'warning',
+        concluded: 'neutral',
+        down: 'danger',
+        paused: 'danger',
+        new: 'info',
+      };
       for (const thread of tmCard.threads) {
         if (!thread.badge_type) thread.badge_type = dirToBadge[thread.direction] || 'neutral';
       }
     }
 
     // Stale item IDs — fuzzy match to real todos
-    const staleCard = parsed.cards.find(c => c.type === 'stale_triage');
+    const staleCard = parsed.cards.find((c) => c.type === 'stale_triage');
     if (staleCard && staleCard.items) {
       for (const item of staleCard.items) {
         if (!item.item_id) {
-          const match = (weeklySnapshot.todosDetail || []).find(t =>
-            t.title && item.title &&
-            (t.title.toLowerCase() === item.title.toLowerCase() ||
-             t.title.toLowerCase().includes(item.title.toLowerCase()) ||
-             item.title.toLowerCase().includes(t.title.toLowerCase()))
+          const match = (weeklySnapshot.todosDetail || []).find(
+            (t) =>
+              t.title &&
+              item.title &&
+              (t.title.toLowerCase() === item.title.toLowerCase() ||
+                t.title.toLowerCase().includes(item.title.toLowerCase()) ||
+                item.title.toLowerCase().includes(t.title.toLowerCase())),
           );
           if (match) item.item_id = match.id;
         }
@@ -3376,15 +3475,20 @@ Respond with ONLY the corrected JSON cards array. If nothing needs fixing, retur
 
     // Structural enforcement — max 8 cards
     if (parsed.cards.length > 8) {
-      const recIdx = parsed.cards.findIndex(c => c.type === 'recommendation');
+      const recIdx = parsed.cards.findIndex((c) => c.type === 'recommendation');
       if (recIdx !== -1) parsed.cards.splice(recIdx, 1);
     }
     if (parsed.cards.length > 8) {
-      const mrIdx = parsed.cards.findIndex(c => c.type === 'monthly_retro');
+      const mrIdx = parsed.cards.findIndex((c) => c.type === 'monthly_retro');
       if (mrIdx !== -1) {
         const mrCard = parsed.cards[mrIdx];
-        const waCard = parsed.cards.find(c => c.type === 'week_ahead');
-        if (waCard) waCard.monthly_retro = { headline: mrCard.headline, body: mrCard.body, thread_arcs: mrCard.thread_arcs };
+        const waCard = parsed.cards.find((c) => c.type === 'week_ahead');
+        if (waCard)
+          waCard.monthly_retro = {
+            headline: mrCard.headline,
+            body: mrCard.body,
+            thread_arcs: mrCard.thread_arcs,
+          };
         parsed.cards.splice(mrIdx, 1);
       }
     }
@@ -3400,7 +3504,7 @@ Respond with ONLY the corrected JSON cards array. If nothing needs fixing, retur
     brief_tokens: `${briefInputTokens}/${briefOutputTokens}`,
     story_tokens: `${storyInputTokens}/${storyOutputTokens}`,
     card_count: parsed.cards?.length || 0,
-    card_types: parsed.cards?.map(c => c.type) || [],
+    card_types: parsed.cards?.map((c) => c.type) || [],
   });
 
   return {
@@ -3414,7 +3518,7 @@ Respond with ONLY the corrected JSON cards array. If nothing needs fixing, retur
       model_brief: 'claude-sonnet-4-6',
       model_storyteller: 'claude-sonnet-4-6',
       card_count: parsed.cards?.length || 0,
-      card_types: parsed.cards?.map(c => c.type) || [],
+      card_types: parsed.cards?.map((c) => c.type) || [],
     },
   };
 }
@@ -3563,19 +3667,20 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
     fetch(
       `${env.SUPABASE_URL}/rest/v1/space_chats?user_id=eq.${userId}&archived_at=is.null&running_summary=neq.&running_summary=not.is.null&updated_at=gte.${windowStartStr}&select=id,space_id,title,running_summary,updated_at&order=updated_at.desc&limit=10`,
       { headers },
-    ).then(r => r.json()).catch(() => []),
+    )
+      .then((r) => r.json())
+      .catch(() => []),
   );
 
   // 12: Entity chat summaries (entities with chat_summary in views, updated in window)
   queries.push(
-    fetch(
-      `${env.SUPABASE_URL}/rest/v1/rpc/get_recent_entity_chat_summaries`,
-      {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ p_user_id: userId, p_since: windowStartStr }),
-      },
-    ).then(r => r.json()).catch(() => []),
+    fetch(`${env.SUPABASE_URL}/rest/v1/rpc/get_recent_entity_chat_summaries`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ p_user_id: userId, p_since: windowStartStr }),
+    })
+      .then((r) => r.json())
+      .catch(() => []),
   );
 
   const results = await Promise.all(queries);
@@ -4128,14 +4233,14 @@ function buildWeeklySnapshot(snapshot) {
 
     // Chat summaries
     chatSummaries: [
-      ...(raw.spaceChatSummaries || []).map(chat => ({
+      ...(raw.spaceChatSummaries || []).map((chat) => ({
         source: 'space_chat',
         space_id: chat.space_id,
         title: chat.title,
         summary: (chat.running_summary || '').slice(0, 500),
         date: chat.updated_at ? chat.updated_at.split('T')[0] : null,
       })),
-      ...(raw.entityChatSummaries || []).map(entity => ({
+      ...(raw.entityChatSummaries || []).map((entity) => ({
         source: 'entity_chat',
         space_id: entity.space_id,
         entity_type: entity.entity_type,
@@ -4758,18 +4863,25 @@ STALE ITEMS:
   }
 
   if (weeklySnapshot.chatSummaries?.length > 0) {
-    dataLines.push('\n=== CHAT CONVERSATIONS (summaries of user-Gremly discussions this period) ===');
-    dataLines.push('These capture decisions, emotional processing, and context from conversations. Cross-reference with habits, journals, and todos for deeper patterns.');
+    dataLines.push(
+      '\n=== CHAT CONVERSATIONS (summaries of user-Gremly discussions this period) ===',
+    );
+    dataLines.push(
+      'These capture decisions, emotional processing, and context from conversations. Cross-reference with habits, journals, and todos for deeper patterns.',
+    );
     for (const chat of weeklySnapshot.chatSummaries) {
-      const spaceName = (weeklySnapshot.spaces || []).find(s => s.id === chat.space_id)?.name || 'General';
+      const spaceName =
+        (weeklySnapshot.spaces || []).find((s) => s.id === chat.space_id)?.name || 'General';
       const safeSummary = (chat.summary || '')
+        // eslint-disable-next-line no-control-regex -- intentional control char sanitisation
         .replace(/[\x00-\x1F\x7F]/g, ' ')
         .replace(/"/g, "'")
         .trim();
       if (safeSummary) {
-        const typeLabel = chat.source === 'entity_chat'
-          ? `Entity: ${chat.entity_type} "${chat.title || 'Untitled'}"`
-          : `Space: ${spaceName}`;
+        const typeLabel =
+          chat.source === 'entity_chat'
+            ? `Entity: ${chat.entity_type} "${chat.title || 'Untitled'}"`
+            : `Space: ${spaceName}`;
         dataLines.push(`[${typeLabel}] ${chat.date || 'recent'}: ${safeSummary}`);
       }
     }
@@ -4812,8 +4924,8 @@ STALE ITEMS:
   let outputTokens = 0;
   let buffer = '';
 
+  // eslint-disable-next-line no-constant-condition -- SSE stream reader
   while (true) {
-    // eslint-disable-line no-constant-condition -- SSE stream reader
     const { done, value } = await reader.read();
     if (done) break;
 
@@ -4907,7 +5019,7 @@ STALE ITEMS:
   // Join journal text and todo details back into themes from source data
   if (parsed.themes && Array.isArray(parsed.themes)) {
     const journalsByDate = {};
-    for (const j of (weeklySnapshot.journals || [])) {
+    for (const j of weeklySnapshot.journals || []) {
       const date = j.date || (j.created_at ? j.created_at.split('T')[0] : null);
       if (date) {
         if (!journalsByDate[date]) journalsByDate[date] = [];
@@ -4916,7 +5028,7 @@ STALE ITEMS:
     }
 
     const todosMap = {};
-    for (const t of (weeklySnapshot.todosDetail || [])) {
+    for (const t of weeklySnapshot.todosDetail || []) {
       const titleKey = (t.title || '').toLowerCase().trim();
       if (titleKey) todosMap[titleKey] = t;
     }
@@ -4941,23 +5053,19 @@ STALE ITEMS:
 
       // Join completed todo details from refs
       if (tw.completed_todo_refs && Array.isArray(tw.completed_todo_refs)) {
-        tw.completed_todos = tw.completed_todo_refs.map(title => {
+        tw.completed_todos = tw.completed_todo_refs.map((title) => {
           const key = (title || '').toLowerCase().trim();
           const match = todosMap[key];
-          return match
-            ? `${match.title} (${match.completed_at || 'unknown date'})`
-            : title;
+          return match ? `${match.title} (${match.completed_at || 'unknown date'})` : title;
         });
       }
 
       // Join active todo details from refs
       if (tw.active_todo_refs && Array.isArray(tw.active_todo_refs)) {
-        tw.active_todos = tw.active_todo_refs.map(title => {
+        tw.active_todos = tw.active_todo_refs.map((title) => {
           const key = (title || '').toLowerCase().trim();
           const match = todosMap[key];
-          return match
-            ? `${match.title} (created ${match.created_at || 'unknown'})`
-            : title;
+          return match ? `${match.title} (created ${match.created_at || 'unknown'})` : title;
         });
       }
     }
@@ -5173,15 +5281,18 @@ function buildWorldPicture(snapshot) {
   const entityChatSummaries = raw.entityChatSummaries || [];
 
   if (spaceChatSummaries.length > 0 || entityChatSummaries.length > 0) {
-    parts.push("\n=== RECENT CHAT CONVERSATIONS ===");
-    parts.push("Summaries of recent conversations the user had with Gremly. These capture decisions, emotional signals, and context not available from raw data alone.");
+    parts.push('\n=== RECENT CHAT CONVERSATIONS ===');
+    parts.push(
+      'Summaries of recent conversations the user had with Gremly. These capture decisions, emotional signals, and context not available from raw data alone.',
+    );
 
     for (const chat of spaceChatSummaries) {
-      const spaceDomain = raw.spaces?.find(s => s.id === chat.space_id);
+      const spaceDomain = raw.spaces?.find((s) => s.id === chat.space_id);
       const spaceName = spaceDomain?.name || 'General';
       const date = chat.updated_at ? chat.updated_at.split('T')[0] : 'recent';
       const safeSummary = (chat.running_summary || '')
         .slice(0, 500)
+        // eslint-disable-next-line no-control-regex -- intentional control char sanitisation
         .replace(/[\x00-\x1F\x7F]/g, ' ')
         .replace(/"/g, "'")
         .trim();
@@ -5192,16 +5303,19 @@ function buildWorldPicture(snapshot) {
     }
 
     for (const entity of entityChatSummaries) {
-      const spaceDomain = raw.spaces?.find(s => s.id === entity.space_id);
+      const spaceDomain = raw.spaces?.find((s) => s.id === entity.space_id);
       const spaceName = spaceDomain?.name || 'Unassigned';
       const date = entity.chat_summary_at ? entity.chat_summary_at.split('T')[0] : 'recent';
       const safeSummary = (entity.chat_summary || '')
         .slice(0, 400)
+        // eslint-disable-next-line no-control-regex -- intentional control char sanitisation
         .replace(/[\x00-\x1F\x7F]/g, ' ')
         .replace(/"/g, "'")
         .trim();
       if (safeSummary) {
-        parts.push(`\n[Entity Chat: ${entity.entity_type} "${entity.entity_title || 'Untitled'}"] ${spaceName} — ${date}`);
+        parts.push(
+          `\n[Entity Chat: ${entity.entity_type} "${entity.entity_title || 'Untitled'}"] ${spaceName} — ${date}`,
+        );
         parts.push(`  ${safeSummary}`);
       }
     }
@@ -5688,10 +5802,14 @@ export default {
 
     // Custom API endpoint: manually trigger space suggestions for a user
     if (url.pathname === '/api/generate-space-suggestions' && request.method === 'POST') {
-      return corsResponse({
-        error: 'This endpoint is deprecated. Space suggestions now run weekly inside the weeklySummaryV2Worker pipeline.',
-        deprecated: true,
-      }, 410);
+      return corsResponse(
+        {
+          error:
+            'This endpoint is deprecated. Space suggestions now run weekly inside the weeklySummaryV2Worker pipeline.',
+          deprecated: true,
+        },
+        410,
+      );
     }
 
     // Custom API endpoint: force-generate DCO for one or all users (bypasses Inngest)
@@ -5850,12 +5968,18 @@ export default {
 
     // @deprecated — old DCO pipeline removed; use Life Map pipeline instead
     if (url.pathname === '/api/debug-dco-data' && request.method === 'POST') {
-      return corsResponse({ error: 'Deprecated – old DCO pipeline removed. Use Life Map pipeline.' }, 410);
+      return corsResponse(
+        { error: 'Deprecated – old DCO pipeline removed. Use Life Map pipeline.' },
+        410,
+      );
     }
 
     // @deprecated — old DCO pipeline removed; use Life Map pipeline instead
     if (url.pathname === '/api/backfill-dco' && request.method === 'POST') {
-      return corsResponse({ error: 'Deprecated – old DCO pipeline removed. Use Life Map pipeline.' }, 410);
+      return corsResponse(
+        { error: 'Deprecated – old DCO pipeline removed. Use Life Map pipeline.' },
+        410,
+      );
     }
 
     // Custom API endpoint: bootstrap Life Map for a user (one-time, dispatched via Inngest)
