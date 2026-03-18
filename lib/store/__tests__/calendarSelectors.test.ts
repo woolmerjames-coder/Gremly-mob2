@@ -603,4 +603,77 @@ describe('useCalendarItemsForDate — event notes', () => {
 
     expect(result.current[0].time).toBeNull();
   });
+
+  it('includes multi-day event note on intermediate date', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      title: 'Multi-Day Conference',
+      target_date: YESTERDAY,
+      end_date: TOMORROW,
+    } as any);
+    setupMockStore({ notes: [eventNote] });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    expect(result.current).toHaveLength(1);
+    expect(result.current[0].title).toBe('Multi-Day Conference');
+  });
+
+  it('includes multi-day event note on start date', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      title: 'Multi-Day Trip',
+      target_date: TODAY,
+      end_date: TOMORROW,
+    } as any);
+    setupMockStore({ notes: [eventNote] });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    expect(result.current).toHaveLength(1);
+    expect(result.current[0].title).toBe('Multi-Day Trip');
+  });
+
+  it('includes multi-day event note on end date', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      title: 'Multi-Day Trip',
+      target_date: YESTERDAY,
+      end_date: TODAY,
+    } as any);
+    setupMockStore({ notes: [eventNote] });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    expect(result.current).toHaveLength(1);
+    expect(result.current[0].title).toBe('Multi-Day Trip');
+  });
+
+  it('excludes multi-day event note after end_date', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      title: 'Past Conference',
+      target_date: '2025-12-18',
+      end_date: '2025-12-20',
+    } as any);
+    setupMockStore({ notes: [eventNote] });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    expect(result.current).toHaveLength(0);
+  });
+
+  it('excludes multi-day event note before start date', () => {
+    const eventNote = makeNote({
+      subtype: 'event' as any,
+      title: 'Future Retreat',
+      target_date: TOMORROW,
+      end_date: '2025-12-25',
+    } as any);
+    setupMockStore({ notes: [eventNote] });
+
+    const { result } = renderHook(() => useCalendarItemsForDate(TODAY));
+
+    expect(result.current).toHaveLength(0);
+  });
 });

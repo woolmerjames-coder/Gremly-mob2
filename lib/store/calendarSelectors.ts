@@ -228,7 +228,14 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
   notes.forEach((note) => {
     if (note.archived) return;
     if ((note.subtype as string) !== 'event') return;
-    if (note.target_date !== dateStr) return;
+    // Support multi-day events: include if dateStr falls within target_date..end_date
+    const matchesDate =
+      note.target_date === dateStr ||
+      (note.target_date != null &&
+        note.end_date != null &&
+        dateStr >= note.target_date &&
+        dateStr <= note.end_date);
+    if (!matchesDate) return;
 
     // Map external_source provider back to CalendarProvider format
     const providerMap: Record<string, 'google' | 'outlook' | 'ics'> = {

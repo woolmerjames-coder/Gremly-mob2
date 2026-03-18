@@ -1,0 +1,1012 @@
+{
+  "_type": "rebuild_test",
+  "analyst_metadata": {
+    "model": "claude-haiku-4-5-20251001",
+    "latency_ms": 149863,
+    "input_tokens": 8253,
+    "output_tokens": 18327,
+    "data_payload_chars": 15364,
+    "cleaned_events_count": 44
+  },
+  "rebuild_metadata": {
+    "model": "claude-sonnet-4-6",
+    "domains": 5,
+    "threads": 14,
+    "version": 2,
+    "latency_ms": 189773,
+    "input_tokens": 29880,
+    "output_tokens": 12000
+  },
+  "rebuilt_life_map": {
+    "domains": [
+      {
+        "name": "Gremly improvements",
+        "source": "space",
+        "threads": [
+          {
+            "name": "App Development & Launch",
+            "status": "building",
+            "summary": "Building Gremly is the user's primary creative and professional passion project, consuming significant daily energy since at least December 2025. The journey has been marked by cycles of frustration and breakthrough — from early mind drop speed fixes to the landmark TestFlight release to friends and family on February 26. The app is now in external testing with the DCO (daily context object) feature emerging as a potentially transformative addition. The user continues shipping iteratively even during the honeymoon, though they are beginning to consciously manage the tension between app ambition and relational presence. A notable early signal came from the user's parents trying the app and raising a complexity concern.",
+            "evidence": [
+              {
+                "date": "2026-01-19",
+                "type": "journal",
+                "signal": "Considered moving launch to March due to AI complexity challenges",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-01-24",
+                "type": "journal",
+                "signal": "Described app as 'really coming together' after a productive day",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-01-29",
+                "type": "journal",
+                "signal": "Felt 'weirdly hopeful and inspired' — sensed a change happening, partly attributed to Gremly",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-02-16",
+                "type": "sweep",
+                "signal": "Weekly summary flagged 19-20 aging todos in Gremly backlog needing triage",
+                "source": null,
+                "salience": "low"
+              },
+              {
+                "date": "2026-02-25",
+                "type": "journal",
+                "signal": "Successfully updated AI models in mind drop; felt proud and calm about the change",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-26",
+                "type": "calendar",
+                "signal": "Calendar event: Release Testflight to Friends and Family",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-02-26",
+                "type": "journal",
+                "signal": "TestFlight released to friends and family — first external milestone",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-02-27",
+                "type": "journal",
+                "signal": "Very proud of Gremly progress despite exhaustion; noted work was also crazy",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-27",
+                "type": "journal",
+                "signal": "Parents tried the app but user worried it might be 'too complicated' — early user feedback signal",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "journal",
+                "signal": "Made progress on daily context feature from Bora Bora; described it as potentially 'really powerful'",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "todo",
+                "signal": "10 active todos in space including Fix Overlay Date Picker, Complete the Website, Add Notifications to App",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-09",
+                "type": "todo",
+                "signal": "4 feature completions in one day: Daily Context Object Integration, DCO User Onboarding, Fed Metaphor Exploration, and investigation of wrong user notification",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-12",
+                "type": "journal",
+                "signal": "Reflected on loving Gremly work but needing to step back to enjoy vacation with Dave",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-13",
+                "type": "todo",
+                "signal": "DCO Implementation Across Areas completed — major feature milestone during honeymoon",
+                "source": null,
+                "salience": "high"
+              }
+            ],
+            "momentum": "upward",
+            "attention": "active",
+            "lifecycle": "active",
+            "importance": "high",
+            "last_activity": "2026-03-13",
+            "recent_update": "Despite being on honeymoon, the user shipped significant feature work this week: Daily Context Object integration, user onboarding, and DCO implementation across areas were all completed. The user explicitly acknowledged the tension between app passion and vacation presence on March 12, writing 'I need to step back sometimes and just enjoy him and being on a once in a lifetime vacation.'"
+          },
+          {
+            "name": "Mind Drop & Core UX",
+            "status": "active",
+            "summary": "The mind drop feature has been a recurring focus throughout the build — the user has iterated on its speed, AI model quality, routing logic, and trust-building design multiple times. Notes like 'Why Mind Drop Goes to General Note' and 'Mind Drop Space Expansion' reflect ongoing architectural thinking. This week's 'Share Key Dates with Chat' todo suggests the user is now thinking about how the daily context object (DCO) feeds into the drop experience. This is the heart of the product and the user cares deeply about getting it right, even if active iteration slowed this week in favour of broader DCO work.",
+            "evidence": [
+              {
+                "date": "2025-12-27",
+                "type": "journal",
+                "signal": "Early note: 'Make mind drop faster. Still too slow'",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-01-17",
+                "type": "journal",
+                "signal": "Very focused on speeding up the mind drop; felt it was getting there",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-01-28",
+                "type": "journal",
+                "signal": "Proud of improvements to mind drop process and the trust it will bring users",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-02-01",
+                "type": "note",
+                "signal": "Catchall note: Lower confidence percentages for categories vs ambiguous — categorization tuning",
+                "source": null,
+                "salience": "low"
+              },
+              {
+                "date": "2026-02-01",
+                "type": "note",
+                "signal": "Catchall note: Why Mind Drop Goes to General Note — routing bug investigation",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-25",
+                "type": "journal",
+                "signal": "Successfully swapped AI model for mind drop to 4.1; completed quickly without panic",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-02-25",
+                "type": "note",
+                "signal": "Note: [idea] Mind Drop Space Expansion — architectural thinking about feature growth",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "todo",
+                "signal": "Share Key Dates with Chat todo created — extending context-sharing into drop/chat architecture",
+                "source": null,
+                "salience": "medium"
+              }
+            ],
+            "momentum": "steady",
+            "attention": "active",
+            "lifecycle": "active",
+            "importance": "high",
+            "last_activity": "2026-03-08",
+            "recent_update": "Mind drop work was not the primary focus this week, but the 'Share Key Dates with Chat' todo created on March 8 reflects continued architectural thinking about how context flows through the product. The Fix Habit Drops Routing task remains stale at 15+ days."
+          },
+          {
+            "name": "Bug Fixes & Polish",
+            "status": "active",
+            "summary": "A persistent stream of bug fixes and polish work has run alongside feature development throughout the entire history. Issues range from notifications and routing to calendar display and splash screens. The user tends to batch-fix in high-output sessions, with the biggest single day being the Thursday before the Japan flight when 14 tasks were cleared. Notification bugs have become a recurring cluster — appearing, being partially resolved, and resurfacing — suggesting a systemic issue in the notification architecture that needs a more comprehensive fix.",
+            "evidence": [
+              {
+                "date": "2026-01-07",
+                "type": "note",
+                "signal": "Catchall: Unwanted Items After Sweep — routing bug noted",
+                "source": null,
+                "salience": "low"
+              },
+              {
+                "date": "2026-02-01",
+                "type": "note",
+                "signal": "Catchall: Photos Not Rendering Issue and Habit Frequency Troubleshooting notes",
+                "source": null,
+                "salience": "low"
+              },
+              {
+                "date": "2026-02-18",
+                "type": "journal",
+                "signal": "Gremly described as 'so frustrating' — sleep deprivation compounding bug-fixing stress",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-23",
+                "type": "sweep",
+                "signal": "Weekly summary: Thursday launch day saw 56% output spike — 14 tasks cleared before Japan flight",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "todo",
+                "signal": "Active: Fix Overlay Date Picker, Fix Splash Screens on App Reload, Resolve Calendar Display Issue, Resolve Double Notifications Issue, Fix Habit Drops Routing",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "todo",
+                "signal": "Unassigned active todos: Notification Editing Issue, Habit Builder Chat Issue, Investigate Wrong User Notification",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-09",
+                "type": "todo",
+                "signal": "Investigate Wrong User Notification todo created — new notification bug identified",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-13",
+                "type": "todo",
+                "signal": "Fix Notification Issues todo created — notification bugs consolidating into a recurring theme",
+                "source": null,
+                "salience": "medium"
+              }
+            ],
+            "momentum": "steady",
+            "attention": "active",
+            "lifecycle": "active",
+            "importance": "medium",
+            "last_activity": "2026-03-13",
+            "recent_update": "Notification bugs are emerging as a recurring cluster this week — new todos for Wrong User Notification (Mar 9), Notification Editing Issue (Mar 8), and Fix Notification Issues (Mar 13) were created, while the Double Notifications issue remains stale at 16+ days. The Calendar Display Issue was resolved on Feb 26."
+          }
+        ],
+        "space_id": "6a5ebdc2-89bc-4bcb-b863-39c6a046e1e1",
+        "attention": "active"
+      },
+      {
+        "name": "Fitness & Health",
+        "source": "space",
+        "threads": [
+          {
+            "name": "Strength Training",
+            "status": "thriving",
+            "summary": "Strength training has been the most consistent fitness habit across the entire history, with sessions logged reliably from mid-January through the honeymoon. The user maintained 2-4 sessions per week even during the chaotic pre-honeymoon sprint and continued in Bora Bora, achieving 200% of their weekly target this week. Journal entries reflect genuine pride in showing up for weights, and the user treats strength training as a non-negotiable even in vacation contexts — framing it as part of what makes a day feel great rather than a chore.",
+            "evidence": [
+              {
+                "date": "2026-01-06",
+                "type": "journal",
+                "signal": "Managed to workout and do weights in the morning — felt good about it",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-01-30",
+                "type": "journal",
+                "signal": "Weights and yoga described as 'great' — feeling strong",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-08",
+                "type": "habit",
+                "signal": "Peak week: 4 strength sessions completed (week of Feb 8)",
+                "source": "habit:Strength Training Sessions",
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-02",
+                "type": "sweep",
+                "signal": "Weekly summary: Hit 2 of 3 strength days across four cities and three time zones",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "journal",
+                "signal": "Fit in weights in Bora Bora alongside tennis and a run — 'very happy to have managed to fit in...some weights'",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "habit",
+                "signal": "Strength Training Sessions habit: 6/3 completions this week (200% of target)",
+                "source": "habit:Strength Training Sessions",
+                "salience": "high"
+              }
+            ],
+            "momentum": "strong_upward",
+            "attention": "active",
+            "lifecycle": "active",
+            "importance": "high",
+            "last_activity": "2026-03-13",
+            "recent_update": "Strength training hit 200% of weekly target (6 sessions against a target of 3), maintained even during the Bora Bora vacation. The user explicitly noted pride in fitting in weights alongside tennis and a run on March 8."
+          },
+          {
+            "name": "Running & Half Marathon Training",
+            "status": "approaching_milestone",
+            "summary": "Running has been a core fitness goal with a half marathon milestone set for March 22 — now just 9 days away. The user ran 3x per week consistently from mid-January through early February, then dropped off during the pre-travel crunch, but has rebounded strongly during the honeymoon. Before departing, the user wrote 'Felt so good after the run. Want a routine on vacation that includes a lot of running' — and they delivered, hitting 133% of their weekly target in Bora Bora. Notes include a detailed interval training plan targeting a 1:40 finish. The final training week will play out in Hawaii before the race.",
+            "evidence": [
+              {
+                "date": "2025-12-24",
+                "type": "journal",
+                "signal": "10km run with George and Dave — early evidence of running as social and fitness activity",
+                "source": null,
+                "salience": "low"
+              },
+              {
+                "date": "2026-01-24",
+                "type": "journal",
+                "signal": "Interval run described as 'super hard but can feel myself getting stronger'",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-01-25",
+                "type": "habit",
+                "signal": "Consistent 3x/week running maintained for 5 straight weeks Jan 11 – Feb 8",
+                "source": "habit:Run 3 Times A Week",
+                "salience": "high"
+              },
+              {
+                "date": "2026-01-26",
+                "type": "journal",
+                "signal": "Feeling good about VO2 max and HRV trajectory from running",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-01",
+                "type": "note",
+                "signal": "Note: Interval Training Plan For 1:40 Half Marathon — detailed training structure created",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-02-26",
+                "type": "journal",
+                "signal": "Pre-honeymoon journal: 'Felt so good after the run. Want a routine on vacation that includes a lot of running'",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "habit",
+                "signal": "Quick run in Bora Bora logged — part of multi-activity day; Run 3 Times A Week habit at 4/3 (133%)",
+                "source": "habit:Run 3 Times A Week",
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-22",
+                "type": "milestone",
+                "signal": "Half Marathon milestone — 9 days from end of analysis window",
+                "source": null,
+                "salience": "high"
+              }
+            ],
+            "momentum": "upward",
+            "attention": "front_of_mind",
+            "lifecycle": "active",
+            "importance": "high",
+            "last_activity": "2026-03-13",
+            "recent_update": "Running hit 133% of weekly target (4 runs against a 3x/week goal) this week, with at least one documented run in Bora Bora on March 8. The half marathon is now 9 days away and the user is in their final training week while transitioning to Hawaii."
+          },
+          {
+            "name": "Sobriety & Alcohol-Free Streak",
+            "status": "active",
+            "summary": "The user committed to a 3-month alcohol-free period starting January 1, 2026, explicitly to observe health impacts. The streak ran strongly through early February (7 completions/week for 4 weeks), with a notable slip during a Valentine's weekend away (Feb 15). The user expressed sadness about the slip and quickly recommitted. During the honeymoon, adherence has been contextual — higher on active, structured days (like March 8 in Bora Bora) and lower during relaxation. The 3-month target period runs through approximately April 1, meaning the user is in the final stretch of their original commitment.",
+            "evidence": [
+              {
+                "date": "2026-01-01",
+                "type": "journal",
+                "signal": "Committed to 3 months of not drinking to see health impact — streak begins",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-01-24",
+                "type": "journal",
+                "signal": "Proud of not having a drink so far this year; noticing physical benefits",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-01-25",
+                "type": "habit",
+                "signal": "7 completions/week for 4 consecutive weeks (Jan 18 – Feb 8) — perfect streak",
+                "source": "habit:Stop drinking alcohol",
+                "salience": "high"
+              },
+              {
+                "date": "2026-02-06",
+                "type": "journal",
+                "signal": "Lack of alcohol giving clearer mind — described as 'quite liberating'",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-02-15",
+                "type": "journal",
+                "signal": "Valentine's weekend slip — 'sad alcohol is back and don't want it to stay'",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "journal",
+                "signal": "Explicitly avoided alcohol in Bora Bora on an active day — noted as achievement alongside fitness",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "habit",
+                "signal": "Stop drinking alcohol habit: 6/21 completions (29%) across 21-day window — contextual adherence",
+                "source": "habit:Stop drinking alcohol",
+                "salience": "medium"
+              }
+            ],
+            "momentum": "fluctuating",
+            "attention": "active",
+            "lifecycle": "active",
+            "importance": "high",
+            "last_activity": "2026-03-13",
+            "recent_update": "The user explicitly noted avoiding alcohol on March 8 in Bora Bora, framing it as a proud achievement alongside fitness. The 21-day habit rate sits at 29% (6/21), reflecting a challenging daily commitment in a vacation environment, but the user's intentionality on active days is a positive signal."
+          },
+          {
+            "name": "Mental Wellbeing & Negative Thought Management",
+            "status": "building",
+            "summary": "The user has been actively working on managing negative thoughts as a daily habit since early February, with 9 completions logged across 21 days (43%). Journal entries throughout the history reveal recurring anxiety — about health, work, sleep, and life circumstances — alongside genuine moments of gratitude and hope. The honeymoon has marked a meaningful shift: the user is moving from reactive anxiety management toward more proactive wellbeing practices, including deliberate boundary-setting around work and conscious presence with Dave. The user mentioned considering therapy in December and has shown growing self-awareness about emotional patterns.",
+            "evidence": [
+              {
+                "date": "2025-12-23",
+                "type": "journal",
+                "signal": "Feeling anxious without knowing why; considered seeking a therapist",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-01-29",
+                "type": "journal",
+                "signal": "Felt 'weirdly hopeful and inspired' — sensed a positive change happening",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-02-03",
+                "type": "journal",
+                "signal": "Processing grief about aging and closing window on professional sports; Gremly providing focus",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-08",
+                "type": "habit",
+                "signal": "3 completions in week of Feb 8 — highest weekly count",
+                "source": "habit:Stop negative thoughts",
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-26",
+                "type": "journal",
+                "signal": "Anxious moments (mainly health-related) but proud of getting through them",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-02",
+                "type": "sweep",
+                "signal": "Weekly summary noted sharp gratitude shift during honeymoon — contrast to prior sleep deprivation narrative",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "journal",
+                "signal": "'Felt very very refreshed this morning. Very grateful to be here with Dave' — positive mental state in Bora Bora",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-12",
+                "type": "journal",
+                "signal": "Deliberate boundary-setting: 'I need to step back sometimes and just enjoy him and being on a once in a lifetime vacation'",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-13",
+                "type": "habit",
+                "signal": "Stop negative thoughts habit: 9/21 completions (43%) across 21-day window",
+                "source": "habit:Stop negative thoughts",
+                "salience": "medium"
+              }
+            ],
+            "momentum": "upward",
+            "attention": "active",
+            "lifecycle": "active",
+            "importance": "high",
+            "last_activity": "2026-03-13",
+            "recent_update": "The vacation context is supporting a notably positive mental state — the user described feeling 'very very refreshed' on March 8 and demonstrated active boundary-setting on March 12 by consciously choosing to step back from Gremly work to be present with Dave. The habit sits at 43% completion over 21 days, showing consistent engagement."
+          },
+          {
+            "name": "Yoga & Cycling",
+            "status": "paused",
+            "summary": "Yoga and cycling were consistent supplementary practices from January through mid-February, with yoga completing 5 times and cycling 8 times across that period. Both dropped off during the pre-travel crunch and have not meaningfully resumed during the honeymoon. The user has noted enjoying yoga and it appears positively in journal entries. These practices are likely to resume post-honeymoon when the user returns to their SF home routine, but are currently deprioritized in favour of vacation-compatible activities.",
+            "evidence": [
+              {
+                "date": "2026-01-23",
+                "type": "journal",
+                "signal": "Yoga described positively: 'Yoga was good. Feeling good'",
+                "source": null,
+                "salience": "low"
+              },
+              {
+                "date": "2026-01-30",
+                "type": "journal",
+                "signal": "Weights and yoga both described as 'great'",
+                "source": null,
+                "salience": "low"
+              },
+              {
+                "date": "2026-02-01",
+                "type": "note",
+                "signal": "Catchall note: Yoga Session — logged as a standalone note",
+                "source": null,
+                "salience": "low"
+              },
+              {
+                "date": "2026-02-15",
+                "type": "habit",
+                "signal": "Last yoga completion — 5 total across Jan 11 to Feb 15",
+                "source": "habit:Weekly Yoga Practice",
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-16",
+                "type": "sweep",
+                "signal": "Weekly summary: Running vanished, yoga didn't happen, fitness partially held during travel chaos",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "habit",
+                "signal": "1 cycling completion week of March 8 — resumed briefly on honeymoon",
+                "source": "habit:Weekly Cycling Routine",
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-13",
+                "type": "habit",
+                "signal": "Yoga: 0/3 completions this week; Cycling: 0 completions this week despite 2/3 overall 21-day rate",
+                "source": null,
+                "salience": "low"
+              }
+            ],
+            "momentum": "stalled",
+            "attention": "background",
+            "lifecycle": "active",
+            "importance": "medium",
+            "last_activity": "2026-03-08",
+            "recent_update": "Neither yoga nor cycling was logged this week. The vacation context (beach resort, limited studio/bike access) explains the gap, with the user gravitating toward tennis, running, and weights instead."
+          }
+        ],
+        "space_id": "ed5a7cdc-29ae-47b4-9482-57c2cecb9b5f",
+        "attention": "front_of_mind"
+      },
+      {
+        "name": "Honeymoon",
+        "source": "space",
+        "threads": [
+          {
+            "name": "Japan Trip (Tokyo & Kyoto)",
+            "status": "thriving",
+            "summary": "The Japan leg of the honeymoon (Feb 27 – Mar 6) was a deeply meaningful experience — the user described it as 'incredible' and expressed a strong desire to return. Highlights included shabu shabu, Michelin star dining, Golden Gai, sake tasting with locals (including a high-ranking Japanese air defense official), Shinjuku, and the onsen at the Janu hotel. The user balanced genuine presence with some work obligations on March 2, and noted being the social catalyst at every bar and restaurant they visited. The trip marked a clear emotional shift toward gratitude and set the tone for the rest of the honeymoon.",
+            "evidence": [
+              {
+                "date": "2026-02-27",
+                "type": "calendar",
+                "signal": "Calendar: Travel to Tokyo",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-28",
+                "type": "chat",
+                "signal": "Extensive chat in Honeymoon space: food research, matcha spots near Janu hotel, Tokyo itinerary planning",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-02",
+                "type": "journal",
+                "signal": "First day in Tokyo: hotel, onsen, shabu shabu — 'perfect first half day'",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-02",
+                "type": "journal",
+                "signal": "Perfect day: Michelin star dinner, Golden Gai, Shibuya crossing, arcade, sake tasting with locals",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-02",
+                "type": "journal",
+                "signal": "User noted being the one 'igniting conversation' at bars and restaurants — social confidence on display",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-03",
+                "type": "calendar",
+                "signal": "Calendar: Train Journey to Kyoto",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-06",
+                "type": "journal",
+                "signal": "Departed Japan: 'It was incredible and I cannot wait to be back'",
+                "source": null,
+                "salience": "high"
+              }
+            ],
+            "momentum": "steady",
+            "attention": "background",
+            "lifecycle": "concluded",
+            "importance": "high",
+            "last_activity": "2026-03-06",
+            "recent_update": "Japan leg concluded March 6 with the flight to Bora Bora. User wrote: 'Very grateful for the time we had in Japan. It was incredible and I cannot wait to be back.' Also noted feeling like they were eating too much but accepted it as part of the honeymoon experience."
+          },
+          {
+            "name": "Bora Bora & Hawaii",
+            "status": "thriving",
+            "summary": "The tropical leg of the honeymoon — Bora Bora followed by Hawaii — has been a deeply restorative experience. The user arrived in Bora Bora around March 6 after a first-class flight upgrade and spent the week integrating fitness, Gremly work, and genuine vacation presence. March 8 was a standout day (tennis, run, weights, sobriety, Gremly progress) and March 12-13 showed a meaningful shift toward pure presence — the user consciously stepped back from work to enjoy Dave and the once-in-a-lifetime setting. The Hawaii leg begins today (March 14) and the honeymoon concludes with a flight to San Francisco on March 22, which also coincides with the half marathon.",
+            "evidence": [
+              {
+                "date": "2026-03-06",
+                "type": "calendar",
+                "signal": "Calendar: Trip to Bora Bora",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-06",
+                "type": "journal",
+                "signal": "First-class flight to Bora Bora — upgrade described as 'massively helpful'; excited for what's ahead",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "journal",
+                "signal": "Active day in Bora Bora: tennis, run, weights, Gremly work, avoided alcohol — 'very very refreshed'",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "todo",
+                "signal": "Unassigned todo: Work Plan for Hawaii — planning ahead for next leg",
+                "source": null,
+                "salience": "low"
+              },
+              {
+                "date": "2026-03-12",
+                "type": "journal",
+                "signal": "'Great day in Bora Bora with Dave...want to maximize the last few days before we head to Hawaii'",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-13",
+                "type": "journal",
+                "signal": "'Really really great day. So thankful to be here...Loving bora bora and the vacation right now. Loved spending time on the floaties'",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-13",
+                "type": "todo",
+                "signal": "Work Plan for Hawaii completed — transition preparation done",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-14",
+                "type": "calendar",
+                "signal": "Calendar: Fly to Hawaii — Bora Bora leg concludes today",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-22",
+                "type": "calendar",
+                "signal": "Calendar: Flight to San Francisco — honeymoon ends",
+                "source": null,
+                "salience": "medium"
+              }
+            ],
+            "momentum": "strong_upward",
+            "attention": "front_of_mind",
+            "lifecycle": "active",
+            "importance": "high",
+            "last_activity": "2026-03-13",
+            "recent_update": "The Bora Bora leg concludes today (March 14) with the flight to Hawaii. The user's final Bora Bora journal entry on March 13 was pure contentment — sunburnt, floating on floaties with Dave, describing it as 'really really great.' The Work Plan for Hawaii was completed on March 13, signalling a smooth transition."
+          },
+          {
+            "name": "Honeymoon Logistics & Planning",
+            "status": "active",
+            "summary": "Extensive planning went into the honeymoon across multiple months — from visa checks and travel insurance to packing lists and restaurant research. The user used the Honeymoon space heavily for chat-based research and had a checklist note for preparation. Most logistics have been executed smoothly; the Work Plan for Hawaii was completed on March 13 ahead of today's flight. Remaining items include the London flight change and a few open todos. A return Japan trip is already on the calendar for October 2026.",
+            "evidence": [
+              {
+                "date": "2026-02-19",
+                "type": "chat",
+                "signal": "Chat: Comprehensive packing list for Tulum, LA, Bora Bora, and Hawaii",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-19",
+                "type": "note",
+                "signal": "Note: Honeymoon Preparation Checklist created",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-28",
+                "type": "chat",
+                "signal": "Chat: Budget for Japan, packing for all three destinations, itinerary split across 12 days",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "todo",
+                "signal": "Active todos: Change March London Flight, Check visa requirements, Travel insurance, Proof of return travel",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-13",
+                "type": "todo",
+                "signal": "Work Plan for Hawaii completed — transition logistics handled ahead of March 14 flight",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-10-08",
+                "type": "milestone",
+                "signal": "Future milestone: Trip to Japan (return visit) — Oct 8, 2026",
+                "source": null,
+                "salience": "low"
+              }
+            ],
+            "momentum": "steady",
+            "attention": "active",
+            "lifecycle": "active",
+            "importance": "medium",
+            "last_activity": "2026-03-13",
+            "recent_update": "The Work Plan for Hawaii was completed on March 13, ensuring a smooth transition to the final honeymoon leg. A few open todos remain (London flight change, visa requirements, travel insurance) but the core logistics are well managed."
+          },
+          {
+            "name": "Vacation Activity Logistics & Experience Planning",
+            "status": "active",
+            "summary": "Across the Bora Bora stay, the user has been actively planning and executing specific vacation experiences — from booking the poolside cabana to exploring jet skiing, coordinating with friends, and planning a pearl shop visit. This reflects the user's engaged, forward-planning nature even in relaxation contexts.",
+            "evidence": [
+              {
+                "date": "2026-03-07",
+                "type": "todo",
+                "signal": "Jet Skiing Basics todo created — exploring water sports activity in Bora Bora",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "todo",
+                "signal": "Book Poolside Cabana completed — securing premium vacation experience",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-10",
+                "type": "todo",
+                "signal": "Message Jason and Jonas (Honeymoon) todo created — social coordination during trip",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-12",
+                "type": "todo",
+                "signal": "Take Credit Card to Pearl Shop todo created — shopping activity planned",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-13",
+                "type": "todo",
+                "signal": "Charge Speakers completed — equipment prep for vacation activities",
+                "source": null,
+                "salience": "medium"
+              }
+            ],
+            "momentum": "upward",
+            "attention": "active",
+            "lifecycle": "active",
+            "importance": "medium",
+            "last_activity": "2026-03-13",
+            "recent_update": "A cluster of activity-specific todos emerged this week: poolside cabana booked, jet skiing explored, pearl shop visit planned, speakers charged for activities. The user is actively designing the vacation experience rather than just passively enjoying it."
+          }
+        ],
+        "space_id": "44414226-3d35-45b1-ae86-645d5e6e3688",
+        "attention": "front_of_mind"
+      },
+      {
+        "name": "New Home",
+        "source": "space",
+        "threads": [
+          {
+            "name": "SF Neighbourhood Research & Move Planning",
+            "status": "building",
+            "summary": "The user is actively considering moving from their current Cole Valley apartment by end of 2026. Research has focused on comparing SF neighbourhoods — Presidio, Glen Park, Bernal Heights, and Cole Valley — with criteria including family-friendliness, dog access to green space, and cost. The user has a note on steps before leaving their rented place and a milestone set for November 2026. This thread is expected to reactivate post-honeymoon as the user settles back into SF life.",
+            "evidence": [
+              {
+                "date": "2026-02-01",
+                "type": "note",
+                "signal": "Note: Finding A New Home Near SF — research document created",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-01",
+                "type": "note",
+                "signal": "Note: Steps Before Leaving Rented Place — checklist for exit process",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-09",
+                "type": "sweep",
+                "signal": "Weekly summary noted New Home space has gone quiet since early February",
+                "source": null,
+                "salience": "low"
+              },
+              {
+                "date": "2026-02-27",
+                "type": "chat",
+                "signal": "Asked about setting up a new home and furniture budgeting (IKEA vs quality pieces)",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-02-28",
+                "type": "chat",
+                "signal": "Compared Presidio, Glen Park, Bernal Heights, Cole Valley for family + dog-friendly living",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-11-20",
+                "type": "milestone",
+                "signal": "Move milestone set: Move my end of the year — November 20, 2026",
+                "source": null,
+                "salience": "high"
+              }
+            ],
+            "momentum": "stalled",
+            "attention": "background",
+            "lifecycle": "active",
+            "importance": "medium",
+            "last_activity": "2026-02-28",
+            "recent_update": "No activity this week — user is on honeymoon and move planning is naturally on hold. The move milestone remains November 20, 2026."
+          }
+        ],
+        "space_id": "83359740-2053-48f2-bd6b-57b2f6c2c4e7",
+        "attention": "background"
+      },
+      {
+        "name": "Sage & Dentsu",
+        "source": "space",
+        "threads": [
+          {
+            "name": "Day-to-Day Client Work",
+            "status": "active",
+            "summary": "Sage & Dentsu is the user's primary employment, generating a steady stream of meetings, timesheets, and deliverables. The calendar is dense with recurring status calls across paid social, paid search, and programmatic channels. The user has expressed ongoing tension between work obligations and their passion for Gremly, frequently noting demotivation with day-job work while feeling energized by the app. Even during the honeymoon, work has",
+            "evidence": [
+              {
+                "date": "2026-01-06",
+                "type": "journal",
+                "signal": "Feeling demotivated with work — 'my passions are elsewhere'",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-01-10",
+                "type": "journal",
+                "signal": "Stressful day trying to work 2 jobs simultaneously; AI helped with Sage deck",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-01-14",
+                "type": "journal",
+                "signal": "Stressed about being put in unfair positions; 'can't wait to quit and just focus on Gremly'",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-02-27",
+                "type": "journal",
+                "signal": "Work described as 'crazy' the day before Japan flight; felt guilty not putting more into actual work",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-02",
+                "type": "journal",
+                "signal": "'Had to work this morning to make sure the handover was in a good place' — work during Tokyo vacation day",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-08",
+                "type": "todo",
+                "signal": "Active todos: Respond to Alyssa, Prepare for Sage Consultant Call, Confirm Merkury Data Costs, Log Timesheet Entries",
+                "source": null,
+                "salience": "medium"
+              },
+              {
+                "date": "2026-03-11",
+                "type": "calendar",
+                "signal": "Dense calendar week: billing deadline, paid social/search/programmatic status calls, global leadership check-in",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-11",
+                "type": "calendar",
+                "signal": "SAGE - BILLING DEADLINE: ACTUALIZE BUYS BY EOD 3/11/26",
+                "source": null,
+                "salience": "high"
+              },
+              {
+                "date": "2026-03-13",
+                "type": "calendar",
+                "signal": "Sage Cyber Security Deadline - EOP and Timesheets due at 13:00 — deadlines during honeymoon",
+                "source": null,
+                "salience": "high"
+              }
+            ],
+            "momentum": "steady",
+            "attention": "active",
+            "lifecycle": "active",
+            "importance": "high",
+            "last_activity": "2026-03-13",
+            "recent_update": "Work obligations continued to intrude on the honeymoon this week — a billing deadline on March 11, multiple status calls, and a Cyber Security deadline plus timesheets due on March 13. The user managed a work handover on March 2 in Tokyo, demonstrating ongoing responsibility even during vacation."
+          }
+        ],
+        "space_id": "72fd203c-a1f6-4773-a6c9-62564cf0fde5",
+        "attention": "active"
+      }
+    ],
+    "version": 2,
+    "rebuilt_at": "2026-03-12T08:11:36.299Z",
+    "updated_at": "2026-03-13T22:18:01.664Z"
+  }
+}

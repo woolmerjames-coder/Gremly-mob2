@@ -15,3 +15,6 @@ compatibility_flags = ["nodejs_compat"]
 
 [observability]
 enabled = true
+
+[limits]
+cpu_ms = 300000

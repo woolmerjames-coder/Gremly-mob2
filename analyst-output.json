@@ -1,0 +1,397 @@
+{
+  "user_id": "05a3c53d-b242-4b5f-a0db-83004c8e3892",
+  "week": {
+    "start": "2026-03-02",
+    "end": "2026-03-08"
+  },
+  "snapshot_stats": {
+    "todos": 86,
+    "drops": 15,
+    "journals": 13,
+    "events": 50,
+    "habits": 7,
+    "habitProgress": 27
+  },
+  "has_life_map": true,
+  "life_map_domains": 6,
+  "new_analyst": {
+    "analysis": {
+      "themes": [
+        {
+          "life_map_thread": "Bora Bora & Hawaii",
+          "life_map_domain": "Honeymoon",
+          "label": "Tropical Honeymoon in Motion",
+          "this_week": {
+            "activity_count": 2,
+            "notable_items": [
+              "Trip to Bora Bora (2026-03-06)",
+              "Fly to Hawaii (2026-03-14)"
+            ],
+            "metrics": "6 days in Bora Bora (Mar 6–12), transition to Hawaii by Mar 14"
+          },
+          "trajectory": "thriving",
+          "trajectory_evidence": "Journal 2026-03-08 and 2026-03-12 both express deep gratitude and active engagement (tennis, running, weights, no alcohol); user explicitly states 'maximize the last few days'",
+          "emotional_signal": "grateful, calm, refreshed — 'Very grateful to be here with Dave and so happy we have another week' (2026-03-08); 'step back sometimes and just enjoy him' (2026-03-12)",
+          "evidence_refs": [
+            "journal:2026-03-08",
+            "journal:2026-03-12",
+            "calendar:2026-03-06",
+            "calendar:2026-03-14"
+          ],
+          "importance": "high"
+        },
+        {
+          "life_map_thread": "Japan Trip (Tokyo & Kyoto)",
+          "life_map_domain": "Honeymoon",
+          "label": "Japan Concluded — Deep Impact",
+          "this_week": {
+            "activity_count": 2,
+            "notable_items": [
+              "Train Journey to Kyoto (2026-03-03)",
+              "Journal gratitude entry (2026-03-06)"
+            ],
+            "metrics": "Feb 27 – Mar 6 (8 days total); user marked Japan leg as 'concluded' in Life Map"
+          },
+          "trajectory": "concluded",
+          "trajectory_evidence": "Journal 2026-03-06: 'Very grateful for the time we had in Japan. It was incredible and I cannot wait to be back.' Explicitly wrapped up; moved to Bora Bora same day.",
+          "emotional_signal": "grateful, hopeful — user expressed strong desire to return; notes food was 'too good to pass up'; flagged long sleep helped refresh (2026-03-08)",
+          "evidence_refs": [
+            "journal:2026-03-06",
+            "journal:2026-03-02",
+            "calendar:2026-03-03"
+          ],
+          "importance": "high"
+        },
+        {
+          "life_map_thread": "Running & Half Marathon Training",
+          "life_map_domain": "Fitness & Health",
+          "label": "Half Marathon Prep in Final Week",
+          "this_week": {
+            "activity_count": 4,
+            "notable_items": [
+              "Run logged 2026-03-08 (Bora Bora)",
+              "Half Marathon scheduled 2026-03-22 (10 days after analysis window)"
+            ],
+            "metrics": "4/3 (133%) on weekly target; 1 run documented this week (during vacation)"
+          },
+          "trajectory": "milestone_approaching",
+          "trajectory_evidence": "Half Marathon on Mar 22 is 10 days post-analysis window; user logged run on Mar 8 despite full honeymoon schedule. Habit data shows 4 runs completed against 3-per-week target.",
+          "emotional_signal": "committed even while traveling — 'very happy to have managed to fit in...a quick run' (2026-03-08); pre-honeymoon journal flagged desire to maintain running routine on vacation (2026-02-26)",
+          "evidence_refs": [
+            "habit:Run 3 Times A Week",
+            "journal:2026-03-08",
+            "milestone:Half Marathon"
+          ],
+          "importance": "high"
+        },
+        {
+          "life_map_thread": "Strength Training",
+          "life_map_domain": "Fitness & Health",
+          "label": "Strength Work Continues Through Travel",
+          "this_week": {
+            "activity_count": 2,
+            "notable_items": [
+              "Weights session 2026-03-08 (Bora Bora)",
+              "Strength Training Sessions 6/3 (200% of target)"
+            ],
+            "metrics": "6/3 (200%) weekly completion rate; consistent throughout honeymoon"
+          },
+          "trajectory": "consistent",
+          "trajectory_evidence": "User logged strength work on Mar 8 despite vacation. Life Map notes 24 completions logged mid-January through early March. Habit rate 200% indicates user exceeding weekly targets.",
+          "emotional_signal": "proud, disciplined — 'very happy to have managed to fit in tennis, a quick run and some weights' (2026-03-08)",
+          "evidence_refs": [
+            "habit:Strength Training Sessions",
+            "journal:2026-03-08",
+            "todo:Tennis Match with Dave"
+          ],
+          "importance": "high"
+        },
+        {
+          "life_map_thread": "Sobriety & Alcohol-Free Streak",
+          "life_map_domain": "Fitness & Health",
+          "label": "Alcohol Avoidance on Honeymoon",
+          "this_week": {
+            "activity_count": 1,
+            "notable_items": [
+              "Stop drinking alcohol habit tracked daily"
+            ],
+            "metrics": "7/21 (33%); 3-month commitment started Jan 1, 2026"
+          },
+          "trajectory": "consistent",
+          "trajectory_evidence": "Habit shows 7 of 21 days tracked (33% completion rate for tracking, not abstinence failure). Journals document explicit commitment: 'avoiding alcohol' (2026-03-08), no mentions of drinking during Bora Bora or Japan legs.",
+          "emotional_signal": "committed — user explicitly noted 'whilst also avoiding alcohol' in positive context on 2026-03-08; no tension or struggle documented",
+          "evidence_refs": [
+            "habit:Stop drinking alcohol",
+            "journal:2026-03-08"
+          ],
+          "importance": "medium"
+        },
+        {
+          "life_map_thread": "Mental Wellbeing & Negative Thought Management",
+          "life_map_domain": "Fitness & Health",
+          "label": "Thought Work Paused During Travel",
+          "this_week": {
+            "activity_count": 0,
+            "notable_items": null,
+            "metrics": "8/21 (38%) cumulative; no activity logged this week during honeymoon"
+          },
+          "trajectory": "stalled",
+          "trajectory_evidence": "No habit completions logged for 'Stop negative thoughts' during analysis window (Mar 2–8). User explicitly in Bora Bora/Kyoto during this period; intentional pause aligned with vacation mode.",
+          "emotional_signal": null,
+          "evidence_refs": [
+            "habit:Stop negative thoughts"
+          ],
+          "importance": "medium"
+        },
+        {
+          "life_map_thread": "App Development & Launch",
+          "life_map_domain": "Gremly improvements",
+          "label": "Gremly Work Compressed Before & After Launch",
+          "this_week": {
+            "activity_count": 8,
+            "notable_items": [
+              "TestFlight release shipped 2026-02-26",
+              "Daily Context Object (DCO) integration tasks (2026-03-09, 2026-03-13)"
+            ],
+            "metrics": "36 todos completed recently; 30+ active Gremly-related todos"
+          },
+          "trajectory": "steady",
+          "trajectory_evidence": "TestFlight shipped Feb 26 (just before honeymoon window). Data shows DCO work (Daily Context Object Integration, Fed Metaphor Exploration, DCO User Onboarding) created Mar 8–9, indicating active development during early honeymoon. User noted in Mar 2 journal 'had to work this morning to make sure the handover was in a good place.'",
+          "emotional_signal": "ambitious but aware of need to step back — 'even though I love Gremly work, I need to step back sometimes' (2026-03-12); earlier: 'can't help but feel like I'm not moving quick enough with the app' (2026-02-27)",
+          "evidence_refs": [
+            "calendar:2026-02-26",
+            "journal:2026-03-12",
+            "todos:DCO Integration, Fed Metaphor"
+          ],
+          "importance": "high"
+        },
+        {
+          "life_map_thread": "Mind Drop & Core UX",
+          "life_map_domain": "Gremly improvements",
+          "label": "Mind Drop Refinement (AI Model Swap)",
+          "this_week": {
+            "activity_count": 1,
+            "notable_items": [
+              "Drop: Why Mind Drop Goes to General Note (2026-02-24)"
+            ],
+            "metrics": "1 drop captured Feb 24 (pre-window); active todo list includes related feature work"
+          },
+          "trajectory": "steady",
+          "trajectory_evidence": "Feb 24 drop flagged routing logic issue. User notes in Feb 25 journal: 'Proud that I managed to change the AI models in the mind drop so quickly today...4.1 model feels like it should be quicker.' Indicates ongoing iteration on speed and model quality per Life Map.",
+          "emotional_signal": "hopeful, proud — 'happy I didn't panic too much and managed to get it all done' (2026-02-25)",
+          "evidence_refs": [
+            "drop:2026-02-24",
+            "journal:2026-02-25"
+          ],
+          "importance": "medium"
+        },
+        {
+          "life_map_thread": "Bug Fixes & Polish",
+          "life_map_domain": "Gremly improvements",
+          "label": "Polish Sprint Pre-Launch & Post",
+          "this_week": {
+            "activity_count": 12,
+            "notable_items": [
+              "Resolve Double Notifications Issue (2026-02-26)",
+              "Resolve Calendar Display Issue (2026-02-26)"
+            ],
+            "metrics": "12 bug/polish todos completed Feb 24–28; 10+ active polish tasks remain"
+          },
+          "trajectory": "steady",
+          "trajectory_evidence": "Consistent stream of bug fixes throughout pre-launch window (Feb 24–26) and post-launch (open todos suggest ongoing). Examples: notification routing, calendar display, splash screens, overlay date picker.",
+          "emotional_signal": null,
+          "evidence_refs": [
+            "todos:Double Notifications, Calendar Display, Splash Screens",
+            "calendar:2026-02-26"
+          ],
+          "importance": "medium"
+        },
+        {
+          "life_map_thread": "Day-to-Day Client Work",
+          "life_map_domain": "Sage & Dentsu",
+          "label": "Work Continues in Background During Honeymoon",
+          "this_week": {
+            "activity_count": 1,
+            "notable_items": [
+              "JW PTO marked 2026-03-02"
+            ],
+            "metrics": "1 PTO day logged; 52 active work-related todos; weekly meetings scheduled Mar 12+ (outside window)"
+          },
+          "trajectory": "steady",
+          "trajectory_evidence": "Single PTO day on Mar 2 (first day in Japan). User explicitly noted in journal: 'had to work this morning to make sure the handover was in a good place' (2026-03-02). Calendar shows no other work events in analysis window; meetings resume Mar 12.",
+          "emotional_signal": "dutiful but tired — pre-honeymoon journals noted 'work has also been crazy' and 'feeling guilty I'm not putting more into actual work' (2026-02-26, 2026-02-27)",
+          "evidence_refs": [
+            "calendar:2026-03-02",
+            "journal:2026-03-02",
+            "journal:2026-02-27"
+          ],
+          "importance": "medium"
+        },
+        {
+          "life_map_thread": "Merkury & Data Projects",
+          "life_map_domain": "Sage & Dentsu",
+          "label": "Data Cost Negotiation Ongoing",
+          "this_week": {
+            "activity_count": 0,
+            "notable_items": null,
+            "metrics": "1 drop created 2026-02-24 (pre-window); no activity this week"
+          },
+          "trajectory": "stalled",
+          "trajectory_evidence": "Drop 'Confirm Merkury Data Costs' created Feb 24 but no completion or follow-up logged in analysis window. User on honeymoon; work paused.",
+          "emotional_signal": null,
+          "evidence_refs": [
+            "drop:2026-02-24"
+          ],
+          "importance": "low"
+        },
+        {
+          "life_map_thread": "Partnership with Dave",
+          "life_map_domain": "Relationship & Home Life",
+          "label": "Honeymoon Central — Quality Time",
+          "this_week": {
+            "activity_count": 4,
+            "notable_items": [
+              "Tennis Match with Dave (2026-03-08, todo)",
+              "Journal: 'Great day in Bora Bora with Dave' (2026-03-12)"
+            ],
+            "metrics": "Consistent presence across all journal entries; explicit gratitude in 4 journal entries"
+          },
+          "trajectory": "thriving",
+          "trajectory_evidence": "Honeymoon is primary thread this week. User wrote: 'so happy we have another week' (2026-03-08); 'step back sometimes and just enjoy him' (2026-03-12); Japan leg described as 'incredible' with Dave (2026-03-06). Tennis and water sports (jet skiing) documented as shared activities.",
+          "emotional_signal": "deeply grateful — consistent warm language toward Dave in all journals; no tension documented",
+          "evidence_refs": [
+            "journal:2026-03-08",
+            "journal:2026-03-12",
+            "journal:2026-03-06",
+            "todo:Tennis Match with Dave"
+          ],
+          "importance": "high"
+        },
+        {
+          "life_map_thread": "Bella (Dog) & Daily Home Rhythm",
+          "life_map_domain": "Relationship & Home Life",
+          "label": "Home Paused — User Away",
+          "this_week": {
+            "activity_count": 0,
+            "notable_items": null,
+            "metrics": "No activity logged; user traveling Mar 2–8+"
+          },
+          "trajectory": "stalled",
+          "trajectory_evidence": "User outside San Francisco home during entire analysis window (Japan → Bora Bora). Bella care presumed delegated or home-managed.",
+          "emotional_signal": null,
+          "evidence_refs": null,
+          "importance": "low"
+        }
+      ],
+      "new_theme_candidates": [
+        {
+          "label": "Honeymoon Activity & Adventure",
+          "unmatched_items": [
+            "Jet Skiing Basics (2026-03-07)",
+            "Book Poolside Cabana (2026-03-08)",
+            "Message Jason and Jonas (2026-03-10)"
+          ],
+          "suggested_domain": "Honeymoon — could nest under 'Bora Bora & Hawaii' or create separate 'Activities & Logistics' thread"
+        }
+      ],
+      "week_shape": {
+        "classification": "Vacation Gratitude Peak",
+        "mood_arc": "Opened low-energy (Tokyo tiredness, 2026-03-02) → refreshed and active by Bora Bora midweek (2026-03-08) → reflective gratitude wrapping Japan and embracing next leg (2026-03-06, 2026-03-12). No stress spiral; pure appreciation dominates.",
+        "highlight": "2026-03-08 — 'Active Day in Bora Bora' capturing the user's ability to compress fitness (tennis, run, weights), sobriety, Gremly progress, AND presence with Dave into one day while traveling.",
+        "concern": "Half Marathon is 10 days post-window (Mar 22). User will be in Hawaii during final week of prep. Training continuity risk if vacation fully displaces routine."
+      },
+      "engagement_metrics": {
+        "drops_this_week": 0,
+        "completions_this_week": 18,
+        "habit_overall_rate": "42%",
+        "active_todos": 52,
+        "journals_written": 4
+      },
+      "cross_references": [
+        {
+          "connection": "Fitness discipline maintained during honeymoon — user prioritized gym/run even in vacation mode, supporting long-standing strength & running commitment",
+          "threads": [
+            "Running & Half Marathon Training",
+            "Strength Training",
+            "Bora Bora & Hawaii"
+          ]
+        },
+        {
+          "connection": "Gremly work intensity compressing around TestFlight launch (Feb 26) then softening during honeymoon, though DCO tasks created mid-vacation suggest ongoing mental load",
+          "threads": [
+            "App Development & Launch",
+            "Mind Drop & Core UX",
+            "Bug Fixes & Polish"
+          ]
+        },
+        {
+          "connection": "Sobriety commitment honored throughout honeymoon despite alcohol-centric food/wine culture (Japan sake tasting, tropical drinks in Bora Bora)",
+          "threads": [
+            "Sobriety & Alcohol-Free Streak",
+            "Japan Trip",
+            "Bora Bora & Hawaii"
+          ]
+        }
+      ],
+      "stale_items": [
+        {
+          "title": "Confirm Merkury Data Costs",
+          "days_stale": 13,
+          "domain_hint": "Sage & Dentsu"
+        },
+        {
+          "title": "Weekly Yoga Practice",
+          "days_stale": 7,
+          "domain_hint": "Fitness & Health — 0/3 completions this week; yoga paused since mid-Feb"
+        },
+        {
+          "title": "Social Media Posts",
+          "days_stale": 21,
+          "domain_hint": "Engagement — 0/9 completions over 3 weeks; not active priority"
+        }
+      ],
+      "magic_moment_candidates": [
+        {
+          "title": "Perfect Day in Tokyo (Matcha, Michelin, Golden Gai)",
+          "date": "2026-03-01",
+          "why": "User wrote 'like a perfect day in Tokyo' capturing the exact flavor of honeymoon joy — specific sensory details (matcha, sake, arcade, shibuya crossing, onsen) woven with spontaneous human connection (Japanese air defense official)",
+          "enrichment_hint": "Capture the specific sake tasting story, locations, and what made it feel perfect; explore what 'perfect day' criteria were met"
+        },
+        {
+          "title": "Bora Bora Breakthrough — Fitness & Presence Balanced",
+          "date": "2026-03-08",
+          "why": "User documented hitting all personal goals (tennis, run, weights, sobriety, Gremly progress) while maintaining full presence with Dave. Rare integration of ambition and surrender. Long sleep noted as contributing factor.",
+          "enrichment_hint": "Explore sleep quality as enabler; what conditions allowed this day to work; pre/post comparison of energy"
+        }
+      ],
+      "week_ahead_signals": [
+        {
+          "event_title": "Half Marathon Race",
+          "date": "2026-03-22",
+          "thread_connection": "Running & Half Marathon Training",
+          "prep_signal": "User will be in Hawaii during final training week. Mar 12–22 is critical taper window; calendar shows no explicit race prep scheduled. Verify user has race plan before window closes. Risk: vacation intensity could disrupt final week discipline."
+        },
+        {
+          "event_title": "Sage & Dentsu Meeting Surge",
+          "date": "2026-03-12+",
+          "thread_connection": "Day-to-Day Client Work",
+          "prep_signal": "19 work meetings scheduled Mar 12–19 (Thu–Thu). User was on PTO through Mar 2; meetings resume immediately upon return. Timesheet deadline Mar 13. Prioritize work context switch over holiday mode."
+        },
+        {
+          "event_title": "Return to San Francisco & Home Setup",
+          "date": "2026-03-22",
+          "thread_connection": "New Home",
+          "prep_signal": "Honeymoon ends with Hawaii flight to SF on Mar 22 (same day as half marathon). High-intensity day. User active on SF neighborhood research but move planning is marked 'stalled' in Life Map. Expect energy depletion post-race; defer move planning."
+        }
+      ]
+    },
+    "metadata": {
+      "latency_ms": 45864,
+      "input_tokens": 6370,
+      "output_tokens": 5281,
+      "model": "claude-haiku-4-5-20251001",
+      "data_payload_chars": 14008,
+      "cleaned_events_count": 43
+    }
+  }
+}

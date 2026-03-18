@@ -128,9 +128,11 @@
  * - IMPROVED: max_tokens 1200 → 4096 for larger task sets
  */
 
-import { getSessionContext } from './context/sessionContext.js';
-import { buildSessionContextString, buildDcoContextHeader } from './context/contextBuilder.js';
-import { getDcoContext } from './context/dcoContext.js';
+// DEPRECATED Phase 3 — replaced by chatProjection.js
+// import { getSessionContext } from './context/sessionContext.js';
+// import { buildSessionContextString, buildDcoContextHeader } from './context/contextBuilder.js';
+// import { getDcoContext } from './context/dcoContext.js';
+import { buildChatContext } from './context/chatProjection.js';
 import { getUserProfile } from './context/userProfile.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage } from './triage';
@@ -1495,6 +1497,344 @@ function extractUrlsFromText(text) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// PLANNER PROJECTION — Life Map + daily state context for organize-day
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function fetchPlannerProjection(userId, timezone, env) {
+  if (!userId) return '';
+
+  try {
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    };
+
+    // Fetch Life Map + today's daily state in parallel
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
+
+    const [mapRes, dcoRes] = await Promise.all([
+      fetch(`${env.SUPABASE_URL}/rest/v1/user_life_map?user_id=eq.${userId}&select=life_map`, {
+        headers,
+      }),
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${today}&select=dco`,
+        { headers },
+      ),
+    ]);
+
+    const mapData = mapRes.ok ? await mapRes.json() : [];
+    const dcoData = dcoRes.ok ? await dcoRes.json() : [];
+    const lifeMap = mapData?.[0]?.life_map;
+    const dco = dcoData?.[0]?.dco;
+
+    if (!lifeMap?.domains) return '';
+
+    const parts = [];
+    parts.push('=== LIFE CONTEXT (from accumulated understanding of this person) ===');
+
+    // Daily focus — what matters today
+    if (dco) {
+      if (dco.day_type) parts.push(`Day type: ${dco.day_type}`);
+      if (dco.tone) parts.push(`Today's tone: ${dco.tone}`);
+      if (dco.life_moment) parts.push(`Life moment: ${dco.life_moment}`);
+      if (dco.lead_story) parts.push(`Lead story: ${dco.lead_story}`);
+    }
+
+    // Thread priorities — what to protect and prioritize
+    const priorityThreads = [];
+    const streakProtection = [];
+
+    for (const domain of lifeMap.domains) {
+      if (domain.attention === 'background') continue;
+
+      for (const thread of domain.threads || []) {
+        if (thread.lifecycle !== 'active' && thread.lifecycle !== undefined) continue;
+
+        // Front-of-mind threads get priority
+        if (thread.attention === 'front_of_mind' || domain.attention === 'front_of_mind') {
+          priorityThreads.push(
+            `${domain.name}: ${thread.name} (${thread.status}, ${thread.momentum})`,
+          );
+        }
+
+        // Streak protection — habits that are building or at risk
+        if (thread.momentum === 'strong_upward' || thread.momentum === 'upward') {
+          streakProtection.push(
+            `PROTECT: ${thread.name} — momentum is ${thread.momentum}, don't let it slip`,
+          );
+        }
+        if (
+          thread.status === 'struggling' ||
+          thread.status === 'declining' ||
+          thread.momentum === 'declining'
+        ) {
+          streakProtection.push(
+            `NEEDS ATTENTION: ${thread.name} — ${thread.status}, schedule related tasks early`,
+          );
+        }
+        if (thread.status === 'approaching_milestone') {
+          const milestoneEvidence = (thread.evidence || []).find((e) => e.type === 'milestone');
+          const detail = milestoneEvidence ? milestoneEvidence.signal : 'milestone approaching';
+          streakProtection.push(`MILESTONE: ${thread.name} — ${detail}`);
+        }
+      }
+    }
+
+    if (priorityThreads.length > 0) {
+      parts.push(`\nPriority life threads (schedule related tasks first):`);
+      for (const t of priorityThreads.slice(0, 6)) parts.push(`  ${t}`);
+    }
+
+    if (streakProtection.length > 0) {
+      parts.push(`\nStreak & momentum flags:`);
+      for (const s of streakProtection.slice(0, 6)) parts.push(`  ${s}`);
+    }
+
+    const result = parts.join('\n');
+    console.log(`[organize-day] Planner projection: ${result.length} chars`);
+    return result;
+  } catch (err) {
+    console.warn(`[organize-day] Planner projection failed: ${err.message}`);
+    return '';
+  }
+}
+
+function truncateAtSentence(text, maxChars) {
+  if (!text || text.length <= maxChars) return text;
+
+  // Find the last sentence boundary within the limit
+  const truncated = text.slice(0, maxChars);
+  const lastSentenceEnd = Math.max(
+    truncated.lastIndexOf('. '),
+    truncated.lastIndexOf('! '),
+    truncated.lastIndexOf('? '),
+    truncated.lastIndexOf('.'),
+  );
+
+  // If we found a sentence boundary after at least half the budget, use it
+  if (lastSentenceEnd > maxChars * 0.5) {
+    return truncated.slice(0, lastSentenceEnd + 1).trim();
+  }
+
+  // Fallback: cut at last space to avoid mid-word
+  const lastSpace = truncated.lastIndexOf(' ');
+  if (lastSpace > maxChars * 0.5) {
+    return truncated.slice(0, lastSpace).trim() + '...';
+  }
+
+  return truncated.trim() + '...';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RUNNING SUMMARY — fire-and-forget after Space Chat replies
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function generateRunningSummary(
+  conversationMessages,
+  lastAssistantResponse,
+  chatId,
+  spaceName,
+  previousSummary,
+  env,
+) {
+  const t0 = Date.now();
+
+  // Gate: only summarize substantive conversations
+  const userMessages = conversationMessages.filter((m) => m.role === 'user');
+  const totalUserChars = userMessages.reduce((sum, m) => sum + (m.content || '').length, 0);
+  if (userMessages.length < 3 || totalUserChars < 200) {
+    console.log(`[RunningSummary] Gated out: ${userMessages.length} msgs, ${totalUserChars} chars`);
+    return;
+  }
+
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
+
+  const turns = [
+    ...conversationMessages
+      .slice(-8)
+      .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${(m.content || '').slice(0, 300)}`),
+    `Gremly: ${lastAssistantResponse.slice(0, 300)}`,
+  ].join('\n');
+
+  const priorContext = previousSummary
+    ? `\nPRIOR SUMMARY (build on this — preserve important context from earlier in the conversation, update with new developments):\n${previousSummary}`
+    : '';
+
+  const prompt = `Today is ${today}. Summarize this conversation${spaceName ? ` (in the user's "${spaceName}" life area)` : ''} in 2-4 sentences.${priorContext}
+
+Capture:
+- What was discussed or explored
+- Any decisions made, conclusions reached, or plans formed
+- Emotional tone or signals the user expressed
+- Open questions or unresolved threads
+
+Write as factual notes about the conversation. Be specific — include names, dates, numbers, and details mentioned. Reference when things were discussed relative to today.
+
+CONVERSATION:
+${turns}
+
+SUMMARY:`;
+
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-nano',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 200,
+        temperature: 0.3,
+      }),
+    });
+
+    if (!res.ok) {
+      console.warn(`[RunningSummary] Nano call failed: ${res.status}`);
+      return;
+    }
+
+    const data = await res.json();
+    let summary = (data.choices?.[0]?.message?.content || '').trim();
+    if (!summary) return;
+
+    // eslint-disable-next-line no-control-regex
+    summary = truncateAtSentence(summary.replace(/[\0-\x1f\x7f]/g, ' ').trim(), 500);
+
+    const patchRes = await fetch(`${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${chatId}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({
+        running_summary: summary,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+
+    if (!patchRes.ok) {
+      console.warn(`[RunningSummary] PATCH failed: ${patchRes.statusText}`);
+    } else {
+      console.log(
+        `[RunningSummary] Updated chat ${chatId} (${Date.now() - t0}ms): "${summary.slice(0, 60)}..."`,
+      );
+    }
+  } catch (err) {
+    console.warn(`[RunningSummary] Error: ${err.message}`);
+  }
+}
+
+async function generateEntityChatSummary(
+  conversationMessages,
+  lastAssistantResponse,
+  entityId,
+  entityType,
+  entityTitle,
+  spaceName,
+  previousSummary,
+  env,
+) {
+  const t0 = Date.now();
+
+  // Gate: only summarize substantive conversations
+  const userMessages = conversationMessages.filter((m) => m.role === 'user');
+  const totalUserChars = userMessages.reduce((sum, m) => sum + (m.content || '').length, 0);
+
+  if (userMessages.length < 3 || totalUserChars < 200) {
+    console.log(
+      `[EntityChatSummary] Gated out: ${userMessages.length} msgs, ${totalUserChars} chars`,
+    );
+    return;
+  }
+
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
+
+  const turns = [
+    ...conversationMessages
+      .slice(-8)
+      .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${(m.content || '').slice(0, 300)}`),
+    `Gremly: ${lastAssistantResponse.slice(0, 300)}`,
+  ].join('\n');
+
+  const entityContext = [
+    entityTitle ? `about "${entityTitle}"` : '',
+    entityType ? `(${entityType})` : '',
+    spaceName ? `in the "${spaceName}" area` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const priorContext = previousSummary
+    ? `\nPRIOR SUMMARY (build on this — preserve important context, update with new developments):\n${previousSummary}`
+    : '';
+
+  const prompt = `Today is ${today}. Summarize this conversation ${entityContext} in 1-3 sentences.${priorContext}
+
+Capture: what was explored, any decisions or plans made, emotional signals, and open questions. Write as factual notes. Be specific with names, dates, and details.
+
+CONVERSATION:
+${turns}
+
+SUMMARY:`;
+
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-nano',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 150,
+        temperature: 0.3,
+      }),
+    });
+
+    if (!res.ok) {
+      console.warn(`[EntityChatSummary] Nano call failed: ${res.status}`);
+      return;
+    }
+
+    const data = await res.json();
+    let summary = (data.choices?.[0]?.message?.content || '').trim();
+    if (!summary) return;
+
+    // eslint-disable-next-line no-control-regex
+    summary = truncateAtSentence(summary.replace(/[\0-\x1f\x7f]/g, ' ').trim(), 400);
+
+    const rpcRes = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/set_chat_summary`, {
+      method: 'POST',
+      headers: {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        p_entity_type: entityType,
+        p_entity_id: entityId,
+        p_summary: summary,
+      }),
+    });
+
+    if (!rpcRes.ok) {
+      console.warn(`[EntityChatSummary] RPC failed: ${rpcRes.statusText}`);
+    } else {
+      console.log(
+        `[EntityChatSummary] Updated ${entityType} ${entityId} (${Date.now() - t0}ms): "${summary.slice(0, 60)}..."`,
+      );
+    }
+  } catch (err) {
+    console.warn(`[EntityChatSummary] Error: ${err.message}`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // OPENAI FUNCTION TOOL DEFINITIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1891,7 +2231,7 @@ Return ONLY valid JSON matching this exact schema. No markdown, no backticks, no
 - All data sparse: Produce a shorter, genuine summary. Short is better than padded.`;
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     // --- CORS preflight ---
     if (request.method === 'OPTIONS') {
       return new Response(null, {
@@ -2568,18 +2908,17 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
         let userProfileContext = '';
         if (body.userId) {
           try {
-            const [sessionData, profile] = await Promise.all([
-              getSessionContext(body.userId, env),
+            const [chatContext, profile] = await Promise.all([
+              buildChatContext(body.userId, 'habit_builder', {}, env),
               getUserProfile(body.userId, env),
             ]);
-            const sessionStr = buildSessionContextString(sessionData, {});
             const ageInfo = getAgeGuidance(profile?.relationshipStartedAt, profile?.signals);
 
             if (profile?.profileText) {
               userProfileContext += `\n=== ABOUT THIS USER ===\n${profile.profileText}\n`;
             }
-            if (sessionStr) {
-              userProfileContext += `\n${sessionStr}`;
+            if (chatContext) {
+              userProfileContext += `\n${chatContext}`;
             }
             userProfileContext += `\n${ageInfo.promptGuidance}\n`;
           } catch (err) {
@@ -3282,19 +3621,19 @@ Almost never suggest creating a Space. Only if ALL true:
         let userProfile = null;
         if (body.userId) {
           try {
-            // Fetch both in parallel
-            const [sessionData, profile, dcoData] = await Promise.all([
-              getSessionContext(body.userId, env),
+            const [chatContext, profile] = await Promise.all([
+              buildChatContext(
+                body.userId,
+                'entity',
+                {
+                  entityTitle: entity?.title || entity?.name || null,
+                  entitySpaceId: entity?.spaceId || entity?.space_id || null,
+                },
+                env,
+              ),
               getUserProfile(body.userId, env),
-              getDcoContext(body.userId, env),
             ]);
-            sessionContextStr = buildSessionContextString(sessionData, {
-              entityType: entity.type,
-            });
-            const dcoHeader = buildDcoContextHeader(dcoData);
-            if (dcoHeader) {
-              sessionContextStr = dcoHeader + '\n\n' + sessionContextStr;
-            }
+            sessionContextStr = chatContext;
             userProfile = profile;
             if (sessionContextStr || userProfile) {
               console.log('[EntityChat] Context loaded', {
@@ -3969,6 +4308,50 @@ Almost never suggest creating a Space. Only if ALL true:
                 used_search: !!searchQuery,
                 images_sent: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
               });
+
+              // ── POST-STREAM: Update entity chat summary (non-blocking) ──
+              if (body.userId && fullContent) {
+                const entity = body.entity || {};
+                const entityId = entity.id || null;
+                const entityType = entity.type || null;
+                if (entityId && entityType) {
+                  const summaryPromise = (async () => {
+                    try {
+                      const tableName =
+                        entityType === 'habit'
+                          ? 'habits'
+                          : entityType === 'note'
+                            ? 'notes'
+                            : 'todos';
+                      const prevRes = await fetch(
+                        `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
+                        {
+                          headers: {
+                            apikey: env.SUPABASE_SERVICE_KEY,
+                            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                          },
+                        },
+                      );
+                      const prevRows = prevRes.ok ? await prevRes.json() : [];
+                      const previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
+
+                      await generateEntityChatSummary(
+                        messages.filter((m) => m.role !== 'system'),
+                        fullContent,
+                        entityId,
+                        entityType,
+                        entity.title || entity.name || null,
+                        entity.space_name || null,
+                        previousEntitySummary,
+                        env,
+                      );
+                    } catch (err) {
+                      console.warn('[EntityChat] Chat summary failed:', err.message);
+                    }
+                  })();
+                  ctx.waitUntil(summaryPromise);
+                }
+              }
             } catch (streamErr) {
               console.log('[EntityChat:Streaming] Stream error', { error: String(streamErr) });
               const errorData = JSON.stringify({
@@ -4127,6 +4510,46 @@ Almost never suggest creating a Space. Only if ALL true:
             has_promotion: promotion?.suggested,
             used_search: !!searchQuery,
           });
+
+          // ── POST-RESPONSE: Update entity chat summary (non-blocking) ──
+          if (body.userId && content) {
+            const entity = body.entity || {};
+            const entityId = entity.id || null;
+            const entityType = entity.type || null;
+            if (entityId && entityType) {
+              const summaryPromise = (async () => {
+                try {
+                  const tableName =
+                    entityType === 'habit' ? 'habits' : entityType === 'note' ? 'notes' : 'todos';
+                  const prevRes = await fetch(
+                    `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
+                    {
+                      headers: {
+                        apikey: env.SUPABASE_SERVICE_KEY,
+                        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                      },
+                    },
+                  );
+                  const prevRows = prevRes.ok ? await prevRes.json() : [];
+                  const previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
+
+                  await generateEntityChatSummary(
+                    messages.filter((m) => m.role !== 'system'),
+                    content,
+                    entityId,
+                    entityType,
+                    entity.title || entity.name || null,
+                    entity.space_name || null,
+                    previousEntitySummary,
+                    env,
+                  );
+                } catch (err) {
+                  console.warn('[EntityChat:NonStreaming] Chat summary failed:', err.message);
+                }
+              })();
+              ctx.waitUntil(summaryPromise);
+            }
+          }
 
           return j({
             content,
@@ -4656,6 +5079,12 @@ ${formatGaps(blocks.evening?.gaps)}`;
               .join('\n') + '\n';
         }
 
+        // === Life Map planner projection ===
+        let plannerProjection = '';
+        if (userId) {
+          plannerProjection = await fetchPlannerProjection(userId, timezone, env);
+        }
+
         // === Static system prompt (cached) ===
         const ORGANIZE_SYSTEM_PROMPT = `You are a task scheduler for a productivity app called Gremly. Your job is to place tasks into time blocks to create a calm, focused, achievable day.
 
@@ -4786,13 +5215,14 @@ Each task includes:
 - space: which life domain this belongs to
 - locked (boolean) — true if the user has committed to completing this task today. Prioritize scheduling these.
 ${expandedContext}
+${plannerProjection ? '\n' + plannerProjection + '\n' : ''}
 Schedule these tasks now. Respond with ONLY valid JSON.`;
 
         // === API Call ===
-        const anthropicKey = env.ANTHROPIC_API_KEY;
-        if (!anthropicKey) {
-          console.log('[organize-day] ANTHROPIC_API_KEY not configured');
-          return j({ error: 'anthropic_key_not_configured' }, 500);
+        const apiKey = env.GOOGLE_API_KEY;
+        if (!apiKey) {
+          console.log('[organize-day] GOOGLE_API_KEY not configured');
+          return j({ error: 'google_key_not_configured' }, 500);
         }
 
         const t0 = Date.now();
@@ -4801,25 +5231,22 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
 
-          const res = await fetch('https://api.anthropic.com/v1/messages', {
+          const res = await fetch(GEMINI_BASE_URL, {
             signal: controller.signal,
             method: 'POST',
             headers: {
+              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
               'Content-Type': 'application/json',
-              'x-api-key': anthropicKey,
-              'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-5-20250929',
-              max_tokens: 4096,
-              system: [
-                {
-                  type: 'text',
-                  text: ORGANIZE_SYSTEM_PROMPT,
-                  cache_control: { type: 'ephemeral' },
-                },
+              model: 'gemini-2.5-flash',
+              messages: [
+                { role: 'system', content: ORGANIZE_SYSTEM_PROMPT },
+                { role: 'user', content: userMessage },
               ],
-              messages: [{ role: 'user', content: userMessage }],
+              max_tokens: 8192,
+              temperature: 0.2,
+              reasoning_effort: 'low',
             }),
           });
 
@@ -4847,16 +5274,13 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             );
           }
 
-          const anthropicResponse = await res.json();
-          const rawContent = anthropicResponse.content?.[0]?.text || '';
+          const geminiResponse = await res.json();
+          const rawContent = geminiResponse.choices?.[0]?.message?.content || '';
 
-          // Log cache performance
-          const usage = anthropicResponse.usage || {};
-          console.log('[organize-day] Anthropic usage', {
-            input_tokens: usage.input_tokens,
-            output_tokens: usage.output_tokens,
-            cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
-            cache_read_input_tokens: usage.cache_read_input_tokens || 0,
+          const usage = geminiResponse.usage || {};
+          console.log('[organize-day] Gemini usage', {
+            prompt_tokens: usage.prompt_tokens,
+            completion_tokens: usage.completion_tokens,
             latency_ms: latency,
           });
 
@@ -4967,7 +5391,6 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             overflow: overflow.length,
             total_tasks: tasksToAssign.length,
             latency_ms: latency,
-            cached: (usage.cache_read_input_tokens || 0) > 0,
           });
 
           return j({
@@ -4977,10 +5400,9 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             summary,
             latency_ms: latency,
             _debug: {
-              model: 'claude-sonnet-4-5',
-              cached: (usage.cache_read_input_tokens || 0) > 0,
-              input_tokens: usage.input_tokens,
-              output_tokens: usage.output_tokens,
+              model: 'gemini-2.5-flash',
+              prompt_tokens: usage.prompt_tokens,
+              completion_tokens: usage.completion_tokens,
             },
           });
         } catch (err) {
@@ -8473,19 +8895,18 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         let spaceUserProfile = null;
         if (body.userId) {
           try {
-            // Fetch all context in parallel
-            const [sessionData, profile, dcoData] = await Promise.all([
-              getSessionContext(body.userId, env),
+            const [chatContext, profile] = await Promise.all([
+              buildChatContext(
+                body.userId,
+                'space',
+                {
+                  spaceId: body.spaceId,
+                },
+                env,
+              ),
               getUserProfile(body.userId, env),
-              getDcoContext(body.userId, env),
             ]);
-            spaceSessionContextStr = buildSessionContextString(sessionData, {
-              spaceId: body.spaceId,
-            });
-            const dcoHeader = buildDcoContextHeader(dcoData);
-            if (dcoHeader) {
-              spaceSessionContextStr = dcoHeader + '\n\n' + spaceSessionContextStr;
-            }
+            spaceSessionContextStr = chatContext;
             spaceUserProfile = profile;
             if (spaceSessionContextStr || spaceUserProfile) {
               console.log('[SpaceChat] Context loaded', {
@@ -9004,6 +9425,39 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               content_length: fullContent.length,
               used_search: !!searchQuery,
             });
+
+            // ── POST-STREAM: Update running summary (non-blocking) ──
+            if (body.chatId && body.userId && fullContent) {
+              const summaryPromise = (async () => {
+                try {
+                  const prevSummaryRes = await fetch(
+                    `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                    {
+                      headers: {
+                        apikey: env.SUPABASE_SERVICE_KEY,
+                        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                      },
+                    },
+                  );
+                  const prevData = prevSummaryRes?.ok
+                    ? await prevSummaryRes.json().catch(() => [])
+                    : [];
+                  const previousSummary = prevData?.[0]?.running_summary || null;
+
+                  await generateRunningSummary(
+                    messages.filter((m) => m.role !== 'system'),
+                    fullContent,
+                    body.chatId,
+                    body.spaceName || null,
+                    previousSummary,
+                    env,
+                  );
+                } catch (err) {
+                  console.warn('[SpaceChat] Running summary failed:', err.message);
+                }
+              })();
+              ctx.waitUntil(summaryPromise);
+            }
           } catch (streamErr) {
             console.log('[SpaceChat:Streaming] Stream error', { error: String(streamErr) });
             const errorData = JSON.stringify({
@@ -9042,18 +9496,18 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         let userProfile = null;
         if (body.userId) {
           try {
-            const [sessionData, profile, dcoData] = await Promise.all([
-              getSessionContext(body.userId, env),
+            const [chatContext, profile] = await Promise.all([
+              buildChatContext(
+                body.userId,
+                'space',
+                {
+                  spaceId: body.spaceId,
+                },
+                env,
+              ),
               getUserProfile(body.userId, env),
-              getDcoContext(body.userId, env),
             ]);
-            sessionContextStr = buildSessionContextString(sessionData, {
-              spaceId: body.spaceId,
-            });
-            const dcoHeader = buildDcoContextHeader(dcoData);
-            if (dcoHeader) {
-              sessionContextStr = dcoHeader + '\n\n' + sessionContextStr;
-            }
+            sessionContextStr = chatContext;
             userProfile = profile;
             if (sessionContextStr || userProfile) {
               console.log('[SpaceChat:NonStreaming] Context loaded', {
@@ -9223,8 +9677,42 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
           triage_mode: triage.mode,
         });
 
+        // ── POST-RESPONSE: Update running summary (non-blocking) ──
+        if (body.chatId && body.userId && content) {
+          const summaryPromise = (async () => {
+            try {
+              const prevSummaryRes = await fetch(
+                `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                {
+                  headers: {
+                    apikey: env.SUPABASE_SERVICE_KEY,
+                    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                  },
+                },
+              );
+              const prevData = prevSummaryRes?.ok
+                ? await prevSummaryRes.json().catch(() => [])
+                : [];
+              const previousSummary = prevData?.[0]?.running_summary || null;
+
+              await generateRunningSummary(
+                messages.filter((m) => m.role !== 'system'),
+                content,
+                body.chatId,
+                body.spaceName || null,
+                previousSummary,
+                env,
+              );
+            } catch (err) {
+              console.warn('[SpaceChat:NonStreaming] Running summary failed:', err.message);
+            }
+          })();
+          ctx.waitUntil(summaryPromise);
+        }
+
         return j({
           id: String((oj.id || '').replace(/^chatcmpl-/, 'cmpl-')),
+
           content,
           model: oj.model,
           usage: oj.usage || null,

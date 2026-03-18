@@ -2360,3 +2360,265 @@ describe('selectDcoSortedSpaces', () => {
     expect(result.map((s) => s.name)).toEqual(['Alpha', 'Beta', 'Gamma']);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// selectEventNotesForDate — multi-day event support
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import {
+  selectEventNotesForDate,
+  selectEventNotesForRange,
+  selectUpcomingEventNotes,
+} from '../selectors';
+
+describe('selectEventNotesForDate', () => {
+  it('returns single-day event matching exact date', () => {
+    const state = makeState({
+      notes: [makeNote({ id: 'e1', subtype: 'event', target_date: '2025-12-15' })],
+    });
+    const result = selectEventNotesForDate(state as any, '2025-12-15');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('e1');
+  });
+
+  it('excludes single-day event on different date', () => {
+    const state = makeState({
+      notes: [makeNote({ id: 'e1', subtype: 'event', target_date: '2025-12-15' })],
+    });
+    const result = selectEventNotesForDate(state as any, '2025-12-16');
+    expect(result).toHaveLength(0);
+  });
+
+  it('includes multi-day event on intermediate date', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'e1',
+          subtype: 'event',
+          target_date: '2025-12-10',
+          end_date: '2025-12-20',
+        } as any),
+      ],
+    });
+    const result = selectEventNotesForDate(state as any, '2025-12-15');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('e1');
+  });
+
+  it('includes multi-day event on start date', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'e1',
+          subtype: 'event',
+          target_date: '2025-12-10',
+          end_date: '2025-12-15',
+        } as any),
+      ],
+    });
+    const result = selectEventNotesForDate(state as any, '2025-12-10');
+    expect(result).toHaveLength(1);
+  });
+
+  it('includes multi-day event on end date', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'e1',
+          subtype: 'event',
+          target_date: '2025-12-10',
+          end_date: '2025-12-15',
+        } as any),
+      ],
+    });
+    const result = selectEventNotesForDate(state as any, '2025-12-15');
+    expect(result).toHaveLength(1);
+  });
+
+  it('excludes multi-day event after end date', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'e1',
+          subtype: 'event',
+          target_date: '2025-12-10',
+          end_date: '2025-12-14',
+        } as any),
+      ],
+    });
+    const result = selectEventNotesForDate(state as any, '2025-12-15');
+    expect(result).toHaveLength(0);
+  });
+
+  it('sorts all-day events before timed events', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'e1',
+          subtype: 'event',
+          target_date: '2025-12-15',
+          event_time: '10:00',
+        } as any),
+        makeNote({
+          id: 'e2',
+          subtype: 'event',
+          target_date: '2025-12-15',
+          event_time: null,
+        } as any),
+      ],
+    });
+    const result = selectEventNotesForDate(state as any, '2025-12-15');
+    expect(result[0].id).toBe('e2'); // all-day first
+    expect(result[1].id).toBe('e1');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// selectEventNotesForRange — multi-day event support
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('selectEventNotesForRange', () => {
+  it('includes events starting within the range', () => {
+    const state = makeState({
+      notes: [makeNote({ id: 'e1', subtype: 'event', target_date: '2025-12-15' })],
+    });
+    const result = selectEventNotesForRange(state as any, '2025-12-10', '2025-12-20');
+    expect(result).toHaveLength(1);
+  });
+
+  it('excludes events outside the range', () => {
+    const state = makeState({
+      notes: [makeNote({ id: 'e1', subtype: 'event', target_date: '2025-12-25' })],
+    });
+    const result = selectEventNotesForRange(state as any, '2025-12-10', '2025-12-20');
+    expect(result).toHaveLength(0);
+  });
+
+  it('includes multi-day event that started before range but extends into it', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'e1',
+          subtype: 'event',
+          target_date: '2025-12-05',
+          end_date: '2025-12-12',
+        } as any),
+      ],
+    });
+    const result = selectEventNotesForRange(state as any, '2025-12-10', '2025-12-20');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('e1');
+  });
+
+  it('excludes multi-day event that ended before range start', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'e1',
+          subtype: 'event',
+          target_date: '2025-12-01',
+          end_date: '2025-12-09',
+        } as any),
+      ],
+    });
+    const result = selectEventNotesForRange(state as any, '2025-12-10', '2025-12-20');
+    expect(result).toHaveLength(0);
+  });
+
+  it('excludes events with null target_date', () => {
+    const state = makeState({
+      notes: [makeNote({ id: 'e1', subtype: 'event', target_date: null } as any)],
+    });
+    const result = selectEventNotesForRange(state as any, '2025-12-10', '2025-12-20');
+    expect(result).toHaveLength(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// selectUpcomingEventNotes — multi-day event support
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('selectUpcomingEventNotes', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-12-15T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('includes events starting within the next N days', () => {
+    const state = makeState({
+      notes: [makeNote({ id: 'e1', subtype: 'event', target_date: '2025-12-18' })],
+    });
+    const result = selectUpcomingEventNotes(state as any, 7);
+    expect(result).toHaveLength(1);
+  });
+
+  it('excludes events beyond the window', () => {
+    const state = makeState({
+      notes: [makeNote({ id: 'e1', subtype: 'event', target_date: '2025-12-30' })],
+    });
+    const result = selectUpcomingEventNotes(state as any, 7);
+    expect(result).toHaveLength(0);
+  });
+
+  it('includes multi-day event that started before today but extends into range', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'e1',
+          subtype: 'event',
+          target_date: '2025-12-10',
+          end_date: '2025-12-18',
+        } as any),
+      ],
+    });
+    const result = selectUpcomingEventNotes(state as any, 7);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('e1');
+  });
+
+  it('excludes multi-day event that ended before today', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'e1',
+          subtype: 'event',
+          target_date: '2025-12-01',
+          end_date: '2025-12-10',
+        } as any),
+      ],
+    });
+    const result = selectUpcomingEventNotes(state as any, 7);
+    expect(result).toHaveLength(0);
+  });
+
+  it('sorts by date then by time (all-day first)', () => {
+    const state = makeState({
+      notes: [
+        makeNote({
+          id: 'e1',
+          subtype: 'event',
+          target_date: '2025-12-17',
+          event_time: '14:00',
+        } as any),
+        makeNote({
+          id: 'e2',
+          subtype: 'event',
+          target_date: '2025-12-16',
+          event_time: null,
+        } as any),
+        makeNote({
+          id: 'e3',
+          subtype: 'event',
+          target_date: '2025-12-16',
+          event_time: '09:00',
+        } as any),
+      ],
+    });
+    const result = selectUpcomingEventNotes(state as any, 7);
+    expect(result.map((e) => e.id)).toEqual(['e2', 'e3', 'e1']);
+  });
+});

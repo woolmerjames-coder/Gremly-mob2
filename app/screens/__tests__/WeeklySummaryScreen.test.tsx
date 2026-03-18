@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, waitFor } from '@testing-library/react-native';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks
@@ -14,8 +14,9 @@ import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
+const mockReplace = jest.fn();
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ goBack: mockGoBack, navigate: mockNavigate }),
+  useNavigation: () => ({ goBack: mockGoBack, navigate: mockNavigate, replace: mockReplace }),
   useRoute: () => ({
     params: { weekStartDate: '2025-12-15' },
   }),
@@ -248,7 +249,7 @@ describe('WeeklySummaryScreen', () => {
 
   it('renders progress dots', () => {
     // Should have dots for: weekInReview + 2 insights + weekAhead = 4 cards
-    const { getAllByTestId } = render(<WeeklySummaryScreen />);
+    render(<WeeklySummaryScreen />);
     // Progress dots may have testIDs or we check for visual presence
     // Just verify the screen renders with content for all cards
     expect(true).toBe(true); // Screen rendered = success
@@ -296,5 +297,56 @@ describe('WeeklySummaryScreen', () => {
     const { getAllByText } = render(<WeeklySummaryScreen />);
     // weekTypeShort 'productive' appears in the progress dots header (may also match a theme pill)
     expect(getAllByText('productive').length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// V1 → V2 redirect (app-fixes-3.8)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('WeeklySummaryScreen v1→v2 redirect', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('redirects to WeeklySummaryV2 when content has cards array', async () => {
+    // Override the selector to return a v2-format summary
+    const selectorsModule = require('../../../lib/store/selectors');
+    const originalHook = selectorsModule.useCurrentWeekSummary;
+    const originalSelector = selectorsModule.selectSummaryByWeek;
+
+    const v2Summary = {
+      ...mockSummary,
+      content: {
+        cards: [
+          {
+            type: 'gremly_mood',
+            mood_line: 'Feeling good',
+            hook: 'Nice!',
+            week_label: 'Dec 15 – 21',
+          },
+        ],
+        metadata: {
+          week_type: 'productive',
+          mood: 'motivated',
+          key_themes: [],
+          card_count: 1,
+          card_types_used: ['gremly_mood'],
+        },
+      },
+    };
+
+    selectorsModule.useCurrentWeekSummary = () => v2Summary;
+    selectorsModule.selectSummaryByWeek = () => v2Summary;
+
+    render(<WeeklySummaryScreen />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith('WeeklySummaryV2', { weekStartDate: '2025-12-15' });
+    });
+
+    // Restore
+    selectorsModule.useCurrentWeekSummary = originalHook;
+    selectorsModule.selectSummaryByWeek = originalSelector;
   });
 });

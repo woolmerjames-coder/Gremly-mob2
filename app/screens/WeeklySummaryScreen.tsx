@@ -2149,6 +2149,15 @@ export default function WeeklySummaryScreen() {
   const summary = paramSummary ?? currentWeekSummary;
   const content = summary?.content;
 
+  // Detect v2 summary format (has cards array) and redirect
+  const isV2Format = content && 'cards' in content && Array.isArray((content as any).cards);
+
+  useEffect(() => {
+    if (isV2Format) {
+      navigation.replace('WeeklySummaryV2', { weekStartDate: weekStartParam });
+    }
+  }, [isV2Format, navigation, weekStartParam]);
+
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const { submit: mindDropSubmit } = useMindDropSubmit();
@@ -2171,7 +2180,7 @@ export default function WeeklySummaryScreen() {
 
   // ── Build cards array ────────────────────────────────────────────────
   const cards = useMemo((): CardType[] => {
-    if (!content) return [];
+    if (!content || isV2Format) return [];
     const result: CardType[] = [];
 
     // 1. Mood opener — the fortune cookie
@@ -2213,7 +2222,7 @@ export default function WeeklySummaryScreen() {
     // 5. Week Ahead
     result.push({ type: 'weekAhead', content });
     return result;
-  }, [content]);
+  }, [content, isV2Format]);
 
   // ── Navigation handlers ──────────────────────────────────────────────
   const handlePrevious = useCallback(() => {
@@ -2265,6 +2274,11 @@ export default function WeeklySummaryScreen() {
     const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
     setCurrentCardIndex(index);
   }, []);
+
+  // Don't render v1 UI while redirecting to v2
+  if (isV2Format) {
+    return <View style={{ flex: 1, backgroundColor: WS.bg }} />;
+  }
 
   // ── Empty state ──────────────────────────────────────────────────────
   if (!summary || !content) {

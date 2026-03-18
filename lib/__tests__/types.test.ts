@@ -6,7 +6,7 @@
  * new optional fields don't break existing consumers.
  */
 
-import type { DailyBriefInput, DailyBrief, SequencedItem } from '../types';
+import type { DailyBriefInput } from '../types';
 
 describe('DailyBriefInput interface', () => {
   describe('date field', () => {
@@ -168,5 +168,201 @@ describe('reminders field on entity types', () => {
     } as Partial<Note>;
 
     expect(note.reminders).toHaveLength(1);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Weekly Summary V2 type contracts (new on app-fixes-3.8 branch)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import type {
+  WSV2Card,
+  WSV2OpeningCard,
+  WSV2RecommendationCard,
+  WSV2Metadata,
+  WeeklySummaryV2Content,
+} from '../types';
+
+describe('WSV2Card union type', () => {
+  it('discriminates on type field — gremly_mood', () => {
+    const card: WSV2Card = {
+      type: 'gremly_mood',
+      mood_line: 'Energetic week!',
+      hook: "Let's see.",
+      week_label: 'Dec 15 – 21',
+    };
+    expect(card.type).toBe('gremly_mood');
+  });
+
+  it('discriminates on type field — opening', () => {
+    const card: WSV2Card = {
+      type: 'opening',
+      headline: 'Great Week',
+      subheadline: 'Steady progress',
+      body: 'You did well.',
+      mood: 'motivated',
+      quote: null,
+      quote_date: null,
+      image_hint: null,
+    };
+    expect(card.type).toBe('opening');
+  });
+
+  it('discriminates on type field — thread_movements', () => {
+    const card: WSV2Card = {
+      type: 'thread_movements',
+      title: 'Life in Motion',
+      threads: [],
+    };
+    expect(card.type).toBe('thread_movements');
+    expect(card.threads).toEqual([]);
+  });
+
+  it('discriminates on type field — discoveries', () => {
+    const card: WSV2Card = {
+      type: 'discoveries',
+      spotlight: {
+        badge: 'discovery',
+        title: 'Insight',
+        evidence_trail: 'Data shows...',
+        takeaway: 'Keep going.',
+        research_context: null,
+      },
+      trends: [],
+    };
+    expect(card.type).toBe('discoveries');
+  });
+
+  it('discriminates on type field — moments', () => {
+    const card: WSV2Card = {
+      type: 'moments',
+      moments: [
+        {
+          day_label: 'Monday',
+          date: '2025-12-15',
+          title: 'Big day',
+          body: 'Shipped it.',
+          quote: null,
+          image_hint: null,
+          thread_tags: ['Work'],
+        },
+      ],
+    };
+    expect(card.moments).toHaveLength(1);
+  });
+
+  it('discriminates on type field — stale_triage', () => {
+    const card: WSV2Card = {
+      type: 'stale_triage',
+      headline: 'Cleanup time',
+      context: 'Old items.',
+      items: [],
+    };
+    expect(card.type).toBe('stale_triage');
+  });
+
+  it('discriminates on type field — week_ahead', () => {
+    const card: WSV2Card = {
+      type: 'week_ahead',
+      intro: 'Busy week coming.',
+      highlights: [],
+      busy_day_warnings: [],
+    };
+    expect(card.type).toBe('week_ahead');
+  });
+
+  it('discriminates on type field — monthly_retro', () => {
+    const card: WSV2Card = {
+      type: 'monthly_retro',
+      month_name: 'December',
+      headline: 'A great month.',
+      thread_arcs: [],
+    };
+    expect(card.type).toBe('monthly_retro');
+  });
+
+  it('discriminates on type field — recommendation', () => {
+    const card: WSV2Card = {
+      type: 'recommendation',
+      text: 'Try journaling.',
+      action_type: 'tip',
+      action_label: 'Start now',
+    };
+    expect(card.type).toBe('recommendation');
+  });
+
+  it('discriminates on type field — recommends', () => {
+    const card: WSV2Card = {
+      type: 'recommends',
+      primary: { title: 'Think', body: 'About it.', type: 'thought' },
+      secondary: [],
+    };
+    expect(card.type).toBe('recommends');
+  });
+});
+
+describe('WeeklySummaryV2Content interface', () => {
+  it('requires cards array and metadata', () => {
+    const content: WeeklySummaryV2Content = {
+      cards: [],
+      metadata: {
+        week_type: 'productive',
+        mood: 'motivated',
+        key_themes: ['shipping'],
+        card_count: 0,
+        card_types_used: [],
+      },
+    };
+
+    expect(content.cards).toEqual([]);
+    expect(content.metadata.week_type).toBe('productive');
+  });
+
+  it('metadata has all required fields', () => {
+    const meta: WSV2Metadata = {
+      week_type: 'balanced',
+      mood: 'calm',
+      key_themes: ['health', 'work'],
+      card_count: 5,
+      card_types_used: ['opening', 'moments'],
+    };
+
+    expect(meta.week_type).toBe('balanced');
+    expect(meta.mood).toBe('calm');
+    expect(meta.key_themes).toHaveLength(2);
+    expect(meta.card_count).toBe(5);
+    expect(meta.card_types_used).toHaveLength(2);
+  });
+});
+
+describe('WSV2 optional fields', () => {
+  it('WSV2OpeningCard accepts optional engagement and image_url', () => {
+    const card: WSV2OpeningCard = {
+      type: 'opening',
+      headline: 'H',
+      subheadline: 'S',
+      body: 'B',
+      mood: 'M',
+      quote: null,
+      quote_date: null,
+      image_hint: null,
+      engagement: { drops: 10, sweeps: 2, journals: 1 },
+      image_url: 'https://example.com/img.jpg',
+    };
+
+    expect(card.engagement?.drops).toBe(10);
+    expect(card.image_url).toBeTruthy();
+  });
+
+  it('WSV2RecommendationCard accepts optional prefill', () => {
+    const card: WSV2RecommendationCard = {
+      type: 'recommendation',
+      text: 'Create a habit.',
+      action_type: 'create_habit',
+      action_label: 'Create',
+      prefill: { name: 'Morning run', frequency: 'daily', due_day: null },
+    };
+
+    expect(card.prefill?.name).toBe('Morning run');
   });
 });

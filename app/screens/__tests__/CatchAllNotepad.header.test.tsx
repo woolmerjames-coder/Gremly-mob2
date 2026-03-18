@@ -194,12 +194,18 @@ describe('CatchAllNotepad Gremly on input field', () => {
     mockGoBack.mockClear();
   });
 
-  it('renders Gremly mascot (always visible on input field)', () => {
+  it('renders Gremly mascot as Lottie animation on input field', () => {
     const screen = render(<CatchAllNotepad />);
-    // Gremly is now perched on input field, always visible
+    // Gremly mascot was changed from a static Image to MascotLottie (Lottie animation).
+    // The title Image should still be present (at least 1 Image), but the mascot
+    // is now a LottieView, not an Image.
     const { UNSAFE_root } = screen;
     const images = UNSAFE_root.findAllByType(require('react-native').Image);
-    // Should have images: title image + Gremly mascot
-    expect(images.length).toBeGreaterThanOrEqual(2);
+    // At least the title image should be present
+    expect(images.length).toBeGreaterThanOrEqual(1);
+
+    // MascotLottie renders via LottieView (mocked) — verify the help pressable exists
+    const helpButton = screen.getByLabelText('Help');
+    expect(helpButton).toBeTruthy();
   });
 });

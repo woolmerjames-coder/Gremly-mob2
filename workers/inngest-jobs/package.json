@@ -10,7 +10,8 @@
   "license": "ISC",
   "dependencies": {
     "@supabase/supabase-js": "^2.93.3",
-    "inngest": "^3.49.3"
+    "inngest": "^3.49.3",
+    "jsonrepair": "^3.13.3"
   },
   "description": ""
 }
