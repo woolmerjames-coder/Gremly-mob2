@@ -135,7 +135,7 @@
 import { buildChatContext } from './context/chatProjection.js';
 import { getUserProfile } from './context/userProfile.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
-import { triageMessage } from './triage';
+import { triageMessage, generateLoadingMessage } from './triage';
 import {
   assembleGenerationConfig,
   buildSpaceChatSystemPrompt,
@@ -3683,7 +3683,6 @@ Almost never suggest creating a Space. Only if ALL true:
           search: triage.search,
           personal: triage.personal,
           depth: triage.depth,
-          loadingMessage: triage.loadingMessage,
           source: triage.source,
           preset: preset || 'none',
           messagePreview: lastUserMsg.slice(0, 80),
@@ -3751,6 +3750,27 @@ Almost never suggest creating a Space. Only if ALL true:
           const writer = writable.getWriter();
           const encoder = new TextEncoder();
           const decoder = new TextDecoder();
+
+          // Fire loading message immediately (independent of triage)
+          (async () => {
+            try {
+              await writer.write(encoder.encode(': ping\n\n'));
+              const loadingMsg = await generateLoadingMessage(
+                lastUserMsg,
+                body.spaceName || null,
+                env.OPENAI_API_KEY,
+              );
+              if (loadingMsg) {
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ searching: true, query: loadingMsg, isLoadingHint: true })}\n\n`,
+                  ),
+                );
+              }
+            } catch {
+              /* fire-and-forget */
+            }
+          })();
 
           // Detect URLs in the user's message
           const detectedUrls = extractUrlsFromText(lastUserMsg);
@@ -3839,15 +3859,6 @@ Almost never suggest creating a Space. Only if ALL true:
             messageCount: streamPayload.messages?.length,
           });
 
-          // Send loading message if available
-          if (triage.loadingMessage) {
-            await writer.write(
-              encoder.encode(
-                `data: ${JSON.stringify({ loading_message: triage.loadingMessage })}\n\n`,
-              ),
-            );
-          }
-
           const openaiRes = await fetch(GEMINI_BASE_URL, {
             method: 'POST',
             headers: {
@@ -3867,9 +3878,6 @@ Almost never suggest creating a Space. Only if ALL true:
           }
 
           (async () => {
-            // Send initial SSE ping to establish line ending detection
-            await writer.write(encoder.encode(': ping\n\n'));
-
             const reader = openaiRes.body.getReader();
             let buffer = '';
             let fullContent = '';
@@ -8855,9 +8863,25 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         const encoder = new TextEncoder();
         const decoder = new TextDecoder();
 
-        // Send initial SSE ping to establish line ending detection
+        // Send initial SSE ping, then loading message as soon as nano returns
         (async () => {
           await writer.write(encoder.encode(': ping\n\n'));
+          try {
+            const loadingMsg = await generateLoadingMessage(
+              lastUserMsgSpace,
+              body.spaceName || null,
+              env.OPENAI_API_KEY,
+            );
+            if (loadingMsg) {
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({ searching: true, query: loadingMsg, isLoadingHint: true })}\n\n`,
+                ),
+              );
+            }
+          } catch {
+            /* fire-and-forget */
+          }
         })();
 
         // Detect URLs in the user's message
@@ -8965,7 +8989,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
           search: triage.search,
           personal: triage.personal,
           depth: triage.depth,
-          loadingMessage: triage.loadingMessage,
           source: triage.source,
           messagePreview: lastUserMsgSpace.slice(0, 80),
         });
@@ -9035,15 +9058,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
           hasTools: !!openaiPayload.tools,
           messageCount: openaiPayload.messages?.length,
         });
-
-        // Send loading message if available
-        if (triage.loadingMessage) {
-          await writer.write(
-            encoder.encode(
-              `data: ${JSON.stringify({ loading_message: triage.loadingMessage })}\n\n`,
-            ),
-          );
-        }
 
         const openaiRes = await fetch(GEMINI_BASE_URL, {
           method: 'POST',
@@ -9589,7 +9603,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
           search: triage.search,
           personal: triage.personal,
           depth: triage.depth,
-          loadingMessage: triage.loadingMessage,
           source: triage.source,
           messagePreview: lastUserMsg.slice(0, 80),
         });

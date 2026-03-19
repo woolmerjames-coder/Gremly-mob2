@@ -42,7 +42,6 @@ export const PRESET_TO_TRIAGE = {
     search: 'none',
     personal: 'deep',
     depth: 'detailed',
-    loadingMessage: null,
     source: 'preset',
   },
   action_steps: {
@@ -50,7 +49,6 @@ export const PRESET_TO_TRIAGE = {
     search: 'none',
     personal: 'deep',
     depth: 'detailed',
-    loadingMessage: null,
     source: 'preset',
   },
   research: {
@@ -58,7 +56,6 @@ export const PRESET_TO_TRIAGE = {
     search: 'required',
     personal: 'light',
     depth: 'standard',
-    loadingMessage: null,
     source: 'preset',
   },
   think_through: {
@@ -66,7 +63,6 @@ export const PRESET_TO_TRIAGE = {
     search: 'none',
     personal: 'deep',
     depth: 'standard',
-    loadingMessage: null,
     source: 'preset',
   },
   whats_blocking: {
@@ -74,7 +70,6 @@ export const PRESET_TO_TRIAGE = {
     search: 'none',
     personal: 'deep',
     depth: 'standard',
-    loadingMessage: null,
     source: 'preset',
   },
   expand: {
@@ -82,7 +77,6 @@ export const PRESET_TO_TRIAGE = {
     search: 'none',
     personal: 'light',
     depth: 'standard',
-    loadingMessage: null,
     source: 'preset',
   },
   stay_consistent: {
@@ -90,7 +84,6 @@ export const PRESET_TO_TRIAGE = {
     search: 'maybe',
     personal: 'deep',
     depth: 'standard',
-    loadingMessage: null,
     source: 'preset',
   },
   approach: {
@@ -98,7 +91,6 @@ export const PRESET_TO_TRIAGE = {
     search: 'maybe',
     personal: 'light',
     depth: 'standard',
-    loadingMessage: null,
     source: 'preset',
   },
 };
@@ -115,7 +107,6 @@ const FALLBACK_TRIAGE = {
   search: FALLBACK_SEARCH,
   personal: 'light',
   depth: 'standard',
-  loadingMessage: null,
   source: 'fallback',
 };
 
@@ -267,7 +258,7 @@ Rules:
 
 Return ONLY the loading text. Nothing else. No JSON, no quotes, no explanation.`;
 
-async function generateLoadingMessage(userInput, spaceName, apiKey) {
+export async function generateLoadingMessage(userInput, spaceName, apiKey) {
   try {
     const contextualInput = spaceName ? `SPACE: ${spaceName}\n\nMESSAGE: ${userInput}` : userInput;
 
@@ -390,9 +381,8 @@ export async function triageMessage(options) {
   try {
     const classifierInput = buildClassifierInput(userMessage, previousExchange, spaceName);
 
-    const [mode, loadingMessage, miniSignals] = await Promise.all([
+    const [mode, miniSignals] = await Promise.all([
       classifyMode(classifierInput, env.OPENAI_API_KEY),
-      generateLoadingMessage(classifierInput, spaceName, env.OPENAI_API_KEY),
       classifyWithMini(
         classifierInput,
         domainNames || [],
@@ -407,7 +397,6 @@ export async function triageMessage(options) {
       search: miniSignals.search,
       personal: miniSignals.personal,
       depth: miniSignals.depth,
-      loadingMessage: loadingMessage || null,
       source: 'classifier',
     };
   } catch (err) {

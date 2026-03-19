@@ -159,7 +159,6 @@ export default function ChatThreadScreen({ route }: Props) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [spaceName, setSpaceName] = useState<string | null>(null);
-  const loadingMessageRef = useRef<string | null>(null);
 
   // Enable LayoutAnimation on Android
   useEffect(() => {
@@ -801,26 +800,21 @@ export default function ChatThreadScreen({ route }: Props) {
             },
             {
               onChunk: (delta) => {
-                // Clear loading message on first content
-                if (loadingMessageRef.current) {
-                  loadingMessageRef.current = null;
-                  const msgId = streamingMessageIdRef.current;
-                  if (msgId) updateMessage(msgId, { loadingMessage: null });
+                // Clear loading hint on first content
+                const chunkMsgId = streamingMessageIdRef.current;
+                if (chunkMsgId) {
+                  updateStreamingSearching(chunkMsgId, false, null);
                 }
                 // Split on whitespace boundaries to buffer words
                 wordBufferRef.current.push(...delta.split(/(?<=\s)/));
               },
-              onLoadingMessage: (message) => {
-                loadingMessageRef.current = message;
-                const msgId = streamingMessageIdRef.current;
-                if (msgId) {
-                  updateMessage(msgId, { loadingMessage: message });
-                }
-              },
-              onSearching: (query) => {
+              onSearching: (query, isLoadingHint) => {
                 const msgId = streamingMessageIdRef.current;
                 if (msgId) {
                   updateStreamingSearching(msgId, true, query);
+                  if (isLoadingHint) {
+                    updateMessage(msgId, { isLoadingHint: true });
+                  }
                 }
               },
               onFetching: (isFetching, fetchingUrl) => {
@@ -1549,7 +1543,9 @@ export default function ChatThreadScreen({ route }: Props) {
           <View style={styles.messageContainer}>
             <View style={styles.searchingIndicator}>
               <ActivityIndicator size="small" color="#8B5CF6" />
-              <Text style={styles.searchingText}>Searching: {message.searchQuery}</Text>
+              <Text style={styles.searchingText}>
+                {message.isLoadingHint ? message.searchQuery : `Searched`}
+              </Text>
             </View>
           </View>
         );

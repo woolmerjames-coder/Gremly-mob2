@@ -33,7 +33,7 @@ export interface StreamingCallbacks {
   onChunk: (text: string, fullTextSoFar: string) => void;
   onComplete: (fullText: string) => void;
   onError: (error: string, partialText: string) => void;
-  onSearching?: (query: string) => void;
+  onSearching?: (query: string, isLoadingHint?: boolean) => void;
   onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
 }
 
@@ -60,9 +60,8 @@ export interface SpaceChatStreamingCallbacks {
   onChunk: (text: string, fullTextSoFar: string) => void;
   onComplete: (result: SpaceChatStreamingResult) => void;
   onError: (error: string, partialText: string) => void;
-  onSearching?: (query: string) => void;
+  onSearching?: (query: string, isLoadingHint?: boolean) => void;
   onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
-  onLoadingMessage?: (message: string) => void;
 }
 
 export interface Phase2StreamingCallbacks {
@@ -441,16 +440,11 @@ export function callSpaceChatStreaming(
         return;
       }
       if (data.searching && data.query) {
-        callbacks.onSearching?.(data.query);
+        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
         return;
       }
       if (data.fetching !== undefined) {
         callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
-        return;
-      }
-      // Handle loading message from triage
-      if (data.loading_message) {
-        (callbacks as SpaceChatStreamingCallbacks).onLoadingMessage?.(data.loading_message);
         return;
       }
       if (data.delta) {
@@ -1293,9 +1287,8 @@ export interface EntityChatStreamingCallbacks {
   onDelta: (delta: string) => void;
   onComplete: (response: EntityChatResponse) => void;
   onError: (error: Error) => void;
-  onSearching?: (query: string) => void;
+  onSearching?: (query: string, isLoadingHint?: boolean) => void;
   onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
-  onLoadingMessage?: (message: string) => void;
   onReset?: () => void;
 }
 
@@ -1364,19 +1357,13 @@ export function callEntityChatStreaming(
 
       // Handle searching event
       if (data.searching && data.query) {
-        callbacks.onSearching?.(data.query);
+        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
         return;
       }
 
       // Handle fetching event
       if (data.fetching !== undefined) {
         callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
-        return;
-      }
-
-      // Handle loading message from triage
-      if (data.loading_message) {
-        callbacks.onLoadingMessage?.(data.loading_message);
         return;
       }
 
@@ -1498,7 +1485,7 @@ export function callHabitBuilderStreaming(
 
       // Handle searching event — mirror entity chat pattern
       if (data.searching && data.query) {
-        callbacks.onSearching?.(data.query);
+        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
         return;
       }
 
