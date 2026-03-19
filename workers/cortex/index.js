@@ -3751,10 +3751,9 @@ Almost never suggest creating a Space. Only if ALL true:
           const encoder = new TextEncoder();
           const decoder = new TextDecoder();
 
-          // Fire loading message immediately (independent of triage)
+          // Loading message — fires immediately, independent of main work
           (async () => {
             try {
-              await writer.write(encoder.encode(': ping\n\n'));
               const loadingMsg = await generateLoadingMessage(
                 lastUserMsg,
                 body.spaceName || null,
@@ -3772,390 +3771,164 @@ Almost never suggest creating a Space. Only if ALL true:
             }
           })();
 
-          // Detect URLs in the user's message
-          const detectedUrls = extractUrlsFromText(lastUserMsg);
-
-          if (detectedUrls.length > 0) {
-            console.log('[EntityChat:Streaming] URLs detected:', detectedUrls);
-
-            // Fetch the first URL (limit to one to control costs)
-            const urlToFetch = detectedUrls[0];
-
-            // Send "fetching" indicator to client
-            await writer.write(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  fetching: true,
-                  fetchingUrl: urlToFetch,
-                  done: false,
-                })}\n\n`,
-              ),
-            );
-
-            const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
-
-            if (extracted && extracted.success) {
-              fetchedUrl = {
-                url: extracted.url,
-                title: extracted.title,
-              };
-
-              // Add extracted content as context for the model
-              urlContext = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
-
-              console.log('[EntityChat:Streaming] URL content extracted, adding to context');
-            } else {
-              // Extraction failed - let model know
-              urlContext = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable. Let the user know and offer to help if they can paste the content directly.]`;
-
-              console.log('[EntityChat:Streaming] URL extraction failed');
-            }
-
-            // Clear fetching indicator
-            await writer.write(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  fetching: false,
-                  done: false,
-                })}\n\n`,
-              ),
-            );
-          }
-
-          // Inject URL context into entityMessages if present
-          if (urlContext) {
-            const lastIdx = entityMessages.length - 1;
-            if (entityMessages[lastIdx].role === 'user') {
-              entityMessages[lastIdx] = {
-                ...entityMessages[lastIdx],
-                content: entityMessages[lastIdx].content + urlContext,
-              };
-            }
-          }
-
-          const streamPayload = {
-            model: 'gemini-2.5-flash',
-            messages: entityMessages,
-            temperature: genConfig.temperature,
-            max_tokens: genConfig.maxTokens,
-            reasoning_effort: genConfig.reasoning,
-            stream: true,
-          };
-
-          if (searchPolicy.attachTool) {
-            streamPayload.tools = [WEB_SEARCH_TOOL];
-            streamPayload.tool_choice =
-              searchPolicy.toolChoice === 'required'
-                ? { type: 'function', function: { name: 'web_search' } }
-                : 'auto';
-          }
-
-          console.log('[EntityChat:Streaming:Payload]', {
-            model: streamPayload.model,
-            temperature: streamPayload.temperature,
-            max_tokens: streamPayload.max_tokens,
-            reasoning_effort: streamPayload.reasoning_effort,
-            hasTools: !!streamPayload.tools,
-            messageCount: streamPayload.messages?.length,
-          });
-
-          const openaiRes = await fetch(GEMINI_BASE_URL, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(streamPayload),
-          });
-
-          if (!openaiRes.ok) {
-            const errText = await openaiRes.text().catch(() => '');
-            console.log('[EntityChat:Streaming] OpenAI error', {
-              status: openaiRes.status,
-              error: errText,
-            });
-            return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
-          }
-
+          // Main work IIFE — runs after Response is returned to client
           (async () => {
-            const reader = openaiRes.body.getReader();
-            let buffer = '';
-            let fullContent = '';
-            let searchImages = [];
-
-            // Output guard: buffer first sentence to strip filler openings
-            let fillerBuffer = '';
-            let fillerFlushed = false;
-
-            // Track tool call accumulation - support multiple tool calls
-            let toolCalls = []; // Array of { id, name, arguments }
-            let currentToolCallIndex = -1;
-
             try {
-              // eslint-disable-next-line no-constant-condition
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+              // Send SSE ping
+              await writer.write(encoder.encode(': ping\n\n'));
 
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split(/\r?\n/);
-                buffer = lines.pop() || '';
+              // Detect URLs in the user's message
+              const detectedUrls = extractUrlsFromText(lastUserMsg);
 
-                for (const line of lines) {
-                  const trimmed = line.trim();
-                  if (!trimmed || trimmed === 'data: [DONE]') continue;
-                  if (!trimmed.startsWith('data: ')) continue;
+              if (detectedUrls.length > 0) {
+                console.log('[EntityChat:Streaming] URLs detected:', detectedUrls);
 
-                  try {
-                    const json = JSON.parse(trimmed.slice(6));
-                    const delta = json.choices?.[0]?.delta?.content;
+                // Fetch the first URL (limit to one to control costs)
+                const urlToFetch = detectedUrls[0];
 
-                    if (delta) {
-                      fullContent += delta;
-                      // Don't stream SAVE comments to client
-                      if (!fullContent.includes('<!--SAVE:')) {
-                        if (!fillerFlushed) {
-                          // Buffer first sentence for filler stripping
-                          fillerBuffer += delta;
-                          // Flush once we have a sentence boundary or enough content
-                          const hasBreak =
-                            /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
-                          if (hasBreak) {
-                            const cleaned = stripFillerOpening(fillerBuffer);
-                            if (cleaned) {
-                              await writer.write(
-                                encoder.encode(
-                                  `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
-                                ),
-                              );
-                            }
-                            fillerFlushed = true;
-                          }
-                        } else {
-                          const sseData = JSON.stringify({ delta, done: false });
-                          await writer.write(encoder.encode(`data: ${sseData}\n\n`));
-                        }
-                      }
-                    }
-
-                    // Check for tool calls - handle multiple
-                    const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
-                    if (toolCallDeltas) {
-                      for (const toolCallDelta of toolCallDeltas) {
-                        const idx = toolCallDelta.index ?? 0;
-
-                        // Initialize new tool call if needed
-                        if (!toolCalls[idx]) {
-                          toolCalls[idx] = { id: null, name: null, arguments: '' };
-                        }
-
-                        if (toolCallDelta.id) toolCalls[idx].id = toolCallDelta.id;
-                        if (toolCallDelta.function?.name)
-                          toolCalls[idx].name = toolCallDelta.function.name;
-                        if (toolCallDelta.function?.arguments)
-                          toolCalls[idx].arguments += toolCallDelta.function.arguments;
-                      }
-                    }
-                  } catch (parseErr) {
-                    console.log('[EntityChat:Streaming] Chunk parse error', {
-                      line: trimmed.slice(0, 100),
-                    });
-                  }
-                }
-              }
-
-              // Flush any remaining filler buffer from main stream
-              if (!fillerFlushed && fillerBuffer) {
-                const cleaned = stripFillerOpening(fillerBuffer);
-                if (cleaned) {
-                  await writer.write(
-                    encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
-                  );
-                }
-              }
-
-              // Clean fullContent to match what was streamed
-              fullContent = stripFillerOpening(fullContent);
-
-              // Track search metadata
-              let sources = undefined;
-              let searchQueries = [];
-
-              // Filter to only web_search tool calls with arguments
-              const webSearchCalls = toolCalls.filter(
-                (tc) => tc.name === 'web_search' && tc.arguments,
-              );
-
-              if (webSearchCalls.length > 0) {
-                console.log('[EntityChat:Streaming] Web search triggered', {
-                  searchCount: webSearchCalls.length,
-                });
-
-                // Notify client we're searching (show first query)
-                let firstQuery = '';
-                try {
-                  const firstArgs = JSON.parse(webSearchCalls[0].arguments);
-                  firstQuery = firstArgs.query || '';
-                } catch {
-                  const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
-                  firstQuery = match ? match[1] : 'multiple topics';
-                }
-                const searchNotice =
-                  webSearchCalls.length > 1
-                    ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
-                    : firstQuery;
+                // Send "fetching" indicator to client
                 await writer.write(
                   encoder.encode(
-                    `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+                    `data: ${JSON.stringify({
+                      fetching: true,
+                      fetchingUrl: urlToFetch,
+                      done: false,
+                    })}\n\n`,
                   ),
                 );
 
-                // Execute all searches in parallel
-                const searchT0 = Date.now();
-                const searchPromises = webSearchCalls.map(async (tc) => {
-                  try {
-                    let query;
-                    try {
-                      const args = JSON.parse(tc.arguments);
-                      query = args.query;
-                    } catch (parseErr) {
-                      // Try regex extraction for malformed JSON
-                      const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
-                      if (match) {
-                        query = match[1];
-                        console.log(
-                          '[EntityChat:Streaming] Recovered query from malformed JSON:',
-                          query,
-                        );
-                      } else {
-                        console.log(
-                          '[EntityChat:Streaming] Could not parse tool arguments:',
-                          tc.arguments.slice(0, 200),
-                        );
-                        return { toolCallId: tc.id, query: null, results: null };
-                      }
-                    }
+                const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
 
-                    searchQueries.push(query);
-                    const shouldIncludeImages = isVisualQuery(query) || isVisualQuery(lastUserMsg);
-                    console.log('[EntityChat] Calling Tavily:', {
-                      query: query,
-                      includeImages: shouldIncludeImages,
-                      isVisualQueryResult: isVisualQuery(query),
-                    });
-                    const results = await executeTavilySearch(query, env.TAVILY_API_KEY, {
-                      includeImages: shouldIncludeImages,
-                    });
-                    return { toolCallId: tc.id, query, results };
-                  } catch (err) {
-                    console.log('[EntityChat:Streaming] Individual search error:', err);
-                    return { toolCallId: tc.id, query: null, results: null };
-                  }
-                });
+                if (extracted && extracted.success) {
+                  fetchedUrl = {
+                    url: extracted.url,
+                    title: extracted.title,
+                  };
 
-                const searchResults = await Promise.all(searchPromises);
-                const searchLatency = Date.now() - searchT0;
+                  // Add extracted content as context for the model
+                  urlContext = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
 
-                const successfulSearches = searchResults.filter(
-                  (sr) => sr.results && sr.results.results.length > 0,
+                  console.log('[EntityChat:Streaming] URL content extracted, adding to context');
+                } else {
+                  // Extraction failed - let model know
+                  urlContext = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable. Let the user know and offer to help if they can paste the content directly.]`;
+
+                  console.log('[EntityChat:Streaming] URL extraction failed');
+                }
+
+                // Clear fetching indicator
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      fetching: false,
+                      done: false,
+                    })}\n\n`,
+                  ),
                 );
-                console.log('[EntityChat:Streaming] Searches complete', {
-                  total: searchResults.length,
-                  successful: successfulSearches.length,
-                  latency: searchLatency,
+              }
+
+              // Inject URL context into entityMessages if present
+              if (urlContext) {
+                const lastIdx = entityMessages.length - 1;
+                if (entityMessages[lastIdx].role === 'user') {
+                  entityMessages[lastIdx] = {
+                    ...entityMessages[lastIdx],
+                    content: entityMessages[lastIdx].content + urlContext,
+                  };
+                }
+              }
+
+              const streamPayload = {
+                model: 'gemini-2.5-flash',
+                messages: entityMessages,
+                temperature: genConfig.temperature,
+                max_tokens: genConfig.maxTokens,
+                reasoning_effort: genConfig.reasoning,
+                stream: true,
+              };
+
+              if (searchPolicy.attachTool) {
+                streamPayload.tools = [WEB_SEARCH_TOOL];
+                streamPayload.tool_choice =
+                  searchPolicy.toolChoice === 'required'
+                    ? { type: 'function', function: { name: 'web_search' } }
+                    : 'auto';
+              }
+
+              console.log('[EntityChat:Streaming:Payload]', {
+                model: streamPayload.model,
+                temperature: streamPayload.temperature,
+                max_tokens: streamPayload.max_tokens,
+                reasoning_effort: streamPayload.reasoning_effort,
+                hasTools: !!streamPayload.tools,
+                messageCount: streamPayload.messages?.length,
+              });
+
+              const openaiRes = await fetch(GEMINI_BASE_URL, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(streamPayload),
+              });
+
+              if (!openaiRes.ok) {
+                const errText = await openaiRes.text().catch(() => '');
+                console.log('[EntityChat:Streaming] OpenAI error', {
+                  status: openaiRes.status,
+                  error: errText,
                 });
+                await writer.write(
+                  encoder.encode(`data: ${JSON.stringify({ error: errText, done: true })}\n\n`),
+                );
+                return; // exits the IIFE, writer.close() runs in finally
+              }
 
-                if (successfulSearches.length > 0) {
-                  // Build follow-up messages with ALL tool results
-                  const assistantToolCalls = successfulSearches.map((sr) => ({
-                    id: sr.toolCallId,
-                    type: 'function',
-                    function: {
-                      name: 'web_search',
-                      arguments: JSON.stringify({ query: sr.query }),
-                    },
-                  }));
+              const reader = openaiRes.body.getReader();
+              let buffer = '';
+              let fullContent = '';
+              let searchImages = [];
 
-                  const toolResultMessages = successfulSearches.map((sr) => ({
-                    role: 'tool',
-                    tool_call_id: sr.toolCallId,
-                    content: formatSearchBrief(sr.results),
-                  }));
+              // Output guard: buffer first sentence to strip filler openings
+              let fillerBuffer = '';
+              let fillerFlushed = false;
 
-                  const followUpMessages = [
-                    ...entityMessages,
-                    {
-                      role: 'assistant',
-                      content: null,
-                      tool_calls: assistantToolCalls,
-                    },
-                    ...toolResultMessages,
-                  ];
+              // Track tool call accumulation - support multiple tool calls
+              let toolCalls = []; // Array of { id, name, arguments }
+              let currentToolCallIndex = -1;
 
-                  // Second API call for final response - with real streaming
-                  // Tell client to discard any pre-search text that was already streamed
-                  await writer.write(
-                    encoder.encode(`data: ${JSON.stringify({ reset: true, done: false })}\n\n`),
-                  );
-                  fullContent = '';
+              try {
+                // eslint-disable-next-line no-constant-condition
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
 
-                  const followUpRes = await fetch(GEMINI_BASE_URL, {
-                    method: 'POST',
-                    headers: {
-                      Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      model: 'gemini-2.5-flash',
-                      messages: followUpMessages,
-                      temperature: genConfig.temperature,
-                      max_tokens: Math.max(genConfig.maxTokens, 1200),
-                      reasoning_effort: genConfig.reasoning,
-                      stream: true,
-                    }),
-                  });
+                  buffer += decoder.decode(value, { stream: true });
+                  const lines = buffer.split(/\r?\n/);
+                  buffer = lines.pop() || '';
 
-                  // Stream the follow-up response to client
-                  const followUpReader = followUpRes.body.getReader();
-                  const followUpDecoder = new TextDecoder();
-                  let followUpBuffer = '';
-                  let readerDone = false;
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed || trimmed === 'data: [DONE]') continue;
+                    if (!trimmed.startsWith('data: ')) continue;
 
-                  // Output guard: buffer first sentence to strip filler openings
-                  let followUpFillerBuffer = '';
-                  let followUpFillerFlushed = false;
+                    try {
+                      const json = JSON.parse(trimmed.slice(6));
+                      const delta = json.choices?.[0]?.delta?.content;
 
-                  while (!readerDone) {
-                    const result = await followUpReader.read();
-                    readerDone = result.done;
-                    if (readerDone) break;
-                    const value = result.value;
-
-                    followUpBuffer += followUpDecoder.decode(value, { stream: true });
-
-                    // Process complete lines only
-                    const lines = followUpBuffer.split('\n');
-                    followUpBuffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-                    for (const line of lines) {
-                      const trimmed = line.trim();
-                      if (!trimmed.startsWith('data:')) continue;
-
-                      const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
-                      if (jsonStr === '[DONE]') continue;
-
-                      try {
-                        const json = JSON.parse(jsonStr);
-                        const delta = json.choices?.[0]?.delta?.content;
-                        if (delta) {
-                          fullContent += delta;
-                          if (!followUpFillerFlushed) {
-                            followUpFillerBuffer += delta;
+                      if (delta) {
+                        fullContent += delta;
+                        // Don't stream SAVE comments to client
+                        if (!fullContent.includes('<!--SAVE:')) {
+                          if (!fillerFlushed) {
+                            // Buffer first sentence for filler stripping
+                            fillerBuffer += delta;
+                            // Flush once we have a sentence boundary or enough content
                             const hasBreak =
-                              /[.?!]\s/.test(followUpFillerBuffer) ||
-                              followUpFillerBuffer.length > 150;
+                              /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
                             if (hasBreak) {
-                              const cleaned = stripFillerOpening(followUpFillerBuffer);
+                              const cleaned = stripFillerOpening(fillerBuffer);
                               if (cleaned) {
                                 await writer.write(
                                   encoder.encode(
@@ -4163,26 +3936,224 @@ Almost never suggest creating a Space. Only if ALL true:
                                   ),
                                 );
                               }
-                              followUpFillerFlushed = true;
+                              fillerFlushed = true;
                             }
                           } else {
-                            await writer.write(
-                              encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                            );
+                            const sseData = JSON.stringify({ delta, done: false });
+                            await writer.write(encoder.encode(`data: ${sseData}\n\n`));
                           }
                         }
-                      } catch {
-                        // Skip malformed JSON
                       }
+
+                      // Check for tool calls - handle multiple
+                      const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
+                      if (toolCallDeltas) {
+                        for (const toolCallDelta of toolCallDeltas) {
+                          const idx = toolCallDelta.index ?? 0;
+
+                          // Initialize new tool call if needed
+                          if (!toolCalls[idx]) {
+                            toolCalls[idx] = { id: null, name: null, arguments: '' };
+                          }
+
+                          if (toolCallDelta.id) toolCalls[idx].id = toolCallDelta.id;
+                          if (toolCallDelta.function?.name)
+                            toolCalls[idx].name = toolCallDelta.function.name;
+                          if (toolCallDelta.function?.arguments)
+                            toolCalls[idx].arguments += toolCallDelta.function.arguments;
+                        }
+                      }
+                    } catch (parseErr) {
+                      console.log('[EntityChat:Streaming] Chunk parse error', {
+                        line: trimmed.slice(0, 100),
+                      });
                     }
                   }
+                }
 
-                  // Process any remaining buffer
-                  if (followUpBuffer.trim()) {
-                    const trimmed = followUpBuffer.trim();
-                    if (trimmed.startsWith('data:')) {
-                      const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
-                      if (jsonStr !== '[DONE]') {
+                // Flush any remaining filler buffer from main stream
+                if (!fillerFlushed && fillerBuffer) {
+                  const cleaned = stripFillerOpening(fillerBuffer);
+                  if (cleaned) {
+                    await writer.write(
+                      encoder.encode(
+                        `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                      ),
+                    );
+                  }
+                }
+
+                // Clean fullContent to match what was streamed
+                fullContent = stripFillerOpening(fullContent);
+
+                // Track search metadata
+                let sources = undefined;
+                let searchQueries = [];
+
+                // Filter to only web_search tool calls with arguments
+                const webSearchCalls = toolCalls.filter(
+                  (tc) => tc.name === 'web_search' && tc.arguments,
+                );
+
+                if (webSearchCalls.length > 0) {
+                  console.log('[EntityChat:Streaming] Web search triggered', {
+                    searchCount: webSearchCalls.length,
+                  });
+
+                  // Notify client we're searching (show first query)
+                  let firstQuery = '';
+                  try {
+                    const firstArgs = JSON.parse(webSearchCalls[0].arguments);
+                    firstQuery = firstArgs.query || '';
+                  } catch {
+                    const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                    firstQuery = match ? match[1] : 'multiple topics';
+                  }
+                  const searchNotice =
+                    webSearchCalls.length > 1
+                      ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
+                      : firstQuery;
+                  await writer.write(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+                    ),
+                  );
+
+                  // Execute all searches in parallel
+                  const searchT0 = Date.now();
+                  const searchPromises = webSearchCalls.map(async (tc) => {
+                    try {
+                      let query;
+                      try {
+                        const args = JSON.parse(tc.arguments);
+                        query = args.query;
+                      } catch (parseErr) {
+                        // Try regex extraction for malformed JSON
+                        const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                        if (match) {
+                          query = match[1];
+                          console.log(
+                            '[EntityChat:Streaming] Recovered query from malformed JSON:',
+                            query,
+                          );
+                        } else {
+                          console.log(
+                            '[EntityChat:Streaming] Could not parse tool arguments:',
+                            tc.arguments.slice(0, 200),
+                          );
+                          return { toolCallId: tc.id, query: null, results: null };
+                        }
+                      }
+
+                      searchQueries.push(query);
+                      const shouldIncludeImages =
+                        isVisualQuery(query) || isVisualQuery(lastUserMsg);
+                      console.log('[EntityChat] Calling Tavily:', {
+                        query: query,
+                        includeImages: shouldIncludeImages,
+                        isVisualQueryResult: isVisualQuery(query),
+                      });
+                      const results = await executeTavilySearch(query, env.TAVILY_API_KEY, {
+                        includeImages: shouldIncludeImages,
+                      });
+                      return { toolCallId: tc.id, query, results };
+                    } catch (err) {
+                      console.log('[EntityChat:Streaming] Individual search error:', err);
+                      return { toolCallId: tc.id, query: null, results: null };
+                    }
+                  });
+
+                  const searchResults = await Promise.all(searchPromises);
+                  const searchLatency = Date.now() - searchT0;
+
+                  const successfulSearches = searchResults.filter(
+                    (sr) => sr.results && sr.results.results.length > 0,
+                  );
+                  console.log('[EntityChat:Streaming] Searches complete', {
+                    total: searchResults.length,
+                    successful: successfulSearches.length,
+                    latency: searchLatency,
+                  });
+
+                  if (successfulSearches.length > 0) {
+                    // Build follow-up messages with ALL tool results
+                    const assistantToolCalls = successfulSearches.map((sr) => ({
+                      id: sr.toolCallId,
+                      type: 'function',
+                      function: {
+                        name: 'web_search',
+                        arguments: JSON.stringify({ query: sr.query }),
+                      },
+                    }));
+
+                    const toolResultMessages = successfulSearches.map((sr) => ({
+                      role: 'tool',
+                      tool_call_id: sr.toolCallId,
+                      content: formatSearchBrief(sr.results),
+                    }));
+
+                    const followUpMessages = [
+                      ...entityMessages,
+                      {
+                        role: 'assistant',
+                        content: null,
+                        tool_calls: assistantToolCalls,
+                      },
+                      ...toolResultMessages,
+                    ];
+
+                    // Second API call for final response - with real streaming
+                    // Tell client to discard any pre-search text that was already streamed
+                    await writer.write(
+                      encoder.encode(`data: ${JSON.stringify({ reset: true, done: false })}\n\n`),
+                    );
+                    fullContent = '';
+
+                    const followUpRes = await fetch(GEMINI_BASE_URL, {
+                      method: 'POST',
+                      headers: {
+                        Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        model: 'gemini-2.5-flash',
+                        messages: followUpMessages,
+                        temperature: genConfig.temperature,
+                        max_tokens: Math.max(genConfig.maxTokens, 1200),
+                        reasoning_effort: genConfig.reasoning,
+                        stream: true,
+                      }),
+                    });
+
+                    // Stream the follow-up response to client
+                    const followUpReader = followUpRes.body.getReader();
+                    const followUpDecoder = new TextDecoder();
+                    let followUpBuffer = '';
+                    let readerDone = false;
+
+                    // Output guard: buffer first sentence to strip filler openings
+                    let followUpFillerBuffer = '';
+                    let followUpFillerFlushed = false;
+
+                    while (!readerDone) {
+                      const result = await followUpReader.read();
+                      readerDone = result.done;
+                      if (readerDone) break;
+                      const value = result.value;
+
+                      followUpBuffer += followUpDecoder.decode(value, { stream: true });
+
+                      // Process complete lines only
+                      const lines = followUpBuffer.split('\n');
+                      followUpBuffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                      for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed.startsWith('data:')) continue;
+
+                        const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                        if (jsonStr === '[DONE]') continue;
+
                         try {
                           const json = JSON.parse(jsonStr);
                           const delta = json.choices?.[0]?.delta?.content;
@@ -4190,6 +4161,20 @@ Almost never suggest creating a Space. Only if ALL true:
                             fullContent += delta;
                             if (!followUpFillerFlushed) {
                               followUpFillerBuffer += delta;
+                              const hasBreak =
+                                /[.?!]\s/.test(followUpFillerBuffer) ||
+                                followUpFillerBuffer.length > 150;
+                              if (hasBreak) {
+                                const cleaned = stripFillerOpening(followUpFillerBuffer);
+                                if (cleaned) {
+                                  await writer.write(
+                                    encoder.encode(
+                                      `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                    ),
+                                  );
+                                }
+                                followUpFillerFlushed = true;
+                              }
                             } else {
                               await writer.write(
                                 encoder.encode(
@@ -4199,202 +4184,248 @@ Almost never suggest creating a Space. Only if ALL true:
                             }
                           }
                         } catch {
-                          // Skip
+                          // Skip malformed JSON
                         }
                       }
                     }
-                  }
 
-                  // Flush any remaining filler buffer at end of stream
-                  if (!followUpFillerFlushed && followUpFillerBuffer) {
-                    const cleaned = stripFillerOpening(followUpFillerBuffer);
-                    if (cleaned) {
-                      await writer.write(
-                        encoder.encode(
-                          `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
-                        ),
-                      );
+                    // Process any remaining buffer
+                    if (followUpBuffer.trim()) {
+                      const trimmed = followUpBuffer.trim();
+                      if (trimmed.startsWith('data:')) {
+                        const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                        if (jsonStr !== '[DONE]') {
+                          try {
+                            const json = JSON.parse(jsonStr);
+                            const delta = json.choices?.[0]?.delta?.content;
+                            if (delta) {
+                              fullContent += delta;
+                              if (!followUpFillerFlushed) {
+                                followUpFillerBuffer += delta;
+                              } else {
+                                await writer.write(
+                                  encoder.encode(
+                                    `data: ${JSON.stringify({ delta, done: false })}\n\n`,
+                                  ),
+                                );
+                              }
+                            }
+                          } catch {
+                            // Skip
+                          }
+                        }
+                      }
                     }
-                  }
 
-                  // Clean fullContent to match what was streamed
+                    // Flush any remaining filler buffer at end of stream
+                    if (!followUpFillerFlushed && followUpFillerBuffer) {
+                      const cleaned = stripFillerOpening(followUpFillerBuffer);
+                      if (cleaned) {
+                        await writer.write(
+                          encoder.encode(
+                            `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                          ),
+                        );
+                      }
+                    }
+
+                    // Clean fullContent to match what was streamed
+                    fullContent = stripFillerOpening(fullContent);
+
+                    // Combine all sources
+                    sources = successfulSearches.flatMap((sr) =>
+                      sr.results.results.map((r) => ({ title: r.title, url: r.url })),
+                    );
+
+                    console.log('[EntityChat] successfulSearches structure:', {
+                      count: successfulSearches.length,
+                      firstItem: successfulSearches[0]
+                        ? Object.keys(successfulSearches[0])
+                        : 'empty',
+                      firstItemImages: successfulSearches[0]?.images,
+                      firstItemResultsImages: successfulSearches[0]?.results?.images,
+                    });
+
+                    // Collect images from search results
+                    // Structure: sr.results contains Tavily response with images
+                    successfulSearches.forEach((sr) => {
+                      if (sr.results.images && sr.results.images.length > 0) {
+                        searchImages.push(...sr.results.images);
+                      }
+                    });
+
+                    console.log('[EntityChat] Images collected:', {
+                      searchImagesCount: searchImages.length,
+                      searchImages: searchImages.slice(0, 2),
+                    });
+                  }
+                }
+
+                // Fallback: if tool calls were made but we have no content, respond without search
+                if (webSearchCalls.length > 0 && !fullContent) {
+                  console.log(
+                    '[EntityChat:Streaming] Search fallback - responding without search results',
+                  );
+
+                  const fallbackRes = await fetch(GEMINI_BASE_URL, {
+                    method: 'POST',
+                    headers: {
+                      Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      model: 'gemini-2.5-flash',
+                      messages: [
+                        ...entityMessages,
+                        {
+                          role: 'system',
+                          content:
+                            'Web search is temporarily unavailable. Please respond based on your knowledge, and let the user know you could not search for the latest information.',
+                        },
+                      ],
+                      temperature: genConfig.temperature,
+                      max_tokens: genConfig.maxTokens,
+                      reasoning_effort: genConfig.reasoning,
+                    }),
+                  });
+
+                  const fallbackData = await fallbackRes.json();
+                  fullContent =
+                    fallbackData?.choices?.[0]?.message?.content ??
+                    'I had trouble searching for that information. Could you try rephrasing your question?';
                   fullContent = stripFillerOpening(fullContent);
 
-                  // Combine all sources
-                  sources = successfulSearches.flatMap((sr) =>
-                    sr.results.results.map((r) => ({ title: r.title, url: r.url })),
-                  );
-
-                  console.log('[EntityChat] successfulSearches structure:', {
-                    count: successfulSearches.length,
-                    firstItem: successfulSearches[0] ? Object.keys(successfulSearches[0]) : 'empty',
-                    firstItemImages: successfulSearches[0]?.images,
-                    firstItemResultsImages: successfulSearches[0]?.results?.images,
-                  });
-
-                  // Collect images from search results
-                  // Structure: sr.results contains Tavily response with images
-                  successfulSearches.forEach((sr) => {
-                    if (sr.results.images && sr.results.images.length > 0) {
-                      searchImages.push(...sr.results.images);
-                    }
-                  });
-
-                  console.log('[EntityChat] Images collected:', {
-                    searchImagesCount: searchImages.length,
-                    searchImages: searchImages.slice(0, 2),
-                  });
+                  // Stream the fallback content
+                  const words = fullContent.split(' ');
+                  for (let i = 0; i < words.length; i += 3) {
+                    const chunk = words.slice(i, i + 3).join(' ') + ' ';
+                    await writer.write(
+                      encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
+                    );
+                    await new Promise((resolve) => setTimeout(resolve, 15));
+                  }
                 }
-              }
 
-              // Fallback: if tool calls were made but we have no content, respond without search
-              if (webSearchCalls.length > 0 && !fullContent) {
-                console.log(
-                  '[EntityChat:Streaming] Search fallback - responding without search results',
-                );
+                // For final event, use first search query or combined
+                const searchQuery =
+                  searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
 
-                const fallbackRes = await fetch(GEMINI_BASE_URL, {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    model: 'gemini-2.5-flash',
-                    messages: [
-                      ...entityMessages,
-                      {
-                        role: 'system',
-                        content:
-                          'Web search is temporarily unavailable. Please respond based on your knowledge, and let the user know you could not search for the latest information.',
-                      },
-                    ],
-                    temperature: genConfig.temperature,
-                    max_tokens: genConfig.maxTokens,
-                    reasoning_effort: genConfig.reasoning,
-                  }),
+                // Extract smart save suggestion (inline from model)
+                const { suggestion: smartSuggestion, cleanContent } =
+                  extractSaveSuggestion(fullContent);
+
+                // Fall back to pattern detection if no smart suggestion
+                const saveable = smartSuggestion
+                  ? { detected: true, type: smartSuggestion.type, smart: true }
+                  : detectSaveableContent(cleanContent);
+
+                // Use smart suggestion if available
+                const save_suggestion = smartSuggestion || null;
+
+                // Use cleaned content (without suggestion block) for display
+                fullContent = cleanContent;
+
+                // Detect space promotion suggestion
+                const promotion = detectSpacePromotion(fullContent, messages.length);
+
+                const latency = Date.now() - t0;
+                // Strip SAVE comment and markdown images before sending to client
+                const displayContent = fullContent
+                  .replace(/<!--SAVE:\{.*?\}-->/gs, '')
+                  .replace(/!\[.*?\]\(.*?\)/g, '') // Strip markdown images
+                  .trim();
+                const finalData = JSON.stringify({
+                  done: true,
+                  full_content: displayContent,
+                  saveable,
+                  save_suggestion,
+                  promotion,
+                  latency_ms: latency,
+                  sources: sources,
+                  images: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
+                  search_query: searchQuery,
+                  fetchedUrl: fetchedUrl,
+                });
+                await writer.write(encoder.encode(`data: ${finalData}\n\n`));
+
+                console.log('[EntityChat:Streaming] Complete', {
+                  latency_ms: latency,
+                  content_length: fullContent.length,
+                  has_saveable: saveable?.detected,
+                  has_promotion: promotion?.suggested,
+                  used_search: !!searchQuery,
+                  images_sent: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
                 });
 
-                const fallbackData = await fallbackRes.json();
-                fullContent =
-                  fallbackData?.choices?.[0]?.message?.content ??
-                  'I had trouble searching for that information. Could you try rephrasing your question?';
-                fullContent = stripFillerOpening(fullContent);
-
-                // Stream the fallback content
-                const words = fullContent.split(' ');
-                for (let i = 0; i < words.length; i += 3) {
-                  const chunk = words.slice(i, i + 3).join(' ') + ' ';
-                  await writer.write(
-                    encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
-                  );
-                  await new Promise((resolve) => setTimeout(resolve, 15));
-                }
-              }
-
-              // For final event, use first search query or combined
-              const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
-
-              // Extract smart save suggestion (inline from model)
-              const { suggestion: smartSuggestion, cleanContent } =
-                extractSaveSuggestion(fullContent);
-
-              // Fall back to pattern detection if no smart suggestion
-              const saveable = smartSuggestion
-                ? { detected: true, type: smartSuggestion.type, smart: true }
-                : detectSaveableContent(cleanContent);
-
-              // Use smart suggestion if available
-              const save_suggestion = smartSuggestion || null;
-
-              // Use cleaned content (without suggestion block) for display
-              fullContent = cleanContent;
-
-              // Detect space promotion suggestion
-              const promotion = detectSpacePromotion(fullContent, messages.length);
-
-              const latency = Date.now() - t0;
-              // Strip SAVE comment and markdown images before sending to client
-              const displayContent = fullContent
-                .replace(/<!--SAVE:\{.*?\}-->/gs, '')
-                .replace(/!\[.*?\]\(.*?\)/g, '') // Strip markdown images
-                .trim();
-              const finalData = JSON.stringify({
-                done: true,
-                full_content: displayContent,
-                saveable,
-                save_suggestion,
-                promotion,
-                latency_ms: latency,
-                sources: sources,
-                images: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
-                search_query: searchQuery,
-                fetchedUrl: fetchedUrl,
-              });
-              await writer.write(encoder.encode(`data: ${finalData}\n\n`));
-
-              console.log('[EntityChat:Streaming] Complete', {
-                latency_ms: latency,
-                content_length: fullContent.length,
-                has_saveable: saveable?.detected,
-                has_promotion: promotion?.suggested,
-                used_search: !!searchQuery,
-                images_sent: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
-              });
-
-              // ── POST-STREAM: Update entity chat summary (non-blocking) ──
-              if (body.userId && fullContent) {
-                const entity = body.entity || {};
-                const entityId = entity.id || null;
-                const entityType = entity.type || null;
-                if (entityId && entityType) {
-                  const summaryPromise = (async () => {
-                    try {
-                      const tableName =
-                        entityType === 'habit'
-                          ? 'habits'
-                          : entityType === 'note'
-                            ? 'notes'
-                            : 'todos';
-                      const prevRes = await fetch(
-                        `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
-                        {
-                          headers: {
-                            apikey: env.SUPABASE_SERVICE_KEY,
-                            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                // ── POST-STREAM: Update entity chat summary (non-blocking) ──
+                if (body.userId && fullContent) {
+                  const entity = body.entity || {};
+                  const entityId = entity.id || null;
+                  const entityType = entity.type || null;
+                  if (entityId && entityType) {
+                    const summaryPromise = (async () => {
+                      try {
+                        const tableName =
+                          entityType === 'habit'
+                            ? 'habits'
+                            : entityType === 'note'
+                              ? 'notes'
+                              : 'todos';
+                        const prevRes = await fetch(
+                          `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
+                          {
+                            headers: {
+                              apikey: env.SUPABASE_SERVICE_KEY,
+                              Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                            },
                           },
-                        },
-                      );
-                      const prevRows = prevRes.ok ? await prevRes.json() : [];
-                      const previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
+                        );
+                        const prevRows = prevRes.ok ? await prevRes.json() : [];
+                        const previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
 
-                      await generateEntityChatSummary(
-                        messages.filter((m) => m.role !== 'system'),
-                        fullContent,
-                        entityId,
-                        entityType,
-                        entity.title || entity.name || null,
-                        entity.space_name || null,
-                        previousEntitySummary,
-                        env,
-                      );
-                    } catch (err) {
-                      console.warn('[EntityChat] Chat summary failed:', err.message);
-                    }
-                  })();
-                  ctx.waitUntil(summaryPromise);
+                        await generateEntityChatSummary(
+                          messages.filter((m) => m.role !== 'system'),
+                          fullContent,
+                          entityId,
+                          entityType,
+                          entity.title || entity.name || null,
+                          entity.space_name || null,
+                          previousEntitySummary,
+                          env,
+                        );
+                      } catch (err) {
+                        console.warn('[EntityChat] Chat summary failed:', err.message);
+                      }
+                    })();
+                    ctx.waitUntil(summaryPromise);
+                  }
                 }
+              } catch (streamErr) {
+                console.log('[EntityChat:Streaming] Stream error', { error: String(streamErr) });
+                const errorData = JSON.stringify({
+                  error: String(streamErr),
+                  done: true,
+                  full_content: fullContent,
+                });
+                await writer.write(encoder.encode(`data: ${errorData}\n\n`));
               }
-            } catch (streamErr) {
-              console.log('[EntityChat:Streaming] Stream error', { error: String(streamErr) });
-              const errorData = JSON.stringify({
-                error: String(streamErr),
-                done: true,
-                full_content: fullContent,
-              });
-              await writer.write(encoder.encode(`data: ${errorData}\n\n`));
+            } catch (outerErr) {
+              console.error('[EntityChat:Streaming] Outer error', { error: String(outerErr) });
+              try {
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ error: String(outerErr), done: true })}\n\n`,
+                  ),
+                );
+              } catch {
+                /* stream may be closed */
+              }
             } finally {
-              await writer.close();
+              try {
+                await writer.close();
+              } catch {
+                /* already closed */
+              }
             }
           })();
 
