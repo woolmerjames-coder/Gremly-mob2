@@ -804,6 +804,7 @@ export default function ChatThreadScreen({ route }: Props) {
                 const chunkMsgId = streamingMessageIdRef.current;
                 if (chunkMsgId) {
                   updateStreamingSearching(chunkMsgId, false, null);
+                  updateMessage(chunkMsgId, { isLoadingHint: false });
                 }
                 // Split on whitespace boundaries to buffer words
                 wordBufferRef.current.push(...delta.split(/(?<=\s)/));
