@@ -659,6 +659,8 @@ export interface SpaceChatMessage {
   // URL fetch state
   isFetching?: boolean;
   fetchingUrl?: string | null;
+  // Loading message from triage
+  loadingMessage?: string | null;
   // Web search results
   sources?: Array<{ title: string; url: string }>;
   search_query?: string | null;

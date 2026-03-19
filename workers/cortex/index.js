@@ -142,10 +142,18 @@ import {
   buildEntityChatConfig,
   buildEntityContextBlock,
   getSearchPolicy,
-  TOKEN_CAP,
-  MODE_REASONING,
   MODE_TEMP,
 } from './gremlyPersona';
+
+async function getCachedDomainNames(userId, env) {
+  if (!userId || !env.CONTEXT_CACHE) return [];
+  try {
+    const cached = await env.CONTEXT_CACHE.get(`life-map-domains:${userId}`, 'json');
+    return Array.isArray(cached) ? cached : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Extract the last user/assistant exchange from a messages array.
@@ -3656,6 +3664,8 @@ Almost never suggest creating a Space. Only if ALL true:
         const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
         const previousExchange = extractPreviousExchange(messages);
 
+        const cachedDomains = await getCachedDomainNames(body.userId, env);
+
         const triage = await triageMessage({
           userMessage: lastUserMsg,
           previousExchange,
@@ -3663,11 +3673,17 @@ Almost never suggest creating a Space. Only if ALL true:
           preset: preset || undefined,
           chatType: 'entity',
           env,
+          domainNames: cachedDomains,
+          profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
+          messageCount: messages.length,
         });
 
         console.log('[EntityChat:Triage]', {
           mode: triage.mode,
           search: triage.search,
+          personal: triage.personal,
+          depth: triage.depth,
+          loadingMessage: triage.loadingMessage,
           source: triage.source,
           preset: preset || 'none',
           messagePreview: lastUserMsg.slice(0, 80),
@@ -3822,6 +3838,15 @@ Almost never suggest creating a Space. Only if ALL true:
             hasTools: !!streamPayload.tools,
             messageCount: streamPayload.messages?.length,
           });
+
+          // Send loading message if available
+          if (triage.loadingMessage) {
+            await writer.write(
+              encoder.encode(
+                `data: ${JSON.stringify({ loading_message: triage.loadingMessage })}\n\n`,
+              ),
+            );
+          }
 
           const openaiRes = await fetch(GEMINI_BASE_URL, {
             method: 'POST',
@@ -8922,17 +8947,25 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
         // === TRIAGE: Classify message before generation ===
         const previousExchange = extractPreviousExchange(messages);
+        const cachedDomains = await getCachedDomainNames(body.userId, env);
+
         const triage = await triageMessage({
           userMessage: lastUserMsgSpace,
           previousExchange,
           spaceName: body.spaceName || undefined,
           chatType: 'space',
           env,
+          domainNames: cachedDomains,
+          profileSnippet: spaceUserProfile?.profileText?.slice(0, 150) || '',
+          messageCount: messages.length,
         });
 
         console.log('[SpaceChat:Streaming:Triage]', {
           mode: triage.mode,
           search: triage.search,
+          personal: triage.personal,
+          depth: triage.depth,
+          loadingMessage: triage.loadingMessage,
           source: triage.source,
           messagePreview: lastUserMsgSpace.slice(0, 80),
         });
@@ -9002,6 +9035,15 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
           hasTools: !!openaiPayload.tools,
           messageCount: openaiPayload.messages?.length,
         });
+
+        // Send loading message if available
+        if (triage.loadingMessage) {
+          await writer.write(
+            encoder.encode(
+              `data: ${JSON.stringify({ loading_message: triage.loadingMessage })}\n\n`,
+            ),
+          );
+        }
 
         const openaiRes = await fetch(GEMINI_BASE_URL, {
           method: 'POST',
@@ -9529,17 +9571,25 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
         const previousExchange = extractPreviousExchange(messages);
 
+        const cachedDomains = await getCachedDomainNames(body.userId, env);
+
         const triage = await triageMessage({
           userMessage: lastUserMsg,
           previousExchange,
           spaceName: body.spaceName || undefined,
           chatType: 'space',
           env,
+          domainNames: cachedDomains,
+          profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
+          messageCount: messages.length,
         });
 
         console.log('[SpaceChat:NonStreaming:Triage]', {
           mode: triage.mode,
           search: triage.search,
+          personal: triage.personal,
+          depth: triage.depth,
+          loadingMessage: triage.loadingMessage,
           source: triage.source,
           messagePreview: lastUserMsg.slice(0, 80),
         });

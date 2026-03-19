@@ -639,7 +639,134 @@ export function EntityChatScreen({
               updateStreamingContent(entityId, entityType, streamingMessageIdRef.current, '');
             }
           },
+          onLoadingMessage: (message) => {
+            if (streamingMessageIdRef.current) {
+              const state = useGremlyStore.getState();
+              const setLoading = (msg: any) =>
+                msg.id === streamingMessageIdRef.current
+                  ? { ...msg, metadata: { ...msg.metadata, loadingMessage: message } }
+                  : msg;
+              if (entityType === 'todo') {
+                const todo = state.todos.find((t) => t.id === entityId);
+                if (todo?.views?.chat) {
+                  const chat = todo.views.chat as any;
+                  useGremlyStore.setState({
+                    todos: state.todos.map((t) =>
+                      t.id === entityId
+                        ? {
+                            ...t,
+                            views: {
+                              ...t.views,
+                              chat: { ...chat, messages: chat.messages.map(setLoading) },
+                            },
+                          }
+                        : t,
+                    ),
+                  });
+                }
+              } else if (entityType === 'habit') {
+                const habit = state.habits.find((h) => h.id === entityId);
+                if (habit?.views?.chat) {
+                  const chat = habit.views.chat as any;
+                  useGremlyStore.setState({
+                    habits: state.habits.map((h) =>
+                      h.id === entityId
+                        ? {
+                            ...h,
+                            views: {
+                              ...h.views,
+                              chat: { ...chat, messages: chat.messages.map(setLoading) },
+                            },
+                          }
+                        : h,
+                    ),
+                  });
+                }
+              } else if (entityType === 'note') {
+                const note = state.notes.find((n) => n.id === entityId);
+                if (note?.views?.chat) {
+                  const chat = note.views.chat as any;
+                  useGremlyStore.setState({
+                    notes: state.notes.map((n) =>
+                      n.id === entityId
+                        ? {
+                            ...n,
+                            views: {
+                              ...n.views,
+                              chat: { ...chat, messages: chat.messages.map(setLoading) },
+                            },
+                          }
+                        : n,
+                    ),
+                  });
+                }
+              }
+            }
+          },
           onDelta: (delta) => {
+            // Clear loading message on first content
+            if (accumulatedContent === '' && streamingMessageIdRef.current) {
+              const stateNow = useGremlyStore.getState();
+              const clearLoading = (msg: any) =>
+                msg.id === streamingMessageIdRef.current
+                  ? { ...msg, metadata: { ...msg.metadata, loadingMessage: null } }
+                  : msg;
+              if (entityType === 'todo') {
+                const todo = stateNow.todos.find((t) => t.id === entityId);
+                if (todo?.views?.chat) {
+                  const chat = todo.views.chat as any;
+                  useGremlyStore.setState({
+                    todos: stateNow.todos.map((t) =>
+                      t.id === entityId
+                        ? {
+                            ...t,
+                            views: {
+                              ...t.views,
+                              chat: { ...chat, messages: chat.messages.map(clearLoading) },
+                            },
+                          }
+                        : t,
+                    ),
+                  });
+                }
+              } else if (entityType === 'habit') {
+                const habit = stateNow.habits.find((h) => h.id === entityId);
+                if (habit?.views?.chat) {
+                  const chat = habit.views.chat as any;
+                  useGremlyStore.setState({
+                    habits: stateNow.habits.map((h) =>
+                      h.id === entityId
+                        ? {
+                            ...h,
+                            views: {
+                              ...h.views,
+                              chat: { ...chat, messages: chat.messages.map(clearLoading) },
+                            },
+                          }
+                        : h,
+                    ),
+                  });
+                }
+              } else if (entityType === 'note') {
+                const note = stateNow.notes.find((n) => n.id === entityId);
+                if (note?.views?.chat) {
+                  const chat = note.views.chat as any;
+                  useGremlyStore.setState({
+                    notes: stateNow.notes.map((n) =>
+                      n.id === entityId
+                        ? {
+                            ...n,
+                            views: {
+                              ...n.views,
+                              chat: { ...chat, messages: chat.messages.map(clearLoading) },
+                            },
+                          }
+                        : n,
+                    ),
+                  });
+                }
+              }
+            }
             // Accumulate content and update the streaming message in place
             accumulatedContent += delta;
             if (streamingMessageIdRef.current) {
@@ -918,6 +1045,7 @@ export function EntityChatScreen({
         isStreaming?: boolean;
         sources?: Array<{ title: string; url: string }>;
         images?: string[];
+        loadingMessage?: string | null;
       } = {
         id: item.id,
         chat_id: `entity-chat-${entityId}`, // Virtual chat ID for entity chats
@@ -929,6 +1057,7 @@ export function EntityChatScreen({
         isStreaming: isStreamingMessage,
         sources: item.metadata?.sources as Array<{ title: string; url: string }> | undefined,
         images: item.metadata?.images as string[] | undefined,
+        loadingMessage: (item.metadata as any)?.loadingMessage ?? null,
       };
 
       // Check if this message was already saved (persisted state)

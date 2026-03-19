@@ -4,7 +4,12 @@
 import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
 import { getDateService } from '../date/DateService';
-import type { EntityChatRequest, EntityChatResponse, HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
+import type {
+  EntityChatRequest,
+  EntityChatResponse,
+  HabitBuilderRequest,
+  HabitBuilderStreamingCallbacks,
+} from '../types';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -57,6 +62,7 @@ export interface SpaceChatStreamingCallbacks {
   onError: (error: string, partialText: string) => void;
   onSearching?: (query: string) => void;
   onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
+  onLoadingMessage?: (message: string) => void;
 }
 
 export interface Phase2StreamingCallbacks {
@@ -440,6 +446,11 @@ export function callSpaceChatStreaming(
       }
       if (data.fetching !== undefined) {
         callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
+        return;
+      }
+      // Handle loading message from triage
+      if (data.loading_message) {
+        (callbacks as SpaceChatStreamingCallbacks).onLoadingMessage?.(data.loading_message);
         return;
       }
       if (data.delta) {
@@ -1284,6 +1295,7 @@ export interface EntityChatStreamingCallbacks {
   onError: (error: Error) => void;
   onSearching?: (query: string) => void;
   onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
+  onLoadingMessage?: (message: string) => void;
   onReset?: () => void;
 }
 
@@ -1359,6 +1371,12 @@ export function callEntityChatStreaming(
       // Handle fetching event
       if (data.fetching !== undefined) {
         callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
+        return;
+      }
+
+      // Handle loading message from triage
+      if (data.loading_message) {
+        callbacks.onLoadingMessage?.(data.loading_message);
         return;
       }
 
@@ -1501,10 +1519,19 @@ export function callHabitBuilderStreaming(
         callbacks.onComplete({
           content: data.full_content || fullContent,
           resolved_fields: data.resolved_fields || {
-            name: null, habit_type: null, cadence: null, target: null,
-            start_date: null, time_window: null, space_name: null,
-            notes: null, end_date: null, time_estimate_minutes: null,
-            is_confirmation: false, next_field: null, required_count: 0,
+            name: null,
+            habit_type: null,
+            cadence: null,
+            target: null,
+            start_date: null,
+            time_window: null,
+            space_name: null,
+            notes: null,
+            end_date: null,
+            time_estimate_minutes: null,
+            is_confirmation: false,
+            next_field: null,
+            required_count: 0,
             suggested_chips: null,
           },
           latency_ms,

@@ -159,6 +159,7 @@ export default function ChatThreadScreen({ route }: Props) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [spaceName, setSpaceName] = useState<string | null>(null);
+  const loadingMessageRef = useRef<string | null>(null);
 
   // Enable LayoutAnimation on Android
   useEffect(() => {
@@ -800,8 +801,21 @@ export default function ChatThreadScreen({ route }: Props) {
             },
             {
               onChunk: (delta) => {
+                // Clear loading message on first content
+                if (loadingMessageRef.current) {
+                  loadingMessageRef.current = null;
+                  const msgId = streamingMessageIdRef.current;
+                  if (msgId) updateMessage(msgId, { loadingMessage: null });
+                }
                 // Split on whitespace boundaries to buffer words
                 wordBufferRef.current.push(...delta.split(/(?<=\s)/));
+              },
+              onLoadingMessage: (message) => {
+                loadingMessageRef.current = message;
+                const msgId = streamingMessageIdRef.current;
+                if (msgId) {
+                  updateMessage(msgId, { loadingMessage: message });
+                }
               },
               onSearching: (query) => {
                 const msgId = streamingMessageIdRef.current;
