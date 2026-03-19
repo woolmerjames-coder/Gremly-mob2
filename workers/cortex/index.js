@@ -8863,9 +8863,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         const encoder = new TextEncoder();
         const decoder = new TextDecoder();
 
-        // Send initial SSE ping, then loading message as soon as nano returns
+        // Loading message — fires immediately, independent of main work
         (async () => {
-          await writer.write(encoder.encode(': ping\n\n'));
           try {
             const loadingMsg = await generateLoadingMessage(
               lastUserMsgSpace,
@@ -8884,452 +8883,248 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
           }
         })();
 
-        // Detect URLs in the user's message
-        const detectedUrlsSpace = extractUrlsFromText(lastUserMsgSpace);
-        let urlContextSpace = '';
-        let fetchedUrlSpace = null;
-
-        if (detectedUrlsSpace.length > 0) {
-          console.log('[SpaceChat:Streaming] URLs detected:', detectedUrlsSpace);
-
-          // Fetch the first URL
-          const urlToFetch = detectedUrlsSpace[0];
-
-          // Send "fetching" indicator to client
-          await writer.write(
-            encoder.encode(
-              `data: ${JSON.stringify({
-                fetching: true,
-                fetchingUrl: urlToFetch,
-                done: false,
-              })}\n\n`,
-            ),
-          );
-
-          const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
-
-          if (extracted && extracted.success) {
-            fetchedUrlSpace = {
-              url: extracted.url,
-              title: extracted.title,
-            };
-
-            urlContextSpace = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
-
-            console.log('[SpaceChat:Streaming] URL content extracted');
-          } else {
-            urlContextSpace = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable. Let the user know and offer to help if they can paste the content directly.]`;
-
-            console.log('[SpaceChat:Streaming] URL extraction failed');
-          }
-
-          // Clear fetching indicator
-          await writer.write(
-            encoder.encode(
-              `data: ${JSON.stringify({
-                fetching: false,
-                done: false,
-              })}\n\n`,
-            ),
-          );
-        }
-
-        // Check if previous messages contain search results to avoid redundant searches
-        const previousSearchContext = messages
-          .filter((m) => m.role === 'assistant' && m.sources?.length > 0)
-          .slice(-1)[0];
-
-        // === USER PROFILE & SESSION CONTEXT FOR SPACE CHAT ===
-        let spaceSessionContextStr = '';
-        let spaceUserProfile = null;
-        if (body.userId) {
-          try {
-            const [chatContext, profile] = await Promise.all([
-              buildChatContext(
-                body.userId,
-                'space',
-                {
-                  spaceId: body.spaceId,
-                },
-                env,
-              ),
-              getUserProfile(body.userId, env),
-            ]);
-            spaceSessionContextStr = chatContext;
-            spaceUserProfile = profile;
-            if (spaceSessionContextStr || spaceUserProfile) {
-              console.log('[SpaceChat] Context loaded', {
-                userId: body.userId.slice(0, 8),
-                sessionContextLength: spaceSessionContextStr?.length || 0,
-                hasUserProfile: !!spaceUserProfile,
-              });
-            }
-          } catch (err) {
-            console.error('[SpaceChat] Context error', err);
-          }
-        }
-
-        // === TRIAGE: Classify message before generation ===
-        const previousExchange = extractPreviousExchange(messages);
-        const cachedDomains = await getCachedDomainNames(body.userId, env);
-
-        const triage = await triageMessage({
-          userMessage: lastUserMsgSpace,
-          previousExchange,
-          spaceName: body.spaceName || undefined,
-          chatType: 'space',
-          env,
-          domainNames: cachedDomains,
-          profileSnippet: spaceUserProfile?.profileText?.slice(0, 150) || '',
-          messageCount: messages.length,
-        });
-
-        console.log('[SpaceChat:Streaming:Triage]', {
-          mode: triage.mode,
-          search: triage.search,
-          personal: triage.personal,
-          depth: triage.depth,
-          source: triage.source,
-          messagePreview: lastUserMsgSpace.slice(0, 80),
-        });
-
-        // Minimal ChatContext for rolling summary
-        const streamContext = { runningSummary: body.runningSummary || '' };
-
-        // === COMPOSE: Build generation config from triage signals ===
-        const genConfig = buildSpaceChatSystemPrompt(
-          triage,
-          streamContext,
-          body.spaceName,
-          null, // spaceContext not available server-side
-          body.accountCreatedAt,
-          spaceSessionContextStr,
-          spaceUserProfile?.profileText,
-        );
-
-        // === BUILD MESSAGES ===
-        // Inject URL context into the last user message if present
-        const processedMessagesSpace = messages.map((msg, idx, arr) => {
-          if (urlContextSpace && idx === arr.length - 1 && msg.role === 'user') {
-            return { ...msg, content: msg.content + urlContextSpace };
-          }
-          return msg;
-        });
-
-        const spaceChatMessages = [
-          { role: 'system', content: genConfig.systemPrompt },
-          ...processedMessagesSpace.filter((m) => m.role !== 'system'),
-        ];
-
-        if (previousSearchContext) {
-          spaceChatMessages.push({
-            role: 'system',
-            content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
-          });
-        }
-
-        // === SEARCH POLICY ===
-        const searchPolicy = getSearchPolicy(triage.search);
-
-        const openaiPayload = {
-          model: 'gemini-2.5-flash',
-          messages: spaceChatMessages,
-          temperature: genConfig.temperature,
-          stream: true,
-          max_tokens: genConfig.maxTokens,
-          reasoning_effort: genConfig.reasoning,
-        };
-
-        if (searchPolicy.attachTool) {
-          openaiPayload.tools = [WEB_SEARCH_TOOL];
-          openaiPayload.tool_choice =
-            searchPolicy.toolChoice === 'required'
-              ? { type: 'function', function: { name: 'web_search' } }
-              : 'auto';
-        }
-
-        const t0 = Date.now();
-
-        console.log('[SpaceChat:Streaming:Payload]', {
-          model: openaiPayload.model,
-          temperature: openaiPayload.temperature,
-          max_tokens: openaiPayload.max_tokens,
-          reasoning_effort: openaiPayload.reasoning_effort,
-          hasTools: !!openaiPayload.tools,
-          messageCount: openaiPayload.messages?.length,
-        });
-
-        const openaiRes = await fetch(GEMINI_BASE_URL, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(openaiPayload),
-        });
-
-        if (!openaiRes.ok) {
-          const errText = await openaiRes.text().catch(() => '');
-          console.log('[SpaceChat:Streaming] Gemini error', {
-            status: openaiRes.status,
-            error: errText,
-          });
-          return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
-        }
-
+        // Main work IIFE — runs after Response is returned to client
         (async () => {
-          const reader = openaiRes.body.getReader();
-          let buffer = '';
-          let fullContent = '';
-
-          // Track tool calls accumulation (array for multiple calls)
-          let toolCalls = [];
-
-          // Output guard: buffer first sentence to strip filler openings
-          let fillerBuffer = '';
-          let fillerFlushed = false;
-
           try {
-            // eslint-disable-next-line no-constant-condition
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
+            // Send SSE ping
+            await writer.write(encoder.encode(': ping\n\n'));
 
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split(/\r?\n/);
-              buffer = lines.pop() || '';
+            // Detect URLs in the user's message
+            const detectedUrlsSpace = extractUrlsFromText(lastUserMsgSpace);
+            let urlContextSpace = '';
+            let fetchedUrlSpace = null;
 
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed || trimmed === 'data: [DONE]') continue;
-                if (!trimmed.startsWith('data: ')) continue;
+            if (detectedUrlsSpace.length > 0) {
+              console.log('[SpaceChat:Streaming] URLs detected:', detectedUrlsSpace);
 
-                try {
-                  const json = JSON.parse(trimmed.slice(6));
-                  const delta = json.choices?.[0]?.delta?.content;
+              // Fetch the first URL
+              const urlToFetch = detectedUrlsSpace[0];
 
-                  if (delta) {
-                    fullContent += delta;
-                    // Don't stream SAVE comments to client
-                    if (!fullContent.includes('<!--SAVE:')) {
-                      if (!fillerFlushed) {
-                        fillerBuffer += delta;
-                        const hasBreak = /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
-                        if (hasBreak) {
-                          const cleaned = stripFillerOpening(fillerBuffer);
-                          if (cleaned) {
-                            await writer.write(
-                              encoder.encode(
-                                `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
-                              ),
-                            );
-                          }
-                          fillerFlushed = true;
-                        }
-                      } else {
-                        const sseData = JSON.stringify({ delta, done: false });
-                        await writer.write(encoder.encode(`data: ${sseData}\n\n`));
-                      }
-                    }
-                  }
-
-                  // Check for tool calls (handle multiple)
-                  const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
-                  if (toolCallDeltas && Array.isArray(toolCallDeltas)) {
-                    for (const tcd of toolCallDeltas) {
-                      const idx = tcd.index ?? 0;
-                      if (!toolCalls[idx]) {
-                        toolCalls[idx] = { id: null, name: null, arguments: '' };
-                      }
-                      if (tcd.id) toolCalls[idx].id = tcd.id;
-                      if (tcd.function?.name) toolCalls[idx].name = tcd.function.name;
-                      if (tcd.function?.arguments)
-                        toolCalls[idx].arguments += tcd.function.arguments;
-                    }
-                  }
-                } catch (parseErr) {
-                  console.log('[SpaceChat:Streaming] Chunk parse error', {
-                    line: trimmed.slice(0, 100),
-                  });
-                }
-              }
-            }
-
-            // Flush any remaining filler buffer from main stream
-            if (!fillerFlushed && fillerBuffer) {
-              const cleaned = stripFillerOpening(fillerBuffer);
-              if (cleaned) {
-                await writer.write(
-                  encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
-                );
-              }
-            }
-            fullContent = stripFillerOpening(fullContent);
-
-            // Track search metadata
-            let sources = undefined;
-            let searchQueries = [];
-
-            // Filter to only web_search tool calls with arguments
-            const webSearchCalls = toolCalls.filter(
-              (tc) => tc.name === 'web_search' && tc.arguments,
-            );
-
-            if (webSearchCalls.length > 0) {
-              console.log('[SpaceChat:Streaming] Web search triggered', {
-                searchCount: webSearchCalls.length,
-              });
-
-              // Notify client we're searching (show first query)
-              let firstQuery = '';
-              try {
-                const firstArgs = JSON.parse(webSearchCalls[0].arguments);
-                firstQuery = firstArgs.query || '';
-              } catch {
-                const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
-                firstQuery = match ? match[1] : 'multiple topics';
-              }
-              const searchNotice =
-                webSearchCalls.length > 1
-                  ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
-                  : firstQuery;
+              // Send "fetching" indicator to client
               await writer.write(
                 encoder.encode(
-                  `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+                  `data: ${JSON.stringify({
+                    fetching: true,
+                    fetchingUrl: urlToFetch,
+                    done: false,
+                  })}\n\n`,
                 ),
               );
 
-              // Execute all searches in parallel
-              const searchT0 = Date.now();
-              const searchPromises = webSearchCalls.map(async (tc) => {
-                try {
-                  let query;
-                  try {
-                    const args = JSON.parse(tc.arguments);
-                    query = args.query;
-                  } catch (parseErr) {
-                    // Try regex extraction for malformed JSON
-                    const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
-                    if (match) {
-                      query = match[1];
-                      console.log(
-                        '[SpaceChat:Streaming] Recovered query from malformed JSON:',
-                        query,
-                      );
-                    } else {
-                      console.log(
-                        '[SpaceChat:Streaming] Could not parse tool arguments:',
-                        tc.arguments.slice(0, 200),
-                      );
-                      return { toolCallId: tc.id, query: null, results: null };
-                    }
-                  }
+              const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
 
-                  searchQueries.push(query);
-                  const results = await executeTavilySearch(query, env.TAVILY_API_KEY);
-                  return { toolCallId: tc.id, query, results };
-                } catch (err) {
-                  console.log('[SpaceChat:Streaming] Individual search error:', err);
-                  return { toolCallId: tc.id, query: null, results: null };
-                }
-              });
+              if (extracted && extracted.success) {
+                fetchedUrlSpace = {
+                  url: extracted.url,
+                  title: extracted.title,
+                };
 
-              const searchResults = await Promise.all(searchPromises);
-              const searchLatency = Date.now() - searchT0;
+                urlContextSpace = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
 
-              const successfulSearches = searchResults.filter(
-                (sr) => sr.results && sr.results.results.length > 0,
+                console.log('[SpaceChat:Streaming] URL content extracted');
+              } else {
+                urlContextSpace = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable. Let the user know and offer to help if they can paste the content directly.]`;
+
+                console.log('[SpaceChat:Streaming] URL extraction failed');
+              }
+
+              // Clear fetching indicator
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({
+                    fetching: false,
+                    done: false,
+                  })}\n\n`,
+                ),
               );
-              console.log('[SpaceChat:Streaming] Searches complete', {
-                total: searchResults.length,
-                successful: successfulSearches.length,
-                latency: searchLatency,
+            }
+
+            // Check if previous messages contain search results to avoid redundant searches
+            const previousSearchContext = messages
+              .filter((m) => m.role === 'assistant' && m.sources?.length > 0)
+              .slice(-1)[0];
+
+            // === USER PROFILE & SESSION CONTEXT FOR SPACE CHAT ===
+            let spaceSessionContextStr = '';
+            let spaceUserProfile = null;
+            if (body.userId) {
+              try {
+                const [chatContext, profile] = await Promise.all([
+                  buildChatContext(
+                    body.userId,
+                    'space',
+                    {
+                      spaceId: body.spaceId,
+                    },
+                    env,
+                  ),
+                  getUserProfile(body.userId, env),
+                ]);
+                spaceSessionContextStr = chatContext;
+                spaceUserProfile = profile;
+                if (spaceSessionContextStr || spaceUserProfile) {
+                  console.log('[SpaceChat] Context loaded', {
+                    userId: body.userId.slice(0, 8),
+                    sessionContextLength: spaceSessionContextStr?.length || 0,
+                    hasUserProfile: !!spaceUserProfile,
+                  });
+                }
+              } catch (err) {
+                console.error('[SpaceChat] Context error', err);
+              }
+            }
+
+            // === TRIAGE: Classify message before generation ===
+            const previousExchange = extractPreviousExchange(messages);
+            const cachedDomains = await getCachedDomainNames(body.userId, env);
+
+            const triage = await triageMessage({
+              userMessage: lastUserMsgSpace,
+              previousExchange,
+              spaceName: body.spaceName || undefined,
+              chatType: 'space',
+              env,
+              domainNames: cachedDomains,
+              profileSnippet: spaceUserProfile?.profileText?.slice(0, 150) || '',
+              messageCount: messages.length,
+            });
+
+            console.log('[SpaceChat:Streaming:Triage]', {
+              mode: triage.mode,
+              search: triage.search,
+              personal: triage.personal,
+              depth: triage.depth,
+              source: triage.source,
+              messagePreview: lastUserMsgSpace.slice(0, 80),
+            });
+
+            // Minimal ChatContext for rolling summary
+            const streamContext = { runningSummary: body.runningSummary || '' };
+
+            // === COMPOSE: Build generation config from triage signals ===
+            const genConfig = buildSpaceChatSystemPrompt(
+              triage,
+              streamContext,
+              body.spaceName,
+              null, // spaceContext not available server-side
+              body.accountCreatedAt,
+              spaceSessionContextStr,
+              spaceUserProfile?.profileText,
+            );
+
+            // === BUILD MESSAGES ===
+            // Inject URL context into the last user message if present
+            const processedMessagesSpace = messages.map((msg, idx, arr) => {
+              if (urlContextSpace && idx === arr.length - 1 && msg.role === 'user') {
+                return { ...msg, content: msg.content + urlContextSpace };
+              }
+              return msg;
+            });
+
+            const spaceChatMessages = [
+              { role: 'system', content: genConfig.systemPrompt },
+              ...processedMessagesSpace.filter((m) => m.role !== 'system'),
+            ];
+
+            if (previousSearchContext) {
+              spaceChatMessages.push({
+                role: 'system',
+                content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
               });
+            }
 
-              if (successfulSearches.length > 0) {
-                // Build follow-up messages with ALL tool results
-                const assistantToolCalls = successfulSearches.map((sr) => ({
-                  id: sr.toolCallId,
-                  type: 'function',
-                  function: {
-                    name: 'web_search',
-                    arguments: JSON.stringify({ query: sr.query }),
-                  },
-                }));
+            // === SEARCH POLICY ===
+            const searchPolicy = getSearchPolicy(triage.search);
 
-                const toolResultMessages = successfulSearches.map((sr) => ({
-                  role: 'tool',
-                  tool_call_id: sr.toolCallId,
-                  content: formatSearchBrief(sr.results),
-                }));
+            const openaiPayload = {
+              model: 'gemini-2.5-flash',
+              messages: spaceChatMessages,
+              temperature: genConfig.temperature,
+              stream: true,
+              max_tokens: genConfig.maxTokens,
+              reasoning_effort: genConfig.reasoning,
+            };
 
-                const followUpMessages = [
-                  ...spaceChatMessages,
-                  {
-                    role: 'assistant',
-                    content: null,
-                    tool_calls: assistantToolCalls,
-                  },
-                  ...toolResultMessages,
-                ];
+            if (searchPolicy.attachTool) {
+              openaiPayload.tools = [WEB_SEARCH_TOOL];
+              openaiPayload.tool_choice =
+                searchPolicy.toolChoice === 'required'
+                  ? { type: 'function', function: { name: 'web_search' } }
+                  : 'auto';
+            }
 
-                // Second API call for final response - with real streaming (triage config)
-                const followUpRes = await fetch(GEMINI_BASE_URL, {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    model: 'gemini-2.5-flash',
-                    messages: followUpMessages,
-                    temperature: genConfig.temperature,
-                    max_tokens: Math.max(genConfig.maxTokens, 1200),
-                    stream: true,
-                    reasoning_effort: genConfig.reasoning,
-                  }),
-                });
+            const t0 = Date.now();
 
-                // Stream the follow-up response to client
-                const followUpReader = followUpRes.body.getReader();
-                const followUpDecoder = new TextDecoder();
-                let followUpBuffer = '';
-                let readerDone = false;
+            console.log('[SpaceChat:Streaming:Payload]', {
+              model: openaiPayload.model,
+              temperature: openaiPayload.temperature,
+              max_tokens: openaiPayload.max_tokens,
+              reasoning_effort: openaiPayload.reasoning_effort,
+              hasTools: !!openaiPayload.tools,
+              messageCount: openaiPayload.messages?.length,
+            });
 
-                let followUpFillerBuffer = '';
-                let followUpFillerFlushed = false;
+            const openaiRes = await fetch(GEMINI_BASE_URL, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(openaiPayload),
+            });
 
-                while (!readerDone) {
-                  const result = await followUpReader.read();
-                  readerDone = result.done;
-                  if (readerDone) break;
-                  const value = result.value;
+            if (!openaiRes.ok) {
+              const errText = await openaiRes.text().catch(() => '');
+              console.log('[SpaceChat:Streaming] Gemini error', {
+                status: openaiRes.status,
+                error: errText,
+              });
+              await writer.write(
+                encoder.encode(`data: ${JSON.stringify({ error: errText, done: true })}\n\n`),
+              );
+              return; // exits the IIFE, writer.close() runs in finally
+            }
 
-                  followUpBuffer += followUpDecoder.decode(value, { stream: true });
+            const reader = openaiRes.body.getReader();
+            let buffer = '';
+            let fullContent = '';
 
-                  // Process complete lines only
-                  const lines = followUpBuffer.split('\n');
-                  followUpBuffer = lines.pop() || ''; // Keep incomplete line in buffer
+            // Track tool calls accumulation (array for multiple calls)
+            let toolCalls = [];
 
-                  for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed.startsWith('data:')) continue;
+            // Output guard: buffer first sentence to strip filler openings
+            let fillerBuffer = '';
+            let fillerFlushed = false;
 
-                    const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
-                    if (jsonStr === '[DONE]') continue;
+            try {
+              // eslint-disable-next-line no-constant-condition
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-                    try {
-                      const json = JSON.parse(jsonStr);
-                      const delta = json.choices?.[0]?.delta?.content;
-                      if (delta) {
-                        fullContent += delta;
-                        if (!followUpFillerFlushed) {
-                          followUpFillerBuffer += delta;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split(/\r?\n/);
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed === 'data: [DONE]') continue;
+                  if (!trimmed.startsWith('data: ')) continue;
+
+                  try {
+                    const json = JSON.parse(trimmed.slice(6));
+                    const delta = json.choices?.[0]?.delta?.content;
+
+                    if (delta) {
+                      fullContent += delta;
+                      // Don't stream SAVE comments to client
+                      if (!fullContent.includes('<!--SAVE:')) {
+                        if (!fillerFlushed) {
+                          fillerBuffer += delta;
                           const hasBreak =
-                            /[.?!]\s/.test(followUpFillerBuffer) ||
-                            followUpFillerBuffer.length > 150;
+                            /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
                           if (hasBreak) {
-                            const cleaned = stripFillerOpening(followUpFillerBuffer);
+                            const cleaned = stripFillerOpening(fillerBuffer);
                             if (cleaned) {
                               await writer.write(
                                 encoder.encode(
@@ -9337,26 +9132,200 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                                 ),
                               );
                             }
-                            followUpFillerFlushed = true;
+                            fillerFlushed = true;
                           }
                         } else {
-                          await writer.write(
-                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                          );
+                          const sseData = JSON.stringify({ delta, done: false });
+                          await writer.write(encoder.encode(`data: ${sseData}\n\n`));
                         }
                       }
-                    } catch {
-                      // Skip malformed JSON
                     }
+
+                    // Check for tool calls (handle multiple)
+                    const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
+                    if (toolCallDeltas && Array.isArray(toolCallDeltas)) {
+                      for (const tcd of toolCallDeltas) {
+                        const idx = tcd.index ?? 0;
+                        if (!toolCalls[idx]) {
+                          toolCalls[idx] = { id: null, name: null, arguments: '' };
+                        }
+                        if (tcd.id) toolCalls[idx].id = tcd.id;
+                        if (tcd.function?.name) toolCalls[idx].name = tcd.function.name;
+                        if (tcd.function?.arguments)
+                          toolCalls[idx].arguments += tcd.function.arguments;
+                      }
+                    }
+                  } catch (parseErr) {
+                    console.log('[SpaceChat:Streaming] Chunk parse error', {
+                      line: trimmed.slice(0, 100),
+                    });
                   }
                 }
+              }
 
-                // Process any remaining buffer
-                if (followUpBuffer.trim()) {
-                  const trimmed = followUpBuffer.trim();
-                  if (trimmed.startsWith('data:')) {
-                    const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
-                    if (jsonStr !== '[DONE]') {
+              // Flush any remaining filler buffer from main stream
+              if (!fillerFlushed && fillerBuffer) {
+                const cleaned = stripFillerOpening(fillerBuffer);
+                if (cleaned) {
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                  );
+                }
+              }
+              fullContent = stripFillerOpening(fullContent);
+
+              // Track search metadata
+              let sources = undefined;
+              let searchQueries = [];
+
+              // Filter to only web_search tool calls with arguments
+              const webSearchCalls = toolCalls.filter(
+                (tc) => tc.name === 'web_search' && tc.arguments,
+              );
+
+              if (webSearchCalls.length > 0) {
+                console.log('[SpaceChat:Streaming] Web search triggered', {
+                  searchCount: webSearchCalls.length,
+                });
+
+                // Notify client we're searching (show first query)
+                let firstQuery = '';
+                try {
+                  const firstArgs = JSON.parse(webSearchCalls[0].arguments);
+                  firstQuery = firstArgs.query || '';
+                } catch {
+                  const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                  firstQuery = match ? match[1] : 'multiple topics';
+                }
+                const searchNotice =
+                  webSearchCalls.length > 1
+                    ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
+                    : firstQuery;
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+                  ),
+                );
+
+                // Execute all searches in parallel
+                const searchT0 = Date.now();
+                const searchPromises = webSearchCalls.map(async (tc) => {
+                  try {
+                    let query;
+                    try {
+                      const args = JSON.parse(tc.arguments);
+                      query = args.query;
+                    } catch (parseErr) {
+                      // Try regex extraction for malformed JSON
+                      const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                      if (match) {
+                        query = match[1];
+                        console.log(
+                          '[SpaceChat:Streaming] Recovered query from malformed JSON:',
+                          query,
+                        );
+                      } else {
+                        console.log(
+                          '[SpaceChat:Streaming] Could not parse tool arguments:',
+                          tc.arguments.slice(0, 200),
+                        );
+                        return { toolCallId: tc.id, query: null, results: null };
+                      }
+                    }
+
+                    searchQueries.push(query);
+                    const results = await executeTavilySearch(query, env.TAVILY_API_KEY);
+                    return { toolCallId: tc.id, query, results };
+                  } catch (err) {
+                    console.log('[SpaceChat:Streaming] Individual search error:', err);
+                    return { toolCallId: tc.id, query: null, results: null };
+                  }
+                });
+
+                const searchResults = await Promise.all(searchPromises);
+                const searchLatency = Date.now() - searchT0;
+
+                const successfulSearches = searchResults.filter(
+                  (sr) => sr.results && sr.results.results.length > 0,
+                );
+                console.log('[SpaceChat:Streaming] Searches complete', {
+                  total: searchResults.length,
+                  successful: successfulSearches.length,
+                  latency: searchLatency,
+                });
+
+                if (successfulSearches.length > 0) {
+                  // Build follow-up messages with ALL tool results
+                  const assistantToolCalls = successfulSearches.map((sr) => ({
+                    id: sr.toolCallId,
+                    type: 'function',
+                    function: {
+                      name: 'web_search',
+                      arguments: JSON.stringify({ query: sr.query }),
+                    },
+                  }));
+
+                  const toolResultMessages = successfulSearches.map((sr) => ({
+                    role: 'tool',
+                    tool_call_id: sr.toolCallId,
+                    content: formatSearchBrief(sr.results),
+                  }));
+
+                  const followUpMessages = [
+                    ...spaceChatMessages,
+                    {
+                      role: 'assistant',
+                      content: null,
+                      tool_calls: assistantToolCalls,
+                    },
+                    ...toolResultMessages,
+                  ];
+
+                  // Second API call for final response - with real streaming (triage config)
+                  const followUpRes = await fetch(GEMINI_BASE_URL, {
+                    method: 'POST',
+                    headers: {
+                      Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      model: 'gemini-2.5-flash',
+                      messages: followUpMessages,
+                      temperature: genConfig.temperature,
+                      max_tokens: Math.max(genConfig.maxTokens, 1200),
+                      stream: true,
+                      reasoning_effort: genConfig.reasoning,
+                    }),
+                  });
+
+                  // Stream the follow-up response to client
+                  const followUpReader = followUpRes.body.getReader();
+                  const followUpDecoder = new TextDecoder();
+                  let followUpBuffer = '';
+                  let readerDone = false;
+
+                  let followUpFillerBuffer = '';
+                  let followUpFillerFlushed = false;
+
+                  while (!readerDone) {
+                    const result = await followUpReader.read();
+                    readerDone = result.done;
+                    if (readerDone) break;
+                    const value = result.value;
+
+                    followUpBuffer += followUpDecoder.decode(value, { stream: true });
+
+                    // Process complete lines only
+                    const lines = followUpBuffer.split('\n');
+                    followUpBuffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                    for (const line of lines) {
+                      const trimmed = line.trim();
+                      if (!trimmed.startsWith('data:')) continue;
+
+                      const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                      if (jsonStr === '[DONE]') continue;
+
                       try {
                         const json = JSON.parse(jsonStr);
                         const delta = json.choices?.[0]?.delta?.content;
@@ -9364,6 +9333,20 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           fullContent += delta;
                           if (!followUpFillerFlushed) {
                             followUpFillerBuffer += delta;
+                            const hasBreak =
+                              /[.?!]\s/.test(followUpFillerBuffer) ||
+                              followUpFillerBuffer.length > 150;
+                            if (hasBreak) {
+                              const cleaned = stripFillerOpening(followUpFillerBuffer);
+                              if (cleaned) {
+                                await writer.write(
+                                  encoder.encode(
+                                    `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                  ),
+                                );
+                              }
+                              followUpFillerFlushed = true;
+                            }
                           } else {
                             await writer.write(
                               encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
@@ -9371,159 +9354,202 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           }
                         }
                       } catch {
-                        // Skip
+                        // Skip malformed JSON
                       }
                     }
                   }
-                }
 
-                // Flush remaining follow-up filler buffer
-                if (!followUpFillerFlushed && followUpFillerBuffer) {
-                  const cleaned = stripFillerOpening(followUpFillerBuffer);
-                  if (cleaned) {
-                    await writer.write(
-                      encoder.encode(
-                        `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
-                      ),
-                    );
+                  // Process any remaining buffer
+                  if (followUpBuffer.trim()) {
+                    const trimmed = followUpBuffer.trim();
+                    if (trimmed.startsWith('data:')) {
+                      const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                      if (jsonStr !== '[DONE]') {
+                        try {
+                          const json = JSON.parse(jsonStr);
+                          const delta = json.choices?.[0]?.delta?.content;
+                          if (delta) {
+                            fullContent += delta;
+                            if (!followUpFillerFlushed) {
+                              followUpFillerBuffer += delta;
+                            } else {
+                              await writer.write(
+                                encoder.encode(
+                                  `data: ${JSON.stringify({ delta, done: false })}\n\n`,
+                                ),
+                              );
+                            }
+                          }
+                        } catch {
+                          // Skip
+                        }
+                      }
+                    }
                   }
+
+                  // Flush remaining follow-up filler buffer
+                  if (!followUpFillerFlushed && followUpFillerBuffer) {
+                    const cleaned = stripFillerOpening(followUpFillerBuffer);
+                    if (cleaned) {
+                      await writer.write(
+                        encoder.encode(
+                          `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                        ),
+                      );
+                    }
+                  }
+                  fullContent = stripFillerOpening(fullContent);
+
+                  // Combine all sources
+                  sources = successfulSearches.flatMap((sr) =>
+                    sr.results.results.map((r) => ({ title: r.title, url: r.url })),
+                  );
                 }
+              }
+
+              // Fallback: if tool calls were made but we have no content, respond without search
+              if (webSearchCalls.length > 0 && !fullContent) {
+                console.log(
+                  '[SpaceChat:Streaming] Search fallback - responding without search results',
+                );
+
+                const fallbackRes = await fetch(GEMINI_BASE_URL, {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    model: 'gemini-2.5-flash',
+                    messages: [
+                      ...spaceChatMessages,
+                      {
+                        role: 'system',
+                        content:
+                          'Web search is temporarily unavailable. Please respond based on your knowledge, and let the user know you could not search for the latest information.',
+                      },
+                    ],
+                    temperature: genConfig.temperature,
+                    max_tokens: genConfig.maxTokens,
+                    reasoning_effort: genConfig.reasoning,
+                  }),
+                });
+
+                const fallbackData = await fallbackRes.json();
+                fullContent =
+                  fallbackData?.choices?.[0]?.message?.content ??
+                  'I had trouble searching for that information. Could you try rephrasing your question?';
                 fullContent = stripFillerOpening(fullContent);
 
-                // Combine all sources
-                sources = successfulSearches.flatMap((sr) =>
-                  sr.results.results.map((r) => ({ title: r.title, url: r.url })),
-                );
-              }
-            }
-
-            // Fallback: if tool calls were made but we have no content, respond without search
-            if (webSearchCalls.length > 0 && !fullContent) {
-              console.log(
-                '[SpaceChat:Streaming] Search fallback - responding without search results',
-              );
-
-              const fallbackRes = await fetch(GEMINI_BASE_URL, {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  model: 'gemini-2.5-flash',
-                  messages: [
-                    ...spaceChatMessages,
-                    {
-                      role: 'system',
-                      content:
-                        'Web search is temporarily unavailable. Please respond based on your knowledge, and let the user know you could not search for the latest information.',
-                    },
-                  ],
-                  temperature: genConfig.temperature,
-                  max_tokens: genConfig.maxTokens,
-                  reasoning_effort: genConfig.reasoning,
-                }),
-              });
-
-              const fallbackData = await fallbackRes.json();
-              fullContent =
-                fallbackData?.choices?.[0]?.message?.content ??
-                'I had trouble searching for that information. Could you try rephrasing your question?';
-              fullContent = stripFillerOpening(fullContent);
-
-              // Stream the fallback content
-              const words = fullContent.split(' ');
-              for (let i = 0; i < words.length; i += 3) {
-                const chunk = words.slice(i, i + 3).join(' ') + ' ';
-                await writer.write(
-                  encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
-                );
-                await new Promise((resolve) => setTimeout(resolve, 15));
-              }
-            }
-
-            // For final event, use first search query or combined
-            const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
-
-            // Extract smart save suggestion (inline from model)
-            const { suggestion: smartSuggestion, cleanContent } =
-              extractSaveSuggestion(fullContent);
-
-            // Use cleaned content for display
-            fullContent = cleanContent;
-
-            // Use smart suggestion if available
-            const save_suggestion = smartSuggestion || null;
-
-            if (smartSuggestion) {
-              console.log('[SpaceChat:Streaming] Extracted save suggestion:', {
-                type: smartSuggestion.type,
-                title: smartSuggestion.title,
-                hasSteps: !!smartSuggestion.steps?.length,
-              });
-            }
-
-            const latency = Date.now() - t0;
-
-            const finalData = JSON.stringify({
-              done: true,
-              full_content: fullContent,
-              save_suggestion,
-              sources,
-              search_query: searchQuery,
-              latency_ms: latency,
-              fetchedUrl: fetchedUrlSpace,
-            });
-            await writer.write(encoder.encode(`data: ${finalData}\n\n`));
-
-            console.log('[SpaceChat:Streaming] Complete', {
-              latency_ms: latency,
-              content_length: fullContent.length,
-              used_search: !!searchQuery,
-            });
-
-            // ── POST-STREAM: Update running summary (non-blocking) ──
-            if (body.chatId && body.userId && fullContent) {
-              const summaryPromise = (async () => {
-                try {
-                  const prevSummaryRes = await fetch(
-                    `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
-                    {
-                      headers: {
-                        apikey: env.SUPABASE_SERVICE_KEY,
-                        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-                      },
-                    },
+                // Stream the fallback content
+                const words = fullContent.split(' ');
+                for (let i = 0; i < words.length; i += 3) {
+                  const chunk = words.slice(i, i + 3).join(' ') + ' ';
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
                   );
-                  const prevData = prevSummaryRes?.ok
-                    ? await prevSummaryRes.json().catch(() => [])
-                    : [];
-                  const previousSummary = prevData?.[0]?.running_summary || null;
-
-                  await generateRunningSummary(
-                    messages.filter((m) => m.role !== 'system'),
-                    fullContent,
-                    body.chatId,
-                    body.spaceName || null,
-                    previousSummary,
-                    env,
-                  );
-                } catch (err) {
-                  console.warn('[SpaceChat] Running summary failed:', err.message);
+                  await new Promise((resolve) => setTimeout(resolve, 15));
                 }
-              })();
-              ctx.waitUntil(summaryPromise);
+              }
+
+              // For final event, use first search query or combined
+              const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
+
+              // Extract smart save suggestion (inline from model)
+              const { suggestion: smartSuggestion, cleanContent } =
+                extractSaveSuggestion(fullContent);
+
+              // Use cleaned content for display
+              fullContent = cleanContent;
+
+              // Use smart suggestion if available
+              const save_suggestion = smartSuggestion || null;
+
+              if (smartSuggestion) {
+                console.log('[SpaceChat:Streaming] Extracted save suggestion:', {
+                  type: smartSuggestion.type,
+                  title: smartSuggestion.title,
+                  hasSteps: !!smartSuggestion.steps?.length,
+                });
+              }
+
+              const latency = Date.now() - t0;
+
+              const finalData = JSON.stringify({
+                done: true,
+                full_content: fullContent,
+                save_suggestion,
+                sources,
+                search_query: searchQuery,
+                latency_ms: latency,
+                fetchedUrl: fetchedUrlSpace,
+              });
+              await writer.write(encoder.encode(`data: ${finalData}\n\n`));
+
+              console.log('[SpaceChat:Streaming] Complete', {
+                latency_ms: latency,
+                content_length: fullContent.length,
+                used_search: !!searchQuery,
+              });
+
+              // ── POST-STREAM: Update running summary (non-blocking) ──
+              if (body.chatId && body.userId && fullContent) {
+                const summaryPromise = (async () => {
+                  try {
+                    const prevSummaryRes = await fetch(
+                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                      {
+                        headers: {
+                          apikey: env.SUPABASE_SERVICE_KEY,
+                          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                        },
+                      },
+                    );
+                    const prevData = prevSummaryRes?.ok
+                      ? await prevSummaryRes.json().catch(() => [])
+                      : [];
+                    const previousSummary = prevData?.[0]?.running_summary || null;
+
+                    await generateRunningSummary(
+                      messages.filter((m) => m.role !== 'system'),
+                      fullContent,
+                      body.chatId,
+                      body.spaceName || null,
+                      previousSummary,
+                      env,
+                    );
+                  } catch (err) {
+                    console.warn('[SpaceChat] Running summary failed:', err.message);
+                  }
+                })();
+                ctx.waitUntil(summaryPromise);
+              }
+            } catch (streamErr) {
+              console.log('[SpaceChat:Streaming] Stream error', { error: String(streamErr) });
+              const errorData = JSON.stringify({
+                error: String(streamErr),
+                done: true,
+                full_content: fullContent,
+              });
+              await writer.write(encoder.encode(`data: ${errorData}\n\n`));
             }
-          } catch (streamErr) {
-            console.log('[SpaceChat:Streaming] Stream error', { error: String(streamErr) });
-            const errorData = JSON.stringify({
-              error: String(streamErr),
-              done: true,
-              full_content: fullContent,
-            });
-            await writer.write(encoder.encode(`data: ${errorData}\n\n`));
+          } catch (outerErr) {
+            console.error('[SpaceChat:Streaming] Outer error', { error: String(outerErr) });
+            try {
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({ error: String(outerErr), done: true })}\n\n`,
+                ),
+              );
+            } catch {
+              /* stream may be closed */
+            }
           } finally {
-            await writer.close();
+            try {
+              await writer.close();
+            } catch {
+              /* already closed */
+            }
           }
         })();
 
