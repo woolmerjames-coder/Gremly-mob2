@@ -522,6 +522,8 @@ interface GremlyState {
   // ═══════════════════════════════════════════════════════════════════
   /** Current gauge value 0-1+, resets daily */
   feedingGaugeValue: number;
+  /** Number of gauge previews awaiting server confirmation */
+  pendingGaugePreviews: number;
   /** Whether gauge has crossed FED_THRESHOLD today */
   isFedToday: boolean;
   /** Contributions log for the current day */
@@ -587,6 +589,8 @@ interface GremlyState {
   trackSpaceChat: () => Promise<void>;
   trackSpaceCreate: () => Promise<void>;
   resetDailyGauge: () => void;
+  /** Instantly preview a drop's gauge contribution locally. No RPC. Server reconciles later. */
+  previewGaugeDrop: () => void;
 
   // ═══════════════════════════════════════════════════════════════════
   // INITIALIZATION
@@ -1027,6 +1031,7 @@ const initialState = {
   todayRitualCompletedAt: null as string | null,
   todayAgeCelebrationShownAt: null as string | null,
   feedingGaugeValue: 0,
+  pendingGaugePreviews: 0,
   isFedToday: false,
   feedingContributions: [] as FeedingContribution[],
   feedingGaugeLastUpdatedAt: null as string | null,
@@ -1978,6 +1983,12 @@ export const useGremlyStore = create<GremlyState>()(
               feedingGaugeLastUpdatedAt: new Date().toISOString(),
             });
 
+            // Decrement pending preview counter (server has confirmed this contribution)
+            const currentPending = get().pendingGaugePreviews;
+            if (currentPending > 0) {
+              set({ pendingGaugePreviews: currentPending - 1 });
+            }
+
             if (justFed) {
               const markResult = await get().markFedToday();
 
@@ -2000,6 +2011,11 @@ export const useGremlyStore = create<GremlyState>()(
             return { newValue: newGaugeValue, justFed };
           } catch (error) {
             console.error('[GremlyStore] addGaugeContribution failed:', error);
+            // Roll back pending preview on failure
+            const currentPendingOnError = get().pendingGaugePreviews;
+            if (currentPendingOnError > 0) {
+              set({ pendingGaugePreviews: currentPendingOnError - 1 });
+            }
             return { newValue: get().feedingGaugeValue, justFed: false };
           }
         },
@@ -2140,12 +2156,35 @@ export const useGremlyStore = create<GremlyState>()(
         resetDailyGauge: () => {
           set({
             feedingGaugeValue: 0,
+            pendingGaugePreviews: 0,
             isFedToday: false,
             feedingContributions: [],
             feedingGaugeLastUpdatedAt: null,
             todayFedCelebrationShownAt: null,
             todayFeedingAgeUpShownAt: null,
           });
+        },
+
+        previewGaugeDrop: () => {
+          const { todayDropsCount, pendingGaugePreviews, feedingGaugeValue } = get();
+          // Account for any rapid drops already previewed but not yet confirmed by server
+          const dropNumber = todayDropsCount + pendingGaugePreviews + 1;
+          const value = getDropValue(dropNumber);
+          const optimisticValue = feedingGaugeValue + value;
+
+          set({
+            feedingGaugeValue: optimisticValue,
+            pendingGaugePreviews: pendingGaugePreviews + 1,
+          });
+
+          if (__DEV__) {
+            console.log('[GremlyStore] Optimistic gauge preview', {
+              dropNumber,
+              value,
+              newGaugeValue: optimisticValue,
+              pendingPreviews: pendingGaugePreviews + 1,
+            });
+          }
         },
 
         refreshRitualProgress: async () => {
