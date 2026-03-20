@@ -7997,7 +7997,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       } else if (result.createdDetails?.length > 0) {
         if (result.justCrossedFed) {
           mascotRef.current?.celebrateFed();
-          celebrationController.showFedCelebration(useGremlyStore.getState().fedDaysCount);
+          // fedDaysCount hasn't been incremented yet (server confirms later)
+          // Pass the next day number for display
+          celebrationController.showFedCelebration(useGremlyStore.getState().fedDaysCount + 1);
         } else {
           mascotRef.current?.celebrate();
         }
