@@ -42,6 +42,45 @@ const FILL_OFFSET_BOTTOM = 14;
 const FILL_OFFSET_TOP = 10;
 const FILL_RANGE = MASCOT_HEIGHT - FILL_OFFSET_TOP - FILL_OFFSET_BOTTOM; // ~72px of visible character
 
+/**
+ * Maps gauge value (0-1) to fill percentage (0-1) using a piecewise curve
+ * that compresses the edges and preserves 50% = 50%.
+ *
+ * Problem: The character is narrow at feet and ears, wide in the body.
+ * A linear mapping means the bottom and top 10% of fill look like nothing happened.
+ *
+ * Solution: The bottom 10% of gauge maps to 20% of fill height (feet covered fast),
+ * the middle 80% is linear (50% = 50%), the top 10% maps to 20% of fill height
+ * (head/ears only fill in the final stretch, keeping grey visible until truly fed).
+ *
+ * These constants can be tuned visually:
+ * - EDGE_GAUGE_RANGE: how much gauge range is "edge" (default 0.10 = 10%)
+ * - EDGE_FILL_RANGE: how much fill height that edge covers (default 0.20 = 20%)
+ */
+const EDGE_GAUGE_RANGE = 0.1;
+const EDGE_FILL_RANGE = 0.2;
+
+function gaugeToFill(gaugeValue: number): number {
+  const g = Math.min(Math.max(gaugeValue, 0), 1);
+
+  // Bottom edge: gauge 0 to EDGE_GAUGE_RANGE maps to fill 0 to EDGE_FILL_RANGE
+  if (g <= EDGE_GAUGE_RANGE) {
+    return (g / EDGE_GAUGE_RANGE) * EDGE_FILL_RANGE;
+  }
+
+  // Top edge: gauge (1 - EDGE_GAUGE_RANGE) to 1 maps to fill (1 - EDGE_FILL_RANGE) to 1
+  if (g >= 1 - EDGE_GAUGE_RANGE) {
+    const edgeProgress = (g - (1 - EDGE_GAUGE_RANGE)) / EDGE_GAUGE_RANGE;
+    return 1 - EDGE_FILL_RANGE + edgeProgress * EDGE_FILL_RANGE;
+  }
+
+  // Middle: linear mapping from (EDGE_GAUGE_RANGE, EDGE_FILL_RANGE) to (1 - EDGE_GAUGE_RANGE, 1 - EDGE_FILL_RANGE)
+  const middleGaugeRange = 1 - 2 * EDGE_GAUGE_RANGE;
+  const middleFillRange = 1 - 2 * EDGE_FILL_RANGE;
+  const middleProgress = (g - EDGE_GAUGE_RANGE) / middleGaugeRange;
+  return EDGE_FILL_RANGE + middleProgress * middleFillRange;
+}
+
 type AnimationMode = 'idle' | 'drop' | 'fed';
 
 function getSource(mode: AnimationMode, colorway: 'grey' | 'green') {
@@ -64,15 +103,21 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
 
   // Gauge fill animation
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
+  const isFedToday = useGremlyStore((s) => s.isFedToday);
   const initialClamp = Math.min(Math.max(feedingGaugeValue, 0), 1);
-  const fillHeight = useSharedValue(FILL_OFFSET_BOTTOM + initialClamp * FILL_RANGE);
+  const initialFill = gaugeToFill(initialClamp);
+  const fillHeight = useSharedValue(FILL_OFFSET_BOTTOM + initialFill * FILL_RANGE);
+
+  const isFedShared = useSharedValue(isFedToday ? 1 : 0);
+
+  useEffect(() => {
+    isFedShared.value = isFedToday ? 1 : 0;
+  }, [isFedToday]);
 
   useEffect(() => {
     const clamped = Math.min(Math.max(feedingGaugeValue, 0), 1);
-    // Map gauge 0-1 to the character's visible vertical range
-    // At 0%: height = FILL_OFFSET_BOTTOM (clip covers only empty space below feet, no visible green)
-    // At 100%: height = FILL_OFFSET_BOTTOM + FILL_RANGE (clip covers up to ears, fully green)
-    const targetHeight = FILL_OFFSET_BOTTOM + clamped * FILL_RANGE;
+    const fillPercent = gaugeToFill(clamped);
+    const targetHeight = FILL_OFFSET_BOTTOM + fillPercent * FILL_RANGE;
     fillHeight.value = withTiming(targetHeight, {
       duration: FILL_ANIMATION_DURATION,
       easing: Easing.out(Easing.cubic),
@@ -80,7 +125,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
   }, [feedingGaugeValue, fillHeight]);
 
   const clipAnimatedStyle = useAnimatedStyle(() => ({
-    height: fillHeight.value,
+    height: isFedShared.value === 1 ? MASCOT_HEIGHT : fillHeight.value,
   }));
 
   const celebrate = useCallback(() => {
@@ -116,15 +161,17 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
 
   return (
     <View style={[styles.wrapper, style]}>
-      {/* Bottom layer: grey Gremly (always fully visible) */}
-      <LottieView
-        source={getSource(mode, 'grey')}
-        autoPlay
-        loop={mode === 'idle'}
-        renderMode="HARDWARE"
-        cacheComposition
-        style={styles.lottie}
-      />
+      {/* Bottom layer: grey Gremly (hidden when fed) */}
+      {!isFedToday && (
+        <LottieView
+          source={getSource(mode, 'grey')}
+          autoPlay
+          loop={mode === 'idle'}
+          renderMode="HARDWARE"
+          cacheComposition
+          style={styles.lottie}
+        />
+      )}
 
       {/* Top layer: green Gremly (clipped from bottom up based on gauge) */}
       <Animated.View style={[styles.clipContainer, clipAnimatedStyle]}>
