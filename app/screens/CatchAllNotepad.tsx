@@ -9023,10 +9023,10 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     inputGremly: {
       position: 'absolute',
-      top: -66, // Head peeks above input field, body overlaps camera area
-      right: 0, // Flush with right edge
-      width: 95,
-      height: 111,
+      top: -78, // Head peeks above input field, body overlaps camera area (adjusted for glow)
+      right: -12, // Offset for glow padding
+      width: 119,
+      height: 135,
       zIndex: 10,
     },
     inputContainer: {
