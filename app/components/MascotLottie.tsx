@@ -13,8 +13,6 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withRepeat,
-  withSequence,
   Easing,
 } from 'react-native-reanimated';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -37,10 +35,11 @@ const MASCOT_WIDTH = 95;
 const MASCOT_HEIGHT = 111;
 const FILL_ANIMATION_DURATION = 1000;
 
-// Character bounds within the Lottie canvas (derived from character1_A.json analysis)
-// The Lottie canvas is 111px tall but the character only occupies the middle portion
-const FILL_OFFSET_BOTTOM = 11; // empty pixels below feet
-const FILL_OFFSET_TOP = 28; // empty pixels above ears
+// Pixel-accurate character bounds (measured by rendering all 720 animation frames)
+// Bottom: character feet end at y=243 of 280px canvas = 14px in component coords
+// Top: character ears peak at y=32 of 280px canvas = 12.7px in component, using 10px for safe margin
+const FILL_OFFSET_BOTTOM = 14;
+const FILL_OFFSET_TOP = 10;
 const FILL_RANGE = MASCOT_HEIGHT - FILL_OFFSET_TOP - FILL_OFFSET_BOTTOM; // ~72px of visible character
 
 type AnimationMode = 'idle' | 'drop' | 'fed';
@@ -65,10 +64,8 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
 
   // Gauge fill animation
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
-  const isFedToday = useGremlyStore((s) => s.isFedToday);
   const initialClamp = Math.min(Math.max(feedingGaugeValue, 0), 1);
   const fillHeight = useSharedValue(FILL_OFFSET_BOTTOM + initialClamp * FILL_RANGE);
-  const glowOpacity = useSharedValue(0);
 
   useEffect(() => {
     const clamped = Math.min(Math.max(feedingGaugeValue, 0), 1);
@@ -82,30 +79,8 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
     });
   }, [feedingGaugeValue, fillHeight]);
 
-  useEffect(() => {
-    if (isFedToday) {
-      glowOpacity.value = withSequence(
-        withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) }),
-        withRepeat(
-          withSequence(
-            withTiming(0.5, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
-            withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
-          ),
-          -1,
-          true,
-        ),
-      );
-    } else {
-      glowOpacity.value = withTiming(0, { duration: 300 });
-    }
-  }, [isFedToday, glowOpacity]);
-
   const clipAnimatedStyle = useAnimatedStyle(() => ({
     height: fillHeight.value,
-  }));
-
-  const glowAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: glowOpacity.value,
   }));
 
   const celebrate = useCallback(() => {
@@ -140,58 +115,34 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
   useImperativeHandle(ref, () => ({ celebrate, celebrateFed }), [celebrate, celebrateFed]);
 
   return (
-    <View style={[styles.outerWrapper, style]}>
-      {/* Glow layer (behind mascot, only visible when fed) */}
-      <Animated.View style={[styles.glow, glowAnimatedStyle]} />
+    <View style={[styles.wrapper, style]}>
+      {/* Bottom layer: grey Gremly (always fully visible) */}
+      <LottieView
+        source={getSource(mode, 'grey')}
+        autoPlay
+        loop={mode === 'idle'}
+        renderMode="HARDWARE"
+        cacheComposition
+        style={styles.lottie}
+      />
 
-      {/* Mascot layers */}
-      <View style={styles.wrapper}>
-        {/* Bottom layer: grey Gremly (always fully visible) */}
+      {/* Top layer: green Gremly (clipped from bottom up based on gauge) */}
+      <Animated.View style={[styles.clipContainer, clipAnimatedStyle]}>
         <LottieView
-          source={getSource(mode, 'grey')}
+          source={getSource(mode, 'green')}
           autoPlay
           loop={mode === 'idle'}
+          onAnimationFinish={handleAnimationFinish}
           renderMode="HARDWARE"
           cacheComposition
-          style={styles.lottie}
+          style={styles.lottieGreen}
         />
-
-        {/* Top layer: green Gremly (clipped from bottom up based on gauge) */}
-        <Animated.View style={[styles.clipContainer, clipAnimatedStyle]}>
-          <LottieView
-            source={getSource(mode, 'green')}
-            autoPlay
-            loop={mode === 'idle'}
-            onAnimationFinish={handleAnimationFinish}
-            renderMode="HARDWARE"
-            cacheComposition
-            style={styles.lottieGreen}
-          />
-        </Animated.View>
-      </View>
+      </Animated.View>
     </View>
   );
 });
 
 const styles = StyleSheet.create({
-  outerWrapper: {
-    width: MASCOT_WIDTH + 24,
-    height: MASCOT_HEIGHT + 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  glow: {
-    position: 'absolute',
-    width: MASCOT_WIDTH + 16,
-    height: MASCOT_HEIGHT + 16,
-    borderRadius: (MASCOT_WIDTH + 16) / 2,
-    backgroundColor: 'rgba(74, 103, 65, 0.15)',
-    shadowColor: '#4A6741',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 4,
-  },
   wrapper: {
     width: MASCOT_WIDTH,
     height: MASCOT_HEIGHT,
