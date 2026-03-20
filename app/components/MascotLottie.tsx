@@ -37,6 +37,12 @@ const MASCOT_WIDTH = 95;
 const MASCOT_HEIGHT = 111;
 const FILL_ANIMATION_DURATION = 1000;
 
+// Character bounds within the Lottie canvas (derived from character1_A.json analysis)
+// The Lottie canvas is 111px tall but the character only occupies the middle portion
+const FILL_OFFSET_BOTTOM = 11; // empty pixels below feet
+const FILL_OFFSET_TOP = 28; // empty pixels above ears
+const FILL_RANGE = MASCOT_HEIGHT - FILL_OFFSET_TOP - FILL_OFFSET_BOTTOM; // ~72px of visible character
+
 type AnimationMode = 'idle' | 'drop' | 'fed';
 
 function getSource(mode: AnimationMode, colorway: 'grey' | 'green') {
@@ -60,12 +66,17 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
   // Gauge fill animation
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
   const isFedToday = useGremlyStore((s) => s.isFedToday);
-  const fillHeight = useSharedValue(0);
+  const initialClamp = Math.min(Math.max(feedingGaugeValue, 0), 1);
+  const fillHeight = useSharedValue(FILL_OFFSET_BOTTOM + initialClamp * FILL_RANGE);
   const glowOpacity = useSharedValue(0);
 
   useEffect(() => {
     const clamped = Math.min(Math.max(feedingGaugeValue, 0), 1);
-    fillHeight.value = withTiming(clamped * MASCOT_HEIGHT, {
+    // Map gauge 0-1 to the character's visible vertical range
+    // At 0%: height = FILL_OFFSET_BOTTOM (clip covers only empty space below feet, no visible green)
+    // At 100%: height = FILL_OFFSET_BOTTOM + FILL_RANGE (clip covers up to ears, fully green)
+    const targetHeight = FILL_OFFSET_BOTTOM + clamped * FILL_RANGE;
+    fillHeight.value = withTiming(targetHeight, {
       duration: FILL_ANIMATION_DURATION,
       easing: Easing.out(Easing.cubic),
     });
