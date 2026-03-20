@@ -1690,9 +1690,8 @@ export const useGremlyStore = create<GremlyState>()(
               console.warn('[GremlyStore] Drop gauge contribution failed:', err);
             });
 
-          // Check if this completes the ritual
-          const ageResult = await get().checkAndIncrementAge();
-          return { dropsCount: newDropsCount, ...ageResult };
+          // Gauge contribution handles age-up via feeding system (Soul Document v8)
+          return { dropsCount: newDropsCount, didAgeUp: false, newAge: get().gremlyAge };
         },
 
         incrementSweepCount: async () => {
@@ -1719,11 +1718,15 @@ export const useGremlyStore = create<GremlyState>()(
           const newSweepsCount = data?.sweeps_count ?? get().todaySweepsCount + 1;
           set({ todaySweepsCount: newSweepsCount, todayRitualDay: currentRitualDay });
 
-          // Check if this completes the ritual
-          const ageResult = await get().checkAndIncrementAge();
-          return { sweepsCount: newSweepsCount, ...ageResult };
+          // Gauge contribution handles age-up via feeding system (Soul Document v8)
+          return { sweepsCount: newSweepsCount, didAgeUp: false, newAge: get().gremlyAge };
         },
 
+        /**
+         * @deprecated Replaced by feeding gauge age-up system (Soul Document v8).
+         * Age-ups now flow through: addGaugeContribution → markFedToday → check_and_age_up_v2.
+         * This function is preserved for backward compatibility but is no longer called.
+         */
         checkAndIncrementAge: async () => {
           const { userId, dayBoundaryHour, todayRitualCompletedAt, todayRitualDay } = get();
           if (!userId) return { didAgeUp: false, newAge: get().gremlyAge };
