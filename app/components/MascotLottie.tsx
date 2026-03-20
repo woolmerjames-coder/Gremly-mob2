@@ -17,7 +17,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
-// Lottie sources: 3 animations × 2 colorways
+// Lottie sources: 3 animations × 2 colorways (source props NEVER change at runtime)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const IDLE_GREY = require('../../assets/lottie/character1_A.json');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -35,46 +35,24 @@ const MASCOT_WIDTH = 95;
 const MASCOT_HEIGHT = 111;
 const FILL_ANIMATION_DURATION = 1000;
 
-// Pixel-accurate character bounds (measured by rendering all 720 animation frames)
-// Bottom: character feet end at y=243 of 280px canvas = 14px in component coords
-// Top: character ears peak at y=32 of 280px canvas = 12.7px in component, using 10px for safe margin
+// Character bounds (pixel-measured from rendered frames)
 const FILL_OFFSET_BOTTOM = 14;
 const FILL_OFFSET_TOP = 10;
-const FILL_RANGE = MASCOT_HEIGHT - FILL_OFFSET_TOP - FILL_OFFSET_BOTTOM; // ~72px of visible character
+const FILL_RANGE = MASCOT_HEIGHT - FILL_OFFSET_TOP - FILL_OFFSET_BOTTOM;
 
-/**
- * Maps gauge value (0-1) to fill percentage (0-1) using a piecewise curve
- * that compresses the edges and preserves 50% = 50%.
- *
- * Problem: The character is narrow at feet and ears, wide in the body.
- * A linear mapping means the bottom and top 10% of fill look like nothing happened.
- *
- * Solution: The bottom 10% of gauge maps to 20% of fill height (feet covered fast),
- * the middle 80% is linear (50% = 50%), the top 10% maps to 20% of fill height
- * (head/ears only fill in the final stretch, keeping grey visible until truly fed).
- *
- * These constants can be tuned visually:
- * - EDGE_GAUGE_RANGE: how much gauge range is "edge" (default 0.10 = 10%)
- * - EDGE_FILL_RANGE: how much fill height that edge covers (default 0.20 = 20%)
- */
+// Edge-compressed fill curve constants
 const EDGE_GAUGE_RANGE = 0.1;
 const EDGE_FILL_RANGE = 0.2;
 
 function gaugeToFill(gaugeValue: number): number {
   const g = Math.min(Math.max(gaugeValue, 0), 1);
-
-  // Bottom edge: gauge 0 to EDGE_GAUGE_RANGE maps to fill 0 to EDGE_FILL_RANGE
   if (g <= EDGE_GAUGE_RANGE) {
     return (g / EDGE_GAUGE_RANGE) * EDGE_FILL_RANGE;
   }
-
-  // Top edge: gauge (1 - EDGE_GAUGE_RANGE) to 1 maps to fill (1 - EDGE_FILL_RANGE) to 1
   if (g >= 1 - EDGE_GAUGE_RANGE) {
     const edgeProgress = (g - (1 - EDGE_GAUGE_RANGE)) / EDGE_GAUGE_RANGE;
     return 1 - EDGE_FILL_RANGE + edgeProgress * EDGE_FILL_RANGE;
   }
-
-  // Middle: linear mapping from (EDGE_GAUGE_RANGE, EDGE_FILL_RANGE) to (1 - EDGE_GAUGE_RANGE, 1 - EDGE_FILL_RANGE)
   const middleGaugeRange = 1 - 2 * EDGE_GAUGE_RANGE;
   const middleFillRange = 1 - 2 * EDGE_FILL_RANGE;
   const middleProgress = (g - EDGE_GAUGE_RANGE) / middleGaugeRange;
@@ -82,12 +60,6 @@ function gaugeToFill(gaugeValue: number): number {
 }
 
 type AnimationMode = 'idle' | 'drop' | 'fed';
-
-function getSource(mode: AnimationMode, colorway: 'grey' | 'green') {
-  if (mode === 'drop') return colorway === 'grey' ? DROP_GREY : DROP_GREEN;
-  if (mode === 'fed') return colorway === 'grey' ? FED_GREY : FED_GREEN;
-  return colorway === 'grey' ? IDLE_GREY : IDLE_GREEN;
-}
 
 export type MascotLottieHandle = {
   celebrate: () => void;
@@ -100,11 +72,22 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
   const [mode, setMode] = useState<AnimationMode>('idle');
   const isCelebratingRef = useRef(false);
   const fedPlayCountRef = useRef(0);
-  const greenLottieRef = useRef<LottieView>(null);
 
-  // Gauge fill animation
+  // Refs for green LottieViews
+  const greenIdleRef = useRef<LottieView>(null);
+  const greenDropRef = useRef<LottieView>(null);
+  const greenFedRef = useRef<LottieView>(null);
+
+  // Refs for grey LottieViews
+  const greyIdleRef = useRef<LottieView>(null);
+  const greyDropRef = useRef<LottieView>(null);
+  const greyFedRef = useRef<LottieView>(null);
+
+  // Store subscriptions
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
   const isFedToday = useGremlyStore((s) => s.isFedToday);
+
+  // Fill height
   const initialClamp = Math.min(Math.max(feedingGaugeValue, 0), 1);
   const initialFill = gaugeToFill(initialClamp);
   const fillHeight = useSharedValue(FILL_OFFSET_BOTTOM + initialFill * FILL_RANGE);
@@ -116,18 +99,32 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
   }, [isFedToday]);
 
   useEffect(() => {
-    const clamped = Math.min(Math.max(feedingGaugeValue, 0), 1);
-    const fillPercent = gaugeToFill(clamped);
-    const targetHeight = FILL_OFFSET_BOTTOM + fillPercent * FILL_RANGE;
-    fillHeight.value = withTiming(targetHeight, {
+    const clampedValue = Math.min(Math.max(feedingGaugeValue, 0), 1);
+    const fillPercent = gaugeToFill(clampedValue);
+    fillHeight.value = withTiming(FILL_OFFSET_BOTTOM + fillPercent * FILL_RANGE, {
       duration: FILL_ANIMATION_DURATION,
       easing: Easing.out(Easing.cubic),
     });
-  }, [feedingGaugeValue, fillHeight]);
+  }, [feedingGaugeValue]);
 
   const clipAnimatedStyle = useAnimatedStyle(() => ({
     height: isFedShared.value === 1 ? MASCOT_HEIGHT : fillHeight.value,
   }));
+
+  // Play one-shot animations when mode changes
+  useEffect(() => {
+    if (mode === 'drop') {
+      greenDropRef.current?.reset();
+      greenDropRef.current?.play();
+      greyDropRef.current?.reset();
+      greyDropRef.current?.play();
+    } else if (mode === 'fed') {
+      greenFedRef.current?.reset();
+      greenFedRef.current?.play();
+      greyFedRef.current?.reset();
+      greyFedRef.current?.play();
+    }
+  }, [mode]);
 
   const celebrate = useCallback(() => {
     if (isCelebratingRef.current) return;
@@ -142,50 +139,96 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
     setMode('fed');
   }, []);
 
-  const handleAnimationFinish = useCallback(() => {
-    if (mode === 'drop') {
+  const handleDropFinish = useCallback(() => {
+    if (mode !== 'drop') return;
+    isCelebratingRef.current = false;
+    setMode('idle');
+  }, [mode]);
+
+  const handleFedFinish = useCallback(() => {
+    if (mode !== 'fed') return;
+    fedPlayCountRef.current += 1;
+    if (fedPlayCountRef.current < 2) {
+      // Replay: reset and play without changing mode or source
+      greenFedRef.current?.reset();
+      greenFedRef.current?.play();
+      greyFedRef.current?.reset();
+      greyFedRef.current?.play();
+    } else {
       isCelebratingRef.current = false;
       setMode('idle');
-    } else if (mode === 'fed') {
-      fedPlayCountRef.current += 1;
-      if (fedPlayCountRef.current < 2) {
-        // Replay without source swap: reset and play the same animation
-        greenLottieRef.current?.reset();
-        greenLottieRef.current?.play();
-      } else {
-        isCelebratingRef.current = false;
-        setMode('idle');
-      }
     }
   }, [mode]);
 
   useImperativeHandle(ref, () => ({ celebrate, celebrateFed }), [celebrate, celebrateFed]);
 
+  const isActive = (m: AnimationMode) => mode === m;
+
   return (
     <View style={[styles.wrapper, style]}>
-      {/* Bottom layer: grey Gremly (hidden when fed) */}
+      {/* ─── GREY LAYER (bottom, hidden when fed) ─── */}
       {!isFedToday && (
-        <LottieView
-          source={getSource(mode, 'grey')}
-          autoPlay
-          loop={mode === 'idle'}
-          renderMode="HARDWARE"
-          cacheComposition
-          style={styles.lottie}
-        />
+        <View style={styles.greyContainer}>
+          <LottieView
+            ref={greyIdleRef}
+            source={IDLE_GREY}
+            autoPlay
+            loop
+            renderMode="HARDWARE"
+            cacheComposition
+            style={[styles.lottie, { opacity: isActive('idle') ? 1 : 0 }]}
+          />
+          <LottieView
+            ref={greyDropRef}
+            source={DROP_GREY}
+            autoPlay={false}
+            loop={false}
+            renderMode="HARDWARE"
+            cacheComposition
+            style={[styles.lottie, { opacity: isActive('drop') ? 1 : 0 }]}
+          />
+          <LottieView
+            ref={greyFedRef}
+            source={FED_GREY}
+            autoPlay={false}
+            loop={false}
+            renderMode="HARDWARE"
+            cacheComposition
+            style={[styles.lottie, { opacity: isActive('fed') ? 1 : 0 }]}
+          />
+        </View>
       )}
 
-      {/* Top layer: green Gremly (clipped from bottom up based on gauge) */}
+      {/* ─── GREEN LAYER (top, clipped from bottom up) ─── */}
       <Animated.View style={[styles.clipContainer, clipAnimatedStyle]}>
         <LottieView
-          ref={greenLottieRef}
-          source={getSource(mode, 'green')}
+          ref={greenIdleRef}
+          source={IDLE_GREEN}
           autoPlay
-          loop={mode === 'idle'}
-          onAnimationFinish={handleAnimationFinish}
+          loop
           renderMode="HARDWARE"
           cacheComposition
-          style={styles.lottieGreen}
+          style={[styles.lottieGreen, { opacity: isActive('idle') ? 1 : 0 }]}
+        />
+        <LottieView
+          ref={greenDropRef}
+          source={DROP_GREEN}
+          autoPlay={false}
+          loop={false}
+          onAnimationFinish={handleDropFinish}
+          renderMode="HARDWARE"
+          cacheComposition
+          style={[styles.lottieGreen, { opacity: isActive('drop') ? 1 : 0 }]}
+        />
+        <LottieView
+          ref={greenFedRef}
+          source={FED_GREEN}
+          autoPlay={false}
+          loop={false}
+          onAnimationFinish={handleFedFinish}
+          renderMode="HARDWARE"
+          cacheComposition
+          style={[styles.lottieGreen, { opacity: isActive('fed') ? 1 : 0 }]}
         />
       </Animated.View>
     </View>
@@ -198,12 +241,19 @@ const styles = StyleSheet.create({
     height: MASCOT_HEIGHT,
     position: 'relative',
   },
-  lottie: {
-    width: MASCOT_WIDTH,
-    height: MASCOT_HEIGHT,
+  greyContainer: {
     position: 'absolute',
     top: 0,
     left: 0,
+    width: MASCOT_WIDTH,
+    height: MASCOT_HEIGHT,
+  },
+  lottie: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: MASCOT_WIDTH,
+    height: MASCOT_HEIGHT,
   },
   clipContainer: {
     position: 'absolute',
@@ -213,11 +263,11 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   lottieGreen: {
-    width: MASCOT_WIDTH,
-    height: MASCOT_HEIGHT,
     position: 'absolute',
     bottom: 0,
     left: 0,
+    width: MASCOT_WIDTH,
+    height: MASCOT_HEIGHT,
   },
 });
 
