@@ -1005,7 +1005,7 @@ const initialState = {
   isInitialized: false,
   lastSyncedAt: null as Date | null,
   userId: null as string | null,
-  userTimezone: null as string | null,
+  userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   calendarFocusDate: null as string | null,
   // Sweep preferences
   lastSweepCompletedAt: null as string | null,
@@ -1238,7 +1238,7 @@ export const useGremlyStore = create<GremlyState>()(
             // Compute ritual day based on user's day boundary and timezone
             const dayBoundaryHour = (cortexPrefs?.day_boundary_hour as number) ?? 0;
             const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            const timezone = (notificationPrefsRes.data?.timezone as string) ?? detectedTimezone;
+            const timezone = detectedTimezone;
             const ritualDay = getRitualDay(dayBoundaryHour, timezone);
 
             // Fetch today's ritual progress
@@ -1349,6 +1349,28 @@ export const useGremlyStore = create<GremlyState>()(
               isInitialized: true,
               lastSyncedAt: new Date(),
             });
+
+            // Sync timezone to database if device timezone differs (handles travel)
+            const dbTimezone = notificationPrefsRes.data?.timezone as string | null;
+            if (dbTimezone && dbTimezone !== detectedTimezone) {
+              if (__DEV__) {
+                console.log(
+                  '[GremlyStore] Timezone changed: DB has',
+                  dbTimezone,
+                  'device has',
+                  detectedTimezone,
+                );
+              }
+              supabase
+                .from('notification_preferences')
+                .update({ timezone: detectedTimezone, updated_at: new Date().toISOString() })
+                .eq('user_id', userId)
+                .then(({ error }) => {
+                  if (error) {
+                    console.error('[GremlyStore] Failed to update timezone in DB:', error);
+                  }
+                });
+            }
 
             // Load hidden calendar events from AsyncStorage (local-only persistence)
             const hiddenEvents = await loadHiddenEventsFromStorage();
@@ -1536,8 +1558,8 @@ export const useGremlyStore = create<GremlyState>()(
          * Returns the current ritual day string.
          */
         ensureCurrentRitualDay: () => {
-          const { dayBoundaryHour, userTimezone, todayRitualDay } = get();
-          const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const { dayBoundaryHour, todayRitualDay } = get();
+          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
 
           // Check if we've crossed the day boundary
@@ -1703,11 +1725,10 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         checkAndIncrementAge: async () => {
-          const { userId, dayBoundaryHour, userTimezone, todayRitualCompletedAt, todayRitualDay } =
-            get();
+          const { userId, dayBoundaryHour, todayRitualCompletedAt, todayRitualDay } = get();
           if (!userId) return { didAgeUp: false, newAge: get().gremlyAge };
 
-          const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
 
           // Defensive check: if ritual was completed for a different day, it doesn't count for today
@@ -2125,10 +2146,10 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         refreshRitualProgress: async () => {
-          const { userId, dayBoundaryHour, userTimezone } = get();
+          const { userId, dayBoundaryHour } = get();
           if (!userId) return;
 
-          const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const ritualDay = getRitualDay(dayBoundaryHour, timezone);
 
           const { data: ritualProgress } = await supabase
@@ -9082,7 +9103,6 @@ export const useGremlyStore = create<GremlyState>()(
           milestones: state.milestones,
           pendingDrops: state.pendingDrops,
           userId: state.userId,
-          userTimezone: state.userTimezone,
           lastSweepCompletedAt: state.lastSweepCompletedAt,
           sweepStreak: state.sweepStreak,
           totalSweepCount: state.totalSweepCount,
