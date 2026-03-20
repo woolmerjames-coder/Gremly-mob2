@@ -58,6 +58,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Text } from '../../ui/Text';
 import { Icon } from '../../design-system/Icon';
 import { useGremlyStore, type PendingDrop } from '../../lib/store/useGremlyStore';
+import celebrationController from '../features/celebration/CelebrationController';
 import { selectBriefHeadline } from '../../lib/store/selectors';
 import {
   selectItemById,
@@ -6284,6 +6285,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     suggestions?: UISuggestion[];
     decisionMode?: CortexResponse['mode'];
     decisionConfidence?: number;
+    justCrossedFed?: boolean;
   };
 
   /**
@@ -6348,6 +6350,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         ],
         decisionConfidence: result.confidence,
         decisionMode: 'auto',
+        justCrossedFed: result.justCrossedFed,
       };
     } else {
       console.error('[MindDrop:NewPipeline] Submit failed:', result.error);
@@ -7992,7 +7995,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         setShowSweepDemoPrompt(true);
         markFirstDropComplete();
       } else if (result.createdDetails?.length > 0) {
-        mascotRef.current?.celebrate();
+        if (result.justCrossedFed) {
+          mascotRef.current?.celebrateFed();
+          celebrationController.showFedCelebration(useGremlyStore.getState().fedDaysCount);
+        } else {
+          mascotRef.current?.celebrate();
+        }
         // Show speech based on classification result using full getGremlySpeech logic
         try {
           const detail = result.createdDetails[0];

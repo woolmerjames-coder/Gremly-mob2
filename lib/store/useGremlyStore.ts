@@ -590,7 +590,7 @@ interface GremlyState {
   trackSpaceCreate: () => Promise<void>;
   resetDailyGauge: () => void;
   /** Instantly preview a drop's gauge contribution locally. No RPC. Server reconciles later. */
-  previewGaugeDrop: () => void;
+  previewGaugeDrop: () => { justCrossedFed: boolean };
 
   // ═══════════════════════════════════════════════════════════════════
   // INITIALIZATION
@@ -2166,15 +2166,17 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         previewGaugeDrop: () => {
-          const { todayDropsCount, pendingGaugePreviews, feedingGaugeValue } = get();
-          // Account for any rapid drops already previewed but not yet confirmed by server
+          const { todayDropsCount, pendingGaugePreviews, feedingGaugeValue, isFedToday } = get();
           const dropNumber = todayDropsCount + pendingGaugePreviews + 1;
           const value = getDropValue(dropNumber);
           const optimisticValue = feedingGaugeValue + value;
+          const justCrossedFed = !isFedToday && optimisticValue >= FED_THRESHOLD;
 
           set({
             feedingGaugeValue: optimisticValue,
             pendingGaugePreviews: pendingGaugePreviews + 1,
+            // Optimistically mark as fed if threshold crossed
+            ...(justCrossedFed && { isFedToday: true }),
           });
 
           if (__DEV__) {
@@ -2183,8 +2185,11 @@ export const useGremlyStore = create<GremlyState>()(
               value,
               newGaugeValue: optimisticValue,
               pendingPreviews: pendingGaugePreviews + 1,
+              justCrossedFed,
             });
           }
+
+          return { justCrossedFed };
         },
 
         refreshRitualProgress: async () => {

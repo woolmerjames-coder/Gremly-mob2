@@ -66,6 +66,8 @@ export interface SubmitResult {
   dueDate?: string | null;
   /** Error if submission failed */
   error?: Error;
+  /** Whether this drop crossed the fed threshold */
+  justCrossedFed?: boolean;
 }
 
 /**
@@ -221,7 +223,7 @@ export function useMindDropSubmit(): {
         });
 
         // Instantly preview gauge fill (Soul Document v8: fill rises with the bounce)
-        previewGaugeDrop();
+        const gaugePreview = previewGaugeDrop();
 
         if (testEnabled) {
           testLogger.step('optimistic_added', { dropId: queuedDrop.localId });
@@ -312,6 +314,7 @@ export function useMindDropSubmit(): {
           bucket, // Heuristic bucket (will be updated by processor)
           confidence: 0.5, // Heuristic confidence
           subtype: subtypeHint,
+          justCrossedFed: gaugePreview.justCrossedFed,
         };
       } catch (error) {
         submitLockRef.current = false;

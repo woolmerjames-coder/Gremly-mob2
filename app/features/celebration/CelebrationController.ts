@@ -9,7 +9,7 @@ import * as Haptics from 'expo-haptics';
 import { getEnv } from '../../../lib/env';
 import { subscribeToCelebrationEvents, type CelebrationEvent } from './celebrationBus';
 
-export type CelebrationKind = 'micro' | 'confetti' | 'mascot' | 'age_up';
+export type CelebrationKind = 'micro' | 'confetti' | 'mascot' | 'age_up' | 'fed';
 
 export interface CelebrationPayload {
   kind: CelebrationKind;
@@ -18,6 +18,8 @@ export interface CelebrationPayload {
   streakCount?: number;
   /** Age value for age_up celebrations */
   age?: number;
+  /** Fed days count for fed celebration (1, 2, or 3) */
+  fedDaysCount?: number;
 }
 
 type CelebrationListener = (payload: CelebrationPayload) => void;
@@ -231,6 +233,25 @@ class CelebrationController {
     this._suppressAgeUp = suppress;
     if (__DEV__) {
       console.log('[Celebration] Age-up suppression:', suppress ? 'ON' : 'OFF');
+    }
+  }
+
+  /**
+   * Trigger fed celebration (toast banner).
+   * @param fedDaysCount - Current fed days count (1, 2, or 3) for "Day X of 3" display
+   */
+  showFedCelebration(fedDaysCount: number): void {
+    const payload: CelebrationPayload = {
+      kind: 'fed',
+      fedDaysCount,
+    };
+
+    this.triggerHaptic('confetti');
+
+    this.emit(payload);
+
+    if (__DEV__) {
+      console.log('[Celebration] Fed celebration triggered, day', fedDaysCount, 'of 3');
     }
   }
 
