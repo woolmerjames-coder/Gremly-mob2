@@ -100,6 +100,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
   const [mode, setMode] = useState<AnimationMode>('idle');
   const isCelebratingRef = useRef(false);
   const fedPlayCountRef = useRef(0);
+  const greenLottieRef = useRef<LottieView>(null);
 
   // Gauge fill animation
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
@@ -148,8 +149,9 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
     } else if (mode === 'fed') {
       fedPlayCountRef.current += 1;
       if (fedPlayCountRef.current < 2) {
-        setMode('idle');
-        requestAnimationFrame(() => setMode('fed'));
+        // Replay without source swap: reset and play the same animation
+        greenLottieRef.current?.reset();
+        greenLottieRef.current?.play();
       } else {
         isCelebratingRef.current = false;
         setMode('idle');
@@ -176,6 +178,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
       {/* Top layer: green Gremly (clipped from bottom up based on gauge) */}
       <Animated.View style={[styles.clipContainer, clipAnimatedStyle]}>
         <LottieView
+          ref={greenLottieRef}
           source={getSource(mode, 'green')}
           autoPlay
           loop={mode === 'idle'}
