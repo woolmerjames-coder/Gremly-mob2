@@ -9201,6 +9201,16 @@ export const useGremlyStore = create<GremlyState>()(
             lastSyncedAt: null,
             // Always use fresh date on app start, never restore stale date from storage
             currentDate: getDateService().getCurrentDate(),
+            // Always reset daily gauge state on hydration (Soul Document v8)
+            // These are daily values that initialize() will populate from Supabase.
+            // Stale MMKV values cause false fed status and wrong gauge display.
+            feedingGaugeValue: 0,
+            isFedToday: false,
+            feedingContributions: [],
+            feedingGaugeLastUpdatedAt: null,
+            todayFedCelebrationShownAt: null,
+            todayFeedingAgeUpShownAt: null,
+            pendingGaugePreviews: 0,
           };
         },
       },
