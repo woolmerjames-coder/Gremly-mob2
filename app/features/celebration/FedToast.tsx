@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, Image, StyleSheet } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -9,6 +9,9 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { BRAND } from '../../../design/brand';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const GREMLY_FACE = require('../../../assets/buttonforHP.png');
 
 interface FedToastProps {
   /** Which fed day this is (1, 2, or 3). Display value, already incremented optimistically. */
@@ -91,20 +94,28 @@ export function FedToast({ fedDayNumber, onDismiss }: FedToastProps) {
   return (
     <Animated.View style={[styles.container, animatedStyle]}>
       <Pressable style={styles.toast} onPress={handlePress}>
-        {/* Headline */}
-        <Text style={styles.headline}>All offloaded.</Text>
+        <View style={styles.toastContent}>
+          {/* Gremly face */}
+          <Image source={GREMLY_FACE} style={styles.gremlyFace} />
 
-        {/* Subtitle */}
-        <Text style={styles.subtitle}>That's the stuff. Day {dayNumber} of 3.</Text>
+          {/* Text + dots */}
+          <View style={styles.textContent}>
+            {/* Headline */}
+            <Text style={styles.headline}>All offloaded.</Text>
 
-        {/* Fed-day dots */}
-        <View style={styles.dotsRow}>
-          {[1, 2, 3].map((day) => (
-            <View
-              key={day}
-              style={[styles.dot, day <= dayNumber ? styles.dotFilled : styles.dotEmpty]}
-            />
-          ))}
+            {/* Subtitle */}
+            <Text style={styles.subtitle}>Your Gremly is fully fed for today.</Text>
+
+            {/* Fed-day dots */}
+            <View style={styles.dotsRow}>
+              {[1, 2, 3].map((day) => (
+                <View
+                  key={day}
+                  style={[styles.dot, day <= dayNumber ? styles.dotFilled : styles.dotEmpty]}
+                />
+              ))}
+            </View>
+          </View>
         </View>
       </Pressable>
     </Animated.View>
@@ -123,33 +134,44 @@ const styles = StyleSheet.create({
   },
   toast: {
     backgroundColor: BRAND.colors.mossGreen,
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingVertical: 16,
     borderRadius: 16,
     marginHorizontal: 24,
+    flexDirection: 'row',
     alignItems: 'center',
-    // Subtle shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
   },
+  toastContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  gremlyFace: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  textContent: {
+    flex: 1,
+  },
   headline: {
     fontSize: 17,
     fontFamily: 'PlusJakartaSans-Bold',
     fontWeight: '700',
     color: '#FFFFFF',
-    textAlign: 'center',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   subtitle: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    fontWeight: '500',
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    fontWeight: '400',
     color: 'rgba(255, 255, 255, 0.85)',
-    textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   dotsRow: {
     flexDirection: 'row',

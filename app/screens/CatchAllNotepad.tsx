@@ -8000,46 +8000,58 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // fedDaysCount hasn't been incremented yet (server confirms later)
           // Pass the next day number for display
           celebrationController.showFedCelebration(useGremlyStore.getState().fedDaysCount + 1);
+
+          // Fed-specific Gremly speech (replaces normal drop speech)
+          const fedSpeechOptions = [
+            "Fed for the day. That's your brain sorted.",
+            "That's a wrap. Your brain is cleared for the day.",
+            "Fully fed. Everything's out of your head and safe.",
+            "Done for today. Your Gremly's got it all.",
+            'All caught up. Your mind can rest easy now.',
+          ];
+          const fedMessage = fedSpeechOptions[Math.floor(Math.random() * fedSpeechOptions.length)];
+          showGremlySpeech(fedMessage, 5000);
         } else {
           mascotRef.current?.celebrate();
-        }
-        // Show speech based on classification result using full getGremlySpeech logic
-        try {
-          const detail = result.createdDetails[0];
-          const uiKind = detail.kind === 'note' ? 'log' : detail.kind;
 
-          // Get due date from created entity if available
-          let dueDate: string | null = null;
-          if (uiKind === 'todo' && result.created?.todos?.[0]) {
-            const createdTodo = getItemById(result.created.todos[0]);
-            dueDate = (createdTodo as any)?.due_date ?? (createdTodo as any)?.due_day ?? null;
+          // Show speech based on classification result using full getGremlySpeech logic
+          try {
+            const detail = result.createdDetails[0];
+            const uiKind = detail.kind === 'note' ? 'log' : detail.kind;
+
+            // Get due date from created entity if available
+            let dueDate: string | null = null;
+            if (uiKind === 'todo' && result.created?.todos?.[0]) {
+              const createdTodo = getItemById(result.created.todos[0]);
+              dueDate = (createdTodo as any)?.due_date ?? (createdTodo as any)?.due_day ?? null;
+            }
+
+            // Map confidence number to category
+            const rawConfidence = (result as any).decisionConfidence ?? 0.9;
+            const confidenceCategory: 'high' | 'medium' | 'low' =
+              rawConfidence >= 0.8 ? 'high' : rawConfidence >= 0.5 ? 'medium' : 'low';
+
+            const speechCtx: SpeechContext = {
+              kind: uiKind,
+              logSubtype: (detail as any).noteSubtype || undefined,
+              confidence: confidenceCategory,
+              dueDate,
+              mode: 'auto',
+              dropsToday: actionableDropsToday + (uiKind === 'todo' || uiKind === 'habit' ? 1 : 0),
+              isFirstDrop: false,
+              hasPhotos: pendingPhotoUris.length > 0,
+              isReturningUser:
+                storeLastDropTime != null && Date.now() - storeLastDropTime > 24 * 60 * 60 * 1000,
+              error: null,
+            };
+            const speechResult = getGremlySpeech(speechCtx);
+            if (speechResult) {
+              lastSpeechRef.current = speechResult.message;
+              showGremlySpeech(speechResult.message, speechResult.duration);
+            }
+          } catch (speechErr) {
+            console.warn('[MindDrop] Speech generation failed, skipping:', speechErr);
           }
-
-          // Map confidence number to category
-          const rawConfidence = (result as any).decisionConfidence ?? 0.9;
-          const confidenceCategory: 'high' | 'medium' | 'low' =
-            rawConfidence >= 0.8 ? 'high' : rawConfidence >= 0.5 ? 'medium' : 'low';
-
-          const speechCtx: SpeechContext = {
-            kind: uiKind,
-            logSubtype: (detail as any).noteSubtype || undefined,
-            confidence: confidenceCategory,
-            dueDate,
-            mode: 'auto',
-            dropsToday: actionableDropsToday + (uiKind === 'todo' || uiKind === 'habit' ? 1 : 0),
-            isFirstDrop: false,
-            hasPhotos: pendingPhotoUris.length > 0,
-            isReturningUser:
-              storeLastDropTime != null && Date.now() - storeLastDropTime > 24 * 60 * 60 * 1000,
-            error: null,
-          };
-          const speechResult = getGremlySpeech(speechCtx);
-          if (speechResult) {
-            lastSpeechRef.current = speechResult.message;
-            showGremlySpeech(speechResult.message, speechResult.duration);
-          }
-        } catch (speechErr) {
-          console.warn('[MindDrop] Speech generation failed, skipping:', speechErr);
         }
       }
 
