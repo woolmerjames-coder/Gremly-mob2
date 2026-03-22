@@ -591,6 +591,11 @@ interface GremlyState {
   resetDailyGauge: () => void;
   /** Instantly preview a drop's gauge contribution locally. No RPC. Server reconciles later. */
   previewGaugeDrop: () => { justCrossedFed: boolean };
+  /** Optimistically preview sweep gauge contribution. Returns projected value and fed status. */
+  previewSweepGauge: (
+    totalCards: number,
+    didJournal: boolean,
+  ) => { justCrossedFed: boolean; projectedValue: number };
 
   // ═══════════════════════════════════════════════════════════════════
   // INITIALIZATION
@@ -1288,6 +1293,12 @@ export const useGremlyStore = create<GremlyState>()(
                   }
                 });
             }
+
+            console.log('[DEBUG:Gauge] Hydrating gauge from Supabase', {
+              feeding_gauge_value: ritualProgress?.feeding_gauge_value,
+              is_fed: ritualProgress?.is_fed,
+              ritualProgressKeys: ritualProgress ? Object.keys(ritualProgress) : 'null',
+            });
 
             set({
               // Add type field since DB doesn't store it
@@ -2190,6 +2201,38 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           return { justCrossedFed };
+        },
+
+        previewSweepGauge: (totalCards: number, didJournal: boolean) => {
+          const { feedingGaugeValue, isFedToday } = get();
+
+          if (totalCards <= 0) return { justCrossedFed: false, projectedValue: feedingGaugeValue };
+
+          // Calculate what completeSweepSession will add (mirrors its logic exactly)
+          const baseSweep = calculateSweepContribution(totalCards, false);
+          const journalBonus = didJournal ? GAUGE_WEIGHTS.JOURNAL_BONUS : 0;
+          const totalContribution = baseSweep + journalBonus;
+          const optimisticValue = feedingGaugeValue + totalContribution;
+          const justCrossedFed = !isFedToday && optimisticValue >= FED_THRESHOLD;
+
+          set({
+            feedingGaugeValue: optimisticValue,
+            ...(justCrossedFed && { isFedToday: true }),
+          });
+
+          if (__DEV__) {
+            console.log('[GremlyStore] Optimistic sweep gauge preview', {
+              totalCards,
+              didJournal,
+              baseSweep,
+              journalBonus,
+              previousGauge: feedingGaugeValue,
+              newGauge: optimisticValue,
+              justCrossedFed,
+            });
+          }
+
+          return { justCrossedFed, projectedValue: optimisticValue };
         },
 
         refreshRitualProgress: async () => {
@@ -4519,6 +4562,9 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Fetch DCO after server refresh (cached hydration path skips cold init)
             get().fetchTodayDco();
+
+            // Refresh ritual progress including gauge state (Soul Document v8)
+            get().refreshRitualProgress();
           } catch (error) {
             console.error('[GremlyStore] refreshFromServer failed:', error);
             set({ isLoading: false });

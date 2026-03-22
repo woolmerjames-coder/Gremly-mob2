@@ -93,6 +93,8 @@ import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionT
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import celebrationController from '../../app/features/celebration/CelebrationController';
+import MascotLottie from '../components/MascotLottie';
+import { calculateSweepContribution, GAUGE_WEIGHTS } from '../../lib/constants/soulDocument';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { OverlayComponent } from '../../components/overlay';
 import {
@@ -2892,58 +2894,64 @@ interface SummaryStepProps {
   journalWritten: boolean;
   onDone: () => void;
   onPlanTomorrow: () => void;
+  onNavigateBack: () => void;
 }
 
 function SweepSummaryStep({
   keptCount,
   clearedCount,
   items,
-  gremlyAge,
   lockInCompleted,
   lockInTotal,
   habitsCheckedCount,
   journalWritten,
   onDone,
   onPlanTomorrow,
+  onNavigateBack,
 }: SummaryStepProps) {
   const ds = getDateService();
   const totalProcessed = keptCount + clearedCount;
 
-  // Sweep streak from Zustand
-  const sweepStreak = useGremlyStore((state) => state.sweepStreak);
+  // Two-page state
+  const [page, setPage] = useState<1 | 2>(1);
 
-  // Get raw data from store
+  // Store subscriptions
+  const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
+  const isFedToday = useGremlyStore((s) => s.isFedToday);
+  const sweepStreak = useGremlyStore((state) => state.sweepStreak);
+  const gremlyAge = useGremlyStore((s) => s.gremlyAge);
+  const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
+
+  // Capture pre-sweep gauge value on mount (before any preview)
+  const preSweepGaugeRef = useRef(feedingGaugeValue);
+
+  // Calculate projected contribution for display
+  const sweepContribution = useMemo(() => {
+    const baseSweep = calculateSweepContribution(totalProcessed, false);
+    const journalBonus = journalWritten ? GAUGE_WEIGHTS.JOURNAL_BONUS : 0;
+    return baseSweep + journalBonus;
+  }, [totalProcessed, journalWritten]);
+
+  const projectedPercent = Math.min(
+    Math.round((preSweepGaugeRef.current + sweepContribution) * 100),
+    100,
+  );
+  const preSweepPercent = Math.round(preSweepGaugeRef.current * 100);
+  const contributionPercent = Math.round(sweepContribution * 100);
+  const willCrossFed =
+    preSweepGaugeRef.current < 1.0 && preSweepGaugeRef.current + sweepContribution >= 1.0;
+
+  // Tomorrow data (same as before)
   const allTodos = useGremlyStore((state) => state.todos);
   const allHabits = useGremlyStore((state) => state.habits);
-
-  // Tomorrow's items - memoized to prevent infinite loops
   const tomorrowTodos = useMemo(() => {
     const tomorrowStr = ds.tomorrow();
     return allTodos.filter((t) => !t.archived && !t.completed_at && t.due_day === tomorrowStr);
   }, [allTodos]);
-
   const tomorrowHabits = useMemo(() => {
     return allHabits.filter((h) => !h.archived);
   }, [allHabits]);
-
   const hasTomorrow = tomorrowTodos.length > 0 || tomorrowHabits.length > 0;
-
-  // Mascot hover animation - gentle continuous bobbing
-  const hoverY = useSharedValue(0);
-
-  const mascotAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: hoverY.value }],
-  }));
-
-  // Title glow animation
-  const glowOpacity = useSharedValue(0);
-
-  const titleAnimatedStyle = useAnimatedStyle(() => ({
-    textShadowColor: `rgba(46, 85, 64, ${glowOpacity.value})`,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: interpolate(glowOpacity.value, [0, 0.8], [0, 20]),
-  }));
-
   const tomorrowSubtitle = useMemo(
     () =>
       [
@@ -2959,219 +2967,402 @@ function SweepSummaryStep({
     [tomorrowTodos, tomorrowHabits],
   );
 
-  // Trigger celebration on mount
+  // ─── ANIMATIONS ───
+
+  // Broom mascot position
+  const broomX = useSharedValue(-200); // Start off screen left
+  const broomOpacity = useSharedValue(0);
+  const hoverY = useSharedValue(0);
+
+  // MascotLottie (page 2)
+  const lottieOpacity = useSharedValue(0);
+  const lottieScale = useSharedValue(0.8);
+
+  // Title
+  const glowOpacity = useSharedValue(0);
+  const titleAnimatedStyle = useAnimatedStyle(() => ({
+    textShadowColor: `rgba(46, 85, 64, ${glowOpacity.value})`,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: interpolate(glowOpacity.value, [0, 0.8], [0, 20]),
+  }));
+
+  const broomAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: broomX.value }, { translateY: hoverY.value }],
+    opacity: broomOpacity.value,
+  }));
+
+  const lottieAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: lottieOpacity.value,
+    transform: [{ scale: lottieScale.value }],
+  }));
+
+  // Page 1 mount: broom flies in from left, starts hovering
   useEffect(() => {
-    // Intense celebration vibration (long pattern)
+    if (page !== 1) return;
+
     Vibration.vibrate([0, 100, 50, 100, 50, 200], false);
 
-    // Start mascot hover animation - smooth continuous bobbing
-    hoverY.value = withRepeat(
+    // Fly in from left
+    broomOpacity.value = withTiming(1, { duration: 300 });
+    broomX.value = withTiming(0, {
+      duration: 900,
+      easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+    });
+
+    // Start hover after fly-in completes
+    const hoverTimer = setTimeout(() => {
+      // eslint-disable-next-line react-hooks/immutability
+      hoverY.value = withRepeat(
+        withSequence(
+          withTiming(-8, { duration: 1200, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
+          withTiming(0, { duration: 1200, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
+        ),
+        -1,
+        true,
+      );
+    }, 900);
+
+    // Title glow
+    glowOpacity.value = withDelay(
+      300,
       withSequence(
-        withTiming(-8, { duration: 1200, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
-        withTiming(0, { duration: 1200, easing: ReanimatedEasing.inOut(ReanimatedEasing.ease) }),
+        withTiming(0.8, { duration: 600, easing: ReanimatedEasing.out(ReanimatedEasing.cubic) }),
+        withDelay(
+          2000,
+          withTiming(0, { duration: 800, easing: ReanimatedEasing.in(ReanimatedEasing.cubic) }),
+        ),
       ),
-      -1, // Infinite repeat
-      true, // Reverse
     );
 
-    // Title glow animation - fade in, hold, fade out
-    glowOpacity.value = withDelay(
-      300, // Wait for slide-in to start
-      withSequence(
-        withTiming(0.8, { duration: 600 }),
-        withTiming(0.8, { duration: 1500 }), // Hold glow
-        withTiming(0, { duration: 800 }),
-      ),
-    );
+    return () => clearTimeout(hoverTimer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/immutability
+  }, [page]);
+
+  // Handle Continue tap: transition to page 2
+  const handleContinue = useCallback(() => {
+    // Fly broom out to the right
+    // eslint-disable-next-line react-hooks/immutability
+    broomX.value = withTiming(400, {
+      duration: 500,
+      easing: ReanimatedEasing.in(ReanimatedEasing.cubic),
+    });
+    // eslint-disable-next-line react-hooks/immutability
+    broomOpacity.value = withTiming(0, { duration: 400 });
+
+    // After broom exits, switch to page 2
+    setTimeout(() => {
+      setPage(2);
+    }, 500);
     // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/immutability
   }, []);
 
+  // Page 2 mount: fade in MascotLottie, then animate gauge after a beat
+  useEffect(() => {
+    if (page !== 2) return;
+
+    // Fade in the MascotLottie
+    lottieOpacity.value = withDelay(
+      200,
+      withTiming(1, { duration: 500, easing: ReanimatedEasing.out(ReanimatedEasing.cubic) }),
+    );
+    lottieScale.value = withDelay(
+      200,
+      withTiming(1, { duration: 500, easing: ReanimatedEasing.out(ReanimatedEasing.cubic) }),
+    );
+
+    // After a beat (1.2s), fire the optimistic gauge preview
+    // This updates the store, MascotLottie reacts and shows the fill rising
+    const timer = setTimeout(() => {
+      const { justCrossedFed } = useGremlyStore
+        .getState()
+        .previewSweepGauge(totalProcessed, journalWritten);
+
+      if (justCrossedFed) {
+        const nextFedDay = useGremlyStore.getState().fedDaysCount + 1;
+        const willAgeUp = nextFedDay >= 3;
+
+        // Show fed toast after gauge animation completes
+        setTimeout(() => {
+          celebrationController.showFedCelebration(nextFedDay);
+
+          // If this is the 3rd fed day, trigger age-up after fed toast dismisses
+          if (willAgeUp) {
+            // Fed toast is 8 seconds. Fire age-up after it dismisses.
+            setTimeout(() => {
+              const currentAge = useGremlyStore.getState().gremlyAge;
+              celebrationController.showAgeUpCelebration(currentAge + 1);
+            }, 8500);
+          }
+        }, 1200);
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/immutability
+  }, [page, totalProcessed, journalWritten]);
+
+  // Handle Done: fire server reconciliation, navigate
+  const handleDone = useCallback(() => {
+    // Fire completeSweepSession for server reconciliation (non-blocking)
+    if (totalProcessed > 0) {
+      useGremlyStore
+        .getState()
+        .completeSweepSession(totalProcessed, journalWritten)
+        .catch((err: unknown) => {
+          console.warn('[SweepFlowScreen] Sweep gauge reconciliation failed:', err);
+        });
+    }
+    // Navigate back directly, bypassing old age-up check
+    onNavigateBack();
+  }, [totalProcessed, journalWritten, onNavigateBack]);
+
+  // Build showBadges (same as before)
   const showBadges = lockInTotal > 0 || habitsCheckedCount > 0 || journalWritten;
 
+  // ─── PAGE 1: SWEEP STATS ───
+  if (page === 1) {
+    return (
+      <View style={styles.summaryContainer}>
+        <ScrollView
+          contentContainerStyle={styles.summaryScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Broom Gremly - flies in from left, hovers */}
+          <View style={styles.summaryMascotContainer}>
+            <Reanimated.Image
+              source={GREMLY_MASCOT_CELEBRATE}
+              style={[styles.summaryMascotImage, broomAnimatedStyle]}
+              resizeMode="contain"
+              testID="sweep-summary-mascot"
+              accessibilityLabel="Gremly mascot riding a broom"
+            />
+          </View>
+
+          {/* Title */}
+          <Reanimated.Text
+            entering={FadeInUp.duration(400).delay(100).springify().damping(12)}
+            style={[styles.summaryTitle, styles.summaryTitleText, titleAnimatedStyle]}
+          >
+            Nice sweep!
+          </Reanimated.Text>
+
+          {/* Subtext */}
+          {totalProcessed > 0 && (
+            <Text style={styles.summarySubtext}>
+              Your mind is {totalProcessed} {totalProcessed === 1 ? 'item' : 'items'} lighter.
+            </Text>
+          )}
+
+          {/* Completion Badges */}
+          {showBadges && (
+            <>
+              <CompletionBadges
+                lockInCompleted={lockInCompleted}
+                lockInTotal={lockInTotal}
+                habitsChecked={habitsCheckedCount}
+                journalWritten={journalWritten}
+              />
+              <View style={styles.summaryDivider} />
+            </>
+          )}
+
+          {/* Expandable Summary */}
+          {totalProcessed > 0 && items ? (
+            <View style={styles.expandableSummaryContainer}>
+              {(() => {
+                const sortedTodos = items.todos.filter(
+                  (i) => i.outcome !== 'cleared' && i.outcome !== 'archived',
+                );
+                const sortedThoughts = items.thoughts.filter((i) => i.outcome !== 'archived');
+                const sortedHabits = items.habits.filter((i) => i.outcome !== 'removed');
+                const clearedTodos = items.todos.filter(
+                  (i) => i.outcome === 'cleared' || i.outcome === 'archived',
+                );
+                const clearedThoughts = items.thoughts.filter((i) => i.outcome === 'archived');
+                const clearedHabits = items.habits.filter((i) => i.outcome === 'removed');
+
+                const sortedCount =
+                  sortedTodos.length + sortedThoughts.length + sortedHabits.length;
+                const clearedItemCount =
+                  clearedTodos.length + clearedThoughts.length + clearedHabits.length;
+
+                return (
+                  <>
+                    {sortedCount > 0 && (
+                      <SweepEndCard
+                        icon={<CheckCircle size={20} color={BRAND.colors.mossGreen} />}
+                        title={`${sortedCount} ${sortedCount === 1 ? 'item' : 'items'} sorted`}
+                        expandable={true}
+                      >
+                        <SweepEndItemList
+                          todos={sortedTodos.map((i) => ({
+                            id: i.id,
+                            name: i.name,
+                            outcome: i.scheduledDate ? `Due ${i.scheduledDate}` : 'Saved',
+                          }))}
+                          notes={sortedThoughts.map((i) => ({
+                            id: i.id,
+                            name: i.name,
+                            outcome: i.scheduledDate ? `Remind ${i.scheduledDate}` : 'Saved',
+                          }))}
+                          habits={sortedHabits.map((i) => ({
+                            id: i.id,
+                            name: i.name,
+                            outcome:
+                              i.outcome === 'logged'
+                                ? 'Done ✓'
+                                : i.outcome === 'skipped'
+                                  ? 'Skipped'
+                                  : 'Kept',
+                          }))}
+                        />
+                      </SweepEndCard>
+                    )}
+                    {clearedItemCount > 0 && (
+                      <SweepEndCard
+                        icon={<Sparkles size={20} color={BRAND.colors.goldenPear} />}
+                        title={`${clearedItemCount} ${clearedItemCount === 1 ? 'thing' : 'things'} let go`}
+                        expandable={true}
+                      >
+                        <SweepEndItemList
+                          clearedItems={[
+                            ...clearedTodos.map((i) => ({
+                              id: i.id,
+                              name: i.name,
+                              type: 'todo' as const,
+                            })),
+                            ...clearedThoughts.map((i) => ({
+                              id: i.id,
+                              name: i.name,
+                              type: 'note' as const,
+                            })),
+                            ...clearedHabits.map((i) => ({
+                              id: i.id,
+                              name: i.name,
+                              type: 'habit' as const,
+                            })),
+                          ]}
+                        />
+                      </SweepEndCard>
+                    )}
+                  </>
+                );
+              })()}
+            </View>
+          ) : (
+            <View style={styles.summaryEmptyContainer}>
+              <Text variant="body" style={styles.summaryEmptyText}>
+                Nothing needed your attention this time — you're all clear.
+              </Text>
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Streak display - page 1 */}
+        {sweepStreak >= 1 && (
+          <View style={styles.streakContainer}>
+            <Flame size={16} color={BRAND.colors.goldenPear} />
+            <Text style={styles.streakText}>{sweepStreak} day streak</Text>
+          </View>
+        )}
+
+        {/* Continue Button */}
+        <View style={styles.buttonContainer}>
+          <Button title="Continue" variant="primary" onPress={handleContinue} />
+        </View>
+      </View>
+    );
+  }
+
+  // ─── PAGE 2: GAUGE REVEAL ───
   return (
-    <View style={styles.stepContainer}>
+    <View style={styles.summaryContainer}>
       <ScrollView
-        style={styles.scrollContainer}
-        contentContainerStyle={styles.summaryScrollContent}
+        contentContainerStyle={[styles.summaryScrollContent, { alignItems: 'center' }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Gremly mascot - broom-riding */}
-        <View style={styles.summaryMascotContainer}>
-          <Reanimated.Image
-            source={GREMLY_MASCOT_CELEBRATE}
-            style={[styles.summaryMascotImage, mascotAnimatedStyle]}
-            resizeMode="contain"
-            testID="sweep-summary-mascot"
-            accessibilityLabel="Gremly mascot riding a broom"
-          />
-        </View>
-
-        {/* Title - slides in from below with glow */}
-        <Reanimated.Text
-          entering={FadeInUp.duration(400).delay(100).springify().damping(12)}
-          style={[styles.summaryTitle, styles.summaryTitleText, titleAnimatedStyle]}
-        >
-          Nice sweep!
-        </Reanimated.Text>
-
-        {/* Subtext */}
-        {totalProcessed > 0 && (
-          <Text style={styles.summarySubtext}>
-            Your mind is {totalProcessed} {totalProcessed === 1 ? 'item' : 'items'} lighter.
-          </Text>
-        )}
-
-        {/* Completion Badges */}
-        {showBadges && (
-          <>
-            <CompletionBadges
-              lockInCompleted={lockInCompleted}
-              lockInTotal={lockInTotal}
-              habitsChecked={habitsCheckedCount}
-              journalWritten={journalWritten}
-            />
-            <View style={styles.summaryDivider} />
-          </>
-        )}
-
-        {/* Expandable Summary */}
-        {totalProcessed > 0 && items ? (
-          <View style={styles.expandableSummaryContainer}>
-            {(() => {
-              const sortedTodos = items.todos.filter(
-                (i) => i.outcome !== 'cleared' && i.outcome !== 'archived',
-              );
-              const sortedThoughts = items.thoughts.filter((i) => i.outcome !== 'archived');
-              const sortedHabits = items.habits.filter((i) => i.outcome !== 'removed');
-              const sortedCount = sortedTodos.length + sortedThoughts.length + sortedHabits.length;
-
-              if (sortedCount === 0) return null;
-
-              return (
-                <SweepEndCard
-                  icon={<CheckCircle size={20} color={BRAND.colors.mossGreen} />}
-                  title={`${sortedCount} ${sortedCount === 1 ? 'item' : 'items'} sorted`}
-                  expandable={true}
-                >
-                  <SweepEndItemList
-                    todos={sortedTodos.map((i) => ({
-                      id: i.id,
-                      name: i.name,
-                      outcome: i.scheduledDate ? `Due ${i.scheduledDate}` : 'Saved',
-                    }))}
-                    notes={sortedThoughts.map((i) => ({
-                      id: i.id,
-                      name: i.name,
-                      outcome: i.scheduledDate ? `Remind ${i.scheduledDate}` : 'Saved',
-                    }))}
-                    habits={sortedHabits.map((i) => ({
-                      id: i.id,
-                      name: i.name,
-                      outcome:
-                        i.outcome === 'logged'
-                          ? 'Done ✓'
-                          : i.outcome === 'skipped'
-                            ? 'Skipped'
-                            : 'Kept',
-                    }))}
-                  />
-                </SweepEndCard>
-              );
-            })()}
-
-            {/* Things you let go section */}
-            {(() => {
-              const clearedTodos = items.todos.filter(
-                (i) => i.outcome === 'cleared' || i.outcome === 'archived',
-              );
-              const clearedThoughts = items.thoughts.filter((i) => i.outcome === 'archived');
-              const clearedHabits = items.habits.filter((i) => i.outcome === 'removed');
-              const clearedCount =
-                clearedTodos.length + clearedThoughts.length + clearedHabits.length;
-
-              if (clearedCount === 0) return null;
-
-              return (
-                <SweepEndCard
-                  icon={<Leaf size={20} color={BRAND.colors.goldenPear} />}
-                  title={`${clearedCount} ${clearedCount === 1 ? 'thing' : 'things'} let go`}
-                  expandable={true}
-                >
-                  <SweepEndItemList
-                    clearedItems={[
-                      ...clearedTodos.map((i) => ({
-                        id: i.id,
-                        name: i.name,
-                        type: 'todo' as const,
-                      })),
-                      ...clearedThoughts.map((i) => ({
-                        id: i.id,
-                        name: i.name,
-                        type: 'note' as const,
-                      })),
-                      ...clearedHabits.map((i) => ({
-                        id: i.id,
-                        name: i.name,
-                        type: 'habit' as const,
-                      })),
-                    ]}
-                  />
-                </SweepEndCard>
-              );
-            })()}
-
-            {/* Tomorrow's ready section */}
-            {hasTomorrow && (
-              <View style={styles.tomorrowSection}>
-                <Text style={styles.tomorrowHeader}>Tomorrow's looking good</Text>
-                <SweepEndCard
-                  icon={<Moon size={20} color={BRAND.colors.mossGreen} />}
-                  title={tomorrowSubtitle}
-                  expandable={true}
-                  variant="outline"
-                >
-                  <SweepEndItemList
-                    todos={tomorrowTodos.map((t) => ({
-                      id: t.id,
-                      name: t.name || 'Untitled',
-                      outcome: '',
-                    }))}
-                    habits={tomorrowHabits.map((h) => ({
-                      id: h.id,
-                      name: h.name || 'Untitled',
-                      outcome: '',
-                    }))}
-                  />
-                </SweepEndCard>
-              </View>
-            )}
+        <Reanimated.View entering={FadeIn.duration(500).delay(200)} style={styles.gaugeRevealCard}>
+          {/* MascotLottie */}
+          <View style={styles.gaugeRevealMascotContainer}>
+            <Reanimated.View style={lottieAnimatedStyle}>
+              <MascotLottie />
+            </Reanimated.View>
           </View>
-        ) : (
-          <View style={styles.summaryEmptyContainer}>
-            <Text variant="body" style={styles.summaryEmptyText}>
-              Nothing needed your attention this time — you're all clear.
+
+          {/* Thin divider */}
+          <View style={styles.gaugeRevealDivider} />
+
+          {/* Age + fed days */}
+          <Reanimated.View
+            entering={FadeIn.duration(400).delay(1600)}
+            style={styles.gaugeRevealAgeContainer}
+          >
+            <Text style={styles.gaugeRevealAge}>Age {gremlyAge}</Text>
+            <View style={styles.gaugeRevealFedDots}>
+              {[1, 2, 3].map((day) => (
+                <View
+                  key={day}
+                  style={[
+                    styles.gaugeRevealDot,
+                    day <= fedDaysCount ? styles.gaugeRevealDotFilled : styles.gaugeRevealDotEmpty,
+                  ]}
+                />
+              ))}
+              <Text style={styles.gaugeRevealFedText}>{fedDaysCount} of 3 fed days</Text>
+            </View>
+          </Reanimated.View>
+
+          {/* Gauge progress bar */}
+          <Reanimated.View
+            entering={FadeIn.duration(400).delay(1800)}
+            style={styles.gaugeRevealBarContainer}
+          >
+            <View style={styles.gaugeRevealBarTrack}>
+              <Reanimated.View
+                style={[
+                  styles.gaugeRevealBarFill,
+                  { width: `${Math.min(Math.round(feedingGaugeValue * 100), 100)}%` },
+                ]}
+              />
+            </View>
+            <Text style={styles.gaugeRevealBarLabel}>
+              {Math.min(Math.round(feedingGaugeValue * 100), 100)}% fed
             </Text>
-          </View>
-        )}
+          </Reanimated.View>
+
+          {/* Impact text */}
+          <Reanimated.View
+            entering={FadeIn.duration(400).delay(2000)}
+            style={styles.gaugeRevealTextContainer}
+          >
+            {willCrossFed || isFedToday ? (
+              <Text style={styles.gaugeRevealImpact}>Gremly is fed for today!</Text>
+            ) : (
+              <Text style={styles.gaugeRevealImpact}>
+                This sweep added {contributionPercent}%.
+                {projectedPercent >= 60 ? ' Almost there.' : ''}
+              </Text>
+            )}
+          </Reanimated.View>
+        </Reanimated.View>
       </ScrollView>
 
-      {/* Streak display */}
-      {sweepStreak >= 1 && (
-        <View style={styles.streakContainer}>
-          <Flame size={16} color={BRAND.colors.goldenPear} />
-          <Text style={styles.streakText}>{sweepStreak} day streak</Text>
+      {/* Plan Tomorrow CTA with stats underneath */}
+      <Reanimated.View entering={FadeIn.duration(300).delay(2400)}>
+        <View style={styles.gaugeRevealPlanSection}>
+          <Pressable style={styles.planTomorrowButton} onPress={onPlanTomorrow}>
+            <Text style={styles.planTomorrowText}>Plan your tomorrow →</Text>
+          </Pressable>
+          {hasTomorrow && <Text style={styles.gaugeRevealTomorrowStats}>{tomorrowSubtitle}</Text>}
         </View>
-      )}
+      </Reanimated.View>
 
-      {/* Plan Tomorrow CTA */}
-      <Pressable style={styles.planTomorrowButton} onPress={onPlanTomorrow}>
-        <Text style={styles.planTomorrowText}>Plan your tomorrow →</Text>
-      </Pressable>
-
-      {/* Done Button */}
-      <View style={styles.buttonContainer}>
-        <Button title="Done" variant="primary" onPress={onDone} />
-      </View>
+      {/* Done Button - page 2 */}
+      <Reanimated.View entering={FadeIn.duration(300).delay(2400)}>
+        <View style={styles.buttonContainer}>
+          <Button title="Done" variant="primary" onPress={handleDone} />
+        </View>
+      </Reanimated.View>
     </View>
   );
 }
@@ -4060,6 +4251,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                 habitsCheckedCount={habitsCheckedCount}
                 journalWritten={journalWritten}
                 onDone={handleSummaryDone}
+                onNavigateBack={() => navigation.goBack()}
                 onPlanTomorrow={() => {
                   // Close sweep first, then emit event for NowScreenV1 to open tomorrow brief
                   navigation.goBack();
@@ -5221,6 +5413,11 @@ const styles = StyleSheet.create({
     color: BRAND.colors.mossGreen,
   },
   // SweepSummaryStep styles
+  summaryContainer: {
+    flex: 1,
+    paddingTop: 24,
+    backgroundColor: BRAND.colors.linenCream,
+  },
   summaryScrollContent: {
     flexGrow: 1,
     paddingBottom: 12,
@@ -5253,6 +5450,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 8,
   },
+  tomorrowSubtitleText: {
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginTop: 4,
+  },
   summaryMascotContainer: {
     alignItems: 'center',
     marginTop: 4,
@@ -5261,6 +5464,116 @@ const styles = StyleSheet.create({
   summaryMascotImage: {
     width: 140,
     height: 140,
+  },
+  gaugeRevealCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    marginHorizontal: 20,
+    marginTop: 24,
+    paddingTop: 28,
+    paddingBottom: 20,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    // Soft shadow
+    shadowColor: '#2E5540',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  gaugeRevealMascotContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    height: 120,
+  },
+  gaugeRevealDivider: {
+    width: 40,
+    height: 2,
+    backgroundColor: BRAND.colors.borderSubtle,
+    borderRadius: 1,
+    marginBottom: 16,
+  },
+  gaugeRevealAgeContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  gaugeRevealAge: {
+    fontSize: 24,
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 8,
+  },
+  gaugeRevealFedDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  gaugeRevealDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  gaugeRevealDotFilled: {
+    backgroundColor: BRAND.colors.mossGreen,
+  },
+  gaugeRevealDotEmpty: {
+    backgroundColor: BRAND.colors.borderSubtle,
+  },
+  gaugeRevealFedText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    marginLeft: 4,
+  },
+  gaugeRevealBarContainer: {
+    width: '100%',
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  gaugeRevealBarTrack: {
+    width: '100%',
+    height: 6,
+    backgroundColor: BRAND.colors.borderSubtle,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  gaugeRevealBarFill: {
+    height: '100%',
+    backgroundColor: BRAND.colors.mossGreen,
+    borderRadius: 3,
+  },
+  gaugeRevealBarLabel: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+  },
+  gaugeRevealTextContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  gaugeRevealImpact: {
+    fontSize: 15,
+    fontFamily: 'Inter-Regular',
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  gaugeRevealPlanSection: {
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  gaugeRevealTomorrowStats: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    marginTop: 4,
   },
   ageContainer: {
     flexDirection: 'row',

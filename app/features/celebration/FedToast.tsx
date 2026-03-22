@@ -20,7 +20,7 @@ interface FedToastProps {
   onDismiss: () => void;
 }
 
-const TOAST_DURATION = 4000; // Auto-dismiss after 4 seconds
+const TOAST_DURATION = 8000; // Auto-dismiss after 8 seconds
 const SLIDE_OUT_DURATION = 250; // Slide out animation
 const TOAST_TOP_OFFSET = 60; // Below status bar
 
