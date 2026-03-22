@@ -10,7 +10,7 @@
  */
 
 import React, { ReactNode } from 'react';
-import { View, Text, Pressable, StyleSheet, Image } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Flag,
@@ -23,14 +23,12 @@ import {
 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import type { Note } from '../../lib/types';
-import type { ImageSourcePropType } from 'react-native';
-import { getMascotSource, DEFAULT_MASCOT_ID } from '../../lib/mascots/mascotConfig';
+import MascotLottie from '../../app/components/MascotLottie';
 
 interface MilestoneHeaderProps {
   spaceName: string;
   pinnedCount: number;
   completedCount?: number;
-  mascotSource?: ImageSourcePropType; // Custom mascot image source
   goalEvent?: Note | null; // Featured goal (kept for backward compatibility)
   goals?: Note[]; // All goals for the space (up to 3)
   keyDatesCount?: number; // Number of key date events (excluding goals)
@@ -48,7 +46,6 @@ export function MilestoneHeader({
   spaceName,
   pinnedCount,
   completedCount = 0,
-  mascotSource,
   goalEvent = null,
   goals = [],
   keyDatesCount = 0,
@@ -114,11 +111,7 @@ export function MilestoneHeader({
           accessibilityLabel="Chat with Gremly"
           testID="header-gremly-button"
         >
-          <Image
-            source={mascotSource || getMascotSource(DEFAULT_MASCOT_ID)}
-            style={styles.gremlyImage}
-            resizeMode="contain"
-          />
+          <MascotLottie />
         </Pressable>
 
         {/* Goal or Nudge */}
@@ -279,11 +272,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   gremlyContainer: {
-    marginRight: 16,
-  },
-  gremlyImage: {
-    width: 100,
-    height: 100,
+    marginRight: 12,
+    width: 95,
+    height: 111,
   },
 
   // Milestone section

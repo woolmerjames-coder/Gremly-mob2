@@ -300,6 +300,7 @@ export function EntityChatScreen({
   const streamRef = useRef<{ close: () => void } | null>(null);
   const streamingMessageIdRef = useRef<string | null>(null);
   const hasUsedInitialPresetRef = useRef(false);
+  const hasTrackedChatGaugeRef = useRef(false);
 
   // ─── Presets ───────────────────────────────────────────────────────────────
   const presets = getPresetsForType(entityType);
@@ -331,6 +332,18 @@ export function EntityChatScreen({
 
       setIsLoading(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      // Feed the gauge: entity chat = 4% per session (Soul Document v8)
+      // Only fires once per chat session, not per message
+      if (!hasTrackedChatGaugeRef.current) {
+        hasTrackedChatGaugeRef.current = true;
+        useGremlyStore
+          .getState()
+          .trackSpaceChat()
+          .catch((err: unknown) => {
+            console.warn('[EntityChat] Space chat gauge contribution failed:', err);
+          });
+      }
 
       try {
         // 1. Append user message to store

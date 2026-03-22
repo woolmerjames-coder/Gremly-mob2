@@ -103,6 +103,14 @@ export default function CreateSpaceModal() {
         mascot_id: form.gremlyAvatar,
       });
 
+      // Feed the gauge: space creation = 5% (Soul Document v8)
+      useGremlyStore
+        .getState()
+        .trackSpaceCreate()
+        .catch((err: unknown) => {
+          console.warn('[CreateSpace] Space create gauge contribution failed:', err);
+        });
+
       // 2. Create milestone if goal provided
       if (form.goalName.trim()) {
         const ds = getDateService();

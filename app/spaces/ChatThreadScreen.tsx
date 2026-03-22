@@ -317,6 +317,7 @@ export default function ChatThreadScreen({ route }: Props) {
   // Use BOTH state and ref - ref survives closure staleness, state triggers re-renders
   const [activeMessageWithSaveable, setActiveMessageWithSaveable] = useState<string | null>(null);
   const activeMessageWithSaveableRef = useRef<string | null>(null);
+  const hasTrackedChatGaugeRef = useRef(false);
 
   const actionToastOffset = React.useMemo(
     () => Platform.select({ ios: 128, android: 112, default: 112 }) ?? 112,
@@ -657,6 +658,18 @@ export default function ChatThreadScreen({ route }: Props) {
 
       try {
         setSending(true);
+
+        // Feed the gauge: space chat = 4% per session (Soul Document v8)
+        // Only fires once per chat session, not per message
+        if (!hasTrackedChatGaugeRef.current) {
+          hasTrackedChatGaugeRef.current = true;
+          useGremlyStore
+            .getState()
+            .trackSpaceChat()
+            .catch((err: unknown) => {
+              console.warn('[ChatThread] Space chat gauge contribution failed:', err);
+            });
+        }
 
         // Phase 10.6: Trigger haptic feedback for send action
         if (shouldUseHaptics()) {
