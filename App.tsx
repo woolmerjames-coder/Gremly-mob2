@@ -84,7 +84,13 @@ export default function App() {
   const bootProbeRan = useRef(false);
 
   // Age-up celebration state - rendered at root level to work over navigation modals
-  const [ageUpState, setAgeUpState] = useState<{ visible: boolean; age: number }>({
+  const [ageUpState, setAgeUpState] = useState<{
+    visible: boolean;
+    age: number;
+    tierName?: string;
+    isTierTransition?: boolean;
+    previousTierName?: string;
+  }>({
     visible: false,
     age: 0,
   });
@@ -125,7 +131,13 @@ export default function App() {
         // Short delay lets the keyboard animate away so the modal isn't obscured.
         Keyboard.dismiss();
         setTimeout(() => {
-          setAgeUpState({ visible: true, age: payload.age! });
+          setAgeUpState({
+            visible: true,
+            age: payload.age!,
+            tierName: payload.tierName,
+            isTierTransition: payload.isTierTransition ?? false,
+            previousTierName: payload.previousTierName,
+          });
         }, 300);
       }
     });
@@ -666,6 +678,9 @@ export default function App() {
       <AgeUpCelebrationModal
         visible={ageUpState.visible}
         newAge={ageUpState.age}
+        tierName={ageUpState.tierName}
+        isTierTransition={ageUpState.isTierTransition}
+        previousTierName={ageUpState.previousTierName}
         onDismiss={handleAgeUpDismiss}
       />
     </View>

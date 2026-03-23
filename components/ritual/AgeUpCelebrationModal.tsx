@@ -30,7 +30,6 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Video, ResizeMode } from 'expo-av';
 import { Text } from '../../ui';
-import { Sparkles } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { triggerLight } from '../../lib/haptics';
 import * as Haptics from 'expo-haptics';
@@ -44,6 +43,9 @@ const CELEBRATION_VIDEO = require('../../assets/mascot/gremly_celebration_loop.m
 interface AgeUpCelebrationModalProps {
   visible: boolean;
   newAge: number;
+  tierName?: string;
+  isTierTransition?: boolean;
+  previousTierName?: string;
   onDismiss: () => void;
 }
 
@@ -204,36 +206,23 @@ const getMilestoneMessage = (age: number): string | null => {
 /**
  * Get a special title for milestone ages.
  */
-const getMilestoneTitle = (age: number): string => {
-  switch (age) {
-    case 10:
-      return 'Double digits!';
-    case 20:
-      return 'Twenty!';
-    case 30:
-      return 'One month!';
-    case 40:
-      return 'Forty!';
-    case 50:
-      return 'Halfway there!';
-    case 60:
-      return 'Sixty!';
-    case 70:
-      return 'Seventy!';
-    case 80:
-      return 'Eighty!';
-    case 90:
-      return 'Ninety!';
-    case 100:
-      return 'One hundred!';
-    default:
-      return 'Gremly got older';
+const getMilestoneTitle = (
+  age: number,
+  isTierTransition?: boolean,
+  tierNameParam?: string,
+): string => {
+  if (isTierTransition && tierNameParam) {
+    return `You've reached ${tierNameParam}!`;
   }
+  return 'Your Gremly Grew!';
 };
 
 export default function AgeUpCelebrationModal({
   visible,
   newAge,
+  tierName,
+  isTierTransition,
+  previousTierName,
   onDismiss,
 }: AgeUpCelebrationModalProps) {
   const message = getMilestoneMessage(newAge);
@@ -356,9 +345,11 @@ export default function AgeUpCelebrationModal({
             <Pressable style={styles.cardPressable} onPress={(e) => e.stopPropagation()}>
               <View style={styles.card}>
                 {/* Title */}
-                <Text style={styles.title}>{getMilestoneTitle(newAge)}</Text>
+                <Text style={[styles.title, isTierTransition && styles.titleTierTransition]}>
+                  {getMilestoneTitle(newAge, isTierTransition, tierName)}
+                </Text>
 
-                {/* Celebration Video */}
+                {/* Celebration Video - UNCHANGED */}
                 <View style={styles.mascotContainer}>
                   <Video
                     source={CELEBRATION_VIDEO}
@@ -371,16 +362,13 @@ export default function AgeUpCelebrationModal({
                 </View>
 
                 {/* Age display */}
-                <View style={styles.ageRow}>
-                  <View style={styles.ageDivider} />
-                  <View style={styles.ageContent}>
-                    <Sparkles size={20} color={BRAND.colors.goldenPear} />
-                    <Text style={styles.ageNumber}>{newAge}</Text>
-                  </View>
-                  <View style={styles.ageDivider} />
-                </View>
+                <Text style={styles.nowAge}>Now Age {newAge}</Text>
+                <Text style={styles.thanksLine}>All thanks to you.</Text>
 
-                {/* Message */}
+                {/* Tier label - only on tier transitions */}
+                {isTierTransition && tierName && <Text style={styles.tierLabel}>{tierName}</Text>}
+
+                {/* Milestone message */}
                 {message && <Text style={styles.message}>{message}</Text>}
 
                 {/* Dismiss button */}
@@ -438,8 +426,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
   },
+  titleTierTransition: {
+    color: BRAND.colors.goldenPear,
+  },
   mascotContainer: {
-    marginBottom: 16,
+    marginBottom: 24,
     alignItems: 'center',
     alignSelf: 'center',
   },
@@ -447,28 +438,28 @@ const styles = StyleSheet.create({
     width: 160,
     height: 160,
   },
-  ageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    marginBottom: 16,
-  },
-  ageDivider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: BRAND.colors.borderSubtle,
-  },
-  ageContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    gap: 6,
-  },
-  ageNumber: {
-    fontSize: 32,
+  nowAge: {
+    fontSize: 28,
     fontWeight: '700',
     color: BRAND.colors.charcoalInk,
-    lineHeight: 40,
+    textAlign: 'center',
+    lineHeight: 38,
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  thanksLine: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  tierLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BRAND.colors.mossGreen,
+    textAlign: 'center',
+    marginBottom: 12,
   },
   message: {
     fontSize: 15,

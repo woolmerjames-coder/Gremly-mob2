@@ -111,6 +111,7 @@ import { toDayString } from '../../lib/date/computeDueDay';
 import type { AppRecord } from '../../lib/types';
 import { SweepIntroStatsCard } from '../../components/sweep/SweepIntroStatsCard';
 import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
+import { getTierForAge } from '../../lib/constants/soulDocument';
 import { LockInCheckpointStep } from '../components/sweep/LockInCheckpointStep';
 import {
   selectTodayLockedItems,
@@ -3090,7 +3091,15 @@ function SweepSummaryStep({
             // Fed toast is 8 seconds. Fire age-up after it dismisses.
             setTimeout(() => {
               const currentAge = useGremlyStore.getState().gremlyAge;
-              celebrationController.showAgeUpCelebration(currentAge + 1);
+              const newAge = currentAge + 1;
+              const oldTier = getTierForAge(currentAge);
+              const newTier = getTierForAge(newAge);
+              const isTierTransition = oldTier.name !== newTier.name;
+              celebrationController.showAgeUpCelebration(newAge, {
+                tierName: newTier.name,
+                isTierTransition,
+                previousTierName: isTierTransition ? oldTier.name : undefined,
+              });
             }, 8500);
           }
         }, 1200);
@@ -4087,6 +4096,12 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     }
   };
 
+  const celebrationTier = celebrationAge ? getTierForAge(celebrationAge) : null;
+  const previousTier =
+    celebrationAge && celebrationAge > 0 ? getTierForAge(celebrationAge - 1) : null;
+  const isCelebrationTierTransition =
+    celebrationTier && previousTier ? celebrationTier.name !== previousTier.name : false;
+
   const handleAgeModalDismiss = () => {
     setShowAgeUpModal(false);
     navigation.goBack();
@@ -4307,6 +4322,9 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       <AgeUpCelebrationModal
         visible={showAgeUpModal}
         newAge={celebrationAge}
+        tierName={celebrationTier?.name}
+        isTierTransition={isCelebrationTierTransition}
+        previousTierName={isCelebrationTierTransition ? previousTier?.name : undefined}
         onDismiss={handleAgeModalDismiss}
       />
     </>

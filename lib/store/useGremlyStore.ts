@@ -1805,6 +1805,9 @@ export const useGremlyStore = create<GremlyState>()(
             // Check if celebration should show (hasn't been shown today)
             const shouldShowCelebration = !get().todayAgeCelebrationShownAt;
 
+            // Capture old age BEFORE set() call for tier transition detection
+            const previousAge = get().gremlyAge;
+
             set({
               gremlyAge: result.new_age,
               gremlyAgeLastIncrementedAt: new Date().toISOString(),
@@ -1815,9 +1818,18 @@ export const useGremlyStore = create<GremlyState>()(
               }),
             });
 
+            // Detect tier transition using captured previous age
+            const oldTier = getTierForAge(previousAge);
+            const newTier = getTierForAge(result.new_age);
+            const isTierTransition = oldTier.name !== newTier.name;
+
             // Trigger celebration via controller (App.tsx will render the modal)
             if (shouldShowCelebration) {
-              celebrationController.showAgeUpCelebration(result.new_age);
+              celebrationController.showAgeUpCelebration(result.new_age, {
+                tierName: newTier.name,
+                isTierTransition,
+                previousTierName: isTierTransition ? oldTier.name : undefined,
+              });
             }
 
             console.log('[GremlyStore] Gremly aged up to', result.new_age);

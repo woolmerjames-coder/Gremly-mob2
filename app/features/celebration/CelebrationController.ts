@@ -20,6 +20,12 @@ export interface CelebrationPayload {
   age?: number;
   /** Fed days count for fed celebration (1, 2, or 3) */
   fedDaysCount?: number;
+  /** Tier name for the new age (e.g., "Guide") */
+  tierName?: string;
+  /** Whether this age-up crossed a tier boundary */
+  isTierTransition?: boolean;
+  /** Previous tier name (only set if isTierTransition is true) */
+  previousTierName?: string;
 }
 
 type CelebrationListener = (payload: CelebrationPayload) => void;
@@ -206,7 +212,10 @@ class CelebrationController {
    * This does NOT modify the actual gremlyAge in the store.
    * @param age - The age to display in the modal
    */
-  showAgeUpCelebration(age: number): void {
+  showAgeUpCelebration(
+    age: number,
+    tierInfo?: { tierName: string; isTierTransition: boolean; previousTierName?: string },
+  ): void {
     if (this._suppressAgeUp) {
       if (__DEV__) {
         console.log(
@@ -220,12 +229,19 @@ class CelebrationController {
     const payload: CelebrationPayload = {
       kind: 'age_up',
       age,
+      tierName: tierInfo?.tierName,
+      isTierTransition: tierInfo?.isTierTransition,
+      previousTierName: tierInfo?.previousTierName,
     };
 
     this.emit(payload);
 
     if (__DEV__) {
-      console.log('[Celebration] Age-up celebration triggered for age:', age);
+      console.log('[Celebration] Age-up celebration triggered', {
+        age,
+        tierName: tierInfo?.tierName,
+        isTierTransition: tierInfo?.isTierTransition,
+      });
     }
   }
 
