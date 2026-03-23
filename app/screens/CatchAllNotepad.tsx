@@ -5641,6 +5641,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showPhotoTextNudge, setShowPhotoTextNudge] = useState(false);
   const [showRitualProgress, setShowRitualProgress] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [helpInitialPage, setHelpInitialPage] = useState<'help' | 'gauge' | undefined>(undefined);
+
+  // Open Gremly modal to gauge page when fed toast is tapped
+  useEffect(() => {
+    const unsub = eventBus.on('openGremlyModal', () => {
+      setHelpInitialPage('gauge');
+      setShowHelp(true);
+    });
+    return unsub;
+  }, []);
+
   const [showSweepDemoPrompt, setShowSweepDemoPrompt] = useState(false);
   const [gremlySpeech, setGremlySpeech] = useState<string | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -8586,7 +8597,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             )}
             {/* Gremly perched on input - always visible */}
             <Pressable
-              onPress={() => setShowHelp(true)}
+              onPress={() => {
+                setHelpInitialPage(undefined);
+                setShowHelp(true);
+              }}
               accessibilityLabel="Help"
               style={styles.inputGremly}
             >
@@ -8809,7 +8823,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         sweepsCount={todaySweepsCount}
       />
 
-      <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="minddrop" />
+      <GremlyHelpCard
+        visible={showHelp}
+        onDismiss={() => {
+          setShowHelp(false);
+          setHelpInitialPage(undefined);
+        }}
+        screen="minddrop"
+        initialPage={helpInitialPage}
+      />
 
       <Modal
         transparent

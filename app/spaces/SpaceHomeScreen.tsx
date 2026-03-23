@@ -23,6 +23,7 @@ import {
   Platform,
   ActionSheetIOS,
 } from 'react-native';
+import { eventBus } from '../../lib/events/EventBus';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -506,6 +507,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [chatListModalVisible, setChatListModalVisible] = useState(false);
   const [showCompletedOverlay, setShowCompletedOverlay] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [helpInitialPage, setHelpInitialPage] = useState<'help' | 'gauge' | undefined>(undefined);
+
+  // Open Gremly modal to gauge page when fed toast is tapped
+  useEffect(() => {
+    const unsub = eventBus.on('openGremlyModal', () => {
+      setHelpInitialPage('gauge');
+      setShowHelp(true);
+    });
+    return unsub;
+  }, []);
 
   // Handler to change filter and collapse list
   const handleFilterChange = useCallback((newFilter: FilterTab) => {
@@ -1308,6 +1319,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Phase 12: MilestoneHeader handlers
   const handleGremlyPress = useCallback(() => {
+    setHelpInitialPage(undefined);
     setShowHelp(true);
   }, []);
 
@@ -1704,8 +1716,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
           <GremlyHelpCard
             visible={showHelp}
-            onDismiss={() => setShowHelp(false)}
+            onDismiss={() => {
+              setShowHelp(false);
+              setHelpInitialPage(undefined);
+            }}
             screen="space-detail"
+            initialPage={helpInitialPage}
           />
 
           {/* Scrollable content */}

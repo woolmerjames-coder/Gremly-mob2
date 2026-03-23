@@ -18,13 +18,15 @@ interface FedToastProps {
   fedDayNumber: number;
   /** Called when the toast is dismissed (auto or manual) */
   onDismiss: () => void;
+  /** Called when user taps the toast (not auto-dismiss) */
+  onTap?: () => void;
 }
 
 const TOAST_DURATION = 8000; // Auto-dismiss after 8 seconds
 const SLIDE_OUT_DURATION = 250; // Slide out animation
 const TOAST_TOP_OFFSET = 60; // Below status bar
 
-export function FedToast({ fedDayNumber, onDismiss }: FedToastProps) {
+export function FedToast({ fedDayNumber, onDismiss, onTap }: FedToastProps) {
   // Start at entrance target (component mounts visible, dismisses with slide-out)
   const translateY = useSharedValue(TOAST_TOP_OFFSET);
   const opacity = useSharedValue(1);
@@ -76,6 +78,10 @@ export function FedToast({ fedDayNumber, onDismiss }: FedToastProps) {
     if (autoDismissTimer.current) {
       clearTimeout(autoDismissTimer.current);
       autoDismissTimer.current = null;
+    }
+
+    if (onTap) {
+      onTap();
     }
 
     // eslint-disable-next-line react-hooks/immutability

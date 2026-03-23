@@ -51,6 +51,28 @@ import { getRandomFallback } from '../minddrop/confirmationFallbacks';
 import { cancelAllItemReminders } from '../notifications/itemReminderService';
 import type { TimeBlockPreferences } from '../capacity';
 
+/**
+ * DATE HANDLING CONVENTION
+ *
+ * This store uses TWO date functions for different purposes:
+ *
+ * 1. getRitualDay(dayBoundaryHour, timezone)
+ *    Use for: anything touching daily_ritual_progress, feeding gauge,
+ *    drop/sweep counts, fed status, age-up, feeding history, day rollover.
+ *    Accounts for dayBoundaryHour (e.g., 3 AM boundary means 2 AM is still "yesterday").
+ *
+ * 2. getDateService().getCurrentDate()
+ *    Use for: calendar display, due dates, scheduled dates, commitment dates,
+ *    daily brief date, UI highlights, "what's on my plate today."
+ *    Returns the actual calendar date in device local time.
+ *
+ * Rule of thumb: if the function reads/writes daily_ritual_progress or
+ * cortex_preferences.fed_days_count, use getRitualDay. Everything else
+ * uses getCurrentDate.
+ *
+ * NEVER use new Date() or Date.now() for day-level logic. Only for timestamps.
+ */
+
 // Source marker to identify events emitted by this store (to prevent self-handling)
 const STORE_EVENT_SOURCE = 'gremly-store';
 
@@ -556,6 +578,8 @@ interface GremlyState {
   todayFedCelebrationShownAt: string | null;
   /** Whether an age-up via feeding gauge has been celebrated today */
   todayFeedingAgeUpShownAt: string | null;
+  /** Last 7 days of feeding history (ritual_day -> is_fed) */
+  feedingHistory: Array<{ date: string; isFed: boolean }>;
 
   // Ritual actions
   ensureCurrentRitualDay: () => string;
@@ -570,6 +594,8 @@ interface GremlyState {
   markDemoSweepComplete: () => Promise<void>;
   markFirstTodayVisitComplete: () => Promise<void>;
   refreshRitualProgress: () => Promise<void>;
+  /** Fetch last 7 days of feeding status from Supabase */
+  fetchFeedingHistory: () => Promise<void>;
 
   // Feeding gauge actions (Soul Document v8)
   addGaugeContribution: (
@@ -1053,6 +1079,7 @@ const initialState = {
   graduatedAt: null as string | null,
   todayFedCelebrationShownAt: null as string | null,
   todayFeedingAgeUpShownAt: null as string | null,
+  feedingHistory: [] as Array<{ date: string; isFed: boolean }>,
   pendingDrops: new Map<string, PendingDrop>(),
   // Calendar integration
   calendarConnections: [] as CalendarConnectionStatus[],
@@ -2257,6 +2284,69 @@ export const useGremlyStore = create<GremlyState>()(
             feedingGaugeValue: (ritualProgress?.feeding_gauge_value as number) ?? 0,
             isFedToday: (ritualProgress?.is_fed as boolean) ?? false,
           });
+        },
+
+        fetchFeedingHistory: async () => {
+          const { userId, dayBoundaryHour } = get();
+          if (!userId) return;
+
+          try {
+            // Use device timezone (source of truth for ritual day, per timezone fix)
+            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const todayRitual = getRitualDay(dayBoundaryHour, timezone);
+
+            // Build 7-day window by subtracting days from today's ritual day
+            // Parse the ritual day string and subtract using date arithmetic
+            // Use noon to avoid DST edge cases when subtracting days
+            const todayDate = new Date(todayRitual + 'T12:00:00');
+            const days: string[] = [];
+            for (let i = 6; i >= 0; i--) {
+              const d = new Date(todayDate);
+              d.setDate(d.getDate() - i);
+              // Format as YYYY-MM-DD (same format as ritual_day in DB)
+              const yyyy = d.getFullYear();
+              const mm = String(d.getMonth() + 1).padStart(2, '0');
+              const dd = String(d.getDate()).padStart(2, '0');
+              days.push(`${yyyy}-${mm}-${dd}`);
+            }
+
+            const fromDate = days[0];
+
+            const { data, error } = await supabase
+              .from('daily_ritual_progress')
+              .select('ritual_day, is_fed')
+              .eq('owner_id', userId)
+              .gte('ritual_day', fromDate)
+              .order('ritual_day', { ascending: true });
+
+            if (error) {
+              console.error('[GremlyStore] fetchFeedingHistory failed:', error);
+              return;
+            }
+
+            const fedMap = new Map<string, boolean>();
+            (data ?? []).forEach((row: any) => {
+              fedMap.set(row.ritual_day, row.is_fed === true);
+            });
+
+            const history: Array<{ date: string; isFed: boolean }> = days.map((date) => ({
+              date,
+              isFed: fedMap.get(date) ?? false,
+            }));
+
+            set({ feedingHistory: history });
+
+            if (__DEV__) {
+              console.log('[GremlyStore] Feeding history loaded', {
+                todayRitual,
+                timezone,
+                days,
+                fedCount: history.filter((d) => d.isFed).length,
+              });
+            }
+          } catch (err) {
+            console.error('[GremlyStore] fetchFeedingHistory failed:', err);
+          }
         },
 
         // ═══════════════════════════════════════════════════════════════════

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   Modal,
   StyleSheet,
   ScrollView,
-  Image,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
@@ -35,9 +34,8 @@ import {
 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
+import { getTierForAge } from '../../lib/constants/soulDocument';
+import MascotLottie from '../../app/components/MascotLottie';
 
 const c = BRAND.colors;
 const ICON_SIZE = 20;
@@ -59,6 +57,8 @@ interface GremlyHelpCardProps {
   visible: boolean;
   onDismiss: () => void;
   screen: ScreenType;
+  /** If true, opens directly to the gauge page (e.g., from fed toast tap) */
+  initialPage?: 'help' | 'gauge';
 }
 
 interface HelpStep {
@@ -210,15 +210,80 @@ const HELP_CONTENT: Record<ScreenType, HelpContent> = {
   },
 };
 
-export default function GremlyHelpCard({ visible, onDismiss, screen }: GremlyHelpCardProps) {
+export default function GremlyHelpCard({
+  visible,
+  onDismiss,
+  screen,
+  initialPage,
+}: GremlyHelpCardProps) {
   const content = HELP_CONTENT[screen];
   const [activePage, setActivePage] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 
   const gremlyAge = useGremlyStore((s) => s.gremlyAge);
-  const todayDropsCount = useGremlyStore((s) => s.todayDropsCount);
-  const todaySweepsCount = useGremlyStore((s) => s.todaySweepsCount);
-  const hasPage2 = gremlyAge > 0;
+  const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
+  const isFedToday = useGremlyStore((s) => s.isFedToday);
+  const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
+  const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
+  const feedingHistory = useGremlyStore((s) => s.feedingHistory);
+  const fetchFeedingHistory = useGremlyStore((s) => s.fetchFeedingHistory);
+
+  const currentTier = getTierForAge(gremlyAge);
+
+  const gaugePercent = Math.min(Math.round(feedingGaugeValue * 100), 100);
+  const nextAge = gremlyAge + 1;
+
+  // During training: page 1 = help/checklist, page 2 = gauge
+  // After training: page 1 = gauge (promoted), page 2 = help (demoted)
+  const gaugeFirst = !isTrainingMode;
+
+  const getInitialPage = useCallback(() => {
+    if (initialPage === 'gauge') {
+      return gaugeFirst ? 0 : 1;
+    }
+    if (initialPage === 'help') {
+      return gaugeFirst ? 1 : 0;
+    }
+    return 0; // Default to first page
+  }, [initialPage, gaugeFirst]);
+
+  useEffect(() => {
+    if (visible) {
+      const page = getInitialPage();
+      setActivePage(page);
+      if (page > 0) {
+        setTimeout(() => {
+          scrollRef.current?.scrollTo({ x: page * CARD_WIDTH, animated: false });
+        }, 50);
+      }
+    }
+  }, [visible, getInitialPage]);
+
+  useEffect(() => {
+    if (visible) {
+      fetchFeedingHistory();
+    }
+  }, [visible, fetchFeedingHistory]);
+
+  const getDayLabel = (dateStr: string): string => {
+    const d = new Date(dateStr + 'T12:00:00');
+    return ['S', 'M', 'T', 'W', 'T', 'F', 'S'][d.getDay()];
+  };
+
+  const fedDaysInWeek = feedingHistory.filter((d) => d.isFed).length;
+
+  // Calculate current streak (consecutive fed days ending today or yesterday)
+  const currentStreak = (() => {
+    let streak = 0;
+    for (let i = feedingHistory.length - 1; i >= 0; i--) {
+      if (feedingHistory[i].isFed) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  })();
 
   const goToPage = useCallback((page: number) => {
     scrollRef.current?.scrollTo({ x: page * CARD_WIDTH, animated: true });
@@ -236,21 +301,85 @@ export default function GremlyHelpCard({ visible, onDismiss, screen }: GremlyHel
     onDismiss();
   }, [onDismiss]);
 
-  const renderRitualDots = (filled: number, total: number) => {
-    const dots: string[] = [];
-    for (let i = 0; i < total; i++) {
-      dots.push(i < filled ? '\u25CF' : '\u25CB');
-    }
-    return dots.join('');
-  };
+  const renderGaugePage = () => (
+    <View style={styles.page}>
+      {/* Tier + Age header */}
+      <Text style={styles.title}>
+        {currentTier.name} · Age {gremlyAge}
+      </Text>
+
+      {/* MascotLottie with fill */}
+      <View style={styles.mascotContainer}>
+        <MascotLottie />
+      </View>
+
+      {/* Fed status text */}
+      <Text style={[styles.fedStatus, isFedToday && styles.fedStatusComplete]}>
+        {isFedToday ? 'Fed today ✓' : `${gaugePercent}% full`}
+      </Text>
+
+      {/* Divider */}
+      <View style={styles.sectionDivider} />
+
+      {/* 7-day lookback */}
+      <Text style={styles.lookbackLabel}>Last 7 days</Text>
+      <View style={styles.lookbackRow}>
+        {feedingHistory.map((day, i) => {
+          const isToday = i === feedingHistory.length - 1;
+          return (
+            <View key={day.date} style={styles.lookbackDayContainer}>
+              <View
+                style={[
+                  styles.lookbackDot,
+                  day.isFed ? styles.lookbackDotFed : styles.lookbackDotMissed,
+                  isToday && styles.lookbackDotToday,
+                ]}
+              />
+              <Text style={[styles.lookbackDayLabel, isToday && styles.lookbackDayLabelToday]}>
+                {getDayLabel(day.date)}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      {/* Streak + growth info */}
+      <View style={styles.bottomInfoRow}>
+        {currentStreak > 0 && (
+          <>
+            <Flame size={14} color={c.goldenPear} fill={c.goldenPear} />
+            <Text style={styles.bottomInfoStreak}>{currentStreak} day streak</Text>
+            <Text style={styles.bottomInfoDivider}>·</Text>
+          </>
+        )}
+        <Text style={styles.bottomInfoGrowth}>
+          {fedDaysCount} of 3 days to age {nextAge}
+        </Text>
+      </View>
+    </View>
+  );
+
+  const renderHelpPage = () => (
+    <View style={styles.page}>
+      <Text style={styles.title}>{content.title}</Text>
+      {content.steps.length > 0 && (
+        <View style={styles.stepsContainer}>
+          {content.steps.map((step, i) => (
+            <View key={i} style={styles.stepRow}>
+              <View style={styles.stepIcon}>{step.icon}</View>
+              <Text style={styles.stepText}>{step.text}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleDismiss}>
       <View style={styles.overlay}>
-        {/* Backdrop - tapping dismisses */}
         <Pressable style={StyleSheet.absoluteFill} onPress={handleDismiss} />
 
-        {/* Card - sibling of backdrop, not nested inside it */}
         <View style={styles.card}>
           <ScrollView
             ref={scrollRef}
@@ -261,55 +390,30 @@ export default function GremlyHelpCard({ visible, onDismiss, screen }: GremlyHel
             decelerationRate="fast"
             onScroll={handleScroll}
             scrollEventThrottle={16}
-            scrollEnabled={hasPage2}
+            scrollEnabled={true}
             style={styles.scrollView}
           >
-            {/* Page 1: Help steps */}
-            <View style={styles.page}>
-              <Text style={styles.title}>{content.title}</Text>
-              {content.steps.length > 0 && (
-                <View style={styles.stepsContainer}>
-                  {content.steps.map((step, i) => (
-                    <View key={i} style={styles.stepRow}>
-                      <View style={styles.stepIcon}>{step.icon}</View>
-                      <Text style={styles.stepText}>{step.text}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </View>
-
-            {/* Page 2: Gremly age and ritual progress */}
-            {hasPage2 && (
-              <View style={styles.page}>
-                <Text style={styles.title}>{'Gremly \u00B7 Age ' + gremlyAge}</Text>
-                <View style={styles.mascotContainer}>
-                  <Image source={GREMLY_MASCOT} style={styles.mascotImage} resizeMode="contain" />
-                </View>
-                <Text style={styles.ritualLabel}>Today's ritual</Text>
-                <View style={styles.ritualRow}>
-                  <Text style={styles.ritualDots}>{renderRitualDots(todayDropsCount, 3)}</Text>
-                  <Text style={styles.ritualText}>{todayDropsCount}/3 drops</Text>
-                </View>
-                <View style={styles.ritualRow}>
-                  <Text style={styles.ritualDots}>{renderRitualDots(todaySweepsCount, 3)}</Text>
-                  <Text style={styles.ritualText}>{todaySweepsCount}/3 sweeps</Text>
-                </View>
-              </View>
+            {gaugeFirst ? (
+              <>
+                {renderGaugePage()}
+                {renderHelpPage()}
+              </>
+            ) : (
+              <>
+                {renderHelpPage()}
+                {renderGaugePage()}
+              </>
             )}
           </ScrollView>
 
-          {/* Tappable dot indicators */}
-          {hasPage2 && (
-            <View style={styles.dotsRow}>
-              <Pressable onPress={() => goToPage(0)} hitSlop={8}>
-                <View style={[styles.dot, activePage === 0 && styles.dotActive]} />
-              </Pressable>
-              <Pressable onPress={() => goToPage(1)} hitSlop={8}>
-                <View style={[styles.dot, activePage === 1 && styles.dotActive]} />
-              </Pressable>
-            </View>
-          )}
+          <View style={styles.dotsRow}>
+            <Pressable onPress={() => goToPage(0)} hitSlop={8}>
+              <View style={[styles.dot, activePage === 0 && styles.dotActive]} />
+            </Pressable>
+            <Pressable onPress={() => goToPage(1)} hitSlop={8}>
+              <View style={[styles.dot, activePage === 1 && styles.dotActive]} />
+            </Pressable>
+          </View>
 
           <Pressable style={styles.button} onPress={handleDismiss}>
             <Text style={styles.buttonText}>Got it</Text>
@@ -378,31 +482,96 @@ const styles = StyleSheet.create({
   mascotContainer: {
     alignItems: 'center',
     marginBottom: 16,
+    height: 120,
+    justifyContent: 'center',
   },
-  mascotImage: {
-    width: 80,
-    height: 80,
+  fedStatus: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: c.mossGreen,
+    textAlign: 'center',
+    marginBottom: 16,
   },
-  ritualLabel: {
-    fontSize: 14,
+  fedStatusComplete: {
+    color: c.goldenPear,
+  },
+  sectionDivider: {
+    width: 40,
+    height: 2,
+    backgroundColor: c.borderSubtle,
+    borderRadius: 1,
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  lookbackLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: c.inkMuted,
+    textAlign: 'center',
+    marginBottom: 10,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  lookbackRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingHorizontal: 4,
+    marginBottom: 14,
+  },
+  lookbackDayContainer: {
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+  },
+  lookbackDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  lookbackDotFed: {
+    backgroundColor: c.mossGreen,
+  },
+  lookbackDotMissed: {
+    backgroundColor: '#EDEFF2',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  lookbackDotToday: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: c.goldenPear,
+  },
+  lookbackDayLabel: {
+    fontSize: 10,
+    color: c.inkMuted,
+    fontWeight: '400',
+  },
+  lookbackDayLabelToday: {
     fontWeight: '600',
     color: c.charcoalInk,
-    marginBottom: 10,
   },
-  ritualRow: {
+  bottomInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    justifyContent: 'center',
+    gap: 4,
   },
-  ritualDots: {
-    fontSize: 14,
-    color: c.mossGreen,
-    marginRight: 8,
-    letterSpacing: 2,
+  bottomInfoStreak: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: c.goldenPear,
   },
-  ritualText: {
-    fontSize: 14,
-    color: c.charcoalInk,
+  bottomInfoDivider: {
+    fontSize: 13,
+    color: c.inkMuted,
+    marginHorizontal: 2,
+  },
+  bottomInfoGrowth: {
+    fontSize: 13,
+    color: c.inkMuted,
   },
   dotsRow: {
     flexDirection: 'row',

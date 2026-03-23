@@ -13,6 +13,7 @@ import celebrationController from './CelebrationController';
 import { MicroCelebrate } from './MicroCelebrate';
 import { ConfettiCanvas } from './ConfettiCanvas';
 import { FedToast } from './FedToast';
+import { eventBus } from '../../../lib/events/EventBus';
 import type { CelebrationKind } from './CelebrationController';
 
 type CelebrationState = {
@@ -91,6 +92,7 @@ export function CelebrationProvider({ children }: { children: React.ReactNode })
             // Allow age-up to fire now
             celebrationController.suppressAgeUpCelebration(false);
           }}
+          onTap={() => eventBus.emit('openGremlyModal', {})}
         />
       )}
     </View>
