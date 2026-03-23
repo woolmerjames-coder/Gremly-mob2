@@ -8924,11 +8924,33 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           markSweepUnlockModalSeen();
           navigation.navigate('Sweep', { demoMode: true } as any);
         }}
-        onSetReminder={(time) => {
-          // Save evening notification time
-          // This will be wired to notification preferences in Phase 5.
-          // For now, just log it.
-          console.log('[Training] Evening reminder set to:', time.toISOString());
+        onSetReminder={async (time) => {
+          const userId = useGremlyStore.getState().userId;
+          if (!userId) return;
+
+          const hours = time.getHours().toString().padStart(2, '0');
+          const minutes = time.getMinutes().toString().padStart(2, '0');
+          const timeStr = `${hours}:${minutes}:00`;
+
+          try {
+            const { error } = await supabase.from('notification_preferences').upsert(
+              {
+                user_id: userId,
+                evening_enabled: true,
+                evening_time: timeStr,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: 'user_id' },
+            );
+
+            if (error) {
+              console.warn('[Training] Failed to save evening time:', error);
+            } else {
+              console.log('[Training] Evening notification time saved:', timeStr);
+            }
+          } catch (err) {
+            console.warn('[Training] Failed to save evening time:', err);
+          }
         }}
       />
 

@@ -280,8 +280,10 @@ async function sendScheduledNotifications(env) {
           type: 'morning',
           timezone: timezone,
           isTraining: isTraining,
-          title: 'Good morning',
-          body: 'Your Morning Brief is waiting.',
+          title: isTraining ? 'Gremly' : 'Good morning',
+          body: isTraining
+            ? 'Morning. Got anything on your mind? Drop it before the day takes over.'
+            : 'Your Morning Brief is waiting.',
         });
       }
     }
@@ -301,20 +303,39 @@ async function sendScheduledNotifications(env) {
           );
           // Don't push — user is intentionally disengaged
         } else {
-          const eveningBody =
-            tone === 'recovering'
-              ? 'Quick check-in whenever you are ready.'
-              : 'A few minutes now, a clearer head tonight.';
+          let eveningBody;
+          if (isTraining) {
+            eveningBody = 'Time to sweep. A couple minutes and your brain is clear for tonight.';
+          } else if (tone === 'recovering') {
+            eveningBody = 'Quick check-in whenever you are ready.';
+          } else {
+            eveningBody = 'A few minutes now, a clearer head tonight.';
+          }
 
           usersToNotify.push({
             user_id: pref.user_id,
             token: token,
             type: 'evening',
             isTraining: isTraining,
-            title: 'Sweep before sleep',
+            title: isTraining ? 'Evening sweep' : 'Sweep before sleep',
             body: eveningBody,
           });
         }
+      }
+    }
+
+    // Midday notification (training mode only, 12:00-12:59)
+    if (isTraining) {
+      const middayHour = 12;
+      const middayMin = 30; // center of the window
+      if (isWithinWindow(userTime.hour, userTime.minute, middayHour, middayMin, 30)) {
+        usersToNotify.push({
+          user_id: pref.user_id,
+          token: token,
+          type: 'midday',
+          timezone: timezone,
+          isTraining: true,
+        });
       }
     }
 
@@ -356,12 +377,55 @@ async function sendScheduledNotifications(env) {
   let sent = 0;
   const errors = [];
 
-  // --- Process immediate (morning/evening) notifications sequentially ---
+  // --- Process immediate (morning/evening/midday) notifications sequentially ---
   for (const user of immediateUsers) {
     try {
       const userTimezone =
         prefs.find((p) => p.user_id === user.user_id)?.timezone || 'America/Los_Angeles';
       const todayInUserTz = getDateInTimezone(now, userTimezone);
+
+      // Midday: check if user has dropped today, skip if they have
+      if (user.type === 'midday') {
+        // Atomic claim
+        const claimed = await claimNotificationSlot(
+          supabaseUrl,
+          supabaseKey,
+          user.user_id,
+          'midday',
+          todayInUserTz,
+        );
+        if (!claimed) {
+          console.log(`[Notifications] Midday slot already claimed for ${user.user_id}`);
+          continue;
+        }
+
+        // Check if user has any drops today
+        const dropsRes = await fetch(
+          `${supabaseUrl}/rest/v1/daily_ritual_progress?owner_id=eq.${user.user_id}&ritual_day=eq.${todayInUserTz}&select=drops_count`,
+          { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } },
+        );
+        const dropsData = dropsRes.ok ? await dropsRes.json() : [];
+        const dropsToday = dropsData?.[0]?.drops_count ?? 0;
+
+        if (dropsToday > 0) {
+          console.log(`[Notifications] Midday suppressed (has drops) for ${user.user_id}`);
+          continue;
+        }
+
+        await sendExpoPush(
+          user.token,
+          'Gremly',
+          'Anything piling up? Even one thought counts.',
+          'midday',
+          {
+            _categoryId: 'MORNING_BRIEF',
+            notificationType: 'midday',
+          },
+        );
+        sent++;
+        console.log(`[Notifications] Midday sent to ${user.user_id}`);
+        continue;
+      }
 
       // Atomic claim — if another invocation already sent, skip
       const claimed = await claimNotificationSlot(
@@ -431,6 +495,23 @@ async function sendScheduledNotifications(env) {
             );
             continue;
           }
+        }
+
+        // Training mode: simpler afternoon nudge focused on drops
+        if (user.isTraining) {
+          await sendExpoPush(
+            user.token,
+            'Gremly',
+            "Your Gremly's waiting. Drop something, anything.",
+            'afternoon_checkin',
+            {
+              _categoryId: 'AFTERNOON_CHECKIN',
+              notificationType: 'afternoon_checkin',
+            },
+          );
+          sent++;
+          console.log(`[Notifications] Training afternoon sent to ${user.user_id}`);
+          continue; // Skip the normal afternoon context logic
         }
 
         // Query actionable items for smart content
