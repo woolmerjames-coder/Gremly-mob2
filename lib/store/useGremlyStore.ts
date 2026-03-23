@@ -25,11 +25,9 @@ import type {
   WeeklySummaryCleanupAction,
   DailyContextObject,
 } from '../types';
-import type { FeedingContribution, AIMode, TrainingItemId } from '../types/soulDocument';
-import type { TrainingProgress } from '../training/trainingTypes';
-import { EMPTY_TRAINING_PROGRESS } from '../training/trainingTypes';
-import { checkTrainingProgress, getVisibleLevel } from '../training/trainingManager';
-import { getTrainingItemSpeech, getTrainingLevelSpeech } from '../speech/trainingSpeech';
+import type { FeedingContribution, AIMode } from '../types/soulDocument';
+import type { UserTrainingData } from '../training/trainingReadiness';
+import { calculateTrainingReadiness, GRADUATION_THRESHOLD } from '../training/trainingReadiness';
 import {
   getTierForAge,
   getDropValue,
@@ -570,20 +568,24 @@ interface GremlyState {
   aiMode: AIMode;
   /** Whether user is still in training (pre-graduation) */
   isTrainingMode: boolean;
-  /** Current training level: 1, 2, or 3 */
-  trainingLevel: number;
-  /** Training item IDs that have met their threshold */
-  trainingItemsCompleted: TrainingItemId[];
   /** ISO timestamp when training started */
   trainingStartedAt: string | null;
   /** ISO timestamp when user graduated, null until graduation */
   graduatedAt: string | null;
-  /** Cumulative training progress counts */
-  trainingProgress: TrainingProgress;
   /** Set when graduation triggers; consumed by graduation flow component */
   pendingGraduation: boolean;
   /** Whether the post-graduation speech has already fired */
   postGraduationMessageShown: boolean;
+  /** Day 1 drop sequence: 0=not started, 1-5=in progress, 6=done */
+  trainingDropStep: number;
+  /** Data readiness score 0-100, drives graduation */
+  trainingReadiness: number;
+  /** One-time modal flags */
+  hasSeenGaugeExplanation: boolean;
+  hasSeenFirstFedModal: boolean;
+  hasSeenSweepUnlockModal: boolean;
+  hasSeenEntityChatHighlight: boolean;
+  hasSeenTrainingMeterAutoOpen: boolean;
   /** Whether the fed celebration toast has been shown today (prevents duplicate) */
   todayFedCelebrationShownAt: string | null;
   /** Whether an age-up via feeding gauge has been celebrated today */
@@ -609,9 +611,14 @@ interface GremlyState {
 
   // Training progress actions
   startTraining: () => Promise<void>;
-  incrementTrainingProgress: (metric: keyof TrainingProgress) => void;
-  refreshTrainingProgress: () => Promise<void>;
+  advanceTrainingDropStep: () => void;
+  refreshTrainingReadiness: () => Promise<number>;
   finalizeGraduation: () => Promise<void>;
+  markGaugeExplanationSeen: () => void;
+  markFirstFedModalSeen: () => void;
+  markSweepUnlockModalSeen: () => void;
+  markEntityChatHighlightSeen: () => void;
+  markTrainingMeterAutoOpenSeen: () => void;
 
   // Feeding gauge actions (Soul Document v8)
   addGaugeContribution: (
@@ -1089,13 +1096,17 @@ const initialState = {
   sockCount: 0,
   aiMode: 'encouragement' as AIMode,
   isTrainingMode: true,
-  trainingLevel: 1,
-  trainingItemsCompleted: [] as TrainingItemId[],
   trainingStartedAt: null as string | null,
   graduatedAt: null as string | null,
-  trainingProgress: EMPTY_TRAINING_PROGRESS,
   pendingGraduation: false,
   postGraduationMessageShown: false,
+  trainingDropStep: 0,
+  trainingReadiness: 0,
+  hasSeenGaugeExplanation: false,
+  hasSeenFirstFedModal: false,
+  hasSeenSweepUnlockModal: false,
+  hasSeenEntityChatHighlight: false,
+  hasSeenTrainingMeterAutoOpen: false,
   todayFedCelebrationShownAt: null as string | null,
   todayFeedingAgeUpShownAt: null as string | null,
   feedingHistory: [] as Array<{ date: string; isFed: boolean }>,
@@ -1234,7 +1245,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_level, training_items_completed, training_started_at, graduated_at, pending_graduation',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1401,11 +1412,18 @@ export const useGremlyStore = create<GremlyState>()(
               sockCount: (cortexPrefs?.sock_count as number) ?? 0,
               aiMode: ((cortexPrefs?.ai_mode as string) ?? 'encouragement') as AIMode,
               isTrainingMode: (cortexPrefs?.is_training_mode as boolean) ?? true,
-              trainingLevel: (cortexPrefs?.training_level as number) ?? 1,
-              trainingItemsCompleted:
-                (cortexPrefs?.training_items_completed as TrainingItemId[]) ?? [],
               trainingStartedAt: (cortexPrefs?.training_started_at as string) ?? null,
               graduatedAt: (cortexPrefs?.graduated_at as string) ?? null,
+              trainingDropStep: (cortexPrefs?.training_drop_step as number) ?? 0,
+              hasSeenGaugeExplanation:
+                (cortexPrefs?.has_seen_gauge_explanation as boolean) ?? false,
+              hasSeenFirstFedModal: (cortexPrefs?.has_seen_first_fed_modal as boolean) ?? false,
+              hasSeenSweepUnlockModal:
+                (cortexPrefs?.has_seen_sweep_unlock_modal as boolean) ?? false,
+              hasSeenEntityChatHighlight:
+                (cortexPrefs?.has_seen_entity_chat_highlight as boolean) ?? false,
+              hasSeenTrainingMeterAutoOpen:
+                (cortexPrefs?.has_seen_training_meter_auto_open as boolean) ?? false,
               userTimezone: timezone,
               isLoading: false,
               isInitialized: true,
@@ -1414,9 +1432,11 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Populate training progress from cumulative data
             if (get().isTrainingMode) {
-              get().refreshTrainingProgress().catch((err) => {
-                console.warn('[GremlyStore] refreshTrainingProgress on init failed:', err);
-              });
+              get()
+                .refreshTrainingReadiness()
+                .catch((err) => {
+                  console.warn('[GremlyStore] refreshTrainingReadiness on init failed:', err);
+                });
             }
 
             // Sync timezone to database if device timezone differs (handles travel)
@@ -1570,10 +1590,17 @@ export const useGremlyStore = create<GremlyState>()(
             sockCount: 0,
             aiMode: 'encouragement' as AIMode,
             isTrainingMode: true,
-            trainingLevel: 1,
-            trainingItemsCompleted: [],
             trainingStartedAt: null,
             graduatedAt: null,
+            pendingGraduation: false,
+            postGraduationMessageShown: false,
+            trainingDropStep: 0,
+            trainingReadiness: 0,
+            hasSeenGaugeExplanation: false,
+            hasSeenFirstFedModal: false,
+            hasSeenSweepUnlockModal: false,
+            hasSeenEntityChatHighlight: false,
+            hasSeenTrainingMeterAutoOpen: false,
             todayFedCelebrationShownAt: null,
             todayFeedingAgeUpShownAt: null,
           });
@@ -1761,7 +1788,14 @@ export const useGremlyStore = create<GremlyState>()(
 
           // Gauge contribution handles age-up via feeding system (Soul Document v8)
           // Track training progress
-          if (get().isTrainingMode) get().incrementTrainingProgress('drops');
+          if (get().isTrainingMode) {
+            get().advanceTrainingDropStep();
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after drop failed:', err);
+              });
+          }
           return { dropsCount: newDropsCount, didAgeUp: false, newAge: get().gremlyAge };
         },
 
@@ -1791,7 +1825,13 @@ export const useGremlyStore = create<GremlyState>()(
 
           // Gauge contribution handles age-up via feeding system (Soul Document v8)
           // Track training progress
-          if (get().isTrainingMode) get().incrementTrainingProgress('sweeps');
+          if (get().isTrainingMode) {
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after sweep failed:', err);
+              });
+          }
           return { sweepsCount: newSweepsCount, didAgeUp: false, newAge: get().gremlyAge };
         },
 
@@ -2050,12 +2090,16 @@ export const useGremlyStore = create<GremlyState>()(
 
           const currentRitualDay = get().ensureCurrentRitualDay();
 
+          // Training mode: 1.5x gauge multiplier (Training Challenge spec Section 8)
+          const multiplier = get().isTrainingMode ? 1.5 : 1.0;
+          const adjustedValue = value * multiplier;
+
           try {
             const { data, error } = await supabase.rpc('update_feeding_gauge', {
               p_owner_id: userId,
               p_ritual_day: currentRitualDay,
               p_source: source,
-              p_value: value,
+              p_value: adjustedValue,
             });
 
             if (error) {
@@ -2069,7 +2113,7 @@ export const useGremlyStore = create<GremlyState>()(
 
             const contribution: FeedingContribution = {
               source: source as FeedingContribution['source'],
-              value,
+              value: adjustedValue,
               timestamp: new Date().toISOString(),
             };
 
@@ -2218,7 +2262,13 @@ export const useGremlyStore = create<GremlyState>()(
           if (alreadyCredited) return;
           await get().addGaugeContribution('brief', GAUGE_WEIGHTS.BRIEF);
           // Track training progress
-          if (get().isTrainingMode) get().incrementTrainingProgress('briefs');
+          if (get().isTrainingMode) {
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after brief failed:', err);
+              });
+          }
         },
 
         commitLockInItems: async (count: number) => {
@@ -2233,7 +2283,13 @@ export const useGremlyStore = create<GremlyState>()(
             await get().addGaugeContribution('lock_in', value);
           }
           // Track training progress
-          if (get().isTrainingMode) get().incrementTrainingProgress('lockIns');
+          if (get().isTrainingMode) {
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after lock-in failed:', err);
+              });
+          }
         },
 
         trackSpaceAssign: async () => {
@@ -2418,189 +2474,164 @@ export const useGremlyStore = create<GremlyState>()(
         // TRAINING PROGRESS ACTIONS
         // ═══════════════════════════════════════════════════════════════════
 
-        incrementTrainingProgress: (metric: keyof TrainingProgress) => {
-          const { isTrainingMode, trainingProgress, trainingLevel, trainingItemsCompleted, userId } = get();
-          if (!isTrainingMode || !userId) return;
+        advanceTrainingDropStep: () => {
+          const { trainingDropStep, isTrainingMode } = get();
+          if (!isTrainingMode) return;
+          if (trainingDropStep >= 6) return; // already done
 
-          // Increment the metric
-          const updated = { ...trainingProgress };
-          if (metric === 'calendarConnected') {
-            updated.calendarConnected = true;
-          } else {
-            (updated[metric] as number) += 1;
-          }
-          set({ trainingProgress: updated });
+          const nextStep = trainingDropStep === 0 ? 1 : trainingDropStep + 1;
+          const isDone = nextStep >= 6;
 
-          // Check for completions, level unlocks, and graduation
-          const result = checkTrainingProgress(updated, trainingLevel as 1 | 2 | 3, trainingItemsCompleted);
+          set({ trainingDropStep: isDone ? 6 : nextStep });
 
-          // Handle newly completed items
-          if (result.newlyCompleted.length > 0) {
-            const newCompleted = [...trainingItemsCompleted, ...result.newlyCompleted];
-            set({ trainingItemsCompleted: newCompleted });
-
-            // Persist to Supabase
+          // Persist to Supabase (best-effort)
+          const userId = get().userId;
+          if (userId) {
             supabase
               .from('cortex_preferences')
-              .update({ training_items_completed: newCompleted })
+              .update({ training_drop_step: isDone ? 6 : nextStep })
               .eq('owner_id', userId)
               .then(({ error }) => {
-                if (error) console.warn('[GremlyStore] Failed to persist training_items_completed:', error);
+                if (error)
+                  console.warn('[GremlyStore] Failed to persist training_drop_step:', error);
               });
-
-            // Emit speech for each newly completed item
-            for (const itemId of result.newlyCompleted) {
-              const speech = getTrainingItemSpeech(itemId);
-              eventBus.emit('gremly:speak', speech);
-            }
-          }
-
-          // Handle level unlock
-          if (result.newLevel != null) {
-            set({ trainingLevel: result.newLevel });
-
-            supabase
-              .from('cortex_preferences')
-              .update({ training_level: result.newLevel })
-              .eq('owner_id', userId)
-              .then(({ error }) => {
-                if (error) console.warn('[GremlyStore] Failed to persist training_level:', error);
-              });
-
-            const speech = getTrainingLevelSpeech(result.newLevel);
-            eventBus.emit('gremly:speak', speech);
-          }
-
-          // Handle graduation
-          if (result.shouldGraduate) {
-            set({ pendingGraduation: true });
           }
         },
 
-        refreshTrainingProgress: async () => {
-          const { userId, trainingStartedAt, isTrainingMode, trainingLevel, trainingItemsCompleted } = get();
-          if (!userId || !isTrainingMode || !trainingStartedAt) return;
+        refreshTrainingReadiness: async () => {
+          const { userId, trainingStartedAt, isTrainingMode } = get();
+          if (!userId || !isTrainingMode || !trainingStartedAt) return 0;
 
           try {
-            // Query cumulative counts since training started
-            const [dropsRes, sweepsRes, briefsRes] = await Promise.all([
-              supabase
-                .from('daily_ritual_progress')
-                .select('drops_count')
-                .eq('owner_id', userId)
-                .gte('created_at', trainingStartedAt),
-              supabase
-                .from('events')
-                .select('id', { count: 'exact', head: true })
-                .eq('owner_id', userId)
-                .eq('kind', 'sweep_completed')
-                .gte('created_at', trainingStartedAt),
-              supabase
-                .from('daily_briefs')
-                .select('id', { count: 'exact', head: true })
-                .eq('owner_id', userId)
-                .gte('created_at', trainingStartedAt),
-            ]);
+            const { data, error } = await supabase.rpc('get_training_readiness', {
+              p_owner_id: userId,
+              p_since: trainingStartedAt,
+            });
 
-            const drops = (dropsRes.data ?? []).reduce(
-              (sum: number, row: any) => sum + ((row.drops_count as number) ?? 0),
-              0,
-            );
-            const sweeps = sweepsRes.count ?? 0;
-            const briefs = briefsRes.count ?? 0;
+            if (error) {
+              console.error('[GremlyStore] get_training_readiness RPC failed:', error);
+              return get().trainingReadiness;
+            }
 
-            // Count from store arrays (filtered by trainingStartedAt)
-            const habits = get().habits.filter(
-              (h) => h.created_at && h.created_at >= trainingStartedAt,
-            ).length;
-            const spaces = get().spaces.filter(
-              (s) => s.created_at && s.created_at >= trainingStartedAt,
-            ).length;
+            // data is a jsonb object with the readiness metrics
+            const metrics = data as Record<string, number>;
 
-            // Count journals from notes with subtype 'journal'
-            const journals = get().notes.filter(
-              (n) => n.subtype === 'journal' && n.created_at && n.created_at >= trainingStartedAt,
-            ).length;
-
-            // Count entity chats from notes with chat data
-            const entityChats = get().notes.filter(
-              (n) =>
-                n.views &&
-                typeof n.views === 'object' &&
-                'chat' in (n.views as Record<string, unknown>) &&
-                n.created_at &&
-                n.created_at >= trainingStartedAt,
-            ).length;
-
-            // Check calendar connection from cortex_preferences
-            const { data: cortexPrefs } = await supabase
-              .from('cortex_preferences')
-              .select('calendar_connected')
-              .eq('owner_id', userId)
-              .maybeSingle();
-
-            const calendarConnected = (cortexPrefs?.calendar_connected as boolean) ?? false;
-
-            // Count lock-ins from daily briefs that have lock_in_items
-            // Use a simple heuristic: count briefs that have been completed with lock-ins
-            const { count: lockInsCount } = await supabase
-              .from('daily_briefs')
-              .select('id', { count: 'exact', head: true })
-              .eq('owner_id', userId)
-              .gte('created_at', trainingStartedAt)
-              .not('lock_in_items', 'is', null);
-
-            const progress: TrainingProgress = {
-              drops,
-              sweeps,
-              briefs,
-              habits,
-              journals,
-              lockIns: lockInsCount ?? 0,
-              entityChats,
-              spaces,
-              calendarConnected,
+            const trainingData: UserTrainingData = {
+              totalDrops: metrics.total_drops ?? 0,
+              daysWithDrops: metrics.days_with_drops ?? 0,
+              totalSweeps: metrics.total_sweeps ?? 0,
+              entityTypeCount: metrics.entity_types ?? 0,
+              journalCount: metrics.journal_count ?? 0,
+              entityChatCount: metrics.entity_chat_count ?? 0,
+              briefCount: metrics.brief_count ?? 0,
+              todosCount: metrics.todos_count ?? 0,
+              calendarConnected: false, // checked at runtime, not stored in DB
             };
 
-            set({ trainingProgress: progress });
+            const score = calculateTrainingReadiness(trainingData);
 
-            // Check for any completions that happened while app was closed
-            const result = checkTrainingProgress(progress, trainingLevel as 1 | 2 | 3, trainingItemsCompleted);
+            set({ trainingReadiness: score });
 
-            if (result.newlyCompleted.length > 0) {
-              const newCompleted = [...trainingItemsCompleted, ...result.newlyCompleted];
-              set({ trainingItemsCompleted: newCompleted });
-
-              supabase
-                .from('cortex_preferences')
-                .update({ training_items_completed: newCompleted })
-                .eq('owner_id', userId)
-                .then(({ error }) => {
-                  if (error) console.warn('[GremlyStore] Failed to persist training_items_completed on refresh:', error);
-                });
-            }
-
-            if (result.newLevel != null) {
-              set({ trainingLevel: result.newLevel });
-
-              supabase
-                .from('cortex_preferences')
-                .update({ training_level: result.newLevel })
-                .eq('owner_id', userId)
-                .then(({ error }) => {
-                  if (error) console.warn('[GremlyStore] Failed to persist training_level on refresh:', error);
-                });
-            }
-
-            if (result.shouldGraduate) {
+            // Check for graduation
+            if (score >= GRADUATION_THRESHOLD && !get().pendingGraduation) {
               set({ pendingGraduation: true });
             }
 
             if (__DEV__) {
-              console.log('[GremlyStore] Training progress refreshed:', progress);
+              console.log('[GremlyStore] Training readiness refreshed:', { score, trainingData });
             }
+
+            return score;
           } catch (err) {
-            console.error('[GremlyStore] refreshTrainingProgress failed:', err);
+            console.error('[GremlyStore] refreshTrainingReadiness failed:', err);
+            return get().trainingReadiness;
+          }
+        },
+
+        markGaugeExplanationSeen: () => {
+          set({ hasSeenGaugeExplanation: true });
+          const userId = get().userId;
+          if (userId) {
+            supabase
+              .from('cortex_preferences')
+              .update({ has_seen_gauge_explanation: true })
+              .eq('owner_id', userId)
+              .then(({ error }) => {
+                if (error)
+                  console.warn(
+                    '[GremlyStore] Failed to persist has_seen_gauge_explanation:',
+                    error,
+                  );
+              });
+          }
+        },
+
+        markFirstFedModalSeen: () => {
+          set({ hasSeenFirstFedModal: true });
+          const userId = get().userId;
+          if (userId) {
+            supabase
+              .from('cortex_preferences')
+              .update({ has_seen_first_fed_modal: true })
+              .eq('owner_id', userId)
+              .then(({ error }) => {
+                if (error)
+                  console.warn('[GremlyStore] Failed to persist has_seen_first_fed_modal:', error);
+              });
+          }
+        },
+
+        markSweepUnlockModalSeen: () => {
+          set({ hasSeenSweepUnlockModal: true });
+          const userId = get().userId;
+          if (userId) {
+            supabase
+              .from('cortex_preferences')
+              .update({ has_seen_sweep_unlock_modal: true })
+              .eq('owner_id', userId)
+              .then(({ error }) => {
+                if (error)
+                  console.warn(
+                    '[GremlyStore] Failed to persist has_seen_sweep_unlock_modal:',
+                    error,
+                  );
+              });
+          }
+        },
+
+        markEntityChatHighlightSeen: () => {
+          set({ hasSeenEntityChatHighlight: true });
+          const userId = get().userId;
+          if (userId) {
+            supabase
+              .from('cortex_preferences')
+              .update({ has_seen_entity_chat_highlight: true })
+              .eq('owner_id', userId)
+              .then(({ error }) => {
+                if (error)
+                  console.warn(
+                    '[GremlyStore] Failed to persist has_seen_entity_chat_highlight:',
+                    error,
+                  );
+              });
+          }
+        },
+
+        markTrainingMeterAutoOpenSeen: () => {
+          set({ hasSeenTrainingMeterAutoOpen: true });
+          const userId = get().userId;
+          if (userId) {
+            supabase
+              .from('cortex_preferences')
+              .update({ has_seen_training_meter_auto_open: true })
+              .eq('owner_id', userId)
+              .then(({ error }) => {
+                if (error)
+                  console.warn(
+                    '[GremlyStore] Failed to persist has_seen_training_meter_auto_open:',
+                    error,
+                  );
+              });
           }
         },
 
@@ -2628,7 +2659,8 @@ export const useGremlyStore = create<GremlyState>()(
               })
               .eq('owner_id', userId)
               .then(({ error }) => {
-                if (error) console.warn('[GremlyStore] Failed to persist finalizeGraduation:', error);
+                if (error)
+                  console.warn('[GremlyStore] Failed to persist finalizeGraduation:', error);
               });
           }
 
@@ -2949,7 +2981,13 @@ export const useGremlyStore = create<GremlyState>()(
             source: STORE_EVENT_SOURCE,
           });
           // Track training progress
-          if (get().isTrainingMode) get().incrementTrainingProgress('habits');
+          if (get().isTrainingMode) {
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after habit failed:', err);
+              });
+          }
           return habitWithType;
         },
 
@@ -3503,7 +3541,11 @@ export const useGremlyStore = create<GremlyState>()(
           });
           // Track training progress for journal entries
           if (get().isTrainingMode && data.subtype === 'journal') {
-            get().incrementTrainingProgress('journals');
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after journal failed:', err);
+              });
           }
           return noteWithType;
         },
@@ -3709,7 +3751,13 @@ export const useGremlyStore = create<GremlyState>()(
             source: STORE_EVENT_SOURCE,
           });
           // Track training progress
-          if (get().isTrainingMode) get().incrementTrainingProgress('spaces');
+          if (get().isTrainingMode) {
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after space failed:', err);
+              });
+          }
           return data;
         },
 
@@ -9610,13 +9658,16 @@ export const useGremlyStore = create<GremlyState>()(
           sockCount: state.sockCount,
           aiMode: state.aiMode,
           isTrainingMode: state.isTrainingMode,
-          trainingLevel: state.trainingLevel,
-          trainingItemsCompleted: state.trainingItemsCompleted,
           trainingStartedAt: state.trainingStartedAt,
           graduatedAt: state.graduatedAt,
-          trainingProgress: state.trainingProgress,
           pendingGraduation: state.pendingGraduation,
           postGraduationMessageShown: state.postGraduationMessageShown,
+          trainingDropStep: state.trainingDropStep,
+          hasSeenGaugeExplanation: state.hasSeenGaugeExplanation,
+          hasSeenFirstFedModal: state.hasSeenFirstFedModal,
+          hasSeenSweepUnlockModal: state.hasSeenSweepUnlockModal,
+          hasSeenEntityChatHighlight: state.hasSeenEntityChatHighlight,
+          hasSeenTrainingMeterAutoOpen: state.hasSeenTrainingMeterAutoOpen,
         }),
 
         // Merge persisted state with fresh initial state
@@ -9646,8 +9697,9 @@ export const useGremlyStore = create<GremlyState>()(
             todayFedCelebrationShownAt: null,
             todayFeedingAgeUpShownAt: null,
             pendingGaugePreviews: 0,
-            // Training progress is refreshed from server in initialize()
-            trainingProgress: EMPTY_TRAINING_PROGRESS,
+            // Training readiness is refreshed from server in initialize()
+            trainingReadiness: 0,
+            pendingGraduation: false,
           };
         },
       },

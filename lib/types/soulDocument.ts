@@ -56,45 +56,6 @@ export interface FeedingGaugeState {
 }
 
 // ------------------------------------------------------------
-// Training Types (canonical source: lib/training/trainingTypes.ts)
-// ------------------------------------------------------------
-
-/** Training progresses through 3 levels before graduation. Source: Soul Document v8 */
-export type TrainingLevel = 1 | 2 | 3;
-
-/** Re-exported from lib/training/trainingTypes.ts — canonical source of truth */
-export type { TrainingItemId } from '../training/trainingTypes';
-
-/** A single item in the training checklist. Source: Soul Document v8 */
-export interface TrainingItem {
-  id: TrainingItemId;
-  label: string;
-  description: string;
-  /** The threshold from TRAINING_THRESHOLDS */
-  target: number;
-  /** Current progress toward target */
-  current: number;
-  isComplete: boolean;
-  /** True for journals and lock_ins, which are taught in-flow, not on the checklist */
-  isContextual: boolean;
-}
-
-/** Complete training system state. Source: Soul Document v8 */
-export interface TrainingState {
-  /** True until graduation */
-  isActive: boolean;
-  currentLevel: TrainingLevel;
-  /** Items that have met their threshold */
-  completedItems: TrainingItemId[];
-  /** All items with current progress */
-  items: TrainingItem[];
-  /** ISO datetime, or null if not started */
-  startedAt: string | null;
-  /** ISO datetime, null until graduation */
-  graduatedAt: string | null;
-}
-
-// ------------------------------------------------------------
 // AI Mode Types
 // ------------------------------------------------------------
 
@@ -143,6 +104,5 @@ export interface GremlyProgressState {
   currentTier: Tier;
   wandering: WanderingState;
   sock: SockState;
-  training: TrainingState;
   aiMode: AIMode;
 }
