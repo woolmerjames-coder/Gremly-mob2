@@ -1,8 +1,7 @@
 import React, { useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, Image, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CommonActions, useNavigation } from '@react-navigation/native';
-import MascotLottie from '../components/MascotLottie';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { BRAND } from '../../design/brand';
 
@@ -24,14 +23,17 @@ export default function TrainingIntroScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.mascotContainer}>
-          <MascotLottie style={styles.mascot} />
+          <Image
+            source={require('../../assets/mascot/gremly-mascot.png')}
+            style={{ width: 160, height: 160 }}
+            resizeMode="contain"
+          />
         </View>
 
         <Text style={styles.headline}>Train your Gremly</Text>
 
         <Text style={styles.body}>
-          Your Gremly needs to learn how your brain works. Drop thoughts, sweep your mind, and in
-          about a week, it'll know you well enough to really help.
+          Your Gremly needs to learn how your brain works. It starts with dropping thoughts.
         </Text>
       </View>
 
@@ -80,7 +82,7 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   button: {
-    backgroundColor: '#4A6741',
+    backgroundColor: BRAND.colors.mossGreen,
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',

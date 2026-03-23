@@ -141,7 +141,6 @@ import {
   getDcoGreetingSpeech,
   getEmptyStateSpeech,
   getFirstVisitSpeech,
-  getPostFirstDropSpeech,
   type SpeechContext,
 } from '../../lib/speech/gremlySpeech';
 import {
@@ -162,6 +161,16 @@ import MascotLottie, { type MascotLottieHandle } from '../components/MascotLotti
 import RitualProgressIndicator from '../../components/ritual/RitualProgressIndicator';
 import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
+import {
+  getTrainingDropPrompt,
+  getClassificationHint,
+  getNextTrainingModal,
+} from '../../lib/training/trainingFlow';
+import DropProgressDots from '../components/training/DropProgressDots';
+import GaugeExplanationModal from '../components/training/GaugeExplanationModal';
+import FirstFedModal from '../components/training/FirstFedModal';
+import SweepUnlockModal from '../components/training/SweepUnlockModal';
+import TrainingMeter from '../components/training/TrainingMeter';
 
 import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
 import {
@@ -5495,6 +5504,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Training mode state
   const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
+  const trainingDropStep = useGremlyStore((s) => s.trainingDropStep);
+  const hasSeenGaugeExplanation = useGremlyStore((s) => s.hasSeenGaugeExplanation);
+  const hasSeenFirstFedModal = useGremlyStore((s) => s.hasSeenFirstFedModal);
+  const hasSeenSweepUnlockModal = useGremlyStore((s) => s.hasSeenSweepUnlockModal);
+  const markGaugeExplanationSeen = useGremlyStore((s) => s.markGaugeExplanationSeen);
+  const markFirstFedModalSeen = useGremlyStore((s) => s.markFirstFedModalSeen);
+  const markSweepUnlockModalSeen = useGremlyStore((s) => s.markSweepUnlockModalSeen);
+  const hasSeenTrainingMeterAutoOpen = useGremlyStore((s) => s.hasSeenTrainingMeterAutoOpen);
+  const markTrainingMeterAutoOpenSeen = useGremlyStore((s) => s.markTrainingMeterAutoOpenSeen);
+  const trainingStartedAt = useGremlyStore((s) => s.trainingStartedAt);
 
   // Derive drops-today and last-drop-time from store — survives tab switches
   const storeTodos = useGremlyStore((s) => s.todos);
@@ -5655,12 +5674,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return unsub;
   }, []);
 
-  const [showSweepDemoPrompt, setShowSweepDemoPrompt] = useState(false);
   const [gremlySpeech, setGremlySpeech] = useState<string | null>(null);
+  const [showGaugeModal, setShowGaugeModal] = useState(false);
+  const [showFirstFedModal, setShowFirstFedModal] = useState(false);
+  const [showSweepUnlockModal, setShowSweepUnlockModal] = useState(false);
+  const [showTrainingMeter, setShowTrainingMeter] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSpeechRef = useRef<string | null>(null);
   const hasShownGreetingRef = useRef(false);
+  const hasShownMeterSpeechRef = useRef(false);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
   // Photo drop: Track if current submission has photos (for classification default to log-general)
   const currentSubmissionHasPhotosRef = useRef(false);
@@ -5698,32 +5721,26 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, []);
 
   // Helper to show Gremly speech bubble with auto-dismiss
-  const showGremlySpeech = useCallback(
-    (message: string, durationMs = 3500) => {
-      if (showSweepDemoPrompt) return; // Don't auto-dismiss during demo prompt
-      if (gremlySpeechTimeoutRef.current) {
-        clearTimeout(gremlySpeechTimeoutRef.current);
-      }
-      lastSpeechRef.current = message;
-      setGremlySpeech(message);
-      gremlySpeechTimeoutRef.current = setTimeout(() => {
-        // console.log('[Gremly Speech] Auto-dismissing speech bubble');
-        setGremlySpeech(null);
-      }, durationMs);
-    },
-    [showSweepDemoPrompt],
-  );
+  const showGremlySpeech = useCallback((message: string, durationMs = 3500) => {
+    if (gremlySpeechTimeoutRef.current) {
+      clearTimeout(gremlySpeechTimeoutRef.current);
+    }
+    lastSpeechRef.current = message;
+    setGremlySpeech(message);
+    gremlySpeechTimeoutRef.current = setTimeout(() => {
+      // console.log('[Gremly Speech] Auto-dismissing speech bubble');
+      setGremlySpeech(null);
+    }, durationMs);
+  }, []);
 
   // Show a contextual greeting on mount (or first-visit onboarding speech)
   useEffect(() => {
-    // Don't overwrite post-drop prompt
-    if (showSweepDemoPrompt) return;
     // Only show greeting once (mount)
     if (hasShownGreetingRef.current) return;
 
     // Delay slightly so the animation is visible
     const timer = setTimeout(() => {
-      if (hasShownGreetingRef.current || showSweepDemoPrompt) return;
+      if (hasShownGreetingRef.current) return;
       hasShownGreetingRef.current = true;
       if (!firstDropCompletedAt) {
         const speech = getFirstVisitSpeech();
@@ -5738,7 +5755,35 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [showGremlySpeech, firstDropCompletedAt, showSweepDemoPrompt, briefHeadline, isTrainingMode]);
+  }, [showGremlySpeech, firstDropCompletedAt, briefHeadline, isTrainingMode]);
+
+  // Day 2: auto-open training meter on first app open after Day 1
+  useEffect(() => {
+    if (!isTrainingMode) return;
+    if (!hasSeenFirstFedModal) return; // hasn't finished Day 1 yet
+    if (hasSeenTrainingMeterAutoOpen) return; // already shown
+    if (!trainingStartedAt) return;
+
+    // Check if today is after training Day 1
+    const startDate = new Date(trainingStartedAt);
+    const now = new Date();
+    const daysSinceStart = Math.floor((now.getTime() - startDate.getTime()) / 86400000);
+    if (daysSinceStart < 1) return; // still Day 1
+
+    // Auto-open the training meter
+    const timer = setTimeout(() => {
+      setShowTrainingMeter(true);
+      markTrainingMeterAutoOpenSeen();
+    }, 1000); // slight delay so the screen is settled
+
+    return () => clearTimeout(timer);
+  }, [
+    isTrainingMode,
+    hasSeenFirstFedModal,
+    hasSeenTrainingMeterAutoOpen,
+    trainingStartedAt,
+    markTrainingMeterAutoOpenSeen,
+  ]);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pulseScale] = useState(() => new Animated.Value(1));
@@ -6311,6 +6356,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
    */
   const handleMindDropSubmit = useCallback(async (): Promise<SaveResult> => {
     console.log('[MindDrop:NewPipeline] Submitting via unified hook');
+    // TODO: Pass classificationHint to useMindDropSubmit hook
+    // const hint = isTrainingMode ? getClassificationHint(trainingDropStep) : null;
     const trimmed = clampNoteLength(note.trim());
     const hasPhotos = pendingPhotoUris.length > 0;
     const effectiveText = hasPhotos && !trimmed ? '📷 Photo' : trimmed;
@@ -8001,33 +8048,46 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       // First-drop override: show post-drop sweep prompt instead of normal speech
       if (!firstDropCompletedAt) {
-        // Clear any pending auto-dismiss timer so the post-drop speech persists
-        if (gremlySpeechTimeoutRef.current) {
-          clearTimeout(gremlySpeechTimeoutRef.current);
-          gremlySpeechTimeoutRef.current = null;
-        }
         mascotRef.current?.celebrate();
-        const speech = getPostFirstDropSpeech();
-        setGremlySpeech(speech.message);
-        setShowSweepDemoPrompt(true);
         markFirstDropComplete();
+
+        // Day 1: check if a training modal should fire
+        if (isTrainingMode) {
+          // Small delay to let the gauge animation play
+          setTimeout(() => {
+            const modal = getNextTrainingModal({
+              trainingDropStep: useGremlyStore.getState().trainingDropStep,
+              hasSeenGaugeExplanation: useGremlyStore.getState().hasSeenGaugeExplanation,
+              hasSeenFirstFedModal: useGremlyStore.getState().hasSeenFirstFedModal,
+              hasSeenSweepUnlockModal: useGremlyStore.getState().hasSeenSweepUnlockModal,
+              isFedToday: useGremlyStore.getState().isFedToday,
+            });
+            if (modal === 'gauge_explanation') setShowGaugeModal(true);
+          }, 800);
+        }
       } else if (result.createdDetails?.length > 0) {
         if (result.justCrossedFed) {
-          mascotRef.current?.celebrateFed();
-          // fedDaysCount hasn't been incremented yet (server confirms later)
-          // Pass the next day number for display
-          celebrationController.showFedCelebration(useGremlyStore.getState().fedDaysCount + 1);
+          if (isTrainingMode && !hasSeenFirstFedModal) {
+            mascotRef.current?.celebrateFed();
+            setTimeout(() => setShowFirstFedModal(true), 800);
+          } else {
+            mascotRef.current?.celebrateFed();
+            // fedDaysCount hasn't been incremented yet (server confirms later)
+            // Pass the next day number for display
+            celebrationController.showFedCelebration(useGremlyStore.getState().fedDaysCount + 1);
 
-          // Fed-specific Gremly speech (replaces normal drop speech)
-          const fedSpeechOptions = [
-            "Fed for the day. That's your brain sorted.",
-            "That's a wrap. Your brain is cleared for the day.",
-            "Fully fed. Everything's out of your head and safe.",
-            "Done for today. Your Gremly's got it all.",
-            'All caught up. Your mind can rest easy now.',
-          ];
-          const fedMessage = fedSpeechOptions[Math.floor(Math.random() * fedSpeechOptions.length)];
-          showGremlySpeech(fedMessage, 5000);
+            // Fed-specific Gremly speech (replaces normal drop speech)
+            const fedSpeechOptions = [
+              "Fed for the day. That's your brain sorted.",
+              "That's a wrap. Your brain is cleared for the day.",
+              "Fully fed. Everything's out of your head and safe.",
+              "Done for today. Your Gremly's got it all.",
+              'All caught up. Your mind can rest easy now.',
+            ];
+            const fedMessage =
+              fedSpeechOptions[Math.floor(Math.random() * fedSpeechOptions.length)];
+            showGremlySpeech(fedMessage, 5000);
+          }
         } else {
           mascotRef.current?.celebrate();
 
@@ -8065,6 +8125,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             if (speechResult) {
               lastSpeechRef.current = speechResult.message;
               showGremlySpeech(speechResult.message, speechResult.duration);
+            }
+
+            // During Day 1 training flow: show next drop prompt after brief delay
+            if (isTrainingMode && trainingDropStep >= 2 && trainingDropStep <= 5) {
+              setTimeout(() => {
+                const prompt = getTrainingDropPrompt(useGremlyStore.getState().trainingDropStep);
+                if (prompt) {
+                  showGremlySpeech(prompt.message, prompt.duration);
+                }
+              }, 2500); // Wait for classification pill to dismiss
             }
           } catch (speechErr) {
             console.warn('[MindDrop] Speech generation failed, skipping:', speechErr);
@@ -8188,17 +8258,23 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         resetState();
         setIsSubmitting(false);
 
-        // First-drop override: show post-drop sweep prompt instead of normal speech
+        // First-drop override
         if (!firstDropCompletedAt) {
-          // Clear any pending auto-dismiss timer so the post-drop speech persists
-          if (gremlySpeechTimeoutRef.current) {
-            clearTimeout(gremlySpeechTimeoutRef.current);
-            gremlySpeechTimeoutRef.current = null;
-          }
-          const speech = getPostFirstDropSpeech();
-          setGremlySpeech(speech.message);
-          setShowSweepDemoPrompt(true);
+          mascotRef.current?.celebrate();
           markFirstDropComplete();
+
+          if (isTrainingMode) {
+            setTimeout(() => {
+              const modal = getNextTrainingModal({
+                trainingDropStep: useGremlyStore.getState().trainingDropStep,
+                hasSeenGaugeExplanation: useGremlyStore.getState().hasSeenGaugeExplanation,
+                hasSeenFirstFedModal: useGremlyStore.getState().hasSeenFirstFedModal,
+                hasSeenSweepUnlockModal: useGremlyStore.getState().hasSeenSweepUnlockModal,
+                isFedToday: useGremlyStore.getState().isFedToday,
+              });
+              if (modal === 'gauge_explanation') setShowGaugeModal(true);
+            }, 800);
+          }
         } else {
           // Show optimistic speech based on heuristic bucket
           const heuristicResult = heuristicClassify(effectiveText, {
@@ -8255,17 +8331,23 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       // Generate contextual speech based on classification result
       console.log('[Gremly Speech] finalResult.createdDetails:', finalResult.createdDetails);
-      // First-drop override: show post-drop sweep prompt instead of normal speech
+      // First-drop override
       if (!firstDropCompletedAt) {
-        // Clear any pending auto-dismiss timer so the post-drop speech persists
-        if (gremlySpeechTimeoutRef.current) {
-          clearTimeout(gremlySpeechTimeoutRef.current);
-          gremlySpeechTimeoutRef.current = null;
-        }
-        const speech = getPostFirstDropSpeech();
-        setGremlySpeech(speech.message);
-        setShowSweepDemoPrompt(true);
+        mascotRef.current?.celebrate();
         markFirstDropComplete();
+
+        if (isTrainingMode) {
+          setTimeout(() => {
+            const modal = getNextTrainingModal({
+              trainingDropStep: useGremlyStore.getState().trainingDropStep,
+              hasSeenGaugeExplanation: useGremlyStore.getState().hasSeenGaugeExplanation,
+              hasSeenFirstFedModal: useGremlyStore.getState().hasSeenFirstFedModal,
+              hasSeenSweepUnlockModal: useGremlyStore.getState().hasSeenSweepUnlockModal,
+              isFedToday: useGremlyStore.getState().isFedToday,
+            });
+            if (modal === 'gauge_explanation') setShowGaugeModal(true);
+          }, 800);
+        }
       } else if (finalResult.createdDetails?.length > 0) {
         const detail = finalResult.createdDetails[0];
         const uiKind = detail.kind === 'note' ? 'log' : detail.kind;
@@ -8307,6 +8389,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           lastSpeechRef.current = speechResult.message;
           showGremlySpeech(speechResult.message, speechResult.duration);
           console.log('[Gremly Speech] showGremlySpeech called with:', speechResult.message);
+        }
+
+        // During Day 1 training flow: show next drop prompt after brief delay
+        if (isTrainingMode && trainingDropStep >= 2 && trainingDropStep <= 5) {
+          setTimeout(() => {
+            const prompt = getTrainingDropPrompt(useGremlyStore.getState().trainingDropStep);
+            if (prompt) {
+              showGremlySpeech(prompt.message, prompt.duration);
+            }
+          }, 2500);
         }
       } else {
         console.log('[Gremly Speech] No createdDetails, skipping speech');
@@ -8552,66 +8644,25 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                     style={styles.gremlyMessage}
                     duration={1400}
                   />
-                  {showSweepDemoPrompt && (
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        justifyContent: 'center',
-                        gap: 12,
-                        marginTop: 12,
-                      }}
-                    >
-                      <Pressable
-                        onPress={() => {
-                          setShowSweepDemoPrompt(false);
-                          setGremlySpeech(null);
-                          navigation.navigate('Sweep', { demoMode: true } as any);
-                        }}
-                        style={{
-                          backgroundColor: c.mossGreen,
-                          paddingVertical: 8,
-                          paddingHorizontal: 16,
-                          borderRadius: 8,
-                        }}
-                      >
-                        <Text
-                          style={{ fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF' }}
-                        >
-                          Show me
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => {
-                          setShowSweepDemoPrompt(false);
-                          setGremlySpeech(null);
-                        }}
-                        style={{
-                          paddingVertical: 8,
-                          paddingHorizontal: 16,
-                        }}
-                      >
-                        <Text
-                          style={{ fontFamily: 'Inter-Regular', fontSize: 13, color: c.mutedText }}
-                        >
-                          Maybe later
-                        </Text>
-                      </Pressable>
-                    </View>
-                  )}
                 </View>
               </Reanimated.View>
             )}
             {/* Gremly perched on input - always visible */}
             <Pressable
               onPress={() => {
-                setHelpInitialPage(undefined);
-                setShowHelp(true);
+                if (isTrainingMode) {
+                  setShowTrainingMeter(true);
+                } else {
+                  setHelpInitialPage(undefined);
+                  setShowHelp(true);
+                }
               }}
               accessibilityLabel="Help"
               style={styles.inputGremly}
             >
               <MascotLottie ref={mascotRef} />
             </Pressable>
+            {isTrainingMode && <DropProgressDots currentStep={trainingDropStep} />}
             <MindDropInput
               value={note}
               onChangeText={handleChangeText}
@@ -8837,6 +8888,69 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }}
         screen="minddrop"
         initialPage={helpInitialPage}
+      />
+
+      <GaugeExplanationModal
+        visible={showGaugeModal}
+        onDismiss={() => {
+          setShowGaugeModal(false);
+          markGaugeExplanationSeen();
+          // Show the next training prompt after modal dismisses
+          const prompt = getTrainingDropPrompt(useGremlyStore.getState().trainingDropStep);
+          if (prompt) {
+            setTimeout(() => showGremlySpeech(prompt.message, prompt.duration), 300);
+          }
+        }}
+      />
+
+      <FirstFedModal
+        visible={showFirstFedModal}
+        onDismiss={() => {
+          setShowFirstFedModal(false);
+          markFirstFedModalSeen();
+          // Immediately show sweep unlock modal
+          setTimeout(() => setShowSweepUnlockModal(true), 300);
+        }}
+      />
+
+      <SweepUnlockModal
+        visible={showSweepUnlockModal}
+        onDismiss={() => {
+          setShowSweepUnlockModal(false);
+          markSweepUnlockModalSeen();
+        }}
+        onTryNow={() => {
+          setShowSweepUnlockModal(false);
+          markSweepUnlockModalSeen();
+          navigation.navigate('Sweep', { demoMode: true } as any);
+        }}
+        onSetReminder={(time) => {
+          // Save evening notification time
+          // This will be wired to notification preferences in Phase 5.
+          // For now, just log it.
+          console.log('[Training] Evening reminder set to:', time.toISOString());
+        }}
+      />
+
+      <TrainingMeter
+        visible={showTrainingMeter}
+        onDismiss={() => {
+          setShowTrainingMeter(false);
+
+          // On Day 2 first dismiss, show gauge-reset speech
+          if (isTrainingMode && !hasShownMeterSpeechRef.current && hasSeenTrainingMeterAutoOpen) {
+            hasShownMeterSpeechRef.current = true;
+            setTimeout(() => {
+              showGremlySpeech(
+                'Your Gremly resets each day. Drop thoughts to fill it back up.',
+                5000,
+              );
+            }, 400);
+          }
+        }}
+        onNavigate={(screen, params) => {
+          navigation.navigate(screen as any, params as any);
+        }}
       />
 
       <Modal

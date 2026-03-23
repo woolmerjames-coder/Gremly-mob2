@@ -574,20 +574,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: c.inkMuted,
   },
-  trainingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 14,
-    paddingVertical: 10,
-    borderTopWidth: 0.5,
-    borderTopColor: c.borderSubtle,
-  },
-  trainingRowText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: c.mossGreen,
-  },
   dotsRow: {
     flexDirection: 'row',
     justifyContent: 'center',

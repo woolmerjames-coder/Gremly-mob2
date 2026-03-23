@@ -79,7 +79,8 @@ export default {
     if (url.pathname === '/backfill-weekly' && request.method === 'POST') {
       return new Response(
         JSON.stringify({
-          error: 'This endpoint is deprecated. Weekly summaries are now generated via the weeklySummaryV2Worker Inngest pipeline. Trigger manually via the Inngest dashboard with event app/weekly-summary-v2.run.',
+          error:
+            'This endpoint is deprecated. Weekly summaries are now generated via the weeklySummaryV2Worker Inngest pipeline. Trigger manually via the Inngest dashboard with event app/weekly-summary-v2.run.',
           deprecated: true,
         }),
         { status: 410, headers: { 'Content-Type': 'application/json' } },
@@ -217,6 +218,25 @@ async function sendScheduledNotifications(env) {
 
   const prefs = await prefsResponse.json();
 
+  // Get training mode status for each user
+  const cortexResponse = await fetch(
+    `${supabaseUrl}/rest/v1/cortex_preferences?select=owner_id,is_training_mode`,
+    {
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+      },
+    },
+  );
+
+  const cortexPrefs = cortexResponse.ok ? await cortexResponse.json() : [];
+
+  // Create a map of user_id -> is_training_mode
+  const trainingMap = {};
+  for (const cp of cortexPrefs) {
+    trainingMap[cp.owner_id] = cp.is_training_mode === true;
+  }
+
   // Get push tokens
   const tokensResponse = await fetch(`${supabaseUrl}/rest/v1/push_tokens?select=user_id,token`, {
     headers: {
@@ -246,6 +266,7 @@ async function sendScheduledNotifications(env) {
     if (!token) continue;
 
     const timezone = pref.timezone || 'America/Los_Angeles';
+    const isTraining = trainingMap[pref.user_id] || false;
     const userTime = getTimeInTimezone(now, timezone);
 
     // Check morning notification
@@ -258,6 +279,7 @@ async function sendScheduledNotifications(env) {
           token: token,
           type: 'morning',
           timezone: timezone,
+          isTraining: isTraining,
           title: 'Good morning',
           body: 'Your Morning Brief is waiting.',
         });
@@ -288,6 +310,7 @@ async function sendScheduledNotifications(env) {
             user_id: pref.user_id,
             token: token,
             type: 'evening',
+            isTraining: isTraining,
             title: 'Sweep before sleep',
             body: eveningBody,
           });
@@ -307,6 +330,7 @@ async function sendScheduledNotifications(env) {
           token: token,
           type: 'afternoon',
           timezone: timezone,
+          isTraining: isTraining,
           last_app_active_at: pref.last_app_active_at,
         });
       }

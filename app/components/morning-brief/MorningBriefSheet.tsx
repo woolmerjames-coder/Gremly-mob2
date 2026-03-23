@@ -236,7 +236,6 @@ export function MorningBriefSheet({
   const completeMorningBrief = useGremlyStore((s) => s.completeMorningBrief);
   const commitLockInItems = useGremlyStore((s) => s.commitLockInItems);
   const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
-  const trainingProgress = useGremlyStore((s) => s.trainingProgress);
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
   const isFedToday = useGremlyStore((s) => s.isFedToday);
@@ -2019,65 +2018,60 @@ export function MorningBriefSheet({
         )}
         renderPrioritize={(onContinue, onSkip, onBack) => (
           <>
-          {isTrainingMode && (
-            <View style={styles.trainingPrompt}>
-              <Text style={styles.trainingPromptText}>
-                Lock in your top priorities. Gremly uses these to check in on your day.
-              </Text>
-              {trainingProgress.lockIns < 2 && (
-                <Text style={styles.trainingPromptCounter}>
-                  {trainingProgress.lockIns} of 2 during training
+            {isTrainingMode && (
+              <View style={styles.trainingPrompt}>
+                <Text style={styles.trainingPromptText}>
+                  Lock in your top priorities. Gremly uses these to check in on your day.
                 </Text>
-              )}
-            </View>
-          )}
-          <StepPrioritize
-            flexibleTasks={allDayTasks}
-            isPrioritizing={isPrioritizing}
-            selectedMinutes={selectedMinutes}
-            totalAvailableMinutes={realisticCapacity}
-            remainingMinutes={remainingMinutes}
-            isOverCommitted={isOverCommitted}
-            selectedIds={briefSelectedSet}
-            lockedIds={briefLockedSet}
-            onToggleSelect={handleToggleSelect}
-            onToggleLock={handleToggleLock}
-            onTaskPress={handleTaskPress}
-            onTimePress={handleTimePress}
-            onAddPress={handleAddPress}
-            onAssignPress={handleAssignPress}
-            onSkipTask={() => {}}
-            pendingDrops={todayPendingDrops}
-            animatingAssignments={animatingAssignments}
-            onContinue={() => {
-              // Patch DCO with today's focus (fire-and-forget)
-              const selectedNames = Array.from(briefSelectedSet)
-                .map((id) => {
-                  const todo = todos.find((t) => t.id === id);
-                  const habit = habits.find((h) => h.id === id);
-                  return todo?.name || habit?.name || null;
-                })
-                .filter(Boolean) as string[];
+              </View>
+            )}
+            <StepPrioritize
+              flexibleTasks={allDayTasks}
+              isPrioritizing={isPrioritizing}
+              selectedMinutes={selectedMinutes}
+              totalAvailableMinutes={realisticCapacity}
+              remainingMinutes={remainingMinutes}
+              isOverCommitted={isOverCommitted}
+              selectedIds={briefSelectedSet}
+              lockedIds={briefLockedSet}
+              onToggleSelect={handleToggleSelect}
+              onToggleLock={handleToggleLock}
+              onTaskPress={handleTaskPress}
+              onTimePress={handleTimePress}
+              onAddPress={handleAddPress}
+              onAssignPress={handleAssignPress}
+              onSkipTask={() => {}}
+              pendingDrops={todayPendingDrops}
+              animatingAssignments={animatingAssignments}
+              onContinue={() => {
+                // Patch DCO with today's focus (fire-and-forget)
+                const selectedNames = Array.from(briefSelectedSet)
+                  .map((id) => {
+                    const todo = todos.find((t) => t.id === id);
+                    const habit = habits.find((h) => h.id === id);
+                    return todo?.name || habit?.name || null;
+                  })
+                  .filter(Boolean) as string[];
 
-              if (selectedNames.length > 0) {
-                patchDcoTodayFocus(selectedNames);
-              }
+                if (selectedNames.length > 0) {
+                  patchDcoTodayFocus(selectedNames);
+                }
 
-              onContinue();
-            }}
-            onSkip={onSkip}
-            onBack={onBack}
-            calendarEvents={visibleCalendarEvents}
-            keyDateEvents={todayKeyDates}
-            hiddenEventIds={hiddenEventIds}
-            eventTimeOverrides={eventTimeOverrides}
-            eventMinutes={capacity.totalCalendarMinutes}
-            totalEventCount={capacity.totalEventCount}
-            timeBlockPreferences={timeBlockPreferences}
-            onCalendarEventAction={handleCalendarEventQuickAction}
-            onEventQuickAction={handleEventQuickAction}
-            dateContext={today}
-          />
+                onContinue();
+              }}
+              onSkip={onSkip}
+              onBack={onBack}
+              calendarEvents={visibleCalendarEvents}
+              keyDateEvents={todayKeyDates}
+              hiddenEventIds={hiddenEventIds}
+              eventTimeOverrides={eventTimeOverrides}
+              eventMinutes={capacity.totalCalendarMinutes}
+              totalEventCount={capacity.totalEventCount}
+              timeBlockPreferences={timeBlockPreferences}
+              onCalendarEventAction={handleCalendarEventQuickAction}
+              onEventQuickAction={handleEventQuickAction}
+              dateContext={today}
+            />
           </>
         )}
         renderOrganize={(onContinue, onSkip, onBack, onShowCelebration) => (
@@ -2631,12 +2625,6 @@ const styles = StyleSheet.create({
     color: BRAND.colors.mossGreen,
     fontFamily: 'Inter-Regular',
     lineHeight: 18,
-  },
-  trainingPromptCounter: {
-    fontSize: 11,
-    color: '#8FA889',
-    fontFamily: 'Inter-Regular',
-    marginTop: 4,
   },
 });
 
