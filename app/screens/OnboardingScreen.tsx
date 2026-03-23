@@ -49,9 +49,9 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
   },
   {
     id: 'start',
-    title: 'I help you think',
-    body: 'Tap any card to chat with me. I can help you research, break things down, or turn a vague idea into real steps.',
-    subtext: "Lost? Tap me on any screen and I'll explain what to do.",
+    title: 'Now train me',
+    body: 'I need to learn how your brain works. It starts with dropping thoughts.',
+    subtext: 'Tap any card to chat with me along the way.',
     type: 'mascot',
     mascot: GREMLY_FISTBUMP,
   },
@@ -95,6 +95,7 @@ export default function OnboardingScreen() {
 
   // Store action to mark onboarding complete
   const markOnboardingComplete = useGremlyStore((s) => s.markOnboardingComplete);
+  const startTraining = useGremlyStore((s) => s.startTraining);
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -119,16 +120,15 @@ export default function OnboardingScreen() {
   }, [currentStep, goToStep]);
 
   const handleComplete = useCallback(async () => {
-    // Mark onboarding as complete
     await markOnboardingComplete();
-    // Navigate to main app (reset navigation stack)
+    await startTraining();
     navigation.dispatch(
       CommonActions.reset({
         index: 0,
         routes: [{ name: 'Tabs' }],
       }),
     );
-  }, [navigation, markOnboardingComplete]);
+  }, [navigation, markOnboardingComplete, startTraining]);
 
   const handleSkip = useCallback(async () => {
     await handleComplete();

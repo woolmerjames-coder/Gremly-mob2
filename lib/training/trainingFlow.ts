@@ -14,18 +14,33 @@
  * Returns the speech bubble text for the current trainingDropStep.
  * Shown BEFORE the user drops. Steps 0 and 1 are handled elsewhere.
  */
-export function getTrainingDropPrompt(
-  step: number,
-): { message: string; duration: number } | null {
+export function getTrainingDropPrompt(step: number): { message: string; duration: number } | null {
   switch (step) {
+    case 0:
+      return null;
+    case 1:
+      return null;
     case 2:
-      return { message: "What's something you need to get done this week?", duration: 15_000 };
+      return {
+        message:
+          'That got things started. Try a task next. What do you need to get done this week?',
+        duration: 15000,
+      };
     case 3:
-      return { message: "What's a habit you want to stick to?", duration: 15_000 };
+      return {
+        message: "Your Gremly's halfway there. Now try a habit. What do you want to stick to?",
+        duration: 15000,
+      };
     case 4:
-      return { message: 'How are you feeling today?', duration: 15_000 };
+      return {
+        message: 'Almost full. How are you feeling today? That counts too.',
+        duration: 15000,
+      };
     case 5:
-      return { message: "One more and your Gremly's fed for the day.", duration: 15_000 };
+      return {
+        message: "Last one till your Gremly's fed. Drop anything on your mind, big or small.",
+        duration: 15000,
+      };
     default:
       return null;
   }
@@ -60,11 +75,7 @@ export function getClassificationHint(step: number): ClassificationHint {
 // Modal trigger logic
 // ---------------------------------------------------------------------------
 
-export type TrainingModal =
-  | 'gauge_explanation'
-  | 'first_fed'
-  | 'sweep_unlock'
-  | null;
+export type TrainingModal = 'gauge_explanation' | 'first_fed' | 'sweep_unlock' | null;
 
 /**
  * Determines which modal (if any) should show based on current state.

@@ -1789,7 +1789,6 @@ export const useGremlyStore = create<GremlyState>()(
           // Gauge contribution handles age-up via feeding system (Soul Document v8)
           // Track training progress
           if (get().isTrainingMode) {
-            get().advanceTrainingDropStep();
             get()
               .refreshTrainingReadiness()
               .catch((err) => {
@@ -2091,7 +2090,7 @@ export const useGremlyStore = create<GremlyState>()(
           const currentRitualDay = get().ensureCurrentRitualDay();
 
           // Training mode: 1.5x gauge multiplier (Training Challenge spec Section 8)
-          const multiplier = get().isTrainingMode ? 1.5 : 1.0;
+          const multiplier = get().isTrainingMode ? 1.25 : 1.0;
           const adjustedValue = value * multiplier;
 
           try {
@@ -2328,7 +2327,9 @@ export const useGremlyStore = create<GremlyState>()(
           const { todayDropsCount, pendingGaugePreviews, feedingGaugeValue, isFedToday } = get();
           const dropNumber = todayDropsCount + pendingGaugePreviews + 1;
           const value = getDropValue(dropNumber);
-          const optimisticValue = feedingGaugeValue + value;
+          const multiplier = get().isTrainingMode ? 1.25 : 1.0;
+          const adjustedValue = value * multiplier;
+          const optimisticValue = feedingGaugeValue + adjustedValue;
           const justCrossedFed = !isFedToday && optimisticValue >= FED_THRESHOLD;
 
           set({

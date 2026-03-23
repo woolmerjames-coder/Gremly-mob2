@@ -16,7 +16,6 @@ import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 import SweepFlowScreen from '../app/screens/SweepFlowScreen';
 import OnboardingScreen from '../app/screens/OnboardingScreen';
-import TrainingIntroScreen from '../app/screens/TrainingIntroScreen';
 import PersonDetailScreen from '../app/people/PersonDetailScreen';
 import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
 import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
@@ -67,7 +66,7 @@ const GraduationFlowPlaceholder = () => (
 export type RootStackParamList = {
   Login: undefined;
   Onboarding: undefined;
-  TrainingIntro: undefined;
+  TrainingIntro: undefined; // kept for type compat, screen removed
   Tabs: undefined;
   DSPreview: undefined;
   DevLogin: undefined;
@@ -111,8 +110,6 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function RootNavigator() {
   const { user, loading } = useAuth();
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
-  const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
-  const trainingStartedAt = useGremlyStore((s) => s.trainingStartedAt);
   const isInitialized = useGremlyStore((s) => s.isInitialized);
 
   // Wait for MMKV hydration so onboardingCompletedAt is available from persisted state
@@ -142,9 +139,8 @@ export default function RootNavigator() {
   // Determine initial route based on onboarding and training status
   const initialRouteName = useMemo(() => {
     if (!onboardingCompletedAt) return 'Onboarding';
-    if (isTrainingMode && !trainingStartedAt) return 'TrainingIntro';
     return 'Tabs';
-  }, [onboardingCompletedAt, isTrainingMode, trainingStartedAt]);
+  }, [onboardingCompletedAt]);
 
   if (!isReady) {
     return <View style={styles.splashHolder} />;
@@ -159,15 +155,6 @@ export default function RootNavigator() {
           <Stack.Screen
             name="Onboarding"
             component={OnboardingScreen}
-            options={{
-              headerShown: false,
-              gestureEnabled: false,
-              animation: 'fade',
-            }}
-          />
-          <Stack.Screen
-            name="TrainingIntro"
-            component={TrainingIntroScreen}
             options={{
               headerShown: false,
               gestureEnabled: false,

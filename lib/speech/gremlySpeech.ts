@@ -406,7 +406,7 @@ export function getEmptyStateSpeech(): { message: string; duration: number } {
 
 export function getFirstVisitSpeech(): { message: string; duration: number } {
   const message =
-    "This is Mind Drop. Type anything here. A task, a thought, a reminder. I'll figure out what to do with it.";
+    "Here we go! Drop your first thought below. A task, a reminder, anything. I'll take it from there.";
   return {
     message,
     duration: 15000, // Stay visible until user acts — long duration as fallback
