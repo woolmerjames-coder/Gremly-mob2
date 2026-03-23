@@ -106,6 +106,10 @@ export type EventMap = {
   openTomorrowBrief: Record<string, never>;
   // Open Gremly modal to gauge page (from fed toast tap)
   openGremlyModal: Record<string, never>;
+  // Training speech bubble (emitted by store, consumed by CatchAllNotepad)
+  'gremly:speak': { message: string; duration: number };
+  // Open training checklist bottom sheet (from GremlyHelpCard gauge page)
+  open_training_checklist: Record<string, never>;
   // Day rollover event
   'day:rollover': { date: string };
 };

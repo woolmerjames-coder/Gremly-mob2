@@ -301,6 +301,7 @@ export function EntityChatScreen({
   const streamingMessageIdRef = useRef<string | null>(null);
   const hasUsedInitialPresetRef = useRef(false);
   const hasTrackedChatGaugeRef = useRef(false);
+  const hasTrackedTrainingChatRef = useRef(false);
 
   // ─── Presets ───────────────────────────────────────────────────────────────
   const presets = getPresetsForType(entityType);
@@ -343,6 +344,13 @@ export function EntityChatScreen({
           .catch((err: unknown) => {
             console.warn('[EntityChat] Space chat gauge contribution failed:', err);
           });
+      }
+
+      // Training progress: count first entity chat per session
+      const { isTrainingMode, incrementTrainingProgress } = useGremlyStore.getState();
+      if (isTrainingMode && !hasTrackedTrainingChatRef.current) {
+        hasTrackedTrainingChatRef.current = true;
+        incrementTrainingProgress('entityChats');
       }
 
       try {

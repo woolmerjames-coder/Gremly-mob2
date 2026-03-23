@@ -374,6 +374,8 @@ function SweepMoodStep({ onContinue }: StepProps) {
   const createNote = useGremlyStore((state) => state.createNote);
   const updateNote = useGremlyStore((state) => state.updateNote);
   const notes = useGremlyStore((state) => state.notes);
+  const isTrainingMode = useGremlyStore((state) => state.isTrainingMode);
+  const trainingProgress = useGremlyStore((state) => state.trainingProgress);
   const overlay = useGlobalOverlay();
 
   // Get recent entries since last sweep
@@ -744,6 +746,20 @@ function SweepMoodStep({ onContinue }: StepProps) {
                   </Pressable>
                 ))}
               </View>
+            )}
+          </View>
+        )}
+
+        {/* Training mode prompt */}
+        {isTrainingMode && (
+          <View style={styles.trainingPrompt}>
+            <Text style={styles.trainingPromptText}>
+              Want to write about this one? It helps Gremly understand you better.
+            </Text>
+            {trainingProgress.journals < 3 && (
+              <Text style={styles.trainingPromptCounter}>
+                {trainingProgress.journals} of 3 during training
+              </Text>
             )}
           </View>
         )}
@@ -4768,6 +4784,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '400',
     color: BRAND.colors.charcoalInk,
+  },
+  // Training mode prompt
+  trainingPrompt: {
+    backgroundColor: '#E8F0E5',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  trainingPromptText: {
+    fontSize: 13,
+    color: BRAND.colors.mossGreen,
+    fontFamily: 'Inter-Regular',
+    lineHeight: 18,
+  },
+  trainingPromptCounter: {
+    fontSize: 11,
+    color: '#8FA889',
+    fontFamily: 'Inter-Regular',
+    marginTop: 4,
   },
   // Journal Input Section
   journalSection: {

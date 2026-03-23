@@ -35,6 +35,8 @@ import {
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { getTierForAge } from '../../lib/constants/soulDocument';
+import { getCompletedCount, getRequiredItemCount } from '../../lib/training/trainingManager';
+import { eventBus } from '../../lib/events/EventBus';
 import MascotLottie from '../../app/components/MascotLottie';
 
 const c = BRAND.colors;
@@ -225,6 +227,7 @@ export default function GremlyHelpCard({
   const isFedToday = useGremlyStore((s) => s.isFedToday);
   const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
   const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
+  const trainingItemsCompleted = useGremlyStore((s) => s.trainingItemsCompleted);
   const feedingHistory = useGremlyStore((s) => s.feedingHistory);
   const fetchFeedingHistory = useGremlyStore((s) => s.fetchFeedingHistory);
 
@@ -356,6 +359,22 @@ export default function GremlyHelpCard({
           {fedDaysCount} of 3 days to age {nextAge}
         </Text>
       </View>
+
+      {/* Training checklist link */}
+      {isTrainingMode && (
+        <Pressable
+          style={styles.trainingRow}
+          onPress={() => {
+            handleDismiss();
+            setTimeout(() => eventBus.emit('open_training_checklist', {}), 350);
+          }}
+        >
+          <Text style={styles.trainingRowText}>
+            Training: {getCompletedCount(trainingItemsCompleted)} of {getRequiredItemCount()} complete
+          </Text>
+          <ArrowRight size={14} color={c.mossGreen} />
+        </Pressable>
+      )}
     </View>
   );
 
@@ -572,6 +591,20 @@ const styles = StyleSheet.create({
   bottomInfoGrowth: {
     fontSize: 13,
     color: c.inkMuted,
+  },
+  trainingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 14,
+    paddingVertical: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: c.borderSubtle,
+  },
+  trainingRowText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: c.mossGreen,
   },
   dotsRow: {
     flexDirection: 'row',

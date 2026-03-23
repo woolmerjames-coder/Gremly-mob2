@@ -162,6 +162,10 @@ import MascotLottie, { type MascotLottieHandle } from '../components/MascotLotti
 import RitualProgressIndicator from '../../components/ritual/RitualProgressIndicator';
 import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
+import TrainingIcon from '../components/training/TrainingIcon';
+import TrainingChecklist from '../components/training/TrainingChecklist';
+import { getCompletedCount, getRequiredItemCount } from '../../lib/training/trainingManager';
+import { getTrainingGreeting } from '../../lib/speech/trainingSpeech';
 
 import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
 import {
@@ -5493,6 +5497,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
   const markFirstDropComplete = useGremlyStore((s) => s.markFirstDropComplete);
 
+  // Training mode state
+  const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
+  const trainingItemsCompleted = useGremlyStore((s) => s.trainingItemsCompleted);
+  const trainingProgress = useGremlyStore((s) => s.trainingProgress);
+
   // Derive drops-today and last-drop-time from store — survives tab switches
   const storeTodos = useGremlyStore((s) => s.todos);
   const storeNotes = useGremlyStore((s) => s.notes);
@@ -5652,7 +5661,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return unsub;
   }, []);
 
+  // Open training checklist when triggered from GremlyHelpCard gauge page
+  useEffect(() => {
+    const unsub = eventBus.on('open_training_checklist', () => {
+      setShowTrainingSheet(true);
+    });
+    return unsub;
+  }, []);
+
   const [showSweepDemoPrompt, setShowSweepDemoPrompt] = useState(false);
+  const [showTrainingSheet, setShowTrainingSheet] = useState(false);
   const [gremlySpeech, setGremlySpeech] = useState<string | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -5726,13 +5744,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         const speech = getFirstVisitSpeech();
         setGremlySpeech(speech.message);
         // Don't auto-dismiss — keep it visible until user interacts
+      } else if (isTrainingMode) {
+        const trainingGreeting = getTrainingGreeting(trainingProgress.drops, trainingProgress.sweeps);
+        if (trainingGreeting) {
+          showGremlySpeech(trainingGreeting.message, trainingGreeting.duration);
+        } else {
+          const greeting = getDcoGreetingSpeech(briefHeadline);
+          showGremlySpeech(greeting.message, greeting.duration);
+        }
       } else {
         const greeting = getDcoGreetingSpeech(briefHeadline);
         showGremlySpeech(greeting.message, greeting.duration);
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [showGremlySpeech, firstDropCompletedAt, showSweepDemoPrompt, briefHeadline]);
+  }, [showGremlySpeech, firstDropCompletedAt, showSweepDemoPrompt, briefHeadline, isTrainingMode, trainingProgress]);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pulseScale] = useState(() => new Animated.Value(1));
@@ -8478,8 +8504,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         {/* Header: Safe area wrapper + row with mascot, centered title, logout */}
         <View style={{ paddingTop: insets.top + 16 }} testID="minddrop-header">
           <View style={styles.headerRow}>
-            {/* Left - Empty spacer (Gremly now lives on input field) */}
-            <View style={styles.headerLeft} />
+            {/* Left - Training icon during training, otherwise empty spacer */}
+            <View style={styles.headerLeft}>
+              {(() => { console.log('[Training Debug]', { isTrainingMode, trainingItemsCompleted, trainingProgress }); return null; })()}
+              {isTrainingMode && (
+                <TrainingIcon
+                  completedCount={getCompletedCount(trainingItemsCompleted)}
+                  totalCount={getRequiredItemCount()}
+                  onPress={() => setShowTrainingSheet(true)}
+                />
+              )}
+            </View>
 
             {/* Center - Title (absolutely positioned to true center) */}
             <View style={styles.headerCenter} pointerEvents="none">
@@ -8831,6 +8866,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }}
         screen="minddrop"
         initialPage={helpInitialPage}
+      />
+
+      <TrainingChecklist
+        visible={showTrainingSheet}
+        onDismiss={() => setShowTrainingSheet(false)}
       />
 
       <Modal

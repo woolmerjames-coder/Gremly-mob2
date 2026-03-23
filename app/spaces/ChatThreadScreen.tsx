@@ -318,6 +318,7 @@ export default function ChatThreadScreen({ route }: Props) {
   const [activeMessageWithSaveable, setActiveMessageWithSaveable] = useState<string | null>(null);
   const activeMessageWithSaveableRef = useRef<string | null>(null);
   const hasTrackedChatGaugeRef = useRef(false);
+  const hasTrackedTrainingChatRef = useRef(false);
 
   const actionToastOffset = React.useMemo(
     () => Platform.select({ ios: 128, android: 112, default: 112 }) ?? 112,
@@ -669,6 +670,13 @@ export default function ChatThreadScreen({ route }: Props) {
             .catch((err: unknown) => {
               console.warn('[ChatThread] Space chat gauge contribution failed:', err);
             });
+        }
+
+        // Training progress: count first space chat per session
+        const { isTrainingMode, incrementTrainingProgress } = useGremlyStore.getState();
+        if (isTrainingMode && !hasTrackedTrainingChatRef.current) {
+          hasTrackedTrainingChatRef.current = true;
+          incrementTrainingProgress('entityChats');
         }
 
         // Phase 10.6: Trigger haptic feedback for send action

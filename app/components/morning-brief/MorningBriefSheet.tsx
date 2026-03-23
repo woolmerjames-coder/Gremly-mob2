@@ -235,6 +235,8 @@ export function MorningBriefSheet({
   const setBriefCompletedToday = useGremlyStore((s) => s.setBriefCompletedToday);
   const completeMorningBrief = useGremlyStore((s) => s.completeMorningBrief);
   const commitLockInItems = useGremlyStore((s) => s.commitLockInItems);
+  const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
+  const trainingProgress = useGremlyStore((s) => s.trainingProgress);
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
   const isFedToday = useGremlyStore((s) => s.isFedToday);
@@ -2016,6 +2018,19 @@ export function MorningBriefSheet({
           />
         )}
         renderPrioritize={(onContinue, onSkip, onBack) => (
+          <>
+          {isTrainingMode && (
+            <View style={styles.trainingPrompt}>
+              <Text style={styles.trainingPromptText}>
+                Lock in your top priorities. Gremly uses these to check in on your day.
+              </Text>
+              {trainingProgress.lockIns < 2 && (
+                <Text style={styles.trainingPromptCounter}>
+                  {trainingProgress.lockIns} of 2 during training
+                </Text>
+              )}
+            </View>
+          )}
           <StepPrioritize
             flexibleTasks={allDayTasks}
             isPrioritizing={isPrioritizing}
@@ -2063,6 +2078,7 @@ export function MorningBriefSheet({
             onEventQuickAction={handleEventQuickAction}
             dateContext={today}
           />
+          </>
         )}
         renderOrganize={(onContinue, onSkip, onBack, onShowCelebration) => (
           <StepOrganize
@@ -2601,6 +2617,26 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: BRAND.colors.mossGreen,
     fontFamily: 'Inter-SemiBold',
+  },
+  // Training mode prompt
+  trainingPrompt: {
+    backgroundColor: '#E8F0E5',
+    borderRadius: 12,
+    padding: 12,
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  trainingPromptText: {
+    fontSize: 13,
+    color: BRAND.colors.mossGreen,
+    fontFamily: 'Inter-Regular',
+    lineHeight: 18,
+  },
+  trainingPromptCounter: {
+    fontSize: 11,
+    color: '#8FA889',
+    fontFamily: 'Inter-Regular',
+    marginTop: 4,
   },
 });
 

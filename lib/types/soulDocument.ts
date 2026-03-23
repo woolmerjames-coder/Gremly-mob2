@@ -56,23 +56,14 @@ export interface FeedingGaugeState {
 }
 
 // ------------------------------------------------------------
-// Training Types
+// Training Types (canonical source: lib/training/trainingTypes.ts)
 // ------------------------------------------------------------
 
 /** Training progresses through 3 levels before graduation. Source: Soul Document v8 */
 export type TrainingLevel = 1 | 2 | 3;
 
-/** All trackable training item identifiers. Source: Soul Document v8 */
-export type TrainingItemId =
-  | 'drops'
-  | 'sweeps'
-  | 'briefs'
-  | 'habits'
-  | 'entity_chat'
-  | 'space'
-  | 'calendar'
-  | 'journals'
-  | 'lock_ins';
+/** Re-exported from lib/training/trainingTypes.ts — canonical source of truth */
+export type { TrainingItemId } from '../training/trainingTypes';
 
 /** A single item in the training checklist. Source: Soul Document v8 */
 export interface TrainingItem {
