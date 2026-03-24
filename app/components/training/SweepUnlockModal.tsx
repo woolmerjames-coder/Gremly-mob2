@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Animated, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as Haptics from 'expo-haptics';
+import { ArrowLeft } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 
 import SWEEP_IMAGE from '../../../assets/mascot/sweepcomplete.png';
@@ -28,6 +30,25 @@ export default function SweepUnlockModal({
 }: SweepUnlockModalProps) {
   const [showTimePicker, setShowTimePicker] = useState(!timePickerOnly ? false : true);
   const [selectedTime, setSelectedTime] = useState(getDefaultEveningTime);
+  const [bounceAnim] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    if (visible) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      bounceAnim.setValue(0);
+      Animated.spring(bounceAnim, {
+        toValue: 1,
+        friction: 4,
+        tension: 60,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible]);
+
+  const mascotScale = bounceAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 1],
+  });
 
   return (
     <Modal transparent animationType="fade" visible={visible} onRequestClose={onDismiss}>
@@ -37,14 +58,16 @@ export default function SweepUnlockModal({
             <>
               <Text style={styles.timePrompt}>When should I remind you to sweep?</Text>
 
-              <DateTimePicker
-                mode="time"
-                display="compact"
-                value={selectedTime}
-                onChange={(_event, date) => {
-                  if (date) setSelectedTime(date);
-                }}
-              />
+              <View style={styles.timePickerCenter}>
+                <DateTimePicker
+                  mode="time"
+                  display="compact"
+                  value={selectedTime}
+                  onChange={(_event, date) => {
+                    if (date) setSelectedTime(date);
+                  }}
+                />
+              </View>
 
               <Pressable
                 style={styles.cta}
@@ -55,18 +78,32 @@ export default function SweepUnlockModal({
               >
                 <Text style={styles.ctaText}>Set reminder</Text>
               </Pressable>
+
+              <Pressable onPress={() => onDismiss()} style={{ marginTop: 12, paddingVertical: 8 }}>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: BRAND.colors.inkMuted,
+                    textAlign: 'center',
+                  }}
+                >
+                  Skip for now
+                </Text>
+              </Pressable>
             </>
           ) : (
             <>
-              <View style={styles.imageContainer}>
+              <Animated.View
+                style={[styles.imageContainer, { transform: [{ scale: mascotScale }] }]}
+              >
                 <Image source={SWEEP_IMAGE} style={styles.sweepImage} resizeMode="contain" />
-              </View>
+              </Animated.View>
 
-              <Text style={styles.headline}>You unlocked Evening Sweep</Text>
+              <Text style={styles.headline}>You unlocked the Sweep</Text>
 
               <Text style={styles.body}>
-                Sweep helps you process what you dropped. Swipe to keep, let go, or schedule. Takes
-                2 minutes. Best done before bed.
+                Sweep helps you process what you dropped. Takes 2 minutes.{' '}
+                <Text style={{ fontWeight: '600' }}>Best done before bed.</Text>
               </Text>
 
               {!showTimePicker ? (
@@ -81,16 +118,25 @@ export default function SweepUnlockModal({
                 </>
               ) : (
                 <>
+                  <Pressable
+                    onPress={() => setShowTimePicker(false)}
+                    style={{ position: 'absolute', top: 16, left: 16, zIndex: 1 }}
+                  >
+                    <ArrowLeft size={20} color={BRAND.colors.mossGreen} />
+                  </Pressable>
+
                   <Text style={styles.timePrompt}>When should I remind you?</Text>
 
-                  <DateTimePicker
-                    mode="time"
-                    display="compact"
-                    value={selectedTime}
-                    onChange={(_event, date) => {
-                      if (date) setSelectedTime(date);
-                    }}
-                  />
+                  <View style={styles.timePickerCenter}>
+                    <DateTimePicker
+                      mode="time"
+                      display="compact"
+                      value={selectedTime}
+                      onChange={(_event, date) => {
+                        if (date) setSelectedTime(date);
+                      }}
+                    />
+                  </View>
 
                   <Pressable
                     style={styles.cta}
@@ -100,6 +146,21 @@ export default function SweepUnlockModal({
                     }}
                   >
                     <Text style={styles.ctaText}>Set reminder</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => onDismiss()}
+                    style={{ marginTop: 12, paddingVertical: 8 }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: BRAND.colors.inkMuted,
+                        textAlign: 'center',
+                      }}
+                    >
+                      Skip for now
+                    </Text>
                   </Pressable>
                 </>
               )}
@@ -130,12 +191,19 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   imageContainer: {
-    height: 100,
+    height: 125,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sweepImage: {
-    height: 100,
+    height: 125,
+  },
+  timePickerCenter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    marginTop: 12,
+    marginBottom: 12,
   },
   headline: {
     fontSize: 18,

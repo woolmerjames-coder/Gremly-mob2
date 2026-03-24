@@ -3597,8 +3597,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const [dropsCount] = useState(() => {
     const notes = useGremlyStore.getState().notes;
     const today = useGremlyStore.getState().currentDate;
-    return notes.filter((n) => !n.archived && n.created_at && n.created_at.startsWith(today))
-      .length;
+    return notes.filter((n) => {
+      if (n.archived) return false;
+      if (!n.created_at || !n.created_at.startsWith(today)) return false;
+      // Exclude calendar-synced event notes (auto-imported, not user drops)
+      if (n.subtype === 'event' && n.external_source != null) return false;
+      return true;
+    }).length;
   });
 
   // Track completion badges data

@@ -155,6 +155,114 @@ export default {
       });
     }
 
+    // GET /test-user?user_id=... — dry-run notification matching for a single user
+    if (url.pathname === '/test-user') {
+      const userId = url.searchParams.get('user_id');
+      if (!userId) {
+        return jsonResponse({ error: 'Missing user_id' }, 400);
+      }
+
+      const supabaseUrl = env.SUPABASE_URL;
+      const supabaseKey = env.SUPABASE_SERVICE_KEY;
+      const headers = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` };
+      const now = new Date();
+
+      const [prefsRes, cortexRes, tokenRes] = await Promise.all([
+        fetch(`${supabaseUrl}/rest/v1/notification_preferences?user_id=eq.${userId}&select=*`, {
+          headers,
+        }),
+        fetch(
+          `${supabaseUrl}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=is_training_mode,training_started_at,graduated_at`,
+          { headers },
+        ),
+        fetch(`${supabaseUrl}/rest/v1/push_tokens?user_id=eq.${userId}&select=token`, { headers }),
+      ]);
+
+      const prefs = prefsRes.ok ? await prefsRes.json() : [];
+      const pref = prefs[0];
+
+      if (!pref) {
+        return jsonResponse({ error: 'No notification preferences found', userId });
+      }
+
+      const cortexData = cortexRes.ok ? await cortexRes.json() : [];
+      const cortex = cortexData[0];
+      const tokenData = tokenRes.ok ? await tokenRes.json() : [];
+      const hasToken = tokenData.length > 0;
+
+      const timezone = pref.timezone || 'America/Los_Angeles';
+      const userTime = getTimeInTimezone(now, timezone);
+      const todayInUserTz = getDateInTimezone(now, timezone);
+
+      const [dco, ritualRes] = await Promise.all([
+        fetchUserDco(userId, timezone, supabaseUrl, supabaseKey),
+        fetch(
+          `${supabaseUrl}/rest/v1/daily_ritual_progress?owner_id=eq.${userId}&ritual_day=eq.${todayInUserTz}&select=drops_count,sweeps_count,feeding_gauge_value,is_fed`,
+          { headers },
+        ),
+      ]);
+      const ritualData = ritualRes.ok ? await ritualRes.json() : [];
+      const ritual = ritualData[0];
+
+      const windows = {};
+
+      if (pref.morning_enabled && pref.morning_time) {
+        const [h, m] = parseTime(pref.morning_time);
+        windows.morning = {
+          enabled: true,
+          targetTime: pref.morning_time,
+          inWindow: isWithinWindow(userTime.hour, userTime.minute, h, m, 5),
+        };
+      }
+
+      if (pref.evening_enabled && pref.evening_time) {
+        const [h, m] = parseTime(pref.evening_time);
+        windows.evening = {
+          enabled: true,
+          targetTime: pref.evening_time,
+          inWindow: isWithinWindow(userTime.hour, userTime.minute, h, m, 5),
+        };
+      }
+
+      if (pref.afternoon_enabled && pref.afternoon_time) {
+        const [h, m] = parseTime(pref.afternoon_time);
+        windows.afternoon = {
+          enabled: true,
+          targetTime: pref.afternoon_time,
+          inWindow: isWithinWindow(userTime.hour, userTime.minute, h, m, 5),
+        };
+      }
+
+      const isTraining = cortex?.is_training_mode === true;
+      if (isTraining) {
+        windows.midday = {
+          enabled: true,
+          targetTime: '12:30',
+          inWindow: isWithinWindow(userTime.hour, userTime.minute, 12, 30, 30),
+        };
+      }
+
+      return jsonResponse({
+        userId,
+        currentTime: now.toISOString(),
+        userLocalTime: `${userTime.hour}:${String(userTime.minute).padStart(2, '0')}`,
+        timezone,
+        todayDate: todayInUserTz,
+        hasToken,
+        isTraining,
+        cortex,
+        dco: dco ? { tone: dco.tone, headline: dco.brief_headline } : null,
+        todayActivity: ritual || {
+          drops_count: 0,
+          sweeps_count: 0,
+          feeding_gauge_value: 0,
+          is_fed: false,
+        },
+        notificationWindows: windows,
+        lastAppActive: pref.last_app_active_at,
+      });
+    }
+
     return new Response('Gremly Notification Worker v4. Use /test to trigger manually.', {
       status: 200,
     });

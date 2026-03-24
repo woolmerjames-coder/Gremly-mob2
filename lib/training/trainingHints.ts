@@ -43,7 +43,7 @@ export function getTrainingHints(data: UserTrainingData): TrainingHint[] {
 
   if (data.daysWithDrops < 3 && data.totalDrops >= 5) {
     hints.push({
-      text: 'Come back tomorrow and drop a few more.',
+      text: 'Drop thoughts whenever they hit you. Every day counts.',
       icon: 'ArrowDownToLine',
       navigateTo: 'MindDrop',
       priority: 2.5,

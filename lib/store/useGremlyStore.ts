@@ -1758,11 +1758,20 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         incrementDropCount: async () => {
+          console.log('[GremlyStore] incrementDropCount called', {
+            userId: get().userId,
+            isTrainingMode: get().isTrainingMode,
+          });
+
           const { userId } = get();
-          if (!userId) return { dropsCount: 0, didAgeUp: false, newAge: get().gremlyAge };
+          if (!userId) {
+            console.log('[GremlyStore] incrementDropCount: no userId, bailing');
+            return { dropsCount: 0, didAgeUp: false, newAge: get().gremlyAge };
+          }
 
           // Ensure we're on the current ritual day (resets state if day changed)
           const currentRitualDay = get().ensureCurrentRitualDay();
+          console.log('[GremlyStore] incrementDropCount: ritualDay =', currentRitualDay);
 
           // Call Supabase RPC to increment
           const { data, error } = await supabase.rpc('increment_drop_count', {
@@ -1780,6 +1789,10 @@ export const useGremlyStore = create<GremlyState>()(
 
           // Feed the gauge (Soul Document v8: drops contribute to feeding gauge)
           const dropGaugeValue = getDropValue(newDropsCount);
+          console.log('[GremlyStore] incrementDropCount: calling addGaugeContribution', {
+            dropNumber: newDropsCount,
+            gaugeValue: dropGaugeValue,
+          });
           get()
             .addGaugeContribution('drop', dropGaugeValue)
             .catch((err) => {
@@ -2092,6 +2105,14 @@ export const useGremlyStore = create<GremlyState>()(
           // Training mode: 1.5x gauge multiplier (Training Challenge spec Section 8)
           const multiplier = get().isTrainingMode ? 1.25 : 1.0;
           const adjustedValue = value * multiplier;
+          console.log('[GremlyStore] addGaugeContribution', {
+            source,
+            value,
+            multiplier,
+            adjustedValue,
+            userId,
+            currentRitualDay,
+          });
 
           try {
             const { data, error } = await supabase.rpc('update_feeding_gauge', {
@@ -2099,6 +2120,11 @@ export const useGremlyStore = create<GremlyState>()(
               p_ritual_day: currentRitualDay,
               p_source: source,
               p_value: adjustedValue,
+            });
+
+            console.log('[GremlyStore] update_feeding_gauge result', {
+              data: JSON.stringify(data),
+              error: error ? JSON.stringify(error) : null,
             });
 
             if (error) {
@@ -2152,7 +2178,7 @@ export const useGremlyStore = create<GremlyState>()(
 
             return { newValue: newGaugeValue, justFed };
           } catch (error) {
-            console.error('[GremlyStore] addGaugeContribution failed:', error);
+            console.error('[GremlyStore] addGaugeContribution CAUGHT', error);
             // Roll back pending preview on failure
             const currentPendingOnError = get().pendingGaugePreviews;
             if (currentPendingOnError > 0) {

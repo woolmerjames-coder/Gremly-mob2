@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { BRAND } from '../../../design/brand';
@@ -11,6 +11,15 @@ interface FirstFedModalProps {
 
 export default function FirstFedModal({ visible, onDismiss }: FirstFedModalProps) {
   const [bounceAnim] = useState(() => new Animated.Value(0));
+  const mascotRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (visible) {
+      setTimeout(() => {
+        mascotRef.current?.celebrateFed();
+      }, 300);
+    }
+  }, [visible]);
 
   useEffect(() => {
     if (visible) {
@@ -41,15 +50,15 @@ export default function FirstFedModal({ visible, onDismiss }: FirstFedModalProps
             }}
           >
             <View style={styles.mascotContainer}>
-              <MascotLottie />
+              <MascotLottie ref={mascotRef} />
             </View>
           </Animated.View>
 
           <Text style={styles.headline}>Your Gremly is full!</Text>
 
           <Text style={styles.body}>
-            You did it. Every time something pops into your head, drop it here. Your Gremly catches
-            it all. Do this every day and watch it grow.
+            Every time something pops into your head, drop it here. Do this every day and watch it
+            grow.
           </Text>
 
           <Text style={styles.secondary}>Tap your Gremly anytime to check progress.</Text>

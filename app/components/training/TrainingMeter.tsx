@@ -22,6 +22,7 @@ import {
 import type { UserTrainingData } from '../../../lib/training/trainingReadiness';
 import type { TrainingHint } from '../../../lib/training/trainingHints';
 import MascotLottie from '../../components/MascotLottie';
+import { dateService } from '../../../lib/date/DateService';
 
 const c = BRAND.colors;
 
@@ -42,12 +43,6 @@ function getHeaderText(daysRemaining: number): string {
   return 'Keep going, nearly there';
 }
 
-function getSubtext(daysRemaining: number): string {
-  if (daysRemaining > 0)
-    return `Drop thoughts and sweep daily. I'll be ready in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}.`;
-  return "Just a little more and I'll show you what I learned.";
-}
-
 interface TrainingMeterProps {
   visible: boolean;
   onDismiss: () => void;
@@ -59,6 +54,9 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
   const trainingStartedAt = useGremlyStore((s) => s.trainingStartedAt);
   const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
   const refreshTrainingReadiness = useGremlyStore((s) => s.refreshTrainingReadiness);
+  const feedingHistory = useGremlyStore((s) => s.feedingHistory);
+  const fetchFeedingHistory = useGremlyStore((s) => s.fetchFeedingHistory);
+  const isFedToday = useGremlyStore((s) => s.isFedToday);
 
   const [hints, setHints] = useState<TrainingHint[]>([]);
   const [daysRemaining, setDaysRemaining] = useState(7);
@@ -68,6 +66,9 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
 
     // Refresh the readiness score
     refreshTrainingReadiness();
+
+    // Fetch feeding history for day tracker
+    fetchFeedingHistory();
 
     // Compute days remaining
     setDaysRemaining(getTrainingDaysRemaining(trainingStartedAt) ?? 0);
@@ -100,10 +101,19 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
         };
         setHints(getTrainingHints(trainingData));
       });
-  }, [visible, isTrainingMode, trainingStartedAt, refreshTrainingReadiness]);
+  }, [visible, isTrainingMode, trainingStartedAt, refreshTrainingReadiness, fetchFeedingHistory]);
 
   const readinessLabel = getReadinessLabel(trainingReadiness);
   const pct = Math.min(trainingReadiness, 100);
+
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (visible) setNow(Date.now());
+  }, [visible]);
+
+  const dayNumber = trainingStartedAt
+    ? Math.min(Math.floor((now - new Date(trainingStartedAt).getTime()) / 86400000) + 1, 7)
+    : 1;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
@@ -120,8 +130,69 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
         {/* Header */}
         <Text style={styles.headerTitle}>{getHeaderText(daysRemaining)}</Text>
 
-        {/* Subtext */}
-        <Text style={styles.subtext}>{getSubtext(daysRemaining)}</Text>
+        {/* Day counter */}
+        <Text style={styles.dayCounter}>Day {dayNumber} of 7-day challenge</Text>
+
+        {/* 7-day tracker */}
+        <View style={styles.dayTrackerRow}>
+          {Array.from({ length: 7 }, (_, i) => {
+            const isToday = i + 1 === dayNumber;
+            const isPast = i + 1 < dayNumber;
+            const isFuture = i + 1 > dayNumber;
+
+            const dayDate = trainingStartedAt
+              ? dateService.toLocalDate(
+                  new Date(new Date(trainingStartedAt).getTime() + i * 86400000),
+                )
+              : null;
+
+            const wasFull = isToday
+              ? isFedToday
+              : feedingHistory.some((d) => d.date === dayDate && d.isFed);
+
+            return (
+              <View key={i} style={{ alignItems: 'center', gap: 4 }}>
+                <View
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 14,
+                    backgroundColor: wasFull
+                      ? BRAND.colors.mossGreen
+                      : isToday
+                        ? '#EDEFF2'
+                        : 'transparent',
+                    borderWidth: isToday ? 2 : isPast && !wasFull ? 1.5 : isFuture ? 1 : 0,
+                    borderColor: isToday
+                      ? BRAND.colors.mossGreen
+                      : isPast && !wasFull
+                        ? '#D4D6CE'
+                        : isFuture
+                          ? '#EDEFF2'
+                          : 'transparent',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  {wasFull && <Text style={{ fontSize: 12, color: '#FFFFFF' }}>✓</Text>}
+                </View>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    color: isToday ? BRAND.colors.charcoalInk : BRAND.colors.inkMuted,
+                    fontWeight: isToday ? '600' : '400',
+                  }}
+                >
+                  {
+                    ['S', 'M', 'T', 'W', 'T', 'F', 'S'][
+                      new Date(new Date(trainingStartedAt || now).getTime() + i * 86400000).getDay()
+                    ]
+                  }
+                </Text>
+              </View>
+            );
+          })}
+        </View>
 
         {/* Progress bar */}
         <View style={styles.barContainer}>
@@ -227,11 +298,19 @@ const styles = StyleSheet.create({
     color: c.charcoalInk,
     textAlign: 'center',
   },
-  subtext: {
+  dayCounter: {
     fontSize: 13,
-    color: c.inkMuted,
+    fontWeight: '600',
+    color: c.mossGreen,
     textAlign: 'center',
-    marginTop: 4,
+    marginBottom: 4,
+  },
+  dayTrackerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 16,
   },
   barContainer: {
     marginTop: 20,
