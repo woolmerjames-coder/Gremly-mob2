@@ -21,6 +21,7 @@ import {
 } from '../../../lib/training/trainingReadiness';
 import type { UserTrainingData } from '../../../lib/training/trainingReadiness';
 import type { TrainingHint } from '../../../lib/training/trainingHints';
+import MascotLottie from '../../components/MascotLottie';
 
 const c = BRAND.colors;
 
@@ -33,6 +34,19 @@ const ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string
   Repeat,
   Sun,
 };
+
+function getHeaderText(daysRemaining: number): string {
+  if (daysRemaining > 5) return "I'm learning how your brain works";
+  if (daysRemaining > 2) return "I'm getting smarter every day";
+  if (daysRemaining > 0) return 'Almost trained';
+  return 'Keep going, nearly there';
+}
+
+function getSubtext(daysRemaining: number): string {
+  if (daysRemaining > 0)
+    return `Drop thoughts and sweep daily. I'll be ready in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}.`;
+  return "Just a little more and I'll show you what I learned.";
+}
 
 interface TrainingMeterProps {
   visible: boolean;
@@ -89,11 +103,7 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
   }, [visible, isTrainingMode, trainingStartedAt, refreshTrainingReadiness]);
 
   const readinessLabel = getReadinessLabel(trainingReadiness);
-
-  const daysText =
-    daysRemaining > 0
-      ? `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} left`
-      : 'Keep going, almost there';
+  const pct = Math.min(trainingReadiness, 100);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
@@ -102,25 +112,35 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
         {/* Drag handle */}
         <View style={styles.dragHandle} />
 
-        {/* Header row */}
-        <View style={styles.headerRow}>
-          <Text style={styles.headerTitle}>7-day challenge</Text>
-          <Text style={styles.headerDays}>{daysText}</Text>
+        {/* Mascot */}
+        <View style={styles.mascotContainer}>
+          <MascotLottie />
         </View>
 
-        {/* Readiness bar */}
+        {/* Header */}
+        <Text style={styles.headerTitle}>{getHeaderText(daysRemaining)}</Text>
+
+        {/* Subtext */}
+        <Text style={styles.subtext}>{getSubtext(daysRemaining)}</Text>
+
+        {/* Progress bar */}
         <View style={styles.barContainer}>
           <View style={styles.barTrack}>
-            <View style={[styles.barFill, { width: `${Math.min(trainingReadiness, 100)}%` }]} />
+            <View style={[styles.barFill, { width: `${pct}%` }]}>
+              {pct >= 20 && <Text style={styles.barPctInside}>{pct}%</Text>}
+            </View>
           </View>
-          <Text style={styles.barLabel}>{readinessLabel}</Text>
+          {pct < 20 && <Text style={styles.barPctBelow}>{pct}%</Text>}
         </View>
+
+        {/* Readiness label */}
+        {trainingReadiness > 60 && <Text style={styles.readinessLabel}>{readinessLabel}</Text>}
 
         {/* Divider */}
         <View style={styles.divider} />
 
         {/* Hints section */}
-        <Text style={styles.sectionTitle}>Tips to train faster</Text>
+        <Text style={styles.sectionTitle}>What to do next</Text>
         {hints.length > 0 ? (
           hints.map((hint, i) => {
             const IconComponent = ICON_MAP[hint.icon];
@@ -134,9 +154,9 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
                 }}
               >
                 {IconComponent ? (
-                  <IconComponent size={16} color={c.mossGreen} />
+                  <IconComponent size={18} color={c.mossGreen} />
                 ) : (
-                  <ArrowDownToLine size={16} color={c.mossGreen} />
+                  <ArrowDownToLine size={18} color={c.mossGreen} />
                 )}
                 <Text style={styles.hintText}>{hint.text}</Text>
                 <ChevronRight size={12} color="#D4D6CE" />
@@ -193,41 +213,63 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: '#D4D6CE',
     alignSelf: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  mascotContainer: {
+    height: 80,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
   headerTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     color: c.charcoalInk,
+    textAlign: 'center',
   },
-  headerDays: {
-    fontSize: 13,
-    color: c.inkMuted,
-  },
-  barContainer: {
-    marginTop: 16,
-  },
-  barTrack: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#EDEFF2',
-    width: '100%',
-  },
-  barFill: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: c.mossGreen,
-  },
-  barLabel: {
+  subtext: {
     fontSize: 13,
     color: c.inkMuted,
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 4,
+  },
+  barContainer: {
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  barTrack: {
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EDEFF2',
+    width: '100%',
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: c.mossGreen,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingRight: 6,
+  },
+  barPctInside: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  barPctBelow: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: c.inkMuted,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  readinessLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: c.charcoalInk,
+    textAlign: 'center',
+    marginBottom: 20,
   },
   divider: {
     height: 1,
@@ -235,7 +277,7 @@ const styles = StyleSheet.create({
     marginVertical: 16,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
     color: c.charcoalInk,
     marginBottom: 12,
@@ -243,10 +285,14 @@ const styles = StyleSheet.create({
   hintRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#F8FAF7',
+    borderRadius: 10,
+    marginBottom: 6,
   },
   hintText: {
-    fontSize: 13,
+    fontSize: 14,
     color: c.inkMuted,
     flex: 1,
     marginLeft: 10,
@@ -261,13 +307,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAF7',
     borderRadius: 12,
     padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.2)',
   },
   rewardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   rewardTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
     color: c.charcoalInk,
     marginLeft: 8,

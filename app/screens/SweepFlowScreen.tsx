@@ -375,7 +375,6 @@ function SweepMoodStep({ onContinue }: StepProps) {
   const updateNote = useGremlyStore((state) => state.updateNote);
   const notes = useGremlyStore((state) => state.notes);
   const isTrainingMode = useGremlyStore((state) => state.isTrainingMode);
-  const trainingProgress = useGremlyStore((state) => state.trainingProgress);
   const overlay = useGlobalOverlay();
 
   // Get recent entries since last sweep
@@ -756,11 +755,6 @@ function SweepMoodStep({ onContinue }: StepProps) {
             <Text style={styles.trainingPromptText}>
               Want to write about this one? It helps Gremly understand you better.
             </Text>
-            {trainingProgress.journals < 3 && (
-              <Text style={styles.trainingPromptCounter}>
-                {trainingProgress.journals} of 3 during training
-              </Text>
-            )}
           </View>
         )}
 

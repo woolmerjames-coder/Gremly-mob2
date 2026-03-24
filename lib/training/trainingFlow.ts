@@ -14,7 +14,7 @@
  * Returns the speech bubble text for the current trainingDropStep.
  * Shown BEFORE the user drops. Steps 0 and 1 are handled elsewhere.
  */
-export function getTrainingDropPrompt(step: number): { message: string; duration: number } | null {
+export function getTrainingDropPrompt(step: number): { message: string } | null {
   switch (step) {
     case 0:
       return null;
@@ -24,22 +24,16 @@ export function getTrainingDropPrompt(step: number): { message: string; duration
       return {
         message:
           'That got things started. Try a task next. What do you need to get done this week?',
-        duration: 15000,
       };
     case 3:
       return {
-        message: "Your Gremly's halfway there. Now try a habit. What do you want to stick to?",
-        duration: 15000,
+        message: "Getting greener! Now try a habit, like 'run 3x a week' or 'read every night.'",
       };
     case 4:
-      return {
-        message: 'Almost full. How are you feeling today? That counts too.',
-        duration: 15000,
-      };
+      return { message: "Almost full. Tell me how you're feeling today. That counts too." };
     case 5:
       return {
         message: "Last one till your Gremly's fed. Drop anything on your mind, big or small.",
-        duration: 15000,
       };
     default:
       return null;
@@ -107,25 +101,18 @@ export function getNextTrainingModal(state: {
 // ---------------------------------------------------------------------------
 
 /** Shown after the first-fed modal is dismissed. */
-export function getPostFirstFedSpeech(): { message: string; duration: number } {
-  return {
-    message: 'Tap your Gremly anytime to check progress.',
-    duration: 5_000,
-  };
+export function getPostFirstFedSpeech(): { message: string } {
+  return { message: 'Tap your Gremly anytime to check progress.' };
 }
 
 /** Shown after the Day 2+ meter explanation is dismissed. */
-export function getPostMeterDismissSpeech(): { message: string; duration: number } {
-  return {
-    message: 'Your Gremly resets each day. Drop thoughts to fill it back up.',
-    duration: 5_000,
-  };
+export function getPostMeterDismissSpeech(): { message: string } {
+  return { message: 'Your Gremly resets each day. Drop thoughts to fill it back up.' };
 }
 
 /** Shown after the graduation ceremony completes. */
-export function getPostGraduationSpeech(): { message: string; duration: number } {
+export function getPostGraduationSpeech(): { message: string } {
   return {
     message: "Training's done. Keep dropping thoughts and Gremly keeps growing. Simple as that.",
-    duration: 6_000,
   };
 }

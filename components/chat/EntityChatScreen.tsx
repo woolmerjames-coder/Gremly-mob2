@@ -346,13 +346,6 @@ export function EntityChatScreen({
           });
       }
 
-      // Training progress: count first entity chat per session
-      const { isTrainingMode, incrementTrainingProgress } = useGremlyStore.getState();
-      if (isTrainingMode && !hasTrackedTrainingChatRef.current) {
-        hasTrackedTrainingChatRef.current = true;
-        incrementTrainingProgress('entityChats');
-      }
-
       try {
         // 1. Append user message to store
         await appendEntityChatMessage(entityId, entityType, {

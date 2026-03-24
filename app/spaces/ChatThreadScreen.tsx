@@ -672,13 +672,6 @@ export default function ChatThreadScreen({ route }: Props) {
             });
         }
 
-        // Training progress: count first space chat per session
-        const { isTrainingMode, incrementTrainingProgress } = useGremlyStore.getState();
-        if (isTrainingMode && !hasTrackedTrainingChatRef.current) {
-          hasTrackedTrainingChatRef.current = true;
-          incrementTrainingProgress('entityChats');
-        }
-
         // Phase 10.6: Trigger haptic feedback for send action
         if (shouldUseHaptics()) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

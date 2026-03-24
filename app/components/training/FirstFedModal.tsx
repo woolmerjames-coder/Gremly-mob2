@@ -1,5 +1,6 @@
-import React from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { BRAND } from '../../../design/brand';
 import MascotLottie from '../../components/MascotLottie';
 
@@ -9,13 +10,40 @@ interface FirstFedModalProps {
 }
 
 export default function FirstFedModal({ visible, onDismiss }: FirstFedModalProps) {
+  const [bounceAnim] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    if (visible) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      bounceAnim.setValue(0);
+      Animated.spring(bounceAnim, {
+        toValue: 1,
+        friction: 4,
+        tension: 60,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible]);
+
+  const mascotScale = bounceAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 1],
+  });
+
   return (
     <Modal transparent animationType="fade" visible={visible} onRequestClose={onDismiss}>
       <View style={styles.overlay}>
         <View style={styles.card}>
-          <View style={styles.mascotContainer}>
-            <MascotLottie />
-          </View>
+          <Animated.View
+            style={{
+              transform: [{ scale: mascotScale }],
+              alignItems: 'center',
+            }}
+          >
+            <View style={styles.mascotContainer}>
+              <MascotLottie />
+            </View>
+          </Animated.View>
 
           <Text style={styles.headline}>Your Gremly is fed!</Text>
 

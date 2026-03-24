@@ -32,12 +32,21 @@ export interface TrainingHint {
 export function getTrainingHints(data: UserTrainingData): TrainingHint[] {
   const hints: TrainingHint[] = [];
 
-  if (data.totalDrops < 8) {
+  if (data.totalDrops < 3) {
     hints.push({
       text: 'Aim for 3+ drops a day. Everything counts.',
       icon: 'ArrowDownToLine',
       navigateTo: 'MindDrop',
       priority: 1,
+    });
+  }
+
+  if (data.daysWithDrops < 3 && data.totalDrops >= 5) {
+    hints.push({
+      text: 'Come back tomorrow and drop a few more.',
+      icon: 'ArrowDownToLine',
+      navigateTo: 'MindDrop',
+      priority: 2.5,
     });
   }
 

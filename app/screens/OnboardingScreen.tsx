@@ -49,8 +49,8 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
   },
   {
     id: 'start',
-    title: 'Now train me',
-    body: 'I need to learn how your brain works. It starts with dropping thoughts.',
+    title: 'Where do we start?',
+    body: "Just drop whatever's on your mind. Tasks, thoughts, feelings. I'll figure out the rest.",
     subtext: 'Tap any card to chat with me along the way.',
     type: 'mascot',
     mascot: GREMLY_FISTBUMP,

@@ -32,38 +32,29 @@ export const GRADUATION_THRESHOLD = 80;
 // Readiness score
 // ---------------------------------------------------------------------------
 
-/**
- * Calculates a 0-100 readiness score based on how much usable data the
- * weekly summary pipeline has to work with.
- *
- * Factors and weights:
- *   Drop volume (25) - "Week in Review" card needs topics
- *   Day spread  (25) - Review needs longitudinal signal
- *   Sweep count (20) - "Patterns" card needs processing data
- *   Entity diversity (15) - "Patterns" needs type contrast
- *   Depth signal (15) - "Insights" needs emotional/planning context (binary)
- */
 export function calculateTrainingReadiness(data: UserTrainingData): number {
-  // Drop volume: linear 0-25, full at 8 drops
-  const dropScore = Math.min(data.totalDrops / 8, 1) * 25;
+  let score = 0;
 
-  // Day spread: linear 0-25, full at 3 days
-  const dayScore = Math.min(data.daysWithDrops / 3, 1) * 25;
+  // Drop volume (0-20 points) - 15+ drops for full marks
+  score += Math.min(data.totalDrops / 15, 1) * 20;
 
-  // Sweep count: linear 0-20, full at 2 sweeps
-  const sweepScore = Math.min(data.totalSweeps / 2, 1) * 20;
+  // Day spread (0-30 points) - 5+ days for full marks
+  // This is the heaviest weight because sustained engagement
+  // over multiple days is the strongest signal of readiness
+  score += Math.min(data.daysWithDrops / 5, 1) * 30;
 
-  // Entity type diversity: linear 0-15, full at 2 types
-  const diversityScore = Math.min(data.entityTypeCount / 2, 1) * 15;
+  // Sweep engagement (0-25 points) - 3+ sweeps for full marks
+  score += Math.min(data.totalSweeps / 3, 1) * 25;
 
-  // Depth signal: binary 0 or 15
-  const hasDepth =
-    data.journalCount > 0 || data.entityChatCount > 0 || data.briefCount > 0;
-  const depthScore = hasDepth ? 15 : 0;
+  // Entity type diversity (0-10 points) - 3+ types for full marks
+  score += Math.min(data.entityTypeCount / 3, 1) * 10;
 
-  const total = dropScore + dayScore + sweepScore + diversityScore + depthScore;
+  // Depth interactions (0-15 points) - 3+ total across journals,
+  // entity chats, and briefs combined. Not binary anymore.
+  const depthCount = data.journalCount + data.entityChatCount + data.briefCount;
+  score += Math.min(depthCount / 3, 1) * 15;
 
-  return Math.min(Math.round(total), 100);
+  return Math.min(Math.round(score), 100);
 }
 
 // ---------------------------------------------------------------------------
@@ -83,9 +74,7 @@ export function getReadinessLabel(score: number): string {
 // Days remaining in the 7-day training window
 // ---------------------------------------------------------------------------
 
-export function getTrainingDaysRemaining(
-  trainingStartedAt: string | null,
-): number | null {
+export function getTrainingDaysRemaining(trainingStartedAt: string | null): number | null {
   if (trainingStartedAt == null) return null;
 
   const startMs = new Date(trainingStartedAt).getTime();

@@ -10,6 +10,7 @@ interface SweepUnlockModalProps {
   onDismiss: () => void;
   onTryNow: () => void;
   onSetReminder: (time: Date) => void;
+  timePickerOnly?: boolean;
 }
 
 function getDefaultEveningTime(): Date {
@@ -23,38 +24,18 @@ export default function SweepUnlockModal({
   onDismiss,
   onTryNow,
   onSetReminder,
+  timePickerOnly = false,
 }: SweepUnlockModalProps) {
-  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(!timePickerOnly ? false : true);
   const [selectedTime, setSelectedTime] = useState(getDefaultEveningTime);
 
   return (
     <Modal transparent animationType="fade" visible={visible} onRequestClose={onDismiss}>
       <View style={styles.overlay}>
         <View style={styles.card}>
-          <View style={styles.imageContainer}>
-            <Image source={SWEEP_IMAGE} style={styles.sweepImage} resizeMode="contain" />
-          </View>
-
-          <Text style={styles.headline}>You unlocked Evening Sweep</Text>
-
-          <Text style={styles.body}>
-            Sweep helps you process what you dropped. Swipe to keep, let go, or schedule. Takes 2
-            minutes. Best done before bed.
-          </Text>
-
-          {!showTimePicker ? (
+          {timePickerOnly ? (
             <>
-              <Pressable style={styles.cta} onPress={onTryNow}>
-                <Text style={styles.ctaText}>Try it now</Text>
-              </Pressable>
-
-              <Pressable onPress={() => setShowTimePicker(true)}>
-                <Text style={styles.secondaryText}>I'll do it tonight</Text>
-              </Pressable>
-            </>
-          ) : (
-            <>
-              <Text style={styles.timePrompt}>When should I remind you?</Text>
+              <Text style={styles.timePrompt}>When should I remind you to sweep?</Text>
 
               <DateTimePicker
                 mode="time"
@@ -74,6 +55,54 @@ export default function SweepUnlockModal({
               >
                 <Text style={styles.ctaText}>Set reminder</Text>
               </Pressable>
+            </>
+          ) : (
+            <>
+              <View style={styles.imageContainer}>
+                <Image source={SWEEP_IMAGE} style={styles.sweepImage} resizeMode="contain" />
+              </View>
+
+              <Text style={styles.headline}>You unlocked Evening Sweep</Text>
+
+              <Text style={styles.body}>
+                Sweep helps you process what you dropped. Swipe to keep, let go, or schedule. Takes
+                2 minutes. Best done before bed.
+              </Text>
+
+              {!showTimePicker ? (
+                <>
+                  <Pressable style={styles.cta} onPress={onTryNow}>
+                    <Text style={styles.ctaText}>Try it now</Text>
+                  </Pressable>
+
+                  <Pressable onPress={() => setShowTimePicker(true)}>
+                    <Text style={styles.secondaryText}>I'll do it tonight</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.timePrompt}>When should I remind you?</Text>
+
+                  <DateTimePicker
+                    mode="time"
+                    display="compact"
+                    value={selectedTime}
+                    onChange={(_event, date) => {
+                      if (date) setSelectedTime(date);
+                    }}
+                  />
+
+                  <Pressable
+                    style={styles.cta}
+                    onPress={() => {
+                      onSetReminder(selectedTime);
+                      onDismiss();
+                    }}
+                  >
+                    <Text style={styles.ctaText}>Set reminder</Text>
+                  </Pressable>
+                </>
+              )}
             </>
           )}
         </View>

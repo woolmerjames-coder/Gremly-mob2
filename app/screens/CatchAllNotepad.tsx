@@ -5700,6 +5700,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showGaugeModal, setShowGaugeModal] = useState(false);
   const [showFirstFedModal, setShowFirstFedModal] = useState(false);
   const [showSweepUnlockModal, setShowSweepUnlockModal] = useState(false);
+  const [showSweepTimeModal, setShowSweepTimeModal] = useState(false);
+  const [askSweepTimeAfterDemo, setAskSweepTimeAfterDemo] = useState(false);
   const [showTrainingMeter, setShowTrainingMeter] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -5725,6 +5727,20 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }
     };
   }, []);
+
+  // After sweep demo, return to MindDrop and prompt for notification time
+  useEffect(() => {
+    if (!askSweepTimeAfterDemo) return;
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (askSweepTimeAfterDemo) {
+        setAskSweepTimeAfterDemo(false);
+        setTimeout(() => {
+          setShowSweepTimeModal(true);
+        }, 500);
+      }
+    });
+    return unsubscribe;
+  }, [askSweepTimeAfterDemo, navigation]);
 
   // Track keyboard visibility to adjust bottom padding
   useEffect(() => {
@@ -5761,7 +5777,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     if (hasShownGreetingRef.current) return;
 
     // Don't show greeting during Day 1 guided drops - prompts handle it
-    if (isTrainingMode && trainingDropStep >= 1 && trainingDropStep <= 5) return;
+    if (isTrainingMode && trainingDropStep >= 1 && trainingDropStep <= 5) {
+      hasShownGreetingRef.current = true;
+      const prompt = getTrainingDropPrompt(trainingDropStep + 1);
+      if (prompt) {
+        setGremlySpeech(prompt.message);
+      }
+      return;
+    }
 
     // Delay slightly so the animation is visible
     const timer = setTimeout(() => {
@@ -5780,7 +5803,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [showGremlySpeech, firstDropCompletedAt, briefHeadline, isTrainingMode]);
+  }, [showGremlySpeech, firstDropCompletedAt, briefHeadline, isTrainingMode, trainingDropStep]);
 
   // Day 2: auto-open training meter on first app open after Day 1
   useEffect(() => {
@@ -8976,6 +8999,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         onTryNow={() => {
           setShowSweepUnlockModal(false);
           markSweepUnlockModalSeen();
+          setAskSweepTimeAfterDemo(true);
           navigation.navigate('Sweep', { demoMode: true } as any);
         }}
         onSetReminder={async (time) => {
@@ -9005,6 +9029,36 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           } catch (err) {
             console.warn('[Training] Failed to save evening time:', err);
           }
+        }}
+      />
+
+      <SweepUnlockModal
+        visible={showSweepTimeModal}
+        timePickerOnly
+        onDismiss={() => {
+          setShowSweepTimeModal(false);
+        }}
+        onTryNow={() => {}}
+        onSetReminder={async (time) => {
+          const userId = useGremlyStore.getState().userId;
+          if (!userId) return;
+          const hours = time.getHours().toString().padStart(2, '0');
+          const minutes = time.getMinutes().toString().padStart(2, '0');
+          const timeStr = `${hours}:${minutes}:00`;
+          try {
+            await supabase.from('notification_preferences').upsert(
+              {
+                user_id: userId,
+                evening_enabled: true,
+                evening_time: timeStr,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: 'user_id' },
+            );
+          } catch (err) {
+            console.warn('[Training] Failed to save evening time:', err);
+          }
+          setShowSweepTimeModal(false);
         }}
       />
 

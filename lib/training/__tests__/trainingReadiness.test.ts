@@ -35,47 +35,48 @@ describe('calculateTrainingReadiness', () => {
       expect(
         calculateTrainingReadiness(
           makeData({
-            totalDrops: 8,
-            daysWithDrops: 3,
-            totalSweeps: 2,
-            entityTypeCount: 2,
-            journalCount: 1,
+            totalDrops: 15,
+            daysWithDrops: 5,
+            totalSweeps: 3,
+            entityTypeCount: 3,
+            journalCount: 2,
+            briefCount: 1,
           }),
         ),
       ).toBe(100);
     });
 
     it('scales drop volume linearly', () => {
-      expect(calculateTrainingReadiness(makeData({ totalDrops: 4 }))).toBe(13);
+      expect(calculateTrainingReadiness(makeData({ totalDrops: 4 }))).toBe(5);
     });
 
     it('scales day spread linearly', () => {
-      expect(calculateTrainingReadiness(makeData({ daysWithDrops: 1 }))).toBe(8);
+      expect(calculateTrainingReadiness(makeData({ daysWithDrops: 1 }))).toBe(6);
     });
 
     it('scales sweep count linearly', () => {
-      expect(calculateTrainingReadiness(makeData({ totalSweeps: 1 }))).toBe(10);
+      expect(calculateTrainingReadiness(makeData({ totalSweeps: 1 }))).toBe(8);
     });
 
     it('caps each factor at max', () => {
-      expect(calculateTrainingReadiness(makeData({ totalDrops: 20 }))).toBe(25);
+      expect(calculateTrainingReadiness(makeData({ totalDrops: 20 }))).toBe(20);
     });
 
-    it('depth signal is binary, not scaled', () => {
-      expect(calculateTrainingReadiness(makeData({ journalCount: 1 }))).toBe(15);
-      expect(calculateTrainingReadiness(makeData({ entityChatCount: 1 }))).toBe(15);
-      expect(calculateTrainingReadiness(makeData({ briefCount: 1 }))).toBe(15);
+    it('depth signal scales linearly, not binary', () => {
+      expect(calculateTrainingReadiness(makeData({ journalCount: 1 }))).toBe(5);
+      expect(calculateTrainingReadiness(makeData({ entityChatCount: 1 }))).toBe(5);
+      expect(calculateTrainingReadiness(makeData({ briefCount: 1 }))).toBe(5);
       expect(calculateTrainingReadiness(makeData({ journalCount: 5 }))).toBe(15);
     });
 
-    it('depth signal: any one source is enough', () => {
+    it('depth signal sums across sources', () => {
       const oneSource = calculateTrainingReadiness(
         makeData({ journalCount: 0, entityChatCount: 0, briefCount: 1 }),
       );
       const allSources = calculateTrainingReadiness(
         makeData({ journalCount: 1, entityChatCount: 1, briefCount: 1 }),
       );
-      expect(oneSource).toBe(15);
+      expect(oneSource).toBe(5);
       expect(allSources).toBe(15);
     });
 
@@ -99,40 +100,40 @@ describe('calculateTrainingReadiness', () => {
   // ---------------------------------------------------------------------------
 
   describe('graduation paths', () => {
-    it('path 1: volume + spread + sweeps + types, no depth = 85', () => {
+    it('day 1 scenario: moderate drops, one day, some diversity = ~28', () => {
       const score = calculateTrainingReadiness(
-        makeData({ totalDrops: 8, daysWithDrops: 3, totalSweeps: 2, entityTypeCount: 2 }),
+        makeData({ totalDrops: 5, daysWithDrops: 1, entityTypeCount: 3, journalCount: 1 }),
+      );
+      expect(score).toBe(28);
+      expect(score).toBeLessThan(GRADUATION_THRESHOLD);
+    });
+
+    it('graduation path: strong multi-day engagement = 85', () => {
+      const score = calculateTrainingReadiness(
+        makeData({
+          totalDrops: 12,
+          daysWithDrops: 4,
+          totalSweeps: 3,
+          entityTypeCount: 3,
+          journalCount: 1,
+          briefCount: 1,
+        }),
       );
       expect(score).toBe(85);
       expect(score).toBeGreaterThanOrEqual(GRADUATION_THRESHOLD);
     });
 
-    it('path 2: fewer drops, compensated by depth >= threshold', () => {
-      const score = calculateTrainingReadiness(
-        makeData({
-          totalDrops: 6,
-          daysWithDrops: 2,
-          totalSweeps: 2,
-          entityTypeCount: 2,
-          journalCount: 1,
-        }),
-      );
-      expect(score).toBeGreaterThanOrEqual(GRADUATION_THRESHOLD);
-    });
-
-    it('path 3: all drops in one day, no sweeps = does not graduate', () => {
-      const score = calculateTrainingReadiness(
-        makeData({ totalDrops: 10, daysWithDrops: 1 }),
-      );
-      expect(score).toBe(33);
+    it('all drops in one day, no sweeps = does not graduate', () => {
+      const score = calculateTrainingReadiness(makeData({ totalDrops: 10, daysWithDrops: 1 }));
+      expect(score).toBe(19);
       expect(score).toBeLessThan(GRADUATION_THRESHOLD);
     });
 
-    it('path 4: light engagement across days, not enough = does not graduate', () => {
+    it('light engagement across days, not enough = does not graduate', () => {
       const score = calculateTrainingReadiness(
         makeData({ totalDrops: 5, daysWithDrops: 3, totalSweeps: 1, entityTypeCount: 1 }),
       );
-      expect(score).toBe(58);
+      expect(score).toBe(36);
       expect(score).toBeLessThan(GRADUATION_THRESHOLD);
     });
   });
