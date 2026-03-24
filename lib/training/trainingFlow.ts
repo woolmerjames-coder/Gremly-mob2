@@ -33,7 +33,7 @@ export function getTrainingDropPrompt(step: number): { message: string } | null 
       return { message: "Almost full. Tell me how you're feeling today. That counts too." };
     case 5:
       return {
-        message: "Last one till your Gremly's fed. Drop anything on your mind, big or small.",
+        message: "Last one till your Gremly's full. Drop anything on your mind, big or small.",
       };
     default:
       return null;
@@ -107,7 +107,7 @@ export function getPostFirstFedSpeech(): { message: string } {
 
 /** Shown after the Day 2+ meter explanation is dismissed. */
 export function getPostMeterDismissSpeech(): { message: string } {
-  return { message: 'Your Gremly resets each day. Drop thoughts to fill it back up.' };
+  return { message: 'Your Gremly resets each day. Feed it by dropping thoughts.' };
 }
 
 /** Shown after the graduation ceremony completes. */

@@ -316,7 +316,7 @@ export default function GremlyHelpCard({
 
       {/* Fed status text */}
       <Text style={[styles.fedStatus, isFedToday && styles.fedStatusComplete]}>
-        {isFedToday ? 'Fed today ✓' : `${gaugePercent}% full`}
+        {isFedToday ? 'Full today ✓' : `${gaugePercent}% full`}
       </Text>
 
       {/* Divider */}

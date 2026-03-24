@@ -17,10 +17,10 @@ export default function GaugeExplanationModal({ visible, onDismiss }: GaugeExpla
             <MascotLottie />
           </View>
 
-          <Text style={styles.headline}>You just fed your Gremly</Text>
+          <Text style={styles.headline}>You just fed your Gremly!</Text>
 
           <Text style={styles.body}>
-            Every thought you drop fills it up. The goal? Fill it up every day.
+            Every thought you drop feeds it. The goal? Get it full every day.
           </Text>
 
           <Pressable style={styles.cta} onPress={onDismiss}>

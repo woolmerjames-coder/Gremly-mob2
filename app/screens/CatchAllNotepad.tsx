@@ -8163,9 +8163,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
             // Fed-specific Gremly speech (replaces normal drop speech)
             const fedSpeechOptions = [
-              "Fed for the day. That's your brain sorted.",
+              "Full for the day. That's your brain sorted.",
               "That's a wrap. Your brain is cleared for the day.",
-              "Fully fed. Everything's out of your head and safe.",
+              "Full up. Everything's out of your head and safe.",
               "Done for today. Your Gremly's got it all.",
               'All caught up. Your mind can rest easy now.',
             ];

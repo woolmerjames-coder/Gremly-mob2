@@ -45,7 +45,7 @@ export default function FirstFedModal({ visible, onDismiss }: FirstFedModalProps
             </View>
           </Animated.View>
 
-          <Text style={styles.headline}>Your Gremly is fed!</Text>
+          <Text style={styles.headline}>Your Gremly is full!</Text>
 
           <Text style={styles.body}>
             You did it. Every time something pops into your head, drop it here. Your Gremly catches
