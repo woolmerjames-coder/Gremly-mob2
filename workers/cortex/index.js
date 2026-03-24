@@ -1847,7 +1847,7 @@ SUMMARY:`;
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-const GEMINI_CHAT_MODEL = 'gemini-2.5-flash';
+const GEMINI_CHAT_MODEL = 'gemini-3-flash-preview';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // GREMLY CORE PERSONA — shared across Entity Chat, Habit Builder, Space Chat
@@ -3839,7 +3839,7 @@ Almost never suggest creating a Space. Only if ALL true:
               }
 
               const streamPayload = {
-                model: 'gemini-2.5-flash',
+                model: GEMINI_CHAT_MODEL,
                 messages: entityMessages,
                 temperature: genConfig.temperature,
                 max_tokens: genConfig.maxTokens,
@@ -4116,7 +4116,7 @@ Almost never suggest creating a Space. Only if ALL true:
                         'Content-Type': 'application/json',
                       },
                       body: JSON.stringify({
-                        model: 'gemini-2.5-flash',
+                        model: GEMINI_CHAT_MODEL,
                         messages: followUpMessages,
                         temperature: genConfig.temperature,
                         max_tokens: Math.max(genConfig.maxTokens, 1200),
@@ -4274,7 +4274,7 @@ Almost never suggest creating a Space. Only if ALL true:
                       'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                      model: 'gemini-2.5-flash',
+                      model: GEMINI_CHAT_MODEL,
                       messages: [
                         ...entityMessages,
                         {
@@ -4444,7 +4444,7 @@ Almost never suggest creating a Space. Only if ALL true:
         // =========================
         try {
           const nonStreamPayload = {
-            model: 'gemini-2.5-flash',
+            model: GEMINI_CHAT_MODEL,
             messages: entityMessages,
             temperature: genConfig.temperature,
             max_tokens: genConfig.maxTokens,
@@ -4531,7 +4531,7 @@ Almost never suggest creating a Space. Only if ALL true:
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    model: 'gemini-2.5-flash',
+                    model: GEMINI_CHAT_MODEL,
                     messages: followUpMessages,
                     temperature: genConfig.temperature,
                     max_tokens: Math.max(genConfig.maxTokens, 1200),
@@ -5303,7 +5303,7 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gemini-2.5-flash',
+              model: GEMINI_CHAT_MODEL,
               messages: [
                 { role: 'system', content: ORGANIZE_SYSTEM_PROMPT },
                 { role: 'user', content: userMessage },
@@ -5319,7 +5319,7 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
 
           if (!res.ok) {
             const errText = await res.text();
-            console.log('[organize-day] Anthropic API error', {
+            console.log('[organize-day] Gemini API error', {
               status: res.status,
               latency_ms: latency,
               error: errText.substring(0, 300),
@@ -5464,7 +5464,7 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             summary,
             latency_ms: latency,
             _debug: {
-              model: 'gemini-2.5-flash',
+              model: GEMINI_CHAT_MODEL,
               prompt_tokens: usage.prompt_tokens,
               completion_tokens: usage.completion_tokens,
             },
@@ -9084,7 +9084,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const searchPolicy = getSearchPolicy(triage.search);
 
             const openaiPayload = {
-              model: 'gemini-2.5-flash',
+              model: GEMINI_CHAT_MODEL,
               messages: spaceChatMessages,
               temperature: genConfig.temperature,
               stream: true,
@@ -9336,7 +9336,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                      model: 'gemini-2.5-flash',
+                      model: GEMINI_CHAT_MODEL,
                       messages: followUpMessages,
                       temperature: genConfig.temperature,
                       max_tokens: Math.max(genConfig.maxTokens, 1200),
@@ -9467,7 +9467,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    model: 'gemini-2.5-flash',
+                    model: GEMINI_CHAT_MODEL,
                     messages: [
                       ...spaceChatMessages,
                       {
@@ -9700,7 +9700,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         // === SEARCH POLICY: Attach or detach Tavily based on triage ===
         const searchPolicy = getSearchPolicy(triage.search);
         const payload = {
-          model: 'gemini-2.5-flash',
+          model: GEMINI_CHAT_MODEL,
           messages: triageMessages,
           temperature: genConfig.temperature,
           max_tokens: genConfig.maxTokens,
@@ -9783,7 +9783,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                  model: 'gemini-2.5-flash',
+                  model: GEMINI_CHAT_MODEL,
                   messages: followUpMessages,
                   temperature: genConfig.temperature,
                   max_tokens: Math.max(genConfig.maxTokens, 1200),
