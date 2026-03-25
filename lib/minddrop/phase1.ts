@@ -63,6 +63,13 @@ const readSupabaseAnonKey = (): string => {
  * @param context - Additional context (hasAttachments, spaceId)
  * @returns Phase1Result with bucket, subtype, habitSubtype, confidence, and source
  */
+
+// Dev-only: inline degraded simulation state (avoids __tests__ import that breaks Metro)
+let _degradedCallsRemaining = 0;
+export function simulateDegradedClassification(count: number = 1): void {
+  if (__DEV__) _degradedCallsRemaining = count;
+}
+
 export async function runPhase1(
   text: string,
   context: ClassifyContext = {},
@@ -70,22 +77,22 @@ export async function runPhase1(
   const { hasAttachments = false } = context;
 
   // Dev-only: simulate degraded classification for testing hardening
-  if (__DEV__) {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { consumeDegradedSimulation } = require('./__tests__/testHardeningUtils');
-    if (consumeDegradedSimulation()) {
-      return {
-        bucket: 'log',
-        subtype: 'general',
-        habitSubtype: null,
-        confidence: 0.5,
-        source: 'heuristic-fallback',
-        is_multi: false,
-        reminder_intent: false,
-        classificationDegraded: true,
-        classificationSource: 'test-simulation',
-      };
-    }
+  if (__DEV__ && _degradedCallsRemaining > 0) {
+    _degradedCallsRemaining--;
+    console.log(
+      `[TestHardening] Simulating degraded classification (${_degradedCallsRemaining} remaining)`,
+    );
+    return {
+      bucket: 'log',
+      subtype: 'general',
+      habitSubtype: null,
+      confidence: 0.5,
+      source: 'heuristic-fallback',
+      is_multi: false,
+      reminder_intent: false,
+      classificationDegraded: true,
+      classificationSource: 'test-simulation',
+    };
   }
 
   // Get cortex URL and auth
