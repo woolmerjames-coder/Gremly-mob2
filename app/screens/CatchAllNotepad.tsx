@@ -138,7 +138,9 @@ import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import {
   getGremlySpeech,
   getGreetingSpeech,
+  getGreetingSpeechV2,
   getDcoGreetingSpeech,
+  getReturnSpeech,
   getEmptyStateSpeech,
   getFirstVisitSpeech,
   getPostAgeUpSpeech,
@@ -5519,6 +5521,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // DCO brief headline
   const briefHeadline = useGremlyStore(selectBriefHeadline);
+  const dco = useGremlyStore((s) => s.dco);
+  const lastSweepCompletedAt = useGremlyStore((s) => s.lastSweepCompletedAt);
+  const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
+  const isFedToday = useGremlyStore((s) => s.isFedToday);
 
   // First drop tracking
   const firstDropCompletedAt = useGremlyStore((s) => s.firstDropCompletedAt);
@@ -5712,6 +5718,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSpeechRef = useRef<string | null>(null);
   const hasShownGreetingRef = useRef(false);
+  const lastSpeechTimeRef = useRef<number | null>(null);
   const hasShownMeterSpeechRef = useRef(false);
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
   // Photo drop: Track if current submission has photos (for classification default to log-general)
@@ -5770,6 +5777,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         clearTimeout(gremlySpeechTimeoutRef.current);
       }
       lastSpeechRef.current = message;
+      lastSpeechTimeRef.current = Date.now();
       setGremlySpeech({ message, variant });
       gremlySpeechTimeoutRef.current = setTimeout(() => {
         // console.log('[Gremly Speech] Auto-dismissing speech bubble');
@@ -5777,6 +5785,36 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }, durationMs);
     },
     [],
+  );
+
+  const buildSpeechContext = useCallback(
+    (moment: 'greeting' | 'return' | 'post_drop'): SpeechContext => {
+      const daysSinceLastSweep = lastSweepCompletedAt
+        ? Math.floor(
+            (Date.now() - new Date(lastSweepCompletedAt).getTime()) / (1000 * 60 * 60 * 24),
+          )
+        : null;
+
+      return {
+        moment,
+        dropsToday: 0,
+        isFirstDrop: false,
+        hasPhotos: false,
+        isReturningUser: false,
+        error: null,
+        gaugeValue: feedingGaugeValue,
+        isFedToday,
+        timeSinceLastDrop: storeLastDropTime ? Date.now() - storeLastDropTime : null,
+        briefHeadline,
+        tone: dco?.tone ?? null,
+        overdueTodos: dco?.active_today?.overdue_todos ?? 0,
+        habitStreakRisk: dco?.active_today?.habit_streak_risk ?? [],
+        upcomingIn7d: dco?.active_today?.upcoming_in_7d ?? [],
+        daysSinceLastSweep,
+        lastSpeechTime: lastSpeechTimeRef.current,
+      };
+    },
+    [feedingGaugeValue, isFedToday, storeLastDropTime, briefHeadline, dco, lastSweepCompletedAt],
   );
 
   // Subscribe to post-age-up celebration events
@@ -5814,15 +5852,46 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         setGremlySpeech({ message: speech.message, variant: 'default' });
         // Don't auto-dismiss — keep it visible until user interacts
       } else if (isTrainingMode) {
-        const greeting = getDcoGreetingSpeech(briefHeadline);
-        showGremlySpeech(greeting.message, greeting.duration);
+        const ctx = buildSpeechContext('greeting');
+        const greeting = getGreetingSpeechV2(ctx);
+        if (greeting) {
+          showGremlySpeech(greeting.message, greeting.duration);
+        }
       } else {
-        const greeting = getDcoGreetingSpeech(briefHeadline);
-        showGremlySpeech(greeting.message, greeting.duration);
+        const ctx = buildSpeechContext('greeting');
+        const greeting = getGreetingSpeechV2(ctx);
+        if (greeting) {
+          showGremlySpeech(greeting.message, greeting.duration);
+        }
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [showGremlySpeech, firstDropCompletedAt, briefHeadline, isTrainingMode, trainingDropStep]);
+  }, [
+    showGremlySpeech,
+    firstDropCompletedAt,
+    buildSpeechContext,
+    isTrainingMode,
+    trainingDropStep,
+  ]);
+
+  // Return-visit speech: fire when user returns to MindDrop after visiting another tab
+  useEffect(() => {
+    // Only set up return speech after initial greeting has been shown
+    if (!hasShownGreetingRef.current) return;
+
+    const unsubscribe = navigation.addListener('focus', () => {
+      // Don't fire return speech during training mode
+      if (useGremlyStore.getState().isTrainingMode) return;
+
+      const ctx = buildSpeechContext('return');
+      const speech = getReturnSpeech(ctx);
+      if (speech) {
+        showGremlySpeech(speech.message, speech.duration);
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, buildSpeechContext, showGremlySpeech]);
 
   // Day 2: auto-open training meter on first app open after Day 1
   useEffect(() => {
