@@ -189,19 +189,15 @@ describe('Gremly Age Store Actions', () => {
       });
     });
 
-    it('triggers checkAndIncrementAge after incrementing', async () => {
+    it('returns didAgeUp false (age-up handled by feeding gauge)', async () => {
       mockRpcResponse('increment_drop_count', { data: { drops_count: 3 }, error: null });
-      // This call is for checkAndIncrementAge
-      mockRpcResponse('check_and_increment_gremly_age', {
-        data: [{ did_age_up: true, new_age: 6 }],
-        error: null,
-      });
-      useGremlyStore.setState({ todaySweepsCount: 3, todayRitualDay: '2026-01-10' }); // Already have 3 sweeps
+      useGremlyStore.setState({ todaySweepsCount: 3, todayRitualDay: '2026-01-10' });
 
       await act(async () => {
         const result = await useGremlyStore.getState().incrementDropCount();
-        expect(result.didAgeUp).toBe(true);
-        expect(result.newAge).toBe(6);
+        // Soul Document v8: age-ups flow through feeding gauge, not incrementDropCount
+        expect(result.didAgeUp).toBe(false);
+        expect(result.dropsCount).toBe(3);
       });
     });
 
@@ -494,14 +490,10 @@ describe('Gremly Age Store Actions', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('Full ritual flow', () => {
-    it('ages up after 3 drops + 3 sweeps', async () => {
+    it('tracks drops and sweeps without direct age-up (gauge handles it)', async () => {
       // Simulate incremental drops
       for (let i = 1; i <= 3; i++) {
         mockRpcResponse('increment_drop_count', { data: { drops_count: i }, error: null });
-        mockRpcResponse('check_and_increment_gremly_age', {
-          data: [{ did_age_up: false, new_age: 5 }],
-          error: null,
-        });
 
         await act(async () => {
           await useGremlyStore.getState().incrementDropCount();
@@ -510,34 +502,18 @@ describe('Gremly Age Store Actions', () => {
 
       expect(useGremlyStore.getState().todayDropsCount).toBe(3);
 
-      // Simulate 2 sweeps (not complete yet)
-      for (let i = 1; i <= 2; i++) {
+      // Simulate 3 sweeps
+      for (let i = 1; i <= 3; i++) {
         mockRpcResponse('increment_sweep_count', { data: { sweeps_count: i }, error: null });
-        mockRpcResponse('check_and_increment_gremly_age', {
-          data: [{ did_age_up: false, new_age: 5 }],
-          error: null,
-        });
 
         await act(async () => {
-          await useGremlyStore.getState().incrementSweepCount();
+          const result = await useGremlyStore.getState().incrementSweepCount();
+          // Soul Document v8: age-ups flow through feeding gauge, not increment functions
+          expect(result.didAgeUp).toBe(false);
         });
       }
 
-      // 3rd sweep should trigger age-up
-      mockRpcResponse('increment_sweep_count', { data: { sweeps_count: 3 }, error: null });
-      mockRpcResponse('check_and_increment_gremly_age', {
-        data: [{ did_age_up: true, new_age: 6 }],
-        error: null,
-      });
-
-      await act(async () => {
-        const result = await useGremlyStore.getState().incrementSweepCount();
-        expect(result.didAgeUp).toBe(true);
-        expect(result.newAge).toBe(6);
-      });
-
-      expect(useGremlyStore.getState().gremlyAge).toBe(6);
-      expect(useGremlyStore.getState().todayRitualCompletedAt).toBeTruthy();
+      expect(useGremlyStore.getState().todaySweepsCount).toBe(3);
     });
   });
 

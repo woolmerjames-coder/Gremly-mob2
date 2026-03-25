@@ -137,6 +137,13 @@ import { getUserProfile } from './context/userProfile.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage, generateLoadingMessage } from './triage';
 import {
+  geminiGenerate,
+  geminiStream,
+  parseGeminiChunk,
+  buildFollowUpContents,
+  convertMessages,
+} from './geminiClient.js';
+import {
   assembleGenerationConfig,
   buildSpaceChatSystemPrompt,
   buildEntityChatConfig,
@@ -1846,9 +1853,6 @@ SUMMARY:`;
 // OPENAI FUNCTION TOOL DEFINITIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-const GEMINI_CHAT_MODEL = 'gemini-3-flash-preview';
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // GREMLY CORE PERSONA — shared across Entity Chat, Habit Builder, Space Chat
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2012,7 +2016,7 @@ If someone is rude: Don't take the bait. A light "ouch" or "well that stings" is
  *
  * @param {string} userMessage - The user's message
  * @param {{ isSearchFollowUp?: boolean }} [opts] - Optional flags
- * @returns {{ model: string, maxTokens: number, reasoningEffort: string }}
+ * @returns {{ maxTokens: number, thinkingLevel: string }}
  */
 function getChatConfig(userMessage, opts = {}) {
   const msg = (userMessage || '').toLowerCase();
@@ -2025,8 +2029,8 @@ function getChatConfig(userMessage, opts = {}) {
     );
 
   return isComplex
-    ? { model: GEMINI_CHAT_MODEL, maxTokens: 4096, reasoningEffort: 'medium' }
-    : { model: GEMINI_CHAT_MODEL, maxTokens: 2048, reasoningEffort: 'low' };
+    ? { maxTokens: 4096, thinkingLevel: 'medium' }
+    : { maxTokens: 2048, thinkingLevel: 'low' };
 }
 
 const WEB_SEARCH_TOOL = {
@@ -2989,31 +2993,25 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
           console.log('[HabitBuilder:Streaming] Starting SSE stream');
 
           const chatCfg = getChatConfig(lastUserMsg);
-          const openaiRes = await fetch(GEMINI_BASE_URL, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: chatCfg.model,
-              messages: openaiMessages,
+          const geminiRes = await geminiStream(
+            habitBuilderSystemPrompt,
+            openaiMessages,
+            {
               temperature: 0.7,
-              max_tokens: chatCfg.maxTokens,
-              stream: true,
+              maxOutputTokens: chatCfg.maxTokens,
+              thinkingLevel: chatCfg.thinkingLevel,
               tools: [WEB_SEARCH_TOOL],
-              tool_choice: 'auto',
-              reasoning_effort: chatCfg.reasoningEffort,
-            }),
-          });
+            },
+            env.GOOGLE_API_KEY,
+          );
 
-          if (!openaiRes.ok) {
-            const errText = await openaiRes.text().catch(() => '');
+          if (!geminiRes.ok || !geminiRes.body) {
+            const errText = geminiRes.error || 'unknown error';
             console.log('[HabitBuilder:Streaming] Gemini error', {
-              status: openaiRes.status,
+              status: geminiRes.status,
               error: errText,
             });
-            return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
+            return j({ error: `gemini_error: ${geminiRes.status}`, detail: errText }, 200);
           }
 
           const { readable, writable } = new TransformStream();
@@ -3025,13 +3023,14 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
             // Send initial SSE ping
             await writer.write(encoder.encode(': ping\n\n'));
 
-            const reader = openaiRes.body.getReader();
+            const reader = geminiRes.body.getReader();
             let buffer = '';
             let fullContent = '';
             let sources = undefined;
 
             // Track tool call accumulation
             let toolCalls = [];
+            let modelResponseParts = [];
 
             // Output guard: buffer first sentence to strip filler openings
             let fillerBuffer = '';
@@ -3053,8 +3052,8 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                   if (!trimmed.startsWith('data: ')) continue;
 
                   try {
-                    const json = JSON.parse(trimmed.slice(6));
-                    const delta = json.choices?.[0]?.delta?.content;
+                    const chunk = parseGeminiChunk(trimmed.slice(6));
+                    const delta = chunk.text;
 
                     if (delta) {
                       fullContent += delta;
@@ -3078,19 +3077,18 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                       }
                     }
 
-                    // Accumulate tool calls
-                    const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
-                    if (toolCallDeltas) {
-                      for (const toolCallDelta of toolCallDeltas) {
-                        const idx = toolCallDelta.index ?? 0;
-                        if (!toolCalls[idx]) {
-                          toolCalls[idx] = { id: null, name: null, arguments: '' };
-                        }
-                        if (toolCallDelta.id) toolCalls[idx].id = toolCallDelta.id;
-                        if (toolCallDelta.function?.name)
-                          toolCalls[idx].name = toolCallDelta.function.name;
-                        if (toolCallDelta.function?.arguments)
-                          toolCalls[idx].arguments += toolCallDelta.function.arguments;
+                    // Collect function calls with thought signatures
+                    if (chunk.functionCalls) {
+                      for (const fc of chunk.functionCalls) {
+                        toolCalls.push({
+                          id: fc.id,
+                          name: fc.name,
+                          arguments: JSON.stringify(fc.args),
+                        });
+                        modelResponseParts.push({
+                          functionCall: { name: fc.name, args: fc.args, id: fc.id },
+                          thoughtSignature: fc.thoughtSignature,
+                        });
                       }
                     }
                   } catch (parseErr) {
@@ -3162,45 +3160,36 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                 );
 
                 if (successfulSearches.length > 0) {
-                  // Build follow-up messages with tool results
-                  const assistantToolCalls = successfulSearches.map((sr) => ({
+                  const originalContents = convertMessages(openaiMessages);
+
+                  if (fullContent) {
+                    modelResponseParts.unshift({ text: fullContent });
+                  }
+
+                  const functionResults = successfulSearches.map((sr) => ({
+                    name: 'web_search',
                     id: sr.toolCallId,
-                    type: 'function',
-                    function: {
-                      name: 'web_search',
-                      arguments: JSON.stringify({ query: sr.query }),
-                    },
+                    response: { results: formatSearchBrief(sr.results) },
                   }));
 
-                  const toolResultMessages = successfulSearches.map((sr) => ({
-                    role: 'tool',
-                    tool_call_id: sr.toolCallId,
-                    content: formatSearchBrief(sr.results),
-                  }));
+                  const followUpContents = buildFollowUpContents(
+                    originalContents,
+                    modelResponseParts,
+                    functionResults,
+                  );
 
-                  const followUpMessages = [
-                    ...openaiMessages,
-                    { role: 'assistant', content: null, tool_calls: assistantToolCalls },
-                    ...toolResultMessages,
-                  ];
-
-                  // Second streaming call with search results
                   const chatCfgFollowUp = getChatConfig(lastUserMsg, { isSearchFollowUp: true });
-                  const followUpRes = await fetch(GEMINI_BASE_URL, {
-                    method: 'POST',
-                    headers: {
-                      Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      model: chatCfgFollowUp.model,
-                      messages: followUpMessages,
+                  const followUpRes = await geminiStream(
+                    habitBuilderSystemPrompt,
+                    [],
+                    {
                       temperature: 0.7,
-                      max_tokens: chatCfgFollowUp.maxTokens,
-                      stream: true,
-                      reasoning_effort: chatCfgFollowUp.reasoningEffort,
-                    }),
-                  });
+                      maxOutputTokens: chatCfgFollowUp.maxTokens,
+                      thinkingLevel: chatCfgFollowUp.thinkingLevel,
+                      nativeContents: followUpContents,
+                    },
+                    env.GOOGLE_API_KEY,
+                  );
 
                   // Stream the follow-up response
                   const followUpReader = followUpRes.body.getReader();
@@ -3225,8 +3214,8 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                       if (jsonStr === '[DONE]') continue;
 
                       try {
-                        const json = JSON.parse(jsonStr);
-                        const delta = json.choices?.[0]?.delta?.content;
+                        const chunk = parseGeminiChunk(jsonStr);
+                        const delta = chunk.text;
                         if (delta) {
                           fullContent += delta;
                           if (!followUpFillerFlushed) {
@@ -3329,33 +3318,31 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
         // ── NON-STREAMING FALLBACK ──
         try {
           const chatCfg = getChatConfig(lastUserMsg);
-          const res = await fetch(GEMINI_BASE_URL, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: chatCfg.model,
-              messages: openaiMessages,
+          const geminiResult = await geminiGenerate(
+            habitBuilderSystemPrompt,
+            openaiMessages,
+            {
               temperature: 0.7,
-              max_tokens: chatCfg.maxTokens,
-              reasoning_effort: chatCfg.reasoningEffort,
-            }),
-          });
+              maxOutputTokens: chatCfg.maxTokens,
+              thinkingLevel: chatCfg.thinkingLevel,
+            },
+            env.GOOGLE_API_KEY,
+          );
 
-          const oj = await res.json();
           const latency = Date.now() - t0;
 
-          if (!res.ok) {
-            console.log('[HabitBuilder] API error', { error: oj.error, latency_ms: latency });
+          if (!geminiResult.ok) {
+            console.log('[HabitBuilder] API error', {
+              error: geminiResult.error,
+              latency_ms: latency,
+            });
             return j(
-              { error: 'habit_builder_failed', detail: oj.error?.message, latency_ms: latency },
+              { error: 'habit_builder_failed', detail: geminiResult.error, latency_ms: latency },
               200,
             );
           }
 
-          let content = oj?.choices?.[0]?.message?.content ?? '';
+          let content = geminiResult.content;
           content = stripFillerOpening(content);
 
           // Extraction call with full conversation
@@ -3838,45 +3825,35 @@ Almost never suggest creating a Space. Only if ALL true:
                 }
               }
 
-              const streamPayload = {
-                model: GEMINI_CHAT_MODEL,
-                messages: entityMessages,
+              const streamConfig = {
                 temperature: genConfig.temperature,
-                max_tokens: genConfig.maxTokens,
-                reasoning_effort: genConfig.reasoning,
-                stream: true,
+                maxOutputTokens: genConfig.maxTokens,
+                thinkingLevel: genConfig.thinkingLevel,
               };
 
               if (searchPolicy.attachTool) {
-                streamPayload.tools = [WEB_SEARCH_TOOL];
-                streamPayload.tool_choice =
-                  searchPolicy.toolChoice === 'required'
-                    ? { type: 'function', function: { name: 'web_search' } }
-                    : 'auto';
+                streamConfig.tools = [WEB_SEARCH_TOOL];
               }
 
               console.log('[EntityChat:Streaming:Payload]', {
-                model: streamPayload.model,
-                temperature: streamPayload.temperature,
-                max_tokens: streamPayload.max_tokens,
-                reasoning_effort: streamPayload.reasoning_effort,
-                hasTools: !!streamPayload.tools,
-                messageCount: streamPayload.messages?.length,
+                temperature: streamConfig.temperature,
+                maxOutputTokens: streamConfig.maxOutputTokens,
+                thinkingLevel: streamConfig.thinkingLevel,
+                hasTools: !!streamConfig.tools,
+                messageCount: entityMessages.length,
               });
 
-              const openaiRes = await fetch(GEMINI_BASE_URL, {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(streamPayload),
-              });
+              const geminiRes = await geminiStream(
+                genConfig.systemPrompt,
+                entityMessages,
+                streamConfig,
+                env.GOOGLE_API_KEY,
+              );
 
-              if (!openaiRes.ok) {
-                const errText = await openaiRes.text().catch(() => '');
-                console.log('[EntityChat:Streaming] OpenAI error', {
-                  status: openaiRes.status,
+              if (!geminiRes.ok || !geminiRes.body) {
+                const errText = geminiRes.error || 'unknown error';
+                console.log('[EntityChat:Streaming] Gemini error', {
+                  status: geminiRes.status,
                   error: errText,
                 });
                 await writer.write(
@@ -3885,7 +3862,7 @@ Almost never suggest creating a Space. Only if ALL true:
                 return; // exits the IIFE, writer.close() runs in finally
               }
 
-              const reader = openaiRes.body.getReader();
+              const reader = geminiRes.body.getReader();
               let buffer = '';
               let fullContent = '';
               let searchImages = [];
@@ -3896,7 +3873,7 @@ Almost never suggest creating a Space. Only if ALL true:
 
               // Track tool call accumulation - support multiple tool calls
               let toolCalls = []; // Array of { id, name, arguments }
-              let currentToolCallIndex = -1;
+              let modelResponseParts = [];
 
               try {
                 // eslint-disable-next-line no-constant-condition
@@ -3914,17 +3891,15 @@ Almost never suggest creating a Space. Only if ALL true:
                     if (!trimmed.startsWith('data: ')) continue;
 
                     try {
-                      const json = JSON.parse(trimmed.slice(6));
-                      const delta = json.choices?.[0]?.delta?.content;
+                      const chunk = parseGeminiChunk(trimmed.slice(6));
+                      const delta = chunk.text;
 
                       if (delta) {
                         fullContent += delta;
                         // Don't stream SAVE comments to client
                         if (!fullContent.includes('<!--SAVE:')) {
                           if (!fillerFlushed) {
-                            // Buffer first sentence for filler stripping
                             fillerBuffer += delta;
-                            // Flush once we have a sentence boundary or enough content
                             const hasBreak =
                               /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
                             if (hasBreak) {
@@ -3945,22 +3920,18 @@ Almost never suggest creating a Space. Only if ALL true:
                         }
                       }
 
-                      // Check for tool calls - handle multiple
-                      const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
-                      if (toolCallDeltas) {
-                        for (const toolCallDelta of toolCallDeltas) {
-                          const idx = toolCallDelta.index ?? 0;
-
-                          // Initialize new tool call if needed
-                          if (!toolCalls[idx]) {
-                            toolCalls[idx] = { id: null, name: null, arguments: '' };
-                          }
-
-                          if (toolCallDelta.id) toolCalls[idx].id = toolCallDelta.id;
-                          if (toolCallDelta.function?.name)
-                            toolCalls[idx].name = toolCallDelta.function.name;
-                          if (toolCallDelta.function?.arguments)
-                            toolCalls[idx].arguments += toolCallDelta.function.arguments;
+                      // Collect function calls with thought signatures for follow-up
+                      if (chunk.functionCalls) {
+                        for (const fc of chunk.functionCalls) {
+                          toolCalls.push({
+                            id: fc.id,
+                            name: fc.name,
+                            arguments: JSON.stringify(fc.args),
+                          });
+                          modelResponseParts.push({
+                            functionCall: { name: fc.name, args: fc.args, id: fc.id },
+                            thoughtSignature: fc.thoughtSignature,
+                          });
                         }
                       }
                     } catch (parseErr) {
@@ -4076,31 +4047,25 @@ Almost never suggest creating a Space. Only if ALL true:
                   });
 
                   if (successfulSearches.length > 0) {
-                    // Build follow-up messages with ALL tool results
-                    const assistantToolCalls = successfulSearches.map((sr) => ({
+                    // Build native follow-up contents with thought signatures preserved
+                    const originalContents = convertMessages(entityMessages);
+
+                    // Add any accumulated text to model response parts
+                    if (fullContent) {
+                      modelResponseParts.unshift({ text: fullContent });
+                    }
+
+                    const functionResults = successfulSearches.map((sr) => ({
+                      name: 'web_search',
                       id: sr.toolCallId,
-                      type: 'function',
-                      function: {
-                        name: 'web_search',
-                        arguments: JSON.stringify({ query: sr.query }),
-                      },
+                      response: { results: formatSearchBrief(sr.results) },
                     }));
 
-                    const toolResultMessages = successfulSearches.map((sr) => ({
-                      role: 'tool',
-                      tool_call_id: sr.toolCallId,
-                      content: formatSearchBrief(sr.results),
-                    }));
-
-                    const followUpMessages = [
-                      ...entityMessages,
-                      {
-                        role: 'assistant',
-                        content: null,
-                        tool_calls: assistantToolCalls,
-                      },
-                      ...toolResultMessages,
-                    ];
+                    const followUpContents = buildFollowUpContents(
+                      originalContents,
+                      modelResponseParts,
+                      functionResults,
+                    );
 
                     // Second API call for final response - with real streaming
                     // Tell client to discard any pre-search text that was already streamed
@@ -4109,25 +4074,20 @@ Almost never suggest creating a Space. Only if ALL true:
                     );
                     fullContent = '';
 
-                    const followUpRes = await fetch(GEMINI_BASE_URL, {
-                      method: 'POST',
-                      headers: {
-                        Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify({
-                        model: GEMINI_CHAT_MODEL,
-                        messages: followUpMessages,
+                    const followUpRes = await geminiStream(
+                      genConfig.systemPrompt,
+                      [],
+                      {
                         temperature: genConfig.temperature,
-                        max_tokens: Math.max(genConfig.maxTokens, 1200),
-                        reasoning_effort: genConfig.reasoning,
-                        stream: true,
-                      }),
-                    });
+                        maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
+                        thinkingLevel: genConfig.thinkingLevel,
+                        nativeContents: followUpContents,
+                      },
+                      env.GOOGLE_API_KEY,
+                    );
 
                     // Stream the follow-up response to client
                     const followUpReader = followUpRes.body.getReader();
-                    const followUpDecoder = new TextDecoder();
                     let followUpBuffer = '';
                     let readerDone = false;
 
@@ -4141,7 +4101,7 @@ Almost never suggest creating a Space. Only if ALL true:
                       if (readerDone) break;
                       const value = result.value;
 
-                      followUpBuffer += followUpDecoder.decode(value, { stream: true });
+                      followUpBuffer += decoder.decode(value, { stream: true });
 
                       // Process complete lines only
                       const lines = followUpBuffer.split('\n');
@@ -4155,8 +4115,8 @@ Almost never suggest creating a Space. Only if ALL true:
                         if (jsonStr === '[DONE]') continue;
 
                         try {
-                          const json = JSON.parse(jsonStr);
-                          const delta = json.choices?.[0]?.delta?.content;
+                          const chunk = parseGeminiChunk(jsonStr);
+                          const delta = chunk.text;
                           if (delta) {
                             fullContent += delta;
                             if (!followUpFillerFlushed) {
@@ -4196,8 +4156,8 @@ Almost never suggest creating a Space. Only if ALL true:
                         const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
                         if (jsonStr !== '[DONE]') {
                           try {
-                            const json = JSON.parse(jsonStr);
-                            const delta = json.choices?.[0]?.delta?.content;
+                            const chunk = parseGeminiChunk(jsonStr);
+                            const delta = chunk.text;
                             if (delta) {
                               fullContent += delta;
                               if (!followUpFillerFlushed) {
@@ -4267,32 +4227,21 @@ Almost never suggest creating a Space. Only if ALL true:
                     '[EntityChat:Streaming] Search fallback - responding without search results',
                   );
 
-                  const fallbackRes = await fetch(GEMINI_BASE_URL, {
-                    method: 'POST',
-                    headers: {
-                      Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      model: GEMINI_CHAT_MODEL,
-                      messages: [
-                        ...entityMessages,
-                        {
-                          role: 'system',
-                          content:
-                            'Web search is temporarily unavailable. Please respond based on your knowledge, and let the user know you could not search for the latest information.',
-                        },
-                      ],
+                  const fallbackResult = await geminiGenerate(
+                    genConfig.systemPrompt +
+                      '\n\nAnswer based on the entity context and your existing knowledge. Do not mention search availability.',
+                    entityMessages,
+                    {
                       temperature: genConfig.temperature,
-                      max_tokens: genConfig.maxTokens,
-                      reasoning_effort: genConfig.reasoning,
-                    }),
-                  });
+                      maxOutputTokens: genConfig.maxTokens,
+                      thinkingLevel: genConfig.thinkingLevel,
+                    },
+                    env.GOOGLE_API_KEY,
+                  );
 
-                  const fallbackData = await fallbackRes.json();
-                  fullContent =
-                    fallbackData?.choices?.[0]?.message?.content ??
-                    'I had trouble searching for that information. Could you try rephrasing your question?';
+                  fullContent = fallbackResult.ok
+                    ? fallbackResult.content
+                    : 'I had trouble searching for that information. Could you try rephrasing your question?';
                   fullContent = stripFillerOpening(fullContent);
 
                   // Stream the fallback content
@@ -4331,7 +4280,8 @@ Almost never suggest creating a Space. Only if ALL true:
                 const latency = Date.now() - t0;
                 // Strip SAVE comment and markdown images before sending to client
                 const displayContent = fullContent
-                  .replace(/<!--SAVE:\{.*?\}-->/gs, '')
+                  .replace(/<!--SAVE:.*?-->/gs, '')
+                  .replace(/<!--SAVE:.*$/s, '')
                   .replace(/!\[.*?\]\(.*?\)/g, '') // Strip markdown images
                   .trim();
                 const finalData = JSON.stringify({
@@ -4443,51 +4393,47 @@ Almost never suggest creating a Space. Only if ALL true:
         // NON-STREAMING ENTITY CHAT
         // =========================
         try {
-          const nonStreamPayload = {
-            model: GEMINI_CHAT_MODEL,
-            messages: entityMessages,
+          const nonStreamConfig = {
             temperature: genConfig.temperature,
-            max_tokens: genConfig.maxTokens,
-            reasoning_effort: genConfig.reasoning,
+            maxOutputTokens: genConfig.maxTokens,
+            thinkingLevel: genConfig.thinkingLevel,
           };
 
           if (searchPolicy.attachTool) {
-            nonStreamPayload.tools = [WEB_SEARCH_TOOL];
-            nonStreamPayload.tool_choice =
-              searchPolicy.toolChoice === 'required'
-                ? { type: 'function', function: { name: 'web_search' } }
-                : 'auto';
+            nonStreamConfig.tools = [WEB_SEARCH_TOOL];
+            nonStreamConfig.toolChoice =
+              searchPolicy.toolChoice === 'required' ? 'web_search' : 'auto';
           }
 
-          const res = await fetch(GEMINI_BASE_URL, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(nonStreamPayload),
-          });
+          const geminiResult = await geminiGenerate(
+            genConfig.systemPrompt,
+            entityMessages,
+            nonStreamConfig,
+            env.GOOGLE_API_KEY,
+          );
 
-          const oj = await res.json();
           let latency = Date.now() - t0;
 
-          if (!res.ok) {
-            console.log('[EntityChat] API error', { error: oj.error, latency_ms: latency });
+          if (!geminiResult.ok) {
+            console.log('[EntityChat] API error', {
+              error: geminiResult.error,
+              latency_ms: latency,
+            });
             return j(
-              { error: 'entity_chat_failed', detail: oj.error?.message, latency_ms: latency },
+              { error: 'entity_chat_failed', detail: geminiResult.error, latency_ms: latency },
               200,
             );
           }
 
           // Check for tool call
-          const toolCall = oj?.choices?.[0]?.message?.tool_calls?.[0];
-          let content = oj?.choices?.[0]?.message?.content ?? '';
+          const toolCall = geminiResult.functionCalls?.[0];
+          let content = geminiResult.content ?? '';
           let sources = undefined;
           let searchQuery = undefined;
 
-          if (toolCall?.function?.name === 'web_search') {
+          if (toolCall?.name === 'web_search') {
             try {
-              const args = JSON.parse(toolCall.function.arguments);
+              const args = toolCall.args || {};
               searchQuery = args.query;
 
               console.log('[EntityChat] Web search triggered', { query: searchQuery });
@@ -4502,45 +4448,35 @@ Almost never suggest creating a Space. Only if ALL true:
               });
 
               if (searchResults && searchResults.results.length > 0) {
-                // Build follow-up messages
-                const followUpMessages = [
-                  ...entityMessages,
+                // Build native follow-up contents with thought signatures preserved
+                const originalContents = convertMessages(entityMessages);
+                const functionResults = [
                   {
-                    role: 'assistant',
-                    content: null,
-                    tool_calls: [
-                      {
-                        id: toolCall.id,
-                        type: 'function',
-                        function: toolCall.function,
-                      },
-                    ],
-                  },
-                  {
-                    role: 'tool',
-                    tool_call_id: toolCall.id,
-                    content: formatSearchBrief(searchResults),
+                    name: 'web_search',
+                    id: toolCall.id || 'web_search_0',
+                    response: { results: formatSearchBrief(searchResults) },
                   },
                 ];
+                const followUpContents = buildFollowUpContents(
+                  originalContents,
+                  geminiResult.parts || [],
+                  functionResults,
+                );
 
                 // Second API call (triage config)
-                const followUpRes = await fetch(GEMINI_BASE_URL, {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    model: GEMINI_CHAT_MODEL,
-                    messages: followUpMessages,
+                const followUpResult = await geminiGenerate(
+                  genConfig.systemPrompt,
+                  [],
+                  {
                     temperature: genConfig.temperature,
-                    max_tokens: Math.max(genConfig.maxTokens, 1200),
-                    reasoning_effort: genConfig.reasoning,
-                  }),
-                });
+                    maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
+                    thinkingLevel: genConfig.thinkingLevel,
+                    nativeContents: followUpContents,
+                  },
+                  env.GOOGLE_API_KEY,
+                );
 
-                const followUpData = await followUpRes.json();
-                content = followUpData?.choices?.[0]?.message?.content ?? '';
+                content = followUpResult.ok ? followUpResult.content : '';
                 sources = searchResults.results.map((r) => ({ title: r.title, url: r.url }));
                 latency = Date.now() - t0;
               }
@@ -4563,6 +4499,11 @@ Almost never suggest creating a Space. Only if ALL true:
           // Use cleaned content (without suggestion block) for display
           content = cleanContent;
           content = stripFillerOpening(content);
+          // Strip any residual or partial SAVE blocks
+          content = content
+            .replace(/<!--SAVE:.*?-->/gs, '')
+            .replace(/<!--SAVE:.*$/s, '')
+            .trim();
 
           // Detect space promotion suggestion
           const promotion = detectSpacePromotion(content, messages.length);
@@ -5292,42 +5233,29 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
         const t0 = Date.now();
 
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
-
-          const res = await fetch(GEMINI_BASE_URL, {
-            signal: controller.signal,
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: GEMINI_CHAT_MODEL,
-              messages: [
-                { role: 'system', content: ORGANIZE_SYSTEM_PROMPT },
-                { role: 'user', content: userMessage },
-              ],
-              max_tokens: 8192,
+          const geminiResult = await geminiGenerate(
+            ORGANIZE_SYSTEM_PROMPT,
+            [{ role: 'user', content: userMessage }],
+            {
               temperature: 0.2,
-              reasoning_effort: 'low',
-            }),
-          });
+              maxOutputTokens: 8192,
+              thinkingLevel: 'low',
+            },
+            env.GOOGLE_API_KEY,
+          );
 
           const latency = Date.now() - t0;
-          clearTimeout(timeoutId);
 
-          if (!res.ok) {
-            const errText = await res.text();
+          if (!geminiResult.ok) {
             console.log('[organize-day] Gemini API error', {
-              status: res.status,
+              status: geminiResult.status,
               latency_ms: latency,
-              error: errText.substring(0, 300),
+              error: (geminiResult.error || '').substring(0, 300),
             });
             return j(
               {
                 error: 'organize_failed',
-                detail: errText.substring(0, 200),
+                detail: (geminiResult.error || '').substring(0, 200),
                 assignments: [],
                 overflow: tasksToAssign.map((t) => ({ taskId: t.id, reason: 'AI unavailable' })),
                 reasoning: [],
@@ -5338,13 +5266,12 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             );
           }
 
-          const geminiResponse = await res.json();
-          const rawContent = geminiResponse.choices?.[0]?.message?.content || '';
+          const rawContent = geminiResult.content;
 
-          const usage = geminiResponse.usage || {};
+          const usage = geminiResult.usage;
           console.log('[organize-day] Gemini usage', {
-            prompt_tokens: usage.prompt_tokens,
-            completion_tokens: usage.completion_tokens,
+            prompt_tokens: usage.promptTokenCount,
+            completion_tokens: usage.candidatesTokenCount,
             latency_ms: latency,
           });
 
@@ -5464,9 +5391,9 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             summary,
             latency_ms: latency,
             _debug: {
-              model: GEMINI_CHAT_MODEL,
-              prompt_tokens: usage.prompt_tokens,
-              completion_tokens: usage.completion_tokens,
+              model: 'gemini-3-flash-preview',
+              prompt_tokens: usage.promptTokenCount,
+              completion_tokens: usage.candidatesTokenCount,
             },
           });
         } catch (err) {
@@ -6378,21 +6305,23 @@ Return JSON only:
 }`;
 
         // Prompt C - Effort count
-        const promptC = `Count SEPARATE user intentions in this text.
+        const promptC = `Count how many SEPARATELY COMPLETABLE items are in this text.
 
-The user captured these items TOGETHER in one thought. Default to ONE unless clearly unrelated.
+The test: "Would the user finish and check off each item at a DIFFERENT time and place?"
 
 Count as ONE:
-- Items serving the same goal
-- Items that would be done in one session
-- Items the user mentally groups together
+- Sub-steps or prerequisites of a single task
+- A task paired with its context, reason, or cause
+- Alternatives or options for the same underlying need
 
-Count as SEPARATE only when:
-- Zero shared purpose or context
-- User would track and complete at completely different times
-- No unifying thread connects them
+The ONE rules take precedence. Only count as SEPARATE if NONE of the ONE rules apply.
 
-Ask: "Could the user describe all of these with ONE phrase?" If yes → one effort.
+Count as SEPARATE when ANY of these are true:
+- Different verbs acting on different objects
+- One is a one-time action, the other is ongoing or recurring
+- User would realistically check them off on different occasions
+
+IMPORTANT: If you identify 2+ groupings, effort_count MUST match the number of groupings. Do not list separate groupings and then return effort_count: 1.
 
 Return JSON only:
 {
@@ -6400,11 +6329,11 @@ Return JSON only:
   "groupings": ["description"]
 }
 
-or if truly separate:
+or if separately completable:
 
 {
   "effort_count": 2,
-  "groupings": ["first intention", "second intention"]
+  "groupings": ["first item", "second item"]
 }`;
 
         try {
@@ -9029,6 +8958,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               userMessage: lastUserMsgSpace,
               previousExchange,
               spaceName: body.spaceName || undefined,
+              runningSummary: body.runningSummary || '',
               chatType: 'space',
               env,
               domainNames: cachedDomains,
@@ -9083,47 +9013,37 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             // === SEARCH POLICY ===
             const searchPolicy = getSearchPolicy(triage.search);
 
-            const openaiPayload = {
-              model: GEMINI_CHAT_MODEL,
-              messages: spaceChatMessages,
+            const streamConfig = {
               temperature: genConfig.temperature,
-              stream: true,
-              max_tokens: genConfig.maxTokens,
-              reasoning_effort: genConfig.reasoning,
+              maxOutputTokens: genConfig.maxTokens,
+              thinkingLevel: genConfig.thinkingLevel,
             };
 
             if (searchPolicy.attachTool) {
-              openaiPayload.tools = [WEB_SEARCH_TOOL];
-              openaiPayload.tool_choice =
-                searchPolicy.toolChoice === 'required'
-                  ? { type: 'function', function: { name: 'web_search' } }
-                  : 'auto';
+              streamConfig.tools = [WEB_SEARCH_TOOL];
             }
 
             const t0 = Date.now();
 
             console.log('[SpaceChat:Streaming:Payload]', {
-              model: openaiPayload.model,
-              temperature: openaiPayload.temperature,
-              max_tokens: openaiPayload.max_tokens,
-              reasoning_effort: openaiPayload.reasoning_effort,
-              hasTools: !!openaiPayload.tools,
-              messageCount: openaiPayload.messages?.length,
+              temperature: streamConfig.temperature,
+              maxOutputTokens: streamConfig.maxOutputTokens,
+              thinkingLevel: streamConfig.thinkingLevel,
+              hasTools: !!streamConfig.tools,
+              messageCount: spaceChatMessages.length,
             });
 
-            const openaiRes = await fetch(GEMINI_BASE_URL, {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(openaiPayload),
-            });
+            const geminiRes = await geminiStream(
+              genConfig.systemPrompt,
+              spaceChatMessages,
+              streamConfig,
+              env.GOOGLE_API_KEY,
+            );
 
-            if (!openaiRes.ok) {
-              const errText = await openaiRes.text().catch(() => '');
+            if (!geminiRes.ok || !geminiRes.body) {
+              const errText = geminiRes.error || 'unknown error';
               console.log('[SpaceChat:Streaming] Gemini error', {
-                status: openaiRes.status,
+                status: geminiRes.status,
                 error: errText,
               });
               await writer.write(
@@ -9132,12 +9052,13 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               return; // exits the IIFE, writer.close() runs in finally
             }
 
-            const reader = openaiRes.body.getReader();
+            const reader = geminiRes.body.getReader();
             let buffer = '';
             let fullContent = '';
 
             // Track tool calls accumulation (array for multiple calls)
             let toolCalls = [];
+            let modelResponseParts = [];
 
             // Output guard: buffer first sentence to strip filler openings
             let fillerBuffer = '';
@@ -9159,8 +9080,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   if (!trimmed.startsWith('data: ')) continue;
 
                   try {
-                    const json = JSON.parse(trimmed.slice(6));
-                    const delta = json.choices?.[0]?.delta?.content;
+                    const chunk = parseGeminiChunk(trimmed.slice(6));
+                    const delta = chunk.text;
 
                     if (delta) {
                       fullContent += delta;
@@ -9188,18 +9109,19 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       }
                     }
 
-                    // Check for tool calls (handle multiple)
-                    const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
-                    if (toolCallDeltas && Array.isArray(toolCallDeltas)) {
-                      for (const tcd of toolCallDeltas) {
-                        const idx = tcd.index ?? 0;
-                        if (!toolCalls[idx]) {
-                          toolCalls[idx] = { id: null, name: null, arguments: '' };
-                        }
-                        if (tcd.id) toolCalls[idx].id = tcd.id;
-                        if (tcd.function?.name) toolCalls[idx].name = tcd.function.name;
-                        if (tcd.function?.arguments)
-                          toolCalls[idx].arguments += tcd.function.arguments;
+                    // Collect function calls with thought signatures for follow-up
+                    if (chunk.functionCalls) {
+                      for (const fc of chunk.functionCalls) {
+                        toolCalls.push({
+                          id: fc.id,
+                          name: fc.name,
+                          arguments: JSON.stringify(fc.args),
+                        });
+                        // Preserve raw part with thoughtSignature for follow-up
+                        modelResponseParts.push({
+                          functionCall: { name: fc.name, args: fc.args, id: fc.id },
+                          thoughtSignature: fc.thoughtSignature,
+                        });
                       }
                     }
                   } catch (parseErr) {
@@ -9302,52 +9224,41 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 });
 
                 if (successfulSearches.length > 0) {
-                  // Build follow-up messages with ALL tool results
-                  const assistantToolCalls = successfulSearches.map((sr) => ({
+                  // Build native follow-up contents with thought signatures preserved
+                  const originalContents = convertMessages(spaceChatMessages);
+
+                  // Add any accumulated text to model response parts
+                  if (fullContent) {
+                    modelResponseParts.unshift({ text: fullContent });
+                  }
+
+                  const functionResults = successfulSearches.map((sr) => ({
+                    name: 'web_search',
                     id: sr.toolCallId,
-                    type: 'function',
-                    function: {
-                      name: 'web_search',
-                      arguments: JSON.stringify({ query: sr.query }),
-                    },
+                    response: { results: formatSearchBrief(sr.results) },
                   }));
 
-                  const toolResultMessages = successfulSearches.map((sr) => ({
-                    role: 'tool',
-                    tool_call_id: sr.toolCallId,
-                    content: formatSearchBrief(sr.results),
-                  }));
+                  const followUpContents = buildFollowUpContents(
+                    originalContents,
+                    modelResponseParts,
+                    functionResults,
+                  );
 
-                  const followUpMessages = [
-                    ...spaceChatMessages,
+                  // Second API call for final response with thought signatures intact
+                  const followUpRes = await geminiStream(
+                    genConfig.systemPrompt,
+                    [],
                     {
-                      role: 'assistant',
-                      content: null,
-                      tool_calls: assistantToolCalls,
-                    },
-                    ...toolResultMessages,
-                  ];
-
-                  // Second API call for final response - with real streaming (triage config)
-                  const followUpRes = await fetch(GEMINI_BASE_URL, {
-                    method: 'POST',
-                    headers: {
-                      Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      model: GEMINI_CHAT_MODEL,
-                      messages: followUpMessages,
                       temperature: genConfig.temperature,
-                      max_tokens: Math.max(genConfig.maxTokens, 1200),
-                      stream: true,
-                      reasoning_effort: genConfig.reasoning,
-                    }),
-                  });
+                      maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
+                      thinkingLevel: genConfig.thinkingLevel,
+                      nativeContents: followUpContents,
+                    },
+                    env.GOOGLE_API_KEY,
+                  );
 
                   // Stream the follow-up response to client
                   const followUpReader = followUpRes.body.getReader();
-                  const followUpDecoder = new TextDecoder();
                   let followUpBuffer = '';
                   let readerDone = false;
 
@@ -9360,7 +9271,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     if (readerDone) break;
                     const value = result.value;
 
-                    followUpBuffer += followUpDecoder.decode(value, { stream: true });
+                    followUpBuffer += decoder.decode(value, { stream: true });
 
                     // Process complete lines only
                     const lines = followUpBuffer.split('\n');
@@ -9374,8 +9285,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       if (jsonStr === '[DONE]') continue;
 
                       try {
-                        const json = JSON.parse(jsonStr);
-                        const delta = json.choices?.[0]?.delta?.content;
+                        const chunk = parseGeminiChunk(jsonStr);
+                        const delta = chunk.text;
                         if (delta) {
                           fullContent += delta;
                           if (!followUpFillerFlushed) {
@@ -9413,8 +9324,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
                       if (jsonStr !== '[DONE]') {
                         try {
-                          const json = JSON.parse(jsonStr);
-                          const delta = json.choices?.[0]?.delta?.content;
+                          const chunk = parseGeminiChunk(jsonStr);
+                          const delta = chunk.text;
                           if (delta) {
                             fullContent += delta;
                             if (!followUpFillerFlushed) {
@@ -9460,32 +9371,21 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   '[SpaceChat:Streaming] Search fallback - responding without search results',
                 );
 
-                const fallbackRes = await fetch(GEMINI_BASE_URL, {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    model: GEMINI_CHAT_MODEL,
-                    messages: [
-                      ...spaceChatMessages,
-                      {
-                        role: 'system',
-                        content:
-                          'Web search is temporarily unavailable. Please respond based on your knowledge, and let the user know you could not search for the latest information.',
-                      },
-                    ],
+                const fallbackResult = await geminiGenerate(
+                  genConfig.systemPrompt +
+                    '\n\nAnswer based on the entity context and your existing knowledge. Do not mention search availability.',
+                  spaceChatMessages,
+                  {
                     temperature: genConfig.temperature,
-                    max_tokens: genConfig.maxTokens,
-                    reasoning_effort: genConfig.reasoning,
-                  }),
-                });
+                    maxOutputTokens: genConfig.maxTokens,
+                    thinkingLevel: genConfig.thinkingLevel,
+                  },
+                  env.GOOGLE_API_KEY,
+                );
 
-                const fallbackData = await fallbackRes.json();
-                fullContent =
-                  fallbackData?.choices?.[0]?.message?.content ??
-                  'I had trouble searching for that information. Could you try rephrasing your question?';
+                fullContent = fallbackResult.ok
+                  ? fallbackResult.content
+                  : 'I had trouble searching for that information. Could you try rephrasing your question?';
                 fullContent = stripFillerOpening(fullContent);
 
                 // Stream the fallback content
@@ -9508,6 +9408,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
               // Use cleaned content for display
               fullContent = cleanContent;
+              // Strip any residual or partial SAVE blocks
+              fullContent = fullContent
+                .replace(/<!--SAVE:.*?-->/gs, '')
+                .replace(/<!--SAVE:.*$/s, '')
+                .trim();
 
               // Use smart suggestion if available
               const save_suggestion = smartSuggestion || null;
@@ -9664,6 +9569,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
           userMessage: lastUserMsg,
           previousExchange,
           spaceName: body.spaceName || undefined,
+          runningSummary: body.runningSummary || '',
           chatType: 'space',
           env,
           domainNames: cachedDomains,
@@ -9699,55 +9605,42 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
         // === SEARCH POLICY: Attach or detach Tavily based on triage ===
         const searchPolicy = getSearchPolicy(triage.search);
-        const payload = {
-          model: GEMINI_CHAT_MODEL,
-          messages: triageMessages,
+        const nonStreamConfig = {
           temperature: genConfig.temperature,
-          max_tokens: genConfig.maxTokens,
-          reasoning_effort: genConfig.reasoning,
-          stream: false,
+          maxOutputTokens: genConfig.maxTokens,
+          thinkingLevel: genConfig.thinkingLevel,
         };
 
         if (searchPolicy.attachTool) {
-          payload.tools = [WEB_SEARCH_TOOL];
-          payload.tool_choice =
-            searchPolicy.toolChoice === 'required'
-              ? { type: 'function', function: { name: 'web_search' } }
-              : 'auto';
+          nonStreamConfig.tools = [WEB_SEARCH_TOOL];
         }
 
-        const res = await fetch(GEMINI_BASE_URL, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        });
+        const geminiResult = await geminiGenerate(
+          genConfig.systemPrompt,
+          triageMessages,
+          nonStreamConfig,
+          env.GOOGLE_API_KEY,
+        );
 
-        const oj = await res.json();
-
-        if (!res.ok) {
+        if (!geminiResult.ok) {
           return j(
             {
-              error: (oj && (oj.error?.message || oj.message)) || 'openai_error',
-              code: res.status,
+              error: geminiResult.error || 'gemini_error',
+              code: geminiResult.status,
             },
             200,
           );
         }
 
-        // Handle web search tool calls
-        let content = oj?.choices?.[0]?.message?.content ?? '';
+        let content = geminiResult.content;
         let sources = undefined;
         let searchQuery = undefined;
 
-        const toolCall = oj?.choices?.[0]?.message?.tool_calls?.[0];
+        const toolCall = geminiResult.functionCalls?.[0] || null;
 
-        if (toolCall?.function?.name === 'web_search') {
+        if (toolCall?.name === 'web_search') {
           try {
-            const args = JSON.parse(toolCall.function.arguments);
-            searchQuery = args.query;
+            searchQuery = toolCall.args?.query;
 
             console.log('[SpaceChat:NonStreaming] Web search triggered', { query: searchQuery });
 
@@ -9761,38 +9654,33 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             });
 
             if (searchResults && searchResults.results.length > 0) {
-              const followUpMessages = [
-                ...triageMessages,
-                {
-                  role: 'assistant',
-                  content: null,
-                  tool_calls: [{ id: toolCall.id, type: 'function', function: toolCall.function }],
-                },
-                {
-                  role: 'tool',
-                  tool_call_id: toolCall.id,
-                  content: formatSearchBrief(searchResults),
-                },
-              ];
+              const originalContents = convertMessages(triageMessages);
+              const followUpContents = buildFollowUpContents(
+                originalContents,
+                geminiResult.parts || [],
+                [
+                  {
+                    name: 'web_search',
+                    id: toolCall.id,
+                    response: { results: formatSearchBrief(searchResults) },
+                  },
+                ],
+              );
 
               // Follow-up uses same triage config but bumped tokens for search synthesis
-              const followUpRes = await fetch(GEMINI_BASE_URL, {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  model: GEMINI_CHAT_MODEL,
-                  messages: followUpMessages,
+              const followUpResult = await geminiGenerate(
+                genConfig.systemPrompt,
+                [],
+                {
                   temperature: genConfig.temperature,
-                  max_tokens: Math.max(genConfig.maxTokens, 1200),
-                  reasoning_effort: genConfig.reasoning,
-                }),
-              });
+                  maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
+                  thinkingLevel: genConfig.thinkingLevel,
+                  nativeContents: followUpContents,
+                },
+                env.GOOGLE_API_KEY,
+              );
 
-              const followUpData = await followUpRes.json();
-              content = followUpData?.choices?.[0]?.message?.content ?? '';
+              content = followUpResult.ok ? followUpResult.content : '';
               sources = searchResults.results.map((r) => ({ title: r.title, url: r.url }));
             }
           } catch (searchErr) {
@@ -9804,6 +9692,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         content = stripFillerOpening(content);
         const { suggestion: save_suggestion, cleanContent } = extractSaveSuggestion(content);
         content = cleanContent;
+        // Strip any residual or partial SAVE blocks
+        content = content
+          .replace(/<!--SAVE:.*?-->/gs, '')
+          .replace(/<!--SAVE:.*$/s, '')
+          .trim();
 
         const latency = Date.now() - t0NonStream;
         console.log('[SpaceChat:NonStreaming] Complete', {
@@ -9847,11 +9740,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         }
 
         return j({
-          id: String((oj.id || '').replace(/^chatcmpl-/, 'cmpl-')),
-
           content,
-          model: oj.model,
-          usage: oj.usage || null,
+          model: 'gemini-3-flash-preview',
+          usage: geminiResult.usage || null,
           save_suggestion: save_suggestion || null,
           sources,
           search_query: searchQuery,

@@ -336,6 +336,7 @@ exports[`ChatBubble streaming state renders streaming cursor when isStreaming is
       <View
         style={
           {
+            "alignItems": "center",
             "flexDirection": "row",
             "marginTop": 4,
           }

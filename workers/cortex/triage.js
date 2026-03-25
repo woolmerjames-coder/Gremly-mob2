@@ -157,11 +157,15 @@ function safeParseJsonTriage(raw) {
   }
 }
 
-function buildClassifierInput(userMessage, previousExchange, spaceName) {
+function buildClassifierInput(userMessage, previousExchange, spaceName, runningSummary) {
   const parts = [];
 
   if (spaceName) {
     parts.push(`SPACE: ${spaceName}`);
+  }
+
+  if (runningSummary && runningSummary.length > 10) {
+    parts.push(`CONVERSATION SO FAR: ${truncate(runningSummary, 200)}`);
   }
 
   if (previousExchange?.userMsg && previousExchange?.assistantMsg) {
@@ -365,6 +369,7 @@ export async function triageMessage(options) {
     userMessage,
     previousExchange,
     spaceName,
+    runningSummary,
     preset,
     chatType,
     env,
@@ -379,7 +384,12 @@ export async function triageMessage(options) {
   }
 
   try {
-    const classifierInput = buildClassifierInput(userMessage, previousExchange, spaceName);
+    const classifierInput = buildClassifierInput(
+      userMessage,
+      previousExchange,
+      spaceName,
+      runningSummary,
+    );
 
     const [mode, miniSignals] = await Promise.all([
       classifyMode(classifierInput, env.OPENAI_API_KEY),

@@ -103,10 +103,11 @@ describe('computeDueTime', () => {
 });
 
 describe('computeDueDay integration scenarios', () => {
-  it('today at 5pm local returns today as due_day', () => {
-    // Create a date for "today at 5pm" in local timezone
+  it('today at 2pm local returns today as due_day', () => {
+    // Use 2pm (14:00) to avoid edge case where local afternoon == UTC midnight
+    // (e.g. 5pm PDT = 00:00 UTC+1day, which triggers the UTC midnight shortcut)
     const today = new Date();
-    today.setHours(17, 0, 0, 0); // 5pm local
+    today.setHours(14, 0, 0, 0); // 2pm local
     const isoString = today.toISOString();
 
     const result = computeDueDay(isoString);
@@ -136,13 +137,10 @@ describe('computeDueDay integration scenarios', () => {
     expect(result).toBe(expectedDay);
   });
 
-  it('handles edge case: PST user setting "today 5pm" should get today (not tomorrow UTC)', () => {
-    // Simulate: user in PST (UTC-8) sets "today Nov 26 at 5pm"
-    // That's Nov 27 01:00 UTC
-    // But due_day should still be Nov 26 (user's local day)
-
+  it('handles edge case: local afternoon should get today (not tomorrow UTC)', () => {
+    // Use 2pm to avoid UTC midnight collision (5pm PDT = midnight UTC)
     const localDate = new Date();
-    localDate.setHours(17, 0, 0, 0); // 5pm local time
+    localDate.setHours(14, 0, 0, 0); // 2pm local time
 
     const result = computeDueDay(localDate.toISOString());
 

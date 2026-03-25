@@ -92,7 +92,12 @@ function CelebrationBeat({ onAdvance }: { onAdvance: () => void }) {
   }, []);
 
   return (
-    <View style={[styles.beatContainer, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 24 }]}>
+    <View
+      style={[
+        styles.beatContainer,
+        { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 24 },
+      ]}
+    >
       <View style={styles.celebrationContent}>
         <View style={styles.mascotLarge}>
           <MascotLottie ref={mascotRef} style={{ width: 200, height: 200 }} />
@@ -202,13 +207,16 @@ function GeneratingBeat({
 
   if (timedOut) {
     return (
-      <View style={[styles.beatContainer, { paddingTop: insets.top + 60, paddingBottom: insets.bottom + 24 }]}>
+      <View
+        style={[
+          styles.beatContainer,
+          { paddingTop: insets.top + 60, paddingBottom: insets.bottom + 24 },
+        ]}
+      >
         <View style={styles.generatingContent}>
           <MascotLottie style={{ width: 120, height: 120 }} />
           <Text style={styles.timeoutTitle}>Gremly needs a moment.</Text>
-          <Text style={styles.timeoutBody}>
-            We'll have your report ready soon.
-          </Text>
+          <Text style={styles.timeoutBody}>We'll have your report ready soon.</Text>
         </View>
         <View style={styles.ctaContainer}>
           <Pressable style={styles.primaryCta} onPress={onTimeout}>
@@ -220,15 +228,16 @@ function GeneratingBeat({
   }
 
   return (
-    <View style={[styles.beatContainer, { paddingTop: insets.top + 60, paddingBottom: insets.bottom + 24 }]}>
+    <View
+      style={[
+        styles.beatContainer,
+        { paddingTop: insets.top + 60, paddingBottom: insets.bottom + 24 },
+      ]}
+    >
       <View style={styles.generatingContent}>
         <MascotLottie style={{ width: 120, height: 120 }} />
 
-        <Animated.Text
-          key={phaseIndex}
-          entering={FadeIn.duration(400)}
-          style={styles.phaseText}
-        >
+        <Animated.Text key={phaseIndex} entering={FadeIn.duration(400)} style={styles.phaseText}>
           {PHASE_TEXTS[phaseIndex]}
         </Animated.Text>
 
@@ -262,14 +271,14 @@ function ReportBeat({ onAdvance }: { onAdvance: () => void }) {
   const dateRange = useMemo(() => {
     const start = trainingStartedAt ? new Date(trainingStartedAt) : new Date();
     const end = new Date();
-    const fmt = (d: Date) =>
-      d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     return `${fmt(start)} – ${fmt(end)}`;
   }, [trainingStartedAt]);
 
   // Build cards: intro + summary content
   const cards = useMemo(() => {
-    const result: Array<{ key: string; type: 'intro' | 'commentary' | 'insight' | 'week_ahead' }> = [];
+    const result: Array<{ key: string; type: 'intro' | 'commentary' | 'insight' | 'week_ahead' }> =
+      [];
     result.push({ key: 'intro', type: 'intro' });
     if (summary?.content) {
       if (summary.content.weeklyCommentary) {
@@ -350,9 +359,7 @@ function ReportBeat({ onAdvance }: { onAdvance: () => void }) {
       return (
         <View style={styles.reportCard}>
           <Text style={styles.reportSectionTitle}>Week Ahead</Text>
-          <Text style={styles.reportBody}>
-            {summary.content.weekAhead.introduction}
-          </Text>
+          <Text style={styles.reportBody}>{summary.content.weekAhead.introduction}</Text>
         </View>
       );
     }
@@ -361,7 +368,12 @@ function ReportBeat({ onAdvance }: { onAdvance: () => void }) {
   };
 
   return (
-    <View style={[styles.beatContainer, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
+    <View
+      style={[
+        styles.beatContainer,
+        { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 },
+      ]}
+    >
       {/* Card counter */}
       <Text style={styles.cardCounter}>
         {cardIndex + 1} of {cards.length}
@@ -379,9 +391,7 @@ function ReportBeat({ onAdvance }: { onAdvance: () => void }) {
 
       <View style={styles.ctaContainer}>
         <Pressable style={styles.primaryCta} onPress={handleNext}>
-          <Text style={styles.primaryCtaText}>
-            {isLastCard ? 'Continue' : 'Next'}
-          </Text>
+          <Text style={styles.primaryCtaText}>{isLastCard ? 'Continue' : 'Next'}</Text>
           <ArrowRight size={16} color="#FFFFFF" />
         </Pressable>
       </View>
@@ -414,12 +424,13 @@ function HookBeat({ onDismiss }: { onDismiss: () => void }) {
   const trainingStartedAt = useGremlyStore((s) => s.trainingStartedAt);
 
   // Calculate trial days remaining (if applicable)
-  const trialDaysLeft = useMemo(() => {
-    if (!trainingStartedAt) return 7;
+  const [trialDaysLeft, setTrialDaysLeft] = useState(7);
+  useEffect(() => {
+    if (!trainingStartedAt) return;
     const started = new Date(trainingStartedAt).getTime();
     const trialEnd = started + 14 * 24 * 60 * 60 * 1000; // 14-day trial
     const remaining = Math.max(0, Math.ceil((trialEnd - Date.now()) / (1000 * 60 * 60 * 24)));
-    return remaining;
+    setTrialDaysLeft(remaining);
   }, [trainingStartedAt]);
 
   const handleMaybeLater = useCallback(() => {
@@ -431,7 +442,12 @@ function HookBeat({ onDismiss }: { onDismiss: () => void }) {
   }, [showDismissText, onDismiss]);
 
   return (
-    <View style={[styles.hookContainer, { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 24 }]}>
+    <View
+      style={[
+        styles.hookContainer,
+        { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 24 },
+      ]}
+    >
       <View style={styles.hookContent}>
         <Animated.View entering={FadeInUp.delay(200).duration(500)}>
           <Text style={styles.hookTitle}>The hard part's done.</Text>
@@ -657,7 +673,7 @@ const styles = StyleSheet.create({
   reportScrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
- },
+  },
   reportCard: {
     backgroundColor: '#FEFDFB',
     borderRadius: BRAND.radius.xl,

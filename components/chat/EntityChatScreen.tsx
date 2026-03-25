@@ -653,7 +653,7 @@ export function EntityChatScreen({
               updateStreamingContent(entityId, entityType, streamingMessageIdRef.current, '');
             }
           },
-          onLoadingMessage: (message) => {
+          onLoadingMessage: (message: string) => {
             if (streamingMessageIdRef.current) {
               const state = useGremlyStore.getState();
               const setLoading = (msg: any) =>

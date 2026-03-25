@@ -1290,6 +1290,7 @@ export interface EntityChatStreamingCallbacks {
   onSearching?: (query: string, isLoadingHint?: boolean) => void;
   onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
   onReset?: () => void;
+  onLoadingMessage?: (message: string) => void;
 }
 
 /**

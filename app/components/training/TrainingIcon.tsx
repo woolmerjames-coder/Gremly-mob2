@@ -97,6 +97,7 @@ export default function TrainingIcon({ completedCount, totalCount, onPress }: Tr
           strokeWidth={STROKE_WIDTH}
           strokeLinecap="round"
           strokeDasharray={CIRCUMFERENCE}
+          // @ts-expect-error reanimated animatedProps not in svg Circle type defs
           animatedProps={arcProps}
           fill="none"
         />

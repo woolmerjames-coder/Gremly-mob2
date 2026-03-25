@@ -19,19 +19,21 @@ const mockRemovePendingDrop = jest.fn();
 const mockIncrementDropCount = jest.fn();
 const mockUpdatePendingDropEnrichment = jest.fn();
 
+const mockPreviewGaugeDrop = jest.fn().mockReturnValue({ justCrossedFed: false });
+
 const storeState = {
   spaces: [] as any[],
   addPendingDrop: mockAddPendingDrop,
   removePendingDrop: mockRemovePendingDrop,
   incrementDropCount: mockIncrementDropCount,
   updatePendingDropEnrichment: mockUpdatePendingDropEnrichment,
+  previewGaugeDrop: mockPreviewGaugeDrop,
 };
 
 jest.mock('../../lib/store/useGremlyStore', () => ({
-  useGremlyStore: Object.assign(
-    (selector: any) => selector(storeState),
-    { getState: () => storeState },
-  ),
+  useGremlyStore: Object.assign((selector: any) => selector(storeState), {
+    getState: () => storeState,
+  }),
 }));
 
 const mockEnqueue = jest.fn();
@@ -111,12 +113,14 @@ beforeEach(() => {
   mockPreparePhotoDropText.mockImplementation(({ text }: any) => text);
   mockIsPhotoOnlyDrop.mockReturnValue(false);
   mockGetPhotoDropDefaults.mockReturnValue({ bucket: 'note', subtype: null });
+  mockPreviewGaugeDrop.mockReturnValue({ justCrossedFed: false });
 
   // Re-bind storeState methods (resetMocks replaces the mock fn instances)
   storeState.addPendingDrop = mockAddPendingDrop;
   storeState.removePendingDrop = mockRemovePendingDrop;
   storeState.incrementDropCount = mockIncrementDropCount;
   storeState.updatePendingDropEnrichment = mockUpdatePendingDropEnrichment;
+  storeState.previewGaugeDrop = mockPreviewGaugeDrop;
 });
 
 describe('useMindDropSubmit — current architecture', () => {

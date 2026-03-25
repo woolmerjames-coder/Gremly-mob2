@@ -37,13 +37,13 @@ describe('AgeUpCelebrationModal', () => {
   describe('visibility', () => {
     it('renders when visible is true', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} />);
-      expect(getByText('Gremly got older')).toBeTruthy();
+      expect(getByText('Your Gremly Grew!')).toBeTruthy();
     });
 
     it('does not render content when visible is false', () => {
       const { queryByText } = render(<AgeUpCelebrationModal {...defaultProps} visible={false} />);
       // Modal content should not be queryable when hidden
-      expect(queryByText('Gremly got older')).toBeNull();
+      expect(queryByText('Your Gremly Grew!')).toBeNull();
     });
   });
 
@@ -54,22 +54,22 @@ describe('AgeUpCelebrationModal', () => {
   describe('age display', () => {
     it('displays the new age number', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={42} />);
-      expect(getByText('42')).toBeTruthy();
+      expect(getByText('Now Age 42')).toBeTruthy();
     });
 
     it('displays age 1', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={1} />);
-      expect(getByText('1')).toBeTruthy();
+      expect(getByText('Now Age 1')).toBeTruthy();
     });
 
     it('displays age 100', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={100} />);
-      expect(getByText('100')).toBeTruthy();
+      expect(getByText('Now Age 100')).toBeTruthy();
     });
 
     it('displays ages over 100', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={150} />);
-      expect(getByText('150')).toBeTruthy();
+      expect(getByText('Now Age 150')).toBeTruthy();
     });
   });
 
@@ -78,45 +78,32 @@ describe('AgeUpCelebrationModal', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('milestone titles', () => {
-    it('shows "Gremly got older" for non-milestone ages', () => {
+    it('shows "Your Gremly Grew!" for all standard ages', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={5} />);
-      expect(getByText('Gremly got older')).toBeTruthy();
+      expect(getByText('Your Gremly Grew!')).toBeTruthy();
     });
 
-    it('shows "Double digits!" for age 10', () => {
+    it('shows "Your Gremly Grew!" for age 10', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={10} />);
-      expect(getByText('Double digits!')).toBeTruthy();
+      expect(getByText('Your Gremly Grew!')).toBeTruthy();
     });
 
-    it('shows "Twenty!" for age 20', () => {
-      const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={20} />);
-      expect(getByText('Twenty!')).toBeTruthy();
+    it('shows tier transition title when isTierTransition is true', () => {
+      const { getByText } = render(
+        <AgeUpCelebrationModal
+          {...defaultProps}
+          newAge={20}
+          isTierTransition={true}
+          tierName="Adolescent"
+        />,
+      );
+      expect(getByText("You've reached Adolescent!")).toBeTruthy();
     });
 
-    it('shows "One month!" for age 30', () => {
-      const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={30} />);
-      expect(getByText('One month!')).toBeTruthy();
-    });
-
-    it('shows "Halfway there!" for age 50', () => {
-      const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={50} />);
-      expect(getByText('Halfway there!')).toBeTruthy();
-    });
-
-    it('shows "One hundred!" for age 100', () => {
-      const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={100} />);
-      expect(getByText('One hundred!')).toBeTruthy();
-    });
-
-    it.each([
-      [40, 'Forty!'],
-      [60, 'Sixty!'],
-      [70, 'Seventy!'],
-      [80, 'Eighty!'],
-      [90, 'Ninety!'],
-    ])('shows "%s" for age %i', (age, expectedTitle) => {
-      const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={age} />);
-      expect(getByText(expectedTitle)).toBeTruthy();
+    it('shows no message for ages over 100', () => {
+      const { queryByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={101} />);
+      // The default title should exist
+      expect(queryByText('Your Gremly Grew!')).toBeTruthy();
     });
   });
 
@@ -156,9 +143,11 @@ describe('AgeUpCelebrationModal', () => {
     });
 
     it('shows no message for ages over 100', () => {
-      const { queryByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={101} />);
+      const { queryByText, getByText } = render(
+        <AgeUpCelebrationModal {...defaultProps} newAge={101} />,
+      );
       // The default title should exist
-      expect(queryByText('Gremly got older')).toBeTruthy();
+      expect(getByText('Your Gremly Grew!')).toBeTruthy();
       // But no milestone message - look for any text longer than a typical title
       // The message container should not have content for ages > 100
     });
@@ -229,7 +218,7 @@ describe('AgeUpCelebrationModal', () => {
     it('renders celebration video in mascot container', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} />);
       // The video is rendered within the mascot container alongside the age display
-      expect(getByText('5')).toBeTruthy();
+      expect(getByText('Now Age 5')).toBeTruthy();
     });
   });
 
@@ -301,7 +290,7 @@ describe('AgeUpCelebrationModal', () => {
 
     it('renders content when visible is true', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} visible={true} />);
-      expect(getByText('Gremly got older')).toBeTruthy();
+      expect(getByText('Your Gremly Grew!')).toBeTruthy();
     });
   });
 });

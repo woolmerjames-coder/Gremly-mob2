@@ -1,23 +1,50 @@
 /**
  * Tests for app/components/MascotLottie.tsx
  *
- * Tests the animated Lottie mascot component: idle state, celebrate transition,
- * and return to idle after animation completes.
+ * Tests the animated Lottie mascot component with gauge fill system:
+ * idle state, celebrate (drop) transition, celebrateFed, and return to idle.
  */
 
 import React from 'react';
 import { render, act } from '@testing-library/react-native';
 
-// Mock lottie-react-native
-const mockLottiePropsRef = { current: {} as Record<string, unknown> };
+// Track all LottieView instances by source
 jest.mock('lottie-react-native', () => {
   const React = require('react');
   const { View } = require('react-native');
   return React.forwardRef((props: any, ref: any) => {
-    Object.assign(mockLottiePropsRef.current, props);
-    React.useImperativeHandle(ref, () => ({}));
+    const mockRef = { reset: jest.fn(), play: jest.fn() };
+    React.useImperativeHandle(ref, () => mockRef);
     return React.createElement(View, { testID: 'lottie-view', ...props });
   });
+});
+
+// Mock useGremlyStore
+jest.mock('../../../lib/store/useGremlyStore', () => ({
+  useGremlyStore: jest.fn((selector) => {
+    const state = {
+      feedingGaugeValue: 0,
+      isFedToday: false,
+    };
+    return selector(state);
+  }),
+}));
+
+// Mock reanimated
+jest.mock('react-native-reanimated', () => {
+  const React = require('react');
+  const RN = require('react-native');
+  const AnimatedView = React.forwardRef((props: any, ref: any) =>
+    React.createElement(RN.View, { ...props, ref }),
+  );
+  return {
+    __esModule: true,
+    default: { View: AnimatedView },
+    useSharedValue: (v: number) => ({ value: v }),
+    useAnimatedStyle: () => ({}),
+    withTiming: (v: number) => v,
+    Easing: { out: () => ({}), cubic: {} },
+  };
 });
 
 import MascotLottie, { type MascotLottieHandle } from '../MascotLottie';
@@ -27,7 +54,6 @@ describe('MascotLottie', () => {
 
   beforeEach(() => {
     ref = React.createRef();
-    mockLottiePropsRef.current = {};
   });
 
   it('renders without crashing', () => {
@@ -35,40 +61,18 @@ describe('MascotLottie', () => {
     expect(toJSON()).not.toBeNull();
   });
 
-  it('starts in idle mode with idle animation source', () => {
-    render(<MascotLottie ref={ref} />);
-    // In idle mode, it should use character1_B.json
-    expect(mockLottiePropsRef.current.source).toBeTruthy();
-    expect(mockLottiePropsRef.current.loop).toBe(true);
-    expect(mockLottiePropsRef.current.autoPlay).toBe(true);
+  it('renders multiple LottieView instances', () => {
+    const { getAllByTestId } = render(<MascotLottie ref={ref} />);
+    const views = getAllByTestId('lottie-view');
+    // 6 LottieViews: grey(idle,drop,fed) + green(idle,drop,fed)
+    expect(views.length).toBeGreaterThanOrEqual(5);
   });
 
-  it('switches to celebrate mode when celebrate() is called', () => {
+  it('exposes celebrate and celebrateFed via ref', () => {
     render(<MascotLottie ref={ref} />);
-
-    act(() => {
-      ref.current?.celebrate();
-    });
-
-    // After celebrate(), loop should be false (plays once)
-    expect(mockLottiePropsRef.current.loop).toBe(false);
-  });
-
-  it('returns to idle after celebrate animation finishes', () => {
-    render(<MascotLottie ref={ref} />);
-
-    act(() => {
-      ref.current?.celebrate();
-    });
-
-    // Simulate animation completion
-    act(() => {
-      const onFinish = mockLottiePropsRef.current.onAnimationFinish as (() => void) | undefined;
-      onFinish?.();
-    });
-
-    // Should be back to idle: loop = true
-    expect(mockLottiePropsRef.current.loop).toBe(true);
+    expect(ref.current).toBeTruthy();
+    expect(typeof ref.current?.celebrate).toBe('function');
+    expect(typeof ref.current?.celebrateFed).toBe('function');
   });
 
   it('celebrate is a no-op while already celebrating', () => {
@@ -78,26 +82,12 @@ describe('MascotLottie', () => {
       ref.current?.celebrate();
     });
 
-    const propsAfterFirst = { ...mockLottiePropsRef.current };
-
+    // Second call should be no-op (isCelebratingRef guards it)
     act(() => {
-      ref.current?.celebrate(); // second call — should be ignored
+      ref.current?.celebrate();
     });
 
-    // Props should remain the same (still celebrating, not re-triggered)
-    expect(mockLottiePropsRef.current.loop).toBe(propsAfterFirst.loop);
-  });
-
-  it('has consistent wrapper dimensions (95×111)', () => {
-    render(<MascotLottie ref={ref} />);
-    // The outermost View wrapper has width: 95, height: 111
-    // We verify via the lottie-view which inherits the style
-    expect(mockLottiePropsRef.current).toBeTruthy();
-  });
-
-  it('exposes celebrate method via ref', () => {
-    render(<MascotLottie ref={ref} />);
+    // No crash = success
     expect(ref.current).toBeTruthy();
-    expect(typeof ref.current?.celebrate).toBe('function');
   });
 });

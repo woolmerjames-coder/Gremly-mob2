@@ -111,6 +111,13 @@ jest.mock('../lib/store/useGremlyStore', () => ({
       updateNote: jest.fn(),
       isLoading: mockStoreData.isLoading,
       isInitialized: mockStoreData.isInitialized,
+      gremlyAge: 0,
+      feedingGaugeValue: 0,
+      isFedToday: false,
+      fedDaysCount: 0,
+      isTrainingMode: false,
+      feedingHistory: [],
+      fetchFeedingHistory: jest.fn(),
     }),
 }));
 
@@ -904,7 +911,13 @@ describe('HubScreen - Journal View Data Filtering', () => {
       ...mockJournalAnalysis,
       analysis: {
         themes: [{ label: 'Growth', count: 2, description: 'Personal growth entries' }],
-        patterns: [{ label: 'Daily reflection', sentiment: 'positive', description: 'Consistent journaling' }],
+        patterns: [
+          {
+            label: 'Daily reflection',
+            sentiment: 'positive',
+            description: 'Consistent journaling',
+          },
+        ],
         mood_arc: { trend: 'improving' as const, summary: 'Getting better' },
         journaling_habits: {
           frequency: '3x/week',
