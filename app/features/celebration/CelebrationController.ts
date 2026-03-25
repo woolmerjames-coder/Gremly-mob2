@@ -9,7 +9,7 @@ import * as Haptics from 'expo-haptics';
 import { getEnv } from '../../../lib/env';
 import { subscribeToCelebrationEvents, type CelebrationEvent } from './celebrationBus';
 
-export type CelebrationKind = 'micro' | 'confetti' | 'mascot' | 'age_up' | 'fed';
+export type CelebrationKind = 'micro' | 'confetti' | 'mascot' | 'age_up' | 'fed' | 'post_age_up';
 
 export interface CelebrationPayload {
   kind: CelebrationKind;
@@ -249,6 +249,25 @@ class CelebrationController {
     this._suppressAgeUp = suppress;
     if (__DEV__) {
       console.log('[Celebration] Age-up suppression:', suppress ? 'ON' : 'OFF');
+    }
+  }
+
+  /**
+   * Trigger post age-up speech after the age-up modal is dismissed.
+   * @param age - The new age value
+   */
+  showPostAgeUpSpeech(age: number): void {
+    const payload: CelebrationPayload = {
+      kind: 'post_age_up',
+      age,
+    };
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    this.emit(payload);
+
+    if (__DEV__) {
+      console.log('[Celebration] Post age-up speech triggered for age: ' + age);
     }
   }
 

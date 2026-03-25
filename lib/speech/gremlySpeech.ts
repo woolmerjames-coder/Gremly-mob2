@@ -80,9 +80,9 @@ function formatDate(date: Date | string | null | undefined): string {
 
 function calculateDuration(message: string): number {
   // Longer base + per-char so speech stays visible long enough to read
-  const base = 3000;
+  const base = 5000;
   const perChar = 50;
-  const max = 6000;
+  const max = 8000;
   return Math.min(base + message.length * perChar, max);
 }
 
@@ -277,6 +277,47 @@ const SPEECH_POOLS = {
       'Skipped for now. You know where I am.',
     ],
   },
+
+  FED_CELEBRATION: {
+    days_remaining_2: [
+      'Full for the day. Two more like this and I level up.',
+      'Brain cleared, belly full. Two more fed days and I grow.',
+      'That\u2019s today sorted. Feed me two more days and watch what happens.',
+      'Done. Everything\u2019s safe with me. Two more fed days to level up.',
+    ],
+    days_remaining_1: [
+      'Full again. One more fed day and I level up.',
+      'Two down. Feed me one more day and I grow.',
+      'Back to back. One more and I hit a new age.',
+      'Twice fed. One more day like this and I evolve.',
+    ],
+    days_remaining_0: [
+      'Full. And I feel... different.',
+      'Something\u2019s happening...',
+      'That did it.',
+    ],
+  },
+
+  POST_AGE_UP: [
+    'Age {age}. Do I look different? I feel different.',
+    'Age {age} and thriving. Honestly? I\u2019m impressed with me.',
+    'Look at me. Age {age}. Growing up right before your eyes.',
+    'Age {age}. I\u2019d thank you but I did most of the growing.',
+    'That\u2019s {age} whole days of wisdom. You can tell, right?',
+    'Age {age}! I need a moment. ...OK I\u2019m good.',
+    'Age {age}. Someone throw me a party. Oh wait, this IS the party.',
+    'I just aged. In a good way. Age {age}, baby.',
+    '{age}?! When did THAT happen?',
+    'Age {age}. Still cute though.',
+    'Age {age}. We\u2019re doing this together.',
+    'Grew again. Age {age}. Thanks for feeding me.',
+    'Age {age}. Every drop got me here.',
+    'Age {age}. Not bad for a little brain gremlin.',
+    'Age {age}. I\u2019ve seen things. Mostly your to-do lists.',
+    'Age {age}. I remember when I was a hatchling. Actually, I don\u2019t. But still.',
+    'Age {age}. Starting to feel wise. Don\u2019t quiz me though.',
+    'Age {age}. At this point I\u2019m basically your elder.',
+  ],
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -423,5 +464,42 @@ export function getMorningBriefSpeech(event: 'prompt' | 'complete' | 'skip'): {
   return {
     message,
     duration: calculateDuration(message),
+  };
+}
+
+export function getFedCelebrationSpeech(fedDaysCount: number): {
+  message: string;
+  duration: number;
+  variant: 'celebration';
+} {
+  const daysRemaining = 2 - fedDaysCount;
+  const key =
+    daysRemaining >= 2
+      ? 'days_remaining_2'
+      : daysRemaining === 1
+        ? 'days_remaining_1'
+        : 'days_remaining_0';
+  const pool = SPEECH_POOLS.FED_CELEBRATION[key];
+  const message = pickRandom(pool, recentMessages);
+  trackMessage(message);
+  return {
+    message,
+    duration: 5000,
+    variant: 'celebration' as const,
+  };
+}
+
+export function getPostAgeUpSpeech(newAge: number): {
+  message: string;
+  duration: number;
+  variant: 'celebration';
+} {
+  const template = pickRandom(SPEECH_POOLS.POST_AGE_UP, recentMessages);
+  const message = template.replace(/\{age\}/g, String(newAge));
+  trackMessage(message);
+  return {
+    message,
+    duration: 5000,
+    variant: 'celebration' as const,
   };
 }

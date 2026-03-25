@@ -141,6 +141,8 @@ import {
   getDcoGreetingSpeech,
   getEmptyStateSpeech,
   getFirstVisitSpeech,
+  getPostAgeUpSpeech,
+  getFedCelebrationSpeech,
   type SpeechContext,
 } from '../../lib/speech/gremlySpeech';
 import {
@@ -5696,7 +5698,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return unsub;
   }, []);
 
-  const [gremlySpeech, setGremlySpeech] = useState<string | null>(null);
+  const [gremlySpeech, setGremlySpeech] = useState<{
+    message: string;
+    variant: 'default' | 'celebration';
+  } | null>(null);
   const [showGaugeModal, setShowGaugeModal] = useState(false);
   const [showFirstFedModal, setShowFirstFedModal] = useState(false);
   const [showSweepUnlockModal, setShowSweepUnlockModal] = useState(false);
@@ -5759,17 +5764,31 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, []);
 
   // Helper to show Gremly speech bubble with auto-dismiss
-  const showGremlySpeech = useCallback((message: string, durationMs = 3500) => {
-    if (gremlySpeechTimeoutRef.current) {
-      clearTimeout(gremlySpeechTimeoutRef.current);
-    }
-    lastSpeechRef.current = message;
-    setGremlySpeech(message);
-    gremlySpeechTimeoutRef.current = setTimeout(() => {
-      // console.log('[Gremly Speech] Auto-dismissing speech bubble');
-      setGremlySpeech(null);
-    }, durationMs);
-  }, []);
+  const showGremlySpeech = useCallback(
+    (message: string, durationMs = 3500, variant: 'default' | 'celebration' = 'default') => {
+      if (gremlySpeechTimeoutRef.current) {
+        clearTimeout(gremlySpeechTimeoutRef.current);
+      }
+      lastSpeechRef.current = message;
+      setGremlySpeech({ message, variant });
+      gremlySpeechTimeoutRef.current = setTimeout(() => {
+        // console.log('[Gremly Speech] Auto-dismissing speech bubble');
+        setGremlySpeech(null);
+      }, durationMs);
+    },
+    [],
+  );
+
+  // Subscribe to post-age-up celebration events
+  useEffect(() => {
+    const unsubscribe = celebrationController.subscribe((payload) => {
+      if (payload.kind === 'post_age_up' && payload.age) {
+        const speech = getPostAgeUpSpeech(payload.age);
+        showGremlySpeech(speech.message, speech.duration, 'celebration');
+      }
+    });
+    return unsubscribe;
+  }, [showGremlySpeech]);
 
   // Show a contextual greeting on mount (or first-visit onboarding speech)
   useEffect(() => {
@@ -5781,7 +5800,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       hasShownGreetingRef.current = true;
       const prompt = getTrainingDropPrompt(trainingDropStep + 1);
       if (prompt) {
-        setGremlySpeech(prompt.message);
+        setGremlySpeech({ message: prompt.message, variant: 'default' });
       }
       return;
     }
@@ -5792,7 +5811,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       hasShownGreetingRef.current = true;
       if (!firstDropCompletedAt) {
         const speech = getFirstVisitSpeech();
-        setGremlySpeech(speech.message);
+        setGremlySpeech({ message: speech.message, variant: 'default' });
         // Don't auto-dismiss — keep it visible until user interacts
       } else if (isTrainingMode) {
         const greeting = getDcoGreetingSpeech(briefHeadline);
@@ -8135,7 +8154,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           setTimeout(() => {
             const prompt = getTrainingDropPrompt(currentStep + 1);
             if (prompt) {
-              setGremlySpeech(prompt.message);
+              setGremlySpeech({ message: prompt.message, variant: 'default' });
             }
           }, 2000);
 
@@ -8153,25 +8172,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           if (isTrainingMode && !hasSeenFirstFedModal) {
             advanceTrainingDropStep();
             setGremlySpeech(null); // clear "Last one" speech
+
             mascotRef.current?.celebrateFed();
             setTimeout(() => setShowFirstFedModal(true), 3500);
           } else {
             mascotRef.current?.celebrateFed();
-            // fedDaysCount hasn't been incremented yet (server confirms later)
-            // Pass the next day number for display
-            celebrationController.showFedCelebration(useGremlyStore.getState().fedDaysCount + 1);
 
-            // Fed-specific Gremly speech (replaces normal drop speech)
-            const fedSpeechOptions = [
-              "Full for the day. That's your brain sorted.",
-              "That's a wrap. Your brain is cleared for the day.",
-              "Full up. Everything's out of your head and safe.",
-              "Done for today. Your Gremly's got it all.",
-              'All caught up. Your mind can rest easy now.',
-            ];
-            const fedMessage =
-              fedSpeechOptions[Math.floor(Math.random() * fedSpeechOptions.length)];
-            showGremlySpeech(fedMessage, 5000);
+            // Show celebration speech instead of FedToast when user is on MindDrop
+            const fedDaysCount = useGremlyStore.getState().fedDaysCount;
+            const fedSpeech = getFedCelebrationSpeech(fedDaysCount);
+            showGremlySpeech(fedSpeech.message, fedSpeech.duration, 'celebration');
           }
         } else {
           mascotRef.current?.celebrate();
@@ -8471,7 +8481,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           setTimeout(() => {
             const prompt = getTrainingDropPrompt(useGremlyStore.getState().trainingDropStep);
             if (prompt) {
-              setGremlySpeech(prompt.message);
+              setGremlySpeech({ message: prompt.message, variant: 'default' });
             }
           }, 2500);
         }
@@ -8712,10 +8722,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 entering={FadeIn.duration(200)}
                 exiting={FadeOut.duration(150)}
               >
-                <View style={styles.gremlyMessageBackdrop}>
+                <View
+                  style={[
+                    styles.gremlyMessageBackdrop,
+                    gremlySpeech.variant === 'celebration' && styles.gremlyMessageCelebration,
+                  ]}
+                >
                   <TypewriterText
-                    key={gremlySpeech}
-                    text={gremlySpeech}
+                    key={gremlySpeech.message}
+                    text={gremlySpeech.message}
                     style={styles.gremlyMessage}
                     duration={1400}
                     fadeIn={!firstDropCompletedAt}
@@ -8975,7 +8990,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // the prompt that guides toward the second drop.
           const nextPrompt = getTrainingDropPrompt(2);
           if (nextPrompt) {
-            setTimeout(() => setGremlySpeech(nextPrompt.message), 300);
+            setTimeout(
+              () => setGremlySpeech({ message: nextPrompt.message, variant: 'default' }),
+              300,
+            );
           }
         }}
       />
@@ -9300,6 +9318,14 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       textAlign: 'right',
       lineHeight: 20,
       fontFamily: 'Inter-Medium',
+    },
+    gremlyMessageCelebration: {
+      backgroundColor: '#F2F7F2',
+      shadowColor: '#4A7C4A',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.12,
+      shadowRadius: 6,
+      elevation: 3,
     },
 
     contextPrompt: {
