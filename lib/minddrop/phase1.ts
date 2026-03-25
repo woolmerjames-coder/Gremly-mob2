@@ -69,6 +69,25 @@ export async function runPhase1(
 ): Promise<Phase1Result> {
   const { hasAttachments = false } = context;
 
+  // Dev-only: simulate degraded classification for testing hardening
+  if (__DEV__) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { consumeDegradedSimulation } = require('./__tests__/testHardeningUtils');
+    if (consumeDegradedSimulation()) {
+      return {
+        bucket: 'log',
+        subtype: 'general',
+        habitSubtype: null,
+        confidence: 0.5,
+        source: 'heuristic-fallback',
+        is_multi: false,
+        reminder_intent: false,
+        classificationDegraded: true,
+        classificationSource: 'test-simulation',
+      };
+    }
+  }
+
   // Get cortex URL and auth
   const cortexUrl = readCortexUrl();
   const anonKey = readSupabaseAnonKey();

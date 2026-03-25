@@ -685,31 +685,39 @@ const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JS
  * @returns {Promise<Object>} Parsed JSON result
  */
 async function runPreparseMini(text, env, systemPrompt) {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'gpt-4.1-nano',
-      temperature: 0.1,
-      max_tokens: 100,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: text.substring(0, 500) },
-      ],
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
 
-  if (!response.ok) {
-    throw new Error(`OpenAI error: ${response.status}`);
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-nano',
+        temperature: 0.1,
+        max_tokens: 100,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: text.substring(0, 500) },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '{}';
+    return JSON.parse(content);
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || '{}';
-  return JSON.parse(content);
 }
 
 /**
@@ -1069,6 +1077,9 @@ Rules:
 - is_ambiguous is true when bucket is "ambiguous"
 - When bucket is "ambiguous", always provide ambiguity_type and ambiguity_reason`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -1086,6 +1097,7 @@ Rules:
           { role: 'user', content: text.substring(0, 1000) },
         ],
       }),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -1176,6 +1188,8 @@ Rules:
     const latency = Date.now() - t0;
     console.error('[Phase1Class] Error', { error: String(err), latency_ms: latency });
     return { success: false, error: String(err?.message || 'unknown'), latency_ms: latency };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

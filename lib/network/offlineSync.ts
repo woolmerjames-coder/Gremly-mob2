@@ -1,7 +1,8 @@
 import { networkStatus } from './NetworkStatus';
 import { getPendingDrops } from '../minddrop/dropQueue';
-import { processDrop } from '../minddrop/dropProcessor';
+import { processDrop, reclassifyDegradedEntities } from '../minddrop/dropProcessor';
 import { useGremlyStore } from '../store/useGremlyStore';
+import { AppState } from 'react-native';
 
 let isFlushing = false;
 let consecutiveFailures = 0;
@@ -82,10 +83,24 @@ async function flushOfflineQueue(): Promise<void> {
 }
 
 export function initOfflineSync(): void {
+  // Reconnect: flush pending drops when network transitions offline → online
   networkStatus.subscribe((connected) => {
     if (connected) {
       consecutiveFailures = 0;
-      setTimeout(() => flushOfflineQueue(), 2_000);
+      setTimeout(async () => {
+        await flushOfflineQueue();
+        await reclassifyDegradedEntities();
+      }, 2_000);
+    }
+  });
+
+  // App resume: flush pending drops when returning from background
+  AppState.addEventListener('change', (nextState) => {
+    if (nextState === 'active' && networkStatus.isConnected) {
+      setTimeout(async () => {
+        await flushOfflineQueue();
+        await reclassifyDegradedEntities();
+      }, 1_500);
     }
   });
 

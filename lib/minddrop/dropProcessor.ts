@@ -117,6 +117,7 @@ interface SyncResult {
 // --- Constants ---
 
 const PHASE2_TIMEOUT_MS = 8000;
+const PHASE1_5A_TIMEOUT_MS = 6000;
 
 const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
 
@@ -302,49 +303,70 @@ async function runPhase1_5a(
     return null;
   }
 
-  try {
-    const t0 = Date.now();
-    const res = await fetch(cortexUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${anonKey}`,
-      },
-      body: JSON.stringify({
-        type: 'enrich-phase1-5a',
-        text,
-        bucket,
-        subtype,
-        recentReactions: [...recentReactions],
-      }),
-    });
+  const timeoutPromise = new Promise<null>((resolve) => {
+    setTimeout(() => resolve(null), PHASE1_5A_TIMEOUT_MS);
+  });
 
-    if (!res.ok) {
-      console.log('[DropProcessor] Phase 1.5a API returned non-ok status', { status: res.status });
+  const apiPromise = (async (): Promise<{
+    smart_title: string | null;
+    confirmation_message: string | null;
+  } | null> => {
+    try {
+      const t0 = Date.now();
+      const res = await fetch(cortexUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${anonKey}`,
+        },
+        body: JSON.stringify({
+          type: 'enrich-phase1-5a',
+          text,
+          bucket,
+          subtype,
+          recentReactions: [...recentReactions],
+        }),
+      });
+
+      if (!res.ok) {
+        console.log('[DropProcessor] Phase 1.5a API returned non-ok status', {
+          status: res.status,
+        });
+        return null;
+      }
+
+      const json = await res.json();
+      console.log('[DropProcessor] Phase 1.5a complete', {
+        latency_ms: Date.now() - t0,
+        has_title: !!json.smart_title,
+        has_message: !!json.confirmation_message,
+      });
+
+      const result = {
+        smart_title: json.smart_title || null,
+        confirmation_message: json.confirmation_message || null,
+      };
+
+      if (result.confirmation_message) {
+        pushReaction(result.confirmation_message);
+      }
+
+      return result;
+    } catch (err) {
+      console.log('[DropProcessor] Phase 1.5a error', { error: String(err) });
       return null;
     }
+  })();
 
-    const json = await res.json();
-    console.log('[DropProcessor] Phase 1.5a complete', {
-      latency_ms: Date.now() - t0,
-      has_title: !!json.smart_title,
-      has_message: !!json.confirmation_message,
+  const result = await Promise.race([apiPromise, timeoutPromise]);
+
+  if (result === null) {
+    console.warn('[DropProcessor] Phase 1.5a timeout', {
+      timeout_ms: PHASE1_5A_TIMEOUT_MS,
     });
-
-    const result = {
-      smart_title: json.smart_title || null,
-      confirmation_message: json.confirmation_message || null,
-    };
-
-    if (result.confirmation_message) {
-      pushReaction(result.confirmation_message);
-    }
-
-    return result;
-  } catch (err) {
-    console.log('[DropProcessor] Phase 1.5a error', { error: String(err) });
-    return null;
   }
+
+  return result;
 }
 
 // --- Helper: Run Phase 2 (non-streaming) ---
@@ -1693,5 +1715,160 @@ export async function processAllPending(): Promise<void> {
     // Otherwise start from beginning
 
     await processDrop(drop);
+  }
+}
+
+/**
+ * Background reclassification of entities that were synced with degraded AI classification.
+ * Called on network reconnect and app resume.
+ * Finds entities marked with views.ai_degraded = true and reclassifies them.
+ */
+export async function reclassifyDegradedEntities(): Promise<void> {
+  const store = useGremlyStore.getState();
+  const userId = store.userId;
+  if (!userId) return;
+
+  if (!networkStatus.isConnected) {
+    console.log('[Reclassify] Offline, skipping');
+    return;
+  }
+
+  // Find degraded entities across all entity types
+  const degradedTodos = store.todos.filter((t) => (t.views as any)?.ai_degraded === true);
+  const degradedHabits = store.habits.filter((h) => (h.views as any)?.ai_degraded === true);
+  const degradedNotes = store.notes.filter((n) => (n.views as any)?.ai_degraded === true);
+
+  const totalDegraded = degradedTodos.length + degradedHabits.length + degradedNotes.length;
+
+  if (totalDegraded === 0) {
+    return;
+  }
+
+  console.log('[Reclassify] Found degraded entities', {
+    todos: degradedTodos.length,
+    habits: degradedHabits.length,
+    notes: degradedNotes.length,
+  });
+
+  const allDegraded = [
+    ...degradedTodos.map((e) => ({ ...e, entityType: 'todo' as const, table: 'todos' as const })),
+    ...degradedHabits.map((e) => ({
+      ...e,
+      entityType: 'habit' as const,
+      table: 'habits' as const,
+    })),
+    ...degradedNotes.map((e) => ({ ...e, entityType: 'note' as const, table: 'notes' as const })),
+  ];
+
+  let reclassified = 0;
+
+  for (const entity of allDegraded) {
+    try {
+      const originalText =
+        (entity as any).body || (entity as any).notes || (entity as any).name || '';
+      if (!originalText.trim()) continue;
+
+      const result = await runPhase1(originalText, { hasAttachments: false });
+
+      if (result.classificationDegraded) {
+        console.log('[Reclassify] Still degraded, skipping entity', { id: entity.id });
+        continue;
+      }
+
+      const currentBucket = entity.entityType;
+      const newBucket = result.bucket === 'log' ? 'note' : result.bucket;
+
+      if (currentBucket === newBucket) {
+        console.log('[Reclassify] Same bucket, clearing degraded flag', {
+          id: entity.id,
+          bucket: currentBucket,
+        });
+
+        await supabase
+          .from(entity.table)
+          .update({
+            views: {
+              ...(entity.views as any),
+              ai_degraded: false,
+              classification_source: result.source,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', entity.id);
+
+        const storeKey = entity.table;
+        useGremlyStore.setState((state) => ({
+          [storeKey]: (state[storeKey] as any[]).map((item: any) =>
+            item.id === entity.id
+              ? {
+                  ...item,
+                  views: {
+                    ...item.views,
+                    ai_degraded: false,
+                    classification_source: result.source,
+                  },
+                }
+              : item,
+          ),
+        }));
+
+        reclassified++;
+      } else {
+        // Bucket changed — clear the flag and record what it should be.
+        // Moving entities between tables is complex; log for now.
+        console.warn('[Reclassify] Bucket would change — clearing flag but not moving entity', {
+          id: entity.id,
+          currentBucket,
+          newBucket,
+          newSubtype: result.subtype,
+        });
+
+        await supabase
+          .from(entity.table)
+          .update({
+            views: {
+              ...(entity.views as any),
+              ai_degraded: false,
+              reclassified_bucket: newBucket,
+              reclassified_subtype: result.subtype,
+              classification_source: result.source,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', entity.id);
+
+        const storeKey = entity.table;
+        useGremlyStore.setState((state) => ({
+          [storeKey]: (state[storeKey] as any[]).map((item: any) =>
+            item.id === entity.id
+              ? {
+                  ...item,
+                  views: {
+                    ...item.views,
+                    ai_degraded: false,
+                    reclassified_bucket: newBucket,
+                    reclassified_subtype: result.subtype,
+                    classification_source: result.source,
+                  },
+                }
+              : item,
+          ),
+        }));
+
+        reclassified++;
+      }
+
+      // Small delay between entities to avoid API spam
+      await new Promise((r) => setTimeout(r, 500));
+    } catch (err) {
+      console.warn('[Reclassify] Failed for entity', {
+        id: entity.id,
+        error: String(err),
+      });
+    }
+  }
+
+  if (reclassified > 0) {
+    console.log('[Reclassify] Complete', { reclassified, total: totalDegraded });
   }
 }

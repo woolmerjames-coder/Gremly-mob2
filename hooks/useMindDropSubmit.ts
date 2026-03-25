@@ -87,7 +87,6 @@ export function useMindDropSubmit(): {
 } {
   const spaces = useGremlyStore((s) => s.spaces);
   const addPendingDrop = useGremlyStore((s) => s.addPendingDrop);
-  const removePendingDrop = useGremlyStore((s) => s.removePendingDrop);
   const incrementDropCount = useGremlyStore((s) => s.incrementDropCount);
   const previewGaugeDrop = useGremlyStore((s) => s.previewGaugeDrop);
 
@@ -282,8 +281,15 @@ export function useMindDropSubmit(): {
             },
             onError: (localId, error) => {
               console.error('[MindDrop:Background] Processing failed', { localId, error });
-              // Remove pending drop so loading card doesn't stay forever
-              removePendingDrop(localId);
+
+              // Update status instead of removing — card stays visible for retry
+              // The drop remains in AsyncStorage queue (marked 'failed' by dropProcessor)
+              // and processAllPending will pick it up on next sweep
+              useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+                status: 'failed',
+                _retryable: true,
+              });
+
               if (testEnabled) {
                 testLogger.assert('error', false, {
                   where: 'background_processing',

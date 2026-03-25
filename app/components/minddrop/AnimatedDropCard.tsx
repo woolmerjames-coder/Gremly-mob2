@@ -230,6 +230,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
 
     const { isConnected } = useNetworkStatus();
     const pendingDrop = useGremlyStore((s) => s.pendingDrops.get(item.id));
+    const isRetrying = pendingDrop?._retryingClassification === true;
     const offlineMessage = getOfflineStatusMessage(
       pendingDrop?._offlineCapture,
       pendingDrop?.status === 'synced',
@@ -698,6 +699,10 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
             {/* Row 2: Confirmation message or skeleton */}
             {isMulti ? (
               <RNText style={localStyles.multiHint}>Tap to decide what to do</RNText>
+            ) : isRetrying ? (
+              <RNText style={{ fontSize: 13, color: '#9CA3AF', fontStyle: 'italic', marginTop: 2 }}>
+                Hmm, still thinking…
+              </RNText>
             ) : item.confirmationMessage ? (
               <Animated.View style={confirmationStyle}>
                 <TypewriterText
