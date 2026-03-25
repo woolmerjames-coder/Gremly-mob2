@@ -23,6 +23,7 @@ import {
   Platform,
   ActionSheetIOS,
 } from 'react-native';
+import { eventBus } from '../../lib/events/EventBus';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -86,7 +87,6 @@ import HeaderV33 from '../../components/spaces/v33/Header';
 import NotepadOverlayV33 from '../../components/spaces/v33/Overlays/NotepadOverlay';
 // Phase 12: MilestoneHeader (milestone data now from Zustand store)
 import { MilestoneHeader } from '../../components/spaces/MilestoneHeader';
-import { getMascotSource } from '../../lib/mascots/mascotConfig';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import UnifiedAddOverlay from '../../components/spaces/v33/Overlays/UnifiedAddOverlay';
 import RenameChatModal from '../../components/spaces/v33/Overlays/RenameChatModal';
@@ -507,6 +507,16 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   const [chatListModalVisible, setChatListModalVisible] = useState(false);
   const [showCompletedOverlay, setShowCompletedOverlay] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [helpInitialPage, setHelpInitialPage] = useState<'help' | 'gauge' | undefined>(undefined);
+
+  // Open Gremly modal to gauge page when fed toast is tapped
+  useEffect(() => {
+    const unsub = eventBus.on('openGremlyModal', () => {
+      setHelpInitialPage('gauge');
+      setShowHelp(true);
+    });
+    return unsub;
+  }, []);
 
   // Handler to change filter and collapse list
   const handleFilterChange = useCallback((newFilter: FilterTab) => {
@@ -1309,6 +1319,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Phase 12: MilestoneHeader handlers
   const handleGremlyPress = useCallback(() => {
+    setHelpInitialPage(undefined);
     setShowHelp(true);
   }, []);
 
@@ -1690,7 +1701,6 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
               spaceName={space?.name ?? 'Space'}
               pinnedCount={pinnedCount}
               completedCount={reactiveCompletedCount}
-              mascotSource={getMascotSource(space?.mascot_id || 'astro')}
               onGremlyPress={handleGremlyPress}
               onPinnedPress={handlePinnedPress}
               onCompletedPress={() => setShowCompletedOverlay(true)}
@@ -1706,8 +1716,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
           <GremlyHelpCard
             visible={showHelp}
-            onDismiss={() => setShowHelp(false)}
+            onDismiss={() => {
+              setShowHelp(false);
+              setHelpInitialPage(undefined);
+            }}
             screen="space-detail"
+            initialPage={helpInitialPage}
           />
 
           {/* Scrollable content */}

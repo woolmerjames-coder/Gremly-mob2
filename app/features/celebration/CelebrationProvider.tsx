@@ -12,6 +12,8 @@ import { View, StyleSheet } from 'react-native';
 import celebrationController from './CelebrationController';
 import { MicroCelebrate } from './MicroCelebrate';
 import { ConfettiCanvas } from './ConfettiCanvas';
+import { FedToast } from './FedToast';
+import { eventBus } from '../../../lib/events/EventBus';
 import type { CelebrationKind } from './CelebrationController';
 
 type CelebrationState = {
@@ -23,6 +25,10 @@ type CelebrationState = {
 export function CelebrationProvider({ children }: { children: React.ReactNode }) {
   const [micro, setMicro] = useState<CelebrationState>({ kind: null, visible: false });
   const [confetti, setConfetti] = useState<CelebrationState>({ kind: null, visible: false });
+  const [fed, setFed] = useState<{ visible: boolean; fedDayNumber: number }>({
+    visible: false,
+    fedDayNumber: 0,
+  });
 
   useEffect(() => {
     // Subscribe to celebration controller events
@@ -49,6 +55,14 @@ export function CelebrationProvider({ children }: { children: React.ReactNode })
           // via overlay_success event - no UI rendering needed here
           break;
 
+        case 'fed': {
+          const fedDayNumber = payload.fedDaysCount ?? 1;
+          setFed({ visible: true, fedDayNumber });
+          // Suppress age-up while fed toast is showing (Soul Document v8: fed fires first, age-up after)
+          celebrationController.suppressAgeUpCelebration(true);
+          break;
+        }
+
         case 'age_up':
           // Age-up celebration is handled at App.tsx level
           // to avoid conflicts with navigation modals
@@ -68,6 +82,19 @@ export function CelebrationProvider({ children }: { children: React.ReactNode })
 
       {/* Confetti animation */}
       {confetti.visible && <ConfettiCanvas />}
+
+      {/* Fed toast */}
+      {fed.visible && (
+        <FedToast
+          fedDayNumber={fed.fedDayNumber}
+          onDismiss={() => {
+            setFed({ visible: false, fedDayNumber: 0 });
+            // Allow age-up to fire now
+            celebrationController.suppressAgeUpCelebration(false);
+          }}
+          onTap={() => eventBus.emit('openGremlyModal', {})}
+        />
+      )}
     </View>
   );
 }

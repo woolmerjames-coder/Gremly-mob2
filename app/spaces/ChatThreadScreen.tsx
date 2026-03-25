@@ -317,6 +317,8 @@ export default function ChatThreadScreen({ route }: Props) {
   // Use BOTH state and ref - ref survives closure staleness, state triggers re-renders
   const [activeMessageWithSaveable, setActiveMessageWithSaveable] = useState<string | null>(null);
   const activeMessageWithSaveableRef = useRef<string | null>(null);
+  const hasTrackedChatGaugeRef = useRef(false);
+  const hasTrackedTrainingChatRef = useRef(false);
 
   const actionToastOffset = React.useMemo(
     () => Platform.select({ ios: 128, android: 112, default: 112 }) ?? 112,
@@ -658,6 +660,18 @@ export default function ChatThreadScreen({ route }: Props) {
       try {
         setSending(true);
 
+        // Feed the gauge: space chat = 4% per session (Soul Document v8)
+        // Only fires once per chat session, not per message
+        if (!hasTrackedChatGaugeRef.current) {
+          hasTrackedChatGaugeRef.current = true;
+          useGremlyStore
+            .getState()
+            .trackSpaceChat()
+            .catch((err: unknown) => {
+              console.warn('[ChatThread] Space chat gauge contribution failed:', err);
+            });
+        }
+
         // Phase 10.6: Trigger haptic feedback for send action
         if (shouldUseHaptics()) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -800,13 +814,22 @@ export default function ChatThreadScreen({ route }: Props) {
             },
             {
               onChunk: (delta) => {
+                // Clear loading hint on first content
+                const chunkMsgId = streamingMessageIdRef.current;
+                if (chunkMsgId) {
+                  updateStreamingSearching(chunkMsgId, false, null);
+                  updateMessage(chunkMsgId, { isLoadingHint: false });
+                }
                 // Split on whitespace boundaries to buffer words
                 wordBufferRef.current.push(...delta.split(/(?<=\s)/));
               },
-              onSearching: (query) => {
+              onSearching: (query, isLoadingHint) => {
                 const msgId = streamingMessageIdRef.current;
                 if (msgId) {
                   updateStreamingSearching(msgId, true, query);
+                  if (isLoadingHint) {
+                    updateMessage(msgId, { isLoadingHint: true });
+                  }
                 }
               },
               onFetching: (isFetching, fetchingUrl) => {
@@ -1535,7 +1558,9 @@ export default function ChatThreadScreen({ route }: Props) {
           <View style={styles.messageContainer}>
             <View style={styles.searchingIndicator}>
               <ActivityIndicator size="small" color="#8B5CF6" />
-              <Text style={styles.searchingText}>Searching: {message.searchQuery}</Text>
+              <Text style={styles.searchingText}>
+                {message.isLoadingHint ? message.searchQuery : `Searched`}
+              </Text>
             </View>
           </View>
         );

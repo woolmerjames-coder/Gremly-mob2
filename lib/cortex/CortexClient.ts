@@ -4,7 +4,12 @@
 import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
 import { getDateService } from '../date/DateService';
-import type { EntityChatRequest, EntityChatResponse, HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
+import type {
+  EntityChatRequest,
+  EntityChatResponse,
+  HabitBuilderRequest,
+  HabitBuilderStreamingCallbacks,
+} from '../types';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -28,7 +33,7 @@ export interface StreamingCallbacks {
   onChunk: (text: string, fullTextSoFar: string) => void;
   onComplete: (fullText: string) => void;
   onError: (error: string, partialText: string) => void;
-  onSearching?: (query: string) => void;
+  onSearching?: (query: string, isLoadingHint?: boolean) => void;
   onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
 }
 
@@ -55,7 +60,7 @@ export interface SpaceChatStreamingCallbacks {
   onChunk: (text: string, fullTextSoFar: string) => void;
   onComplete: (result: SpaceChatStreamingResult) => void;
   onError: (error: string, partialText: string) => void;
-  onSearching?: (query: string) => void;
+  onSearching?: (query: string, isLoadingHint?: boolean) => void;
   onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
 }
 
@@ -435,7 +440,7 @@ export function callSpaceChatStreaming(
         return;
       }
       if (data.searching && data.query) {
-        callbacks.onSearching?.(data.query);
+        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
         return;
       }
       if (data.fetching !== undefined) {
@@ -1282,9 +1287,10 @@ export interface EntityChatStreamingCallbacks {
   onDelta: (delta: string) => void;
   onComplete: (response: EntityChatResponse) => void;
   onError: (error: Error) => void;
-  onSearching?: (query: string) => void;
+  onSearching?: (query: string, isLoadingHint?: boolean) => void;
   onFetching?: (isFetching: boolean, fetchingUrl: string | null) => void;
   onReset?: () => void;
+  onLoadingMessage?: (message: string) => void;
 }
 
 /**
@@ -1352,7 +1358,7 @@ export function callEntityChatStreaming(
 
       // Handle searching event
       if (data.searching && data.query) {
-        callbacks.onSearching?.(data.query);
+        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
         return;
       }
 
@@ -1480,7 +1486,7 @@ export function callHabitBuilderStreaming(
 
       // Handle searching event — mirror entity chat pattern
       if (data.searching && data.query) {
-        callbacks.onSearching?.(data.query);
+        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
         return;
       }
 
@@ -1501,10 +1507,19 @@ export function callHabitBuilderStreaming(
         callbacks.onComplete({
           content: data.full_content || fullContent,
           resolved_fields: data.resolved_fields || {
-            name: null, habit_type: null, cadence: null, target: null,
-            start_date: null, time_window: null, space_name: null,
-            notes: null, end_date: null, time_estimate_minutes: null,
-            is_confirmation: false, next_field: null, required_count: 0,
+            name: null,
+            habit_type: null,
+            cadence: null,
+            target: null,
+            start_date: null,
+            time_window: null,
+            space_name: null,
+            notes: null,
+            end_date: null,
+            time_estimate_minutes: null,
+            is_confirmation: false,
+            next_field: null,
+            required_count: 0,
             suggested_chips: null,
           },
           latency_ms,

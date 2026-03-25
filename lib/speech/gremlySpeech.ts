@@ -406,18 +406,10 @@ export function getEmptyStateSpeech(): { message: string; duration: number } {
 
 export function getFirstVisitSpeech(): { message: string; duration: number } {
   const message =
-    "Drop anything — a task, a thought, something you keep forgetting. I'll figure out what to do with it.";
+    "Here we go! Drop your first thought below. A task, a reminder, anything. I'll take it from there.";
   return {
     message,
     duration: 15000, // Stay visible until user acts — long duration as fallback
-  };
-}
-
-export function getPostFirstDropSpeech(): { message: string; duration: number } {
-  const message = "Nice! That's your first drop. Want to see how the Sweep works?";
-  return {
-    message,
-    duration: 30000, // Stay visible until user makes a choice
   };
 }
 

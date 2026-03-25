@@ -79,7 +79,8 @@ export default {
     if (url.pathname === '/backfill-weekly' && request.method === 'POST') {
       return new Response(
         JSON.stringify({
-          error: 'This endpoint is deprecated. Weekly summaries are now generated via the weeklySummaryV2Worker Inngest pipeline. Trigger manually via the Inngest dashboard with event app/weekly-summary-v2.run.',
+          error:
+            'This endpoint is deprecated. Weekly summaries are now generated via the weeklySummaryV2Worker Inngest pipeline. Trigger manually via the Inngest dashboard with event app/weekly-summary-v2.run.',
           deprecated: true,
         }),
         { status: 410, headers: { 'Content-Type': 'application/json' } },
@@ -154,6 +155,114 @@ export default {
       });
     }
 
+    // GET /test-user?user_id=... — dry-run notification matching for a single user
+    if (url.pathname === '/test-user') {
+      const userId = url.searchParams.get('user_id');
+      if (!userId) {
+        return jsonResponse({ error: 'Missing user_id' }, 400);
+      }
+
+      const supabaseUrl = env.SUPABASE_URL;
+      const supabaseKey = env.SUPABASE_SERVICE_KEY;
+      const headers = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` };
+      const now = new Date();
+
+      const [prefsRes, cortexRes, tokenRes] = await Promise.all([
+        fetch(`${supabaseUrl}/rest/v1/notification_preferences?user_id=eq.${userId}&select=*`, {
+          headers,
+        }),
+        fetch(
+          `${supabaseUrl}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=is_training_mode,training_started_at,graduated_at`,
+          { headers },
+        ),
+        fetch(`${supabaseUrl}/rest/v1/push_tokens?user_id=eq.${userId}&select=token`, { headers }),
+      ]);
+
+      const prefs = prefsRes.ok ? await prefsRes.json() : [];
+      const pref = prefs[0];
+
+      if (!pref) {
+        return jsonResponse({ error: 'No notification preferences found', userId });
+      }
+
+      const cortexData = cortexRes.ok ? await cortexRes.json() : [];
+      const cortex = cortexData[0];
+      const tokenData = tokenRes.ok ? await tokenRes.json() : [];
+      const hasToken = tokenData.length > 0;
+
+      const timezone = pref.timezone || 'America/Los_Angeles';
+      const userTime = getTimeInTimezone(now, timezone);
+      const todayInUserTz = getDateInTimezone(now, timezone);
+
+      const [dco, ritualRes] = await Promise.all([
+        fetchUserDco(userId, timezone, supabaseUrl, supabaseKey),
+        fetch(
+          `${supabaseUrl}/rest/v1/daily_ritual_progress?owner_id=eq.${userId}&ritual_day=eq.${todayInUserTz}&select=drops_count,sweeps_count,feeding_gauge_value,is_fed`,
+          { headers },
+        ),
+      ]);
+      const ritualData = ritualRes.ok ? await ritualRes.json() : [];
+      const ritual = ritualData[0];
+
+      const windows = {};
+
+      if (pref.morning_enabled && pref.morning_time) {
+        const [h, m] = parseTime(pref.morning_time);
+        windows.morning = {
+          enabled: true,
+          targetTime: pref.morning_time,
+          inWindow: isWithinWindow(userTime.hour, userTime.minute, h, m, 5),
+        };
+      }
+
+      if (pref.evening_enabled && pref.evening_time) {
+        const [h, m] = parseTime(pref.evening_time);
+        windows.evening = {
+          enabled: true,
+          targetTime: pref.evening_time,
+          inWindow: isWithinWindow(userTime.hour, userTime.minute, h, m, 5),
+        };
+      }
+
+      if (pref.afternoon_enabled && pref.afternoon_time) {
+        const [h, m] = parseTime(pref.afternoon_time);
+        windows.afternoon = {
+          enabled: true,
+          targetTime: pref.afternoon_time,
+          inWindow: isWithinWindow(userTime.hour, userTime.minute, h, m, 5),
+        };
+      }
+
+      const isTraining = cortex?.is_training_mode === true;
+      if (isTraining) {
+        windows.midday = {
+          enabled: true,
+          targetTime: '12:30',
+          inWindow: isWithinWindow(userTime.hour, userTime.minute, 12, 30, 30),
+        };
+      }
+
+      return jsonResponse({
+        userId,
+        currentTime: now.toISOString(),
+        userLocalTime: `${userTime.hour}:${String(userTime.minute).padStart(2, '0')}`,
+        timezone,
+        todayDate: todayInUserTz,
+        hasToken,
+        isTraining,
+        cortex,
+        dco: dco ? { tone: dco.tone, headline: dco.brief_headline } : null,
+        todayActivity: ritual || {
+          drops_count: 0,
+          sweeps_count: 0,
+          feeding_gauge_value: 0,
+          is_fed: false,
+        },
+        notificationWindows: windows,
+        lastAppActive: pref.last_app_active_at,
+      });
+    }
+
     return new Response('Gremly Notification Worker v4. Use /test to trigger manually.', {
       status: 200,
     });
@@ -217,6 +326,25 @@ async function sendScheduledNotifications(env) {
 
   const prefs = await prefsResponse.json();
 
+  // Get training mode status for each user
+  const cortexResponse = await fetch(
+    `${supabaseUrl}/rest/v1/cortex_preferences?select=owner_id,is_training_mode`,
+    {
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+      },
+    },
+  );
+
+  const cortexPrefs = cortexResponse.ok ? await cortexResponse.json() : [];
+
+  // Create a map of user_id -> is_training_mode
+  const trainingMap = {};
+  for (const cp of cortexPrefs) {
+    trainingMap[cp.owner_id] = cp.is_training_mode === true;
+  }
+
   // Get push tokens
   const tokensResponse = await fetch(`${supabaseUrl}/rest/v1/push_tokens?select=user_id,token`, {
     headers: {
@@ -246,6 +374,7 @@ async function sendScheduledNotifications(env) {
     if (!token) continue;
 
     const timezone = pref.timezone || 'America/Los_Angeles';
+    const isTraining = trainingMap[pref.user_id] || false;
     const userTime = getTimeInTimezone(now, timezone);
 
     // Check morning notification
@@ -258,8 +387,11 @@ async function sendScheduledNotifications(env) {
           token: token,
           type: 'morning',
           timezone: timezone,
-          title: 'Good morning',
-          body: 'Your Morning Brief is waiting.',
+          isTraining: isTraining,
+          title: isTraining ? 'Gremly' : 'Good morning',
+          body: isTraining
+            ? 'Morning. Got anything on your mind? Drop it before the day takes over.'
+            : 'Your Morning Brief is waiting.',
         });
       }
     }
@@ -279,19 +411,39 @@ async function sendScheduledNotifications(env) {
           );
           // Don't push — user is intentionally disengaged
         } else {
-          const eveningBody =
-            tone === 'recovering'
-              ? 'Quick check-in whenever you are ready.'
-              : 'A few minutes now, a clearer head tonight.';
+          let eveningBody;
+          if (isTraining) {
+            eveningBody = 'Time to sweep. A couple minutes and your brain is clear for tonight.';
+          } else if (tone === 'recovering') {
+            eveningBody = 'Quick check-in whenever you are ready.';
+          } else {
+            eveningBody = 'A few minutes now, a clearer head tonight.';
+          }
 
           usersToNotify.push({
             user_id: pref.user_id,
             token: token,
             type: 'evening',
-            title: 'Sweep before sleep',
+            isTraining: isTraining,
+            title: isTraining ? 'Evening sweep' : 'Sweep before sleep',
             body: eveningBody,
           });
         }
+      }
+    }
+
+    // Midday notification (training mode only, 12:00-12:59)
+    if (isTraining) {
+      const middayHour = 12;
+      const middayMin = 30; // center of the window
+      if (isWithinWindow(userTime.hour, userTime.minute, middayHour, middayMin, 30)) {
+        usersToNotify.push({
+          user_id: pref.user_id,
+          token: token,
+          type: 'midday',
+          timezone: timezone,
+          isTraining: true,
+        });
       }
     }
 
@@ -307,6 +459,7 @@ async function sendScheduledNotifications(env) {
           token: token,
           type: 'afternoon',
           timezone: timezone,
+          isTraining: isTraining,
           last_app_active_at: pref.last_app_active_at,
         });
       }
@@ -332,12 +485,55 @@ async function sendScheduledNotifications(env) {
   let sent = 0;
   const errors = [];
 
-  // --- Process immediate (morning/evening) notifications sequentially ---
+  // --- Process immediate (morning/evening/midday) notifications sequentially ---
   for (const user of immediateUsers) {
     try {
       const userTimezone =
         prefs.find((p) => p.user_id === user.user_id)?.timezone || 'America/Los_Angeles';
       const todayInUserTz = getDateInTimezone(now, userTimezone);
+
+      // Midday: check if user has dropped today, skip if they have
+      if (user.type === 'midday') {
+        // Atomic claim
+        const claimed = await claimNotificationSlot(
+          supabaseUrl,
+          supabaseKey,
+          user.user_id,
+          'midday',
+          todayInUserTz,
+        );
+        if (!claimed) {
+          console.log(`[Notifications] Midday slot already claimed for ${user.user_id}`);
+          continue;
+        }
+
+        // Check if user has any drops today
+        const dropsRes = await fetch(
+          `${supabaseUrl}/rest/v1/daily_ritual_progress?owner_id=eq.${user.user_id}&ritual_day=eq.${todayInUserTz}&select=drops_count`,
+          { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } },
+        );
+        const dropsData = dropsRes.ok ? await dropsRes.json() : [];
+        const dropsToday = dropsData?.[0]?.drops_count ?? 0;
+
+        if (dropsToday > 0) {
+          console.log(`[Notifications] Midday suppressed (has drops) for ${user.user_id}`);
+          continue;
+        }
+
+        await sendExpoPush(
+          user.token,
+          'Gremly',
+          'Anything piling up? Even one thought counts.',
+          'midday',
+          {
+            _categoryId: 'MORNING_BRIEF',
+            notificationType: 'midday',
+          },
+        );
+        sent++;
+        console.log(`[Notifications] Midday sent to ${user.user_id}`);
+        continue;
+      }
 
       // Atomic claim — if another invocation already sent, skip
       const claimed = await claimNotificationSlot(
@@ -407,6 +603,23 @@ async function sendScheduledNotifications(env) {
             );
             continue;
           }
+        }
+
+        // Training mode: simpler afternoon nudge focused on drops
+        if (user.isTraining) {
+          await sendExpoPush(
+            user.token,
+            'Gremly',
+            "Your Gremly's waiting. Drop something, anything.",
+            'afternoon_checkin',
+            {
+              _categoryId: 'AFTERNOON_CHECKIN',
+              notificationType: 'afternoon_checkin',
+            },
+          );
+          sent++;
+          console.log(`[Notifications] Training afternoon sent to ${user.user_id}`);
+          continue; // Skip the normal afternoon context logic
         }
 
         // Query actionable items for smart content

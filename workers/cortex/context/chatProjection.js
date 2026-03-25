@@ -59,7 +59,19 @@ export async function getLifeMapForChat(userId, env) {
       await env.CONTEXT_CACHE.put(cacheKey, JSON.stringify(lifeMap), { expirationTtl: 7200 });
     }
 
-    console.log(`[ChatProjection] Life Map loaded for ${userId.slice(0, 8)}: ${lifeMap?.domains?.length || 0} domains`);
+    // Cache domain names separately for fast triage access
+    if (lifeMap?.domains && env.CONTEXT_CACHE) {
+      const domainNames = lifeMap.domains
+        .filter((d) => d.attention !== 'background')
+        .map((d) => d.name);
+      await env.CONTEXT_CACHE.put(`life-map-domains:${userId}`, JSON.stringify(domainNames), {
+        expirationTtl: 3600,
+      }).catch(() => {});
+    }
+
+    console.log(
+      `[ChatProjection] Life Map loaded for ${userId.slice(0, 8)}: ${lifeMap?.domains?.length || 0} domains`,
+    );
     return lifeMap;
   } catch (error) {
     console.error('[ChatProjection] Life Map error:', error);
@@ -119,7 +131,9 @@ export async function getDailyFocusForChat(userId, env) {
       await env.CONTEXT_CACHE.put(cacheKey, JSON.stringify(focusData), { expirationTtl: 7200 });
     }
 
-    console.log(`[ChatProjection] Daily focus loaded for ${userId.slice(0, 8)}, tone: ${focusData.tone}`);
+    console.log(
+      `[ChatProjection] Daily focus loaded for ${userId.slice(0, 8)}, tone: ${focusData.tone}`,
+    );
     return focusData;
   } catch (error) {
     console.error('[ChatProjection] Daily focus error:', error);
@@ -157,19 +171,25 @@ export async function fetchRecentActivityDelta(userId, env) {
       fetch(
         `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=neq.event&archived=eq.false&created_at=gte.${threeDaysAgo}&select=title,subtype,mood,created_at,space_id&order=created_at.desc&limit=10`,
         { headers },
-      ).then(r => r.json()).catch(() => []),
+      )
+        .then((r) => r.json())
+        .catch(() => []),
 
       // Recently completed todos (last 72h)
       fetch(
         `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&completed_at=gte.${threeDaysAgo}&select=title,completed_at,space_id&order=completed_at.desc&limit=10`,
         { headers },
-      ).then(r => r.json()).catch(() => []),
+      )
+        .then((r) => r.json())
+        .catch(() => []),
 
       // Recent habit completions (last 48h)
       fetch(
         `${env.SUPABASE_URL}/rest/v1/habit_progress?owner_id=eq.${userId}&occurred_at=gte.${twoDaysAgo}&select=habit_id,occurred_day&limit=20`,
         { headers },
-      ).then(r => r.json()).catch(() => []),
+      )
+        .then((r) => r.json())
+        .catch(() => []),
     ]);
 
     const delta = {
@@ -182,7 +202,9 @@ export async function fetchRecentActivityDelta(userId, env) {
       await env.CONTEXT_CACHE.put(cacheKey, JSON.stringify(delta), { expirationTtl: 300 });
     }
 
-    console.log(`[ChatProjection] Recent delta loaded for ${userId.slice(0, 8)}: ${delta.recentDrops.length} drops, ${delta.recentCompletions.length} completions`);
+    console.log(
+      `[ChatProjection] Recent delta loaded for ${userId.slice(0, 8)}: ${delta.recentDrops.length} drops, ${delta.recentCompletions.length} completions`,
+    );
     return delta;
   } catch (error) {
     console.error('[ChatProjection] Recent delta error:', error);
@@ -207,16 +229,16 @@ function formatDailyFocusForChat(focus) {
   if (focus.briefHeadline) parts.push(`Today's headline: "${focus.briefHeadline}"`);
 
   if (focus.leadStory) {
-    parts.push(`Lead story: ${focus.leadStory.domain} → ${focus.leadStory.thread}: ${focus.leadStory.detail}`);
+    parts.push(
+      `Lead story: ${focus.leadStory.domain} → ${focus.leadStory.thread}: ${focus.leadStory.detail}`,
+    );
   }
 
   if (focus.todayFocus && focus.todayFocus.length > 0) {
     parts.push(`Today's focus: ${focus.todayFocus.join(', ')}`);
   }
 
-  const people = (focus.namedAnchors || [])
-    .filter(a => a.type === 'person')
-    .map(a => a.label);
+  const people = (focus.namedAnchors || []).filter((a) => a.type === 'person').map((a) => a.label);
   if (people.length > 0) {
     parts.push(`Named people: ${people.join(', ')}`);
   }
@@ -252,10 +274,12 @@ function formatLifeMapForChat(lifeMap, lane, opts = {}) {
       // FULL DETAIL for the matching domain
       parts.push(`\nDOMAIN: "${domain.name}" [RELEVANT TO THIS CONVERSATION]`);
 
-      for (const thread of (domain.threads || [])) {
+      for (const thread of domain.threads || []) {
         if (thread.lifecycle === 'archived') continue;
 
-        parts.push(`\n  ${thread.name}: ${thread.status}, ${thread.momentum}, ${thread.importance} importance`);
+        parts.push(
+          `\n  ${thread.name}: ${thread.status}, ${thread.momentum}, ${thread.importance} importance`,
+        );
         if (thread.summary) {
           parts.push(`    "${thread.summary}"`);
         }
@@ -273,14 +297,16 @@ function formatLifeMapForChat(lifeMap, lane, opts = {}) {
     } else {
       // SUMMARY for other domains
       const activeThreads = (domain.threads || []).filter(
-        t => t.lifecycle === 'active' || t.lifecycle === 'dormant',
+        (t) => t.lifecycle === 'active' || t.lifecycle === 'dormant',
       );
 
       if (activeThreads.length === 0) continue;
 
       parts.push(`\n${domain.name}:`);
       for (const thread of activeThreads) {
-        parts.push(`  ${thread.name}: ${thread.status}, ${thread.momentum}${thread.importance === 'high' ? ' [important]' : ''}`);
+        parts.push(
+          `  ${thread.name}: ${thread.status}, ${thread.momentum}${thread.importance === 'high' ? ' [important]' : ''}`,
+        );
         // One-line summary for non-matching domains
         if (thread.summary && lane !== 'habit_builder' && thread.importance === 'high') {
           const firstSentence = thread.summary.split(/\.\s/)[0] + '.';
@@ -311,7 +337,10 @@ function formatRecentDelta(delta) {
   }
 
   if (delta.recentCompletions.length > 0) {
-    const titles = delta.recentCompletions.slice(0, 4).map(t => t.title).join(', ');
+    const titles = delta.recentCompletions
+      .slice(0, 4)
+      .map((t) => t.title)
+      .join(', ');
     parts.push(`  Recent completions: ${titles}`);
   }
 
@@ -365,11 +394,15 @@ export async function buildChatContext(userId, lane, opts, env) {
     // Token safety — generous limits since Life Map summaries are dense and valuable
     const MAX_CONTEXT_CHARS = lane === 'space' ? 6000 : 4500;
     if (result.length > MAX_CONTEXT_CHARS) {
-      console.warn(`[ChatProjection] Context truncated for ${userId.slice(0, 8)}: ${result.length} → ${MAX_CONTEXT_CHARS} chars`);
+      console.warn(
+        `[ChatProjection] Context truncated for ${userId.slice(0, 8)}: ${result.length} → ${MAX_CONTEXT_CHARS} chars`,
+      );
       return result.slice(0, MAX_CONTEXT_CHARS) + '\n...(truncated)';
     }
 
-    console.log(`[ChatProjection] Built context for ${userId.slice(0, 8)} [${lane}]: ${result.length} chars`);
+    console.log(
+      `[ChatProjection] Built context for ${userId.slice(0, 8)} [${lane}]: ${result.length} chars`,
+    );
     return result;
   } catch (error) {
     console.error('[ChatProjection] Error building context:', error);

@@ -72,7 +72,13 @@ export function useSweepIntroStats(): UseSweepIntroStatsResult {
       .map((h) => ({ id: h.id, name: h.name || 'Untitled', type: 'habit' as const }));
 
     const droppedNotes: SweepIntroItem[] = notes
-      .filter((n) => n.created_at > cutoffTimestamp && !n.archived)
+      .filter((n) => {
+        if (!n.created_at || n.created_at <= cutoffTimestamp) return false;
+        if (n.archived) return false;
+        // Exclude calendar-synced event notes — auto-imported, not user drops
+        if (n.subtype === 'event' && n.external_source != null) return false;
+        return true;
+      })
       .map((n) => ({ id: n.id, name: n.title || 'Untitled', type: 'note' as const }));
 
     return {

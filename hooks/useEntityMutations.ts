@@ -13,6 +13,7 @@
 
 import { useCallback } from 'react';
 import { useRepo } from '../providers/RepoProvider';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { isTestMode } from '../lib/config/testMode';
 import { testLogger } from '../src/utils/TestLogger';
 import { dateService } from '../lib/date/DateService';
@@ -205,6 +206,14 @@ export function useEntityMutations() {
           id: entityId,
           patch: { space_id: spaceId, ai_placed: false } as any,
         });
+
+        // Feed the gauge: manual space assignment (Soul Document v8)
+        useGremlyStore
+          .getState()
+          .trackSpaceAssign()
+          .catch((err: unknown) => {
+            console.warn('[EntityMutations] Space assign gauge contribution failed:', err);
+          });
 
         if (testEnabled) {
           testLogger.assert('mutation_written_db', true, { mutation, entityId, spaceId });

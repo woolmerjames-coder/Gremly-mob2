@@ -39,9 +39,12 @@ import {
   Plus,
   Bell,
 } from 'lucide-react-native';
+import Reanimated, { FadeIn } from 'react-native-reanimated';
 import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
+import { GAUGE_WEIGHTS } from '../../../lib/constants/soulDocument';
+import MascotLottie from '../MascotLottie';
 import { computeHabitStreak } from '../../../lib/habits/streakUtils';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
@@ -230,10 +233,21 @@ export function MorningBriefSheet({
   const setBriefParked = useGremlyStore((s) => s.setBriefParked);
   const briefCompletedToday = useGremlyStore((s) => s.briefCompletedToday);
   const setBriefCompletedToday = useGremlyStore((s) => s.setBriefCompletedToday);
+  const completeMorningBrief = useGremlyStore((s) => s.completeMorningBrief);
+  const commitLockInItems = useGremlyStore((s) => s.commitLockInItems);
+  const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
   const habitProgress = useGremlyStore((s) => s.habitProgress);
+  const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
+  const isFedToday = useGremlyStore((s) => s.isFedToday);
+  const gremlyAge = useGremlyStore((s) => s.gremlyAge);
+  const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
 
   // Guard: prevent reset effect from re-firing within the same session
   const hasResetRef = useRef(false);
+
+  // Gauge reveal state (shown after completing the brief)
+  const [showGaugeReveal, setShowGaugeReveal] = useState(false);
+  const [briefContributions, setBriefContributions] = useState({ brief: false, lockIns: 0 });
 
   // Snapshot brief state on mount for rollback if user exits without completing
   const initialBriefState = useRef({
@@ -1560,6 +1574,10 @@ export function MorningBriefSheet({
         removeCommitment(task.id, taskType);
       } else {
         addCommitment(task.id, taskType);
+        // Feed the gauge: lock-in = 5% per item, cap 3 (Soul Document v8)
+        commitLockInItems(1).catch((err: unknown) => {
+          console.warn('[MorningBrief] Lock-in gauge contribution failed:', err);
+        });
         // Show "Set a reminder?" prompt
         showReminderPromptFn(task.id, task.title, taskType);
       }
@@ -1572,6 +1590,7 @@ export function MorningBriefSheet({
       habits,
       addCommitment,
       removeCommitment,
+      commitLockInItems,
       showReminderPromptFn,
     ],
   );
@@ -1625,6 +1644,10 @@ export function MorningBriefSheet({
       // Handle lock-in changes
       if (lockIn && !wasLockedIn) {
         await addCommitment(taskId, taskType);
+        // Feed the gauge: lock-in = 5% per item, cap 3 (Soul Document v8)
+        commitLockInItems(1).catch((err: unknown) => {
+          console.warn('[MorningBrief] Lock-in gauge contribution failed:', err);
+        });
         // Show "Set a reminder?" prompt
         const taskTitle = currentTask
           ? taskType === 'todo'
@@ -1650,6 +1673,7 @@ export function MorningBriefSheet({
       updateHabit,
       addCommitment,
       removeCommitment,
+      commitLockInItems,
       isPrioritizing,
       briefSelectedSet,
       toggleBriefSelection,
@@ -1679,6 +1703,10 @@ export function MorningBriefSheet({
     async (taskId: string, taskType: 'todo' | 'habit', lockIn: boolean) => {
       if (lockIn) {
         await addCommitment(taskId, taskType);
+        // Feed the gauge: lock-in = 5% per item, cap 3 (Soul Document v8)
+        commitLockInItems(1).catch((err: unknown) => {
+          console.warn('[MorningBrief] Lock-in gauge contribution failed:', err);
+        });
         // Show "Set a reminder?" prompt
         const taskTitle = quickActionTask?.title ?? 'your task';
         showReminderPromptFn(taskId, taskTitle, taskType);
@@ -1686,7 +1714,7 @@ export function MorningBriefSheet({
         await removeCommitment(taskId, taskType);
       }
     },
-    [addCommitment, removeCommitment, quickActionTask, showReminderPromptFn],
+    [addCommitment, removeCommitment, commitLockInItems, quickActionTask, showReminderPromptFn],
   );
 
   const handleQuickActionAssignSlot = useCallback(
@@ -1807,8 +1835,21 @@ export function MorningBriefSheet({
       });
 
       setBriefCompletedToday(today);
+
+      // Feed the gauge: Morning Brief completion = 25% (Soul Document v8)
+      completeMorningBrief().catch((err: unknown) => {
+        console.warn('[MorningBrief] Brief gauge contribution failed:', err);
+      });
+
+      // Count lock-in contributions for the reveal
+      const lockInCount = briefLockedIds.length;
+
+      setBriefContributions({
+        brief: true,
+        lockIns: Math.min(lockInCount, GAUGE_WEIGHTS.LOCK_IN_CAP),
+      });
       onComplete?.();
-      onClose();
+      setShowGaugeReveal(true);
     } catch (error) {
       console.error('[MorningBrief] Error saving brief:', error);
     } finally {
@@ -1819,14 +1860,20 @@ export function MorningBriefSheet({
     saveBrief,
     tasksByBlock,
     onComplete,
-    onClose,
     isTomorrow,
     today,
     isPrioritizing,
     setBriefParked,
     parkedTasks,
     setBriefCompletedToday,
+    completeMorningBrief,
+    briefLockedIds,
   ]);
+
+  const handleGaugeRevealDone = useCallback(() => {
+    setShowGaugeReveal(false);
+    onClose();
+  }, [onClose]);
 
   // ─────────────────────────────────────────────────────────────────
   // RENDER
@@ -1844,6 +1891,100 @@ export function MorningBriefSheet({
     }
     onClose();
   }, [today, setBriefSelections, onClose]);
+
+  // ─── Gauge Reveal Page ───
+  if (showGaugeReveal) {
+    const gaugePercent = Math.min(Math.round(feedingGaugeValue * 100), 100);
+    const briefPercent = Math.round(GAUGE_WEIGHTS.BRIEF * 100);
+    const lockInPercent =
+      briefContributions.lockIns > 0
+        ? Math.round(briefContributions.lockIns * GAUGE_WEIGHTS.LOCK_IN_ITEM * 100)
+        : 0;
+
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <ScrollView
+          contentContainerStyle={gaugeRevealStyles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Reanimated.View
+            entering={FadeIn.duration(500).delay(200)}
+            style={gaugeRevealStyles.card}
+          >
+            {/* MascotLottie */}
+            <View style={gaugeRevealStyles.mascotContainer}>
+              <MascotLottie />
+            </View>
+
+            {/* Thin divider */}
+            <View style={gaugeRevealStyles.divider} />
+
+            {/* Age + fed days */}
+            <Reanimated.View
+              entering={FadeIn.duration(400).delay(800)}
+              style={gaugeRevealStyles.ageContainer}
+            >
+              <Text style={gaugeRevealStyles.ageText}>Age {gremlyAge}</Text>
+              <View style={gaugeRevealStyles.fedDots}>
+                {[1, 2, 3].map((day) => (
+                  <View
+                    key={day}
+                    style={[
+                      gaugeRevealStyles.dot,
+                      day <= fedDaysCount
+                        ? gaugeRevealStyles.dotFilled
+                        : gaugeRevealStyles.dotEmpty,
+                    ]}
+                  />
+                ))}
+                <Text style={gaugeRevealStyles.fedText}>{fedDaysCount} of 3 fed days</Text>
+              </View>
+            </Reanimated.View>
+
+            {/* Gauge progress bar */}
+            <Reanimated.View
+              entering={FadeIn.duration(400).delay(1000)}
+              style={gaugeRevealStyles.barContainer}
+            >
+              <View style={gaugeRevealStyles.barTrack}>
+                <View style={[gaugeRevealStyles.barFill, { width: `${gaugePercent}%` }]} />
+              </View>
+              <Text style={gaugeRevealStyles.barLabel}>{gaugePercent}% fed</Text>
+            </Reanimated.View>
+
+            {/* Contribution breakdown */}
+            <Reanimated.View
+              entering={FadeIn.duration(400).delay(1200)}
+              style={gaugeRevealStyles.contributionContainer}
+            >
+              {isFedToday ? (
+                <Text style={gaugeRevealStyles.impactText}>Gremly is fed for today!</Text>
+              ) : (
+                <>
+                  <Text style={gaugeRevealStyles.impactText}>Morning Brief +{briefPercent}%</Text>
+                  {lockInPercent > 0 && (
+                    <Text style={gaugeRevealStyles.impactText}>
+                      {briefContributions.lockIns} lock-in
+                      {briefContributions.lockIns !== 1 ? 's' : ''} +{lockInPercent}%
+                    </Text>
+                  )}
+                </>
+              )}
+            </Reanimated.View>
+          </Reanimated.View>
+        </ScrollView>
+
+        {/* Done button */}
+        <Reanimated.View entering={FadeIn.duration(300).delay(1400)}>
+          <View style={gaugeRevealStyles.buttonContainer}>
+            <Pressable style={gaugeRevealStyles.doneButton} onPress={handleGaugeRevealDone}>
+              <Text style={gaugeRevealStyles.doneButtonText}>Done</Text>
+            </Pressable>
+          </View>
+        </Reanimated.View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -1876,53 +2017,62 @@ export function MorningBriefSheet({
           />
         )}
         renderPrioritize={(onContinue, onSkip, onBack) => (
-          <StepPrioritize
-            flexibleTasks={allDayTasks}
-            isPrioritizing={isPrioritizing}
-            selectedMinutes={selectedMinutes}
-            totalAvailableMinutes={realisticCapacity}
-            remainingMinutes={remainingMinutes}
-            isOverCommitted={isOverCommitted}
-            selectedIds={briefSelectedSet}
-            lockedIds={briefLockedSet}
-            onToggleSelect={handleToggleSelect}
-            onToggleLock={handleToggleLock}
-            onTaskPress={handleTaskPress}
-            onTimePress={handleTimePress}
-            onAddPress={handleAddPress}
-            onAssignPress={handleAssignPress}
-            onSkipTask={() => {}}
-            pendingDrops={todayPendingDrops}
-            animatingAssignments={animatingAssignments}
-            onContinue={() => {
-              // Patch DCO with today's focus (fire-and-forget)
-              const selectedNames = Array.from(briefSelectedSet)
-                .map((id) => {
-                  const todo = todos.find((t) => t.id === id);
-                  const habit = habits.find((h) => h.id === id);
-                  return todo?.name || habit?.name || null;
-                })
-                .filter(Boolean) as string[];
+          <>
+            {isTrainingMode && (
+              <View style={styles.trainingPrompt}>
+                <Text style={styles.trainingPromptText}>
+                  Lock in your top priorities. Gremly uses these to check in on your day.
+                </Text>
+              </View>
+            )}
+            <StepPrioritize
+              flexibleTasks={allDayTasks}
+              isPrioritizing={isPrioritizing}
+              selectedMinutes={selectedMinutes}
+              totalAvailableMinutes={realisticCapacity}
+              remainingMinutes={remainingMinutes}
+              isOverCommitted={isOverCommitted}
+              selectedIds={briefSelectedSet}
+              lockedIds={briefLockedSet}
+              onToggleSelect={handleToggleSelect}
+              onToggleLock={handleToggleLock}
+              onTaskPress={handleTaskPress}
+              onTimePress={handleTimePress}
+              onAddPress={handleAddPress}
+              onAssignPress={handleAssignPress}
+              onSkipTask={() => {}}
+              pendingDrops={todayPendingDrops}
+              animatingAssignments={animatingAssignments}
+              onContinue={() => {
+                // Patch DCO with today's focus (fire-and-forget)
+                const selectedNames = Array.from(briefSelectedSet)
+                  .map((id) => {
+                    const todo = todos.find((t) => t.id === id);
+                    const habit = habits.find((h) => h.id === id);
+                    return todo?.name || habit?.name || null;
+                  })
+                  .filter(Boolean) as string[];
 
-              if (selectedNames.length > 0) {
-                patchDcoTodayFocus(selectedNames);
-              }
+                if (selectedNames.length > 0) {
+                  patchDcoTodayFocus(selectedNames);
+                }
 
-              onContinue();
-            }}
-            onSkip={onSkip}
-            onBack={onBack}
-            calendarEvents={visibleCalendarEvents}
-            keyDateEvents={todayKeyDates}
-            hiddenEventIds={hiddenEventIds}
-            eventTimeOverrides={eventTimeOverrides}
-            eventMinutes={capacity.totalCalendarMinutes}
-            totalEventCount={capacity.totalEventCount}
-            timeBlockPreferences={timeBlockPreferences}
-            onCalendarEventAction={handleCalendarEventQuickAction}
-            onEventQuickAction={handleEventQuickAction}
-            dateContext={today}
-          />
+                onContinue();
+              }}
+              onSkip={onSkip}
+              onBack={onBack}
+              calendarEvents={visibleCalendarEvents}
+              keyDateEvents={todayKeyDates}
+              hiddenEventIds={hiddenEventIds}
+              eventTimeOverrides={eventTimeOverrides}
+              eventMinutes={capacity.totalCalendarMinutes}
+              totalEventCount={capacity.totalEventCount}
+              timeBlockPreferences={timeBlockPreferences}
+              onCalendarEventAction={handleCalendarEventQuickAction}
+              onEventQuickAction={handleEventQuickAction}
+              dateContext={today}
+            />
+          </>
         )}
         renderOrganize={(onContinue, onSkip, onBack, onShowCelebration) => (
           <StepOrganize
@@ -2461,6 +2611,144 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: BRAND.colors.mossGreen,
     fontFamily: 'Inter-SemiBold',
+  },
+  // Training mode prompt
+  trainingPrompt: {
+    backgroundColor: '#E8F0E5',
+    borderRadius: 12,
+    padding: 12,
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  trainingPromptText: {
+    fontSize: 13,
+    color: BRAND.colors.mossGreen,
+    fontFamily: 'Inter-Regular',
+    lineHeight: 18,
+  },
+});
+
+const gaugeRevealStyles = StyleSheet.create({
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: 24,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    marginHorizontal: 20,
+    marginTop: 24,
+    paddingTop: 28,
+    paddingBottom: 20,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    shadowColor: '#2E5540',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  mascotContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    height: 120,
+  },
+  divider: {
+    width: 40,
+    height: 2,
+    backgroundColor: BRAND.colors.borderSubtle,
+    borderRadius: 1,
+    marginBottom: 16,
+  },
+  ageContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  ageText: {
+    fontSize: 24,
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontWeight: '700',
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 8,
+  },
+  fedDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  dotFilled: {
+    backgroundColor: BRAND.colors.mossGreen,
+  },
+  dotEmpty: {
+    backgroundColor: BRAND.colors.borderSubtle,
+  },
+  fedText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    marginLeft: 4,
+  },
+  barContainer: {
+    width: '100%',
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  barTrack: {
+    width: '100%',
+    height: 6,
+    backgroundColor: BRAND.colors.borderSubtle,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  barFill: {
+    height: '100%',
+    backgroundColor: BRAND.colors.mossGreen,
+    borderRadius: 3,
+  },
+  barLabel: {
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    fontWeight: '500',
+    color: BRAND.colors.mossGreen,
+  },
+  contributionContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  impactText: {
+    fontSize: 15,
+    fontFamily: 'Inter-Regular',
+    fontWeight: '400',
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  buttonContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    paddingTop: 12,
+  },
+  doneButton: {
+    backgroundColor: BRAND.colors.mossGreen,
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  doneButtonText: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
 

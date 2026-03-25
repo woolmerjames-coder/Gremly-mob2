@@ -66,6 +66,8 @@ export interface SubmitResult {
   dueDate?: string | null;
   /** Error if submission failed */
   error?: Error;
+  /** Whether this drop crossed the fed threshold */
+  justCrossedFed?: boolean;
 }
 
 /**
@@ -87,6 +89,7 @@ export function useMindDropSubmit(): {
   const addPendingDrop = useGremlyStore((s) => s.addPendingDrop);
   const removePendingDrop = useGremlyStore((s) => s.removePendingDrop);
   const incrementDropCount = useGremlyStore((s) => s.incrementDropCount);
+  const previewGaugeDrop = useGremlyStore((s) => s.previewGaugeDrop);
 
   const submitLockRef = useRef(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -219,6 +222,9 @@ export function useMindDropSubmit(): {
           _offlineCapture: !networkStatus.isConnected,
         });
 
+        // Instantly preview gauge fill (Soul Document v8: fill rises with the bounce)
+        const gaugePreview = previewGaugeDrop();
+
         if (testEnabled) {
           testLogger.step('optimistic_added', { dropId: queuedDrop.localId });
         }
@@ -308,6 +314,7 @@ export function useMindDropSubmit(): {
           bucket, // Heuristic bucket (will be updated by processor)
           confidence: 0.5, // Heuristic confidence
           subtype: subtypeHint,
+          justCrossedFed: gaugePreview.justCrossedFed,
         };
       } catch (error) {
         submitLockRef.current = false;
@@ -328,7 +335,7 @@ export function useMindDropSubmit(): {
         };
       }
     },
-    [spaces, addPendingDrop, incrementDropCount],
+    [spaces, addPendingDrop, incrementDropCount, previewGaugeDrop],
   );
 
   return { submit, isSubmitting };

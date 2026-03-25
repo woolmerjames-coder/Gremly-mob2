@@ -123,6 +123,7 @@ function ChatBubbleInner({
   const searchQuery = (message as any).searchQuery as string | null;
   const isFetching = (message as any).isFetching === true;
   const fetchingUrl = (message as any).fetchingUrl as string | null;
+  const loadingMessage = (message as any).loadingMessage as string | null;
   const sources = (message as any).sources as Array<{ title: string; url: string }> | undefined;
   const images = (message as any).images as string[] | undefined;
 
@@ -217,8 +218,20 @@ function ChatBubbleInner({
               <>
                 {renderFormattedContent(message.content)}
                 {isStreaming && (
-                  <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                     <InlineStreamingCursor visible={true} />
+                    {loadingMessage && !message.content && (
+                      <Text
+                        style={{
+                          marginLeft: 10,
+                          fontSize: 13,
+                          color: '#9CA3AF',
+                          fontStyle: 'italic',
+                        }}
+                      >
+                        {loadingMessage}
+                      </Text>
+                    )}
                   </View>
                 )}
                 {streamingFailed && message.content && (

@@ -72,6 +72,7 @@ function SpaceAssignmentActionSheet({ sheetId, payload }: SpaceAssignmentActionS
   const assignDropsToSpace = useGremlyStore((s) => s.assignDropsToSpace);
   const acceptSuggestion = useGremlyStore((s) => s.acceptSuggestion);
   const declineSuggestion = useGremlyStore((s) => s.declineSuggestion);
+  const trackSpaceAssign = useGremlyStore((s) => s.trackSpaceAssign);
 
   // Get all drop IDs from suggestions
   const allDropIds = useMemo(() => suggestions?.flatMap((s) => s.drop_ids) || [], [suggestions]);
@@ -132,6 +133,14 @@ function SpaceAssignmentActionSheet({ sheetId, payload }: SpaceAssignmentActionS
         await assignDropsToSpace(Array.from(selectedIds), spaceId);
       }
 
+      // Feed the gauge: manual space assignment (Soul Document v8)
+      const assignCount = Math.min(selectedIds.size, 3);
+      for (let i = 0; i < assignCount; i++) {
+        trackSpaceAssign().catch((err: unknown) => {
+          console.warn('[SpaceAssignment] Space assign gauge contribution failed:', err);
+        });
+      }
+
       // Mark suggestions as accepted (ignore errors - DB constraint may not match)
       for (const suggestion of suggestions || []) {
         try {
@@ -160,6 +169,7 @@ function SpaceAssignmentActionSheet({ sheetId, payload }: SpaceAssignmentActionS
     assignDropsToSpace,
     acceptSuggestion,
     onComplete,
+    trackSpaceAssign,
   ]);
 
   const handleSkip = useCallback(async () => {

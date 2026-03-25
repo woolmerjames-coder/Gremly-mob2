@@ -135,17 +135,32 @@
 import { buildChatContext } from './context/chatProjection.js';
 import { getUserProfile } from './context/userProfile.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
-import { triageMessage } from './triage';
+import { triageMessage, generateLoadingMessage } from './triage';
+import {
+  geminiGenerate,
+  geminiStream,
+  parseGeminiChunk,
+  buildFollowUpContents,
+  convertMessages,
+} from './geminiClient.js';
 import {
   assembleGenerationConfig,
   buildSpaceChatSystemPrompt,
   buildEntityChatConfig,
   buildEntityContextBlock,
   getSearchPolicy,
-  TOKEN_CAP,
-  MODE_REASONING,
   MODE_TEMP,
 } from './gremlyPersona';
+
+async function getCachedDomainNames(userId, env) {
+  if (!userId || !env.CONTEXT_CACHE) return [];
+  try {
+    const cached = await env.CONTEXT_CACHE.get(`life-map-domains:${userId}`, 'json');
+    return Array.isArray(cached) ? cached : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Extract the last user/assistant exchange from a messages array.
@@ -1838,9 +1853,6 @@ SUMMARY:`;
 // OPENAI FUNCTION TOOL DEFINITIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-const GEMINI_CHAT_MODEL = 'gemini-2.5-flash';
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // GREMLY CORE PERSONA — shared across Entity Chat, Habit Builder, Space Chat
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2004,7 +2016,7 @@ If someone is rude: Don't take the bait. A light "ouch" or "well that stings" is
  *
  * @param {string} userMessage - The user's message
  * @param {{ isSearchFollowUp?: boolean }} [opts] - Optional flags
- * @returns {{ model: string, maxTokens: number, reasoningEffort: string }}
+ * @returns {{ maxTokens: number, thinkingLevel: string }}
  */
 function getChatConfig(userMessage, opts = {}) {
   const msg = (userMessage || '').toLowerCase();
@@ -2017,8 +2029,8 @@ function getChatConfig(userMessage, opts = {}) {
     );
 
   return isComplex
-    ? { model: GEMINI_CHAT_MODEL, maxTokens: 4096, reasoningEffort: 'medium' }
-    : { model: GEMINI_CHAT_MODEL, maxTokens: 2048, reasoningEffort: 'low' };
+    ? { maxTokens: 4096, thinkingLevel: 'medium' }
+    : { maxTokens: 2048, thinkingLevel: 'low' };
 }
 
 const WEB_SEARCH_TOOL = {
@@ -2981,31 +2993,25 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
           console.log('[HabitBuilder:Streaming] Starting SSE stream');
 
           const chatCfg = getChatConfig(lastUserMsg);
-          const openaiRes = await fetch(GEMINI_BASE_URL, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: chatCfg.model,
-              messages: openaiMessages,
+          const geminiRes = await geminiStream(
+            habitBuilderSystemPrompt,
+            openaiMessages,
+            {
               temperature: 0.7,
-              max_tokens: chatCfg.maxTokens,
-              stream: true,
+              maxOutputTokens: chatCfg.maxTokens,
+              thinkingLevel: chatCfg.thinkingLevel,
               tools: [WEB_SEARCH_TOOL],
-              tool_choice: 'auto',
-              reasoning_effort: chatCfg.reasoningEffort,
-            }),
-          });
+            },
+            env.GOOGLE_API_KEY,
+          );
 
-          if (!openaiRes.ok) {
-            const errText = await openaiRes.text().catch(() => '');
+          if (!geminiRes.ok || !geminiRes.body) {
+            const errText = geminiRes.error || 'unknown error';
             console.log('[HabitBuilder:Streaming] Gemini error', {
-              status: openaiRes.status,
+              status: geminiRes.status,
               error: errText,
             });
-            return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
+            return j({ error: `gemini_error: ${geminiRes.status}`, detail: errText }, 200);
           }
 
           const { readable, writable } = new TransformStream();
@@ -3017,13 +3023,14 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
             // Send initial SSE ping
             await writer.write(encoder.encode(': ping\n\n'));
 
-            const reader = openaiRes.body.getReader();
+            const reader = geminiRes.body.getReader();
             let buffer = '';
             let fullContent = '';
             let sources = undefined;
 
             // Track tool call accumulation
             let toolCalls = [];
+            let modelResponseParts = [];
 
             // Output guard: buffer first sentence to strip filler openings
             let fillerBuffer = '';
@@ -3045,8 +3052,8 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                   if (!trimmed.startsWith('data: ')) continue;
 
                   try {
-                    const json = JSON.parse(trimmed.slice(6));
-                    const delta = json.choices?.[0]?.delta?.content;
+                    const chunk = parseGeminiChunk(trimmed.slice(6));
+                    const delta = chunk.text;
 
                     if (delta) {
                       fullContent += delta;
@@ -3070,19 +3077,18 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                       }
                     }
 
-                    // Accumulate tool calls
-                    const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
-                    if (toolCallDeltas) {
-                      for (const toolCallDelta of toolCallDeltas) {
-                        const idx = toolCallDelta.index ?? 0;
-                        if (!toolCalls[idx]) {
-                          toolCalls[idx] = { id: null, name: null, arguments: '' };
-                        }
-                        if (toolCallDelta.id) toolCalls[idx].id = toolCallDelta.id;
-                        if (toolCallDelta.function?.name)
-                          toolCalls[idx].name = toolCallDelta.function.name;
-                        if (toolCallDelta.function?.arguments)
-                          toolCalls[idx].arguments += toolCallDelta.function.arguments;
+                    // Collect function calls with thought signatures
+                    if (chunk.functionCalls) {
+                      for (const fc of chunk.functionCalls) {
+                        toolCalls.push({
+                          id: fc.id,
+                          name: fc.name,
+                          arguments: JSON.stringify(fc.args),
+                        });
+                        modelResponseParts.push({
+                          functionCall: { name: fc.name, args: fc.args, id: fc.id },
+                          thoughtSignature: fc.thoughtSignature,
+                        });
                       }
                     }
                   } catch (parseErr) {
@@ -3154,45 +3160,36 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                 );
 
                 if (successfulSearches.length > 0) {
-                  // Build follow-up messages with tool results
-                  const assistantToolCalls = successfulSearches.map((sr) => ({
+                  const originalContents = convertMessages(openaiMessages);
+
+                  if (fullContent) {
+                    modelResponseParts.unshift({ text: fullContent });
+                  }
+
+                  const functionResults = successfulSearches.map((sr) => ({
+                    name: 'web_search',
                     id: sr.toolCallId,
-                    type: 'function',
-                    function: {
-                      name: 'web_search',
-                      arguments: JSON.stringify({ query: sr.query }),
-                    },
+                    response: { results: formatSearchBrief(sr.results) },
                   }));
 
-                  const toolResultMessages = successfulSearches.map((sr) => ({
-                    role: 'tool',
-                    tool_call_id: sr.toolCallId,
-                    content: formatSearchBrief(sr.results),
-                  }));
+                  const followUpContents = buildFollowUpContents(
+                    originalContents,
+                    modelResponseParts,
+                    functionResults,
+                  );
 
-                  const followUpMessages = [
-                    ...openaiMessages,
-                    { role: 'assistant', content: null, tool_calls: assistantToolCalls },
-                    ...toolResultMessages,
-                  ];
-
-                  // Second streaming call with search results
                   const chatCfgFollowUp = getChatConfig(lastUserMsg, { isSearchFollowUp: true });
-                  const followUpRes = await fetch(GEMINI_BASE_URL, {
-                    method: 'POST',
-                    headers: {
-                      Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      model: chatCfgFollowUp.model,
-                      messages: followUpMessages,
+                  const followUpRes = await geminiStream(
+                    habitBuilderSystemPrompt,
+                    [],
+                    {
                       temperature: 0.7,
-                      max_tokens: chatCfgFollowUp.maxTokens,
-                      stream: true,
-                      reasoning_effort: chatCfgFollowUp.reasoningEffort,
-                    }),
-                  });
+                      maxOutputTokens: chatCfgFollowUp.maxTokens,
+                      thinkingLevel: chatCfgFollowUp.thinkingLevel,
+                      nativeContents: followUpContents,
+                    },
+                    env.GOOGLE_API_KEY,
+                  );
 
                   // Stream the follow-up response
                   const followUpReader = followUpRes.body.getReader();
@@ -3217,8 +3214,8 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                       if (jsonStr === '[DONE]') continue;
 
                       try {
-                        const json = JSON.parse(jsonStr);
-                        const delta = json.choices?.[0]?.delta?.content;
+                        const chunk = parseGeminiChunk(jsonStr);
+                        const delta = chunk.text;
                         if (delta) {
                           fullContent += delta;
                           if (!followUpFillerFlushed) {
@@ -3321,33 +3318,31 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
         // ── NON-STREAMING FALLBACK ──
         try {
           const chatCfg = getChatConfig(lastUserMsg);
-          const res = await fetch(GEMINI_BASE_URL, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: chatCfg.model,
-              messages: openaiMessages,
+          const geminiResult = await geminiGenerate(
+            habitBuilderSystemPrompt,
+            openaiMessages,
+            {
               temperature: 0.7,
-              max_tokens: chatCfg.maxTokens,
-              reasoning_effort: chatCfg.reasoningEffort,
-            }),
-          });
+              maxOutputTokens: chatCfg.maxTokens,
+              thinkingLevel: chatCfg.thinkingLevel,
+            },
+            env.GOOGLE_API_KEY,
+          );
 
-          const oj = await res.json();
           const latency = Date.now() - t0;
 
-          if (!res.ok) {
-            console.log('[HabitBuilder] API error', { error: oj.error, latency_ms: latency });
+          if (!geminiResult.ok) {
+            console.log('[HabitBuilder] API error', {
+              error: geminiResult.error,
+              latency_ms: latency,
+            });
             return j(
-              { error: 'habit_builder_failed', detail: oj.error?.message, latency_ms: latency },
+              { error: 'habit_builder_failed', detail: geminiResult.error, latency_ms: latency },
               200,
             );
           }
 
-          let content = oj?.choices?.[0]?.message?.content ?? '';
+          let content = geminiResult.content;
           content = stripFillerOpening(content);
 
           // Extraction call with full conversation
@@ -3656,6 +3651,8 @@ Almost never suggest creating a Space. Only if ALL true:
         const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
         const previousExchange = extractPreviousExchange(messages);
 
+        const cachedDomains = await getCachedDomainNames(body.userId, env);
+
         const triage = await triageMessage({
           userMessage: lastUserMsg,
           previousExchange,
@@ -3663,11 +3660,16 @@ Almost never suggest creating a Space. Only if ALL true:
           preset: preset || undefined,
           chatType: 'entity',
           env,
+          domainNames: cachedDomains,
+          profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
+          messageCount: messages.length,
         });
 
         console.log('[EntityChat:Triage]', {
           mode: triage.mode,
           search: triage.search,
+          personal: triage.personal,
+          depth: triage.depth,
           source: triage.source,
           preset: preset || 'none',
           messagePreview: lastUserMsg.slice(0, 80),
@@ -3736,393 +3738,172 @@ Almost never suggest creating a Space. Only if ALL true:
           const encoder = new TextEncoder();
           const decoder = new TextDecoder();
 
-          // Detect URLs in the user's message
-          const detectedUrls = extractUrlsFromText(lastUserMsg);
-
-          if (detectedUrls.length > 0) {
-            console.log('[EntityChat:Streaming] URLs detected:', detectedUrls);
-
-            // Fetch the first URL (limit to one to control costs)
-            const urlToFetch = detectedUrls[0];
-
-            // Send "fetching" indicator to client
-            await writer.write(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  fetching: true,
-                  fetchingUrl: urlToFetch,
-                  done: false,
-                })}\n\n`,
-              ),
-            );
-
-            const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
-
-            if (extracted && extracted.success) {
-              fetchedUrl = {
-                url: extracted.url,
-                title: extracted.title,
-              };
-
-              // Add extracted content as context for the model
-              urlContext = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
-
-              console.log('[EntityChat:Streaming] URL content extracted, adding to context');
-            } else {
-              // Extraction failed - let model know
-              urlContext = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable. Let the user know and offer to help if they can paste the content directly.]`;
-
-              console.log('[EntityChat:Streaming] URL extraction failed');
-            }
-
-            // Clear fetching indicator
-            await writer.write(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  fetching: false,
-                  done: false,
-                })}\n\n`,
-              ),
-            );
-          }
-
-          // Inject URL context into entityMessages if present
-          if (urlContext) {
-            const lastIdx = entityMessages.length - 1;
-            if (entityMessages[lastIdx].role === 'user') {
-              entityMessages[lastIdx] = {
-                ...entityMessages[lastIdx],
-                content: entityMessages[lastIdx].content + urlContext,
-              };
-            }
-          }
-
-          const streamPayload = {
-            model: 'gemini-2.5-flash',
-            messages: entityMessages,
-            temperature: genConfig.temperature,
-            max_tokens: genConfig.maxTokens,
-            reasoning_effort: genConfig.reasoning,
-            stream: true,
-          };
-
-          if (searchPolicy.attachTool) {
-            streamPayload.tools = [WEB_SEARCH_TOOL];
-            streamPayload.tool_choice =
-              searchPolicy.toolChoice === 'required'
-                ? { type: 'function', function: { name: 'web_search' } }
-                : 'auto';
-          }
-
-          console.log('[EntityChat:Streaming:Payload]', {
-            model: streamPayload.model,
-            temperature: streamPayload.temperature,
-            max_tokens: streamPayload.max_tokens,
-            reasoning_effort: streamPayload.reasoning_effort,
-            hasTools: !!streamPayload.tools,
-            messageCount: streamPayload.messages?.length,
-          });
-
-          const openaiRes = await fetch(GEMINI_BASE_URL, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(streamPayload),
-          });
-
-          if (!openaiRes.ok) {
-            const errText = await openaiRes.text().catch(() => '');
-            console.log('[EntityChat:Streaming] OpenAI error', {
-              status: openaiRes.status,
-              error: errText,
-            });
-            return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
-          }
-
+          // Loading message — fires immediately, independent of main work
           (async () => {
-            // Send initial SSE ping to establish line ending detection
-            await writer.write(encoder.encode(': ping\n\n'));
-
-            const reader = openaiRes.body.getReader();
-            let buffer = '';
-            let fullContent = '';
-            let searchImages = [];
-
-            // Output guard: buffer first sentence to strip filler openings
-            let fillerBuffer = '';
-            let fillerFlushed = false;
-
-            // Track tool call accumulation - support multiple tool calls
-            let toolCalls = []; // Array of { id, name, arguments }
-            let currentToolCallIndex = -1;
-
             try {
-              // eslint-disable-next-line no-constant-condition
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split(/\r?\n/);
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                  const trimmed = line.trim();
-                  if (!trimmed || trimmed === 'data: [DONE]') continue;
-                  if (!trimmed.startsWith('data: ')) continue;
-
-                  try {
-                    const json = JSON.parse(trimmed.slice(6));
-                    const delta = json.choices?.[0]?.delta?.content;
-
-                    if (delta) {
-                      fullContent += delta;
-                      // Don't stream SAVE comments to client
-                      if (!fullContent.includes('<!--SAVE:')) {
-                        if (!fillerFlushed) {
-                          // Buffer first sentence for filler stripping
-                          fillerBuffer += delta;
-                          // Flush once we have a sentence boundary or enough content
-                          const hasBreak =
-                            /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
-                          if (hasBreak) {
-                            const cleaned = stripFillerOpening(fillerBuffer);
-                            if (cleaned) {
-                              await writer.write(
-                                encoder.encode(
-                                  `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
-                                ),
-                              );
-                            }
-                            fillerFlushed = true;
-                          }
-                        } else {
-                          const sseData = JSON.stringify({ delta, done: false });
-                          await writer.write(encoder.encode(`data: ${sseData}\n\n`));
-                        }
-                      }
-                    }
-
-                    // Check for tool calls - handle multiple
-                    const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
-                    if (toolCallDeltas) {
-                      for (const toolCallDelta of toolCallDeltas) {
-                        const idx = toolCallDelta.index ?? 0;
-
-                        // Initialize new tool call if needed
-                        if (!toolCalls[idx]) {
-                          toolCalls[idx] = { id: null, name: null, arguments: '' };
-                        }
-
-                        if (toolCallDelta.id) toolCalls[idx].id = toolCallDelta.id;
-                        if (toolCallDelta.function?.name)
-                          toolCalls[idx].name = toolCallDelta.function.name;
-                        if (toolCallDelta.function?.arguments)
-                          toolCalls[idx].arguments += toolCallDelta.function.arguments;
-                      }
-                    }
-                  } catch (parseErr) {
-                    console.log('[EntityChat:Streaming] Chunk parse error', {
-                      line: trimmed.slice(0, 100),
-                    });
-                  }
-                }
-              }
-
-              // Flush any remaining filler buffer from main stream
-              if (!fillerFlushed && fillerBuffer) {
-                const cleaned = stripFillerOpening(fillerBuffer);
-                if (cleaned) {
-                  await writer.write(
-                    encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
-                  );
-                }
-              }
-
-              // Clean fullContent to match what was streamed
-              fullContent = stripFillerOpening(fullContent);
-
-              // Track search metadata
-              let sources = undefined;
-              let searchQueries = [];
-
-              // Filter to only web_search tool calls with arguments
-              const webSearchCalls = toolCalls.filter(
-                (tc) => tc.name === 'web_search' && tc.arguments,
+              const loadingMsg = await generateLoadingMessage(
+                lastUserMsg,
+                body.spaceName || null,
+                env.OPENAI_API_KEY,
               );
-
-              if (webSearchCalls.length > 0) {
-                console.log('[EntityChat:Streaming] Web search triggered', {
-                  searchCount: webSearchCalls.length,
-                });
-
-                // Notify client we're searching (show first query)
-                let firstQuery = '';
-                try {
-                  const firstArgs = JSON.parse(webSearchCalls[0].arguments);
-                  firstQuery = firstArgs.query || '';
-                } catch {
-                  const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
-                  firstQuery = match ? match[1] : 'multiple topics';
-                }
-                const searchNotice =
-                  webSearchCalls.length > 1
-                    ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
-                    : firstQuery;
+              if (loadingMsg) {
                 await writer.write(
                   encoder.encode(
-                    `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+                    `data: ${JSON.stringify({ searching: true, query: loadingMsg, isLoadingHint: true })}\n\n`,
+                  ),
+                );
+              }
+            } catch {
+              /* fire-and-forget */
+            }
+          })();
+
+          // Main work IIFE — runs after Response is returned to client
+          (async () => {
+            try {
+              // Send SSE ping
+              await writer.write(encoder.encode(': ping\n\n'));
+
+              // Detect URLs in the user's message
+              const detectedUrls = extractUrlsFromText(lastUserMsg);
+
+              if (detectedUrls.length > 0) {
+                console.log('[EntityChat:Streaming] URLs detected:', detectedUrls);
+
+                // Fetch the first URL (limit to one to control costs)
+                const urlToFetch = detectedUrls[0];
+
+                // Send "fetching" indicator to client
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      fetching: true,
+                      fetchingUrl: urlToFetch,
+                      done: false,
+                    })}\n\n`,
                   ),
                 );
 
-                // Execute all searches in parallel
-                const searchT0 = Date.now();
-                const searchPromises = webSearchCalls.map(async (tc) => {
-                  try {
-                    let query;
-                    try {
-                      const args = JSON.parse(tc.arguments);
-                      query = args.query;
-                    } catch (parseErr) {
-                      // Try regex extraction for malformed JSON
-                      const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
-                      if (match) {
-                        query = match[1];
-                        console.log(
-                          '[EntityChat:Streaming] Recovered query from malformed JSON:',
-                          query,
-                        );
-                      } else {
-                        console.log(
-                          '[EntityChat:Streaming] Could not parse tool arguments:',
-                          tc.arguments.slice(0, 200),
-                        );
-                        return { toolCallId: tc.id, query: null, results: null };
-                      }
-                    }
+                const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
 
-                    searchQueries.push(query);
-                    const shouldIncludeImages = isVisualQuery(query) || isVisualQuery(lastUserMsg);
-                    console.log('[EntityChat] Calling Tavily:', {
-                      query: query,
-                      includeImages: shouldIncludeImages,
-                      isVisualQueryResult: isVisualQuery(query),
-                    });
-                    const results = await executeTavilySearch(query, env.TAVILY_API_KEY, {
-                      includeImages: shouldIncludeImages,
-                    });
-                    return { toolCallId: tc.id, query, results };
-                  } catch (err) {
-                    console.log('[EntityChat:Streaming] Individual search error:', err);
-                    return { toolCallId: tc.id, query: null, results: null };
-                  }
-                });
+                if (extracted && extracted.success) {
+                  fetchedUrl = {
+                    url: extracted.url,
+                    title: extracted.title,
+                  };
 
-                const searchResults = await Promise.all(searchPromises);
-                const searchLatency = Date.now() - searchT0;
+                  // Add extracted content as context for the model
+                  urlContext = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
 
-                const successfulSearches = searchResults.filter(
-                  (sr) => sr.results && sr.results.results.length > 0,
+                  console.log('[EntityChat:Streaming] URL content extracted, adding to context');
+                } else {
+                  // Extraction failed - let model know
+                  urlContext = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable. Let the user know and offer to help if they can paste the content directly.]`;
+
+                  console.log('[EntityChat:Streaming] URL extraction failed');
+                }
+
+                // Clear fetching indicator
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      fetching: false,
+                      done: false,
+                    })}\n\n`,
+                  ),
                 );
-                console.log('[EntityChat:Streaming] Searches complete', {
-                  total: searchResults.length,
-                  successful: successfulSearches.length,
-                  latency: searchLatency,
+              }
+
+              // Inject URL context into entityMessages if present
+              if (urlContext) {
+                const lastIdx = entityMessages.length - 1;
+                if (entityMessages[lastIdx].role === 'user') {
+                  entityMessages[lastIdx] = {
+                    ...entityMessages[lastIdx],
+                    content: entityMessages[lastIdx].content + urlContext,
+                  };
+                }
+              }
+
+              const streamConfig = {
+                temperature: genConfig.temperature,
+                maxOutputTokens: genConfig.maxTokens,
+                thinkingLevel: genConfig.thinkingLevel,
+              };
+
+              if (searchPolicy.attachTool) {
+                streamConfig.tools = [WEB_SEARCH_TOOL];
+              }
+
+              console.log('[EntityChat:Streaming:Payload]', {
+                temperature: streamConfig.temperature,
+                maxOutputTokens: streamConfig.maxOutputTokens,
+                thinkingLevel: streamConfig.thinkingLevel,
+                hasTools: !!streamConfig.tools,
+                messageCount: entityMessages.length,
+              });
+
+              const geminiRes = await geminiStream(
+                genConfig.systemPrompt,
+                entityMessages,
+                streamConfig,
+                env.GOOGLE_API_KEY,
+              );
+
+              if (!geminiRes.ok || !geminiRes.body) {
+                const errText = geminiRes.error || 'unknown error';
+                console.log('[EntityChat:Streaming] Gemini error', {
+                  status: geminiRes.status,
+                  error: errText,
                 });
+                await writer.write(
+                  encoder.encode(`data: ${JSON.stringify({ error: errText, done: true })}\n\n`),
+                );
+                return; // exits the IIFE, writer.close() runs in finally
+              }
 
-                if (successfulSearches.length > 0) {
-                  // Build follow-up messages with ALL tool results
-                  const assistantToolCalls = successfulSearches.map((sr) => ({
-                    id: sr.toolCallId,
-                    type: 'function',
-                    function: {
-                      name: 'web_search',
-                      arguments: JSON.stringify({ query: sr.query }),
-                    },
-                  }));
+              const reader = geminiRes.body.getReader();
+              let buffer = '';
+              let fullContent = '';
+              let searchImages = [];
 
-                  const toolResultMessages = successfulSearches.map((sr) => ({
-                    role: 'tool',
-                    tool_call_id: sr.toolCallId,
-                    content: formatSearchBrief(sr.results),
-                  }));
+              // Output guard: buffer first sentence to strip filler openings
+              let fillerBuffer = '';
+              let fillerFlushed = false;
 
-                  const followUpMessages = [
-                    ...entityMessages,
-                    {
-                      role: 'assistant',
-                      content: null,
-                      tool_calls: assistantToolCalls,
-                    },
-                    ...toolResultMessages,
-                  ];
+              // Track tool call accumulation - support multiple tool calls
+              let toolCalls = []; // Array of { id, name, arguments }
+              let modelResponseParts = [];
 
-                  // Second API call for final response - with real streaming
-                  // Tell client to discard any pre-search text that was already streamed
-                  await writer.write(
-                    encoder.encode(`data: ${JSON.stringify({ reset: true, done: false })}\n\n`),
-                  );
-                  fullContent = '';
+              try {
+                // eslint-disable-next-line no-constant-condition
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
 
-                  const followUpRes = await fetch(GEMINI_BASE_URL, {
-                    method: 'POST',
-                    headers: {
-                      Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      model: 'gemini-2.5-flash',
-                      messages: followUpMessages,
-                      temperature: genConfig.temperature,
-                      max_tokens: Math.max(genConfig.maxTokens, 1200),
-                      reasoning_effort: genConfig.reasoning,
-                      stream: true,
-                    }),
-                  });
+                  buffer += decoder.decode(value, { stream: true });
+                  const lines = buffer.split(/\r?\n/);
+                  buffer = lines.pop() || '';
 
-                  // Stream the follow-up response to client
-                  const followUpReader = followUpRes.body.getReader();
-                  const followUpDecoder = new TextDecoder();
-                  let followUpBuffer = '';
-                  let readerDone = false;
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed || trimmed === 'data: [DONE]') continue;
+                    if (!trimmed.startsWith('data: ')) continue;
 
-                  // Output guard: buffer first sentence to strip filler openings
-                  let followUpFillerBuffer = '';
-                  let followUpFillerFlushed = false;
+                    try {
+                      const chunk = parseGeminiChunk(trimmed.slice(6));
+                      const delta = chunk.text;
 
-                  while (!readerDone) {
-                    const result = await followUpReader.read();
-                    readerDone = result.done;
-                    if (readerDone) break;
-                    const value = result.value;
-
-                    followUpBuffer += followUpDecoder.decode(value, { stream: true });
-
-                    // Process complete lines only
-                    const lines = followUpBuffer.split('\n');
-                    followUpBuffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-                    for (const line of lines) {
-                      const trimmed = line.trim();
-                      if (!trimmed.startsWith('data:')) continue;
-
-                      const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
-                      if (jsonStr === '[DONE]') continue;
-
-                      try {
-                        const json = JSON.parse(jsonStr);
-                        const delta = json.choices?.[0]?.delta?.content;
-                        if (delta) {
-                          fullContent += delta;
-                          if (!followUpFillerFlushed) {
-                            followUpFillerBuffer += delta;
+                      if (delta) {
+                        fullContent += delta;
+                        // Don't stream SAVE comments to client
+                        if (!fullContent.includes('<!--SAVE:')) {
+                          if (!fillerFlushed) {
+                            fillerBuffer += delta;
                             const hasBreak =
-                              /[.?!]\s/.test(followUpFillerBuffer) ||
-                              followUpFillerBuffer.length > 150;
+                              /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
                             if (hasBreak) {
-                              const cleaned = stripFillerOpening(followUpFillerBuffer);
+                              const cleaned = stripFillerOpening(fillerBuffer);
                               if (cleaned) {
                                 await writer.write(
                                   encoder.encode(
@@ -4130,33 +3911,230 @@ Almost never suggest creating a Space. Only if ALL true:
                                   ),
                                 );
                               }
-                              followUpFillerFlushed = true;
+                              fillerFlushed = true;
                             }
                           } else {
-                            await writer.write(
-                              encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                            );
+                            const sseData = JSON.stringify({ delta, done: false });
+                            await writer.write(encoder.encode(`data: ${sseData}\n\n`));
                           }
                         }
-                      } catch {
-                        // Skip malformed JSON
                       }
+
+                      // Collect function calls with thought signatures for follow-up
+                      if (chunk.functionCalls) {
+                        for (const fc of chunk.functionCalls) {
+                          toolCalls.push({
+                            id: fc.id,
+                            name: fc.name,
+                            arguments: JSON.stringify(fc.args),
+                          });
+                          modelResponseParts.push({
+                            functionCall: { name: fc.name, args: fc.args, id: fc.id },
+                            thoughtSignature: fc.thoughtSignature,
+                          });
+                        }
+                      }
+                    } catch (parseErr) {
+                      console.log('[EntityChat:Streaming] Chunk parse error', {
+                        line: trimmed.slice(0, 100),
+                      });
                     }
                   }
+                }
 
-                  // Process any remaining buffer
-                  if (followUpBuffer.trim()) {
-                    const trimmed = followUpBuffer.trim();
-                    if (trimmed.startsWith('data:')) {
-                      const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
-                      if (jsonStr !== '[DONE]') {
+                // Flush any remaining filler buffer from main stream
+                if (!fillerFlushed && fillerBuffer) {
+                  const cleaned = stripFillerOpening(fillerBuffer);
+                  if (cleaned) {
+                    await writer.write(
+                      encoder.encode(
+                        `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                      ),
+                    );
+                  }
+                }
+
+                // Clean fullContent to match what was streamed
+                fullContent = stripFillerOpening(fullContent);
+
+                // Track search metadata
+                let sources = undefined;
+                let searchQueries = [];
+
+                // Filter to only web_search tool calls with arguments
+                const webSearchCalls = toolCalls.filter(
+                  (tc) => tc.name === 'web_search' && tc.arguments,
+                );
+
+                if (webSearchCalls.length > 0) {
+                  console.log('[EntityChat:Streaming] Web search triggered', {
+                    searchCount: webSearchCalls.length,
+                  });
+
+                  // Notify client we're searching (show first query)
+                  let firstQuery = '';
+                  try {
+                    const firstArgs = JSON.parse(webSearchCalls[0].arguments);
+                    firstQuery = firstArgs.query || '';
+                  } catch {
+                    const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                    firstQuery = match ? match[1] : 'multiple topics';
+                  }
+                  const searchNotice =
+                    webSearchCalls.length > 1
+                      ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
+                      : firstQuery;
+                  await writer.write(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+                    ),
+                  );
+
+                  // Execute all searches in parallel
+                  const searchT0 = Date.now();
+                  const searchPromises = webSearchCalls.map(async (tc) => {
+                    try {
+                      let query;
+                      try {
+                        const args = JSON.parse(tc.arguments);
+                        query = args.query;
+                      } catch (parseErr) {
+                        // Try regex extraction for malformed JSON
+                        const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                        if (match) {
+                          query = match[1];
+                          console.log(
+                            '[EntityChat:Streaming] Recovered query from malformed JSON:',
+                            query,
+                          );
+                        } else {
+                          console.log(
+                            '[EntityChat:Streaming] Could not parse tool arguments:',
+                            tc.arguments.slice(0, 200),
+                          );
+                          return { toolCallId: tc.id, query: null, results: null };
+                        }
+                      }
+
+                      searchQueries.push(query);
+                      const shouldIncludeImages =
+                        isVisualQuery(query) || isVisualQuery(lastUserMsg);
+                      console.log('[EntityChat] Calling Tavily:', {
+                        query: query,
+                        includeImages: shouldIncludeImages,
+                        isVisualQueryResult: isVisualQuery(query),
+                      });
+                      const results = await executeTavilySearch(query, env.TAVILY_API_KEY, {
+                        includeImages: shouldIncludeImages,
+                      });
+                      return { toolCallId: tc.id, query, results };
+                    } catch (err) {
+                      console.log('[EntityChat:Streaming] Individual search error:', err);
+                      return { toolCallId: tc.id, query: null, results: null };
+                    }
+                  });
+
+                  const searchResults = await Promise.all(searchPromises);
+                  const searchLatency = Date.now() - searchT0;
+
+                  const successfulSearches = searchResults.filter(
+                    (sr) => sr.results && sr.results.results.length > 0,
+                  );
+                  console.log('[EntityChat:Streaming] Searches complete', {
+                    total: searchResults.length,
+                    successful: successfulSearches.length,
+                    latency: searchLatency,
+                  });
+
+                  if (successfulSearches.length > 0) {
+                    // Build native follow-up contents with thought signatures preserved
+                    const originalContents = convertMessages(entityMessages);
+
+                    // Add any accumulated text to model response parts
+                    if (fullContent) {
+                      modelResponseParts.unshift({ text: fullContent });
+                    }
+
+                    const functionResults = successfulSearches.map((sr) => ({
+                      name: 'web_search',
+                      id: sr.toolCallId,
+                      response: { results: formatSearchBrief(sr.results) },
+                    }));
+
+                    const followUpContents = buildFollowUpContents(
+                      originalContents,
+                      modelResponseParts,
+                      functionResults,
+                    );
+
+                    // Second API call for final response - with real streaming
+                    // Tell client to discard any pre-search text that was already streamed
+                    await writer.write(
+                      encoder.encode(`data: ${JSON.stringify({ reset: true, done: false })}\n\n`),
+                    );
+                    fullContent = '';
+
+                    const followUpRes = await geminiStream(
+                      genConfig.systemPrompt,
+                      [],
+                      {
+                        temperature: genConfig.temperature,
+                        maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
+                        thinkingLevel: genConfig.thinkingLevel,
+                        nativeContents: followUpContents,
+                      },
+                      env.GOOGLE_API_KEY,
+                    );
+
+                    // Stream the follow-up response to client
+                    const followUpReader = followUpRes.body.getReader();
+                    let followUpBuffer = '';
+                    let readerDone = false;
+
+                    // Output guard: buffer first sentence to strip filler openings
+                    let followUpFillerBuffer = '';
+                    let followUpFillerFlushed = false;
+
+                    while (!readerDone) {
+                      const result = await followUpReader.read();
+                      readerDone = result.done;
+                      if (readerDone) break;
+                      const value = result.value;
+
+                      followUpBuffer += decoder.decode(value, { stream: true });
+
+                      // Process complete lines only
+                      const lines = followUpBuffer.split('\n');
+                      followUpBuffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                      for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed.startsWith('data:')) continue;
+
+                        const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                        if (jsonStr === '[DONE]') continue;
+
                         try {
-                          const json = JSON.parse(jsonStr);
-                          const delta = json.choices?.[0]?.delta?.content;
+                          const chunk = parseGeminiChunk(jsonStr);
+                          const delta = chunk.text;
                           if (delta) {
                             fullContent += delta;
                             if (!followUpFillerFlushed) {
                               followUpFillerBuffer += delta;
+                              const hasBreak =
+                                /[.?!]\s/.test(followUpFillerBuffer) ||
+                                followUpFillerBuffer.length > 150;
+                              if (hasBreak) {
+                                const cleaned = stripFillerOpening(followUpFillerBuffer);
+                                if (cleaned) {
+                                  await writer.write(
+                                    encoder.encode(
+                                      `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                    ),
+                                  );
+                                }
+                                followUpFillerFlushed = true;
+                              }
                             } else {
                               await writer.write(
                                 encoder.encode(
@@ -4166,202 +4144,238 @@ Almost never suggest creating a Space. Only if ALL true:
                             }
                           }
                         } catch {
-                          // Skip
+                          // Skip malformed JSON
                         }
                       }
                     }
-                  }
 
-                  // Flush any remaining filler buffer at end of stream
-                  if (!followUpFillerFlushed && followUpFillerBuffer) {
-                    const cleaned = stripFillerOpening(followUpFillerBuffer);
-                    if (cleaned) {
-                      await writer.write(
-                        encoder.encode(
-                          `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
-                        ),
-                      );
+                    // Process any remaining buffer
+                    if (followUpBuffer.trim()) {
+                      const trimmed = followUpBuffer.trim();
+                      if (trimmed.startsWith('data:')) {
+                        const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                        if (jsonStr !== '[DONE]') {
+                          try {
+                            const chunk = parseGeminiChunk(jsonStr);
+                            const delta = chunk.text;
+                            if (delta) {
+                              fullContent += delta;
+                              if (!followUpFillerFlushed) {
+                                followUpFillerBuffer += delta;
+                              } else {
+                                await writer.write(
+                                  encoder.encode(
+                                    `data: ${JSON.stringify({ delta, done: false })}\n\n`,
+                                  ),
+                                );
+                              }
+                            }
+                          } catch {
+                            // Skip
+                          }
+                        }
+                      }
                     }
-                  }
 
-                  // Clean fullContent to match what was streamed
+                    // Flush any remaining filler buffer at end of stream
+                    if (!followUpFillerFlushed && followUpFillerBuffer) {
+                      const cleaned = stripFillerOpening(followUpFillerBuffer);
+                      if (cleaned) {
+                        await writer.write(
+                          encoder.encode(
+                            `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                          ),
+                        );
+                      }
+                    }
+
+                    // Clean fullContent to match what was streamed
+                    fullContent = stripFillerOpening(fullContent);
+
+                    // Combine all sources
+                    sources = successfulSearches.flatMap((sr) =>
+                      sr.results.results.map((r) => ({ title: r.title, url: r.url })),
+                    );
+
+                    console.log('[EntityChat] successfulSearches structure:', {
+                      count: successfulSearches.length,
+                      firstItem: successfulSearches[0]
+                        ? Object.keys(successfulSearches[0])
+                        : 'empty',
+                      firstItemImages: successfulSearches[0]?.images,
+                      firstItemResultsImages: successfulSearches[0]?.results?.images,
+                    });
+
+                    // Collect images from search results
+                    // Structure: sr.results contains Tavily response with images
+                    successfulSearches.forEach((sr) => {
+                      if (sr.results.images && sr.results.images.length > 0) {
+                        searchImages.push(...sr.results.images);
+                      }
+                    });
+
+                    console.log('[EntityChat] Images collected:', {
+                      searchImagesCount: searchImages.length,
+                      searchImages: searchImages.slice(0, 2),
+                    });
+                  }
+                }
+
+                // Fallback: if tool calls were made but we have no content, respond without search
+                if (webSearchCalls.length > 0 && !fullContent) {
+                  console.log(
+                    '[EntityChat:Streaming] Search fallback - responding without search results',
+                  );
+
+                  const fallbackResult = await geminiGenerate(
+                    genConfig.systemPrompt +
+                      '\n\nAnswer based on the entity context and your existing knowledge. Do not mention search availability.',
+                    entityMessages,
+                    {
+                      temperature: genConfig.temperature,
+                      maxOutputTokens: genConfig.maxTokens,
+                      thinkingLevel: genConfig.thinkingLevel,
+                    },
+                    env.GOOGLE_API_KEY,
+                  );
+
+                  fullContent = fallbackResult.ok
+                    ? fallbackResult.content
+                    : 'I had trouble searching for that information. Could you try rephrasing your question?';
                   fullContent = stripFillerOpening(fullContent);
 
-                  // Combine all sources
-                  sources = successfulSearches.flatMap((sr) =>
-                    sr.results.results.map((r) => ({ title: r.title, url: r.url })),
-                  );
-
-                  console.log('[EntityChat] successfulSearches structure:', {
-                    count: successfulSearches.length,
-                    firstItem: successfulSearches[0] ? Object.keys(successfulSearches[0]) : 'empty',
-                    firstItemImages: successfulSearches[0]?.images,
-                    firstItemResultsImages: successfulSearches[0]?.results?.images,
-                  });
-
-                  // Collect images from search results
-                  // Structure: sr.results contains Tavily response with images
-                  successfulSearches.forEach((sr) => {
-                    if (sr.results.images && sr.results.images.length > 0) {
-                      searchImages.push(...sr.results.images);
-                    }
-                  });
-
-                  console.log('[EntityChat] Images collected:', {
-                    searchImagesCount: searchImages.length,
-                    searchImages: searchImages.slice(0, 2),
-                  });
+                  // Stream the fallback content
+                  const words = fullContent.split(' ');
+                  for (let i = 0; i < words.length; i += 3) {
+                    const chunk = words.slice(i, i + 3).join(' ') + ' ';
+                    await writer.write(
+                      encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
+                    );
+                    await new Promise((resolve) => setTimeout(resolve, 15));
+                  }
                 }
-              }
 
-              // Fallback: if tool calls were made but we have no content, respond without search
-              if (webSearchCalls.length > 0 && !fullContent) {
-                console.log(
-                  '[EntityChat:Streaming] Search fallback - responding without search results',
-                );
+                // For final event, use first search query or combined
+                const searchQuery =
+                  searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
 
-                const fallbackRes = await fetch(GEMINI_BASE_URL, {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    model: 'gemini-2.5-flash',
-                    messages: [
-                      ...entityMessages,
-                      {
-                        role: 'system',
-                        content:
-                          'Web search is temporarily unavailable. Please respond based on your knowledge, and let the user know you could not search for the latest information.',
-                      },
-                    ],
-                    temperature: genConfig.temperature,
-                    max_tokens: genConfig.maxTokens,
-                    reasoning_effort: genConfig.reasoning,
-                  }),
+                // Extract smart save suggestion (inline from model)
+                const { suggestion: smartSuggestion, cleanContent } =
+                  extractSaveSuggestion(fullContent);
+
+                // Fall back to pattern detection if no smart suggestion
+                const saveable = smartSuggestion
+                  ? { detected: true, type: smartSuggestion.type, smart: true }
+                  : detectSaveableContent(cleanContent);
+
+                // Use smart suggestion if available
+                const save_suggestion = smartSuggestion || null;
+
+                // Use cleaned content (without suggestion block) for display
+                fullContent = cleanContent;
+
+                // Detect space promotion suggestion
+                const promotion = detectSpacePromotion(fullContent, messages.length);
+
+                const latency = Date.now() - t0;
+                // Strip SAVE comment and markdown images before sending to client
+                const displayContent = fullContent
+                  .replace(/<!--SAVE:.*?-->/gs, '')
+                  .replace(/<!--SAVE:.*$/s, '')
+                  .replace(/!\[.*?\]\(.*?\)/g, '') // Strip markdown images
+                  .trim();
+                const finalData = JSON.stringify({
+                  done: true,
+                  full_content: displayContent,
+                  saveable,
+                  save_suggestion,
+                  promotion,
+                  latency_ms: latency,
+                  sources: sources,
+                  images: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
+                  search_query: searchQuery,
+                  fetchedUrl: fetchedUrl,
+                });
+                await writer.write(encoder.encode(`data: ${finalData}\n\n`));
+
+                console.log('[EntityChat:Streaming] Complete', {
+                  latency_ms: latency,
+                  content_length: fullContent.length,
+                  has_saveable: saveable?.detected,
+                  has_promotion: promotion?.suggested,
+                  used_search: !!searchQuery,
+                  images_sent: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
                 });
 
-                const fallbackData = await fallbackRes.json();
-                fullContent =
-                  fallbackData?.choices?.[0]?.message?.content ??
-                  'I had trouble searching for that information. Could you try rephrasing your question?';
-                fullContent = stripFillerOpening(fullContent);
-
-                // Stream the fallback content
-                const words = fullContent.split(' ');
-                for (let i = 0; i < words.length; i += 3) {
-                  const chunk = words.slice(i, i + 3).join(' ') + ' ';
-                  await writer.write(
-                    encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
-                  );
-                  await new Promise((resolve) => setTimeout(resolve, 15));
-                }
-              }
-
-              // For final event, use first search query or combined
-              const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
-
-              // Extract smart save suggestion (inline from model)
-              const { suggestion: smartSuggestion, cleanContent } =
-                extractSaveSuggestion(fullContent);
-
-              // Fall back to pattern detection if no smart suggestion
-              const saveable = smartSuggestion
-                ? { detected: true, type: smartSuggestion.type, smart: true }
-                : detectSaveableContent(cleanContent);
-
-              // Use smart suggestion if available
-              const save_suggestion = smartSuggestion || null;
-
-              // Use cleaned content (without suggestion block) for display
-              fullContent = cleanContent;
-
-              // Detect space promotion suggestion
-              const promotion = detectSpacePromotion(fullContent, messages.length);
-
-              const latency = Date.now() - t0;
-              // Strip SAVE comment and markdown images before sending to client
-              const displayContent = fullContent
-                .replace(/<!--SAVE:\{.*?\}-->/gs, '')
-                .replace(/!\[.*?\]\(.*?\)/g, '') // Strip markdown images
-                .trim();
-              const finalData = JSON.stringify({
-                done: true,
-                full_content: displayContent,
-                saveable,
-                save_suggestion,
-                promotion,
-                latency_ms: latency,
-                sources: sources,
-                images: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
-                search_query: searchQuery,
-                fetchedUrl: fetchedUrl,
-              });
-              await writer.write(encoder.encode(`data: ${finalData}\n\n`));
-
-              console.log('[EntityChat:Streaming] Complete', {
-                latency_ms: latency,
-                content_length: fullContent.length,
-                has_saveable: saveable?.detected,
-                has_promotion: promotion?.suggested,
-                used_search: !!searchQuery,
-                images_sent: searchImages.length > 0 ? searchImages.slice(0, 2) : undefined,
-              });
-
-              // ── POST-STREAM: Update entity chat summary (non-blocking) ──
-              if (body.userId && fullContent) {
-                const entity = body.entity || {};
-                const entityId = entity.id || null;
-                const entityType = entity.type || null;
-                if (entityId && entityType) {
-                  const summaryPromise = (async () => {
-                    try {
-                      const tableName =
-                        entityType === 'habit'
-                          ? 'habits'
-                          : entityType === 'note'
-                            ? 'notes'
-                            : 'todos';
-                      const prevRes = await fetch(
-                        `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
-                        {
-                          headers: {
-                            apikey: env.SUPABASE_SERVICE_KEY,
-                            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                // ── POST-STREAM: Update entity chat summary (non-blocking) ──
+                if (body.userId && fullContent) {
+                  const entity = body.entity || {};
+                  const entityId = entity.id || null;
+                  const entityType = entity.type || null;
+                  if (entityId && entityType) {
+                    const summaryPromise = (async () => {
+                      try {
+                        const tableName =
+                          entityType === 'habit'
+                            ? 'habits'
+                            : entityType === 'note'
+                              ? 'notes'
+                              : 'todos';
+                        const prevRes = await fetch(
+                          `${env.SUPABASE_URL}/rest/v1/${tableName}?id=eq.${entityId}&select=views`,
+                          {
+                            headers: {
+                              apikey: env.SUPABASE_SERVICE_KEY,
+                              Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                            },
                           },
-                        },
-                      );
-                      const prevRows = prevRes.ok ? await prevRes.json() : [];
-                      const previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
+                        );
+                        const prevRows = prevRes.ok ? await prevRes.json() : [];
+                        const previousEntitySummary = prevRows?.[0]?.views?.chat_summary || null;
 
-                      await generateEntityChatSummary(
-                        messages.filter((m) => m.role !== 'system'),
-                        fullContent,
-                        entityId,
-                        entityType,
-                        entity.title || entity.name || null,
-                        entity.space_name || null,
-                        previousEntitySummary,
-                        env,
-                      );
-                    } catch (err) {
-                      console.warn('[EntityChat] Chat summary failed:', err.message);
-                    }
-                  })();
-                  ctx.waitUntil(summaryPromise);
+                        await generateEntityChatSummary(
+                          messages.filter((m) => m.role !== 'system'),
+                          fullContent,
+                          entityId,
+                          entityType,
+                          entity.title || entity.name || null,
+                          entity.space_name || null,
+                          previousEntitySummary,
+                          env,
+                        );
+                      } catch (err) {
+                        console.warn('[EntityChat] Chat summary failed:', err.message);
+                      }
+                    })();
+                    ctx.waitUntil(summaryPromise);
+                  }
                 }
+              } catch (streamErr) {
+                console.log('[EntityChat:Streaming] Stream error', { error: String(streamErr) });
+                const errorData = JSON.stringify({
+                  error: String(streamErr),
+                  done: true,
+                  full_content: fullContent,
+                });
+                await writer.write(encoder.encode(`data: ${errorData}\n\n`));
               }
-            } catch (streamErr) {
-              console.log('[EntityChat:Streaming] Stream error', { error: String(streamErr) });
-              const errorData = JSON.stringify({
-                error: String(streamErr),
-                done: true,
-                full_content: fullContent,
-              });
-              await writer.write(encoder.encode(`data: ${errorData}\n\n`));
+            } catch (outerErr) {
+              console.error('[EntityChat:Streaming] Outer error', { error: String(outerErr) });
+              try {
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ error: String(outerErr), done: true })}\n\n`,
+                  ),
+                );
+              } catch {
+                /* stream may be closed */
+              }
             } finally {
-              await writer.close();
+              try {
+                await writer.close();
+              } catch {
+                /* already closed */
+              }
             }
           })();
 
@@ -4379,51 +4393,47 @@ Almost never suggest creating a Space. Only if ALL true:
         // NON-STREAMING ENTITY CHAT
         // =========================
         try {
-          const nonStreamPayload = {
-            model: 'gemini-2.5-flash',
-            messages: entityMessages,
+          const nonStreamConfig = {
             temperature: genConfig.temperature,
-            max_tokens: genConfig.maxTokens,
-            reasoning_effort: genConfig.reasoning,
+            maxOutputTokens: genConfig.maxTokens,
+            thinkingLevel: genConfig.thinkingLevel,
           };
 
           if (searchPolicy.attachTool) {
-            nonStreamPayload.tools = [WEB_SEARCH_TOOL];
-            nonStreamPayload.tool_choice =
-              searchPolicy.toolChoice === 'required'
-                ? { type: 'function', function: { name: 'web_search' } }
-                : 'auto';
+            nonStreamConfig.tools = [WEB_SEARCH_TOOL];
+            nonStreamConfig.toolChoice =
+              searchPolicy.toolChoice === 'required' ? 'web_search' : 'auto';
           }
 
-          const res = await fetch(GEMINI_BASE_URL, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(nonStreamPayload),
-          });
+          const geminiResult = await geminiGenerate(
+            genConfig.systemPrompt,
+            entityMessages,
+            nonStreamConfig,
+            env.GOOGLE_API_KEY,
+          );
 
-          const oj = await res.json();
           let latency = Date.now() - t0;
 
-          if (!res.ok) {
-            console.log('[EntityChat] API error', { error: oj.error, latency_ms: latency });
+          if (!geminiResult.ok) {
+            console.log('[EntityChat] API error', {
+              error: geminiResult.error,
+              latency_ms: latency,
+            });
             return j(
-              { error: 'entity_chat_failed', detail: oj.error?.message, latency_ms: latency },
+              { error: 'entity_chat_failed', detail: geminiResult.error, latency_ms: latency },
               200,
             );
           }
 
           // Check for tool call
-          const toolCall = oj?.choices?.[0]?.message?.tool_calls?.[0];
-          let content = oj?.choices?.[0]?.message?.content ?? '';
+          const toolCall = geminiResult.functionCalls?.[0];
+          let content = geminiResult.content ?? '';
           let sources = undefined;
           let searchQuery = undefined;
 
-          if (toolCall?.function?.name === 'web_search') {
+          if (toolCall?.name === 'web_search') {
             try {
-              const args = JSON.parse(toolCall.function.arguments);
+              const args = toolCall.args || {};
               searchQuery = args.query;
 
               console.log('[EntityChat] Web search triggered', { query: searchQuery });
@@ -4438,45 +4448,35 @@ Almost never suggest creating a Space. Only if ALL true:
               });
 
               if (searchResults && searchResults.results.length > 0) {
-                // Build follow-up messages
-                const followUpMessages = [
-                  ...entityMessages,
+                // Build native follow-up contents with thought signatures preserved
+                const originalContents = convertMessages(entityMessages);
+                const functionResults = [
                   {
-                    role: 'assistant',
-                    content: null,
-                    tool_calls: [
-                      {
-                        id: toolCall.id,
-                        type: 'function',
-                        function: toolCall.function,
-                      },
-                    ],
-                  },
-                  {
-                    role: 'tool',
-                    tool_call_id: toolCall.id,
-                    content: formatSearchBrief(searchResults),
+                    name: 'web_search',
+                    id: toolCall.id || 'web_search_0',
+                    response: { results: formatSearchBrief(searchResults) },
                   },
                 ];
+                const followUpContents = buildFollowUpContents(
+                  originalContents,
+                  geminiResult.parts || [],
+                  functionResults,
+                );
 
                 // Second API call (triage config)
-                const followUpRes = await fetch(GEMINI_BASE_URL, {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    model: 'gemini-2.5-flash',
-                    messages: followUpMessages,
+                const followUpResult = await geminiGenerate(
+                  genConfig.systemPrompt,
+                  [],
+                  {
                     temperature: genConfig.temperature,
-                    max_tokens: Math.max(genConfig.maxTokens, 1200),
-                    reasoning_effort: genConfig.reasoning,
-                  }),
-                });
+                    maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
+                    thinkingLevel: genConfig.thinkingLevel,
+                    nativeContents: followUpContents,
+                  },
+                  env.GOOGLE_API_KEY,
+                );
 
-                const followUpData = await followUpRes.json();
-                content = followUpData?.choices?.[0]?.message?.content ?? '';
+                content = followUpResult.ok ? followUpResult.content : '';
                 sources = searchResults.results.map((r) => ({ title: r.title, url: r.url }));
                 latency = Date.now() - t0;
               }
@@ -4499,6 +4499,11 @@ Almost never suggest creating a Space. Only if ALL true:
           // Use cleaned content (without suggestion block) for display
           content = cleanContent;
           content = stripFillerOpening(content);
+          // Strip any residual or partial SAVE blocks
+          content = content
+            .replace(/<!--SAVE:.*?-->/gs, '')
+            .replace(/<!--SAVE:.*$/s, '')
+            .trim();
 
           // Detect space promotion suggestion
           const promotion = detectSpacePromotion(content, messages.length);
@@ -5228,42 +5233,29 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
         const t0 = Date.now();
 
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
-
-          const res = await fetch(GEMINI_BASE_URL, {
-            signal: controller.signal,
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gemini-2.5-flash',
-              messages: [
-                { role: 'system', content: ORGANIZE_SYSTEM_PROMPT },
-                { role: 'user', content: userMessage },
-              ],
-              max_tokens: 8192,
+          const geminiResult = await geminiGenerate(
+            ORGANIZE_SYSTEM_PROMPT,
+            [{ role: 'user', content: userMessage }],
+            {
               temperature: 0.2,
-              reasoning_effort: 'low',
-            }),
-          });
+              maxOutputTokens: 8192,
+              thinkingLevel: 'low',
+            },
+            env.GOOGLE_API_KEY,
+          );
 
           const latency = Date.now() - t0;
-          clearTimeout(timeoutId);
 
-          if (!res.ok) {
-            const errText = await res.text();
-            console.log('[organize-day] Anthropic API error', {
-              status: res.status,
+          if (!geminiResult.ok) {
+            console.log('[organize-day] Gemini API error', {
+              status: geminiResult.status,
               latency_ms: latency,
-              error: errText.substring(0, 300),
+              error: (geminiResult.error || '').substring(0, 300),
             });
             return j(
               {
                 error: 'organize_failed',
-                detail: errText.substring(0, 200),
+                detail: (geminiResult.error || '').substring(0, 200),
                 assignments: [],
                 overflow: tasksToAssign.map((t) => ({ taskId: t.id, reason: 'AI unavailable' })),
                 reasoning: [],
@@ -5274,13 +5266,12 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             );
           }
 
-          const geminiResponse = await res.json();
-          const rawContent = geminiResponse.choices?.[0]?.message?.content || '';
+          const rawContent = geminiResult.content;
 
-          const usage = geminiResponse.usage || {};
+          const usage = geminiResult.usage;
           console.log('[organize-day] Gemini usage', {
-            prompt_tokens: usage.prompt_tokens,
-            completion_tokens: usage.completion_tokens,
+            prompt_tokens: usage.promptTokenCount,
+            completion_tokens: usage.candidatesTokenCount,
             latency_ms: latency,
           });
 
@@ -5400,9 +5391,9 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
             summary,
             latency_ms: latency,
             _debug: {
-              model: 'gemini-2.5-flash',
-              prompt_tokens: usage.prompt_tokens,
-              completion_tokens: usage.completion_tokens,
+              model: 'gemini-3-flash-preview',
+              prompt_tokens: usage.promptTokenCount,
+              completion_tokens: usage.candidatesTokenCount,
             },
           });
         } catch (err) {
@@ -6314,21 +6305,23 @@ Return JSON only:
 }`;
 
         // Prompt C - Effort count
-        const promptC = `Count SEPARATE user intentions in this text.
+        const promptC = `Count how many SEPARATELY COMPLETABLE items are in this text.
 
-The user captured these items TOGETHER in one thought. Default to ONE unless clearly unrelated.
+The test: "Would the user finish and check off each item at a DIFFERENT time and place?"
 
 Count as ONE:
-- Items serving the same goal
-- Items that would be done in one session
-- Items the user mentally groups together
+- Sub-steps or prerequisites of a single task
+- A task paired with its context, reason, or cause
+- Alternatives or options for the same underlying need
 
-Count as SEPARATE only when:
-- Zero shared purpose or context
-- User would track and complete at completely different times
-- No unifying thread connects them
+The ONE rules take precedence. Only count as SEPARATE if NONE of the ONE rules apply.
 
-Ask: "Could the user describe all of these with ONE phrase?" If yes → one effort.
+Count as SEPARATE when ANY of these are true:
+- Different verbs acting on different objects
+- One is a one-time action, the other is ongoing or recurring
+- User would realistically check them off on different occasions
+
+IMPORTANT: If you identify 2+ groupings, effort_count MUST match the number of groupings. Do not list separate groupings and then return effort_count: 1.
 
 Return JSON only:
 {
@@ -6336,11 +6329,11 @@ Return JSON only:
   "groupings": ["description"]
 }
 
-or if truly separate:
+or if separately completable:
 
 {
   "effort_count": 2,
-  "groupings": ["first intention", "second intention"]
+  "groupings": ["first item", "second item"]
 }`;
 
         try {
@@ -6775,34 +6768,34 @@ Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN or HOW
 
 === CONFIRMATION MESSAGE (4-10 words) ===
 
-This is Gremly's voice — a witty, warm friend who actually listened. Not a notification system.
+PERSONA: You're their upbeat, playful friend. You're genuinely happy they shared this and you react with warmth and a little humor. You don't do earnest speeches or therapize, but you're never dismissive either. You react like a friend who thinks what they're doing is cool — quick, fun, maybe a little cheeky.
 
-**THE CORE RULE:**
-Every confirmation MUST prove you understood THIS specific input. Reference something concrete from what they wrote — a person, a place, the actual subject matter. If your message could apply to any other input, you failed.
+PROCESS — follow these two steps every time:
+1. Find ONE specific detail from their input: a person's name, the actual activity, a place, the subject matter. Lock onto it.
+2. Pick an angle on that detail: a light observation, a playful consequence, a quick aside, or a question that shows you caught it. The angle should feel like it took you half a second to think of, not half an hour.
 
-**BUCKET TONE:**
-- TODOS: Acknowledging, can be wry or playful
-- HABITS: Encouraging without being cheesy, recognize the commitment
-- JOURNALS: Gentle, validating, honor the emotional weight
-- IDEAS: Curious, intrigued, fan the spark
-- GENERAL LOGS: Simple warmth with personality
+TONE BY BUCKET:
+- TODOS: Playful. React to the real-world thing, not "the task."
+- HABITS: Playful belief. Root for the specific behavior, not the abstract concept of self-improvement.
+- JOURNALS: Shorthand empathy. Like a friend who gets it without turning it into A Moment.
+- IDEAS: Genuine curiosity about the specific idea.
+- GENERAL LOGS: React to the interesting detail. Name the specific thing.
 
-**VOICE:**
-- Understated over enthusiastic
-- Witty when the input allows
-- Warm but not saccharine
-- No exclamation marks — too perky
-- Don't start with "I" — it's about them, not Gremly
+VOICE:
+- Texting a friend, not writing a greeting card
+- Short. Offhand. Like you dashed it off
+- No exclamation marks
+- Cheeky when there's an opening, warm when there isn't
 
-**CRITICAL — BE FRESH:**
-Never fall into repetitive structures. Each confirmation should feel crafted for exactly this input. Vary your sentence patterns, word choices, and approach. If you notice yourself reusing a formula, break it.
+HARD BANS — never do these:
+- The "That [noun phrase] really [verb/adjective]" structure (e.g., "That kind of effort really shows"). This is therapist-speak.
+- "[Gerund] [abstract noun] with [abstract noun]" (e.g., "Building strength with consistent effort"). This is a motivational poster.
+- Restating or paraphrasing the title. If your reaction just says what the title already says in different words, you failed.
+- Therapy words: "valid", "stands out", "is familiar", "is important", "takes courage"
+- Task-management language: "noted", "captured", "queued", "tracked", "on your list", "on your radar", "scheduled", "logged", "taking care of", "got it"
+- Ending with ", huh?" or ", right?" — it's a crutch, not wit.
 
-**FORBIDDEN:**
-- "Got it" / "Added" / "Noted" / "Done" / "Captured" — alone or at start
-- System speak ("Task added", "Successfully saved")
-- Robotic ("I've captured that for you")
-- Generic warmth that could apply to anything
-- Repeating structural patterns across different inputs
+THE TEST: Read your reaction back. Does it sound like something a real person would actually text? If it sounds like a notification, a therapist, or a poster on a dentist's wall — rewrite it.
 
 === DATE HANDLING ===
 
@@ -7538,6 +7531,11 @@ Rules:
         const text = body.text || '';
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
+        const recentReactions = Array.isArray(body.recentReactions)
+          ? body.recentReactions
+              .filter((r) => typeof r === 'string' && r.trim().length > 0)
+              .slice(-5)
+          : [];
 
         const phase15aSystemPrompt = `You generate a title and reaction for a productivity item that has already been classified.
 
@@ -7564,26 +7562,37 @@ For journals, start with what happened or what it's about — not the act of ref
 
 === REACTION (4-8 words, max 50 characters) ===
 
-This is Gremly reacting to what they said — like a friend who actually heard them.
+PERSONA: You're their upbeat, playful friend. You're genuinely happy they shared this and you react with warmth and a little humor. You don't do earnest speeches or therapize, but you're never dismissive either. You react like a friend who thinks what they're doing is cool — quick, fun, maybe a little cheeky.
 
-Your reaction IS the confirmation. You prove you understood by engaging with the SPECIFIC THING they said — not by acknowledging receipt. Think laterally about the content: what's adjacent, relatable, or human about this specific thing?
+PROCESS — follow these two steps every time:
+1. Find ONE specific detail from their input: a person's name, the actual activity, a place, the subject matter. Lock onto it.
+2. Pick an angle on that detail: a light observation, a playful consequence, a quick aside, or a question that shows you caught it. The angle should feel like it took you half a second to think of, not half an hour.
 
 TONE BY BUCKET:
-- TODOS: Acknowledge the thing with warmth or wit
-- HABITS: Speak to the version of themselves they're building toward
-- JOURNALS: Honor the weight. Reflect the feeling back, not the facts
-- IDEAS: Fan the spark. What's exciting about this if it worked?
-- GENERAL LOGS: React to the interesting part — a place, a person, the thing itself
+- TODOS: Playful. React to the real-world thing, not "the task."
+- HABITS: Playful belief. Root for the specific behavior, not the abstract concept of self-improvement.
+- JOURNALS: Shorthand empathy. Like a friend who gets it without turning it into A Moment.
+- IDEAS: Genuine curiosity about the specific idea.
+- GENERAL LOGS: React to the interesting detail. Name the specific thing.
 
 VOICE:
-- Understated over enthusiastic
-- Witty when the input allows
-- Warm but not saccharine
+- Texting a friend, not writing a greeting card
+- Short. Offhand. Like you dashed it off
 - No exclamation marks
+- Cheeky when there's an opening, warm when there isn't
 
-THE TWO TESTS:
-1. Specificity: Does this reference something concrete from THEIR input? If it could apply to any other drop, rewrite it.
-2. No task-management language: No "noted", "captured", "queued", "tracked", "on your list", "on your radar", "scheduled", "logged". Speak to the thing, not the act of saving it.
+HARD BANS — never do these:
+- The "That [noun phrase] really [verb/adjective]" structure (e.g., "That kind of effort really shows"). This is therapist-speak.
+- "[Gerund] [abstract noun] with [abstract noun]" (e.g., "Building strength with consistent effort"). This is a motivational poster.
+- Restating or paraphrasing the title. If your reaction just says what the title already says in different words, you failed.
+- Therapy words: "valid", "stands out", "is familiar", "is important", "takes courage"
+- Task-management language: "noted", "captured", "queued", "tracked", "on your list", "on your radar", "scheduled", "logged", "taking care of", "got it"
+- Ending with ", huh?" or ", right?" — it's a crutch, not wit.
+
+THE TEST: Read your reaction back. Does it sound like something a real person would actually text? If it sounds like a notification, a therapist, or a poster on a dentist's wall — rewrite it.
+
+VARIETY:
+You will sometimes receive a list of your recent reactions. Study their structures — the sentence shapes, the endings, the rhetorical moves. Then do something different. If the last three were statements, try a question. If they ended with wordplay, try a straight observation. If they were long, go shorter. Your job is to make each card feel like a fresh thought, not a template.
 
 === OUTPUT FORMAT ===
 
@@ -7609,16 +7618,16 @@ Return ONLY valid JSON:
                 { role: 'system', content: phase15aSystemPrompt },
                 {
                   role: 'user',
-                  content:
-                    'USER INPUT: "' +
-                    text +
-                    '"\nBUCKET: ' +
-                    bucket +
-                    '\nSUBTYPE: ' +
-                    (subtype || 'none'),
+                  content: (() => {
+                    let msg = `USER INPUT: "${text}"\nBUCKET: ${bucket}\nSUBTYPE: ${subtype || 'none'}`;
+                    if (recentReactions.length > 0) {
+                      msg += `\n\nRECENT REACTIONS (your last ${recentReactions.length} — do NOT reuse these sentence structures, endings, or patterns):\n${recentReactions.map((r) => `- "${r}"`).join('\n')}`;
+                    }
+                    return msg;
+                  })(),
                 },
               ],
-              temperature: 0.55,
+              temperature: 0.7,
               max_tokens: 150,
               response_format: { type: 'json_object' },
             }),
@@ -8830,450 +8839,260 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         const encoder = new TextEncoder();
         const decoder = new TextDecoder();
 
-        // Send initial SSE ping to establish line ending detection
+        // Loading message — fires immediately, independent of main work
         (async () => {
-          await writer.write(encoder.encode(': ping\n\n'));
-        })();
-
-        // Detect URLs in the user's message
-        const detectedUrlsSpace = extractUrlsFromText(lastUserMsgSpace);
-        let urlContextSpace = '';
-        let fetchedUrlSpace = null;
-
-        if (detectedUrlsSpace.length > 0) {
-          console.log('[SpaceChat:Streaming] URLs detected:', detectedUrlsSpace);
-
-          // Fetch the first URL
-          const urlToFetch = detectedUrlsSpace[0];
-
-          // Send "fetching" indicator to client
-          await writer.write(
-            encoder.encode(
-              `data: ${JSON.stringify({
-                fetching: true,
-                fetchingUrl: urlToFetch,
-                done: false,
-              })}\n\n`,
-            ),
-          );
-
-          const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
-
-          if (extracted && extracted.success) {
-            fetchedUrlSpace = {
-              url: extracted.url,
-              title: extracted.title,
-            };
-
-            urlContextSpace = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
-
-            console.log('[SpaceChat:Streaming] URL content extracted');
-          } else {
-            urlContextSpace = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable. Let the user know and offer to help if they can paste the content directly.]`;
-
-            console.log('[SpaceChat:Streaming] URL extraction failed');
-          }
-
-          // Clear fetching indicator
-          await writer.write(
-            encoder.encode(
-              `data: ${JSON.stringify({
-                fetching: false,
-                done: false,
-              })}\n\n`,
-            ),
-          );
-        }
-
-        // Check if previous messages contain search results to avoid redundant searches
-        const previousSearchContext = messages
-          .filter((m) => m.role === 'assistant' && m.sources?.length > 0)
-          .slice(-1)[0];
-
-        // === USER PROFILE & SESSION CONTEXT FOR SPACE CHAT ===
-        let spaceSessionContextStr = '';
-        let spaceUserProfile = null;
-        if (body.userId) {
           try {
-            const [chatContext, profile] = await Promise.all([
-              buildChatContext(
-                body.userId,
-                'space',
-                {
-                  spaceId: body.spaceId,
-                },
-                env,
-              ),
-              getUserProfile(body.userId, env),
-            ]);
-            spaceSessionContextStr = chatContext;
-            spaceUserProfile = profile;
-            if (spaceSessionContextStr || spaceUserProfile) {
-              console.log('[SpaceChat] Context loaded', {
-                userId: body.userId.slice(0, 8),
-                sessionContextLength: spaceSessionContextStr?.length || 0,
-                hasUserProfile: !!spaceUserProfile,
-              });
-            }
-          } catch (err) {
-            console.error('[SpaceChat] Context error', err);
-          }
-        }
-
-        // === TRIAGE: Classify message before generation ===
-        const previousExchange = extractPreviousExchange(messages);
-        const triage = await triageMessage({
-          userMessage: lastUserMsgSpace,
-          previousExchange,
-          spaceName: body.spaceName || undefined,
-          chatType: 'space',
-          env,
-        });
-
-        console.log('[SpaceChat:Streaming:Triage]', {
-          mode: triage.mode,
-          search: triage.search,
-          source: triage.source,
-          messagePreview: lastUserMsgSpace.slice(0, 80),
-        });
-
-        // Minimal ChatContext for rolling summary
-        const streamContext = { runningSummary: body.runningSummary || '' };
-
-        // === COMPOSE: Build generation config from triage signals ===
-        const genConfig = buildSpaceChatSystemPrompt(
-          triage,
-          streamContext,
-          body.spaceName,
-          null, // spaceContext not available server-side
-          body.accountCreatedAt,
-          spaceSessionContextStr,
-          spaceUserProfile?.profileText,
-        );
-
-        // === BUILD MESSAGES ===
-        // Inject URL context into the last user message if present
-        const processedMessagesSpace = messages.map((msg, idx, arr) => {
-          if (urlContextSpace && idx === arr.length - 1 && msg.role === 'user') {
-            return { ...msg, content: msg.content + urlContextSpace };
-          }
-          return msg;
-        });
-
-        const spaceChatMessages = [
-          { role: 'system', content: genConfig.systemPrompt },
-          ...processedMessagesSpace.filter((m) => m.role !== 'system'),
-        ];
-
-        if (previousSearchContext) {
-          spaceChatMessages.push({
-            role: 'system',
-            content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
-          });
-        }
-
-        // === SEARCH POLICY ===
-        const searchPolicy = getSearchPolicy(triage.search);
-
-        const openaiPayload = {
-          model: 'gemini-2.5-flash',
-          messages: spaceChatMessages,
-          temperature: genConfig.temperature,
-          stream: true,
-          max_tokens: genConfig.maxTokens,
-          reasoning_effort: genConfig.reasoning,
-        };
-
-        if (searchPolicy.attachTool) {
-          openaiPayload.tools = [WEB_SEARCH_TOOL];
-          openaiPayload.tool_choice =
-            searchPolicy.toolChoice === 'required'
-              ? { type: 'function', function: { name: 'web_search' } }
-              : 'auto';
-        }
-
-        const t0 = Date.now();
-
-        console.log('[SpaceChat:Streaming:Payload]', {
-          model: openaiPayload.model,
-          temperature: openaiPayload.temperature,
-          max_tokens: openaiPayload.max_tokens,
-          reasoning_effort: openaiPayload.reasoning_effort,
-          hasTools: !!openaiPayload.tools,
-          messageCount: openaiPayload.messages?.length,
-        });
-
-        const openaiRes = await fetch(GEMINI_BASE_URL, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(openaiPayload),
-        });
-
-        if (!openaiRes.ok) {
-          const errText = await openaiRes.text().catch(() => '');
-          console.log('[SpaceChat:Streaming] Gemini error', {
-            status: openaiRes.status,
-            error: errText,
-          });
-          return j({ error: `openai_error: ${openaiRes.status}`, detail: errText }, 200);
-        }
-
-        (async () => {
-          const reader = openaiRes.body.getReader();
-          let buffer = '';
-          let fullContent = '';
-
-          // Track tool calls accumulation (array for multiple calls)
-          let toolCalls = [];
-
-          // Output guard: buffer first sentence to strip filler openings
-          let fillerBuffer = '';
-          let fillerFlushed = false;
-
-          try {
-            // eslint-disable-next-line no-constant-condition
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split(/\r?\n/);
-              buffer = lines.pop() || '';
-
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed || trimmed === 'data: [DONE]') continue;
-                if (!trimmed.startsWith('data: ')) continue;
-
-                try {
-                  const json = JSON.parse(trimmed.slice(6));
-                  const delta = json.choices?.[0]?.delta?.content;
-
-                  if (delta) {
-                    fullContent += delta;
-                    // Don't stream SAVE comments to client
-                    if (!fullContent.includes('<!--SAVE:')) {
-                      if (!fillerFlushed) {
-                        fillerBuffer += delta;
-                        const hasBreak = /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
-                        if (hasBreak) {
-                          const cleaned = stripFillerOpening(fillerBuffer);
-                          if (cleaned) {
-                            await writer.write(
-                              encoder.encode(
-                                `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
-                              ),
-                            );
-                          }
-                          fillerFlushed = true;
-                        }
-                      } else {
-                        const sseData = JSON.stringify({ delta, done: false });
-                        await writer.write(encoder.encode(`data: ${sseData}\n\n`));
-                      }
-                    }
-                  }
-
-                  // Check for tool calls (handle multiple)
-                  const toolCallDeltas = json.choices?.[0]?.delta?.tool_calls;
-                  if (toolCallDeltas && Array.isArray(toolCallDeltas)) {
-                    for (const tcd of toolCallDeltas) {
-                      const idx = tcd.index ?? 0;
-                      if (!toolCalls[idx]) {
-                        toolCalls[idx] = { id: null, name: null, arguments: '' };
-                      }
-                      if (tcd.id) toolCalls[idx].id = tcd.id;
-                      if (tcd.function?.name) toolCalls[idx].name = tcd.function.name;
-                      if (tcd.function?.arguments)
-                        toolCalls[idx].arguments += tcd.function.arguments;
-                    }
-                  }
-                } catch (parseErr) {
-                  console.log('[SpaceChat:Streaming] Chunk parse error', {
-                    line: trimmed.slice(0, 100),
-                  });
-                }
-              }
-            }
-
-            // Flush any remaining filler buffer from main stream
-            if (!fillerFlushed && fillerBuffer) {
-              const cleaned = stripFillerOpening(fillerBuffer);
-              if (cleaned) {
-                await writer.write(
-                  encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
-                );
-              }
-            }
-            fullContent = stripFillerOpening(fullContent);
-
-            // Track search metadata
-            let sources = undefined;
-            let searchQueries = [];
-
-            // Filter to only web_search tool calls with arguments
-            const webSearchCalls = toolCalls.filter(
-              (tc) => tc.name === 'web_search' && tc.arguments,
+            const loadingMsg = await generateLoadingMessage(
+              lastUserMsgSpace,
+              body.spaceName || null,
+              env.OPENAI_API_KEY,
             );
-
-            if (webSearchCalls.length > 0) {
-              console.log('[SpaceChat:Streaming] Web search triggered', {
-                searchCount: webSearchCalls.length,
-              });
-
-              // Notify client we're searching (show first query)
-              let firstQuery = '';
-              try {
-                const firstArgs = JSON.parse(webSearchCalls[0].arguments);
-                firstQuery = firstArgs.query || '';
-              } catch {
-                const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
-                firstQuery = match ? match[1] : 'multiple topics';
-              }
-              const searchNotice =
-                webSearchCalls.length > 1
-                  ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
-                  : firstQuery;
+            if (loadingMsg) {
               await writer.write(
                 encoder.encode(
-                  `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+                  `data: ${JSON.stringify({ searching: true, query: loadingMsg, isLoadingHint: true })}\n\n`,
+                ),
+              );
+            }
+          } catch {
+            /* fire-and-forget */
+          }
+        })();
+
+        // Main work IIFE — runs after Response is returned to client
+        (async () => {
+          try {
+            // Send SSE ping
+            await writer.write(encoder.encode(': ping\n\n'));
+
+            // Detect URLs in the user's message
+            const detectedUrlsSpace = extractUrlsFromText(lastUserMsgSpace);
+            let urlContextSpace = '';
+            let fetchedUrlSpace = null;
+
+            if (detectedUrlsSpace.length > 0) {
+              console.log('[SpaceChat:Streaming] URLs detected:', detectedUrlsSpace);
+
+              // Fetch the first URL
+              const urlToFetch = detectedUrlsSpace[0];
+
+              // Send "fetching" indicator to client
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({
+                    fetching: true,
+                    fetchingUrl: urlToFetch,
+                    done: false,
+                  })}\n\n`,
                 ),
               );
 
-              // Execute all searches in parallel
-              const searchT0 = Date.now();
-              const searchPromises = webSearchCalls.map(async (tc) => {
-                try {
-                  let query;
-                  try {
-                    const args = JSON.parse(tc.arguments);
-                    query = args.query;
-                  } catch (parseErr) {
-                    // Try regex extraction for malformed JSON
-                    const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
-                    if (match) {
-                      query = match[1];
-                      console.log(
-                        '[SpaceChat:Streaming] Recovered query from malformed JSON:',
-                        query,
-                      );
-                    } else {
-                      console.log(
-                        '[SpaceChat:Streaming] Could not parse tool arguments:',
-                        tc.arguments.slice(0, 200),
-                      );
-                      return { toolCallId: tc.id, query: null, results: null };
-                    }
-                  }
+              const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
 
-                  searchQueries.push(query);
-                  const results = await executeTavilySearch(query, env.TAVILY_API_KEY);
-                  return { toolCallId: tc.id, query, results };
-                } catch (err) {
-                  console.log('[SpaceChat:Streaming] Individual search error:', err);
-                  return { toolCallId: tc.id, query: null, results: null };
-                }
-              });
+              if (extracted && extracted.success) {
+                fetchedUrlSpace = {
+                  url: extracted.url,
+                  title: extracted.title,
+                };
 
-              const searchResults = await Promise.all(searchPromises);
-              const searchLatency = Date.now() - searchT0;
+                urlContextSpace = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it. If they just shared the link without a specific question, provide a helpful summary of what the content covers.`;
 
-              const successfulSearches = searchResults.filter(
-                (sr) => sr.results && sr.results.results.length > 0,
+                console.log('[SpaceChat:Streaming] URL content extracted');
+              } else {
+                urlContextSpace = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content. It may be paywalled, require login, or be temporarily unavailable. Let the user know and offer to help if they can paste the content directly.]`;
+
+                console.log('[SpaceChat:Streaming] URL extraction failed');
+              }
+
+              // Clear fetching indicator
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({
+                    fetching: false,
+                    done: false,
+                  })}\n\n`,
+                ),
               );
-              console.log('[SpaceChat:Streaming] Searches complete', {
-                total: searchResults.length,
-                successful: successfulSearches.length,
-                latency: searchLatency,
+            }
+
+            // Check if previous messages contain search results to avoid redundant searches
+            const previousSearchContext = messages
+              .filter((m) => m.role === 'assistant' && m.sources?.length > 0)
+              .slice(-1)[0];
+
+            // === USER PROFILE & SESSION CONTEXT FOR SPACE CHAT ===
+            let spaceSessionContextStr = '';
+            let spaceUserProfile = null;
+            if (body.userId) {
+              try {
+                const [chatContext, profile] = await Promise.all([
+                  buildChatContext(
+                    body.userId,
+                    'space',
+                    {
+                      spaceId: body.spaceId,
+                    },
+                    env,
+                  ),
+                  getUserProfile(body.userId, env),
+                ]);
+                spaceSessionContextStr = chatContext;
+                spaceUserProfile = profile;
+                if (spaceSessionContextStr || spaceUserProfile) {
+                  console.log('[SpaceChat] Context loaded', {
+                    userId: body.userId.slice(0, 8),
+                    sessionContextLength: spaceSessionContextStr?.length || 0,
+                    hasUserProfile: !!spaceUserProfile,
+                  });
+                }
+              } catch (err) {
+                console.error('[SpaceChat] Context error', err);
+              }
+            }
+
+            // === TRIAGE: Classify message before generation ===
+            const previousExchange = extractPreviousExchange(messages);
+            const cachedDomains = await getCachedDomainNames(body.userId, env);
+
+            const triage = await triageMessage({
+              userMessage: lastUserMsgSpace,
+              previousExchange,
+              spaceName: body.spaceName || undefined,
+              runningSummary: body.runningSummary || '',
+              chatType: 'space',
+              env,
+              domainNames: cachedDomains,
+              profileSnippet: spaceUserProfile?.profileText?.slice(0, 150) || '',
+              messageCount: messages.length,
+            });
+
+            console.log('[SpaceChat:Streaming:Triage]', {
+              mode: triage.mode,
+              search: triage.search,
+              personal: triage.personal,
+              depth: triage.depth,
+              source: triage.source,
+              messagePreview: lastUserMsgSpace.slice(0, 80),
+            });
+
+            // Minimal ChatContext for rolling summary
+            const streamContext = { runningSummary: body.runningSummary || '' };
+
+            // === COMPOSE: Build generation config from triage signals ===
+            const genConfig = buildSpaceChatSystemPrompt(
+              triage,
+              streamContext,
+              body.spaceName,
+              null, // spaceContext not available server-side
+              body.accountCreatedAt,
+              spaceSessionContextStr,
+              spaceUserProfile?.profileText,
+            );
+
+            // === BUILD MESSAGES ===
+            // Inject URL context into the last user message if present
+            const processedMessagesSpace = messages.map((msg, idx, arr) => {
+              if (urlContextSpace && idx === arr.length - 1 && msg.role === 'user') {
+                return { ...msg, content: msg.content + urlContextSpace };
+              }
+              return msg;
+            });
+
+            const spaceChatMessages = [
+              { role: 'system', content: genConfig.systemPrompt },
+              ...processedMessagesSpace.filter((m) => m.role !== 'system'),
+            ];
+
+            if (previousSearchContext) {
+              spaceChatMessages.push({
+                role: 'system',
+                content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
               });
+            }
 
-              if (successfulSearches.length > 0) {
-                // Build follow-up messages with ALL tool results
-                const assistantToolCalls = successfulSearches.map((sr) => ({
-                  id: sr.toolCallId,
-                  type: 'function',
-                  function: {
-                    name: 'web_search',
-                    arguments: JSON.stringify({ query: sr.query }),
-                  },
-                }));
+            // === SEARCH POLICY ===
+            const searchPolicy = getSearchPolicy(triage.search);
 
-                const toolResultMessages = successfulSearches.map((sr) => ({
-                  role: 'tool',
-                  tool_call_id: sr.toolCallId,
-                  content: formatSearchBrief(sr.results),
-                }));
+            const streamConfig = {
+              temperature: genConfig.temperature,
+              maxOutputTokens: genConfig.maxTokens,
+              thinkingLevel: genConfig.thinkingLevel,
+            };
 
-                const followUpMessages = [
-                  ...spaceChatMessages,
-                  {
-                    role: 'assistant',
-                    content: null,
-                    tool_calls: assistantToolCalls,
-                  },
-                  ...toolResultMessages,
-                ];
+            if (searchPolicy.attachTool) {
+              streamConfig.tools = [WEB_SEARCH_TOOL];
+            }
 
-                // Second API call for final response - with real streaming (triage config)
-                const followUpRes = await fetch(GEMINI_BASE_URL, {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    model: 'gemini-2.5-flash',
-                    messages: followUpMessages,
-                    temperature: genConfig.temperature,
-                    max_tokens: Math.max(genConfig.maxTokens, 1200),
-                    stream: true,
-                    reasoning_effort: genConfig.reasoning,
-                  }),
-                });
+            const t0 = Date.now();
 
-                // Stream the follow-up response to client
-                const followUpReader = followUpRes.body.getReader();
-                const followUpDecoder = new TextDecoder();
-                let followUpBuffer = '';
-                let readerDone = false;
+            console.log('[SpaceChat:Streaming:Payload]', {
+              temperature: streamConfig.temperature,
+              maxOutputTokens: streamConfig.maxOutputTokens,
+              thinkingLevel: streamConfig.thinkingLevel,
+              hasTools: !!streamConfig.tools,
+              messageCount: spaceChatMessages.length,
+            });
 
-                let followUpFillerBuffer = '';
-                let followUpFillerFlushed = false;
+            const geminiRes = await geminiStream(
+              genConfig.systemPrompt,
+              spaceChatMessages,
+              streamConfig,
+              env.GOOGLE_API_KEY,
+            );
 
-                while (!readerDone) {
-                  const result = await followUpReader.read();
-                  readerDone = result.done;
-                  if (readerDone) break;
-                  const value = result.value;
+            if (!geminiRes.ok || !geminiRes.body) {
+              const errText = geminiRes.error || 'unknown error';
+              console.log('[SpaceChat:Streaming] Gemini error', {
+                status: geminiRes.status,
+                error: errText,
+              });
+              await writer.write(
+                encoder.encode(`data: ${JSON.stringify({ error: errText, done: true })}\n\n`),
+              );
+              return; // exits the IIFE, writer.close() runs in finally
+            }
 
-                  followUpBuffer += followUpDecoder.decode(value, { stream: true });
+            const reader = geminiRes.body.getReader();
+            let buffer = '';
+            let fullContent = '';
 
-                  // Process complete lines only
-                  const lines = followUpBuffer.split('\n');
-                  followUpBuffer = lines.pop() || ''; // Keep incomplete line in buffer
+            // Track tool calls accumulation (array for multiple calls)
+            let toolCalls = [];
+            let modelResponseParts = [];
 
-                  for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed.startsWith('data:')) continue;
+            // Output guard: buffer first sentence to strip filler openings
+            let fillerBuffer = '';
+            let fillerFlushed = false;
 
-                    const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
-                    if (jsonStr === '[DONE]') continue;
+            try {
+              // eslint-disable-next-line no-constant-condition
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
 
-                    try {
-                      const json = JSON.parse(jsonStr);
-                      const delta = json.choices?.[0]?.delta?.content;
-                      if (delta) {
-                        fullContent += delta;
-                        if (!followUpFillerFlushed) {
-                          followUpFillerBuffer += delta;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split(/\r?\n/);
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed === 'data: [DONE]') continue;
+                  if (!trimmed.startsWith('data: ')) continue;
+
+                  try {
+                    const chunk = parseGeminiChunk(trimmed.slice(6));
+                    const delta = chunk.text;
+
+                    if (delta) {
+                      fullContent += delta;
+                      // Don't stream SAVE comments to client
+                      if (!fullContent.includes('<!--SAVE:')) {
+                        if (!fillerFlushed) {
+                          fillerBuffer += delta;
                           const hasBreak =
-                            /[.?!]\s/.test(followUpFillerBuffer) ||
-                            followUpFillerBuffer.length > 150;
+                            /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
                           if (hasBreak) {
-                            const cleaned = stripFillerOpening(followUpFillerBuffer);
+                            const cleaned = stripFillerOpening(fillerBuffer);
                             if (cleaned) {
                               await writer.write(
                                 encoder.encode(
@@ -9281,33 +9100,211 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                                 ),
                               );
                             }
-                            followUpFillerFlushed = true;
+                            fillerFlushed = true;
                           }
                         } else {
-                          await writer.write(
-                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
-                          );
+                          const sseData = JSON.stringify({ delta, done: false });
+                          await writer.write(encoder.encode(`data: ${sseData}\n\n`));
                         }
                       }
-                    } catch {
-                      // Skip malformed JSON
                     }
+
+                    // Collect function calls with thought signatures for follow-up
+                    if (chunk.functionCalls) {
+                      for (const fc of chunk.functionCalls) {
+                        toolCalls.push({
+                          id: fc.id,
+                          name: fc.name,
+                          arguments: JSON.stringify(fc.args),
+                        });
+                        // Preserve raw part with thoughtSignature for follow-up
+                        modelResponseParts.push({
+                          functionCall: { name: fc.name, args: fc.args, id: fc.id },
+                          thoughtSignature: fc.thoughtSignature,
+                        });
+                      }
+                    }
+                  } catch (parseErr) {
+                    console.log('[SpaceChat:Streaming] Chunk parse error', {
+                      line: trimmed.slice(0, 100),
+                    });
                   }
                 }
+              }
 
-                // Process any remaining buffer
-                if (followUpBuffer.trim()) {
-                  const trimmed = followUpBuffer.trim();
-                  if (trimmed.startsWith('data:')) {
-                    const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
-                    if (jsonStr !== '[DONE]') {
+              // Flush any remaining filler buffer from main stream
+              if (!fillerFlushed && fillerBuffer) {
+                const cleaned = stripFillerOpening(fillerBuffer);
+                if (cleaned) {
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                  );
+                }
+              }
+              fullContent = stripFillerOpening(fullContent);
+
+              // Track search metadata
+              let sources = undefined;
+              let searchQueries = [];
+
+              // Filter to only web_search tool calls with arguments
+              const webSearchCalls = toolCalls.filter(
+                (tc) => tc.name === 'web_search' && tc.arguments,
+              );
+
+              if (webSearchCalls.length > 0) {
+                console.log('[SpaceChat:Streaming] Web search triggered', {
+                  searchCount: webSearchCalls.length,
+                });
+
+                // Notify client we're searching (show first query)
+                let firstQuery = '';
+                try {
+                  const firstArgs = JSON.parse(webSearchCalls[0].arguments);
+                  firstQuery = firstArgs.query || '';
+                } catch {
+                  const match = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                  firstQuery = match ? match[1] : 'multiple topics';
+                }
+                const searchNotice =
+                  webSearchCalls.length > 1
+                    ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
+                    : firstQuery;
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+                  ),
+                );
+
+                // Execute all searches in parallel
+                const searchT0 = Date.now();
+                const searchPromises = webSearchCalls.map(async (tc) => {
+                  try {
+                    let query;
+                    try {
+                      const args = JSON.parse(tc.arguments);
+                      query = args.query;
+                    } catch (parseErr) {
+                      // Try regex extraction for malformed JSON
+                      const match = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                      if (match) {
+                        query = match[1];
+                        console.log(
+                          '[SpaceChat:Streaming] Recovered query from malformed JSON:',
+                          query,
+                        );
+                      } else {
+                        console.log(
+                          '[SpaceChat:Streaming] Could not parse tool arguments:',
+                          tc.arguments.slice(0, 200),
+                        );
+                        return { toolCallId: tc.id, query: null, results: null };
+                      }
+                    }
+
+                    searchQueries.push(query);
+                    const results = await executeTavilySearch(query, env.TAVILY_API_KEY);
+                    return { toolCallId: tc.id, query, results };
+                  } catch (err) {
+                    console.log('[SpaceChat:Streaming] Individual search error:', err);
+                    return { toolCallId: tc.id, query: null, results: null };
+                  }
+                });
+
+                const searchResults = await Promise.all(searchPromises);
+                const searchLatency = Date.now() - searchT0;
+
+                const successfulSearches = searchResults.filter(
+                  (sr) => sr.results && sr.results.results.length > 0,
+                );
+                console.log('[SpaceChat:Streaming] Searches complete', {
+                  total: searchResults.length,
+                  successful: successfulSearches.length,
+                  latency: searchLatency,
+                });
+
+                if (successfulSearches.length > 0) {
+                  // Build native follow-up contents with thought signatures preserved
+                  const originalContents = convertMessages(spaceChatMessages);
+
+                  // Add any accumulated text to model response parts
+                  if (fullContent) {
+                    modelResponseParts.unshift({ text: fullContent });
+                  }
+
+                  const functionResults = successfulSearches.map((sr) => ({
+                    name: 'web_search',
+                    id: sr.toolCallId,
+                    response: { results: formatSearchBrief(sr.results) },
+                  }));
+
+                  const followUpContents = buildFollowUpContents(
+                    originalContents,
+                    modelResponseParts,
+                    functionResults,
+                  );
+
+                  // Second API call for final response with thought signatures intact
+                  const followUpRes = await geminiStream(
+                    genConfig.systemPrompt,
+                    [],
+                    {
+                      temperature: genConfig.temperature,
+                      maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
+                      thinkingLevel: genConfig.thinkingLevel,
+                      nativeContents: followUpContents,
+                    },
+                    env.GOOGLE_API_KEY,
+                  );
+
+                  // Stream the follow-up response to client
+                  const followUpReader = followUpRes.body.getReader();
+                  let followUpBuffer = '';
+                  let readerDone = false;
+
+                  let followUpFillerBuffer = '';
+                  let followUpFillerFlushed = false;
+
+                  while (!readerDone) {
+                    const result = await followUpReader.read();
+                    readerDone = result.done;
+                    if (readerDone) break;
+                    const value = result.value;
+
+                    followUpBuffer += decoder.decode(value, { stream: true });
+
+                    // Process complete lines only
+                    const lines = followUpBuffer.split('\n');
+                    followUpBuffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                    for (const line of lines) {
+                      const trimmed = line.trim();
+                      if (!trimmed.startsWith('data:')) continue;
+
+                      const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                      if (jsonStr === '[DONE]') continue;
+
                       try {
-                        const json = JSON.parse(jsonStr);
-                        const delta = json.choices?.[0]?.delta?.content;
+                        const chunk = parseGeminiChunk(jsonStr);
+                        const delta = chunk.text;
                         if (delta) {
                           fullContent += delta;
                           if (!followUpFillerFlushed) {
                             followUpFillerBuffer += delta;
+                            const hasBreak =
+                              /[.?!]\s/.test(followUpFillerBuffer) ||
+                              followUpFillerBuffer.length > 150;
+                            if (hasBreak) {
+                              const cleaned = stripFillerOpening(followUpFillerBuffer);
+                              if (cleaned) {
+                                await writer.write(
+                                  encoder.encode(
+                                    `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                  ),
+                                );
+                              }
+                              followUpFillerFlushed = true;
+                            }
                           } else {
                             await writer.write(
                               encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
@@ -9315,159 +9312,196 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                           }
                         }
                       } catch {
-                        // Skip
+                        // Skip malformed JSON
                       }
                     }
                   }
-                }
 
-                // Flush remaining follow-up filler buffer
-                if (!followUpFillerFlushed && followUpFillerBuffer) {
-                  const cleaned = stripFillerOpening(followUpFillerBuffer);
-                  if (cleaned) {
-                    await writer.write(
-                      encoder.encode(
-                        `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
-                      ),
-                    );
+                  // Process any remaining buffer
+                  if (followUpBuffer.trim()) {
+                    const trimmed = followUpBuffer.trim();
+                    if (trimmed.startsWith('data:')) {
+                      const jsonStr = trimmed.replace(/^data:\s*/, '').trim();
+                      if (jsonStr !== '[DONE]') {
+                        try {
+                          const chunk = parseGeminiChunk(jsonStr);
+                          const delta = chunk.text;
+                          if (delta) {
+                            fullContent += delta;
+                            if (!followUpFillerFlushed) {
+                              followUpFillerBuffer += delta;
+                            } else {
+                              await writer.write(
+                                encoder.encode(
+                                  `data: ${JSON.stringify({ delta, done: false })}\n\n`,
+                                ),
+                              );
+                            }
+                          }
+                        } catch {
+                          // Skip
+                        }
+                      }
+                    }
                   }
+
+                  // Flush remaining follow-up filler buffer
+                  if (!followUpFillerFlushed && followUpFillerBuffer) {
+                    const cleaned = stripFillerOpening(followUpFillerBuffer);
+                    if (cleaned) {
+                      await writer.write(
+                        encoder.encode(
+                          `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                        ),
+                      );
+                    }
+                  }
+                  fullContent = stripFillerOpening(fullContent);
+
+                  // Combine all sources
+                  sources = successfulSearches.flatMap((sr) =>
+                    sr.results.results.map((r) => ({ title: r.title, url: r.url })),
+                  );
                 }
+              }
+
+              // Fallback: if tool calls were made but we have no content, respond without search
+              if (webSearchCalls.length > 0 && !fullContent) {
+                console.log(
+                  '[SpaceChat:Streaming] Search fallback - responding without search results',
+                );
+
+                const fallbackResult = await geminiGenerate(
+                  genConfig.systemPrompt +
+                    '\n\nAnswer based on the entity context and your existing knowledge. Do not mention search availability.',
+                  spaceChatMessages,
+                  {
+                    temperature: genConfig.temperature,
+                    maxOutputTokens: genConfig.maxTokens,
+                    thinkingLevel: genConfig.thinkingLevel,
+                  },
+                  env.GOOGLE_API_KEY,
+                );
+
+                fullContent = fallbackResult.ok
+                  ? fallbackResult.content
+                  : 'I had trouble searching for that information. Could you try rephrasing your question?';
                 fullContent = stripFillerOpening(fullContent);
 
-                // Combine all sources
-                sources = successfulSearches.flatMap((sr) =>
-                  sr.results.results.map((r) => ({ title: r.title, url: r.url })),
-                );
-              }
-            }
-
-            // Fallback: if tool calls were made but we have no content, respond without search
-            if (webSearchCalls.length > 0 && !fullContent) {
-              console.log(
-                '[SpaceChat:Streaming] Search fallback - responding without search results',
-              );
-
-              const fallbackRes = await fetch(GEMINI_BASE_URL, {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  model: 'gemini-2.5-flash',
-                  messages: [
-                    ...spaceChatMessages,
-                    {
-                      role: 'system',
-                      content:
-                        'Web search is temporarily unavailable. Please respond based on your knowledge, and let the user know you could not search for the latest information.',
-                    },
-                  ],
-                  temperature: genConfig.temperature,
-                  max_tokens: genConfig.maxTokens,
-                  reasoning_effort: genConfig.reasoning,
-                }),
-              });
-
-              const fallbackData = await fallbackRes.json();
-              fullContent =
-                fallbackData?.choices?.[0]?.message?.content ??
-                'I had trouble searching for that information. Could you try rephrasing your question?';
-              fullContent = stripFillerOpening(fullContent);
-
-              // Stream the fallback content
-              const words = fullContent.split(' ');
-              for (let i = 0; i < words.length; i += 3) {
-                const chunk = words.slice(i, i + 3).join(' ') + ' ';
-                await writer.write(
-                  encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
-                );
-                await new Promise((resolve) => setTimeout(resolve, 15));
-              }
-            }
-
-            // For final event, use first search query or combined
-            const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
-
-            // Extract smart save suggestion (inline from model)
-            const { suggestion: smartSuggestion, cleanContent } =
-              extractSaveSuggestion(fullContent);
-
-            // Use cleaned content for display
-            fullContent = cleanContent;
-
-            // Use smart suggestion if available
-            const save_suggestion = smartSuggestion || null;
-
-            if (smartSuggestion) {
-              console.log('[SpaceChat:Streaming] Extracted save suggestion:', {
-                type: smartSuggestion.type,
-                title: smartSuggestion.title,
-                hasSteps: !!smartSuggestion.steps?.length,
-              });
-            }
-
-            const latency = Date.now() - t0;
-
-            const finalData = JSON.stringify({
-              done: true,
-              full_content: fullContent,
-              save_suggestion,
-              sources,
-              search_query: searchQuery,
-              latency_ms: latency,
-              fetchedUrl: fetchedUrlSpace,
-            });
-            await writer.write(encoder.encode(`data: ${finalData}\n\n`));
-
-            console.log('[SpaceChat:Streaming] Complete', {
-              latency_ms: latency,
-              content_length: fullContent.length,
-              used_search: !!searchQuery,
-            });
-
-            // ── POST-STREAM: Update running summary (non-blocking) ──
-            if (body.chatId && body.userId && fullContent) {
-              const summaryPromise = (async () => {
-                try {
-                  const prevSummaryRes = await fetch(
-                    `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
-                    {
-                      headers: {
-                        apikey: env.SUPABASE_SERVICE_KEY,
-                        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-                      },
-                    },
+                // Stream the fallback content
+                const words = fullContent.split(' ');
+                for (let i = 0; i < words.length; i += 3) {
+                  const chunk = words.slice(i, i + 3).join(' ') + ' ';
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
                   );
-                  const prevData = prevSummaryRes?.ok
-                    ? await prevSummaryRes.json().catch(() => [])
-                    : [];
-                  const previousSummary = prevData?.[0]?.running_summary || null;
-
-                  await generateRunningSummary(
-                    messages.filter((m) => m.role !== 'system'),
-                    fullContent,
-                    body.chatId,
-                    body.spaceName || null,
-                    previousSummary,
-                    env,
-                  );
-                } catch (err) {
-                  console.warn('[SpaceChat] Running summary failed:', err.message);
+                  await new Promise((resolve) => setTimeout(resolve, 15));
                 }
-              })();
-              ctx.waitUntil(summaryPromise);
+              }
+
+              // For final event, use first search query or combined
+              const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
+
+              // Extract smart save suggestion (inline from model)
+              const { suggestion: smartSuggestion, cleanContent } =
+                extractSaveSuggestion(fullContent);
+
+              // Use cleaned content for display
+              fullContent = cleanContent;
+              // Strip any residual or partial SAVE blocks
+              fullContent = fullContent
+                .replace(/<!--SAVE:.*?-->/gs, '')
+                .replace(/<!--SAVE:.*$/s, '')
+                .trim();
+
+              // Use smart suggestion if available
+              const save_suggestion = smartSuggestion || null;
+
+              if (smartSuggestion) {
+                console.log('[SpaceChat:Streaming] Extracted save suggestion:', {
+                  type: smartSuggestion.type,
+                  title: smartSuggestion.title,
+                  hasSteps: !!smartSuggestion.steps?.length,
+                });
+              }
+
+              const latency = Date.now() - t0;
+
+              const finalData = JSON.stringify({
+                done: true,
+                full_content: fullContent,
+                save_suggestion,
+                sources,
+                search_query: searchQuery,
+                latency_ms: latency,
+                fetchedUrl: fetchedUrlSpace,
+              });
+              await writer.write(encoder.encode(`data: ${finalData}\n\n`));
+
+              console.log('[SpaceChat:Streaming] Complete', {
+                latency_ms: latency,
+                content_length: fullContent.length,
+                used_search: !!searchQuery,
+              });
+
+              // ── POST-STREAM: Update running summary (non-blocking) ──
+              if (body.chatId && body.userId && fullContent) {
+                const summaryPromise = (async () => {
+                  try {
+                    const prevSummaryRes = await fetch(
+                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                      {
+                        headers: {
+                          apikey: env.SUPABASE_SERVICE_KEY,
+                          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                        },
+                      },
+                    );
+                    const prevData = prevSummaryRes?.ok
+                      ? await prevSummaryRes.json().catch(() => [])
+                      : [];
+                    const previousSummary = prevData?.[0]?.running_summary || null;
+
+                    await generateRunningSummary(
+                      messages.filter((m) => m.role !== 'system'),
+                      fullContent,
+                      body.chatId,
+                      body.spaceName || null,
+                      previousSummary,
+                      env,
+                    );
+                  } catch (err) {
+                    console.warn('[SpaceChat] Running summary failed:', err.message);
+                  }
+                })();
+                ctx.waitUntil(summaryPromise);
+              }
+            } catch (streamErr) {
+              console.log('[SpaceChat:Streaming] Stream error', { error: String(streamErr) });
+              const errorData = JSON.stringify({
+                error: String(streamErr),
+                done: true,
+                full_content: fullContent,
+              });
+              await writer.write(encoder.encode(`data: ${errorData}\n\n`));
             }
-          } catch (streamErr) {
-            console.log('[SpaceChat:Streaming] Stream error', { error: String(streamErr) });
-            const errorData = JSON.stringify({
-              error: String(streamErr),
-              done: true,
-              full_content: fullContent,
-            });
-            await writer.write(encoder.encode(`data: ${errorData}\n\n`));
+          } catch (outerErr) {
+            console.error('[SpaceChat:Streaming] Outer error', { error: String(outerErr) });
+            try {
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({ error: String(outerErr), done: true })}\n\n`,
+                ),
+              );
+            } catch {
+              /* stream may be closed */
+            }
           } finally {
-            await writer.close();
+            try {
+              await writer.close();
+            } catch {
+              /* already closed */
+            }
           }
         })();
 
@@ -9529,17 +9563,25 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
         const previousExchange = extractPreviousExchange(messages);
 
+        const cachedDomains = await getCachedDomainNames(body.userId, env);
+
         const triage = await triageMessage({
           userMessage: lastUserMsg,
           previousExchange,
           spaceName: body.spaceName || undefined,
+          runningSummary: body.runningSummary || '',
           chatType: 'space',
           env,
+          domainNames: cachedDomains,
+          profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
+          messageCount: messages.length,
         });
 
         console.log('[SpaceChat:NonStreaming:Triage]', {
           mode: triage.mode,
           search: triage.search,
+          personal: triage.personal,
+          depth: triage.depth,
           source: triage.source,
           messagePreview: lastUserMsg.slice(0, 80),
         });
@@ -9563,55 +9605,42 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
         // === SEARCH POLICY: Attach or detach Tavily based on triage ===
         const searchPolicy = getSearchPolicy(triage.search);
-        const payload = {
-          model: 'gemini-2.5-flash',
-          messages: triageMessages,
+        const nonStreamConfig = {
           temperature: genConfig.temperature,
-          max_tokens: genConfig.maxTokens,
-          reasoning_effort: genConfig.reasoning,
-          stream: false,
+          maxOutputTokens: genConfig.maxTokens,
+          thinkingLevel: genConfig.thinkingLevel,
         };
 
         if (searchPolicy.attachTool) {
-          payload.tools = [WEB_SEARCH_TOOL];
-          payload.tool_choice =
-            searchPolicy.toolChoice === 'required'
-              ? { type: 'function', function: { name: 'web_search' } }
-              : 'auto';
+          nonStreamConfig.tools = [WEB_SEARCH_TOOL];
         }
 
-        const res = await fetch(GEMINI_BASE_URL, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        });
+        const geminiResult = await geminiGenerate(
+          genConfig.systemPrompt,
+          triageMessages,
+          nonStreamConfig,
+          env.GOOGLE_API_KEY,
+        );
 
-        const oj = await res.json();
-
-        if (!res.ok) {
+        if (!geminiResult.ok) {
           return j(
             {
-              error: (oj && (oj.error?.message || oj.message)) || 'openai_error',
-              code: res.status,
+              error: geminiResult.error || 'gemini_error',
+              code: geminiResult.status,
             },
             200,
           );
         }
 
-        // Handle web search tool calls
-        let content = oj?.choices?.[0]?.message?.content ?? '';
+        let content = geminiResult.content;
         let sources = undefined;
         let searchQuery = undefined;
 
-        const toolCall = oj?.choices?.[0]?.message?.tool_calls?.[0];
+        const toolCall = geminiResult.functionCalls?.[0] || null;
 
-        if (toolCall?.function?.name === 'web_search') {
+        if (toolCall?.name === 'web_search') {
           try {
-            const args = JSON.parse(toolCall.function.arguments);
-            searchQuery = args.query;
+            searchQuery = toolCall.args?.query;
 
             console.log('[SpaceChat:NonStreaming] Web search triggered', { query: searchQuery });
 
@@ -9625,38 +9654,33 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             });
 
             if (searchResults && searchResults.results.length > 0) {
-              const followUpMessages = [
-                ...triageMessages,
-                {
-                  role: 'assistant',
-                  content: null,
-                  tool_calls: [{ id: toolCall.id, type: 'function', function: toolCall.function }],
-                },
-                {
-                  role: 'tool',
-                  tool_call_id: toolCall.id,
-                  content: formatSearchBrief(searchResults),
-                },
-              ];
+              const originalContents = convertMessages(triageMessages);
+              const followUpContents = buildFollowUpContents(
+                originalContents,
+                geminiResult.parts || [],
+                [
+                  {
+                    name: 'web_search',
+                    id: toolCall.id,
+                    response: { results: formatSearchBrief(searchResults) },
+                  },
+                ],
+              );
 
               // Follow-up uses same triage config but bumped tokens for search synthesis
-              const followUpRes = await fetch(GEMINI_BASE_URL, {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${env.GOOGLE_API_KEY}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  model: 'gemini-2.5-flash',
-                  messages: followUpMessages,
+              const followUpResult = await geminiGenerate(
+                genConfig.systemPrompt,
+                [],
+                {
                   temperature: genConfig.temperature,
-                  max_tokens: Math.max(genConfig.maxTokens, 1200),
-                  reasoning_effort: genConfig.reasoning,
-                }),
-              });
+                  maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
+                  thinkingLevel: genConfig.thinkingLevel,
+                  nativeContents: followUpContents,
+                },
+                env.GOOGLE_API_KEY,
+              );
 
-              const followUpData = await followUpRes.json();
-              content = followUpData?.choices?.[0]?.message?.content ?? '';
+              content = followUpResult.ok ? followUpResult.content : '';
               sources = searchResults.results.map((r) => ({ title: r.title, url: r.url }));
             }
           } catch (searchErr) {
@@ -9668,6 +9692,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         content = stripFillerOpening(content);
         const { suggestion: save_suggestion, cleanContent } = extractSaveSuggestion(content);
         content = cleanContent;
+        // Strip any residual or partial SAVE blocks
+        content = content
+          .replace(/<!--SAVE:.*?-->/gs, '')
+          .replace(/<!--SAVE:.*$/s, '')
+          .trim();
 
         const latency = Date.now() - t0NonStream;
         console.log('[SpaceChat:NonStreaming] Complete', {
@@ -9711,11 +9740,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         }
 
         return j({
-          id: String((oj.id || '').replace(/^chatcmpl-/, 'cmpl-')),
-
           content,
-          model: oj.model,
-          usage: oj.usage || null,
+          model: 'gemini-3-flash-preview',
+          usage: geminiResult.usage || null,
           save_suggestion: save_suggestion || null,
           sources,
           search_query: searchQuery,

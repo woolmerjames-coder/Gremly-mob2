@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Text } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../providers/AuthProvider';
@@ -56,9 +56,17 @@ function HabitBuilderWrapper({ navigation, route }: any) {
   );
 }
 
+// Placeholder until Phase 6 builds the screen
+const GraduationFlowPlaceholder = () => (
+  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+    <Text>Graduation Flow - Coming Soon</Text>
+  </View>
+);
+
 export type RootStackParamList = {
   Login: undefined;
   Onboarding: undefined;
+  TrainingIntro: undefined; // kept for type compat, screen removed
   Tabs: undefined;
   DSPreview: undefined;
   DevLogin: undefined;
@@ -93,6 +101,7 @@ export type RootStackParamList = {
   MorningBrief: { targetDate?: string } | undefined;
   WeeklySummary: { weekStartDate?: string } | undefined;
   WeeklySummaryV2: { weekStartDate?: string } | undefined;
+  GraduationFlow: undefined;
   SweepTest: undefined; // DEV only
 };
 
@@ -127,7 +136,7 @@ export default function RootNavigator() {
     }
   }, [isReady]);
 
-  // Determine initial route based on onboarding status
+  // Determine initial route based on onboarding and training status
   const initialRouteName = useMemo(() => {
     if (!onboardingCompletedAt) return 'Onboarding';
     return 'Tabs';
@@ -280,6 +289,15 @@ export default function RootNavigator() {
             options={{
               headerShown: false,
               presentation: 'card',
+            }}
+          />
+          <Stack.Screen
+            name="GraduationFlow"
+            component={GraduationFlowPlaceholder}
+            options={{
+              headerShown: false,
+              gestureEnabled: false,
+              presentation: 'fullScreenModal',
             }}
           />
           <Stack.Screen

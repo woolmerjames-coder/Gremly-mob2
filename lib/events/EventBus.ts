@@ -104,6 +104,11 @@ export type EventMap = {
   'overlay:open': { entityId: string; entityType: string };
   // Tomorrow Brief navigation event
   openTomorrowBrief: Record<string, never>;
+  // Open Gremly modal to gauge page (from fed toast tap)
+  openGremlyModal: Record<string, never>;
+  // Training speech bubble (emitted by store, consumed by CatchAllNotepad)
+  'gremly:speak': { message: string; duration: number };
+
   // Day rollover event
   'day:rollover': { date: string };
 };

@@ -12,15 +12,19 @@ import type { Habit, DailyBrief, Todo } from '../../types';
 // Mock Supabase
 jest.mock('../../supabase/client', () => ({
   supabase: {
-    from: jest.fn(() => ({
+    from: () => ({
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockResolvedValue({ error: null }),
       }),
       upsert: jest.fn().mockResolvedValue({ error: null }),
-      select: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          single: jest.fn().mockResolvedValue({ data: null, error: null }),
+        }),
+      }),
       eq: jest.fn().mockReturnThis(),
       single: jest.fn().mockResolvedValue({ data: null, error: null }),
-    })),
+    }),
     channel: jest.fn(() => ({
       on: jest.fn().mockReturnThis(),
       subscribe: jest.fn().mockReturnThis(),

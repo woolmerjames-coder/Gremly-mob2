@@ -25,6 +25,17 @@ import type {
   WeeklySummaryCleanupAction,
   DailyContextObject,
 } from '../types';
+import type { FeedingContribution, AIMode } from '../types/soulDocument';
+import type { UserTrainingData } from '../training/trainingReadiness';
+import { calculateTrainingReadiness, GRADUATION_THRESHOLD } from '../training/trainingReadiness';
+import {
+  getTierForAge,
+  getDropValue,
+  calculateSweepContribution,
+  FED_THRESHOLD,
+  FED_DAYS_PER_AGE_UP,
+  GAUGE_WEIGHTS,
+} from '../constants/soulDocument';
 import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
@@ -41,6 +52,28 @@ import { DEFAULT_TIME_BLOCK_PREFERENCES, getTimeBlockBoundaries } from '../capac
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
 import { cancelAllItemReminders } from '../notifications/itemReminderService';
 import type { TimeBlockPreferences } from '../capacity';
+
+/**
+ * DATE HANDLING CONVENTION
+ *
+ * This store uses TWO date functions for different purposes:
+ *
+ * 1. getRitualDay(dayBoundaryHour, timezone)
+ *    Use for: anything touching daily_ritual_progress, feeding gauge,
+ *    drop/sweep counts, fed status, age-up, feeding history, day rollover.
+ *    Accounts for dayBoundaryHour (e.g., 3 AM boundary means 2 AM is still "yesterday").
+ *
+ * 2. getDateService().getCurrentDate()
+ *    Use for: calendar display, due dates, scheduled dates, commitment dates,
+ *    daily brief date, UI highlights, "what's on my plate today."
+ *    Returns the actual calendar date in device local time.
+ *
+ * Rule of thumb: if the function reads/writes daily_ritual_progress or
+ * cortex_preferences.fed_days_count, use getRitualDay. Everything else
+ * uses getCurrentDate.
+ *
+ * NEVER use new Date() or Date.now() for day-level logic. Only for timestamps.
+ */
 
 // Source marker to identify events emitted by this store (to prevent self-handling)
 const STORE_EVENT_SOURCE = 'gremly-store';
@@ -508,6 +541,58 @@ interface GremlyState {
   todayRitualCompletedAt: string | null;
   todayAgeCelebrationShownAt: string | null;
 
+  // ═══════════════════════════════════════════════════════════════════
+  // FEEDING GAUGE (Soul Document v8)
+  // ═══════════════════════════════════════════════════════════════════
+  /** Current gauge value 0-1+, resets daily */
+  feedingGaugeValue: number;
+  /** Number of gauge previews awaiting server confirmation */
+  pendingGaugePreviews: number;
+  /** Whether gauge has crossed FED_THRESHOLD today */
+  isFedToday: boolean;
+  /** Contributions log for the current day */
+  feedingContributions: FeedingContribution[];
+  /** ISO timestamp of most recent gauge contribution */
+  feedingGaugeLastUpdatedAt: string | null;
+  /** 0, 1, or 2 - fed days accumulated toward next age-up, resets to 0 after age-up */
+  fedDaysCount: number;
+  /** Current tier name derived from gremlyAge */
+  currentTierName: string;
+  /** Consecutive unfed days, resets on any fed day */
+  unfedStreakDays: number;
+  /** ISO timestamp of most recent fed day */
+  lastFedAt: string | null;
+  /** Current sock balance */
+  sockCount: number;
+  /** AI personality mode: encouragement, insightful, or observant */
+  aiMode: AIMode;
+  /** Whether user is still in training (pre-graduation) */
+  isTrainingMode: boolean;
+  /** ISO timestamp when training started */
+  trainingStartedAt: string | null;
+  /** ISO timestamp when user graduated, null until graduation */
+  graduatedAt: string | null;
+  /** Set when graduation triggers; consumed by graduation flow component */
+  pendingGraduation: boolean;
+  /** Whether the post-graduation speech has already fired */
+  postGraduationMessageShown: boolean;
+  /** Day 1 drop sequence: 0=not started, 1-5=in progress, 6=done */
+  trainingDropStep: number;
+  /** Data readiness score 0-100, drives graduation */
+  trainingReadiness: number;
+  /** One-time modal flags */
+  hasSeenGaugeExplanation: boolean;
+  hasSeenFirstFedModal: boolean;
+  hasSeenSweepUnlockModal: boolean;
+  hasSeenEntityChatHighlight: boolean;
+  hasSeenTrainingMeterAutoOpen: boolean;
+  /** Whether the fed celebration toast has been shown today (prevents duplicate) */
+  todayFedCelebrationShownAt: string | null;
+  /** Whether an age-up via feeding gauge has been celebrated today */
+  todayFeedingAgeUpShownAt: string | null;
+  /** Last 7 days of feeding history (ritual_day -> is_fed) */
+  feedingHistory: Array<{ date: string; isFed: boolean }>;
+
   // Ritual actions
   ensureCurrentRitualDay: () => string;
   incrementDropCount: () => Promise<{ dropsCount: number; didAgeUp: boolean; newAge: number }>;
@@ -521,6 +606,45 @@ interface GremlyState {
   markDemoSweepComplete: () => Promise<void>;
   markFirstTodayVisitComplete: () => Promise<void>;
   refreshRitualProgress: () => Promise<void>;
+  /** Fetch last 7 days of feeding status from Supabase */
+  fetchFeedingHistory: () => Promise<void>;
+
+  // Training progress actions
+  startTraining: () => Promise<void>;
+  advanceTrainingDropStep: () => void;
+  refreshTrainingReadiness: () => Promise<number>;
+  finalizeGraduation: () => Promise<void>;
+  markGaugeExplanationSeen: () => void;
+  markFirstFedModalSeen: () => void;
+  markSweepUnlockModalSeen: () => void;
+  markEntityChatHighlightSeen: () => void;
+  markTrainingMeterAutoOpenSeen: () => void;
+
+  // Feeding gauge actions (Soul Document v8)
+  addGaugeContribution: (
+    source: string,
+    value: number,
+  ) => Promise<{ newValue: number; justFed: boolean }>;
+  markFedToday: () => Promise<{
+    fedDaysCount: number;
+    didAgeUp: boolean;
+    newAge: number;
+    newTier: string;
+  }>;
+  completeSweepSession: (cardsProcessed: number, didJournal: boolean) => Promise<void>;
+  completeMorningBrief: () => Promise<void>;
+  commitLockInItems: (count: number) => Promise<void>;
+  trackSpaceAssign: () => Promise<void>;
+  trackSpaceChat: () => Promise<void>;
+  trackSpaceCreate: () => Promise<void>;
+  resetDailyGauge: () => void;
+  /** Instantly preview a drop's gauge contribution locally. No RPC. Server reconciles later. */
+  previewGaugeDrop: () => { justCrossedFed: boolean };
+  /** Optimistically preview sweep gauge contribution. Returns projected value and fed status. */
+  previewSweepGauge: (
+    totalCards: number,
+    didJournal: boolean,
+  ) => { justCrossedFed: boolean; projectedValue: number };
 
   // ═══════════════════════════════════════════════════════════════════
   // INITIALIZATION
@@ -939,7 +1063,7 @@ const initialState = {
   isInitialized: false,
   lastSyncedAt: null as Date | null,
   userId: null as string | null,
-  userTimezone: null as string | null,
+  userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   calendarFocusDate: null as string | null,
   // Sweep preferences
   lastSweepCompletedAt: null as string | null,
@@ -960,6 +1084,32 @@ const initialState = {
   todaySweepsCount: 0,
   todayRitualCompletedAt: null as string | null,
   todayAgeCelebrationShownAt: null as string | null,
+  feedingGaugeValue: 0,
+  pendingGaugePreviews: 0,
+  isFedToday: false,
+  feedingContributions: [] as FeedingContribution[],
+  feedingGaugeLastUpdatedAt: null as string | null,
+  fedDaysCount: 0,
+  currentTierName: 'Hatchling',
+  unfedStreakDays: 0,
+  lastFedAt: null as string | null,
+  sockCount: 0,
+  aiMode: 'encouragement' as AIMode,
+  isTrainingMode: true,
+  trainingStartedAt: null as string | null,
+  graduatedAt: null as string | null,
+  pendingGraduation: false,
+  postGraduationMessageShown: false,
+  trainingDropStep: 0,
+  trainingReadiness: 0,
+  hasSeenGaugeExplanation: false,
+  hasSeenFirstFedModal: false,
+  hasSeenSweepUnlockModal: false,
+  hasSeenEntityChatHighlight: false,
+  hasSeenTrainingMeterAutoOpen: false,
+  todayFedCelebrationShownAt: null as string | null,
+  todayFeedingAgeUpShownAt: null as string | null,
+  feedingHistory: [] as Array<{ date: string; isFed: boolean }>,
   pendingDrops: new Map<string, PendingDrop>(),
   // Calendar integration
   calendarConnections: [] as CalendarConnectionStatus[],
@@ -1091,11 +1241,11 @@ export const useGremlyStore = create<GremlyState>()(
                 .eq('owner_id', userId)
                 .eq('date', getDateService().getCurrentDate())
                 .maybeSingle(),
-              // Sweep preferences + Gremly age from cortex_preferences
+              // Sweep preferences + Gremly age + training + feeding from cortex_preferences
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1155,7 +1305,7 @@ export const useGremlyStore = create<GremlyState>()(
             // Compute ritual day based on user's day boundary and timezone
             const dayBoundaryHour = (cortexPrefs?.day_boundary_hour as number) ?? 0;
             const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-            const timezone = (notificationPrefsRes.data?.timezone as string) ?? detectedTimezone;
+            const timezone = detectedTimezone;
             const ritualDay = getRitualDay(dayBoundaryHour, timezone);
 
             // Fetch today's ritual progress
@@ -1200,6 +1350,12 @@ export const useGremlyStore = create<GremlyState>()(
                   }
                 });
             }
+
+            console.log('[DEBUG:Gauge] Hydrating gauge from Supabase', {
+              feeding_gauge_value: ritualProgress?.feeding_gauge_value,
+              is_fed: ritualProgress?.is_fed,
+              ritualProgressKeys: ritualProgress ? Object.keys(ritualProgress) : 'null',
+            });
 
             set({
               // Add type field since DB doesn't store it
@@ -1247,11 +1403,63 @@ export const useGremlyStore = create<GremlyState>()(
               todayDropsCount: ritualProgress?.drops_count ?? 0,
               todaySweepsCount: ritualProgress?.sweeps_count ?? 0,
               todayRitualCompletedAt: ritualProgress?.ritual_completed_at ?? null,
+              feedingGaugeValue: (ritualProgress?.feeding_gauge_value as number) ?? 0,
+              isFedToday: (ritualProgress?.is_fed as boolean) ?? false,
+              fedDaysCount: (cortexPrefs?.fed_days_count as number) ?? 0,
+              currentTierName: (cortexPrefs?.current_tier as string) ?? 'Hatchling',
+              unfedStreakDays: (cortexPrefs?.unfed_streak_days as number) ?? 0,
+              lastFedAt: (cortexPrefs?.last_fed_at as string) ?? null,
+              sockCount: (cortexPrefs?.sock_count as number) ?? 0,
+              aiMode: ((cortexPrefs?.ai_mode as string) ?? 'encouragement') as AIMode,
+              isTrainingMode: (cortexPrefs?.is_training_mode as boolean) ?? true,
+              trainingStartedAt: (cortexPrefs?.training_started_at as string) ?? null,
+              graduatedAt: (cortexPrefs?.graduated_at as string) ?? null,
+              trainingDropStep: (cortexPrefs?.training_drop_step as number) ?? 0,
+              hasSeenGaugeExplanation:
+                (cortexPrefs?.has_seen_gauge_explanation as boolean) ?? false,
+              hasSeenFirstFedModal: (cortexPrefs?.has_seen_first_fed_modal as boolean) ?? false,
+              hasSeenSweepUnlockModal:
+                (cortexPrefs?.has_seen_sweep_unlock_modal as boolean) ?? false,
+              hasSeenEntityChatHighlight:
+                (cortexPrefs?.has_seen_entity_chat_highlight as boolean) ?? false,
+              hasSeenTrainingMeterAutoOpen:
+                (cortexPrefs?.has_seen_training_meter_auto_open as boolean) ?? false,
               userTimezone: timezone,
               isLoading: false,
               isInitialized: true,
               lastSyncedAt: new Date(),
             });
+
+            // Populate training progress from cumulative data
+            if (get().isTrainingMode) {
+              get()
+                .refreshTrainingReadiness()
+                .catch((err) => {
+                  console.warn('[GremlyStore] refreshTrainingReadiness on init failed:', err);
+                });
+            }
+
+            // Sync timezone to database if device timezone differs (handles travel)
+            const dbTimezone = notificationPrefsRes.data?.timezone as string | null;
+            if (dbTimezone && dbTimezone !== detectedTimezone) {
+              if (__DEV__) {
+                console.log(
+                  '[GremlyStore] Timezone changed: DB has',
+                  dbTimezone,
+                  'device has',
+                  detectedTimezone,
+                );
+              }
+              supabase
+                .from('notification_preferences')
+                .update({ timezone: detectedTimezone, updated_at: new Date().toISOString() })
+                .eq('user_id', userId)
+                .then(({ error }) => {
+                  if (error) {
+                    console.error('[GremlyStore] Failed to update timezone in DB:', error);
+                  }
+                });
+            }
 
             // Load hidden calendar events from AsyncStorage (local-only persistence)
             const hiddenEvents = await loadHiddenEventsFromStorage();
@@ -1303,6 +1511,8 @@ export const useGremlyStore = create<GremlyState>()(
               ritualDay,
               todayDropsCount: ritualProgress?.drops_count ?? 0,
               todaySweepsCount: ritualProgress?.sweeps_count ?? 0,
+              feedingGaugeValue: (ritualProgress?.feeding_gauge_value as number) ?? 0,
+              isFedToday: (ritualProgress?.is_fed as boolean) ?? false,
             });
 
             console.log('[GremlyStore] ✅ Timezone:', timezone);
@@ -1369,6 +1579,30 @@ export const useGremlyStore = create<GremlyState>()(
             todayDropsCount: 0,
             todaySweepsCount: 0,
             todayRitualCompletedAt: null,
+            feedingGaugeValue: 0,
+            isFedToday: false,
+            feedingContributions: [],
+            feedingGaugeLastUpdatedAt: null,
+            fedDaysCount: 0,
+            currentTierName: 'Hatchling',
+            unfedStreakDays: 0,
+            lastFedAt: null,
+            sockCount: 0,
+            aiMode: 'encouragement' as AIMode,
+            isTrainingMode: true,
+            trainingStartedAt: null,
+            graduatedAt: null,
+            pendingGraduation: false,
+            postGraduationMessageShown: false,
+            trainingDropStep: 0,
+            trainingReadiness: 0,
+            hasSeenGaugeExplanation: false,
+            hasSeenFirstFedModal: false,
+            hasSeenSweepUnlockModal: false,
+            hasSeenEntityChatHighlight: false,
+            hasSeenTrainingMeterAutoOpen: false,
+            todayFedCelebrationShownAt: null,
+            todayFeedingAgeUpShownAt: null,
           });
         },
 
@@ -1420,20 +1654,53 @@ export const useGremlyStore = create<GremlyState>()(
          * Returns the current ritual day string.
          */
         ensureCurrentRitualDay: () => {
-          const { dayBoundaryHour, userTimezone, todayRitualDay } = get();
-          const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const { dayBoundaryHour, todayRitualDay } = get();
+          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
 
           // Check if we've crossed the day boundary
           if (todayRitualDay && currentRitualDay !== todayRitualDay) {
             console.log('[GremlyStore] Day boundary crossed, resetting ritual progress');
+
+            // Capture fed state before resetting (Soul Document v8)
+            const wasFedBeforeReset = get().isFedToday;
+
             set({
               todayRitualDay: currentRitualDay,
               todayDropsCount: 0,
               todaySweepsCount: 0,
               todayRitualCompletedAt: null, // CRITICAL: allows aging to happen again
               todayAgeCelebrationShownAt: null, // Reset celebration flag for new day
+              // Feeding gauge reset (Soul Document v8)
+              feedingGaugeValue: 0,
+              isFedToday: false,
+              feedingContributions: [],
+              feedingGaugeLastUpdatedAt: null,
+              todayFedCelebrationShownAt: null,
+              todayFeedingAgeUpShownAt: null,
             });
+
+            // Unfed streak tracking on day boundary cross (Soul Document v8)
+            if (!wasFedBeforeReset) {
+              const currentStreak = get().unfedStreakDays + 1;
+              set({ unfedStreakDays: currentStreak });
+
+              const { userId } = get();
+              if (userId) {
+                supabase
+                  .from('cortex_preferences')
+                  .update({
+                    unfed_streak_days: currentStreak,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq('owner_id', userId)
+                  .then(({ error }) => {
+                    if (error) {
+                      console.error('[GremlyStore] Failed to update unfed streak:', error);
+                    }
+                  });
+              }
+            }
 
             // Clear commitment on all todos - they need to re-decide each day
             // Note: Habits use commitment_until which is date-based and self-expiring
@@ -1491,11 +1758,20 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         incrementDropCount: async () => {
+          console.log('[GremlyStore] incrementDropCount called', {
+            userId: get().userId,
+            isTrainingMode: get().isTrainingMode,
+          });
+
           const { userId } = get();
-          if (!userId) return { dropsCount: 0, didAgeUp: false, newAge: get().gremlyAge };
+          if (!userId) {
+            console.log('[GremlyStore] incrementDropCount: no userId, bailing');
+            return { dropsCount: 0, didAgeUp: false, newAge: get().gremlyAge };
+          }
 
           // Ensure we're on the current ritual day (resets state if day changed)
           const currentRitualDay = get().ensureCurrentRitualDay();
+          console.log('[GremlyStore] incrementDropCount: ritualDay =', currentRitualDay);
 
           // Call Supabase RPC to increment
           const { data, error } = await supabase.rpc('increment_drop_count', {
@@ -1511,9 +1787,28 @@ export const useGremlyStore = create<GremlyState>()(
           const newDropsCount = data?.drops_count ?? get().todayDropsCount + 1;
           set({ todayDropsCount: newDropsCount, todayRitualDay: currentRitualDay });
 
-          // Check if this completes the ritual
-          const ageResult = await get().checkAndIncrementAge();
-          return { dropsCount: newDropsCount, ...ageResult };
+          // Feed the gauge (Soul Document v8: drops contribute to feeding gauge)
+          const dropGaugeValue = getDropValue(newDropsCount);
+          console.log('[GremlyStore] incrementDropCount: calling addGaugeContribution', {
+            dropNumber: newDropsCount,
+            gaugeValue: dropGaugeValue,
+          });
+          get()
+            .addGaugeContribution('drop', dropGaugeValue)
+            .catch((err) => {
+              console.warn('[GremlyStore] Drop gauge contribution failed:', err);
+            });
+
+          // Gauge contribution handles age-up via feeding system (Soul Document v8)
+          // Track training progress
+          if (get().isTrainingMode) {
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after drop failed:', err);
+              });
+          }
+          return { dropsCount: newDropsCount, didAgeUp: false, newAge: get().gremlyAge };
         },
 
         incrementSweepCount: async () => {
@@ -1540,17 +1835,28 @@ export const useGremlyStore = create<GremlyState>()(
           const newSweepsCount = data?.sweeps_count ?? get().todaySweepsCount + 1;
           set({ todaySweepsCount: newSweepsCount, todayRitualDay: currentRitualDay });
 
-          // Check if this completes the ritual
-          const ageResult = await get().checkAndIncrementAge();
-          return { sweepsCount: newSweepsCount, ...ageResult };
+          // Gauge contribution handles age-up via feeding system (Soul Document v8)
+          // Track training progress
+          if (get().isTrainingMode) {
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after sweep failed:', err);
+              });
+          }
+          return { sweepsCount: newSweepsCount, didAgeUp: false, newAge: get().gremlyAge };
         },
 
+        /**
+         * @deprecated Replaced by feeding gauge age-up system (Soul Document v8).
+         * Age-ups now flow through: addGaugeContribution → markFedToday → check_and_age_up_v2.
+         * This function is preserved for backward compatibility but is no longer called.
+         */
         checkAndIncrementAge: async () => {
-          const { userId, dayBoundaryHour, userTimezone, todayRitualCompletedAt, todayRitualDay } =
-            get();
+          const { userId, dayBoundaryHour, todayRitualCompletedAt, todayRitualDay } = get();
           if (!userId) return { didAgeUp: false, newAge: get().gremlyAge };
 
-          const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
 
           // Defensive check: if ritual was completed for a different day, it doesn't count for today
@@ -1581,6 +1887,9 @@ export const useGremlyStore = create<GremlyState>()(
             // Check if celebration should show (hasn't been shown today)
             const shouldShowCelebration = !get().todayAgeCelebrationShownAt;
 
+            // Capture old age BEFORE set() call for tier transition detection
+            const previousAge = get().gremlyAge;
+
             set({
               gremlyAge: result.new_age,
               gremlyAgeLastIncrementedAt: new Date().toISOString(),
@@ -1591,9 +1900,18 @@ export const useGremlyStore = create<GremlyState>()(
               }),
             });
 
+            // Detect tier transition using captured previous age
+            const oldTier = getTierForAge(previousAge);
+            const newTier = getTierForAge(result.new_age);
+            const isTierTransition = oldTier.name !== newTier.name;
+
             // Trigger celebration via controller (App.tsx will render the modal)
             if (shouldShowCelebration) {
-              celebrationController.showAgeUpCelebration(result.new_age);
+              celebrationController.showAgeUpCelebration(result.new_age, {
+                tierName: newTier.name,
+                isTierTransition,
+                previousTierName: isTierTransition ? oldTier.name : undefined,
+              });
             }
 
             console.log('[GremlyStore] Gremly aged up to', result.new_age);
@@ -1678,6 +1996,25 @@ export const useGremlyStore = create<GremlyState>()(
           console.log('[GremlyStore] Onboarding marked complete');
         },
 
+        startTraining: async () => {
+          const userId = get().userId;
+          if (!userId) return;
+
+          const now = new Date().toISOString();
+          set({ trainingStartedAt: now });
+
+          const { error } = await supabase
+            .from('cortex_preferences')
+            .upsert(
+              { owner_id: userId, training_started_at: now, updated_at: now },
+              { onConflict: 'owner_id' },
+            );
+
+          if (error) {
+            console.error('[GremlyStore] startTraining failed:', JSON.stringify(error, null, 2));
+          }
+        },
+
         markFirstDropComplete: async () => {
           const userId = get().userId;
           if (!userId) return;
@@ -1755,11 +2092,329 @@ export const useGremlyStore = create<GremlyState>()(
           console.log('[GremlyStore] First Today visit marked complete');
         },
 
+        // ═══════════════════════════════════════════════════════════════════
+        // FEEDING GAUGE ACTIONS (Soul Document v8)
+        // ═══════════════════════════════════════════════════════════════════
+
+        addGaugeContribution: async (source: string, value: number) => {
+          const userId = get().userId;
+          if (!userId) return { newValue: 0, justFed: false };
+
+          const currentRitualDay = get().ensureCurrentRitualDay();
+
+          // Training mode: 1.5x gauge multiplier (Training Challenge spec Section 8)
+          const multiplier = get().isTrainingMode ? 1.25 : 1.0;
+          const adjustedValue = value * multiplier;
+          console.log('[GremlyStore] addGaugeContribution', {
+            source,
+            value,
+            multiplier,
+            adjustedValue,
+            userId,
+            currentRitualDay,
+          });
+
+          try {
+            const { data, error } = await supabase.rpc('update_feeding_gauge', {
+              p_owner_id: userId,
+              p_ritual_day: currentRitualDay,
+              p_source: source,
+              p_value: adjustedValue,
+            });
+
+            console.log('[GremlyStore] update_feeding_gauge result', {
+              data: JSON.stringify(data),
+              error: error ? JSON.stringify(error) : null,
+            });
+
+            if (error) {
+              console.error('[GremlyStore] update_feeding_gauge RPC failed:', error);
+              return { newValue: get().feedingGaugeValue, justFed: false };
+            }
+
+            const row = data?.[0];
+            const newGaugeValue: number = row?.new_gauge_value ?? get().feedingGaugeValue;
+            const newIsFed: boolean = row?.new_is_fed ?? false;
+
+            const contribution: FeedingContribution = {
+              source: source as FeedingContribution['source'],
+              value: adjustedValue,
+              timestamp: new Date().toISOString(),
+            };
+
+            const justFed = newIsFed && !get().isFedToday;
+
+            set({
+              feedingGaugeValue: newGaugeValue,
+              isFedToday: newIsFed,
+              feedingContributions: [...get().feedingContributions, contribution],
+              feedingGaugeLastUpdatedAt: new Date().toISOString(),
+            });
+
+            // Decrement pending preview counter (server has confirmed this contribution)
+            const currentPending = get().pendingGaugePreviews;
+            if (currentPending > 0) {
+              set({ pendingGaugePreviews: currentPending - 1 });
+            }
+
+            if (justFed) {
+              const markResult = await get().markFedToday();
+
+              if (!get().todayFedCelebrationShownAt) {
+                set({ todayFedCelebrationShownAt: new Date().toISOString() });
+                console.log('[GremlyStore] Fed celebration should fire here', {
+                  fedDaysCount: markResult.fedDaysCount,
+                });
+              }
+
+              if (markResult.didAgeUp && !get().todayFeedingAgeUpShownAt) {
+                set({ todayFeedingAgeUpShownAt: new Date().toISOString() });
+                console.log('[GremlyStore] Age-up celebration should fire here', {
+                  newAge: markResult.newAge,
+                  newTier: markResult.newTier,
+                });
+              }
+            }
+
+            return { newValue: newGaugeValue, justFed };
+          } catch (error) {
+            console.error('[GremlyStore] addGaugeContribution CAUGHT', error);
+            // Roll back pending preview on failure
+            const currentPendingOnError = get().pendingGaugePreviews;
+            if (currentPendingOnError > 0) {
+              set({ pendingGaugePreviews: currentPendingOnError - 1 });
+            }
+            return { newValue: get().feedingGaugeValue, justFed: false };
+          }
+        },
+
+        markFedToday: async () => {
+          const userId = get().userId;
+          if (!userId) {
+            return {
+              fedDaysCount: 0,
+              didAgeUp: false,
+              newAge: get().gremlyAge,
+              newTier: get().currentTierName,
+            };
+          }
+
+          const currentRitualDay = get().ensureCurrentRitualDay();
+
+          try {
+            const { data, error } = await supabase.rpc('mark_fed_today', {
+              p_owner_id: userId,
+              p_ritual_day: currentRitualDay,
+            });
+
+            if (error) {
+              console.error('[GremlyStore] mark_fed_today RPC failed:', error);
+              return {
+                fedDaysCount: get().fedDaysCount,
+                didAgeUp: false,
+                newAge: get().gremlyAge,
+                newTier: get().currentTierName,
+              };
+            }
+
+            const row = data?.[0];
+            const newFedDaysCount: number = row?.new_fed_days_count ?? get().fedDaysCount;
+            const didTriggerAgeUp: boolean = row?.did_trigger_age_up ?? false;
+
+            set({ fedDaysCount: newFedDaysCount });
+
+            if (didTriggerAgeUp) {
+              const { data: ageData, error: ageError } = await supabase.rpc('check_and_age_up_v2', {
+                p_owner_id: userId,
+              });
+
+              if (ageError) {
+                console.error('[GremlyStore] check_and_age_up_v2 RPC failed:', ageError);
+                return {
+                  fedDaysCount: newFedDaysCount,
+                  didAgeUp: false,
+                  newAge: get().gremlyAge,
+                  newTier: get().currentTierName,
+                };
+              }
+
+              const ageRow = ageData?.[0];
+              const didAgeUp: boolean = ageRow?.did_age_up ?? false;
+              const newAge: number = ageRow?.new_age ?? get().gremlyAge;
+              const newTier: string = ageRow?.new_tier ?? get().currentTierName;
+
+              if (didAgeUp) {
+                set({
+                  gremlyAge: newAge,
+                  gremlyAgeLastIncrementedAt: new Date().toISOString(),
+                  currentTierName: newTier,
+                  fedDaysCount: 0,
+                });
+              }
+
+              return { fedDaysCount: 0, didAgeUp, newAge, newTier };
+            }
+
+            return {
+              fedDaysCount: newFedDaysCount,
+              didAgeUp: false,
+              newAge: get().gremlyAge,
+              newTier: get().currentTierName,
+            };
+          } catch (error) {
+            console.error('[GremlyStore] markFedToday failed:', error);
+            return {
+              fedDaysCount: get().fedDaysCount,
+              didAgeUp: false,
+              newAge: get().gremlyAge,
+              newTier: get().currentTierName,
+            };
+          }
+        },
+
+        completeSweepSession: async (cardsProcessed: number, didJournal: boolean) => {
+          const baseSweepValue = calculateSweepContribution(cardsProcessed, false);
+          if (baseSweepValue > 0) {
+            await get().addGaugeContribution('sweep', baseSweepValue);
+          }
+          if (didJournal) {
+            await get().addGaugeContribution('journal', GAUGE_WEIGHTS.JOURNAL_BONUS);
+          }
+        },
+
+        completeMorningBrief: async () => {
+          const alreadyCredited = get().feedingContributions.some((c) => c.source === 'brief');
+          if (alreadyCredited) return;
+          await get().addGaugeContribution('brief', GAUGE_WEIGHTS.BRIEF);
+          // Track training progress
+          if (get().isTrainingMode) {
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after brief failed:', err);
+              });
+          }
+        },
+
+        commitLockInItems: async (count: number) => {
+          const existingLockInCount = get().feedingContributions.filter(
+            (c) => c.source === 'lock_in',
+          ).length;
+          const remaining = GAUGE_WEIGHTS.LOCK_IN_CAP - existingLockInCount;
+          if (remaining <= 0) return;
+          const itemsToCredit = Math.min(count, remaining);
+          const value = itemsToCredit * GAUGE_WEIGHTS.LOCK_IN_ITEM;
+          if (value > 0) {
+            await get().addGaugeContribution('lock_in', value);
+          }
+          // Track training progress
+          if (get().isTrainingMode) {
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after lock-in failed:', err);
+              });
+          }
+        },
+
+        trackSpaceAssign: async () => {
+          const count = get().feedingContributions.filter(
+            (c) => c.source === 'space_assign',
+          ).length;
+          if (count >= GAUGE_WEIGHTS.SPACE_ASSIGN_CAP) return;
+          await get().addGaugeContribution('space_assign', GAUGE_WEIGHTS.SPACE_ASSIGN);
+        },
+
+        trackSpaceChat: async () => {
+          const count = get().feedingContributions.filter((c) => c.source === 'space_chat').length;
+          if (count >= GAUGE_WEIGHTS.SPACE_CHAT_CAP) return;
+          await get().addGaugeContribution('space_chat', GAUGE_WEIGHTS.SPACE_CHAT);
+        },
+
+        trackSpaceCreate: async () => {
+          const exists = get().feedingContributions.some((c) => c.source === 'space_create');
+          if (exists) return;
+          await get().addGaugeContribution('space_create', GAUGE_WEIGHTS.SPACE_CREATE);
+        },
+
+        resetDailyGauge: () => {
+          set({
+            feedingGaugeValue: 0,
+            pendingGaugePreviews: 0,
+            isFedToday: false,
+            feedingContributions: [],
+            feedingGaugeLastUpdatedAt: null,
+            todayFedCelebrationShownAt: null,
+            todayFeedingAgeUpShownAt: null,
+          });
+        },
+
+        previewGaugeDrop: () => {
+          const { todayDropsCount, pendingGaugePreviews, feedingGaugeValue, isFedToday } = get();
+          const dropNumber = todayDropsCount + pendingGaugePreviews + 1;
+          const value = getDropValue(dropNumber);
+          const multiplier = get().isTrainingMode ? 1.25 : 1.0;
+          const adjustedValue = value * multiplier;
+          const optimisticValue = feedingGaugeValue + adjustedValue;
+          const justCrossedFed = !isFedToday && optimisticValue >= FED_THRESHOLD;
+
+          set({
+            feedingGaugeValue: optimisticValue,
+            pendingGaugePreviews: pendingGaugePreviews + 1,
+            // Optimistically mark as fed if threshold crossed
+            ...(justCrossedFed && { isFedToday: true }),
+          });
+
+          if (__DEV__) {
+            console.log('[GremlyStore] Optimistic gauge preview', {
+              dropNumber,
+              value,
+              newGaugeValue: optimisticValue,
+              pendingPreviews: pendingGaugePreviews + 1,
+              justCrossedFed,
+            });
+          }
+
+          return { justCrossedFed };
+        },
+
+        previewSweepGauge: (totalCards: number, didJournal: boolean) => {
+          const { feedingGaugeValue, isFedToday } = get();
+
+          if (totalCards <= 0) return { justCrossedFed: false, projectedValue: feedingGaugeValue };
+
+          // Calculate what completeSweepSession will add (mirrors its logic exactly)
+          const baseSweep = calculateSweepContribution(totalCards, false);
+          const journalBonus = didJournal ? GAUGE_WEIGHTS.JOURNAL_BONUS : 0;
+          const totalContribution = baseSweep + journalBonus;
+          const optimisticValue = feedingGaugeValue + totalContribution;
+          const justCrossedFed = !isFedToday && optimisticValue >= FED_THRESHOLD;
+
+          set({
+            feedingGaugeValue: optimisticValue,
+            ...(justCrossedFed && { isFedToday: true }),
+          });
+
+          if (__DEV__) {
+            console.log('[GremlyStore] Optimistic sweep gauge preview', {
+              totalCards,
+              didJournal,
+              baseSweep,
+              journalBonus,
+              previousGauge: feedingGaugeValue,
+              newGauge: optimisticValue,
+              justCrossedFed,
+            });
+          }
+
+          return { justCrossedFed, projectedValue: optimisticValue };
+        },
+
         refreshRitualProgress: async () => {
-          const { userId, dayBoundaryHour, userTimezone } = get();
+          const { userId, dayBoundaryHour } = get();
           if (!userId) return;
 
-          const timezone = userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const ritualDay = getRitualDay(dayBoundaryHour, timezone);
 
           const { data: ritualProgress } = await supabase
@@ -1774,7 +2429,271 @@ export const useGremlyStore = create<GremlyState>()(
             todayDropsCount: ritualProgress?.drops_count ?? 0,
             todaySweepsCount: ritualProgress?.sweeps_count ?? 0,
             todayRitualCompletedAt: ritualProgress?.ritual_completed_at ?? null,
+            feedingGaugeValue: (ritualProgress?.feeding_gauge_value as number) ?? 0,
+            isFedToday: (ritualProgress?.is_fed as boolean) ?? false,
           });
+        },
+
+        fetchFeedingHistory: async () => {
+          const { userId, dayBoundaryHour } = get();
+          if (!userId) return;
+
+          try {
+            // Use device timezone (source of truth for ritual day, per timezone fix)
+            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const todayRitual = getRitualDay(dayBoundaryHour, timezone);
+
+            // Build 7-day window by subtracting days from today's ritual day
+            // Parse the ritual day string and subtract using date arithmetic
+            // Use noon to avoid DST edge cases when subtracting days
+            const todayDate = new Date(todayRitual + 'T12:00:00');
+            const days: string[] = [];
+            for (let i = 6; i >= 0; i--) {
+              const d = new Date(todayDate);
+              d.setDate(d.getDate() - i);
+              // Format as YYYY-MM-DD (same format as ritual_day in DB)
+              const yyyy = d.getFullYear();
+              const mm = String(d.getMonth() + 1).padStart(2, '0');
+              const dd = String(d.getDate()).padStart(2, '0');
+              days.push(`${yyyy}-${mm}-${dd}`);
+            }
+
+            const fromDate = days[0];
+
+            const { data, error } = await supabase
+              .from('daily_ritual_progress')
+              .select('ritual_day, is_fed')
+              .eq('owner_id', userId)
+              .gte('ritual_day', fromDate)
+              .order('ritual_day', { ascending: true });
+
+            if (error) {
+              console.error('[GremlyStore] fetchFeedingHistory failed:', error);
+              return;
+            }
+
+            const fedMap = new Map<string, boolean>();
+            (data ?? []).forEach((row: any) => {
+              fedMap.set(row.ritual_day, row.is_fed === true);
+            });
+
+            const history: Array<{ date: string; isFed: boolean }> = days.map((date) => ({
+              date,
+              isFed: fedMap.get(date) ?? false,
+            }));
+
+            set({ feedingHistory: history });
+
+            if (__DEV__) {
+              console.log('[GremlyStore] Feeding history loaded', {
+                todayRitual,
+                timezone,
+                days,
+                fedCount: history.filter((d) => d.isFed).length,
+              });
+            }
+          } catch (err) {
+            console.error('[GremlyStore] fetchFeedingHistory failed:', err);
+          }
+        },
+
+        // ═══════════════════════════════════════════════════════════════════
+        // TRAINING PROGRESS ACTIONS
+        // ═══════════════════════════════════════════════════════════════════
+
+        advanceTrainingDropStep: () => {
+          const { trainingDropStep, isTrainingMode } = get();
+          if (!isTrainingMode) return;
+          if (trainingDropStep >= 6) return; // already done
+
+          const nextStep = trainingDropStep === 0 ? 1 : trainingDropStep + 1;
+          const isDone = nextStep >= 6;
+
+          set({ trainingDropStep: isDone ? 6 : nextStep });
+
+          // Persist to Supabase (best-effort)
+          const userId = get().userId;
+          if (userId) {
+            supabase
+              .from('cortex_preferences')
+              .update({ training_drop_step: isDone ? 6 : nextStep })
+              .eq('owner_id', userId)
+              .then(({ error }) => {
+                if (error)
+                  console.warn('[GremlyStore] Failed to persist training_drop_step:', error);
+              });
+          }
+        },
+
+        refreshTrainingReadiness: async () => {
+          const { userId, trainingStartedAt, isTrainingMode } = get();
+          if (!userId || !isTrainingMode || !trainingStartedAt) return 0;
+
+          try {
+            const { data, error } = await supabase.rpc('get_training_readiness', {
+              p_owner_id: userId,
+              p_since: trainingStartedAt,
+            });
+
+            if (error) {
+              console.error('[GremlyStore] get_training_readiness RPC failed:', error);
+              return get().trainingReadiness;
+            }
+
+            // data is a jsonb object with the readiness metrics
+            const metrics = data as Record<string, number>;
+
+            const trainingData: UserTrainingData = {
+              totalDrops: metrics.total_drops ?? 0,
+              daysWithDrops: metrics.days_with_drops ?? 0,
+              totalSweeps: metrics.total_sweeps ?? 0,
+              entityTypeCount: metrics.entity_types ?? 0,
+              journalCount: metrics.journal_count ?? 0,
+              entityChatCount: metrics.entity_chat_count ?? 0,
+              briefCount: metrics.brief_count ?? 0,
+              todosCount: metrics.todos_count ?? 0,
+              calendarConnected: false, // checked at runtime, not stored in DB
+            };
+
+            const score = calculateTrainingReadiness(trainingData);
+
+            set({ trainingReadiness: score });
+
+            // Check for graduation
+            if (score >= GRADUATION_THRESHOLD && !get().pendingGraduation) {
+              set({ pendingGraduation: true });
+            }
+
+            if (__DEV__) {
+              console.log('[GremlyStore] Training readiness refreshed:', { score, trainingData });
+            }
+
+            return score;
+          } catch (err) {
+            console.error('[GremlyStore] refreshTrainingReadiness failed:', err);
+            return get().trainingReadiness;
+          }
+        },
+
+        markGaugeExplanationSeen: () => {
+          set({ hasSeenGaugeExplanation: true });
+          const userId = get().userId;
+          if (userId) {
+            supabase
+              .from('cortex_preferences')
+              .update({ has_seen_gauge_explanation: true })
+              .eq('owner_id', userId)
+              .then(({ error }) => {
+                if (error)
+                  console.warn(
+                    '[GremlyStore] Failed to persist has_seen_gauge_explanation:',
+                    error,
+                  );
+              });
+          }
+        },
+
+        markFirstFedModalSeen: () => {
+          set({ hasSeenFirstFedModal: true });
+          const userId = get().userId;
+          if (userId) {
+            supabase
+              .from('cortex_preferences')
+              .update({ has_seen_first_fed_modal: true })
+              .eq('owner_id', userId)
+              .then(({ error }) => {
+                if (error)
+                  console.warn('[GremlyStore] Failed to persist has_seen_first_fed_modal:', error);
+              });
+          }
+        },
+
+        markSweepUnlockModalSeen: () => {
+          set({ hasSeenSweepUnlockModal: true });
+          const userId = get().userId;
+          if (userId) {
+            supabase
+              .from('cortex_preferences')
+              .update({ has_seen_sweep_unlock_modal: true })
+              .eq('owner_id', userId)
+              .then(({ error }) => {
+                if (error)
+                  console.warn(
+                    '[GremlyStore] Failed to persist has_seen_sweep_unlock_modal:',
+                    error,
+                  );
+              });
+          }
+        },
+
+        markEntityChatHighlightSeen: () => {
+          set({ hasSeenEntityChatHighlight: true });
+          const userId = get().userId;
+          if (userId) {
+            supabase
+              .from('cortex_preferences')
+              .update({ has_seen_entity_chat_highlight: true })
+              .eq('owner_id', userId)
+              .then(({ error }) => {
+                if (error)
+                  console.warn(
+                    '[GremlyStore] Failed to persist has_seen_entity_chat_highlight:',
+                    error,
+                  );
+              });
+          }
+        },
+
+        markTrainingMeterAutoOpenSeen: () => {
+          set({ hasSeenTrainingMeterAutoOpen: true });
+          const userId = get().userId;
+          if (userId) {
+            supabase
+              .from('cortex_preferences')
+              .update({ has_seen_training_meter_auto_open: true })
+              .eq('owner_id', userId)
+              .then(({ error }) => {
+                if (error)
+                  console.warn(
+                    '[GremlyStore] Failed to persist has_seen_training_meter_auto_open:',
+                    error,
+                  );
+              });
+          }
+        },
+
+        finalizeGraduation: async () => {
+          const { userId, sockCount } = get();
+          const now = new Date().toISOString();
+          const newSockCount = sockCount + 1;
+
+          set({
+            isTrainingMode: false,
+            graduatedAt: now,
+            pendingGraduation: false,
+            postGraduationMessageShown: false,
+            sockCount: newSockCount,
+          });
+
+          if (userId) {
+            supabase
+              .from('cortex_preferences')
+              .update({
+                is_training_mode: false,
+                graduated_at: now,
+                pending_graduation: false,
+                sock_count: newSockCount,
+              })
+              .eq('owner_id', userId)
+              .then(({ error }) => {
+                if (error)
+                  console.warn('[GremlyStore] Failed to persist finalizeGraduation:', error);
+              });
+          }
+
+          if (__DEV__) {
+            console.log('[GremlyStore] Graduation finalized, sock_count:', newSockCount);
+          }
         },
 
         // ═══════════════════════════════════════════════════════════════════
@@ -2088,6 +3007,14 @@ export const useGremlyStore = create<GremlyState>()(
             spaceId: data.space_id,
             source: STORE_EVENT_SOURCE,
           });
+          // Track training progress
+          if (get().isTrainingMode) {
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after habit failed:', err);
+              });
+          }
           return habitWithType;
         },
 
@@ -2639,6 +3566,14 @@ export const useGremlyStore = create<GremlyState>()(
             spaceId: data.space_id,
             source: STORE_EVENT_SOURCE,
           });
+          // Track training progress for journal entries
+          if (get().isTrainingMode && data.subtype === 'journal') {
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after journal failed:', err);
+              });
+          }
           return noteWithType;
         },
 
@@ -2842,6 +3777,14 @@ export const useGremlyStore = create<GremlyState>()(
             type: 'space',
             source: STORE_EVENT_SOURCE,
           });
+          // Track training progress
+          if (get().isTrainingMode) {
+            get()
+              .refreshTrainingReadiness()
+              .catch((err) => {
+                console.warn('[GremlyStore] refreshTrainingReadiness after space failed:', err);
+              });
+          }
           return data;
         },
 
@@ -3549,6 +4492,9 @@ export const useGremlyStore = create<GremlyState>()(
 
           console.log(`[Store] Day rollover: ${prev} → ${newDate}`);
 
+          // Capture previous day's fed state before resetting
+          const wasFedPreviousDay = get().isFedToday;
+
           set({
             currentDate: newDate,
             // Reset brief state
@@ -3564,7 +4510,44 @@ export const useGremlyStore = create<GremlyState>()(
             // Reset hidden-today (Not Today feature)
             hiddenTodayIds: [],
             hiddenTodayDate: null,
+            // Feeding gauge daily reset (Soul Document v8)
+            feedingGaugeValue: 0,
+            isFedToday: false,
+            feedingContributions: [],
+            feedingGaugeLastUpdatedAt: null,
+            todayFedCelebrationShownAt: null,
+            todayFeedingAgeUpShownAt: null,
           });
+
+          // Unfed streak tracking (Soul Document v8)
+          if (!wasFedPreviousDay) {
+            const currentStreak = get().unfedStreakDays + 1;
+            set({ unfedStreakDays: currentStreak });
+
+            const { userId } = get();
+            if (userId) {
+              supabase
+                .from('cortex_preferences')
+                .update({ unfed_streak_days: currentStreak, updated_at: new Date().toISOString() })
+                .eq('owner_id', userId)
+                .then(({ error }) => {
+                  if (error) {
+                    console.error('[GremlyStore] Failed to update unfed streak:', error);
+                  }
+                });
+            }
+
+            if (__DEV__) {
+              console.log('[GremlyStore] Unfed streak incremented to', currentStreak);
+            }
+          } else {
+            if (__DEV__) {
+              console.log(
+                '[GremlyStore] Previous day was fed, unfed streak stays at',
+                get().unfedStreakDays,
+              );
+            }
+          }
 
           // Re-fetch remote data for the new day
           const state = get();
@@ -4040,6 +5023,9 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Fetch DCO after server refresh (cached hydration path skips cold init)
             get().fetchTodayDco();
+
+            // Refresh ritual progress including gauge state (Soul Document v8)
+            get().refreshRitualProgress();
           } catch (error) {
             console.error('[GremlyStore] refreshFromServer failed:', error);
             set({ isLoading: false });
@@ -8671,7 +9657,6 @@ export const useGremlyStore = create<GremlyState>()(
           milestones: state.milestones,
           pendingDrops: state.pendingDrops,
           userId: state.userId,
-          userTimezone: state.userTimezone,
           lastSweepCompletedAt: state.lastSweepCompletedAt,
           sweepStreak: state.sweepStreak,
           totalSweepCount: state.totalSweepCount,
@@ -8689,6 +9674,27 @@ export const useGremlyStore = create<GremlyState>()(
           todaySweepsCount: state.todaySweepsCount,
           todayRitualCompletedAt: state.todayRitualCompletedAt,
           dailyBrief: state.dailyBrief,
+          feedingGaugeValue: state.feedingGaugeValue,
+          isFedToday: state.isFedToday,
+          feedingContributions: state.feedingContributions,
+          feedingGaugeLastUpdatedAt: state.feedingGaugeLastUpdatedAt,
+          fedDaysCount: state.fedDaysCount,
+          currentTierName: state.currentTierName,
+          unfedStreakDays: state.unfedStreakDays,
+          lastFedAt: state.lastFedAt,
+          sockCount: state.sockCount,
+          aiMode: state.aiMode,
+          isTrainingMode: state.isTrainingMode,
+          trainingStartedAt: state.trainingStartedAt,
+          graduatedAt: state.graduatedAt,
+          pendingGraduation: state.pendingGraduation,
+          postGraduationMessageShown: state.postGraduationMessageShown,
+          trainingDropStep: state.trainingDropStep,
+          hasSeenGaugeExplanation: state.hasSeenGaugeExplanation,
+          hasSeenFirstFedModal: state.hasSeenFirstFedModal,
+          hasSeenSweepUnlockModal: state.hasSeenSweepUnlockModal,
+          hasSeenEntityChatHighlight: state.hasSeenEntityChatHighlight,
+          hasSeenTrainingMeterAutoOpen: state.hasSeenTrainingMeterAutoOpen,
         }),
 
         // Merge persisted state with fresh initial state
@@ -8708,6 +9714,19 @@ export const useGremlyStore = create<GremlyState>()(
             lastSyncedAt: null,
             // Always use fresh date on app start, never restore stale date from storage
             currentDate: getDateService().getCurrentDate(),
+            // Always reset daily gauge state on hydration (Soul Document v8)
+            // These are daily values that initialize() will populate from Supabase.
+            // Stale MMKV values cause false fed status and wrong gauge display.
+            feedingGaugeValue: 0,
+            isFedToday: false,
+            feedingContributions: [],
+            feedingGaugeLastUpdatedAt: null,
+            todayFedCelebrationShownAt: null,
+            todayFeedingAgeUpShownAt: null,
+            pendingGaugePreviews: 0,
+            // Training readiness is refreshed from server in initialize()
+            trainingReadiness: 0,
+            pendingGraduation: false,
           };
         },
       },

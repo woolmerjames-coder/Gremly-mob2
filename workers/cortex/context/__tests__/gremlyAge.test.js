@@ -41,6 +41,7 @@ describe('gremlyAge', () => {
     const createDateDaysAgo = (daysAgo) => {
       const d = new Date();
       d.setDate(d.getDate() - daysAgo);
+      d.setHours(0, 0, 0, 0);
       return d.toISOString();
     };
 
@@ -222,6 +223,7 @@ describe('gremlyAge', () => {
     it('includes correct day count in logSummary', () => {
       const d = new Date();
       d.setDate(d.getDate() - 45);
+      d.setHours(0, 0, 0, 0);
       const signals = { message_count: 15, patterns: { todoCount: 25 } };
       const result = getAgeGuidance(d.toISOString(), signals);
 

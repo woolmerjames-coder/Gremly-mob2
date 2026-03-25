@@ -659,6 +659,10 @@ export interface SpaceChatMessage {
   // URL fetch state
   isFetching?: boolean;
   fetchingUrl?: string | null;
+  // Loading hint during web search
+  isLoadingHint?: boolean;
+  // Loading message from triage
+  loadingMessage?: string | null;
   // Web search results
   sources?: Array<{ title: string; url: string }>;
   search_query?: string | null;
@@ -1094,7 +1098,7 @@ export interface HabitBuilderStreamingCallbacks {
   onDelta: (delta: string) => void;
   onComplete: (response: HabitBuilderStreamingResponse) => void;
   onError: (error: Error) => void;
-  onSearching?: (query: string) => void;
+  onSearching?: (query: string, isLoadingHint?: boolean) => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════

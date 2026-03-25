@@ -35,6 +35,15 @@ import { hasNotificationPermission } from '../../src/utils/notifications';
 import type { ItemReminder } from '../types';
 import { env, getEnv } from '../env';
 
+// --- Session-scoped recent reactions (in-memory only, resets on cold start) ---
+const recentReactions: string[] = [];
+const MAX_RECENT_REACTIONS = 5;
+
+function pushReaction(msg: string) {
+  recentReactions.push(msg);
+  if (recentReactions.length > MAX_RECENT_REACTIONS) recentReactions.shift();
+}
+
 /**
  * Quick heuristic check: could this text possibly be multi-entity?
  * If no delimiters, skip multi detection entirely.
@@ -305,6 +314,7 @@ async function runPhase1_5a(
         text,
         bucket,
         subtype,
+        recentReactions: [...recentReactions],
       }),
     });
 
@@ -320,10 +330,16 @@ async function runPhase1_5a(
       has_message: !!json.confirmation_message,
     });
 
-    return {
+    const result = {
       smart_title: json.smart_title || null,
       confirmation_message: json.confirmation_message || null,
     };
+
+    if (result.confirmation_message) {
+      pushReaction(result.confirmation_message);
+    }
+
+    return result;
   } catch (err) {
     console.log('[DropProcessor] Phase 1.5a error', { error: String(err) });
     return null;

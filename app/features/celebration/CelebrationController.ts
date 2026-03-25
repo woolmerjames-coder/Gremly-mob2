@@ -9,7 +9,7 @@ import * as Haptics from 'expo-haptics';
 import { getEnv } from '../../../lib/env';
 import { subscribeToCelebrationEvents, type CelebrationEvent } from './celebrationBus';
 
-export type CelebrationKind = 'micro' | 'confetti' | 'mascot' | 'age_up';
+export type CelebrationKind = 'micro' | 'confetti' | 'mascot' | 'age_up' | 'fed';
 
 export interface CelebrationPayload {
   kind: CelebrationKind;
@@ -18,6 +18,14 @@ export interface CelebrationPayload {
   streakCount?: number;
   /** Age value for age_up celebrations */
   age?: number;
+  /** Fed days count for fed celebration (1, 2, or 3) */
+  fedDaysCount?: number;
+  /** Tier name for the new age (e.g., "Guide") */
+  tierName?: string;
+  /** Whether this age-up crossed a tier boundary */
+  isTierTransition?: boolean;
+  /** Previous tier name (only set if isTierTransition is true) */
+  previousTierName?: string;
 }
 
 type CelebrationListener = (payload: CelebrationPayload) => void;
@@ -204,7 +212,10 @@ class CelebrationController {
    * This does NOT modify the actual gremlyAge in the store.
    * @param age - The age to display in the modal
    */
-  showAgeUpCelebration(age: number): void {
+  showAgeUpCelebration(
+    age: number,
+    tierInfo?: { tierName: string; isTierTransition: boolean; previousTierName?: string },
+  ): void {
     if (this._suppressAgeUp) {
       if (__DEV__) {
         console.log(
@@ -218,12 +229,19 @@ class CelebrationController {
     const payload: CelebrationPayload = {
       kind: 'age_up',
       age,
+      tierName: tierInfo?.tierName,
+      isTierTransition: tierInfo?.isTierTransition,
+      previousTierName: tierInfo?.previousTierName,
     };
 
     this.emit(payload);
 
     if (__DEV__) {
-      console.log('[Celebration] Age-up celebration triggered for age:', age);
+      console.log('[Celebration] Age-up celebration triggered', {
+        age,
+        tierName: tierInfo?.tierName,
+        isTierTransition: tierInfo?.isTierTransition,
+      });
     }
   }
 
@@ -231,6 +249,25 @@ class CelebrationController {
     this._suppressAgeUp = suppress;
     if (__DEV__) {
       console.log('[Celebration] Age-up suppression:', suppress ? 'ON' : 'OFF');
+    }
+  }
+
+  /**
+   * Trigger fed celebration (toast banner).
+   * @param fedDaysCount - Current fed days count (1, 2, or 3) for "Day X of 3" display
+   */
+  showFedCelebration(fedDaysCount: number): void {
+    const payload: CelebrationPayload = {
+      kind: 'fed',
+      fedDaysCount,
+    };
+
+    this.triggerHaptic('confetti');
+
+    this.emit(payload);
+
+    if (__DEV__) {
+      console.log('[Celebration] Fed celebration triggered, day', fedDaysCount, 'of 3');
     }
   }
 

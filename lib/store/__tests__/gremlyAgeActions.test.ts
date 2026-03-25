@@ -55,6 +55,17 @@ describe('Gremly Age Store Actions', () => {
   const mockFrom = supabase.from as jest.Mock;
   const { getRitualDay } = require('../../date/ritualDay');
 
+  // Per-RPC-name response queues for deterministic test mocking.
+  // Tests push responses with mockRpcResponse(name, response).
+  // The mock implementation dispatches by RPC name, avoiding ordering issues
+  // caused by fire-and-forget gauge calls consuming responses meant for other RPCs.
+  const rpcQueues: Record<string, Array<{ data: any; error: any }>> = {};
+
+  function mockRpcResponse(name: string, response: { data: any; error: any }) {
+    if (!rpcQueues[name]) rpcQueues[name] = [];
+    rpcQueues[name].push(response);
+  }
+
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
@@ -62,6 +73,38 @@ describe('Gremly Age Store Actions', () => {
 
     // Restore getRitualDay mock after clearAllMocks
     (getRitualDay as jest.Mock).mockReturnValue('2026-01-10');
+
+    // Clear per-RPC queues
+    Object.keys(rpcQueues).forEach((k) => delete rpcQueues[k]);
+
+    // Route-aware RPC mock: dispatches by RPC name to avoid ordering issues
+    // from fire-and-forget gauge calls consuming responses meant for other RPCs.
+    mockRpc.mockImplementation((name: string) => {
+      if (rpcQueues[name]?.length) {
+        return Promise.resolve(rpcQueues[name].shift()!);
+      }
+      // Default responses for feeding gauge RPCs (fire-and-forget, not under test)
+      if (name === 'update_feeding_gauge') {
+        return Promise.resolve({
+          data: [{ new_gauge_value: 0, new_is_fed: false }],
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    // Restore supabase.from mock (clearAllMocks clears inline implementations)
+    mockFrom.mockImplementation(() => ({
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null }),
+      }),
+      upsert: jest.fn().mockResolvedValue({ error: null }),
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(),
+      single: jest.fn().mockResolvedValue({ data: null, error: null }),
+      maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+    }));
 
     // Reset store state
     useGremlyStore.setState({
@@ -87,9 +130,9 @@ describe('Gremly Age Store Actions', () => {
 
   describe('incrementDropCount', () => {
     it('calls increment_drop_count RPC with correct params', async () => {
-      mockRpc.mockResolvedValueOnce({ data: { drops_count: 1 }, error: null });
+      mockRpcResponse('increment_drop_count', { data: { drops_count: 1 }, error: null });
       // Mock checkAndIncrementAge call
-      mockRpc.mockResolvedValueOnce({
+      mockRpcResponse('check_and_increment_gremly_age', {
         data: [{ did_age_up: false, new_age: 5 }],
         error: null,
       });
@@ -109,8 +152,8 @@ describe('Gremly Age Store Actions', () => {
     });
 
     it('updates local todayDropsCount on success', async () => {
-      mockRpc.mockResolvedValueOnce({ data: { drops_count: 2 }, error: null });
-      mockRpc.mockResolvedValueOnce({
+      mockRpcResponse('increment_drop_count', { data: { drops_count: 2 }, error: null });
+      mockRpcResponse('check_and_increment_gremly_age', {
         data: [{ did_age_up: false, new_age: 5 }],
         error: null,
       });
@@ -137,7 +180,7 @@ describe('Gremly Age Store Actions', () => {
 
     it('returns current count on RPC error', async () => {
       useGremlyStore.setState({ todayDropsCount: 2, todayRitualDay: '2026-01-10' });
-      mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'RPC failed' } });
+      mockRpcResponse('increment_drop_count', { data: null, error: { message: 'RPC failed' } });
 
       await act(async () => {
         const result = await useGremlyStore.getState().incrementDropCount();
@@ -146,19 +189,15 @@ describe('Gremly Age Store Actions', () => {
       });
     });
 
-    it('triggers checkAndIncrementAge after incrementing', async () => {
-      mockRpc.mockResolvedValueOnce({ data: { drops_count: 3 }, error: null });
-      // This call is for checkAndIncrementAge
-      mockRpc.mockResolvedValueOnce({
-        data: [{ did_age_up: true, new_age: 6 }],
-        error: null,
-      });
-      useGremlyStore.setState({ todaySweepsCount: 3, todayRitualDay: '2026-01-10' }); // Already have 3 sweeps
+    it('returns didAgeUp false (age-up handled by feeding gauge)', async () => {
+      mockRpcResponse('increment_drop_count', { data: { drops_count: 3 }, error: null });
+      useGremlyStore.setState({ todaySweepsCount: 3, todayRitualDay: '2026-01-10' });
 
       await act(async () => {
         const result = await useGremlyStore.getState().incrementDropCount();
-        expect(result.didAgeUp).toBe(true);
-        expect(result.newAge).toBe(6);
+        // Soul Document v8: age-ups flow through feeding gauge, not incrementDropCount
+        expect(result.didAgeUp).toBe(false);
+        expect(result.dropsCount).toBe(3);
       });
     });
 
@@ -174,8 +213,8 @@ describe('Gremly Age Store Actions', () => {
       // Mock getRitualDay to return "today" (different from stored '2026-01-09')
       (getRitualDay as jest.Mock).mockReturnValueOnce('2026-01-10');
 
-      mockRpc.mockResolvedValueOnce({ data: { drops_count: 1 }, error: null });
-      mockRpc.mockResolvedValueOnce({
+      mockRpcResponse('increment_drop_count', { data: { drops_count: 1 }, error: null });
+      mockRpcResponse('check_and_increment_gremly_age', {
         data: [{ did_age_up: false, new_age: 5 }],
         error: null,
       });
@@ -197,8 +236,8 @@ describe('Gremly Age Store Actions', () => {
 
   describe('incrementSweepCount', () => {
     it('calls increment_sweep_count RPC with correct params', async () => {
-      mockRpc.mockResolvedValueOnce({ data: { sweeps_count: 1 }, error: null });
-      mockRpc.mockResolvedValueOnce({
+      mockRpcResponse('increment_sweep_count', { data: { sweeps_count: 1 }, error: null });
+      mockRpcResponse('check_and_increment_gremly_age', {
         data: [{ did_age_up: false, new_age: 5 }],
         error: null,
       });
@@ -218,8 +257,8 @@ describe('Gremly Age Store Actions', () => {
     });
 
     it('updates local todaySweepsCount on success', async () => {
-      mockRpc.mockResolvedValueOnce({ data: { sweeps_count: 2 }, error: null });
-      mockRpc.mockResolvedValueOnce({
+      mockRpcResponse('increment_sweep_count', { data: { sweeps_count: 2 }, error: null });
+      mockRpcResponse('check_and_increment_gremly_age', {
         data: [{ did_age_up: false, new_age: 5 }],
         error: null,
       });
@@ -246,7 +285,7 @@ describe('Gremly Age Store Actions', () => {
 
     it('returns current count on RPC error', async () => {
       useGremlyStore.setState({ todaySweepsCount: 1, todayRitualDay: '2026-01-10' });
-      mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'RPC failed' } });
+      mockRpcResponse('increment_sweep_count', { data: null, error: { message: 'RPC failed' } });
 
       await act(async () => {
         const result = await useGremlyStore.getState().incrementSweepCount();
@@ -262,7 +301,7 @@ describe('Gremly Age Store Actions', () => {
 
   describe('checkAndIncrementAge', () => {
     it('calls check_and_increment_gremly_age RPC', async () => {
-      mockRpc.mockResolvedValueOnce({
+      mockRpcResponse('check_and_increment_gremly_age', {
         data: [{ did_age_up: false, new_age: 5 }],
         error: null,
       });
@@ -282,7 +321,7 @@ describe('Gremly Age Store Actions', () => {
     });
 
     it('returns didAgeUp: false if ritual not complete', async () => {
-      mockRpc.mockResolvedValueOnce({
+      mockRpcResponse('check_and_increment_gremly_age', {
         data: [{ did_age_up: false, new_age: 5 }],
         error: null,
       });
@@ -297,7 +336,7 @@ describe('Gremly Age Store Actions', () => {
     });
 
     it('updates gremlyAge and sets completedAt when ritual completes', async () => {
-      mockRpc.mockResolvedValueOnce({
+      mockRpcResponse('check_and_increment_gremly_age', {
         data: [{ did_age_up: true, new_age: 6 }],
         error: null,
       });
@@ -337,7 +376,7 @@ describe('Gremly Age Store Actions', () => {
       // getRitualDay returns "today" (different from stored day)
       (getRitualDay as jest.Mock).mockReturnValueOnce('2026-01-10');
 
-      mockRpc.mockResolvedValueOnce({
+      mockRpcResponse('check_and_increment_gremly_age', {
         data: [{ did_age_up: false, new_age: 5 }],
         error: null,
       });
@@ -370,7 +409,10 @@ describe('Gremly Age Store Actions', () => {
     });
 
     it('handles RPC error gracefully', async () => {
-      mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'RPC failed' } });
+      mockRpcResponse('check_and_increment_gremly_age', {
+        data: null,
+        error: { message: 'RPC failed' },
+      });
 
       await act(async () => {
         const result = await useGremlyStore.getState().checkAndIncrementAge();
@@ -448,14 +490,10 @@ describe('Gremly Age Store Actions', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('Full ritual flow', () => {
-    it('ages up after 3 drops + 3 sweeps', async () => {
+    it('tracks drops and sweeps without direct age-up (gauge handles it)', async () => {
       // Simulate incremental drops
       for (let i = 1; i <= 3; i++) {
-        mockRpc.mockResolvedValueOnce({ data: { drops_count: i }, error: null });
-        mockRpc.mockResolvedValueOnce({
-          data: [{ did_age_up: false, new_age: 5 }],
-          error: null,
-        });
+        mockRpcResponse('increment_drop_count', { data: { drops_count: i }, error: null });
 
         await act(async () => {
           await useGremlyStore.getState().incrementDropCount();
@@ -464,34 +502,18 @@ describe('Gremly Age Store Actions', () => {
 
       expect(useGremlyStore.getState().todayDropsCount).toBe(3);
 
-      // Simulate 2 sweeps (not complete yet)
-      for (let i = 1; i <= 2; i++) {
-        mockRpc.mockResolvedValueOnce({ data: { sweeps_count: i }, error: null });
-        mockRpc.mockResolvedValueOnce({
-          data: [{ did_age_up: false, new_age: 5 }],
-          error: null,
-        });
+      // Simulate 3 sweeps
+      for (let i = 1; i <= 3; i++) {
+        mockRpcResponse('increment_sweep_count', { data: { sweeps_count: i }, error: null });
 
         await act(async () => {
-          await useGremlyStore.getState().incrementSweepCount();
+          const result = await useGremlyStore.getState().incrementSweepCount();
+          // Soul Document v8: age-ups flow through feeding gauge, not increment functions
+          expect(result.didAgeUp).toBe(false);
         });
       }
 
-      // 3rd sweep should trigger age-up
-      mockRpc.mockResolvedValueOnce({ data: { sweeps_count: 3 }, error: null });
-      mockRpc.mockResolvedValueOnce({
-        data: [{ did_age_up: true, new_age: 6 }],
-        error: null,
-      });
-
-      await act(async () => {
-        const result = await useGremlyStore.getState().incrementSweepCount();
-        expect(result.didAgeUp).toBe(true);
-        expect(result.newAge).toBe(6);
-      });
-
-      expect(useGremlyStore.getState().gremlyAge).toBe(6);
-      expect(useGremlyStore.getState().todayRitualCompletedAt).toBeTruthy();
+      expect(useGremlyStore.getState().todaySweepsCount).toBe(3);
     });
   });
 

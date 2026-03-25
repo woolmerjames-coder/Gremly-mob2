@@ -8,14 +8,15 @@ const mockCreateMilestone = jest.fn();
 const mockUpsertSpaceMeta = jest.fn();
 
 // Mock useGremlyStore for createSpace and createMilestone (now uses Zustand)
+const mockStore = {
+  createSpace: mockCreateSpace,
+  createMilestone: mockCreateMilestone,
+  trackSpaceCreate: jest.fn().mockResolvedValue(undefined),
+};
 jest.mock('../lib/store/useGremlyStore', () => ({
-  useGremlyStore: (selector: any) => {
-    const state = {
-      createSpace: mockCreateSpace,
-      createMilestone: mockCreateMilestone,
-    };
-    return selector(state);
-  },
+  useGremlyStore: Object.assign((selector: any) => selector(mockStore), {
+    getState: () => mockStore,
+  }),
 }));
 
 // Keep RepoProvider mock for upsertSpaceMeta (still uses repo)
@@ -90,6 +91,7 @@ describe('CreateSpaceModal', () => {
     mockCreateSpace.mockResolvedValue(mockSpace);
     mockCreateMilestone.mockResolvedValue(mockMilestone);
     mockUpsertSpaceMeta.mockResolvedValue(mockMeta);
+    mockStore.trackSpaceCreate.mockResolvedValue(undefined);
   });
 
   describe('Single-page form', () => {

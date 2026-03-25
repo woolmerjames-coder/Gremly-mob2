@@ -51,6 +51,12 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
     gremlyAge: 7,
     todayDropsCount: 2,
     todaySweepsCount: 1,
+    feedingGaugeValue: 0,
+    isFedToday: false,
+    fedDaysCount: 0,
+    isTrainingMode: false,
+    feedingHistory: [],
+    fetchFeedingHistory: () => Promise.resolve(),
   };
   function useGremlyStore(selector: any) {
     return typeof selector === 'function' ? selector(state) : state;
@@ -166,24 +172,23 @@ describe('GremlyHelpCard', () => {
     });
   });
 
-  describe('page 2 — ritual progress', () => {
-    it('renders Gremly age on page 2', () => {
+  describe('page 2 — feeding gauge', () => {
+    it('renders tier name and age on gauge page', () => {
       const { getByText } = render(
         <GremlyHelpCard visible={true} onDismiss={mockDismiss} screen="hub" />,
       );
 
-      // Page 2 title uses gremlyAge from store (mocked as 7)
-      expect(getByText('Gremly · Age 7')).toBeTruthy();
+      // Age 7 = Sprout tier (Soul Document v8)
+      expect(getByText('Sprout · Age 7')).toBeTruthy();
     });
 
-    it('renders ritual progress dots', () => {
+    it('renders fed status', () => {
       const { getByText } = render(
         <GremlyHelpCard visible={true} onDismiss={mockDismiss} screen="hub" />,
       );
 
-      // Store mocked: todayDropsCount=2, todaySweepsCount=1
-      expect(getByText('2/3 drops')).toBeTruthy();
-      expect(getByText('1/3 sweeps')).toBeTruthy();
+      // Store mocked: isFedToday=false, feedingGaugeValue=0
+      expect(getByText('0% full')).toBeTruthy();
     });
   });
 

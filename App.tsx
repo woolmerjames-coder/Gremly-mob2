@@ -39,6 +39,7 @@ import NotificationQuickActionSheet from './components/notifications/Notificatio
 // import type { RootStackParamList } from './navigation/RootNavigator';
 import celebrationController from './app/features/celebration/CelebrationController';
 import AgeUpCelebrationModal from './components/ritual/AgeUpCelebrationModal';
+import GraduationFlow from './app/screens/GraduationFlow';
 import { GlobalEventPopup } from './components/calendar/GlobalEventPopup';
 import { GlobalEventTimePicker } from './components/calendar/GlobalEventTimePicker';
 import { initOfflineSync } from './lib/network/offlineSync';
@@ -83,8 +84,18 @@ export default function App() {
   const scheme = useColorScheme();
   const bootProbeRan = useRef(false);
 
+  // Graduation flow state
+  const pendingGraduation = useGremlyStore((s) => s.pendingGraduation);
+  const finalizeGraduation = useGremlyStore((s) => s.finalizeGraduation);
+
   // Age-up celebration state - rendered at root level to work over navigation modals
-  const [ageUpState, setAgeUpState] = useState<{ visible: boolean; age: number }>({
+  const [ageUpState, setAgeUpState] = useState<{
+    visible: boolean;
+    age: number;
+    tierName?: string;
+    isTierTransition?: boolean;
+    previousTierName?: string;
+  }>({
     visible: false,
     age: 0,
   });
@@ -125,7 +136,13 @@ export default function App() {
         // Short delay lets the keyboard animate away so the modal isn't obscured.
         Keyboard.dismiss();
         setTimeout(() => {
-          setAgeUpState({ visible: true, age: payload.age! });
+          setAgeUpState({
+            visible: true,
+            age: payload.age!,
+            tierName: payload.tierName,
+            isTierTransition: payload.isTierTransition ?? false,
+            previousTierName: payload.previousTierName,
+          });
         }, 300);
       }
     });
@@ -666,7 +683,16 @@ export default function App() {
       <AgeUpCelebrationModal
         visible={ageUpState.visible}
         newAge={ageUpState.age}
+        tierName={ageUpState.tierName}
+        isTierTransition={ageUpState.isTierTransition}
+        previousTierName={ageUpState.previousTierName}
         onDismiss={handleAgeUpDismiss}
+      />
+
+      {/* Graduation ceremony overlay */}
+      <GraduationFlow
+        visible={pendingGraduation}
+        onComplete={finalizeGraduation}
       />
     </View>
   );

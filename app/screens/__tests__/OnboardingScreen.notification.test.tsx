@@ -1,7 +1,7 @@
 /**
- * Tests for OnboardingScreen notification setup
+ * Tests for OnboardingScreen
  *
- * Tests the notification time pickers and preferences saving on Screen 2.
+ * Tests the 2-screen onboarding flow (welcome + getting started).
  * Note: FlatList scrolling in tests is tricky, so we test components in isolation.
  */
 
@@ -37,37 +37,6 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
   }),
 }));
 
-// Mock notification preferences hook
-const mockSavePreferences = jest.fn();
-jest.mock('../../../hooks/useNotificationPreferences', () => ({
-  useNotificationPreferences: () => ({
-    preferences: {
-      morningEnabled: true,
-      morningTime: new Date(2026, 0, 10, 8, 0),
-      eveningEnabled: true,
-      eveningTime: new Date(2026, 0, 10, 21, 0),
-      timezone: 'America/New_York',
-    },
-    savePreferences: mockSavePreferences,
-    isLoading: false,
-  }),
-}));
-
-// Mock DateTimePicker
-jest.mock('@react-native-community/datetimepicker', () => {
-  const React = require('react');
-  const { View, Text } = require('react-native');
-  return {
-    __esModule: true,
-    default: ({ value, disabled, testID }: any) => (
-      <View testID={testID || 'datetime-picker'}>
-        <Text>{disabled ? 'disabled' : 'enabled'}</Text>
-        <Text>{value?.toISOString?.() || 'no-value'}</Text>
-      </View>
-    ),
-  };
-});
-
 // Mock FlatList to avoid scrollToIndex issues
 jest.mock('react-native/Libraries/Lists/FlatList', () => {
   const React = require('react');
@@ -86,56 +55,42 @@ jest.mock('react-native/Libraries/Lists/FlatList', () => {
 
 import OnboardingScreen from '../OnboardingScreen';
 
-describe('OnboardingScreen Notification Setup', () => {
+describe('OnboardingScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   describe('renders all screens content', () => {
-    it('renders the notification section title', () => {
-      const { getByText } = render(<OnboardingScreen />);
-
-      // With mocked FlatList, all screens render
-      expect(getByText('When should I remind you?')).toBeTruthy();
-    });
-
-    it('renders morning and evening time labels', () => {
-      const { getByText } = render(<OnboardingScreen />);
-
-      expect(getByText('Morning check-in')).toBeTruthy();
-      expect(getByText('Evening sweep')).toBeTruthy();
-    });
-
-    it('renders the settings hint text', () => {
-      const { getByText } = render(<OnboardingScreen />);
-
-      expect(getByText(/adjust times|turn off reminders|Settings/i)).toBeTruthy();
-    });
-
-    it('renders ritual explanation rows', () => {
-      const { getByText } = render(<OnboardingScreen />);
-
-      expect(getByText(/Drop 3\+ thoughts/i)).toBeTruthy();
-      expect(getByText(/Sweep 3\+ cards/i)).toBeTruthy();
-    });
-
-    it('renders ritual subtext', () => {
-      const { getByText } = render(<OnboardingScreen />);
-
-      expect(getByText('Complete the ritual and I age by 1.')).toBeTruthy();
-      expect(getByText('Miss a day? No stress, I just wait.')).toBeTruthy();
-    });
-
-    it('renders welcome screen content', () => {
+    it('renders the welcome screen title', () => {
       const { getByText } = render(<OnboardingScreen />);
 
       expect(getByText("Hi, I'm Gremly")).toBeTruthy();
     });
 
-    it('renders final screen content', () => {
+    it('renders welcome screen body and subtext', () => {
       const { getByText } = render(<OnboardingScreen />);
 
-      expect(getByText('I help you think')).toBeTruthy();
+      expect(
+        getByText('I help you get things out of your head and into a system that actually works.'),
+      ).toBeTruthy();
+      expect(getByText('The more we work together, the more we both grow.')).toBeTruthy();
+    });
+
+    it('renders getting started screen title', () => {
+      const { getByText } = render(<OnboardingScreen />);
+
+      expect(getByText('Where do we start?')).toBeTruthy();
+    });
+
+    it('renders getting started screen body and subtext', () => {
+      const { getByText } = render(<OnboardingScreen />);
+
+      expect(
+        getByText(
+          "Just drop whatever's on your mind. Tasks, thoughts, feelings. I'll figure out the rest.",
+        ),
+      ).toBeTruthy();
+      expect(getByText('Tap any card to chat with me along the way.')).toBeTruthy();
     });
   });
 
@@ -148,7 +103,7 @@ describe('OnboardingScreen Notification Setup', () => {
     it('shows dot indicators', () => {
       const { UNSAFE_getAllByType } = render(<OnboardingScreen />);
       const { View } = require('react-native');
-      // Should have dot indicator views (3 steps)
+      // Should have dot indicator views (2 steps)
       const views = UNSAFE_getAllByType(View);
       expect(views.length).toBeGreaterThan(3);
     });
