@@ -693,8 +693,12 @@ function SweepMoodStep({ onContinue }: StepProps) {
             <Text variant="title" style={styles.moodStepTitle}>
               How was your day?
             </Text>
-            <Text style={styles.moodStepSubcopy}>
-              Everything here is optional,{'\n'}just a moment to pause.
+            <Text
+              style={[styles.moodStepSubcopy, isTrainingMode && styles.moodStepSubcopyTraining]}
+            >
+              {isTrainingMode
+                ? 'Training mode \u2014 journal daily to help your Gremly learn faster. Optional, but worth it.'
+                : 'Everything here is optional,\njust a moment to pause.'}
             </Text>
           </View>
           <Image
@@ -746,16 +750,6 @@ function SweepMoodStep({ onContinue }: StepProps) {
                 ))}
               </View>
             )}
-          </View>
-        )}
-
-        {/* Training mode prompt */}
-        {isTrainingMode && (
-          <View style={styles.trainingPrompt}>
-            <Text style={styles.trainingPromptText}>
-              <Text style={{ fontWeight: '700' }}>Training mode:</Text> These journals help your
-              Gremly train fast and are a great way to check in daily
-            </Text>
           </View>
         )}
 
@@ -4754,6 +4748,12 @@ const styles = StyleSheet.create({
     color: 'rgba(34, 34, 34, 0.75)',
     lineHeight: 22,
   },
+  moodStepSubcopyTraining: {
+    color: BRAND.colors.mossGreen,
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    lineHeight: 19,
+  },
   // Recent Entries Section (Collapsible)
   recentEntriesSection: {
     marginBottom: 16,
@@ -4808,25 +4808,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '400',
     color: BRAND.colors.charcoalInk,
-  },
-  // Training mode prompt
-  trainingPrompt: {
-    backgroundColor: '#E8F0E5',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-  },
-  trainingPromptText: {
-    fontSize: 13,
-    color: BRAND.colors.mossGreen,
-    fontFamily: 'Inter-Regular',
-    lineHeight: 18,
-  },
-  trainingPromptCounter: {
-    fontSize: 11,
-    color: '#8FA889',
-    fontFamily: 'Inter-Regular',
-    marginTop: 4,
   },
   // Journal Input Section
   journalSection: {
