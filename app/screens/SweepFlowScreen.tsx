@@ -93,7 +93,7 @@ import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionT
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import celebrationController from '../../app/features/celebration/CelebrationController';
-import MascotLottie from '../components/MascotLottie';
+import MascotLottie, { MascotLottieHandle } from '../components/MascotLottie';
 import { calculateSweepContribution, GAUGE_WEIGHTS } from '../../lib/constants/soulDocument';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { OverlayComponent } from '../../components/overlay';
@@ -753,7 +753,8 @@ function SweepMoodStep({ onContinue }: StepProps) {
         {isTrainingMode && (
           <View style={styles.trainingPrompt}>
             <Text style={styles.trainingPromptText}>
-              Want to write about this one? It helps Gremly understand you better.
+              <Text style={{ fontWeight: '700' }}>Training mode:</Text> These journals help your
+              Gremly train fast and are a great way to check in daily
             </Text>
           </View>
         )}
@@ -2933,6 +2934,8 @@ function SweepSummaryStep({
   const gremlyAge = useGremlyStore((s) => s.gremlyAge);
   const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
 
+  const mascotRef = useRef<MascotLottieHandle>(null);
+
   // Capture pre-sweep gauge value on mount (before any preview)
   const preSweepGaugeRef = useRef(feedingGaugeValue);
 
@@ -2951,6 +2954,19 @@ function SweepSummaryStep({
   const contributionPercent = Math.round(sweepContribution * 100);
   const willCrossFed =
     preSweepGaugeRef.current < 1.0 && preSweepGaugeRef.current + sweepContribution >= 1.0;
+
+  // Display-adjusted fed days: if isFedToday is true but fedDaysCount
+  // hasn't caught up from the server yet, ensure at least 1 shows.
+  // Also account for sweep optimistic crossing during this session.
+  const displayFedDays = useMemo(() => {
+    if (willCrossFed) {
+      return fedDaysCount + 1;
+    }
+    if (isFedToday) {
+      return Math.max(fedDaysCount, 1);
+    }
+    return fedDaysCount;
+  }, [fedDaysCount, isFedToday, willCrossFed]);
 
   // Tomorrow data (same as before)
   const allTodos = useGremlyStore((state) => state.todos);
@@ -3087,6 +3103,13 @@ function SweepSummaryStep({
       const { justCrossedFed } = useGremlyStore
         .getState()
         .previewSweepGauge(totalProcessed, journalWritten);
+
+      // Trigger the correct Lottie animation
+      if (justCrossedFed) {
+        mascotRef.current?.celebrateFed();
+      } else {
+        mascotRef.current?.celebrate();
+      }
 
       if (justCrossedFed) {
         const nextFedDay = useGremlyStore.getState().fedDaysCount + 1;
@@ -3304,7 +3327,7 @@ function SweepSummaryStep({
           {/* MascotLottie */}
           <View style={styles.gaugeRevealMascotContainer}>
             <Reanimated.View style={lottieAnimatedStyle}>
-              <MascotLottie />
+              <MascotLottie ref={mascotRef} />
             </Reanimated.View>
           </View>
 
@@ -3323,11 +3346,13 @@ function SweepSummaryStep({
                   key={day}
                   style={[
                     styles.gaugeRevealDot,
-                    day <= fedDaysCount ? styles.gaugeRevealDotFilled : styles.gaugeRevealDotEmpty,
+                    day <= displayFedDays
+                      ? styles.gaugeRevealDotFilled
+                      : styles.gaugeRevealDotEmpty,
                   ]}
                 />
               ))}
-              <Text style={styles.gaugeRevealFedText}>{fedDaysCount} of 3 fed days</Text>
+              <Text style={styles.gaugeRevealFedText}>{displayFedDays} of 3 fed days</Text>
             </View>
           </Reanimated.View>
 
@@ -5549,12 +5574,14 @@ const styles = StyleSheet.create({
   gaugeRevealAgeContainer: {
     alignItems: 'center',
     marginBottom: 16,
+    paddingTop: 4,
   },
   gaugeRevealAge: {
     fontSize: 24,
     fontFamily: 'PlusJakartaSans-Bold',
     fontWeight: '700',
     color: BRAND.colors.charcoalInk,
+    lineHeight: 34,
     marginBottom: 8,
   },
   gaugeRevealFedDots: {
