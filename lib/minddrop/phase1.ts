@@ -83,6 +83,8 @@ export async function runPhase1(
       source: 'heuristic-fallback',
       is_multi: false,
       reminder_intent: false,
+      classificationDegraded: true,
+      classificationSource: 'client-fallback',
     };
   }
 
@@ -138,6 +140,8 @@ export async function runPhase1(
       source: 'heuristic-fallback',
       is_multi: false,
       reminder_intent: false,
+      classificationDegraded: true,
+      classificationSource: 'client-fallback',
     };
   }
 
@@ -151,6 +155,13 @@ export async function runPhase1(
       heuristic_reason: apiResult.heuristic_reason,
     });
   }
+
+  const DEGRADED_SOURCES = [
+    'preparse-fallback',
+    'phase1-fallback',
+    'phase1-error-fallback',
+    'heuristic-fallback',
+  ];
 
   // Check for multi-entity response
   if (apiResult.is_multi === true && Array.isArray(apiResult.items) && apiResult.items.length > 1) {
@@ -169,6 +180,8 @@ export async function runPhase1(
       subtype: apiResult.items[0]?.subtype || null,
       habitSubtype: apiResult.items[0]?.habitSubtype || null,
       reminder_intent: apiResult.reminder_intent === true,
+      classificationDegraded: DEGRADED_SOURCES.includes(apiResult.source),
+      classificationSource: apiResult.source || 'unknown',
     };
   }
 
@@ -183,6 +196,8 @@ export async function runPhase1(
       source: 'heuristic-fallback',
       is_multi: false,
       reminder_intent: false,
+      classificationDegraded: true,
+      classificationSource: 'client-fallback',
     };
   }
 
@@ -195,6 +210,14 @@ export async function runPhase1(
     finalBucket === 'habit' ? (apiResult.habitSubtype ?? 'start_habit') : null
   ) as HabitSubtype | null;
   const confidence = typeof apiResult.confidence === 'number' ? apiResult.confidence : 0.7;
+  const isDegraded = DEGRADED_SOURCES.includes(apiResult.source);
+
+  if (isDegraded) {
+    console.warn('[Phase1] Classification degraded — will retry', {
+      source: apiResult.source,
+      bucket: finalBucket,
+    });
+  }
 
   console.log('[Phase1] Final classification', {
     bucket: finalBucket,
@@ -214,6 +237,8 @@ export async function runPhase1(
     confidence,
     source: apiResult.source || 'api',
     is_multi: false,
+    classificationDegraded: isDegraded,
+    classificationSource: apiResult.source || 'unknown',
     // Ambiguity detection (triggers Phase 1.5 in background)
     is_ambiguous: apiResult.is_ambiguous || false,
     ambiguity_reason: apiResult.ambiguity_reason || null,

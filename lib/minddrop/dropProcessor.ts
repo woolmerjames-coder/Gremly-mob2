@@ -34,6 +34,7 @@ import { scheduleItemReminder, scheduleQuickReminder } from '../notifications/it
 import { hasNotificationPermission } from '../../src/utils/notifications';
 import type { ItemReminder } from '../types';
 import { env, getEnv } from '../env';
+import { networkStatus } from '../network/NetworkStatus';
 
 // --- Session-scoped recent reactions (in-memory only, resets on cold start) ---
 const recentReactions: string[] = [];
@@ -635,6 +636,8 @@ async function syncDropToSupabase(
           clarification_question: drop.clarificationQuestion || null,
           clarification_options: drop.clarificationOptions || null,
           clarification_resolved: false,
+          ai_degraded: drop.classificationDegraded || false,
+          classification_source: drop.classificationSource || 'unknown',
         },
         created_at: now,
         updated_at: now,
@@ -692,6 +695,8 @@ async function syncDropToSupabase(
           clarification_question: drop.clarificationQuestion || null,
           clarification_options: drop.clarificationOptions || null,
           clarification_resolved: false,
+          ai_degraded: drop.classificationDegraded || false,
+          classification_source: drop.classificationSource || 'unknown',
         },
         created_at: now,
         updated_at: now,
@@ -750,10 +755,20 @@ async function syncDropToSupabase(
           clarification_question: drop.clarificationQuestion || null,
           clarification_options: drop.clarificationOptions || null,
           clarification_resolved: false,
+          ai_degraded: drop.classificationDegraded || false,
+          classification_source: drop.classificationSource || 'unknown',
         },
         created_at: now,
         updated_at: now,
       };
+    }
+
+    if (drop.classificationDegraded) {
+      console.warn('[DropProcessor] Syncing degraded classification', {
+        localId,
+        bucket,
+        source: drop.classificationSource,
+      });
     }
 
     console.log('[DropProcessor] Syncing to Supabase', { localId, table, entityType });
@@ -1176,6 +1191,68 @@ export async function processDrop(
       callbacks?.onPhase0Complete?.(localId, false);
 
       // =========================================
+      // DEGRADED CLASSIFICATION RETRY
+      // If Phase 1 returned a fallback classification,
+      // retry once after a short delay. Catches transient
+      // WiFi blips and momentary API errors.
+      // =========================================
+
+      if (phase1Result.classificationDegraded) {
+        console.warn('[DropProcessor] Phase 1 degraded, attempting retry', {
+          localId,
+          source: phase1Result.classificationSource || phase1Result.source,
+          fallbackBucket: phase1Result.bucket,
+          elapsed: Date.now() - startTime,
+        });
+
+        // Show "still thinking" message on the card
+        useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+          _retryingClassification: true,
+        });
+
+        // Wait 3 seconds for conditions to potentially improve
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+
+        // Only retry if we have network connectivity
+        if (networkStatus.isConnected) {
+          try {
+            const retryResult = await runPhase1(text, { hasAttachments: false });
+
+            if (!retryResult.classificationDegraded) {
+              console.log('[DropProcessor] Reclassification succeeded on retry', {
+                localId,
+                previousBucket: phase1Result.bucket,
+                newBucket: retryResult.bucket,
+                newSource: retryResult.source,
+                elapsed: Date.now() - startTime,
+              });
+              // Replace the degraded result with the real one
+              phase1Result = retryResult;
+            } else {
+              console.warn('[DropProcessor] Retry still degraded, proceeding with fallback', {
+                localId,
+                source: retryResult.classificationSource || retryResult.source,
+                elapsed: Date.now() - startTime,
+              });
+            }
+          } catch (retryErr) {
+            console.warn('[DropProcessor] Retry attempt threw error, proceeding with fallback', {
+              localId,
+              error: String(retryErr),
+              elapsed: Date.now() - startTime,
+            });
+          }
+        } else {
+          console.log('[DropProcessor] Offline, skipping retry', { localId });
+        }
+
+        // Clear the retrying state regardless of outcome
+        useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+          _retryingClassification: false,
+        });
+      }
+
+      // =========================================
       // SINGLE PATH: Use pre-phase result (already computed)
       // CHECKPOINT 1: Save after Phase 1 (expensive AI work)
       // =========================================
@@ -1255,6 +1332,8 @@ export async function processDrop(
         clarificationType: null,
         clarificationQuestion: null,
         clarificationOptions: null,
+        classificationDegraded: phase1Result.classificationDegraded || false,
+        classificationSource: phase1Result.classificationSource || phase1Result.source || 'unknown',
         status: 'classified', // Clear checkpoint status
       });
 

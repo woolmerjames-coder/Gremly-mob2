@@ -183,6 +183,21 @@ export interface Phase1Result {
     | 'phase1-fallback'
     | 'phase1-error-fallback';
 
+  /**
+   * True when the classification came from a fallback path rather than real AI analysis.
+   * Set when: client-side timeout fired (8s), cortex URL/anon key missing,
+   * API returned non-ok status, response missing bucket field, or worker returned
+   * a fallback source ('preparse-fallback', 'phase1-fallback', 'phase1-error-fallback', 'heuristic-fallback').
+   */
+  classificationDegraded?: boolean;
+
+  /**
+   * Raw source string from the API response (e.g. 'heuristic', 'api', 'heuristic-confirmed',
+   * 'preparse-fallback', 'phase1-error-fallback'). For logging/debugging to see exactly
+   * which classification path was taken.
+   */
+  classificationSource?: string;
+
   /** True if multiple items were detected in the input */
   is_multi: boolean;
 
