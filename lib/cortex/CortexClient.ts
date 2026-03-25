@@ -83,10 +83,12 @@ export interface Phase2EnrichmentResult {
   people?: string[];
   mood?: string[] | null; // AI-extracted moods for journal entries
   latency_ms?: number;
-  // Event-specific fields
-  target_date?: string | null; // Event date in YYYY-MM-DD format
+  // Date intelligence fields
+  target_date?: string | null; // Deadline date in YYYY-MM-DD format
+  scheduled_date?: string | null; // When user will do it, YYYY-MM-DD format
   end_date?: string | null; // End date for multi-day events
-  event_time?: string | null; // Event time in HH:mm format
+  event_time?: string | null; // Explicit time in HH:mm format
+  date_type_ambiguous?: boolean; // True when date could be deadline or scheduled
 }
 
 const mask = (value: string) => (value ? `${value.slice(0, 4)}…${value.slice(-4)}` : '(missing)');

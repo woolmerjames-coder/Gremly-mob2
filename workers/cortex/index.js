@@ -2690,19 +2690,12 @@ export default {
           tags = tags.filter((t) => !peopleNamesLower.includes(t));
         }
 
-        // Validate time estimate - NOW SUPPORTS BOTH TODOS AND HABITS
+        // Validate time_estimate_minutes — round to nearest 5, clamp 5-240
         let timeEstimate = parsed.time_estimate_minutes;
-        if (
-          (bucket === 'todo' || bucket === 'habit') &&
-          timeEstimate !== null &&
-          timeEstimate !== undefined
-        ) {
-          const allowed = [5, 10, 15, 30, 45, 60, 90, 120];
+        if (timeEstimate !== undefined && timeEstimate !== null) {
           const num = Number(timeEstimate);
-          if (Number.isFinite(num)) {
-            timeEstimate = allowed.reduce((prev, curr) =>
-              Math.abs(curr - num) < Math.abs(prev - num) ? curr : prev,
-            );
+          if (Number.isFinite(num) && num > 0) {
+            timeEstimate = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
           } else {
             timeEstimate = null;
           }
@@ -5721,15 +5714,12 @@ ${assistantMessage.substring(0, 2000)}
             days = parseDaysFromText(userMessage);
           }
 
-          // Validate time estimate
+          // Validate time_estimate_minutes — round to nearest 5, clamp 5-240
           let timeEstimateMinutes = null;
           if (resultType === 'habit' || resultType === 'todo') {
-            const allowed = [5, 10, 15, 30, 45, 60, 90, 120];
             const num = Number(parsed.timeEstimateMinutes);
-            if (Number.isFinite(num)) {
-              timeEstimateMinutes = allowed.reduce((prev, curr) =>
-                Math.abs(curr - num) < Math.abs(prev - num) ? curr : prev,
-              );
+            if (Number.isFinite(num) && num > 0) {
+              timeEstimateMinutes = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
             }
           }
 

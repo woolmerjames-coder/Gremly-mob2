@@ -405,7 +405,10 @@ export async function runPhase2(
             updatePayload.due_date = result.scheduledDate;
           }
         }
-        // Legacy fallback for extractedDate (backwards compatibility)
+        // DEPRECATED: Legacy fallback for extractedDate. Phase 2 prompt now returns
+        // target_date and scheduled_date directly. This path only fires if the AI
+        // returns extracted_date without target_date/scheduled_date, which shouldn't
+        // happen with current prompts. Safe to remove after confirming no regressions.
         if (result.extractedDate && !result.targetDate && !result.scheduledDate) {
           updatePayload.due_date = result.extractedDate;
           // CRITICAL: due_day is the canonical field for Today page visibility
@@ -705,13 +708,31 @@ export async function runPhase2Streaming(
               if (result.time_window) {
                 updatePayload.time_window = result.time_window;
               }
-              if (result.extracted_date) {
+
+              // Date Intelligence: use target_date/scheduled_date (preferred) with extracted_date fallback
+              if (result.target_date) {
+                updatePayload.target_date = result.target_date;
+                updatePayload.due_day = result.target_date;
+                updatePayload.due_date = result.target_date;
+              }
+              if (result.scheduled_date) {
+                updatePayload.scheduled_date = result.scheduled_date;
+                if (!result.target_date) {
+                  updatePayload.due_day = result.scheduled_date;
+                  updatePayload.due_date = result.scheduled_date;
+                }
+              }
+              // DEPRECATED: Legacy fallback — only fires if AI returns extracted_date without target_date/scheduled_date
+              if (result.extracted_date && !result.target_date && !result.scheduled_date) {
                 updatePayload.due_date = result.extracted_date;
-                // Extract YYYY-MM-DD portion for due_day
                 const dueDayValue = result.extracted_date.split('T')[0];
                 if (/^\d{4}-\d{2}-\d{2}$/.test(dueDayValue)) {
                   updatePayload.due_day = dueDayValue;
                 }
+              }
+              // Explicit time (only when user specified a time)
+              if (result.event_time) {
+                updatePayload.due_time = result.event_time;
               }
             }
 

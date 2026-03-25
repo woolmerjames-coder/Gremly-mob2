@@ -28,7 +28,6 @@ import { useGremlyStore } from '../store/useGremlyStore';
 import { eventBus } from '../events/EventBus';
 import { supabase } from '../supabase/client';
 import { dateService } from '../date/DateService';
-import { buildTodoFields } from '../cortex/textNormalization';
 import { parseFrequencyString } from '../habits/frequencyUtils';
 import { scheduleItemReminder, scheduleQuickReminder } from '../notifications/itemReminderService';
 import { hasNotificationPermission } from '../../src/utils/notifications';
@@ -136,7 +135,7 @@ const readSupabaseAnonKey = (): string => {
 // --- Helper: Extract temporal info from text for Phase 1.5 ---
 
 const TEMPORAL_PATTERN =
-  /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun|tomorrow|today|tonight|next\s+week|this\s+week|next\s+month|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\/\d{1,2}|\d{1,2}(st|nd|rd|th)?)\b/i;
+  /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun|tomorrow|today|tonight|next\s+week|this\s+week|next\s+month|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|(?:the\s+)?\d{1,2}(?:st|nd|rd|th)\s+(?:of\s+)?(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))\b/i;
 
 function extractTemporal(text: string): string | null {
   const match = text.match(TEMPORAL_PATTERN);
@@ -608,10 +607,10 @@ async function syncDropToSupabase(
       table = 'todos';
       entityType = 'todo';
 
-      const parsedFields = buildTodoFields(text);
       const dueDay =
+        enrichment?.target_date ||
+        enrichment?.scheduled_date ||
         enrichment?.extracted_date?.split('T')[0] ||
-        parsedFields.dueDay ||
         (source === 'today' ? effectiveDueDay : null);
 
       // Calculate buffers based on energy type
@@ -623,7 +622,7 @@ async function syncDropToSupabase(
 
       payload = {
         owner_id: userId,
-        name: smartTitle || parsedFields.title || text.substring(0, 60),
+        name: smartTitle || text.substring(0, 60),
         body: text,
         space_id: spaceId,
         drop_id: localId,
@@ -636,7 +635,10 @@ async function syncDropToSupabase(
         cooldown_buffer_minutes: buffers.cooldown_buffer_minutes,
         due_day: dueDay,
         due_date: dueDay,
-        due_time: parsedFields.dueTime || null,
+        due_time: enrichment?.event_time || null,
+        // Date Intelligence — top-level columns (not just views)
+        target_date: enrichment?.target_date || null,
+        scheduled_date: enrichment?.scheduled_date || null,
         // Phase 2: Clarification fields (direct columns)
         needs_clarification: drop.needsClarification || false,
         clarification_type: drop.clarificationType || null,
@@ -651,6 +653,7 @@ async function syncDropToSupabase(
           // Date Intelligence fields (stored in views JSONB)
           target_date: enrichment?.target_date || null,
           scheduled_date: enrichment?.scheduled_date || null,
+          event_time: enrichment?.event_time || null,
           date_type_ambiguous: enrichment?.date_type_ambiguous || false,
           // Phase 2: Clarification fields (also in views for redundancy)
           needs_clarification: drop.needsClarification || false,
