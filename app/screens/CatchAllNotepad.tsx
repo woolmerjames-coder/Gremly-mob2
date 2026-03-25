@@ -8282,12 +8282,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               isFedToday: useGremlyStore.getState().isFedToday,
               timeSinceLastDrop: storeLastDropTime ? Date.now() - storeLastDropTime : null,
               briefHeadline: null,
-              tone: null,
-              overdueTodos: 0,
-              habitStreakRisk: [],
-              upcomingIn7d: [],
-              daysSinceLastSweep: null,
-              lastSpeechTime: null,
+              tone: dco?.tone ?? null,
+              overdueTodos: dco?.active_today?.overdue_todos ?? 0,
+              habitStreakRisk: dco?.active_today?.habit_streak_risk ?? [],
+              upcomingIn7d: dco?.active_today?.upcoming_in_7d ?? [],
+              daysSinceLastSweep: lastSweepCompletedAt
+                ? Math.floor(
+                    (Date.now() - new Date(lastSweepCompletedAt).getTime()) / (1000 * 60 * 60 * 24),
+                  )
+                : null,
+              lastSpeechTime: lastSpeechTimeRef.current,
             };
             const speechResult = getGremlySpeech(speechCtx);
             if (speechResult) {
@@ -8532,12 +8536,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           isFedToday: useGremlyStore.getState().isFedToday,
           timeSinceLastDrop: storeLastDropTime ? Date.now() - storeLastDropTime : null,
           briefHeadline: null,
-          tone: null,
-          overdueTodos: 0,
-          habitStreakRisk: [],
-          upcomingIn7d: [],
-          daysSinceLastSweep: null,
-          lastSpeechTime: null,
+          tone: dco?.tone ?? null,
+          overdueTodos: dco?.active_today?.overdue_todos ?? 0,
+          habitStreakRisk: dco?.active_today?.habit_streak_risk ?? [],
+          upcomingIn7d: dco?.active_today?.upcoming_in_7d ?? [],
+          daysSinceLastSweep: lastSweepCompletedAt
+            ? Math.floor(
+                (Date.now() - new Date(lastSweepCompletedAt).getTime()) / (1000 * 60 * 60 * 24),
+              )
+            : null,
+          lastSpeechTime: lastSpeechTimeRef.current,
         };
         console.log('[Gremly Speech] speechCtx:', speechCtx);
         const speechResult = getGremlySpeech(speechCtx);
