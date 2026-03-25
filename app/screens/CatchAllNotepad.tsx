@@ -8198,23 +8198,27 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               dueDate = (createdTodo as any)?.due_date ?? (createdTodo as any)?.due_day ?? null;
             }
 
-            // Map confidence number to category
-            const rawConfidence = (result as any).decisionConfidence ?? 0.9;
-            const confidenceCategory: 'high' | 'medium' | 'low' =
-              rawConfidence >= 0.8 ? 'high' : rawConfidence >= 0.5 ? 'medium' : 'low';
-
             const speechCtx: SpeechContext = {
+              moment: 'post_drop',
               kind: uiKind,
               logSubtype: (detail as any).noteSubtype || undefined,
-              confidence: confidenceCategory,
               dueDate,
-              mode: 'auto',
               dropsToday: actionableDropsToday + (uiKind === 'todo' || uiKind === 'habit' ? 1 : 0),
               isFirstDrop: false,
               hasPhotos: pendingPhotoUris.length > 0,
               isReturningUser:
                 storeLastDropTime != null && Date.now() - storeLastDropTime > 24 * 60 * 60 * 1000,
               error: null,
+              gaugeValue: useGremlyStore.getState().feedingGaugeValue,
+              isFedToday: useGremlyStore.getState().isFedToday,
+              timeSinceLastDrop: storeLastDropTime ? Date.now() - storeLastDropTime : null,
+              briefHeadline: null,
+              tone: null,
+              overdueTodos: 0,
+              habitStreakRisk: [],
+              upcomingIn7d: [],
+              daysSinceLastSweep: null,
+              lastSpeechTime: null,
             };
             const speechResult = getGremlySpeech(speechCtx);
             if (speechResult) {
@@ -8444,23 +8448,27 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           dueDate = (createdTodo as any)?.due_date ?? null;
         }
 
-        // Map confidence number to category
-        const rawConfidence = finalResult.decisionConfidence ?? 0;
-        const confidenceCategory: 'high' | 'medium' | 'low' =
-          rawConfidence >= 0.8 ? 'high' : rawConfidence >= 0.5 ? 'medium' : 'low';
-
         const speechCtx: SpeechContext = {
+          moment: 'post_drop',
           kind: uiKind,
           logSubtype: (detail as any).noteSubtype || undefined,
-          confidence: confidenceCategory,
           dueDate,
-          mode: (finalResult.decisionMode as string) ?? 'auto',
           dropsToday: actionableDropsToday + (uiKind === 'todo' || uiKind === 'habit' ? 1 : 0),
           isFirstDrop: false,
           hasPhotos: currentSubmissionHasPhotosRef.current,
           isReturningUser:
             storeLastDropTime != null && Date.now() - storeLastDropTime > 24 * 60 * 60 * 1000,
           error: null,
+          gaugeValue: useGremlyStore.getState().feedingGaugeValue,
+          isFedToday: useGremlyStore.getState().isFedToday,
+          timeSinceLastDrop: storeLastDropTime ? Date.now() - storeLastDropTime : null,
+          briefHeadline: null,
+          tone: null,
+          overdueTodos: 0,
+          habitStreakRisk: [],
+          upcomingIn7d: [],
+          daysSinceLastSweep: null,
+          lastSpeechTime: null,
         };
         console.log('[Gremly Speech] speechCtx:', speechCtx);
         const speechResult = getGremlySpeech(speechCtx);
