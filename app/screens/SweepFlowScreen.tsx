@@ -2323,7 +2323,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
       // Open overlay in create mode with the target type and prefilled content
       overlayController.openCreate({
-        type: targetType,
+        type: targetType === 'note' ? 'log' : targetType,
         conversionMeta: {
           initialTitle: title,
           initialNote: body,
