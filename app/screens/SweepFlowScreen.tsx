@@ -22,7 +22,6 @@ import {
   ActivityIndicator,
   Pressable,
   Animated,
-  Easing,
   TouchableOpacity,
   Image,
   Modal,
@@ -42,7 +41,7 @@ import Reanimated, {
   withDelay,
   interpolate,
 } from 'react-native-reanimated';
-import Svg, { Path } from 'react-native-svg';
+
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -51,10 +50,7 @@ import { Icon } from '../../design-system/Icon';
 import {
   Flame,
   Sparkles,
-  Sprout,
   CheckCircle,
-  Leaf,
-  Moon,
   Check,
   Lightbulb,
   Repeat,
@@ -62,7 +58,7 @@ import {
 } from 'lucide-react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
-import { triggerLight, triggerSuccess } from '../../lib/haptics';
+import { triggerLight } from '../../lib/haptics';
 import { getDateService } from '../../lib/date';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
@@ -71,7 +67,7 @@ import {
   useIsLoading,
   useSweepCandidatesUnified,
 } from '../../lib/store/selectors';
-import type { Habit } from '../../lib/types';
+
 import { supabase } from '../../lib/supabase/client';
 import { env, getEnv } from '../../lib/env';
 import { markSweepCompleted } from '../../lib/sweep/engine';
@@ -83,7 +79,6 @@ import type {
   SweepSummary,
   SweepSummaryItem,
 } from '../../lib/sweep/types';
-import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import { SweepCardNew } from '../../components/sweep/SweepCardNew';
 import { SweepDemoFlow } from '../../components/sweep/SweepDemoFlow';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
@@ -108,7 +103,7 @@ import { scheduleItemReminder } from '../../lib/notifications/itemReminderServic
 import type { ItemReminder } from '../../lib/types';
 import { toDayString } from '../../lib/date/computeDueDay';
 import type { AppRecord } from '../../lib/types';
-import { SweepIntroStatsCard } from '../../components/sweep/SweepIntroStatsCard';
+
 import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
 import { getTierForAge } from '../../lib/constants/soulDocument';
 import { LockInCheckpointStep } from '../components/sweep/LockInCheckpointStep';
@@ -121,13 +116,11 @@ import {
 import { SweepHabitRow } from '../../src/sweep/SweepHabitRow';
 import {
   groupHabitsForSweep,
-  getOpenHabitsCount,
   isHabitsEmpty,
   type HabitWithMeta,
-  type GroupedHabits,
 } from '../../lib/sweep/habitHelpers';
 import { useSweepIntroStats } from '../../lib/sweep/useSweepIntroStats';
-import { ALL_MOODS, MOOD_CONFIG, getMoodsByCategory, type Mood } from '../../lib/shared/moods';
+import { ALL_MOODS, MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 import { CompletionBadges } from '../../components/sweep/CompletionBadges';
 import { SweepCelebrationTransition } from '../../components/sweep/SweepCelebrationTransition';
 import { SweepInstructionsModal } from '../../components/sweep/SweepInstructionsModal';
@@ -137,8 +130,6 @@ import { SweepEndItemList } from '../../components/sweep/SweepEndItemList';
 import { ClarificationPopup } from '../../components/minddrop/ClarificationPopup';
 
 // Gremly mascot for summary step
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_MASCOT_CELEBRATE = require('../../assets/mascot/sweepcomplete.png');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -243,6 +234,7 @@ function SweepIntroStep({
   };
 
   // Build breakdown string
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const buildBreakdown = () => {
     const parts: string[] = [];
     if (todoCount > 0) parts.push(`${todoCount} ${todoCount === 1 ? 'todo' : 'todos'}`);
@@ -371,12 +363,14 @@ function SweepIntroStep({
 function SweepMoodStep({ onContinue }: StepProps) {
   // Store mutations and data
   const createNote = useGremlyStore((state) => state.createNote);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const updateNote = useGremlyStore((state) => state.updateNote);
   const notes = useGremlyStore((state) => state.notes);
   const isTrainingMode = useGremlyStore((state) => state.isTrainingMode);
   const overlay = useGlobalOverlay();
 
   // Get recent entries since last sweep
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { stats, isLoading: statsLoading } = useSweepIntroStats();
 
   // State
@@ -968,7 +962,9 @@ function SweepHabitsStep({ onContinue }: StepProps) {
   // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       pendingTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       pendingTimeoutsRef.current.clear();
     };
   }, []);
@@ -1395,6 +1391,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const todos = useGremlyStore((state) => state.todos);
   const notes = useGremlyStore((state) => state.notes);
   const habits = useGremlyStore((state) => state.habits);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const spaces = useActiveSpaces();
   const overlayController = useOverlayController();
 
@@ -1408,7 +1405,9 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
   // Track age-up during sweep session
   // Use both state (for UI) and refs (for async callbacks that need latest values)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [didAgeUp, setDidAgeUp] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [finalAge, setFinalAge] = useState(useGremlyStore.getState().gremlyAge);
   const [showHelp, setShowHelp] = useState(false);
   const didAgeUpRef = useRef(false);
