@@ -2842,6 +2842,26 @@ async function readSSEStream(response) {
   return { fullText, inputTokens, outputTokens };
 }
 
+// ── Vibe system for weekly summary voice ────────────────────────────────────
+const SUMMARY_VIBES = {
+  supportive: {
+    voice: `YOUR VOICE: Warm, specific, encouraging. Like a friend who's genuinely proud of you and notices effort even when results are mixed. Celebrate what went well. When something was missed or struggled, frame it with compassion — not fake positivity, but genuine understanding. Every sentence must contain a specific detail from the data.`,
+    honesty: `HONESTY: If a habit is struggling, name it warmly — "meditation took a back seat this week, and that's okay." Never ignore problems, but always pair them with context or forward motion.`,
+  },
+  straight_up: {
+    voice: `YOUR VOICE: Clear, direct, no filler. Like a sharp colleague who respects your time. State what happened and what didn't. No cheerleading, no softening, no motivational language. Don't say "great job" or "don't worry." Just be specific and honest. Every sentence must contain a specific detail from the data.`,
+    honesty: `HONESTY: If a habit is struggling, say so plainly — "meditation: 1 of 7 days." If something was avoided, name it without editorializing. The user chose this mode because they want clarity, not comfort.`,
+  },
+  unhinged: {
+    voice: `YOUR VOICE: Chaotic, funny, irreverent. Like a best friend who loves you but will absolutely roast you. Celebrate wins with disproportionate hype. Call out avoidance with loving sarcasm. Use humor, metaphor, exaggeration. Be genuinely witty — not corny. Still specific and grounded in data, but make it entertaining. Every sentence must contain a specific detail from the data.`,
+    honesty: `HONESTY: If a habit is struggling, roast them lovingly — "you and meditation are in a situationship at this point." If something was avoided, make it funny but unmissable. The humor IS the honesty delivery mechanism.`,
+  },
+  philosopher: {
+    voice: `YOUR VOICE: Reflective, thoughtful, pattern-seeking. Like a therapist who reads too much. Step back from the surface events and find the deeper thread. Connect small behaviors to larger life questions. Frame mundane actions as part of bigger arcs. Use language that invites reflection rather than reports activity. Still grounded in specific data, but interpret what it might mean. Every sentence must contain a specific detail from the data.`,
+    honesty: `HONESTY: If a habit is struggling, explore what it might signal — "the meditation gap isn't about discipline, it's about what you're choosing to give your mornings to instead." Frame honesty as inquiry, not judgment.`,
+  },
+};
+
 // ── Main: generateWeeklySummaryV2 ───────────────────────────────────────────
 async function generateWeeklySummaryV2(
   analystOutput,
@@ -2853,6 +2873,7 @@ async function generateWeeklySummaryV2(
   priorSummaries,
   env,
   engagementStats,
+  vibe = 'supportive',
 ) {
   const t0 = Date.now();
 
@@ -3077,6 +3098,8 @@ ${JSON.stringify(storytellerData, null, 2)}`;
   // STEP 2: SONNET STORYTELLER (guided by brief, outputs full cards)
   // ════════════════════════════════════════════════════════════════════
 
+  const activeVibe = SUMMARY_VIBES[vibe] || SUMMARY_VIBES.supportive;
+
   const storytellerSystem = `You are Gremly, a warm and perceptive life companion. You're writing a weekly summary as an ordered set of cards. You have two inputs:
 
 1. An EDITORIAL BRIEF from a senior editor telling you which stories to focus on, which moments to highlight, and which quotes to use where. FOLLOW THE BRIEF. It has already made the editorial decisions — your job is to write beautifully within that direction.
@@ -3086,7 +3109,7 @@ ${JSON.stringify(storytellerData, null, 2)}`;
 FACTUAL CONTEXT (from code — these are ground truth):
 ${factualContext}
 
-YOUR VOICE: Warm, specific, direct. Like a perceptive friend who notices what matters. Never generic. Every sentence must contain a specific detail.
+${activeVibe.voice}
 
 CARD SCHEMAS — output an ordered JSON array of cards. Respond with ONLY valid JSON, no markdown:
 {
@@ -3220,7 +3243,7 @@ CRITICAL RULES:
 7. WEEK AHEAD: Only events with importance >= 5. NEVER include recurring meetings, syncs, standups, status updates, or routine admin. Check the factual context for the explicit list of meetings to exclude.
 8. STALE TRIAGE: If stale items are provided in the schema above, include them exactly as given. Do not modify the items array.
 9. IMAGE HINTS: Broad scenic location keywords only. Never reference specific activities, objects, or people.
-10. HONESTY: If a habit is struggling, name it warmly. If something was skipped, say so. The user trusts Gremly because it's honest.`;
+10. ${activeVibe.honesty}`;
 
   const storytellerUser = `Write this user's weekly summary for ${weekStart} to ${weekEnd}.
 
@@ -6307,6 +6330,132 @@ export default {
             status: 500,
             headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
           },
+        );
+      }
+    }
+
+    if (url.pathname === '/api/test-vibe-summary' && request.method === 'POST') {
+      try {
+        const body = await request.json();
+        const userId = body.user_id;
+        const vibe = body.vibe || 'supportive';
+
+        if (!userId) {
+          return new Response(JSON.stringify({ error: 'user_id required' }), {
+            status: 400,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Validate vibe
+        const validVibes = ['supportive', 'straight_up', 'unhinged', 'philosopher'];
+        if (!validVibes.includes(vibe)) {
+          return new Response(
+            JSON.stringify({ error: `Invalid vibe. Must be one of: ${validVibes.join(', ')}` }),
+            { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+          );
+        }
+
+        // Read stored test data from 1999-01-03
+        const headers = {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        };
+
+        const res = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.1999-01-03&select=dco`,
+          { headers },
+        );
+        const rows = await res.json();
+
+        if (!rows?.[0]?.dco || rows[0].dco._type !== 'summary_v2_test') {
+          return new Response(
+            JSON.stringify({
+              error:
+                'No test data found at 1999-01-03. Run /api/run-summary-v2 first to generate base data.',
+            }),
+            { status: 404, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+          );
+        }
+
+        const stored = rows[0].dco;
+
+        // We need the snapshot to get priorSummaries and weeklySnapshot
+        // Re-fetch snapshot for this user (needed for priorSummaries and weeklySnapshot)
+        const timezone = body.timezone || 'Pacific/Tahiti';
+        const snapshot = await fetchUserSnapshot(userId, timezone, 21, env);
+        const weeklySnapshot = buildWeeklySnapshot(snapshot);
+        const priorSummaries = snapshot.raw.weeklySummaries || [];
+
+        // Compute week dates from the stored data or snapshot
+        const target = new Date(snapshot.targetDate + 'T00:00:00Z');
+        const dayOfWeek = target.getUTCDay();
+        const weekEndDate = new Date(target);
+        weekEndDate.setUTCDate(target.getUTCDate() - (dayOfWeek === 0 ? 0 : dayOfWeek));
+        const weekStartDate = new Date(weekEndDate);
+        weekStartDate.setUTCDate(weekEndDate.getUTCDate() - 6);
+        const weekStart = formatDateOnly(weekStartDate);
+        const weekEnd = formatDateOnly(weekEndDate);
+
+        // Fetch engagement stats
+        const dropsRes = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/daily_ritual_progress?owner_id=eq.${userId}&ritual_day=gte.${weekStart}&ritual_day=lte.${weekEnd}&select=drops_count`,
+          { headers },
+        );
+        const dropsRows = await dropsRes.json();
+        const totalDrops = (dropsRows || []).reduce((sum, r) => sum + (r.drops_count || 0), 0);
+
+        const sweepsRes = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/events?owner_id=eq.${userId}&kind=eq.sweep_completed&created_at=gte.${weekStart}&created_at=lt.${weekEnd}T23:59:59Z&select=id`,
+          { headers },
+        );
+        const sweepsRows = await sweepsRes.json();
+        const totalSweeps = (sweepsRows || []).length;
+
+        const journals = (snapshot.raw?.journals || []).filter(
+          (j) =>
+            j.subtype === 'journal' &&
+            j.created_at &&
+            j.created_at.split('T')[0] >= weekStart &&
+            j.created_at.split('T')[0] <= weekEnd,
+        ).length;
+
+        const engagementStats = { drops: totalDrops, sweeps: totalSweeps, journals };
+
+        // Run ONLY the storyteller with the specified vibe
+        const summaryResult = await generateWeeklySummaryV2(
+          stored.analyst_output,
+          stored.life_map_delta,
+          stored.rebuilt_life_map,
+          weeklySnapshot,
+          weekStart,
+          weekEnd,
+          priorSummaries,
+          env,
+          engagementStats,
+          vibe, // <-- the new parameter
+        );
+
+        return new Response(
+          JSON.stringify(
+            {
+              vibe,
+              week: `${weekStart} to ${weekEnd}`,
+              cards: summaryResult.summary?.cards || [],
+              metadata: summaryResult.summary?.metadata || {},
+              perf: summaryResult.metadata || {},
+            },
+            null,
+            2,
+          ),
+          { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+        );
+      } catch (err) {
+        console.error('[TestVibe] Error:', err);
+        return new Response(
+          JSON.stringify({ error: String(err), stack: err.stack?.slice(0, 500) }),
+          { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
         );
       }
     }
