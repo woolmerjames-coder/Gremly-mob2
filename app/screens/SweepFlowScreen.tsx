@@ -2237,6 +2237,62 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
     });
   }, [candidatesWithMeta, currentIndex, notes, overlayController]);
 
+  const handleConvertToType = useCallback(
+    (targetType: 'todo' | 'note' | 'habit') => {
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta) return;
+      const candidate = candidateWithMeta.candidate;
+
+      // Don't convert to the same type
+      if (candidate.kind === targetType) return;
+
+      // Prevent duplicate conversions
+      if (convertedCandidatesRef.current.has(candidate.id)) {
+        console.log('[SweepFlow] Candidate already converted, ignoring:', candidate.id);
+        return;
+      }
+
+      // Prevent re-triggering while conversion is in progress
+      if (convertingCandidateRef.current?.sourceId === candidate.id) {
+        console.log('[SweepFlow] Conversion already in progress for:', candidate.id);
+        return;
+      }
+
+      // Track that we're converting this candidate
+      convertingCandidateRef.current = {
+        sourceId: candidate.id,
+        sourceKind: candidate.kind,
+        targetType,
+      };
+
+      // Look up full record from the appropriate store
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let record: Record<string, any>;
+      if (candidate.kind === 'note') {
+        const note = notes.find((n) => n.id === candidate.id);
+        record = note ? { ...note, type: 'note' } : { ...candidate.raw, type: 'note' };
+      } else if (candidate.kind === 'todo') {
+        const todo = todos.find((t) => t.id === candidate.id);
+        record = todo ? { ...todo, type: 'todo' } : { ...candidate.raw, type: 'todo' };
+      } else {
+        const habit = habits.find((h) => h.id === candidate.id);
+        record = habit ? { ...habit, type: 'habit' } : { ...candidate.raw, type: 'habit' };
+      }
+
+      // Open overlay in create mode with target type and prefilled content
+      overlayController.openCreate({
+        type: targetType,
+        conversionMeta: {
+          initialTitle: (record.title as string) || (record.name as string) || '',
+          initialNote: (record.body as string) || (record.notes as string) || '',
+          initialTags: (record.tags as string[]) || [],
+          sourceNoteId: candidate.id,
+        },
+      });
+    },
+    [candidatesWithMeta, currentIndex, notes, todos, habits, overlayController],
+  );
+
   /**
    * Handle confirmed quick date (user selected + swiped right)
    * Records decision with calculated date - actual save happens in batch commit
@@ -2790,6 +2846,8 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
               onGoBack={currentIndex > 0 ? handleGoBackCard : undefined}
               previousDecision={currentDecision}
               onOpenChat={handleOpenChat}
+              onShowHelp={() => setShowHelp(true)}
+              onConvertToType={handleConvertToType}
             />
 
             {/* Clarification Popup - shown when current card needs clarification */}

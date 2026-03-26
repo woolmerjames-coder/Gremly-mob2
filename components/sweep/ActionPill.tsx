@@ -5,9 +5,8 @@ import * as Haptics from 'expo-haptics';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withSequence,
-  withSpring,
   withTiming,
+  Easing,
 } from 'react-native-reanimated';
 
 type ActionPillProps = {
@@ -25,18 +24,16 @@ export function ActionPill({
   onPress,
   showGremlyStamp = true,
 }: ActionPillProps) {
-  const stampScale = useSharedValue(0.5);
+  const stampScale = useSharedValue(0.85);
   const stampOpacity = useSharedValue(0);
 
   useEffect(() => {
     if (active) {
-      stampScale.value = withSequence(
-        withSpring(1.05, { damping: 12, stiffness: 180 }),
-        withSpring(1.0, { damping: 14, stiffness: 200 }),
-      );
-      stampOpacity.value = withTiming(1, { duration: 100 });
+      const timing = { duration: 180, easing: Easing.out(Easing.cubic) };
+      stampScale.value = withTiming(1.0, timing);
+      stampOpacity.value = withTiming(1, timing);
     } else {
-      stampScale.value = 0.5;
+      stampScale.value = 0.85;
       stampOpacity.value = 0;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

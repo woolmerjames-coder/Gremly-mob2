@@ -1,14 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Pressable, Modal, ScrollView, Switch, Platform, StyleSheet } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import {
-  format,
-  addDays,
-  setHours,
-  setMinutes,
-  nextMonday,
-  isSameDay,
-} from 'date-fns';
+import { format, addDays, setHours, setMinutes, nextMonday, isSameDay } from 'date-fns';
 import { CheckSquare, FileText, Repeat } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Text, Box } from '../../ui';
@@ -16,6 +9,8 @@ import { BRAND } from '../../design/brand';
 import { parseDayString } from '../../lib/date/computeDueDay';
 import { SweepCardShell } from './SweepCardShell';
 import { TodoActionZone } from './TodoActionZone';
+import { WrongTypePicker } from './WrongTypePicker';
+import { SweepConversionToast } from './SweepConversionToast';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -60,6 +55,8 @@ type SweepCardNewProps = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   previousDecision?: any;
   onOpenChat?: (presetHint?: string) => void;
+  onShowHelp?: () => void;
+  onConvertToType?: (newType: 'todo' | 'note' | 'habit') => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,6 +76,8 @@ export function SweepCardNew({
   isClarified,
   previousDecision,
   onOpenChat,
+  onShowHelp,
+  onConvertToType,
 }: SweepCardNewProps) {
   // ── Action zone state ──
   const [selectedAction, setSelectedAction] = useState<'tomorrow' | 'nextweek' | 'pickdate'>(
@@ -105,6 +104,8 @@ export function SweepCardNew({
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [selectedTime, setSelectedTime] = useState(new Date());
   const [selectedTimePreset, setSelectedTimePreset] = useState<string | null>(null);
+  const [showWrongTypePicker, setShowWrongTypePicker] = useState(false);
+  const [conversionMessage, setConversionMessage] = useState<string | null>(null);
 
   // ── Reset on candidate change + restore previousDecision ──
   useEffect(() => {
@@ -144,6 +145,22 @@ export function SweepCardNew({
     }
   }, [candidate.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Conversion toast ──
+  useEffect(() => {
+    if (isConverted) {
+      const timer = setTimeout(() => {
+        const msg =
+          candidate.kind === 'todo'
+            ? 'Now a Todo'
+            : candidate.kind === 'note'
+              ? 'Now a Note'
+              : 'Now a Habit';
+        setConversionMessage(msg);
+      }, 900);
+      return () => clearTimeout(timer);
+    }
+  }, [isConverted, candidate.kind]);
+
   // ── Type whisper / icon / badge ──
   const typeConfig = getTypeConfig(candidate);
 
@@ -152,7 +169,7 @@ export function SweepCardNew({
     (key: 'help' | 'chat' | 'details' | 'wrongtype') => {
       switch (key) {
         case 'help':
-          // Phase 2: show help overlay
+          onShowHelp?.();
           break;
         case 'chat':
           onOpenChat?.(
@@ -167,11 +184,11 @@ export function SweepCardNew({
           onOpenEdit();
           break;
         case 'wrongtype':
-          // Phase 2: type reclassification
+          setShowWrongTypePicker(true);
           break;
       }
     },
-    [candidate.kind, onOpenChat, onOpenEdit],
+    [candidate.kind, onOpenChat, onOpenEdit, onShowHelp, onConvertToType],
   );
 
   // ── Swipe handlers ──
@@ -186,9 +203,7 @@ export function SweepCardNew({
       }
 
       if (reminderEnabled && selectedReminder !== null && confirmedReminderDate) {
-        console.warn(
-          '[SweepCardNew] Reminder set but not yet wired to commit alongside schedule',
-        );
+        console.warn('[SweepCardNew] Reminder set but not yet wired to commit alongside schedule');
       }
     } else {
       // Notes and habits: Phase 1 placeholder
@@ -236,45 +251,69 @@ export function SweepCardNew({
 
   return (
     <>
-      <SweepCardShell
-        candidate={candidate}
-        meta={meta}
-        typeWhisper={typeConfig.whisper}
-        typeIcon={typeConfig.icon}
-        badge={typeConfig.badge}
-        onSwipeRight={handleSwipeRight}
-        onSwipeLeft={handleSwipeLeft}
-        onGremlyMenuItem={handleGremlyMenuItem}
-        isConverted={isConverted}
-        isClarified={isClarified}
-      >
-        {candidate.kind === 'todo' && (
-          <TodoActionZone
-            candidate={candidate}
-            meta={meta}
-            selectedAction={selectedAction}
-            onSelectAction={setSelectedAction}
-            reminderEnabled={reminderEnabled}
-            selectedReminder={selectedReminder}
-            onToggleReminder={() => setReminderEnabled(!reminderEnabled)}
-            onSelectReminder={setSelectedReminder}
-            confirmedCustomDate={confirmedCustomDate ? format(confirmedCustomDate, 'MMM d') : null}
-            onRequestDatePicker={() => {
-              setDatePickerMode('duedate');
-              setShowDatePicker(true);
-            }}
-            onRequestReminderDatePicker={() => {
-              setDatePickerMode('remind');
-              setShowDatePicker(true);
-            }}
-          />
-        )}
-        {candidate.kind === 'note' && (
-          <View style={styles.placeholderZone}>
-            <Text style={styles.placeholderText}>Note actions coming in Phase 2</Text>
-          </View>
-        )}
-      </SweepCardShell>
+      <View style={styles.cardOverlayContainer}>
+        <SweepCardShell
+          candidate={candidate}
+          meta={meta}
+          typeWhisper={typeConfig.whisper}
+          typeIcon={typeConfig.icon}
+          badge={typeConfig.badge}
+          onSwipeRight={handleSwipeRight}
+          onSwipeLeft={handleSwipeLeft}
+          onGremlyMenuItem={handleGremlyMenuItem}
+          isConverted={isConverted}
+          isClarified={isClarified}
+        >
+          {candidate.kind === 'todo' && (
+            <TodoActionZone
+              candidate={candidate}
+              meta={meta}
+              selectedAction={selectedAction}
+              onSelectAction={setSelectedAction}
+              reminderEnabled={reminderEnabled}
+              selectedReminder={selectedReminder}
+              onToggleReminder={() => setReminderEnabled(!reminderEnabled)}
+              onSelectReminder={setSelectedReminder}
+              confirmedCustomDate={
+                confirmedCustomDate ? format(confirmedCustomDate, 'MMM d') : null
+              }
+              onRequestDatePicker={() => {
+                setDatePickerMode('duedate');
+                setShowDatePicker(true);
+              }}
+              onRequestReminderDatePicker={() => {
+                setDatePickerMode('remind');
+                setShowDatePicker(true);
+              }}
+            />
+          )}
+          {candidate.kind === 'note' && (
+            <View style={styles.placeholderZone}>
+              <Text style={styles.placeholderText}>Note actions coming in Phase 2</Text>
+            </View>
+          )}
+        </SweepCardShell>
+
+        <WrongTypePicker
+          visible={showWrongTypePicker}
+          currentType={candidate.kind}
+          onSelect={(newType) => {
+            setShowWrongTypePicker(false);
+            if (newType === 'delete') {
+              onClear();
+            } else {
+              onConvertToType?.(newType);
+            }
+          }}
+          onClose={() => setShowWrongTypePicker(false)}
+        />
+
+        <SweepConversionToast
+          visible={conversionMessage !== null}
+          message={conversionMessage || ''}
+          onDismissed={() => setConversionMessage(null)}
+        />
+      </View>
 
       {/* Date picker modal */}
       <Modal visible={showDatePicker} transparent animationType="fade">
@@ -303,8 +342,7 @@ export function SweepCardNew({
                           styles.dateChip,
                           pressed && styles.dateChipPressed,
                           !clearDateFlag &&
-                            selectedDate.toDateString() ===
-                              addDays(new Date(), 1).toDateString() &&
+                            selectedDate.toDateString() === addDays(new Date(), 1).toDateString() &&
                             styles.dateChipSelected,
                         ]}
                       >
@@ -319,8 +357,7 @@ export function SweepCardNew({
                           styles.dateChip,
                           pressed && styles.dateChipPressed,
                           !clearDateFlag &&
-                            selectedDate.toDateString() ===
-                              addDays(new Date(), 7).toDateString() &&
+                            selectedDate.toDateString() === addDays(new Date(), 7).toDateString() &&
                             styles.dateChipSelected,
                         ]}
                       >
@@ -353,8 +390,7 @@ export function SweepCardNew({
                           styles.dateChip,
                           pressed && styles.dateChipPressed,
                           !clearDateFlag &&
-                            selectedDate.toDateString() ===
-                              addDays(new Date(), 1).toDateString() &&
+                            selectedDate.toDateString() === addDays(new Date(), 1).toDateString() &&
                             styles.dateChipSelected,
                         ]}
                       >
@@ -455,9 +491,7 @@ export function SweepCardNew({
                   <Text style={styles.dateModalCancelText}>Cancel</Text>
                 </Pressable>
                 <Pressable style={styles.dateModalConfirmButton} onPress={handleDateConfirm}>
-                  <Text style={styles.dateModalConfirmText}>
-                    {clearDateFlag ? 'Clear' : 'Set'}
-                  </Text>
+                  <Text style={styles.dateModalConfirmText}>{clearDateFlag ? 'Clear' : 'Set'}</Text>
                 </Pressable>
               </View>
             </ScrollView>
@@ -500,6 +534,10 @@ function getTypeConfig(candidate: SweepCandidate) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  cardOverlayContainer: {
+    flex: 1,
+    position: 'relative',
+  },
   placeholderZone: {
     padding: 22,
   },

@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { HelpCircle, Layers, MessageCircle, Shuffle } from 'lucide-react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSpring,
+  Easing,
 } from 'react-native-reanimated';
 import { BRAND } from '../../design/brand';
 
@@ -38,11 +38,13 @@ export function GremlyMenuButton({ onPress }: GremlyMenuButtonProps) {
         onPress={onPress}
       >
         <View style={styles.buttonOuter}>
-          <Image
-            source={require('../../assets/mascot/gremly-mascot.png')}
-            style={styles.buttonImage}
-            resizeMode="cover"
-          />
+          <View style={styles.buttonImageWrap}>
+            <Image
+              source={require('../../assets/mascot/gremly-mascot.png')}
+              style={styles.buttonImage}
+              resizeMode="contain"
+            />
+          </View>
         </View>
       </Pressable>
     </Animated.View>
@@ -69,59 +71,54 @@ const MENU_ITEMS: { key: MenuKey; icon: typeof HelpCircle; iconColor: string; la
 ];
 
 export function GremlyPopupMenu({ visible, onClose, onSelectItem }: GremlyPopupMenuProps) {
-  const menuScale = useSharedValue(0.92);
-  const menuTranslateY = useSharedValue(-4);
+  const menuScale = useSharedValue(0.95);
   const menuOpacity = useSharedValue(0);
   const [pressedKey, setPressedKey] = useState<MenuKey | null>(null);
 
   useEffect(() => {
+    const timing = { duration: 150, easing: Easing.out(Easing.cubic) };
     if (visible) {
-      menuScale.value = withSpring(1.0, { damping: 14, stiffness: 180 });
-      menuTranslateY.value = withSpring(0, { damping: 14, stiffness: 180 });
-      menuOpacity.value = withTiming(1, { duration: 120 });
+      menuScale.value = withTiming(1.0, timing);
+      menuOpacity.value = withTiming(1, timing);
     } else {
-      menuScale.value = 0.92;
-      menuTranslateY.value = -4;
+      menuScale.value = 0.95;
       menuOpacity.value = 0;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   const menuAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: menuScale.value }, { translateY: menuTranslateY.value }],
+    transform: [{ scale: menuScale.value }],
     opacity: menuOpacity.value,
   }));
 
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <View style={styles.menuPositioner}>
-          <Pressable>
-            <Animated.View style={[styles.menuContainer, menuAnimatedStyle]}>
-              {MENU_ITEMS.map((item) => {
-                const Icon = item.icon;
-                const isPressed = pressedKey === item.key;
-                return (
-                  <Pressable
-                    key={item.key}
-                    style={[styles.menuItem, isPressed && styles.menuItemPressed]}
-                    onPressIn={() => setPressedKey(item.key)}
-                    onPressOut={() => setPressedKey(null)}
-                    onPress={() => {
-                      onSelectItem(item.key);
-                      onClose();
-                    }}
-                  >
-                    <Icon size={15} strokeWidth={2} color={item.iconColor} />
-                    <Text style={styles.menuLabel}>{item.label}</Text>
-                  </Pressable>
-                );
-              })}
-            </Animated.View>
-          </Pressable>
-        </View>
-      </Pressable>
-    </Modal>
+    <>
+      <Pressable style={styles.backdrop} onPress={onClose} />
+      <Animated.View style={[styles.menuContainer, menuAnimatedStyle]}>
+        {MENU_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const isPressed = pressedKey === item.key;
+          return (
+            <Pressable
+              key={item.key}
+              style={[styles.menuItem, isPressed && styles.menuItemPressed]}
+              onPressIn={() => setPressedKey(item.key)}
+              onPressOut={() => setPressedKey(null)}
+              onPress={() => {
+                onSelectItem(item.key);
+                onClose();
+              }}
+            >
+              <Icon size={15} strokeWidth={2} color={item.iconColor} />
+              <Text style={styles.menuLabel}>{item.label}</Text>
+            </Pressable>
+          );
+        })}
+      </Animated.View>
+    </>
   );
 }
 
@@ -132,26 +129,31 @@ export function GremlyPopupMenu({ visible, onClose, onSelectItem }: GremlyPopupM
 const styles = StyleSheet.create({
   // Button
   buttonOuter: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     overflow: 'hidden',
+    backgroundColor: 'rgba(191,216,192,0.12)',
+  },
+  buttonImageWrap: {
+    width: 44,
+    height: 44,
+    alignItems: 'center' as const,
+    justifyContent: 'flex-end' as const,
+    paddingBottom: 2,
   },
   buttonImage: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 36,
+    height: 36,
   },
 
   // Menu
   backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.08)',
-  },
-  menuPositioner: {
-    alignItems: 'flex-end',
-    paddingRight: 34,
-    paddingTop: 8,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   menuContainer: {
     backgroundColor: '#FFFFFF',

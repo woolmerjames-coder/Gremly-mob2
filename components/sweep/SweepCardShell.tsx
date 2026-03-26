@@ -463,11 +463,13 @@ export function SweepCardShell({
               <View style={styles.gremlyButtonPosition}>
                 <GremlyMenuButton onPress={() => setMenuVisible(true)} />
               </View>
-              <GremlyPopupMenu
-                visible={menuVisible}
-                onClose={() => setMenuVisible(false)}
-                onSelectItem={onGremlyMenuItem}
-              />
+              <View style={styles.menuPosition}>
+                <GremlyPopupMenu
+                  visible={menuVisible}
+                  onClose={() => setMenuVisible(false)}
+                  onSelectItem={onGremlyMenuItem}
+                />
+              </View>
 
               {/* Type whisper row */}
               <View style={styles.typeWhisperRow}>
@@ -672,6 +674,12 @@ const styles = StyleSheet.create({
     top: 18,
     right: 18,
     zIndex: 10,
+  },
+  menuPosition: {
+    position: 'absolute',
+    top: 60,
+    right: 18,
+    zIndex: 100,
   },
   typeWhisperRow: {
     flexDirection: 'row',
