@@ -712,6 +712,16 @@ export default function HubScreen() {
     [scopedItems, scope, overlayController],
   );
 
+  const handleSearchItemPress = useCallback(
+    (item: HubItem) => {
+      const record = hubV1Items.find((r) => r.id === item.id);
+      if (record) {
+        overlayController.openEdit({ record });
+      }
+    },
+    [hubV1Items, overlayController],
+  );
+
   const handleMovePress = useCallback(
     async (item: HubItem) => {
       const record = scopedItems.find((r) => r.id === item.id);
@@ -1298,15 +1308,104 @@ export default function HubScreen() {
                   <Text style={hubV1Styles.resultCount}>
                     {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
                   </Text>
-                  {searchResults.map((item) => (
-                    <HubItemCard
-                      key={item.id}
-                      item={item}
-                      onPress={() => handleItemPress(item)}
-                      onSpacePress={(spaceId) => navigation.navigate('SpaceHome', { spaceId })}
-                      testID={`search-result-${item.id}`}
-                    />
-                  ))}
+                  {searchResults.map((item) => {
+                    // Derive dot color and type label from the underlying record
+                    const record = hubV1Items.find((r) => r.id === item.id);
+                    const itemType = record?.type ?? item.kind;
+                    const subtype = record?.type === 'note' ? (record as Note).subtype : undefined;
+                    const dotColor =
+                      itemType === 'todo'
+                        ? '#2E5540'
+                        : itemType === 'habit'
+                          ? '#9CA6E0'
+                          : subtype === 'journal'
+                            ? '#E0C47A'
+                            : subtype === 'idea'
+                              ? '#9CA6E0'
+                              : '#768879';
+                    const typeLabel =
+                      itemType === 'todo'
+                        ? 'To-Do'
+                        : itemType === 'habit'
+                          ? 'Habit'
+                          : subtype === 'journal'
+                            ? 'Journal'
+                            : subtype === 'idea'
+                              ? 'Idea'
+                              : subtype === 'event'
+                                ? 'Event'
+                                : 'Note';
+                    const chipBg =
+                      itemType === 'todo'
+                        ? '#2E554015'
+                        : itemType === 'habit'
+                          ? '#9CA6E020'
+                          : '#E0C47A25';
+                    const chipTextColor =
+                      itemType === 'todo'
+                        ? '#2E5540'
+                        : itemType === 'habit'
+                          ? '#6B74B8'
+                          : '#B8860B';
+
+                    return (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'flex-start',
+                          paddingHorizontal: 16,
+                          paddingVertical: 10,
+                          backgroundColor: '#FFFFFF',
+                          borderBottomWidth: StyleSheet.hairlineWidth,
+                          borderBottomColor: '#F3F3F3',
+                        }}
+                        onPress={() => handleSearchItemPress(item)}
+                        activeOpacity={0.6}
+                        testID={`search-result-${item.id}`}
+                      >
+                        <View
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 4,
+                            marginTop: 6,
+                            marginRight: 10,
+                            backgroundColor: dotColor,
+                          }}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Text
+                              numberOfLines={1}
+                              style={{
+                                flex: 1,
+                                fontSize: 15,
+                                fontWeight: '500',
+                                color: '#222222',
+                              }}
+                            >
+                              {item.title}
+                            </Text>
+                            <View
+                              style={{
+                                paddingHorizontal: 7,
+                                paddingVertical: 2,
+                                borderRadius: 6,
+                                backgroundColor: chipBg,
+                              }}
+                            >
+                              <Text
+                                style={{ fontSize: 11, fontWeight: '600', color: chipTextColor }}
+                              >
+                                {typeLabel}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
                   {/* Search archived items link */}
                   <TouchableOpacity
                     style={hubV1Styles.searchArchivedLink}
