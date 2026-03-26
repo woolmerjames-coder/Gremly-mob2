@@ -1,11 +1,5 @@
 import React, { useCallback, useState, useRef, useEffect } from 'react';
-import {
-  View,
-  StyleSheet,
-  Dimensions,
-  Pressable,
-  Image,
-} from 'react-native';
+import { View, StyleSheet, Dimensions, Pressable, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, {
@@ -86,6 +80,7 @@ function shouldHidePreview(title: string, preview: string | null | undefined): b
   return false;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function animateCardExit(
   direction: 'left' | 'right',
   translateX: SharedValue<number>,
@@ -141,7 +136,7 @@ type SweepCardShellProps = {
 
 export function SweepCardShell({
   candidate,
-  meta,
+  meta: _meta,
   typeWhisper,
   typeIcon,
   badge,
@@ -418,7 +413,7 @@ export function SweepCardShell({
     candidate.kind === 'note'
       ? candidate.raw.body
       : candidate.kind === 'todo'
-        ? candidate.raw.name
+        ? candidate.raw.body
         : null;
   const hidePreview = shouldHidePreview(title, previewText);
 
@@ -491,9 +486,7 @@ export function SweepCardShell({
                     {badge.icon ? (
                       <View style={styles.badgeIconRow}>
                         {badge.icon}
-                        <Text style={[styles.badgeText, { color: badge.color }]}>
-                          {badge.text}
-                        </Text>
+                        <Text style={[styles.badgeText, { color: badge.color }]}>{badge.text}</Text>
                       </View>
                     ) : (
                       <Text style={[styles.badgeText, { color: badge.color }]}>{badge.text}</Text>
@@ -644,9 +637,9 @@ const styles = StyleSheet.create({
   swipeCardContainer: {
     width: CARD_WIDTH,
     maxWidth: 400,
-    minHeight: 340,
+    minHeight: 400,
     flex: 1,
-    maxHeight: 520,
+    maxHeight: 600,
     borderRadius: 22,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -720,6 +713,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 14,
+    fontWeight: '400' as const,
     color: 'rgba(34,34,34,0.4)',
     marginTop: 6,
     lineHeight: 19,

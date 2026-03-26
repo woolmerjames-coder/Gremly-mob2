@@ -25,20 +25,21 @@ export function ActionPill({
   onPress,
   showGremlyStamp = true,
 }: ActionPillProps) {
-  const stampScale = useSharedValue(0.3);
+  const stampScale = useSharedValue(0.5);
   const stampOpacity = useSharedValue(0);
 
   useEffect(() => {
     if (active) {
       stampScale.value = withSequence(
-        withSpring(1.15, { damping: 8, stiffness: 180 }),
-        withSpring(1.0, { damping: 12, stiffness: 200 }),
+        withSpring(1.05, { damping: 12, stiffness: 180 }),
+        withSpring(1.0, { damping: 14, stiffness: 200 }),
       );
       stampOpacity.value = withTiming(1, { duration: 100 });
     } else {
-      stampScale.value = 0.3;
+      stampScale.value = 0.5;
       stampOpacity.value = 0;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   const stampAnimatedStyle = useAnimatedStyle(() => ({

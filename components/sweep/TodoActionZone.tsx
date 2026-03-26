@@ -1,13 +1,7 @@
 import React from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
-import {
-  ArrowRight,
-  CalendarDays,
-  Calendar,
-  Bell,
-  ChevronDown,
-} from 'lucide-react-native';
+import { ArrowRight, CalendarDays, Calendar, Bell, ChevronDown } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { ActionPill } from './ActionPill';
 import { ContextHeader } from './ContextHeader';
@@ -44,7 +38,7 @@ const REMINDER_PILLS: { key: ReminderKey; label: string }[] = [
 ];
 
 export function TodoActionZone({
-  candidate,
+  candidate: _candidate,
   meta,
   selectedAction,
   onSelectAction,
@@ -58,7 +52,7 @@ export function TodoActionZone({
 }: TodoActionZoneProps) {
   const status = getStatus(meta);
 
-  const bellColor = reminderEnabled ? '#9CA6E0' : 'rgba(34,34,34,0.45)';
+  const bellColor = reminderEnabled ? '#2E5540' : 'rgba(34,34,34,0.45)';
   const chevronColor = bellColor;
 
   return (
@@ -107,7 +101,7 @@ export function TodoActionZone({
           <Text
             style={[
               styles.toggleLabel,
-              { color: reminderEnabled ? '#5B6494' : 'rgba(34,34,34,0.45)' },
+              { color: reminderEnabled ? '#2E5540' : 'rgba(34,34,34,0.45)' },
             ]}
           >
             {reminderEnabled ? 'Set reminder' : 'Add a reminder'}
@@ -189,9 +183,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   bellContainerActive: {
-    backgroundColor: 'rgba(156,166,224,0.18)',
+    backgroundColor: 'rgba(191,216,192,0.15)',
     borderWidth: 1.5,
-    borderColor: 'rgba(156,166,224,0.4)',
+    borderColor: 'rgba(191,216,192,0.35)',
   },
   bellContainerInactive: {
     backgroundColor: 'rgba(34,34,34,0.03)',
@@ -217,24 +211,24 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   subPillInactive: {
-    backgroundColor: 'rgba(156,166,224,0.06)',
+    backgroundColor: 'rgba(191,216,192,0.08)',
     borderWidth: 1.5,
-    borderColor: 'rgba(156,166,224,0.15)',
+    borderColor: 'rgba(191,216,192,0.2)',
   },
   subPillActive: {
-    backgroundColor: 'rgba(156,166,224,0.18)',
+    backgroundColor: 'rgba(191,216,192,0.25)',
     borderWidth: 1.5,
-    borderColor: 'rgba(156,166,224,0.4)',
+    borderColor: 'rgba(46,85,64,0.3)',
   },
   subPillText: {
     fontSize: 11.5,
   },
   subPillTextInactive: {
     fontWeight: '500',
-    color: 'rgba(156,166,224,0.6)',
+    color: 'rgba(34,34,34,0.45)',
   },
   subPillTextActive: {
     fontWeight: '700',
-    color: '#5B6494',
+    color: '#2E5540',
   },
 });

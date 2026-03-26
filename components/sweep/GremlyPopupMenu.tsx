@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { HelpCircle, Layers, MessageCircle, Shuffle } from 'lucide-react-native';
 import Animated, {
   useSharedValue,
@@ -29,27 +28,21 @@ export function GremlyMenuButton({ onPress }: GremlyMenuButtonProps) {
     <Animated.View style={animatedStyle}>
       <Pressable
         onPressIn={() => {
+          // eslint-disable-next-line react-hooks/immutability
           scale.value = withTiming(1.08, { duration: 150 });
         }}
         onPressOut={() => {
+          // eslint-disable-next-line react-hooks/immutability
           scale.value = withTiming(1.0, { duration: 150 });
         }}
         onPress={onPress}
       >
         <View style={styles.buttonOuter}>
-          <LinearGradient
-            colors={['rgba(191,216,192,0.35)', 'rgba(191,216,192,0.15)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
+          <Image
+            source={require('../../assets/mascot/gremly-mascot.png')}
+            style={styles.buttonImage}
+            resizeMode="cover"
           />
-          <View style={styles.buttonImageCrop}>
-            <Image
-              source={require('../../assets/mascot/gremly-mascot.png')}
-              style={styles.buttonImage}
-              resizeMode="cover"
-            />
-          </View>
         </View>
       </Pressable>
     </Animated.View>
@@ -91,6 +84,7 @@ export function GremlyPopupMenu({ visible, onClose, onSelectItem }: GremlyPopupM
       menuTranslateY.value = -4;
       menuOpacity.value = 0;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   const menuAnimatedStyle = useAnimatedStyle(() => ({
@@ -142,27 +136,11 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 21,
     overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: 'rgba(191,216,192,0.4)',
-    shadowColor: 'rgba(46,85,64,1)',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonImageCrop: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    overflow: 'hidden',
   },
   buttonImage: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    marginTop: -4,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
   },
 
   // Menu
