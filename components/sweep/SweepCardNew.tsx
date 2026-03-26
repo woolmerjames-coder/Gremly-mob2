@@ -1,14 +1,34 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Pressable, Modal, ScrollView, Switch, Platform, StyleSheet } from 'react-native';
+import {
+  View,
+  Pressable,
+  Modal,
+  ScrollView,
+  Switch,
+  Platform,
+  StyleSheet,
+  FlatList,
+} from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { format, addDays, setHours, setMinutes, nextMonday, isSameDay } from 'date-fns';
-import { CheckSquare, FileText, Repeat } from 'lucide-react-native';
+import { format, addDays, subDays, setHours, setMinutes, nextMonday, isSameDay } from 'date-fns';
+import {
+  CheckSquare,
+  FileText,
+  Repeat,
+  Lightbulb,
+  CalendarCheck,
+  RotateCcw,
+} from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Text, Box } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { parseDayString } from '../../lib/date/computeDueDay';
+import { useActiveSpaces } from '../../lib/store/selectors';
 import { SweepCardShell } from './SweepCardShell';
 import { TodoActionZone } from './TodoActionZone';
+import { IdeaActionZone } from './IdeaActionZone';
+import { GeneralNoteActionZone } from './GeneralNoteActionZone';
+import { EventActionZone } from './EventActionZone';
 import { WrongTypePicker } from './WrongTypePicker';
 import { SweepConversionToast } from './SweepConversionToast';
 import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
@@ -57,6 +77,13 @@ type SweepCardNewProps = {
   onOpenChat?: (presetHint?: string) => void;
   onShowHelp?: () => void;
   onConvertToType?: (newType: 'todo' | 'note' | 'habit') => void;
+  onUpdateEventDate?: (date: Date) => void;
+  onConfirmNoteAction?: (action: {
+    noteAction: 'fine' | 'resurface';
+    resurfaceDate?: Date;
+    reminderDate?: Date;
+    spaceId?: string;
+  }) => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,7 +105,12 @@ export function SweepCardNew({
   onOpenChat,
   onShowHelp,
   onConvertToType,
+  onConvertToTodo,
+  onUpdateEventDate,
+  onAddToSpace,
+  onConfirmNoteAction,
 }: SweepCardNewProps) {
+  const spaces = useActiveSpaces();
   // ── Action zone state ──
   const [selectedAction, setSelectedAction] = useState<'tomorrow' | 'nextweek' | 'pickdate'>(
     'tomorrow',
@@ -92,7 +124,9 @@ export function SweepCardNew({
 
   // ── Date picker state ──
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [datePickerMode, setDatePickerMode] = useState<'duedate' | 'remind'>('duedate');
+  const [datePickerMode, setDatePickerMode] = useState<
+    'duedate' | 'remind' | 'resurface' | 'eventremind' | 'eventdate'
+  >('duedate');
   const [selectedDate, setSelectedDate] = useState(() => {
     if (candidate.kind === 'todo' && candidate.raw.due_day) {
       const parsed = parseDayString(candidate.raw.due_day);
@@ -107,6 +141,22 @@ export function SweepCardNew({
   const [showWrongTypePicker, setShowWrongTypePicker] = useState(false);
   const [conversionMessage, setConversionMessage] = useState<string | null>(null);
 
+  // ── Note action zone state ──
+  const [noteAction, setNoteAction] = useState<'resurface' | 'maketodo' | 'fine'>(
+    meta.noteCardType === 'idea' ? 'resurface' : 'fine',
+  );
+  const [resurfaceTiming, setResurfaceTiming] = useState<'nextweek' | '2weeks' | 'pick' | null>(
+    'nextweek',
+  );
+  const [confirmedResurfaceDate, setConfirmedResurfaceDate] = useState<Date | null>(null);
+  const [eventReminder, setEventReminder] = useState<'daybefore' | 'weekbefore' | 'custom'>(
+    'daybefore',
+  );
+  const [confirmedEventReminderDate, setConfirmedEventReminderDate] = useState<Date | null>(null);
+  const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
+  const [selectedSpaceName, setSelectedSpaceName] = useState<string | null>(null);
+  const [showSpacePicker, setShowSpacePicker] = useState(false);
+
   // ── Reset on candidate change + restore previousDecision ──
   useEffect(() => {
     // Reset all state
@@ -120,6 +170,14 @@ export function SweepCardNew({
     setClearDateFlag(false);
     setShowTimePicker(false);
     setSelectedTimePreset(null);
+    setNoteAction(meta.noteCardType === 'idea' ? 'resurface' : 'fine');
+    setResurfaceTiming('nextweek');
+    setConfirmedResurfaceDate(null);
+    setEventReminder('daybefore');
+    setConfirmedEventReminderDate(null);
+    setSelectedSpaceId(null);
+    setSelectedSpaceName(null);
+    setShowSpacePicker(false);
 
     // Restore from previousDecision
     if (previousDecision?.dueDate) {
@@ -162,7 +220,7 @@ export function SweepCardNew({
   }, [isConverted, candidate.kind]);
 
   // ── Type whisper / icon / badge ──
-  const typeConfig = getTypeConfig(candidate);
+  const typeConfig = getTypeConfig(candidate, meta);
 
   // ── Gremly menu handler ──
   const handleGremlyMenuItem = useCallback(
@@ -205,19 +263,80 @@ export function SweepCardNew({
       if (reminderEnabled && selectedReminder !== null && confirmedReminderDate) {
         console.warn('[SweepCardNew] Reminder set but not yet wired to commit alongside schedule');
       }
+    } else if (candidate.kind === 'note' && meta.noteCardType === 'event') {
+      // Event notes: compute reminder date from event date, use onConfirmRemindLater
+      if (meta.eventDate && eventReminder) {
+        const eventDateObj = new Date(meta.eventDate);
+        let reminderDate: Date | null = null;
+        if (eventReminder === 'daybefore') {
+          reminderDate = subDays(eventDateObj, 1);
+        } else if (eventReminder === 'weekbefore') {
+          reminderDate = subDays(eventDateObj, 7);
+        } else if (eventReminder === 'custom' && confirmedEventReminderDate) {
+          reminderDate = confirmedEventReminderDate;
+        }
+        if (reminderDate) {
+          onConfirmNoteAction?.({
+            noteAction: 'fine',
+            reminderDate,
+            spaceId: selectedSpaceId ?? undefined,
+          });
+          return;
+        }
+      }
+      // No valid reminder date — treat as fine
+      onConfirmNoteAction?.({
+        noteAction: 'fine',
+        spaceId: selectedSpaceId ?? undefined,
+      });
+    } else if (candidate.kind === 'note') {
+      // Idea / general notes
+      if (noteAction === 'maketodo') {
+        // Already converted via onConvertToTodo in onSelectAction — just advance
+        onSkip();
+      } else if (noteAction === 'resurface') {
+        let resurfaceDate: Date | null = null;
+        if (resurfaceTiming === 'nextweek') {
+          resurfaceDate = addDays(new Date(), 7);
+        } else if (resurfaceTiming === '2weeks') {
+          resurfaceDate = addDays(new Date(), 14);
+        } else if (resurfaceTiming === 'pick' && confirmedResurfaceDate) {
+          resurfaceDate = confirmedResurfaceDate;
+        }
+        onConfirmNoteAction?.({
+          noteAction: 'resurface',
+          resurfaceDate: resurfaceDate ?? undefined,
+          spaceId: selectedSpaceId ?? undefined,
+        });
+      } else {
+        // fine — mark as swept with optional space
+        onConfirmNoteAction?.({
+          noteAction: 'fine',
+          spaceId: selectedSpaceId ?? undefined,
+        });
+      }
     } else {
-      // Notes and habits: Phase 1 placeholder
+      // Habits: placeholder
       onSkip();
     }
   }, [
     candidate.kind,
+    meta.noteCardType,
+    meta.eventDate,
     selectedAction,
     confirmedCustomDate,
     reminderEnabled,
     selectedReminder,
     confirmedReminderDate,
+    noteAction,
+    resurfaceTiming,
+    confirmedResurfaceDate,
+    eventReminder,
+    confirmedEventReminderDate,
+    selectedSpaceId,
     onConfirmQuickDate,
     onConfirmCustomDate,
+    onConfirmNoteAction,
     onSkip,
   ]);
 
@@ -230,6 +349,14 @@ export function SweepCardNew({
     if (datePickerMode === 'remind') {
       setConfirmedReminderDate(selectedDate);
       setSelectedReminder('custom');
+    } else if (datePickerMode === 'resurface') {
+      setConfirmedResurfaceDate(selectedDate);
+      setResurfaceTiming('pick');
+    } else if (datePickerMode === 'eventremind') {
+      setConfirmedEventReminderDate(selectedDate);
+      setEventReminder('custom');
+    } else if (datePickerMode === 'eventdate') {
+      onUpdateEventDate?.(selectedDate);
     } else {
       setConfirmedCustomDate(selectedDate);
       setSelectedAction('pickdate');
@@ -238,7 +365,7 @@ export function SweepCardNew({
     setClearDateFlag(false);
     setShowTimePicker(false);
     setSelectedTimePreset(null);
-  }, [selectedDate, datePickerMode]);
+  }, [selectedDate, datePickerMode, onUpdateEventDate]);
 
   const handleDateCancel = useCallback(() => {
     setShowDatePicker(false);
@@ -287,10 +414,118 @@ export function SweepCardNew({
               }}
             />
           )}
-          {candidate.kind === 'note' && (
-            <View style={styles.placeholderZone}>
-              <Text style={styles.placeholderText}>Note actions coming in Phase 2</Text>
-            </View>
+          {candidate.kind === 'note' && meta.noteCardType === 'idea' && (
+            <IdeaActionZone
+              candidate={candidate}
+              meta={meta}
+              selectedAction={noteAction}
+              onSelectAction={(action) => {
+                setNoteAction(action);
+                if (action === 'maketodo') {
+                  onConvertToTodo?.();
+                }
+              }}
+              selectedResurfaceTiming={resurfaceTiming}
+              onSelectResurfaceTiming={setResurfaceTiming}
+              confirmedResurfaceDate={
+                confirmedResurfaceDate ? format(confirmedResurfaceDate, 'MMM d') : null
+              }
+              onRequestResurfaceDatePicker={() => {
+                setDatePickerMode('resurface');
+                setShowDatePicker(true);
+              }}
+              selectedSpaceId={selectedSpaceId}
+              selectedSpaceName={selectedSpaceName}
+              onRequestSpacePicker={() => setShowSpacePicker(true)}
+              onClearSpace={() => {
+                setSelectedSpaceId(null);
+                setSelectedSpaceName(null);
+              }}
+            />
+          )}
+          {candidate.kind === 'note' && meta.noteCardType === 'general' && (
+            <GeneralNoteActionZone
+              candidate={candidate}
+              meta={meta}
+              selectedAction={noteAction}
+              onSelectAction={(action) => {
+                setNoteAction(action);
+                if (action === 'maketodo') {
+                  onConvertToTodo?.();
+                }
+              }}
+              selectedResurfaceTiming={resurfaceTiming}
+              onSelectResurfaceTiming={setResurfaceTiming}
+              confirmedResurfaceDate={
+                confirmedResurfaceDate ? format(confirmedResurfaceDate, 'MMM d') : null
+              }
+              onRequestResurfaceDatePicker={() => {
+                setDatePickerMode('resurface');
+                setShowDatePicker(true);
+              }}
+              selectedSpaceId={selectedSpaceId}
+              selectedSpaceName={selectedSpaceName}
+              onRequestSpacePicker={() => setShowSpacePicker(true)}
+              onClearSpace={() => {
+                setSelectedSpaceId(null);
+                setSelectedSpaceName(null);
+              }}
+            />
+          )}
+          {candidate.kind === 'note' && meta.noteCardType === 'event' && (
+            <EventActionZone
+              candidate={candidate}
+              meta={meta}
+              selectedReminder={eventReminder}
+              onSelectReminder={setEventReminder}
+              confirmedCustomReminderDate={
+                confirmedEventReminderDate ? format(confirmedEventReminderDate, 'MMM d') : null
+              }
+              onRequestReminderDatePicker={() => {
+                setDatePickerMode('eventremind');
+                setShowDatePicker(true);
+              }}
+              onRequestEditEventDate={() => {
+                setDatePickerMode('eventdate');
+                setShowDatePicker(true);
+              }}
+              selectedSpaceId={selectedSpaceId}
+              selectedSpaceName={selectedSpaceName}
+              onRequestSpacePicker={() => setShowSpacePicker(true)}
+              onClearSpace={() => {
+                setSelectedSpaceId(null);
+                setSelectedSpaceName(null);
+              }}
+            />
+          )}
+          {candidate.kind === 'note' && !meta.noteCardType && (
+            <GeneralNoteActionZone
+              candidate={candidate}
+              meta={meta}
+              selectedAction={noteAction}
+              onSelectAction={(action) => {
+                setNoteAction(action);
+                if (action === 'maketodo') {
+                  onConvertToTodo?.();
+                }
+              }}
+              selectedResurfaceTiming={resurfaceTiming}
+              onSelectResurfaceTiming={setResurfaceTiming}
+              confirmedResurfaceDate={
+                confirmedResurfaceDate ? format(confirmedResurfaceDate, 'MMM d') : null
+              }
+              onRequestResurfaceDatePicker={() => {
+                setDatePickerMode('resurface');
+                setShowDatePicker(true);
+              }}
+              selectedSpaceId={selectedSpaceId}
+              selectedSpaceName={selectedSpaceName}
+              onRequestSpacePicker={() => setShowSpacePicker(true)}
+              onClearSpace={() => {
+                setSelectedSpaceId(null);
+                setSelectedSpaceName(null);
+              }}
+            />
           )}
         </SweepCardShell>
 
@@ -325,7 +560,15 @@ export function SweepCardNew({
               contentContainerStyle={styles.dateModalScroll}
             >
               <Text style={styles.dateModalTitle}>
-                {isRemindMode ? 'Reminder date' : 'Set due date'}
+                {datePickerMode === 'remind'
+                  ? 'Reminder date'
+                  : datePickerMode === 'resurface'
+                    ? 'Resurface date'
+                    : datePickerMode === 'eventremind'
+                      ? 'Reminder date'
+                      : datePickerMode === 'eventdate'
+                        ? 'Event date'
+                        : 'Set due date'}
               </Text>
 
               {/* Quick date chips */}
@@ -498,6 +741,52 @@ export function SweepCardNew({
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Space picker modal */}
+      <Modal visible={showSpacePicker} transparent animationType="fade">
+        <Pressable style={styles.dateModalBackdrop} onPress={() => setShowSpacePicker(false)}>
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={[styles.dateModalContent, { maxHeight: 400 }]}
+          >
+            <Text style={styles.dateModalTitle}>Add to space</Text>
+            <FlatList
+              data={spaces}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <Pressable
+                  onPress={() => {
+                    setSelectedSpaceId(item.id);
+                    setSelectedSpaceName(item.name);
+                    setShowSpacePicker(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.spacePickerRow,
+                    pressed && { opacity: 0.7 },
+                    selectedSpaceId === item.id && styles.spacePickerRowSelected,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.spacePickerText,
+                      selectedSpaceId === item.id && styles.spacePickerTextSelected,
+                    ]}
+                  >
+                    {item.name}
+                  </Text>
+                </Pressable>
+              )}
+              ListEmptyComponent={<Text style={styles.spacePickerEmpty}>No spaces yet</Text>}
+            />
+            <Pressable
+              style={styles.dateModalCancelButton}
+              onPress={() => setShowSpacePicker(false)}
+            >
+              <Text style={styles.dateModalCancelText}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   );
 }
@@ -506,7 +795,7 @@ export function SweepCardNew({
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getTypeConfig(candidate: SweepCandidate) {
+function getTypeConfig(candidate: SweepCandidate, meta?: SweepCardMeta) {
   switch (candidate.kind) {
     case 'todo':
       return {
@@ -514,12 +803,29 @@ function getTypeConfig(candidate: SweepCandidate) {
         icon: <CheckSquare size={11} strokeWidth={2.5} color="rgba(46,85,64,0.55)" />,
         badge: undefined,
       };
-    case 'note':
-      return {
-        whisper: 'NOTE',
-        icon: <FileText size={11} strokeWidth={2.5} color="rgba(46,85,64,0.55)" />,
-        badge: undefined,
-      };
+    case 'note': {
+      let whisper = 'NOTE';
+      let icon: React.ReactNode = (
+        <FileText size={11} strokeWidth={2.5} color="rgba(46,85,64,0.55)" />
+      );
+      if (meta?.noteCardType === 'idea') {
+        whisper = 'IDEA';
+        icon = <Lightbulb size={11} strokeWidth={2.5} color="rgba(46,85,64,0.55)" />;
+      } else if (meta?.noteCardType === 'event') {
+        whisper = 'EVENT';
+        icon = <CalendarCheck size={11} strokeWidth={2.5} color="rgba(46,85,64,0.55)" />;
+      }
+      const badge = meta?.resurfacedFromDate
+        ? {
+            text: `Resurfaced from ${meta.resurfacedFromDate}`,
+            color: '#5B6494',
+            backgroundColor: 'rgba(156,166,224,0.1)',
+            borderColor: 'rgba(156,166,224,0.2)',
+            icon: <RotateCcw size={9} strokeWidth={2.5} color="#5B6494" />,
+          }
+        : undefined;
+      return { whisper, icon, badge };
+    }
     case 'habit':
       return {
         whisper: 'HABIT',
@@ -640,5 +946,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  spacePickerRow: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: BRAND.radius.sm,
+    marginBottom: 4,
+  },
+  spacePickerRowSelected: {
+    backgroundColor: 'rgba(46,85,64,0.08)',
+  },
+  spacePickerText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: BRAND.colors.charcoalInk,
+  },
+  spacePickerTextSelected: {
+    color: BRAND.colors.mossGreen,
+    fontWeight: '600',
+  },
+  spacePickerEmpty: {
+    fontSize: 14,
+    color: BRAND.colors.inkSubtle,
+    textAlign: 'center',
+    paddingVertical: 24,
   },
 });

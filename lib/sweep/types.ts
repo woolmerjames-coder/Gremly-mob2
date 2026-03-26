@@ -203,6 +203,24 @@ export interface SweepCardMeta {
 
   /** Number of times this todo has been rescheduled in Sweep (0 for notes) */
   rescheduleCount: number;
+
+  /** Note subtype for card variant selection: 'idea' | 'general' | 'event' | null */
+  noteCardType?: 'idea' | 'general' | 'event' | null;
+
+  /** For notes that have been resurfaced before: formatted date string e.g. "Mar 12" */
+  resurfacedFromDate?: string | null;
+
+  /** For event notes: the target date as YYYY-MM-DD string */
+  eventDate?: string | null;
+
+  /** For event notes: formatted display date e.g. "Saturday, April 12" */
+  eventDateFormatted?: string | null;
+
+  /** For event notes: number of days until event (negative if passed) */
+  daysUntilEvent?: number | null;
+
+  /** Resurface count from database (how many times this note has been resurfaced) */
+  resurfaceCount?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

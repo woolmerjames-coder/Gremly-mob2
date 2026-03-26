@@ -174,14 +174,29 @@ type SweepDecision = {
   candidateId: string;
   candidateKind: 'todo' | 'habit' | 'note';
   action: 'keep' | 'clear' | 'skip';
-  // Timezone-safe string dates (YYYY-MM-DD) via DateService:
+
+  // Todo scheduling
   dueDateStr?: string;
-  startDateStr?: string;
-  resurfaceDateStr?: string;
-  // Legacy Date fields — kept for custom date picker path:
   dueDate?: Date;
-  startDate?: Date;
+
+  // Todo/Event reminders (push notifications)
+  reminderDateStr?: string;
+  reminderDate?: Date;
+  reminderTime?: string;
+
+  // Note resurfacing (sweep re-entry, NO notification)
+  resurfaceDateStr?: string;
   resurfaceDate?: Date;
+
+  // Note action type
+  noteAction?: 'fine' | 'resurface' | 'maketodo';
+
+  // Space assignment (independent)
+  spaceId?: string;
+
+  // Legacy fields kept for backward compatibility during transition
+  startDateStr?: string;
+  startDate?: Date;
   habitAction?: 'asktomorrow' | 'starttomorrow' | 'startmonday';
 };
 
@@ -1659,24 +1674,58 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             })(),
           );
         } else if (decision.candidateKind === 'note') {
-          // Note kept without special action = "Just Save"
-          // Mark as swept so it doesn't reappear in sweep
-          if (decision.resurfaceDate) {
-            // "Remind Me" - set resurface date
-            const resurfaceDateStr = ds.toLocalDate(decision.resurfaceDate);
+          // Check if this is a resurface action
+          if (
+            decision.noteAction === 'resurface' &&
+            (decision.resurfaceDate || decision.resurfaceDateStr)
+          ) {
+            const resurfaceDateStr =
+              decision.resurfaceDateStr || ds.toLocalDate(decision.resurfaceDate!);
             console.log('[SweepFlowScreen] Setting note resurface_at:', resurfaceDateStr);
 
-            // Look up original note for title
+            // Get current resurface_count
+            const originalNote = notes.find((n) => n.id === decision.candidateId);
+            const currentResurfaceCount = (originalNote as any)?.resurface_count ?? 0;
+
+            // Resurface = NO notification, just set the date for future sweep inclusion
+            updates.push(
+              updateNote(decision.candidateId, {
+                resurface_at: resurfaceDateStr,
+                swept_at: new Date().toISOString(),
+                skipped_in_sweep_at: null,
+                resurface_count: currentResurfaceCount + 1,
+                ...(decision.spaceId ? { space_id: decision.spaceId } : {}),
+              } as any),
+            );
+          } else if (
+            decision.noteAction === 'fine' ||
+            (!decision.resurfaceDate && !decision.resurfaceDateStr && !decision.reminderDate)
+          ) {
+            // "Fine as is" or no special action — mark as swept
+            console.log('[SweepFlowScreen] Marking note as swept:', decision.candidateId);
+            updates.push(
+              updateNote(decision.candidateId, {
+                swept_at: new Date().toISOString(),
+                skipped_in_sweep_at: null,
+                resurface_at: null,
+                ...(decision.spaceId ? { space_id: decision.spaceId } : {}),
+              } as any),
+            );
+          } else if (decision.reminderDate || decision.reminderDateStr) {
+            // Event reminder — this IS a push notification
+            const reminderDateStr =
+              decision.reminderDateStr || ds.toLocalDate(decision.reminderDate!);
+            console.log('[SweepFlowScreen] Setting event reminder:', reminderDateStr);
+
             const originalNote = notes.find((n) => n.id === decision.candidateId);
             const entityTitle =
-              originalNote?.title || originalNote?.body?.slice(0, 40) || 'Note reminder';
+              originalNote?.title || originalNote?.body?.slice(0, 40) || 'Event reminder';
 
-            // Schedule a local notification
             const reminder: ItemReminder = {
               id: `sweep-remind-${Date.now()}-${decision.candidateId.slice(0, 8)}`,
               time: '09:00',
               frequency: 'once',
-              date: resurfaceDateStr,
+              date: reminderDateStr,
             };
 
             updates.push(
@@ -1684,25 +1733,25 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
                 const notificationId = await scheduleItemReminder(
                   decision.candidateId,
                   entityTitle,
-                  'todo', // Use 'todo' type for notification content (notes don't have their own type)
+                  'todo',
                   reminder,
                 );
                 await updateNote(decision.candidateId, {
-                  resurface_at: resurfaceDateStr,
                   swept_at: new Date().toISOString(),
                   skipped_in_sweep_at: null,
                   reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
+                  ...(decision.spaceId ? { space_id: decision.spaceId } : {}),
                 } as any);
               })(),
             );
-          } else {
-            // "Just Save" - mark as swept
-            console.log('[SweepFlowScreen] Marking note as swept:', decision.candidateId);
+          } else if (decision.resurfaceDate) {
+            // Legacy path — old-style resurface (from existing handleConfirmRemindLater)
+            const resurfaceDateStr = ds.toLocalDate(decision.resurfaceDate);
             updates.push(
               updateNote(decision.candidateId, {
+                resurface_at: resurfaceDateStr,
                 swept_at: new Date().toISOString(),
                 skipped_in_sweep_at: null,
-                resurface_at: null, // Clear old resurface date
               } as any),
             );
           }
@@ -2401,6 +2450,53 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   );
 
   /**
+   * Handle confirmed note action (fine / resurface / event reminder)
+   * Called by SweepCardNew on swipe right for notes — bundles noteAction, dates, and spaceId.
+   */
+  const handleConfirmNoteAction = useCallback(
+    (action: {
+      noteAction: 'fine' | 'resurface';
+      resurfaceDate?: Date;
+      reminderDate?: Date;
+      spaceId?: string;
+    }) => {
+      useGremlyStore
+        .getState()
+        .incrementSweepCount()
+        .then(({ didAgeUp: aged, newAge }) => {
+          updateAgeUpState(aged, newAge);
+        })
+        .catch((err) => {
+          console.warn('[Sweep] Failed to increment sweep count:', err);
+        });
+
+      const candidateWithMeta = candidatesWithMeta[currentIndex];
+      if (!candidateWithMeta) return;
+      const { candidate } = candidateWithMeta;
+
+      recordDecision({
+        candidateId: candidate.id,
+        candidateKind: 'note',
+        action: 'keep',
+        noteAction: action.noteAction,
+        resurfaceDate: action.resurfaceDate,
+        reminderDate: action.reminderDate,
+        spaceId: action.spaceId,
+      });
+
+      const newStats = { ...stats, kept: stats.kept + 1 };
+      setStats(newStats);
+
+      if (currentIndex < candidatesWithMeta.length - 1) {
+        setCurrentIndex(currentIndex + 1);
+      } else {
+        handleAllCardsComplete(newStats);
+      }
+    },
+    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
+  );
+
+  /**
    * Handle confirmed custom date (user picked date in date picker + swiped right)
    * Records decision with custom date - actual save happens in batch commit
    */
@@ -2840,6 +2936,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
               onConfirmRemindLater={handleConfirmRemindLater}
               onConfirmCustomDate={handleConfirmCustomDate}
               onAddToSpace={handleAddToSpace}
+              onConfirmNoteAction={handleConfirmNoteAction}
               onConfirmHabitStart={handleConfirmHabitStart}
               onClose={onClose}
               hideBottomSaveExit={true}

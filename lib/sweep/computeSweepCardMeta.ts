@@ -129,6 +129,70 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
   // ─────────────────────────────────────────────────────────────────────────
   const gremlyResponse = getGremlyResponse(candidate, isNew, isLockedIn, rescheduleCount);
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Note card type (only for notes)
+  // ─────────────────────────────────────────────────────────────────────────
+  let noteCardType: SweepCardMeta['noteCardType'] = null;
+  if (candidate.kind === 'note') {
+    if ((candidate.raw as { target_date?: string | null }).target_date) {
+      noteCardType = 'event';
+    } else if (logSubtype === 'idea') {
+      noteCardType = 'idea';
+    } else {
+      noteCardType = 'general';
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Resurfaced-from date (only for notes with resurface_at)
+  // ─────────────────────────────────────────────────────────────────────────
+  let resurfacedFromDate: string | null = null;
+  if (candidate.kind === 'note') {
+    const resurface_at = (candidate.raw as { resurface_at?: string | null }).resurface_at;
+    if (resurface_at) {
+      try {
+        resurfacedFromDate = format(new Date(resurface_at + 'T12:00:00'), 'MMM d');
+      } catch {
+        resurfacedFromDate = null;
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Resurface count (only for notes)
+  // ─────────────────────────────────────────────────────────────────────────
+  const resurfaceCount =
+    candidate.kind === 'note'
+      ? ((candidate.raw as { resurface_count?: number }).resurface_count ?? 0)
+      : 0;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Event date fields (only for event notes)
+  // ─────────────────────────────────────────────────────────────────────────
+  const eventDate: string | null =
+    candidate.kind === 'note' && (candidate.raw as { target_date?: string | null }).target_date
+      ? ((candidate.raw as { target_date?: string | null }).target_date as string)
+      : null;
+
+  let eventDateFormatted: string | null = null;
+  if (eventDate) {
+    try {
+      eventDateFormatted = format(new Date(eventDate + 'T12:00:00'), 'EEEE, MMMM d');
+    } catch {
+      eventDateFormatted = null;
+    }
+  }
+
+  let daysUntilEvent: number | null = null;
+  if (eventDate) {
+    try {
+      const ds = getDateService();
+      daysUntilEvent = ds.daysBetween(ds.getCurrentDate(), eventDate);
+    } catch {
+      daysUntilEvent = null;
+    }
+  }
+
   return {
     typeChip,
     todoStatus,
@@ -141,5 +205,11 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
     isLockedIn,
     gremlyResponse,
     rescheduleCount,
+    noteCardType,
+    resurfacedFromDate,
+    resurfaceCount,
+    eventDate,
+    eventDateFormatted,
+    daysUntilEvent,
   };
 }
