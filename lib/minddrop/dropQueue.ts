@@ -143,6 +143,16 @@ export interface QueuedDrop {
   mood?: string[] | null;
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Classification quality tracking
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** True if classification came from a fallback, not real AI */
+  classificationDegraded?: boolean;
+
+  /** Source of the classification (e.g. 'api', 'heuristic', 'preparse-fallback') */
+  classificationSource?: string;
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Date Intelligence (Phase 2)
   // ──────────────────────────────────────────────────────────────────────────
 

@@ -93,7 +93,7 @@ import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionT
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
 import celebrationController from '../../app/features/celebration/CelebrationController';
-import MascotLottie from '../components/MascotLottie';
+import MascotLottie, { MascotLottieHandle } from '../components/MascotLottie';
 import { calculateSweepContribution, GAUGE_WEIGHTS } from '../../lib/constants/soulDocument';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { OverlayComponent } from '../../components/overlay';
@@ -693,8 +693,12 @@ function SweepMoodStep({ onContinue }: StepProps) {
             <Text variant="title" style={styles.moodStepTitle}>
               How was your day?
             </Text>
-            <Text style={styles.moodStepSubcopy}>
-              Everything here is optional,{'\n'}just a moment to pause.
+            <Text
+              style={[styles.moodStepSubcopy, isTrainingMode && styles.moodStepSubcopyTraining]}
+            >
+              {isTrainingMode
+                ? 'Training mode \u2014 journal daily to help your Gremly learn faster. Optional, but worth it.'
+                : 'Everything here is optional,\njust a moment to pause.'}
             </Text>
           </View>
           <Image
@@ -746,15 +750,6 @@ function SweepMoodStep({ onContinue }: StepProps) {
                 ))}
               </View>
             )}
-          </View>
-        )}
-
-        {/* Training mode prompt */}
-        {isTrainingMode && (
-          <View style={styles.trainingPrompt}>
-            <Text style={styles.trainingPromptText}>
-              Want to write about this one? It helps Gremly understand you better.
-            </Text>
           </View>
         )}
 
@@ -2933,6 +2928,8 @@ function SweepSummaryStep({
   const gremlyAge = useGremlyStore((s) => s.gremlyAge);
   const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
 
+  const mascotRef = useRef<MascotLottieHandle>(null);
+
   // Capture pre-sweep gauge value on mount (before any preview)
   const preSweepGaugeRef = useRef(feedingGaugeValue);
 
@@ -2951,6 +2948,19 @@ function SweepSummaryStep({
   const contributionPercent = Math.round(sweepContribution * 100);
   const willCrossFed =
     preSweepGaugeRef.current < 1.0 && preSweepGaugeRef.current + sweepContribution >= 1.0;
+
+  // Display-adjusted fed days: if isFedToday is true but fedDaysCount
+  // hasn't caught up from the server yet, ensure at least 1 shows.
+  // Also account for sweep optimistic crossing during this session.
+  const displayFedDays = useMemo(() => {
+    if (willCrossFed) {
+      return fedDaysCount + 1;
+    }
+    if (isFedToday) {
+      return Math.max(fedDaysCount, 1);
+    }
+    return fedDaysCount;
+  }, [fedDaysCount, isFedToday, willCrossFed]);
 
   // Tomorrow data (same as before)
   const allTodos = useGremlyStore((state) => state.todos);
@@ -3087,6 +3097,13 @@ function SweepSummaryStep({
       const { justCrossedFed } = useGremlyStore
         .getState()
         .previewSweepGauge(totalProcessed, journalWritten);
+
+      // Trigger the correct Lottie animation
+      if (justCrossedFed) {
+        mascotRef.current?.celebrateFed();
+      } else {
+        mascotRef.current?.celebrate();
+      }
 
       if (justCrossedFed) {
         const nextFedDay = useGremlyStore.getState().fedDaysCount + 1;
@@ -3304,7 +3321,7 @@ function SweepSummaryStep({
           {/* MascotLottie */}
           <View style={styles.gaugeRevealMascotContainer}>
             <Reanimated.View style={lottieAnimatedStyle}>
-              <MascotLottie />
+              <MascotLottie ref={mascotRef} />
             </Reanimated.View>
           </View>
 
@@ -3323,11 +3340,13 @@ function SweepSummaryStep({
                   key={day}
                   style={[
                     styles.gaugeRevealDot,
-                    day <= fedDaysCount ? styles.gaugeRevealDotFilled : styles.gaugeRevealDotEmpty,
+                    day <= displayFedDays
+                      ? styles.gaugeRevealDotFilled
+                      : styles.gaugeRevealDotEmpty,
                   ]}
                 />
               ))}
-              <Text style={styles.gaugeRevealFedText}>{fedDaysCount} of 3 fed days</Text>
+              <Text style={styles.gaugeRevealFedText}>{displayFedDays} of 3 fed days</Text>
             </View>
           </Reanimated.View>
 
@@ -4729,6 +4748,12 @@ const styles = StyleSheet.create({
     color: 'rgba(34, 34, 34, 0.75)',
     lineHeight: 22,
   },
+  moodStepSubcopyTraining: {
+    color: BRAND.colors.mossGreen,
+    fontSize: 13,
+    fontFamily: 'Inter-Medium',
+    lineHeight: 19,
+  },
   // Recent Entries Section (Collapsible)
   recentEntriesSection: {
     marginBottom: 16,
@@ -4783,25 +4808,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '400',
     color: BRAND.colors.charcoalInk,
-  },
-  // Training mode prompt
-  trainingPrompt: {
-    backgroundColor: '#E8F0E5',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-  },
-  trainingPromptText: {
-    fontSize: 13,
-    color: BRAND.colors.mossGreen,
-    fontFamily: 'Inter-Regular',
-    lineHeight: 18,
-  },
-  trainingPromptCounter: {
-    fontSize: 11,
-    color: '#8FA889',
-    fontFamily: 'Inter-Regular',
-    marginTop: 4,
   },
   // Journal Input Section
   journalSection: {
@@ -5549,12 +5555,14 @@ const styles = StyleSheet.create({
   gaugeRevealAgeContainer: {
     alignItems: 'center',
     marginBottom: 16,
+    paddingTop: 4,
   },
   gaugeRevealAge: {
     fontSize: 24,
     fontFamily: 'PlusJakartaSans-Bold',
     fontWeight: '700',
     color: BRAND.colors.charcoalInk,
+    lineHeight: 34,
     marginBottom: 8,
   },
   gaugeRevealFedDots: {

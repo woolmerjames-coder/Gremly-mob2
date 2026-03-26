@@ -150,8 +150,16 @@ export default function App() {
   }, []);
 
   const handleAgeUpDismiss = useCallback(() => {
+    const dismissedAge = ageUpState.age;
     setAgeUpState({ visible: false, age: 0 });
-  }, []);
+    // Trigger post-age-up Gremly speech after a short delay
+    // so the modal exit animation completes first
+    if (dismissedAge > 0) {
+      setTimeout(() => {
+        celebrationController.showPostAgeUpSpeech(dismissedAge);
+      }, 600);
+    }
+  }, [ageUpState.age]);
 
   // Derive app readiness from fonts (no setState needed)
   const appIsReady = fontsLoaded || fontsError;
@@ -690,10 +698,7 @@ export default function App() {
       />
 
       {/* Graduation ceremony overlay */}
-      <GraduationFlow
-        visible={pendingGraduation}
-        onComplete={finalizeGraduation}
-      />
+      <GraduationFlow visible={pendingGraduation} onComplete={finalizeGraduation} />
     </View>
   );
 }

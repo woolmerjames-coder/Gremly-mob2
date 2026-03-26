@@ -28,12 +28,12 @@ import { useGremlyStore } from '../store/useGremlyStore';
 import { eventBus } from '../events/EventBus';
 import { supabase } from '../supabase/client';
 import { dateService } from '../date/DateService';
-import { buildTodoFields } from '../cortex/textNormalization';
 import { parseFrequencyString } from '../habits/frequencyUtils';
 import { scheduleItemReminder, scheduleQuickReminder } from '../notifications/itemReminderService';
 import { hasNotificationPermission } from '../../src/utils/notifications';
 import type { ItemReminder } from '../types';
 import { env, getEnv } from '../env';
+import { networkStatus } from '../network/NetworkStatus';
 
 // --- Session-scoped recent reactions (in-memory only, resets on cold start) ---
 const recentReactions: string[] = [];
@@ -116,6 +116,7 @@ interface SyncResult {
 // --- Constants ---
 
 const PHASE2_TIMEOUT_MS = 8000;
+const PHASE1_5A_TIMEOUT_MS = 6000;
 
 const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
 
@@ -134,7 +135,7 @@ const readSupabaseAnonKey = (): string => {
 // --- Helper: Extract temporal info from text for Phase 1.5 ---
 
 const TEMPORAL_PATTERN =
-  /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun|tomorrow|today|tonight|next\s+week|this\s+week|next\s+month|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\/\d{1,2}|\d{1,2}(st|nd|rd|th)?)\b/i;
+  /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun|tomorrow|today|tonight|next\s+week|this\s+week|next\s+month|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|(?:the\s+)?\d{1,2}(?:st|nd|rd|th)\s+(?:of\s+)?(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))\b/i;
 
 function extractTemporal(text: string): string | null {
   const match = text.match(TEMPORAL_PATTERN);
@@ -301,49 +302,70 @@ async function runPhase1_5a(
     return null;
   }
 
-  try {
-    const t0 = Date.now();
-    const res = await fetch(cortexUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${anonKey}`,
-      },
-      body: JSON.stringify({
-        type: 'enrich-phase1-5a',
-        text,
-        bucket,
-        subtype,
-        recentReactions: [...recentReactions],
-      }),
-    });
+  const timeoutPromise = new Promise<null>((resolve) => {
+    setTimeout(() => resolve(null), PHASE1_5A_TIMEOUT_MS);
+  });
 
-    if (!res.ok) {
-      console.log('[DropProcessor] Phase 1.5a API returned non-ok status', { status: res.status });
+  const apiPromise = (async (): Promise<{
+    smart_title: string | null;
+    confirmation_message: string | null;
+  } | null> => {
+    try {
+      const t0 = Date.now();
+      const res = await fetch(cortexUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${anonKey}`,
+        },
+        body: JSON.stringify({
+          type: 'enrich-phase1-5a',
+          text,
+          bucket,
+          subtype,
+          recentReactions: [...recentReactions],
+        }),
+      });
+
+      if (!res.ok) {
+        console.log('[DropProcessor] Phase 1.5a API returned non-ok status', {
+          status: res.status,
+        });
+        return null;
+      }
+
+      const json = await res.json();
+      console.log('[DropProcessor] Phase 1.5a complete', {
+        latency_ms: Date.now() - t0,
+        has_title: !!json.smart_title,
+        has_message: !!json.confirmation_message,
+      });
+
+      const result = {
+        smart_title: json.smart_title || null,
+        confirmation_message: json.confirmation_message || null,
+      };
+
+      if (result.confirmation_message) {
+        pushReaction(result.confirmation_message);
+      }
+
+      return result;
+    } catch (err) {
+      console.log('[DropProcessor] Phase 1.5a error', { error: String(err) });
       return null;
     }
+  })();
 
-    const json = await res.json();
-    console.log('[DropProcessor] Phase 1.5a complete', {
-      latency_ms: Date.now() - t0,
-      has_title: !!json.smart_title,
-      has_message: !!json.confirmation_message,
+  const result = await Promise.race([apiPromise, timeoutPromise]);
+
+  if (result === null) {
+    console.warn('[DropProcessor] Phase 1.5a timeout', {
+      timeout_ms: PHASE1_5A_TIMEOUT_MS,
     });
-
-    const result = {
-      smart_title: json.smart_title || null,
-      confirmation_message: json.confirmation_message || null,
-    };
-
-    if (result.confirmation_message) {
-      pushReaction(result.confirmation_message);
-    }
-
-    return result;
-  } catch (err) {
-    console.log('[DropProcessor] Phase 1.5a error', { error: String(err) });
-    return null;
   }
+
+  return result;
 }
 
 // --- Helper: Run Phase 2 (non-streaming) ---
@@ -585,10 +607,10 @@ async function syncDropToSupabase(
       table = 'todos';
       entityType = 'todo';
 
-      const parsedFields = buildTodoFields(text);
       const dueDay =
+        enrichment?.target_date ||
+        enrichment?.scheduled_date ||
         enrichment?.extracted_date?.split('T')[0] ||
-        parsedFields.dueDay ||
         (source === 'today' ? effectiveDueDay : null);
 
       // Calculate buffers based on energy type
@@ -600,7 +622,7 @@ async function syncDropToSupabase(
 
       payload = {
         owner_id: userId,
-        name: smartTitle || parsedFields.title || text.substring(0, 60),
+        name: smartTitle || text.substring(0, 60),
         body: text,
         space_id: spaceId,
         drop_id: localId,
@@ -613,7 +635,10 @@ async function syncDropToSupabase(
         cooldown_buffer_minutes: buffers.cooldown_buffer_minutes,
         due_day: dueDay,
         due_date: dueDay,
-        due_time: parsedFields.dueTime || null,
+        due_time: enrichment?.event_time || null,
+        // Date Intelligence — top-level columns (not just views)
+        target_date: enrichment?.target_date || null,
+        scheduled_date: enrichment?.scheduled_date || null,
         // Phase 2: Clarification fields (direct columns)
         needs_clarification: drop.needsClarification || false,
         clarification_type: drop.clarificationType || null,
@@ -628,6 +653,7 @@ async function syncDropToSupabase(
           // Date Intelligence fields (stored in views JSONB)
           target_date: enrichment?.target_date || null,
           scheduled_date: enrichment?.scheduled_date || null,
+          event_time: enrichment?.event_time || null,
           date_type_ambiguous: enrichment?.date_type_ambiguous || false,
           // Phase 2: Clarification fields (also in views for redundancy)
           needs_clarification: drop.needsClarification || false,
@@ -635,6 +661,8 @@ async function syncDropToSupabase(
           clarification_question: drop.clarificationQuestion || null,
           clarification_options: drop.clarificationOptions || null,
           clarification_resolved: false,
+          ai_degraded: drop.classificationDegraded || false,
+          classification_source: drop.classificationSource || 'unknown',
         },
         created_at: now,
         updated_at: now,
@@ -692,6 +720,8 @@ async function syncDropToSupabase(
           clarification_question: drop.clarificationQuestion || null,
           clarification_options: drop.clarificationOptions || null,
           clarification_resolved: false,
+          ai_degraded: drop.classificationDegraded || false,
+          classification_source: drop.classificationSource || 'unknown',
         },
         created_at: now,
         updated_at: now,
@@ -750,10 +780,20 @@ async function syncDropToSupabase(
           clarification_question: drop.clarificationQuestion || null,
           clarification_options: drop.clarificationOptions || null,
           clarification_resolved: false,
+          ai_degraded: drop.classificationDegraded || false,
+          classification_source: drop.classificationSource || 'unknown',
         },
         created_at: now,
         updated_at: now,
       };
+    }
+
+    if (drop.classificationDegraded) {
+      console.warn('[DropProcessor] Syncing degraded classification', {
+        localId,
+        bucket,
+        source: drop.classificationSource,
+      });
     }
 
     console.log('[DropProcessor] Syncing to Supabase', { localId, table, entityType });
@@ -1176,6 +1216,68 @@ export async function processDrop(
       callbacks?.onPhase0Complete?.(localId, false);
 
       // =========================================
+      // DEGRADED CLASSIFICATION RETRY
+      // If Phase 1 returned a fallback classification,
+      // retry once after a short delay. Catches transient
+      // WiFi blips and momentary API errors.
+      // =========================================
+
+      if (phase1Result.classificationDegraded) {
+        console.warn('[DropProcessor] Phase 1 degraded, attempting retry', {
+          localId,
+          source: phase1Result.classificationSource || phase1Result.source,
+          fallbackBucket: phase1Result.bucket,
+          elapsed: Date.now() - startTime,
+        });
+
+        // Show "still thinking" message on the card
+        useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+          _retryingClassification: true,
+        });
+
+        // Wait 3 seconds for conditions to potentially improve
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+
+        // Only retry if we have network connectivity
+        if (networkStatus.isConnected) {
+          try {
+            const retryResult = await runPhase1(text, { hasAttachments: false });
+
+            if (!retryResult.classificationDegraded) {
+              console.log('[DropProcessor] Reclassification succeeded on retry', {
+                localId,
+                previousBucket: phase1Result.bucket,
+                newBucket: retryResult.bucket,
+                newSource: retryResult.source,
+                elapsed: Date.now() - startTime,
+              });
+              // Replace the degraded result with the real one
+              phase1Result = retryResult;
+            } else {
+              console.warn('[DropProcessor] Retry still degraded, proceeding with fallback', {
+                localId,
+                source: retryResult.classificationSource || retryResult.source,
+                elapsed: Date.now() - startTime,
+              });
+            }
+          } catch (retryErr) {
+            console.warn('[DropProcessor] Retry attempt threw error, proceeding with fallback', {
+              localId,
+              error: String(retryErr),
+              elapsed: Date.now() - startTime,
+            });
+          }
+        } else {
+          console.log('[DropProcessor] Offline, skipping retry', { localId });
+        }
+
+        // Clear the retrying state regardless of outcome
+        useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+          _retryingClassification: false,
+        });
+      }
+
+      // =========================================
       // SINGLE PATH: Use pre-phase result (already computed)
       // CHECKPOINT 1: Save after Phase 1 (expensive AI work)
       // =========================================
@@ -1255,6 +1357,8 @@ export async function processDrop(
         clarificationType: null,
         clarificationQuestion: null,
         clarificationOptions: null,
+        classificationDegraded: phase1Result.classificationDegraded || false,
+        classificationSource: phase1Result.classificationSource || phase1Result.source || 'unknown',
         status: 'classified', // Clear checkpoint status
       });
 
@@ -1614,5 +1718,160 @@ export async function processAllPending(): Promise<void> {
     // Otherwise start from beginning
 
     await processDrop(drop);
+  }
+}
+
+/**
+ * Background reclassification of entities that were synced with degraded AI classification.
+ * Called on network reconnect and app resume.
+ * Finds entities marked with views.ai_degraded = true and reclassifies them.
+ */
+export async function reclassifyDegradedEntities(): Promise<void> {
+  const store = useGremlyStore.getState();
+  const userId = store.userId;
+  if (!userId) return;
+
+  if (!networkStatus.isConnected) {
+    console.log('[Reclassify] Offline, skipping');
+    return;
+  }
+
+  // Find degraded entities across all entity types
+  const degradedTodos = store.todos.filter((t) => (t.views as any)?.ai_degraded === true);
+  const degradedHabits = store.habits.filter((h) => (h.views as any)?.ai_degraded === true);
+  const degradedNotes = store.notes.filter((n) => (n.views as any)?.ai_degraded === true);
+
+  const totalDegraded = degradedTodos.length + degradedHabits.length + degradedNotes.length;
+
+  if (totalDegraded === 0) {
+    return;
+  }
+
+  console.log('[Reclassify] Found degraded entities', {
+    todos: degradedTodos.length,
+    habits: degradedHabits.length,
+    notes: degradedNotes.length,
+  });
+
+  const allDegraded = [
+    ...degradedTodos.map((e) => ({ ...e, entityType: 'todo' as const, table: 'todos' as const })),
+    ...degradedHabits.map((e) => ({
+      ...e,
+      entityType: 'habit' as const,
+      table: 'habits' as const,
+    })),
+    ...degradedNotes.map((e) => ({ ...e, entityType: 'note' as const, table: 'notes' as const })),
+  ];
+
+  let reclassified = 0;
+
+  for (const entity of allDegraded) {
+    try {
+      const originalText =
+        (entity as any).body || (entity as any).notes || (entity as any).name || '';
+      if (!originalText.trim()) continue;
+
+      const result = await runPhase1(originalText, { hasAttachments: false });
+
+      if (result.classificationDegraded) {
+        console.log('[Reclassify] Still degraded, skipping entity', { id: entity.id });
+        continue;
+      }
+
+      const currentBucket = entity.entityType;
+      const newBucket = result.bucket === 'log' ? 'note' : result.bucket;
+
+      if (currentBucket === newBucket) {
+        console.log('[Reclassify] Same bucket, clearing degraded flag', {
+          id: entity.id,
+          bucket: currentBucket,
+        });
+
+        await supabase
+          .from(entity.table)
+          .update({
+            views: {
+              ...(entity.views as any),
+              ai_degraded: false,
+              classification_source: result.source,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', entity.id);
+
+        const storeKey = entity.table;
+        useGremlyStore.setState((state) => ({
+          [storeKey]: (state[storeKey] as any[]).map((item: any) =>
+            item.id === entity.id
+              ? {
+                  ...item,
+                  views: {
+                    ...item.views,
+                    ai_degraded: false,
+                    classification_source: result.source,
+                  },
+                }
+              : item,
+          ),
+        }));
+
+        reclassified++;
+      } else {
+        // Bucket changed — clear the flag and record what it should be.
+        // Moving entities between tables is complex; log for now.
+        console.warn('[Reclassify] Bucket would change — clearing flag but not moving entity', {
+          id: entity.id,
+          currentBucket,
+          newBucket,
+          newSubtype: result.subtype,
+        });
+
+        await supabase
+          .from(entity.table)
+          .update({
+            views: {
+              ...(entity.views as any),
+              ai_degraded: false,
+              reclassified_bucket: newBucket,
+              reclassified_subtype: result.subtype,
+              classification_source: result.source,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', entity.id);
+
+        const storeKey = entity.table;
+        useGremlyStore.setState((state) => ({
+          [storeKey]: (state[storeKey] as any[]).map((item: any) =>
+            item.id === entity.id
+              ? {
+                  ...item,
+                  views: {
+                    ...item.views,
+                    ai_degraded: false,
+                    reclassified_bucket: newBucket,
+                    reclassified_subtype: result.subtype,
+                    classification_source: result.source,
+                  },
+                }
+              : item,
+          ),
+        }));
+
+        reclassified++;
+      }
+
+      // Small delay between entities to avoid API spam
+      await new Promise((r) => setTimeout(r, 500));
+    } catch (err) {
+      console.warn('[Reclassify] Failed for entity', {
+        id: entity.id,
+        error: String(err),
+      });
+    }
+  }
+
+  if (reclassified > 0) {
+    console.log('[Reclassify] Complete', { reclassified, total: totalDegraded });
   }
 }

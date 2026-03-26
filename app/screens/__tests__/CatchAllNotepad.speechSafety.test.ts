@@ -77,7 +77,7 @@ describe('CatchAllNotepad speech safety wrapper', () => {
     it('releases lock when getGremlySpeech throws TypeError', () => {
       // This is the exact error from the original bug:
       // TypeError: Cannot read properties of undefined (reading 'habit')
-      // when SPEECH_POOLS.SUCCESS_HIGH_CONFIDENCE was renamed but the key wasn't
+      // when SPEECH_POOLS.SUCCESS pool keys were renamed but code references weren't
       const crashingSpeech = () => {
         const pool: any = undefined;
         return pool.habit; // TypeError!

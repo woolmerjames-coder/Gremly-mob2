@@ -17,26 +17,37 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type SpeechContext = {
+  // Moment
+  moment: 'greeting' | 'return' | 'post_drop';
+
+  // Drop info (post_drop only)
   kind?: string;
   logSubtype?: string;
-  confidence?: 'high' | 'medium' | 'low';
   dueDate?: Date | string | null;
-  mode?: string;
   dropsToday: number;
   isFirstDrop: boolean;
   hasPhotos: boolean;
   isReturningUser: boolean;
   error?: 'network' | 'ai_failed' | 'generic' | null;
-};
 
-export type SpeechCategory =
-  | 'greeting'
-  | 'success'
-  | 'streak'
-  | 'photo'
-  | 'error'
-  | 'empty'
-  | 'returning';
+  // Gauge
+  gaugeValue: number;
+  isFedToday: boolean;
+
+  // Timing
+  timeSinceLastDrop: number | null;
+
+  // DCO
+  briefHeadline: string | null;
+  tone: 'relaxed' | 'focused' | 'stretched' | 'recovering' | 'celebratory' | null;
+  overdueTodos: number;
+  habitStreakRisk: string[];
+  upcomingIn7d: string[];
+  daysSinceLastSweep: number | null;
+
+  // Previous speech (for return cooldown / dedup)
+  lastSpeechTime: number | null;
+};
 
 type TimeOfDay = 'morning' | 'afternoon' | 'evening' | 'night';
 
@@ -80,9 +91,9 @@ function formatDate(date: Date | string | null | undefined): string {
 
 function calculateDuration(message: string): number {
   // Longer base + per-char so speech stays visible long enough to read
-  const base = 3000;
+  const base = 5000;
   const perChar = 50;
-  const max = 6000;
+  const max = 8000;
   return Math.min(base + message.length * perChar, max);
 }
 
@@ -124,39 +135,33 @@ const SPEECH_POOLS = {
 
   SUCCESS: {
     todo_with_date: [
-      'Locked in for {date}. One less thing to hold.',
-      '{date} — handled. Let it go.',
-      'On the calendar for {date}. Brain, released.',
-      'Future you already feels lighter. {date}, done.',
-      '{date}. You won\u2019t have to remember this.',
+      "Done. {date}. You don't need to think about this anymore.",
+      "{date}, locked in. That one's off your plate.",
+      "Set for {date}. I'll worry about it, you won't.",
+      'Pinned to {date}. Go forget about it.',
+      "{date}. It's handled. Next?",
     ],
     todo_no_date: [
-      'Got it. When do you want to do this?',
-      'Saved. Pick a day when you\u2019re ready.',
-      'Held for you. No rush on the timing.',
-      'Parked it. Sweep will ask about timing.',
-      'One less thing in your head.',
+      "Got it. We'll figure out when later.",
+      'Saved. No date yet, no pressure.',
+      "Parked. We'll add a date in the Sweep.",
+      "Caught. Whenever you're ready.",
+      "That's mine now. Timing can wait.",
     ],
     habit: [
-      'Habit planted. Let\u2019s see it grow.',
-      'Day one starts now.',
-      'Small and steady. That\u2019s how it sticks.',
-      'Routine in progress. I\u2019ll be tracking.',
-      'The hardest part is starting. You just did.',
+      "I'll keep track of that one.",
+      "Noted. I'll check in on this.",
+      "Got it. That's on my list now.",
+      "Tracked. Show up and I'll notice.",
+      "On it. I'll remind you.",
     ],
-    journal: [
-      'Heard. Thanks for sharing that.',
-      'Written down, weight lifted.',
-      'That took honesty. Saved.',
-      'Your words, safe with me.',
-      'Journaled. That matters more than you think.',
-    ],
+    journal: ['Heard.', 'Saved.', "Got it. That's between us.", 'Written down.', 'Safe with me.'],
     idea: [
-      'Ooh. That one has potential.',
-      'Idea saved. Marinate on it.',
-      'Filed under: things worth revisiting.',
-      'Good instinct. I\u2019ll keep it warm for you.',
-      'Spark saved. Come back to it fresh.',
+      "Oh, that's interesting. Saved.",
+      'Spark caught. Let it sit for a while.',
+      "Filed. You'll want to come back to this.",
+      "Good instinct. I'll hold onto it.",
+      "Noted. This one's got legs.",
     ],
     event: [
       'On the radar. You won\u2019t miss it.',
@@ -172,42 +177,17 @@ const SPEECH_POOLS = {
     ],
   },
 
-  SUCCESS_MEDIUM_CONFIDENCE: [
-    'Saved — I took my best guess. Peek at Sweep.',
-    'Got it! Might need a small tweak later.',
-    'Held for you. Double-check my sorting in Sweep.',
-    'Saved. If I got the type wrong, Sweep has your back.',
-    'Done! I guessed, but you know best.',
-  ],
-
-  SUCCESS_LOW_CONFIDENCE: [
-    'Caught it. You sort, I\u2019ll wait.',
-    'Safe for now. No rush to organize.',
-    'Held in your inbox. Sort whenever.',
-    'Saved. Figure out what it is later — no pressure.',
-    'Brain dump complete. Sorting can wait.',
-  ],
-
   MILESTONES: {
-    3: [
-      'Three in a row. That\u2019s a rhythm.',
-      'Look at you go. That\u2019s three.',
-      'Hat trick. Keep clearing.',
-    ],
+    3: ["Three drops today. You're warming up.", "That's three drops. Brain's loosening up."],
     5: [
-      'Five drops. Your brain\u2019s gotta feel lighter.',
-      'Five! That\u2019s a proper brain dump.',
-      'Halfway to double digits. Keep going.',
+      'Five drops today. Your head must feel lighter.',
+      "That's five drops out of your brain and into mine.",
     ],
     10: [
-      'Ten. That\u2019s some serious headspace clearing.',
-      'Double digits! Your brain thanks you.',
-      'Ten drops. You were holding a lot.',
+      'Ten drops today. That was a lot to carry.',
+      'Ten drops. You were holding more than you realized.',
     ],
-    every5after: [
-      '{count} drops today. You\u2019re unstoppable.',
-      '{count}. At this point you\u2019re just showing off.',
-    ],
+    every5after: ['{count} drops today. You had a lot in there.', '{count} drops. Clearing house.'],
   },
 
   PHOTO: {
@@ -244,10 +224,11 @@ const SPEECH_POOLS = {
   ],
 
   RETURNING_USER: [
-    'You\u2019re back! What\u2019s been piling up?',
-    'Missed you. Brain full?',
-    'Welcome back. Let\u2019s clear some headspace.',
-    'Hey again! What\u2019s been rattling around in there?',
+    "You're back. And that's already saved.",
+    'Hey. Caught it. What else you been sitting on?',
+    "There you are. First one's down, keep going.",
+    'Welcome back. Got it. What else?',
+    "Been a minute. That one's safe, what's next?",
   ],
 
   EMPTY_STATE: [
@@ -255,6 +236,81 @@ const SPEECH_POOLS = {
     'Nothing here. Enjoy the calm.',
     'Clean slate. What\u2019s on your mind?',
   ],
+
+  UPCOMING: [
+    '{eventName} is coming up this week.',
+    "Don't forget, {eventName} is in a few days.",
+    '{eventName} is on the horizon.',
+  ],
+
+  GAUGE_GREETING: [
+    "You're nearly fed for the day. A couple more drops.",
+    'Almost fed. Not far to go.',
+    "Close to fed. A few more and you're done.",
+  ],
+
+  SWEEP_NUDGE: {
+    short: [
+      "I've been collecting things. Sweep when you're ready.",
+      'A few days of drops sitting here. Want to sort through them?',
+      "Stuff's been piling up. Sweep whenever.",
+    ],
+    long: [
+      "I've got a decent pile for you. Sweep when you get a chance.",
+      'Lot of drops stacked up. Good Sweep session waiting.',
+      "There's a solid backlog here. No rush, but Sweep's ready.",
+    ],
+  },
+
+  RAPID_FIRE: [
+    'And another one. Keep going.',
+    'Got it. Next?',
+    'Caught. What else?',
+    'Yep. Keep clearing.',
+    "In. Don't stop.",
+    "That's mine. What's next?",
+    'Another one down.',
+  ],
+
+  GAUGE_POST_DROP: {
+    high: [
+      "Got it. I'm nearly fed for the day.",
+      "Saved. A few more drops and I'm fed.",
+      'Caught. Getting close to fed.',
+    ],
+    very_high: [
+      "Got it. One or two more and I'm fed.",
+      'Saved. So close to being fed.',
+      'Nearly fed. Keep going.',
+    ],
+  },
+
+  BRAND: [
+    "That's one less thing to carry.",
+    "Out of your head. That's the whole point.",
+    "You don't have to remember that anymore.",
+    'Gone from your brain. Safe with me.',
+    "That's not your problem to hold anymore.",
+    "Your head's lighter now.",
+    "I've got it. Let it go.",
+    "One more thing you don't have to think about.",
+  ],
+
+  RETURN: {
+    gauge_progress: ["You've made progress. Nearly fed.", 'Closer to fed since last time.'],
+    upcoming: ['{eventName} coming up. Just so you know.', 'Reminder: {eventName} this week.'],
+    sweep_nudge: [
+      "Still got drops to sort. Sweep's there when you want it.",
+      'A few things waiting in Sweep.',
+    ],
+    time_shift: {
+      afternoon: [
+        'Afternoon. What slipped through the cracks?',
+        'Midday. Anything rattling around?',
+      ],
+      evening: ['Evening. Last chance to dump anything.', 'Winding down. Get it out of your head.'],
+    },
+  },
 
   MORNING_BRIEF: {
     prompt: [
@@ -277,6 +333,47 @@ const SPEECH_POOLS = {
       'Skipped for now. You know where I am.',
     ],
   },
+
+  FED_CELEBRATION: {
+    days_remaining_2: [
+      'Full for the day. Two more like this and I level up.',
+      'Brain cleared, belly full. Two more fed days and I grow.',
+      'That\u2019s today sorted. Feed me two more days and watch what happens.',
+      'Done. Everything\u2019s safe with me. Two more fed days to level up.',
+    ],
+    days_remaining_1: [
+      'Full again. One more fed day and I level up.',
+      'Two down. Feed me one more day and I grow.',
+      'Back to back. One more and I hit a new age.',
+      'Twice fed. One more day like this and I evolve.',
+    ],
+    days_remaining_0: [
+      'Full. And I feel... different.',
+      'Something\u2019s happening...',
+      'That did it.',
+    ],
+  },
+
+  POST_AGE_UP: [
+    'Age {age}. Do I look different? I feel different.',
+    'Age {age} and thriving. Honestly? I\u2019m impressed with me.',
+    'Look at me. Age {age}. Growing up right before your eyes.',
+    'Age {age}. I\u2019d thank you but I did most of the growing.',
+    'That\u2019s {age} whole days of wisdom. You can tell, right?',
+    'Age {age}! I need a moment. ...OK I\u2019m good.',
+    'Age {age}. Someone throw me a party. Oh wait, this IS the party.',
+    'I just aged. In a good way. Age {age}, baby.',
+    '{age}?! When did THAT happen?',
+    'Age {age}. Still cute though.',
+    'Age {age}. We\u2019re doing this together.',
+    'Grew again. Age {age}. Thanks for feeding me.',
+    'Age {age}. Every drop got me here.',
+    'Age {age}. Not bad for a little brain gremlin.',
+    'Age {age}. I\u2019ve seen things. Mostly your to-do lists.',
+    'Age {age}. I remember when I was a hatchling. Actually, I don\u2019t. But still.',
+    'Age {age}. Starting to feel wise. Don\u2019t quiz me though.',
+    'Age {age}. At this point I\u2019m basically your elder.',
+  ],
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -285,6 +382,7 @@ const SPEECH_POOLS = {
 
 export function getGremlySpeech(ctx: SpeechContext): { message: string; duration: number } | null {
   let message: string | null = null;
+  const isStretched = ctx.tone === 'stretched' || ctx.tone === 'recovering';
 
   // Priority 1: Errors
   if (ctx.error) {
@@ -292,12 +390,18 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
     message = pickRandom(errorPool, recentMessages);
   }
 
-  // Priority 2: Milestones (5 and 10 only)
+  // Priority 2: Milestones (3, 5, 10, every 5 after)
   if (!message && ctx.dropsToday > 0) {
     const count = ctx.dropsToday;
-    const milestonePool = (SPEECH_POOLS.MILESTONES as Record<number, string[]>)[count];
+    let milestonePool = (SPEECH_POOLS.MILESTONES as Record<number, string[]>)[count];
+    if (!milestonePool && count > 10 && count % 5 === 0) {
+      milestonePool = SPEECH_POOLS.MILESTONES.every5after;
+    }
     if (milestonePool) {
       message = pickRandom(milestonePool, recentMessages);
+      if (message.includes('{count}')) {
+        message = message.replace('{count}', String(count));
+      }
     }
   }
 
@@ -316,7 +420,42 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
     message = pickRandom(SPEECH_POOLS.RETURNING_USER, recentMessages);
   }
 
-  // Priority 6: Success by kind
+  // Priority 6: Rapid-fire (fast successive drops)
+  if (
+    !message &&
+    !isStretched &&
+    ctx.timeSinceLastDrop != null &&
+    ctx.timeSinceLastDrop < 120 &&
+    ctx.dropsToday >= 3 &&
+    Math.random() < 0.4
+  ) {
+    message = pickRandom(SPEECH_POOLS.RAPID_FIRE, recentMessages);
+  }
+
+  // Priority 7: Gauge post-drop callout (nearly fed)
+  if (
+    !message &&
+    !isStretched &&
+    !ctx.isFedToday &&
+    ctx.gaugeValue >= 0.75 &&
+    Math.random() < 0.25
+  ) {
+    const gaugePool =
+      ctx.gaugeValue >= 0.9
+        ? SPEECH_POOLS.GAUGE_POST_DROP.very_high
+        : SPEECH_POOLS.GAUGE_POST_DROP.high;
+    message = pickRandom(gaugePool, recentMessages);
+  }
+
+  // Priority 8: Brand reinforcement
+  if (!message && !isStretched) {
+    const brandChance = ctx.tone === 'celebratory' ? 0.35 : 0.2;
+    if (Math.random() < brandChance) {
+      message = pickRandom(SPEECH_POOLS.BRAND, recentMessages);
+    }
+  }
+
+  // Priority 9: Success by kind (fallback)
   if (!message) {
     const kind = ctx.kind || 'general';
     const logSubtype = ctx.logSubtype || '';
@@ -334,8 +473,6 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
       pool = SPEECH_POOLS.SUCCESS.idea;
     } else if (kind === 'event' || logSubtype === 'event') {
       pool = SPEECH_POOLS.SUCCESS.event;
-    } else if (kind === 'log') {
-      pool = SPEECH_POOLS.SUCCESS.general;
     } else {
       pool = SPEECH_POOLS.SUCCESS.general;
     }
@@ -362,6 +499,7 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
 // Exported Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** @deprecated Use getGreetingSpeechV2 instead */
 export function getGreetingSpeech(): { message: string; duration: number } {
   const timeOfDay = getTimeOfDay();
   const pool = SPEECH_POOLS.GREETINGS[timeOfDay];
@@ -374,6 +512,7 @@ export function getGreetingSpeech(): { message: string; duration: number } {
 }
 
 /**
+ * @deprecated Use getGreetingSpeechV2 instead
  * Get greeting speech with DCO awareness.
  * If the DCO has a brief_headline, use it as Gremly's greeting.
  * Otherwise fall back to the existing heuristic greeting.
@@ -393,6 +532,96 @@ export function getDcoGreetingSpeech(briefHeadline: string | null): {
 
   // Fall back to existing time-of-day heuristic
   return getGreetingSpeech();
+}
+
+/**
+ * Context-aware greeting with priority waterfall:
+ * briefHeadline → UPCOMING → GAUGE_GREETING → SWEEP_NUDGE → time-of-day GREETINGS
+ */
+export function getGreetingSpeechV2(ctx: SpeechContext): { message: string; duration: number } {
+  let message: string | null = null;
+
+  // Priority 1: DCO brief headline
+  if (ctx.briefHeadline) {
+    message = ctx.briefHeadline;
+  }
+
+  // Priority 2: Upcoming events this week
+  if (!message && ctx.upcomingIn7d.length > 0) {
+    const template = pickRandom(SPEECH_POOLS.UPCOMING, recentMessages);
+    message = template.replace('{eventName}', ctx.upcomingIn7d[0]);
+  }
+
+  // Priority 3: Gauge nearly fed
+  if (!message && !ctx.isFedToday && ctx.gaugeValue >= 0.6) {
+    message = pickRandom(SPEECH_POOLS.GAUGE_GREETING, recentMessages);
+  }
+
+  // Priority 4: Sweep nudge
+  if (!message && ctx.daysSinceLastSweep != null && ctx.daysSinceLastSweep >= 3) {
+    const sweepPool =
+      ctx.daysSinceLastSweep >= 7 ? SPEECH_POOLS.SWEEP_NUDGE.long : SPEECH_POOLS.SWEEP_NUDGE.short;
+    message = pickRandom(sweepPool, recentMessages);
+  }
+
+  // Fallback: time-of-day greeting
+  if (!message) {
+    const timeOfDay = getTimeOfDay();
+    message = pickRandom(SPEECH_POOLS.GREETINGS[timeOfDay], recentMessages);
+  }
+
+  trackMessage(message);
+  return {
+    message,
+    duration: calculateDuration(message),
+  };
+}
+
+/**
+ * Return speech for when user re-opens the app mid-session.
+ * 5-minute cooldown — returns null if too soon after last speech.
+ * Waterfall: gauge_progress → upcoming → sweep_nudge → time_shift → null
+ */
+export function getReturnSpeech(ctx: SpeechContext): { message: string; duration: number } | null {
+  // 5-minute cooldown
+  if (ctx.lastSpeechTime != null && Date.now() - ctx.lastSpeechTime < 5 * 60 * 1000) {
+    return null;
+  }
+
+  let message: string | null = null;
+
+  // Priority 1: Gauge progress
+  if (!ctx.isFedToday && ctx.gaugeValue >= 0.5) {
+    message = pickRandom(SPEECH_POOLS.RETURN.gauge_progress, recentMessages);
+  }
+
+  // Priority 2: Upcoming event reminder
+  if (!message && ctx.upcomingIn7d.length > 0) {
+    const template = pickRandom(SPEECH_POOLS.RETURN.upcoming, recentMessages);
+    message = template.replace('{eventName}', ctx.upcomingIn7d[0]);
+  }
+
+  // Priority 3: Sweep nudge
+  if (!message && ctx.daysSinceLastSweep != null && ctx.daysSinceLastSweep >= 3) {
+    message = pickRandom(SPEECH_POOLS.RETURN.sweep_nudge, recentMessages);
+  }
+
+  // Priority 4: Time shift (different time of day than last visit)
+  if (!message) {
+    const timeOfDay = getTimeOfDay();
+    const timeShiftPool = (SPEECH_POOLS.RETURN.time_shift as Record<string, string[]>)[timeOfDay];
+    if (timeShiftPool) {
+      message = pickRandom(timeShiftPool, recentMessages);
+    }
+  }
+
+  if (!message) return null;
+
+  trackMessage(message);
+  return {
+    message,
+    duration: calculateDuration(message),
+  };
 }
 
 export function getEmptyStateSpeech(): { message: string; duration: number } {
@@ -423,5 +652,42 @@ export function getMorningBriefSpeech(event: 'prompt' | 'complete' | 'skip'): {
   return {
     message,
     duration: calculateDuration(message),
+  };
+}
+
+export function getFedCelebrationSpeech(fedDaysCount: number): {
+  message: string;
+  duration: number;
+  variant: 'celebration';
+} {
+  const daysRemaining = 2 - fedDaysCount;
+  const key =
+    daysRemaining >= 2
+      ? 'days_remaining_2'
+      : daysRemaining === 1
+        ? 'days_remaining_1'
+        : 'days_remaining_0';
+  const pool = SPEECH_POOLS.FED_CELEBRATION[key];
+  const message = pickRandom(pool, recentMessages);
+  trackMessage(message);
+  return {
+    message,
+    duration: 5000,
+    variant: 'celebration' as const,
+  };
+}
+
+export function getPostAgeUpSpeech(newAge: number): {
+  message: string;
+  duration: number;
+  variant: 'celebration';
+} {
+  const template = pickRandom(SPEECH_POOLS.POST_AGE_UP, recentMessages);
+  const message = template.replace(/\{age\}/g, String(newAge));
+  trackMessage(message);
+  return {
+    message,
+    duration: 5000,
+    variant: 'celebration' as const,
   };
 }

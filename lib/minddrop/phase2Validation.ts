@@ -171,7 +171,7 @@ export function validateEnrichmentResult(
   }
 
   // --- 5. Time Estimate Validation ---
-  if (result.timeEstimateMinutes !== null && bucket !== 'todo') {
+  if (result.timeEstimateMinutes !== null && bucket !== 'todo' && bucket !== 'habit') {
     issues.push('time_estimate_wrong_bucket');
     corrections.timeEstimateMinutes = null;
     needsCorrection = true;

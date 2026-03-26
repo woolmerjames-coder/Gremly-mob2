@@ -12,10 +12,22 @@
 import { getGremlySpeech, SpeechContext } from '../gremlySpeech';
 
 const baseContext: SpeechContext = {
+  moment: 'post_drop',
   dropsToday: 0,
   isFirstDrop: false,
   hasPhotos: false,
   isReturningUser: false,
+  error: null,
+  gaugeValue: 0,
+  isFedToday: false,
+  timeSinceLastDrop: null,
+  briefHeadline: null,
+  tone: null,
+  overdueTodos: 0,
+  habitStreakRisk: [],
+  upcomingIn7d: [],
+  daysSinceLastSweep: null,
+  lastSpeechTime: null,
 };
 
 describe('SPEECH_POOLS structural integrity', () => {
@@ -136,9 +148,9 @@ describe('SPEECH_POOLS structural integrity', () => {
 
       const contexts: SpeechContext[] = [
         { ...baseContext },
-        { ...baseContext, kind: 'todo', confidence: 'high' },
-        { ...baseContext, kind: 'habit', confidence: 'medium' },
-        { ...baseContext, kind: 'journal', confidence: 'low' },
+        { ...baseContext, kind: 'todo' },
+        { ...baseContext, kind: 'habit' },
+        { ...baseContext, kind: 'journal' },
         { ...baseContext, kind: 'idea' },
         { ...baseContext, kind: 'event' },
         { ...baseContext, kind: 'log', logSubtype: 'journal' },

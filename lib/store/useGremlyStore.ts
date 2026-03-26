@@ -366,7 +366,8 @@ export interface PendingDrop {
     | 'enriching'
     | 'enriched'
     | 'syncing'
-    | 'synced';
+    | 'synced'
+    | 'failed';
   isMulti?: boolean;
   // Multi-drop fields (populated by Phase 0)
   multiSegments?: PendingDropSegment[];
@@ -453,6 +454,12 @@ export interface PendingDrop {
 
   /** True if this drop was captured while offline. Used for UI messaging. */
   _offlineCapture?: boolean;
+
+  /** True while retrying a degraded classification. Shows "still thinking" message. */
+  _retryingClassification?: boolean;
+
+  /** True when processing failed but drop can be retried. Keeps card visible. */
+  _retryable?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

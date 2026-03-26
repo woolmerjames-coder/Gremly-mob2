@@ -1,313 +1,194 @@
 /**
- * Gremly Speech Bubble Tests
+ * CatchAllNotepad.gremlySpeech.test.ts
  *
- * Tests the getGremlySpeech function that generates contextual messages
- * based on Mind Drop classification results.
+ * Tests verifying that getGremlySpeech produces correct contextual messages
+ * for the post-drop speech path used by CatchAllNotepad onSubmit handler.
  *
- * Speech categories:
- * - High confidence (≥0.8) auto-classification: specific messages per kind
- * - Medium confidence (≥0.5) or ask mode: generic "Saved as X" messages
- * - Low confidence (<0.5): fallback messages
+ * These tests use the REAL getGremlySpeech from lib/speech/gremlySpeech,
+ * exercising the same priority waterfall the component uses:
+ * error > milestone > photo > first > returning > rapid-fire > gauge > brand > success
  */
 
-type SpeechContext = {
-  kind: 'todo' | 'habit' | 'log';
-  logSubtype?: 'journal' | 'idea' | 'general' | null;
-  confidence: number;
-  dueDate?: string | null;
-  mode: 'auto' | 'ask' | 'keep' | 'reply';
+import { getGremlySpeech, type SpeechContext } from '../../../lib/speech/gremlySpeech';
+
+const baseContext: SpeechContext = {
+  moment: 'post_drop',
+  dropsToday: 0,
+  isFirstDrop: false,
+  hasPhotos: false,
+  isReturningUser: false,
+  error: null,
+  gaugeValue: 0,
+  isFedToday: false,
+  timeSinceLastDrop: null,
+  briefHeadline: null,
+  tone: null,
+  overdueTodos: 0,
+  habitStreakRisk: [],
+  upcomingIn7d: [],
+  daysSinceLastSweep: null,
+  lastSpeechTime: null,
 };
 
-// Extract the pure function logic for testing (mirrors CatchAllNotepad implementation)
-function getGremlySpeech(ctx: SpeechContext, lastSpeech: string | null = null): string | null {
-  const { kind, logSubtype, confidence, dueDate, mode } = ctx;
+describe('getGremlySpeech (post-drop path)', () => {
+  describe('success by kind', () => {
+    it('returns message for todo with due date', () => {
+      const ctx: SpeechContext = {
+        ...baseContext,
+        kind: 'todo',
+        dueDate: new Date('2026-06-15'),
+      };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+      expect(result?.message).toBeTruthy();
+    });
 
-  let message: string | null = null;
+    it('returns message for todo without due date', () => {
+      const ctx: SpeechContext = { ...baseContext, kind: 'todo', dueDate: null };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+      expect(result?.message).toBeTruthy();
+    });
 
-  // High confidence auto-classification
-  if (mode === 'auto' && confidence >= 0.8) {
-    if (kind === 'todo') {
-      if (dueDate) {
-        try {
-          const date = new Date(dueDate);
-          const formattedDate = date.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-          });
-          // Return deterministic message for testing (first option)
-          message = `On it — due ${formattedDate}.`;
-        } catch {
-          message = 'Task added.';
-        }
-      } else {
-        message = 'Task captured. Pick a date in Sweep.';
+    it('returns message for habit', () => {
+      const ctx: SpeechContext = { ...baseContext, kind: 'habit' };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+
+    it('returns message for journal', () => {
+      const ctx: SpeechContext = { ...baseContext, kind: 'journal' };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+
+    it('returns message for idea', () => {
+      const ctx: SpeechContext = { ...baseContext, kind: 'idea' };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+
+    it('returns message for event', () => {
+      const ctx: SpeechContext = { ...baseContext, kind: 'event' };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+
+    it('returns message for log with journal subtype', () => {
+      const ctx: SpeechContext = { ...baseContext, kind: 'log', logSubtype: 'journal' };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+
+    it('returns message for log with idea subtype', () => {
+      const ctx: SpeechContext = { ...baseContext, kind: 'log', logSubtype: 'idea' };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+
+    it('returns message for log with event subtype', () => {
+      const ctx: SpeechContext = { ...baseContext, kind: 'log', logSubtype: 'event' };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+
+    it('returns a general message for unknown kind', () => {
+      const ctx: SpeechContext = { ...baseContext, kind: 'something_else' };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+  });
+
+  describe('milestone overrides', () => {
+    it('returns milestone at 3 drops', () => {
+      const ctx: SpeechContext = { ...baseContext, dropsToday: 3 };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+      expect(result?.message).toBeTruthy();
+    });
+
+    it('returns milestone at 5 drops', () => {
+      const ctx: SpeechContext = { ...baseContext, dropsToday: 5 };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+
+    it('returns milestone at 10 drops', () => {
+      const ctx: SpeechContext = { ...baseContext, dropsToday: 10 };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+
+    it('returns milestone for every5after with count', () => {
+      const ctx: SpeechContext = { ...baseContext, dropsToday: 15 };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+      expect(result?.message).toContain('15');
+    });
+  });
+
+  describe('error overrides', () => {
+    it('returns error message for network error', () => {
+      const ctx: SpeechContext = { ...baseContext, error: 'network' };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+      expect(result?.message).toBeTruthy();
+    });
+
+    it('returns error message for generic error', () => {
+      const ctx: SpeechContext = { ...baseContext, error: 'generic' };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+      expect(result?.message).toBeTruthy();
+    });
+  });
+
+  describe('special context pools', () => {
+    it('returns photo message when hasPhotos', () => {
+      const ctx: SpeechContext = { ...baseContext, hasPhotos: true };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+
+    it('returns first-drop celebration for isFirstDrop', () => {
+      const ctx: SpeechContext = { ...baseContext, isFirstDrop: true };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+
+    it('returns returning message for isReturningUser', () => {
+      const ctx: SpeechContext = { ...baseContext, isReturningUser: true };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+    });
+  });
+
+  describe('duration', () => {
+    it('returns a positive duration', () => {
+      const result = getGremlySpeech(baseContext);
+      expect(result?.duration).toBeGreaterThan(0);
+    });
+  });
+
+  describe('never throws', () => {
+    it('handles any valid context without throwing', () => {
+      const contexts: SpeechContext[] = [
+        baseContext,
+        { ...baseContext, kind: 'todo' },
+        { ...baseContext, kind: 'habit' },
+        { ...baseContext, kind: 'log', logSubtype: 'journal' },
+        { ...baseContext, error: 'generic' },
+        { ...baseContext, dropsToday: 25 },
+        { ...baseContext, hasPhotos: true },
+        { ...baseContext, isFirstDrop: true },
+        { ...baseContext, isReturningUser: true },
+        { ...baseContext, gaugeValue: 0.95, tone: 'celebratory' },
+        { ...baseContext, tone: 'stretched' },
+      ];
+
+      for (const ctx of contexts) {
+        expect(() => getGremlySpeech(ctx)).not.toThrow();
       }
-    } else if (kind === 'habit') {
-      message = 'Habit saved.';
-    } else if (kind === 'log') {
-      if (logSubtype === 'journal') {
-        message = 'Saved to your journal.';
-      } else if (logSubtype === 'idea') {
-        message = 'Idea captured.';
-      } else {
-        message = 'Thought saved.';
-      }
-    }
-  }
-  // Medium confidence or ask mode
-  else if (confidence >= 0.5 || mode === 'ask') {
-    message = `Saved as a ${kind}. Review in Sweep.`;
-  }
-  // Low confidence
-  else if (confidence < 0.5) {
-    message = 'Saved. Review in Sweep.';
-  }
-
-  // Don't repeat the same message twice in a row
-  if (message && message === lastSpeech) {
-    return null;
-  }
-
-  return message;
-}
-
-describe('getGremlySpeech', () => {
-  describe('High confidence auto-classification (≥0.8)', () => {
-    describe('Todo messages', () => {
-      it('should return date-specific message for todo with due date', () => {
-        const ctx: SpeechContext = {
-          kind: 'todo',
-          confidence: 0.9,
-          dueDate: '2025-06-15T12:00:00', // Use noon to avoid timezone edge cases
-          mode: 'auto',
-        };
-
-        const speech = getGremlySpeech(ctx);
-        expect(speech).toContain('Jun 15');
-        expect(speech).toContain('On it');
-      });
-
-      it('should return Sweep prompt for todo without due date', () => {
-        const ctx: SpeechContext = {
-          kind: 'todo',
-          confidence: 0.85,
-          dueDate: null,
-          mode: 'auto',
-        };
-
-        const speech = getGremlySpeech(ctx);
-        expect(speech).toContain('Sweep');
-        expect(speech).toContain('date');
-      });
-
-      it('should handle invalid date gracefully', () => {
-        const ctx: SpeechContext = {
-          kind: 'todo',
-          confidence: 0.9,
-          dueDate: 'invalid-date',
-          mode: 'auto',
-        };
-
-        // Invalid Date.toLocaleDateString returns "Invalid Date"
-        const speech = getGremlySpeech(ctx);
-        expect(speech).toBeDefined();
-      });
-    });
-
-    describe('Habit messages', () => {
-      it('should return habit confirmation', () => {
-        const ctx: SpeechContext = {
-          kind: 'habit',
-          confidence: 0.9,
-          mode: 'auto',
-        };
-
-        const speech = getGremlySpeech(ctx);
-        expect(speech).toBe('Habit saved.');
-      });
-    });
-
-    describe('Log messages', () => {
-      it('should return journal-specific message for journal subtype', () => {
-        const ctx: SpeechContext = {
-          kind: 'log',
-          logSubtype: 'journal',
-          confidence: 0.85,
-          mode: 'auto',
-        };
-
-        const speech = getGremlySpeech(ctx);
-        expect(speech).toContain('journal');
-      });
-
-      it('should return idea-specific message for idea subtype', () => {
-        const ctx: SpeechContext = {
-          kind: 'log',
-          logSubtype: 'idea',
-          confidence: 0.9,
-          mode: 'auto',
-        };
-
-        const speech = getGremlySpeech(ctx);
-        expect(speech).toContain('Idea');
-      });
-
-      it('should return general message for general/null subtype', () => {
-        const ctx: SpeechContext = {
-          kind: 'log',
-          logSubtype: 'general',
-          confidence: 0.8,
-          mode: 'auto',
-        };
-
-        const speech = getGremlySpeech(ctx);
-        expect(speech).toBe('Thought saved.');
-      });
-
-      it('should return general message when logSubtype is null', () => {
-        const ctx: SpeechContext = {
-          kind: 'log',
-          logSubtype: null,
-          confidence: 0.8,
-          mode: 'auto',
-        };
-
-        const speech = getGremlySpeech(ctx);
-        expect(speech).toBe('Thought saved.');
-      });
-    });
-  });
-
-  describe('Medium confidence (≥0.5) or ask mode', () => {
-    it('should return Sweep review message for medium confidence', () => {
-      const ctx: SpeechContext = {
-        kind: 'todo',
-        confidence: 0.6,
-        mode: 'auto',
-      };
-
-      const speech = getGremlySpeech(ctx);
-      expect(speech).toBe('Saved as a todo. Review in Sweep.');
-    });
-
-    it('should return Sweep review message for ask mode regardless of confidence', () => {
-      const ctx: SpeechContext = {
-        kind: 'log',
-        confidence: 0.9, // High confidence, but ask mode overrides
-        mode: 'ask',
-      };
-
-      const speech = getGremlySpeech(ctx);
-      expect(speech).toBe('Saved as a log. Review in Sweep.');
-    });
-
-    it('should include entity kind in message', () => {
-      const habitCtx: SpeechContext = {
-        kind: 'habit',
-        confidence: 0.55,
-        mode: 'auto',
-      };
-
-      const speech = getGremlySpeech(habitCtx);
-      expect(speech).toContain('habit');
-    });
-  });
-
-  describe('Low confidence (<0.5)', () => {
-    it('should return generic Sweep message for low confidence', () => {
-      const ctx: SpeechContext = {
-        kind: 'todo',
-        confidence: 0.3,
-        mode: 'auto',
-      };
-
-      const speech = getGremlySpeech(ctx);
-      expect(speech).toBe('Saved. Review in Sweep.');
-    });
-
-    it('should return Sweep message for very low confidence', () => {
-      const ctx: SpeechContext = {
-        kind: 'log',
-        confidence: 0.1,
-        mode: 'auto',
-      };
-
-      const speech = getGremlySpeech(ctx);
-      expect(speech).toContain('Sweep');
-    });
-  });
-
-  describe('Duplicate prevention', () => {
-    it('should return null if message matches lastSpeech', () => {
-      const ctx: SpeechContext = {
-        kind: 'habit',
-        confidence: 0.9,
-        mode: 'auto',
-      };
-
-      const speech = getGremlySpeech(ctx, 'Habit saved.');
-      expect(speech).toBeNull();
-    });
-
-    it('should return message if different from lastSpeech', () => {
-      const ctx: SpeechContext = {
-        kind: 'habit',
-        confidence: 0.9,
-        mode: 'auto',
-      };
-
-      const speech = getGremlySpeech(ctx, 'Idea captured.');
-      expect(speech).toBe('Habit saved.');
-    });
-  });
-
-  describe('Edge cases', () => {
-    it('should handle exact 0.8 confidence as high confidence', () => {
-      const ctx: SpeechContext = {
-        kind: 'todo',
-        confidence: 0.8,
-        dueDate: null,
-        mode: 'auto',
-      };
-
-      const speech = getGremlySpeech(ctx);
-      expect(speech).toContain('Sweep');
-      expect(speech).toContain('date');
-    });
-
-    it('should handle exact 0.5 confidence as medium confidence', () => {
-      const ctx: SpeechContext = {
-        kind: 'todo',
-        confidence: 0.5,
-        mode: 'auto',
-      };
-
-      const speech = getGremlySpeech(ctx);
-      expect(speech).toBe('Saved as a todo. Review in Sweep.');
-    });
-
-    it('should handle keep mode same as auto mode', () => {
-      const ctx: SpeechContext = {
-        kind: 'log',
-        confidence: 0.3,
-        mode: 'keep',
-      };
-
-      // keep mode doesn't trigger any of the conditions, so returns null
-      const speech = getGremlySpeech(ctx);
-      // With low confidence and keep mode, it falls through to low confidence branch
-      expect(speech).toBe('Saved. Review in Sweep.');
-    });
-
-    it('should handle reply mode same as auto mode', () => {
-      const ctx: SpeechContext = {
-        kind: 'log',
-        confidence: 0.3,
-        mode: 'reply',
-      };
-
-      const speech = getGremlySpeech(ctx);
-      expect(speech).toBe('Saved. Review in Sweep.');
     });
   });
 });

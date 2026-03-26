@@ -24,8 +24,10 @@ jest.mock('../../minddrop/dropQueue', () => ({
 }));
 
 const mockProcessDrop = jest.fn();
+const mockReclassifyDegradedEntities = jest.fn().mockResolvedValue(undefined);
 jest.mock('../../minddrop/dropProcessor', () => ({
   processDrop: mockProcessDrop,
+  reclassifyDegradedEntities: mockReclassifyDegradedEntities,
 }));
 
 const mockRefreshFromServer = jest.fn().mockResolvedValue(undefined);
