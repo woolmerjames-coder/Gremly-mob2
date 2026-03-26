@@ -20,12 +20,12 @@ export function SpaceButton({ active, spaceName, onPress }: SpaceButtonProps) {
 
   return (
     <Pressable
-      // eslint-disable-next-line react-hooks/immutability
       onPressIn={() => {
+        // eslint-disable-next-line react-hooks/immutability
         scale.value = withTiming(0.96, { duration: 100 });
       }}
-      // eslint-disable-next-line react-hooks/immutability
       onPressOut={() => {
+        // eslint-disable-next-line react-hooks/immutability
         scale.value = withTiming(1.0, { duration: 100 });
       }}
       onPress={() => {
