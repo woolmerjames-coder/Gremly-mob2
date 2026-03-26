@@ -1,5 +1,7 @@
 import React from 'react';
 import { Pressable, Text, StyleSheet } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { FolderOpen, X } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 
@@ -10,28 +12,43 @@ interface SpaceButtonProps {
 }
 
 export function SpaceButton({ active, spaceName, onPress }: SpaceButtonProps) {
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
   return (
     <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.container,
-        active && styles.containerActive,
-        pressed && { opacity: 0.7 },
-      ]}
+      // eslint-disable-next-line react-hooks/immutability
+      onPressIn={() => {
+        scale.value = withTiming(0.96, { duration: 100 });
+      }}
+      // eslint-disable-next-line react-hooks/immutability
+      onPressOut={() => {
+        scale.value = withTiming(1.0, { duration: 100 });
+      }}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onPress();
+      }}
+      style={[styles.container, active && styles.containerActive]}
     >
-      {active ? (
-        <>
-          <Text style={styles.activeText} numberOfLines={1}>
-            {spaceName}
-          </Text>
-          <X size={12} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
-        </>
-      ) : (
-        <>
-          <FolderOpen size={14} strokeWidth={2} color="rgba(46,85,64,0.55)" />
-          <Text style={styles.text}>Space</Text>
-        </>
-      )}
+      <Animated.View style={[styles.innerRow, animatedStyle]}>
+        {active ? (
+          <>
+            <Text style={styles.activeText} numberOfLines={1}>
+              {spaceName}
+            </Text>
+            <X size={12} strokeWidth={2.5} color={BRAND.colors.mossGreen} />
+          </>
+        ) : (
+          <>
+            <FolderOpen size={14} strokeWidth={2} color="rgba(46,85,64,0.55)" />
+            <Text style={styles.text}>Space</Text>
+          </>
+        )}
+      </Animated.View>
     </Pressable>
   );
 }
@@ -53,6 +70,11 @@ const styles = StyleSheet.create({
   containerActive: {
     backgroundColor: 'rgba(46,85,64,0.08)',
     borderColor: 'rgba(46,85,64,0.25)',
+  },
+  innerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   text: {
     fontSize: 13,

@@ -340,7 +340,7 @@ describe('SweepFlowScreen - Deferred Commit Pattern', () => {
       });
 
       // Press Clear on first card
-      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Let go of this item' }));
 
       // Wait for card to advance
       await waitFor(() => {
@@ -361,7 +361,7 @@ describe('SweepFlowScreen - Deferred Commit Pattern', () => {
       });
 
       // Press Skip on first card
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Wait for card to advance
       await waitFor(() => {
@@ -383,7 +383,7 @@ describe('SweepFlowScreen - Deferred Commit Pattern', () => {
       });
 
       // Press Clear on note
-      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Let go of this item' }));
 
       // Wait for card to advance
       await waitFor(() => {
@@ -407,13 +407,13 @@ describe('SweepFlowScreen - Deferred Commit Pattern', () => {
       await waitFor(() => {
         result.getByText('Task one');
       });
-      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Let go of this item' }));
 
       // Clear note-1
       await waitFor(() => {
         result.getByText('Test note');
       });
-      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Let go of this item' }));
 
       // Should auto-advance to Habits step after last card
       await waitFor(() => {
@@ -444,7 +444,7 @@ describe('SweepFlowScreen - Deferred Commit Pattern', () => {
       // Select "Tomorrow" quick action then swipe Keep
       // NOTE: This doesn't work because the Skip button calls onSkip, not handleTriggerKeep
       fireEvent.press(result.getByText('Tomorrow'));
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Would need swipe gesture to trigger onConfirmQuickDate
     });
@@ -460,7 +460,7 @@ describe('SweepFlowScreen - Deferred Commit Pattern', () => {
       });
 
       // Press Skip
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Should advance to Habits step
       await waitFor(() => {
@@ -507,19 +507,19 @@ describe('SweepFlowScreen - Deferred Commit Pattern', () => {
       await waitFor(() => {
         result.getByText('Task one');
       });
-      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Let go of this item' }));
 
       // Card 2: Skip
       await waitFor(() => {
         result.getByText('Task two');
       });
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Card 3: Skip (keep without date - can't test date selection via buttons)
       await waitFor(() => {
         result.getByText('Task three');
       });
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Wait for habits step
       await waitFor(() => {

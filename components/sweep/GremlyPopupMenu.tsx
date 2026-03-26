@@ -27,6 +27,8 @@ export function GremlyMenuButton({ onPress }: GremlyMenuButtonProps) {
   return (
     <Animated.View style={animatedStyle}>
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Open Gremly menu"
         onPressIn={() => {
           // eslint-disable-next-line react-hooks/immutability
           scale.value = withTiming(1.08, { duration: 150 });
@@ -76,13 +78,13 @@ export function GremlyPopupMenu({ visible, onClose, onSelectItem }: GremlyPopupM
   const [pressedKey, setPressedKey] = useState<MenuKey | null>(null);
 
   useEffect(() => {
-    const timing = { duration: 150, easing: Easing.out(Easing.cubic) };
     if (visible) {
+      const timing = { duration: 150, easing: Easing.out(Easing.cubic) };
       menuScale.value = withTiming(1.0, timing);
       menuOpacity.value = withTiming(1, timing);
     } else {
-      menuScale.value = 0.95;
-      menuOpacity.value = 0;
+      menuScale.value = withTiming(0.95, { duration: 120 });
+      menuOpacity.value = withTiming(0, { duration: 120, easing: Easing.in(Easing.cubic) });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
@@ -92,12 +94,17 @@ export function GremlyPopupMenu({ visible, onClose, onSelectItem }: GremlyPopupM
     opacity: menuOpacity.value,
   }));
 
-  if (!visible) return null;
-
   return (
     <>
-      <Pressable style={styles.backdrop} onPress={onClose} />
-      <Animated.View style={[styles.menuContainer, menuAnimatedStyle]}>
+      <Pressable
+        style={styles.backdrop}
+        onPress={onClose}
+        pointerEvents={visible ? 'auto' : 'none'}
+      />
+      <Animated.View
+        style={[styles.menuContainer, menuAnimatedStyle]}
+        pointerEvents={visible ? 'auto' : 'none'}
+      >
         {MENU_ITEMS.map((item) => {
           const Icon = item.icon;
           const isPressed = pressedKey === item.key;

@@ -329,7 +329,7 @@ describe.skip('SweepFlowScreen - Back Navigation', () => {
       });
 
       // Advance to second card
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         result.getByText('Second task');
@@ -356,7 +356,7 @@ describe.skip('SweepFlowScreen - Back Navigation', () => {
       expect(result.getByText(/1 of 3 items/)).toBeTruthy();
 
       // Advance to card 2
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         result.getByText('Second task');
@@ -382,7 +382,7 @@ describe.skip('SweepFlowScreen - Back Navigation', () => {
       await waitFor(() => {
         result.getByText('First task');
       });
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         result.getByText('Second task');
@@ -396,7 +396,7 @@ describe.skip('SweepFlowScreen - Back Navigation', () => {
       });
 
       // Advance again to Card 2
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         result.getByText('Second task');
@@ -413,12 +413,12 @@ describe.skip('SweepFlowScreen - Back Navigation', () => {
       await waitFor(() => {
         result.getByText('First task');
       });
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         result.getByText('Second task');
       });
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         result.getByText('Third task');
@@ -456,7 +456,7 @@ describe.skip('SweepFlowScreen - Back Navigation', () => {
       await waitFor(() => {
         result.getByText('First task');
       });
-      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Let go of this item' }));
 
       // Card 2
       await waitFor(() => {
@@ -471,7 +471,7 @@ describe.skip('SweepFlowScreen - Back Navigation', () => {
       });
 
       // Change decision to Skip
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Card 2 again
       await waitFor(() => {
@@ -479,7 +479,7 @@ describe.skip('SweepFlowScreen - Back Navigation', () => {
       });
 
       // Complete sweep
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         result.getByText('Habits today');
@@ -499,7 +499,7 @@ describe.skip('SweepFlowScreen - Back Navigation', () => {
       await waitFor(() => {
         result.getByText('First task');
       });
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Card 2
       await waitFor(() => {
@@ -514,7 +514,7 @@ describe.skip('SweepFlowScreen - Back Navigation', () => {
       });
 
       // Change decision to Clear
-      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Let go of this item' }));
 
       // Card 2 again
       await waitFor(() => {
@@ -522,7 +522,7 @@ describe.skip('SweepFlowScreen - Back Navigation', () => {
       });
 
       // Complete sweep
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         result.getByText('Habits today');
@@ -541,10 +541,10 @@ describe.skip('SweepFlowScreen - Back Navigation', () => {
 
       // Advance to card 3
       await waitFor(() => result.getByText('First task'));
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => result.getByText('Second task'));
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => result.getByText('Third task'));
       expect(result.getByText(/3 of 3 items/)).toBeTruthy();

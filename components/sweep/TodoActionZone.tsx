@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { ArrowRight, CalendarDays, Calendar, Bell, ChevronDown } from 'lucide-react-native';
 import { Text } from '../../ui';
@@ -128,6 +129,7 @@ export function TodoActionZone({
                   key={key}
                   style={[styles.subPill, isActive ? styles.subPillActive : styles.subPillInactive]}
                   onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     if (isActive) {
                       onSelectReminder(null);
                     } else if (key === 'custom') {

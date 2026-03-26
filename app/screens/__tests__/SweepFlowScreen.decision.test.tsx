@@ -403,19 +403,19 @@ describe('SweepFlowScreen - Decision Step', () => {
       });
     });
 
-    it('shows action buttons (Clear, Skip)', async () => {
+    it('shows action buttons (Let Go, Keep)', async () => {
       mockCandidates = [mockTodoCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate]);
 
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        expect(result.getByRole('button', { name: 'Clear this item' })).toBeTruthy();
-        expect(result.getByRole('button', { name: 'Skip this item' })).toBeTruthy();
+        expect(result.getByRole('button', { name: 'Let go of this item' })).toBeTruthy();
+        expect(result.getByRole('button', { name: 'Keep this item' })).toBeTruthy();
       });
     });
 
-    it('advances to next card when Skip is pressed', async () => {
+    it('advances to next card when Keep is pressed', async () => {
       mockCandidates = [mockTodoCandidate, mockNoteCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
 
@@ -425,7 +425,7 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText(/1 of 2 items/);
       });
 
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       await waitFor(() => {
         expect(result.getByText(/2 of 2 items/)).toBeTruthy();
@@ -433,7 +433,7 @@ describe('SweepFlowScreen - Decision Step', () => {
       });
     });
 
-    it('advances to next card when Clear is pressed', async () => {
+    it('advances to next card when Let Go is pressed', async () => {
       mockCandidates = [mockTodoCandidate, mockNoteCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
 
@@ -443,7 +443,7 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText(/1 of 2 items/);
       });
 
-      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Let go of this item' }));
 
       await waitFor(() => {
         expect(result.getByText(/2 of 2 items/)).toBeTruthy();
@@ -461,17 +461,17 @@ describe('SweepFlowScreen - Decision Step', () => {
     // Decisions are recorded locally and committed when sweep completes.
     // See SweepFlowScreen.deferred.test.tsx for comprehensive deferred commit tests.
 
-    it('does NOT call updateTodo immediately when Skip is pressed (deferred commit)', async () => {
+    it('does NOT call updateTodo immediately when Keep is pressed (deferred commit)', async () => {
       mockCandidates = [mockTodoCandidate, mockNoteCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
 
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByRole('button', { name: 'Skip this item' });
+        result.getByRole('button', { name: 'Keep this item' });
       });
 
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Wait for card to advance to verify action was processed
       await waitFor(() => {
@@ -482,17 +482,17 @@ describe('SweepFlowScreen - Decision Step', () => {
       expect(mockUpdateTodo).not.toHaveBeenCalled();
     });
 
-    it('does NOT call archiveTodo immediately when Clear is pressed (deferred commit)', async () => {
+    it('does NOT call archiveTodo immediately when Let Go is pressed (deferred commit)', async () => {
       mockCandidates = [mockTodoCandidate, mockNoteCandidate];
       mockFetchSweepCandidates.mockResolvedValue([mockTodoCandidate, mockNoteCandidate]);
 
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByRole('button', { name: 'Clear this item' });
+        result.getByRole('button', { name: 'Let go of this item' });
       });
 
-      fireEvent.press(result.getByRole('button', { name: 'Clear this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Let go of this item' }));
 
       // Wait for card to advance to verify action was processed
       await waitFor(() => {
@@ -514,7 +514,7 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText(/1 of 2 items/);
       });
 
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Should still advance despite error
       await waitFor(() => {
@@ -531,10 +531,10 @@ describe('SweepFlowScreen - Decision Step', () => {
       const result = await renderAtDecisionStep();
 
       await waitFor(() => {
-        result.getByRole('button', { name: 'Skip this item' });
+        result.getByRole('button', { name: 'Keep this item' });
       });
 
-      fireEvent.press(result.getByRole('button', { name: 'Skip this item' }));
+      fireEvent.press(result.getByRole('button', { name: 'Keep this item' }));
 
       // Should auto-advance to Habits step (step 2)
       await waitFor(() => {
@@ -583,8 +583,12 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText('Test task');
       });
 
-      // Press the Fix button (shows as "✏️ Fix")
-      fireEvent.press(result.getByLabelText('Edit details'));
+      // Open Gremly menu, then tap 'Open details'
+      fireEvent.press(result.getByRole('button', { name: 'Open Gremly menu' }));
+      await waitFor(() => {
+        result.getByText('Open details');
+      });
+      fireEvent.press(result.getByText('Open details'));
 
       await waitFor(() => {
         expect(mockOpenEdit).toHaveBeenCalledWith({
@@ -608,7 +612,11 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText('Test task');
       });
 
-      fireEvent.press(result.getByLabelText('Edit details'));
+      fireEvent.press(result.getByRole('button', { name: 'Open Gremly menu' }));
+      await waitFor(() => {
+        result.getByText('Open details');
+      });
+      fireEvent.press(result.getByText('Open details'));
 
       await waitFor(() => {
         expect(mockOpenEdit).toHaveBeenCalledWith({
@@ -641,7 +649,11 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText('Test note');
       });
 
-      fireEvent.press(result.getByLabelText('Edit details'));
+      fireEvent.press(result.getByRole('button', { name: 'Open Gremly menu' }));
+      await waitFor(() => {
+        result.getByText('Open details');
+      });
+      fireEvent.press(result.getByText('Open details'));
 
       await waitFor(() => {
         expect(mockOpenEdit).toHaveBeenCalledWith({
@@ -673,7 +685,11 @@ describe('SweepFlowScreen - Decision Step', () => {
         result.getByText(/1 of 2 items/);
       });
 
-      fireEvent.press(result.getByLabelText('Edit details'));
+      fireEvent.press(result.getByRole('button', { name: 'Open Gremly menu' }));
+      await waitFor(() => {
+        result.getByText('Open details');
+      });
+      fireEvent.press(result.getByText('Open details'));
 
       await waitFor(() => {
         expect(mockOpenEdit).toHaveBeenCalled();

@@ -14,8 +14,9 @@ import { View, StyleSheet, Image, TouchableOpacity, SafeAreaView, Dimensions } f
 import Reanimated, { FadeIn, FadeInUp, FadeOut } from 'react-native-reanimated';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
-import { SweepCard } from './SweepCard';
-import { SweepGremlyHeader } from './SweepGremlyHeader';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — OLD file kept for reference; demo needs rewrite to SweepCardNew
+import { SweepCard } from './SweepCard.OLD';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type {
@@ -368,8 +369,7 @@ export function SweepDemoFlow({ onComplete, returnsToMindDrop = false }: SweepDe
           </TouchableOpacity>
         </View>
 
-        {/* Gremly header */}
-        <SweepGremlyHeader candidate={candidate} meta={meta} />
+        {/* Gremly header removed — was SweepGremlyHeader, now built into SweepCardShell */}
 
         {/* Card */}
         <Reanimated.View

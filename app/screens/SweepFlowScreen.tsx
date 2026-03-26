@@ -104,7 +104,6 @@ import { eventBus } from '../../lib/events/EventBus';
 // date-fns addDays/nextMonday removed — DateService used for timezone-safe date math
 import { scheduleItemReminder } from '../../lib/notifications/itemReminderService';
 import type { ItemReminder } from '../../lib/types';
-import { toDayString } from '../../lib/date/computeDueDay';
 import type { AppRecord } from '../../lib/types';
 
 import AgeUpCelebrationModal from '../../components/ritual/AgeUpCelebrationModal';
@@ -131,6 +130,7 @@ import { SweepCompletedModal } from '../../components/sweep/SweepCompletedModal'
 import { SweepEndCard } from '../../components/sweep/SweepEndCard';
 import { SweepEndItemList } from '../../components/sweep/SweepEndItemList';
 import { ClarificationPopup } from '../../components/minddrop/ClarificationPopup';
+import { sweepLog } from '../../lib/debug/sweepLogger';
 
 // Gremly mascot for summary step
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -175,36 +175,28 @@ interface StepProps {
 // Decision tracking for sweep (stores decisions before committing)
 type SweepDecision = {
   candidateId: string;
-  candidateKind: 'todo' | 'habit' | 'note';
+  candidateKind: 'todo' | 'note';
   action: 'keep' | 'clear' | 'skip';
 
   // Todo scheduling
   dueDateStr?: string;
-  dueDate?: Date;
 
   // Todo/Event reminders (push notifications)
   reminderDateStr?: string;
-  reminderDate?: Date;
   reminderTime?: string;
 
   // Note resurfacing (sweep re-entry, NO notification)
   resurfaceDateStr?: string;
-  resurfaceDate?: Date;
 
-  // Note action type
+  // Note actions
   noteAction?: 'fine' | 'resurface' | 'maketodo';
-
-  // Note UI state for back-navigation restore
   resurfaceTiming?: 'nextweek' | '2weeks' | 'pick';
-  eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
 
-  // Space assignment (independent)
+  // Space assignment
   spaceId?: string;
 
-  // Legacy fields kept for backward compatibility during transition
-  startDateStr?: string;
-  startDate?: Date;
-  habitAction?: 'asktomorrow' | 'starttomorrow' | 'startmonday';
+  // Event reminder
+  eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
 };
 
 // Journal prompts for inspiration
@@ -526,7 +518,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
             const cortexUrl = readCortexUrl();
             const anonKey = readSupabaseAnonKey();
             if (!cortexUrl || !anonKey) {
-              console.warn('[SweepJournal] Missing cortex URL or anon key, skipping enrichment');
+              sweepLog.warn('[SweepJournal] Missing cortex URL or anon key, skipping enrichment');
               return;
             }
 
@@ -535,7 +527,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
             const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
-            console.log('[SweepJournal] Running Phase 1.5a + Phase 2 enrichment');
+            sweepLog.debug('[SweepJournal] Running Phase 1.5a + Phase 2 enrichment');
 
             // Run Phase 1.5a and Phase 2 in parallel
             const [phase15aResult, phase2Result] = await Promise.all([
@@ -558,7 +550,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
                   if (!res.ok) return null;
                   return await res.json();
                 } catch (err) {
-                  console.warn('[SweepJournal] Phase 1.5a failed:', err);
+                  sweepLog.warn('[SweepJournal] Phase 1.5a failed:', err);
                   return null;
                 }
               })(),
@@ -584,17 +576,17 @@ function SweepMoodStep({ onContinue }: StepProps) {
                   if (!res.ok) return null;
                   return await res.json();
                 } catch (err) {
-                  console.warn('[SweepJournal] Phase 2 failed:', err);
+                  sweepLog.warn('[SweepJournal] Phase 2 failed:', err);
                   return null;
                 }
               })(),
             ]);
 
-            console.log(
+            sweepLog.debug(
               '[SweepJournal] Phase 1.5a result:',
               JSON.stringify(phase15aResult, null, 2),
             );
-            console.log('[SweepJournal] Phase 2 result:', JSON.stringify(phase2Result, null, 2));
+            sweepLog.debug('[SweepJournal] Phase 2 result:', JSON.stringify(phase2Result, null, 2));
 
             // Build update payload
             const updatePayload: any = {};
@@ -651,15 +643,15 @@ function SweepMoodStep({ onContinue }: StepProps) {
 
             // Patch the note if we have any updates
             if (Object.keys(updatePayload).length > 0) {
-              console.log(
+              sweepLog.debug(
                 '[SweepJournal] Updating note with payload:',
                 JSON.stringify(updatePayload, null, 2),
               );
               await useGremlyStore.getState().updateNote(noteId, updatePayload);
-              console.log('[SweepJournal] Enrichment complete for note:', noteId);
+              sweepLog.debug('[SweepJournal] Enrichment complete for note:', noteId);
             }
           } catch (error) {
-            console.error('[SweepJournal] Background enrichment failed:', error);
+            sweepLog.error('[SweepJournal] Background enrichment failed:', error);
             // Silent failure — the note is already saved with basic data
           }
         })();
@@ -667,7 +659,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
 
       onContinue({ journalWritten: true });
     } catch (error) {
-      console.warn('[SweepMoodStep] Failed to save reflection:', error);
+      sweepLog.warn('[SweepMoodStep] Failed to save reflection:', error);
       onContinue({ journalWritten: false });
     } finally {
       setIsSaving(false);
@@ -1075,7 +1067,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
       try {
         await completeHabit(habitId);
       } catch (error) {
-        console.error('[SweepHabitsStep] Failed to complete habit:', habitId, error);
+        sweepLog.error('[SweepHabitsStep] Failed to complete habit:', habitId, error);
       }
     });
 
@@ -1084,7 +1076,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
       try {
         await uncompleteHabit(habitId);
       } catch (error) {
-        console.error('[SweepHabitsStep] Failed to uncomplete habit:', habitId, error);
+        sweepLog.error('[SweepHabitsStep] Failed to uncomplete habit:', habitId, error);
       }
     });
 
@@ -1376,8 +1368,8 @@ function useSweepSnapshot(
   if (!storeIsLoading && snapshot === null) {
     // Using conditional setState is acceptable for one-time initialization
     // when the condition is based on loading state
-    console.log('[SweepSnapshot] Taking snapshot with', allCandidates.length, 'candidates');
-    console.log(
+    sweepLog.debug('[SweepSnapshot] Taking snapshot with', allCandidates.length, 'candidates');
+    sweepLog.debug(
       '[SweepSnapshot] Candidate IDs:',
       allCandidates.map((c) => c.candidate.id.slice(0, 8)),
     );
@@ -1403,7 +1395,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const archiveTodo = useGremlyStore((state) => state.archiveTodo);
   const updateNote = useGremlyStore((state) => state.updateNote);
   const archiveNote = useGremlyStore((state) => state.archiveNote);
-  const updateHabit = useGremlyStore((state) => state.updateHabit);
+  const _updateHabit = useGremlyStore((state) => state.updateHabit);
   const archiveHabit = useGremlyStore((state) => state.archiveHabit);
   const resolvePendingDropClarification = useGremlyStore(
     (state) => state.resolvePendingDropClarification,
@@ -1438,7 +1430,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Helper to update age-up state (both state and refs)
   const updateAgeUpState = useCallback((aged: boolean, newAge: number) => {
     if (aged) {
-      console.log('[Sweep] Age up! Setting didAgeUp=true, finalAge=', newAge);
+      sweepLog.debug('[Sweep] Age up! Setting didAgeUp=true, finalAge=', newAge);
       setDidAgeUp(true);
       setFinalAge(newAge);
       didAgeUpRef.current = true;
@@ -1579,7 +1571,6 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   }
 
   const commitAllDecisions = useCallback(async () => {
-    const ds = getDateService();
     const updates: Promise<void>[] = [];
     let keptCount = 0;
     let clearedCount = 0;
@@ -1590,17 +1581,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         clearedCount++;
         if (decision.candidateKind === 'todo') {
           updates.push(archiveTodo(decision.candidateId, 'swept'));
-        } else if (decision.candidateKind === 'habit') {
-          updates.push(archiveHabit(decision.candidateId, 'swept'));
         } else if (decision.candidateKind === 'note') {
           updates.push(archiveNote(decision.candidateId, 'swept'));
         }
       } else if (decision.action === 'keep') {
         keptCount++;
-        if (decision.candidateKind === 'todo' && decision.resurfaceDate) {
+        if (decision.candidateKind === 'todo' && decision.resurfaceDateStr) {
           // Handle resurface date (remind me later)
-          const resurfaceDateStr = ds.toLocalDate(decision.resurfaceDate);
-          console.log('[SweepFlowScreen] Setting resurface_at:', resurfaceDateStr);
+          sweepLog.debug('[SweepFlowScreen] Setting resurface_at:', decision.resurfaceDateStr);
 
           // Look up the original todo to get time_window for context-aware reminder time
           const originalTodo = todos.find((t) => t.id === decision.candidateId);
@@ -1612,7 +1600,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             id: `sweep-remind-${Date.now()}-${decision.candidateId.slice(0, 8)}`,
             time: reminderTime,
             frequency: 'once',
-            date: resurfaceDateStr,
+            date: decision.resurfaceDateStr,
           };
 
           // Schedule notification and persist reminder with notificationId
@@ -1625,21 +1613,18 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
                 reminder,
               );
               await updateTodo(decision.candidateId, {
-                resurface_at: resurfaceDateStr,
-                scheduled_date: resurfaceDateStr,
-                due_day: resurfaceDateStr,
+                resurface_at: decision.resurfaceDateStr,
+                scheduled_date: decision.resurfaceDateStr,
+                due_day: decision.resurfaceDateStr,
                 due_date: null,
                 reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
               } as any);
             })(),
           );
-        } else if (decision.candidateKind === 'todo' && (decision.dueDateStr || decision.dueDate)) {
+        } else if (decision.candidateKind === 'todo' && decision.dueDateStr) {
           // Get current reschedule count from store
           const currentTodo = todos.find((t) => t.id === decision.candidateId);
           const currentCount = currentTodo?.sweep_reschedule_count ?? 0;
-
-          // Prefer string date (timezone-safe), fall back to Date conversion
-          const dateStr = decision.dueDateStr || toDayString(decision.dueDate!);
 
           if (decision.reminderDateStr) {
             // Due date + reminder: schedule notification and persist both
@@ -1662,8 +1647,8 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
                   reminder,
                 );
                 await updateTodo(decision.candidateId, {
-                  scheduled_date: dateStr,
-                  due_day: dateStr,
+                  scheduled_date: decision.dueDateStr,
+                  due_day: decision.dueDateStr,
                   skipped_in_sweep_at: null,
                   resurface_at: null,
                   sweep_reschedule_count: currentCount + 1,
@@ -1675,8 +1660,8 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             // Due date only, no reminder
             updates.push(
               updateTodo(decision.candidateId, {
-                scheduled_date: dateStr,
-                due_day: dateStr,
+                scheduled_date: decision.dueDateStr,
+                due_day: decision.dueDateStr,
                 skipped_in_sweep_at: null,
                 resurface_at: null,
                 sweep_reschedule_count: currentCount + 1,
@@ -1684,45 +1669,23 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             );
           }
         } else if (
-          decision.candidateKind === 'habit' &&
-          (decision.startDateStr || decision.startDate)
+          decision.candidateKind === 'todo' &&
+          !decision.resurfaceDateStr &&
+          !decision.dueDateStr
         ) {
-          // Prefer string date (timezone-safe), fall back to Date conversion
-          const habitStartDateStr = decision.startDateStr || ds.toLocalDate(decision.startDate!);
-          const originalHabit = habits.find((h) => h.id === decision.candidateId);
-          const habitTitle = originalHabit?.name || 'Habit reminder';
-
-          const habitReminder: ItemReminder = {
-            id: `sweep-remind-${Date.now()}-${decision.candidateId.slice(0, 8)}`,
-            time: getDefaultReminderTime(originalHabit?.time_window),
-            frequency: 'once',
-            date: habitStartDateStr,
-          };
-
+          // Bare keep (e.g. from 'changed' outcome) — just clear skipped flag
           updates.push(
-            (async () => {
-              const notificationId = await scheduleItemReminder(
-                decision.candidateId,
-                habitTitle,
-                'habit',
-                habitReminder,
-              );
-              await updateHabit(decision.candidateId, {
-                start_date: habitStartDateStr,
-                start_date_confirmed: true,
-                reminders: [{ ...habitReminder, notificationId: notificationId ?? undefined }],
-              } as any);
-            })(),
+            updateTodo(decision.candidateId, {
+              skipped_in_sweep_at: null,
+            } as any),
           );
         } else if (decision.candidateKind === 'note') {
           // Check if this is a resurface action
-          if (
-            decision.noteAction === 'resurface' &&
-            (decision.resurfaceDate || decision.resurfaceDateStr)
-          ) {
-            const resurfaceDateStr =
-              decision.resurfaceDateStr || ds.toLocalDate(decision.resurfaceDate!);
-            console.log('[SweepFlowScreen] Setting note resurface_at:', resurfaceDateStr);
+          if (decision.noteAction === 'resurface' && decision.resurfaceDateStr) {
+            sweepLog.debug(
+              '[SweepFlowScreen] Setting note resurface_at:',
+              decision.resurfaceDateStr,
+            );
 
             // Get current resurface_count
             const originalNote = notes.find((n) => n.id === decision.candidateId);
@@ -1731,7 +1694,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             // Resurface = NO notification, just set the date for future sweep inclusion
             updates.push(
               updateNote(decision.candidateId, {
-                resurface_at: resurfaceDateStr,
+                resurface_at: decision.resurfaceDateStr,
                 swept_at: new Date().toISOString(),
                 skipped_in_sweep_at: null,
                 resurface_count: currentResurfaceCount + 1,
@@ -1740,10 +1703,10 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             );
           } else if (
             decision.noteAction === 'fine' ||
-            (!decision.resurfaceDate && !decision.resurfaceDateStr && !decision.reminderDate)
+            (!decision.resurfaceDateStr && !decision.reminderDateStr)
           ) {
             // "Fine as is" or no special action — mark as swept
-            console.log('[SweepFlowScreen] Marking note as swept:', decision.candidateId);
+            sweepLog.debug('[SweepFlowScreen] Marking note as swept:', decision.candidateId);
             updates.push(
               updateNote(decision.candidateId, {
                 swept_at: new Date().toISOString(),
@@ -1752,11 +1715,9 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
                 ...(decision.spaceId ? { space_id: decision.spaceId } : {}),
               } as any),
             );
-          } else if (decision.reminderDate || decision.reminderDateStr) {
+          } else if (decision.reminderDateStr) {
             // Event reminder — this IS a push notification
-            const reminderDateStr =
-              decision.reminderDateStr || ds.toLocalDate(decision.reminderDate!);
-            console.log('[SweepFlowScreen] Setting event reminder:', reminderDateStr);
+            sweepLog.debug('[SweepFlowScreen] Setting event reminder:', decision.reminderDateStr);
 
             const originalNote = notes.find((n) => n.id === decision.candidateId);
             const entityTitle =
@@ -1766,7 +1727,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
               id: `sweep-remind-${Date.now()}-${decision.candidateId.slice(0, 8)}`,
               time: '09:00',
               frequency: 'once',
-              date: reminderDateStr,
+              date: decision.reminderDateStr,
             };
 
             updates.push(
@@ -1785,32 +1746,28 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
                 } as any);
               })(),
             );
-          } else if (decision.resurfaceDate) {
-            // Legacy path — old-style resurface (from existing handleConfirmRemindLater)
-            const resurfaceDateStr = ds.toLocalDate(decision.resurfaceDate);
-            updates.push(
-              updateNote(decision.candidateId, {
-                resurface_at: resurfaceDateStr,
-                swept_at: new Date().toISOString(),
-                skipped_in_sweep_at: null,
-              } as any),
-            );
           }
         }
-        // For habits with 'asktomorrow', no update needed
+      } else if (decision.action === 'skip') {
+        // Mark as skipped so it reappears in the next sweep session
+        const now = new Date().toISOString();
+        if (decision.candidateKind === 'todo') {
+          updates.push(updateTodo(decision.candidateId, { skipped_in_sweep_at: now } as any));
+        } else if (decision.candidateKind === 'note') {
+          updates.push(updateNote(decision.candidateId, { skipped_in_sweep_at: now } as any));
+        }
       }
-      // 'skip' action = no changes to persist
     });
 
     try {
       await Promise.all(updates);
-      console.log('[Sweep] Committed', updates.length, 'decisions');
+      sweepLog.debug('[Sweep] Committed', updates.length, 'decisions');
     } catch (error) {
-      console.error('[Sweep] Error committing decisions:', error);
+      sweepLog.error('[Sweep] Error committing decisions:', error);
     }
 
     return { keptCount, clearedCount };
-  }, [archiveTodo, archiveHabit, archiveNote, updateTodo, updateHabit]);
+  }, [archiveTodo, archiveNote, updateTodo, updateNote]);
 
   /**
    * Handle save and exit - commits all decisions before closing.
@@ -1842,35 +1799,27 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         let scheduledDate: string | undefined;
 
         if (decision.action === 'clear') {
-          // Todos = "Cleared", Notes = "Archived", Habits = "Removed"
-          outcome =
-            details.kind === 'note' ? 'archived' : details.kind === 'habit' ? 'removed' : 'cleared';
+          // Todos = "Cleared", Notes = "Archived"
+          outcome = details.kind === 'note' ? 'archived' : 'cleared';
         } else if (decision.action === 'keep') {
-          if (decision.resurfaceDate) {
+          // Helper to format YYYY-MM-DD string for display
+          const formatDateStr = (dateStr: string) => {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+            });
+          };
+
+          if (decision.resurfaceDateStr) {
             outcome = 'remind';
-            scheduledDate = decision.resurfaceDate.toLocaleDateString('en-US', {
-              weekday: 'short',
-              month: 'short',
-              day: 'numeric',
-            });
-          } else if (decision.dueDate) {
+            scheduledDate = formatDateStr(decision.resurfaceDateStr);
+          } else if (decision.dueDateStr) {
             outcome = 'scheduled';
-            scheduledDate = decision.dueDate.toLocaleDateString('en-US', {
-              weekday: 'short',
-              month: 'short',
-              day: 'numeric',
-            });
-          } else if (details.kind === 'habit' && decision.startDate) {
-            outcome = 'scheduled';
-            scheduledDate = decision.startDate.toLocaleDateString('en-US', {
-              weekday: 'short',
-              month: 'short',
-              day: 'numeric',
-            });
+            scheduledDate = formatDateStr(decision.dueDateStr);
           } else if (details.kind === 'note') {
             outcome = 'saved';
-          } else if (details.kind === 'habit') {
-            outcome = 'logged';
           } else {
             outcome = 'kept';
           }
@@ -1935,7 +1884,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   // Log candidates for debugging (using snapshot)
   useEffect(() => {
     if (!isLoading && candidatesWithMeta.length > 0) {
-      console.log('[SweepFlow] Candidates from store:', {
+      sweepLog.debug('[SweepFlow] Candidates from store:', {
         total: candidatesWithMeta.length,
         todos: candidatesWithMeta.filter((c) => c.candidate.kind === 'todo').length,
         notes: candidatesWithMeta.filter((c) => c.candidate.kind === 'note').length,
@@ -1987,7 +1936,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const handleOutcomeRef = useRef<(outcome: SweepOutcome) => void>(() => {});
 
   const handleOutcome = useCallback(
-    async (outcome: SweepOutcome) => {
+    (outcome: SweepOutcome) => {
       // Clear conversion state if user is acting on converted card
       if (convertedCandidate) {
         setConvertedCandidate(null);
@@ -1999,58 +1948,37 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
       switch (outcome) {
         case 'skip': {
-          // User swiped RIGHT - defer this item to next sweep session
-          // Sets skipped_in_sweep_at = NOW() so it reappears next time
-          try {
-            const now = new Date().toISOString();
-            if (candidate.kind === 'todo') {
-              await updateTodo(candidate.id, { skipped_in_sweep_at: now } as any);
-            } else {
-              await updateNote(candidate.id, { skipped_in_sweep_at: now } as any);
-            }
-            setStats((prev) => ({ ...prev, kept: prev.kept + 1 }));
-          } catch (error) {
-            console.error('[SweepDecisionStep] handleOutcome skip error:', error);
-          }
+          // Batch: sets skipped_in_sweep_at on commit
+          recordDecision({
+            candidateId: candidate.id,
+            candidateKind: candidate.kind as 'todo' | 'note',
+            action: 'skip',
+          });
+          setStats((prev) => ({ ...prev, kept: prev.kept + 1 }));
           setCurrentIndex((prev) => prev + 1);
           break;
         }
 
         case 'clear': {
-          // Archive the candidate
-          try {
-            // Archive with reason 'swept'
-            if (candidate.kind === 'todo') {
-              await archiveTodo(candidate.id, 'swept');
-              // EventBus emission handled by store mutation
-            } else if (candidate.kind === 'note') {
-              await archiveNote(candidate.id, 'swept');
-            } else if (candidate.kind === 'habit') {
-              await archiveHabit(candidate.id, 'swept');
-            }
-
-            setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
-          } catch (error) {
-            console.error('[SweepDecisionStep] handleOutcome clear error:', error);
-          }
+          // Batch: archives on commit
+          recordDecision({
+            candidateId: candidate.id,
+            candidateKind: candidate.kind as 'todo' | 'note',
+            action: 'clear',
+          });
+          setStats((prev) => ({ ...prev, cleared: prev.cleared + 1 }));
           setCurrentIndex((prev) => prev + 1);
           break;
         }
 
         case 'changed': {
-          // User made a meaningful change (via primary action or edit overlay)
-          // Treat as "kept but changed" - count as kept and advance
-          // Clear skipped_in_sweep_at to mark as reviewed
-          try {
-            if (candidate.kind === 'todo') {
-              await updateTodo(candidate.id, { skipped_in_sweep_at: null } as any);
-            } else {
-              await updateNote(candidate.id, { skipped_in_sweep_at: null } as any);
-            }
-            setStats((prev) => ({ ...prev, kept: prev.kept + 1 }));
-          } catch (error) {
-            console.error('[SweepDecisionStep] handleOutcome changed error:', error);
-          }
+          // Batch: clears skipped_in_sweep_at on commit
+          recordDecision({
+            candidateId: candidate.id,
+            candidateKind: candidate.kind as 'todo' | 'note',
+            action: 'keep',
+          });
+          setStats((prev) => ({ ...prev, kept: prev.kept + 1 }));
           setCurrentIndex((prev) => prev + 1);
           break;
         }
@@ -2060,7 +1988,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           return;
       }
     },
-    [candidatesWithMeta, currentIndex, updateTodo, updateNote, archiveTodo, archiveNote],
+    [candidatesWithMeta, currentIndex, recordDecision],
   );
 
   // Keep the ref updated with the latest handleOutcome
@@ -2076,7 +2004,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       if (converting && payload.type === converting.targetType) {
         // Check if this candidate was already converted (prevent duplicates)
         if (convertedCandidatesRef.current.has(converting.sourceId)) {
-          console.log(
+          sweepLog.debug(
             '[SweepFlow] Candidate already converted, ignoring duplicate:',
             converting.sourceId,
           );
@@ -2084,7 +2012,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           return;
         }
 
-        console.log(
+        sweepLog.debug(
           `[SweepFlow] ${converting.sourceKind} converted to ${converting.targetType} (in-place):`,
           converting.sourceId,
           '->',
@@ -2149,7 +2077,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       // This indicates a clarification bucket change for the current card
       const currentDropId = candidatesWithMeta[currentIndex]?.candidate?.dropId;
       if (currentDropId && payload.entity.drop_id === currentDropId) {
-        console.log('[SweepFlow] Clarification bucket change detected:', {
+        sweepLog.debug('[SweepFlow] Clarification bucket change detected:', {
           originalId: currentCandidateId,
           newId: payload.entity.id,
           newType: payload.type,
@@ -2185,7 +2113,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         updateAgeUpState(aged, newAge);
       })
       .catch((err) => {
-        console.warn('[Sweep] Failed to increment sweep count:', err);
+        sweepLog.warn('[Sweep] Failed to increment sweep count:', err);
       });
 
     // Clear conversion state if user is acting on converted card
@@ -2199,7 +2127,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
     recordDecision({
       candidateId: candidate.id,
-      candidateKind: candidate.kind,
+      candidateKind: candidate.kind as 'todo' | 'note',
       action: 'keep',
     });
 
@@ -2224,7 +2152,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         updateAgeUpState(aged, newAge);
       })
       .catch((err) => {
-        console.warn('[Sweep] Failed to increment sweep count:', err);
+        sweepLog.warn('[Sweep] Failed to increment sweep count:', err);
       });
 
     // Clear conversion state if user is acting on converted card
@@ -2238,7 +2166,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
     recordDecision({
       candidateId: candidate.id,
-      candidateKind: candidate.kind,
+      candidateKind: candidate.kind as 'todo' | 'note',
       action: 'clear',
     });
 
@@ -2277,7 +2205,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       overlayController.openEdit({ record: fullRecord });
     } else {
       // Fallback: construct a minimal record from the raw data
-      console.warn('[SweepDecisionStep] handleOpenEdit: record not found in store, using raw');
+      sweepLog.warn('[SweepDecisionStep] handleOpenEdit: record not found in store, using raw');
       const fallbackRecord = {
         ...candidate.raw,
         type: candidate.kind,
@@ -2293,13 +2221,13 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
     // Prevent duplicate conversions
     if (convertedCandidatesRef.current.has(candidate.id)) {
-      console.log('[SweepFlow] Candidate already converted, ignoring:', candidate.id);
+      sweepLog.debug('[SweepFlow] Candidate already converted, ignoring:', candidate.id);
       return;
     }
 
     // Prevent re-triggering while conversion is in progress
     if (convertingCandidateRef.current?.sourceId === candidate.id) {
-      console.log('[SweepFlow] Conversion already in progress for:', candidate.id);
+      sweepLog.debug('[SweepFlow] Conversion already in progress for:', candidate.id);
       return;
     }
 
@@ -2357,13 +2285,13 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
       // Prevent duplicate conversions
       if (convertedCandidatesRef.current.has(candidate.id)) {
-        console.log('[SweepFlow] Candidate already converted, ignoring:', candidate.id);
+        sweepLog.debug('[SweepFlow] Candidate already converted, ignoring:', candidate.id);
         return;
       }
 
       // Prevent re-triggering while conversion is in progress
       if (convertingCandidateRef.current?.sourceId === candidate.id) {
-        console.log('[SweepFlow] Conversion already in progress for:', candidate.id);
+        sweepLog.debug('[SweepFlow] Conversion already in progress for:', candidate.id);
         return;
       }
 
@@ -2432,9 +2360,9 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         await updateNote(candidate.id, {
           target_date: newDateStr,
         } as any);
-        console.log('[SweepFlow] Updated event date to:', newDateStr);
+        sweepLog.debug('[SweepFlow] Updated event date to:', newDateStr);
       } catch (error) {
-        console.error('[SweepFlow] Failed to update event date:', error);
+        sweepLog.error('[SweepFlow] Failed to update event date:', error);
       }
     },
     [candidatesWithMeta, currentIndex, updateNote],
@@ -2454,7 +2382,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           updateAgeUpState(aged, newAge);
         })
         .catch((err) => {
-          console.warn('[Sweep] Failed to increment sweep count:', err);
+          sweepLog.warn('[Sweep] Failed to increment sweep count:', err);
         });
 
       const candidateWithMeta = candidatesWithMeta[currentIndex];
@@ -2478,7 +2406,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
       recordDecision({
         candidateId: candidate.id,
-        candidateKind: candidate.kind,
+        candidateKind: candidate.kind as 'todo' | 'note',
         action: 'keep',
         dueDateStr: targetDateStr,
       });
@@ -2510,7 +2438,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           updateAgeUpState(aged, newAge);
         })
         .catch((err) => {
-          console.warn('[Sweep] Failed to increment sweep count:', err);
+          sweepLog.warn('[Sweep] Failed to increment sweep count:', err);
         });
 
       const candidateWithMeta = candidatesWithMeta[currentIndex];
@@ -2520,18 +2448,20 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       // Only works for todos and notes (not habits)
       if (candidate.kind === 'habit') return;
 
-      console.log('[SweepFlowScreen] Recording remind later decision:', {
+      const ds = getDateService();
+      const resurfaceDateStr = ds.toLocalDate(resurfaceDate);
+      sweepLog.debug('[SweepFlowScreen] Recording remind later decision:', {
         id: candidate.id,
         kind: candidate.kind,
-        resurfaceDate: resurfaceDate.toISOString(),
+        resurfaceDateStr,
       });
 
       // Record decision with resurface date (not due date)
       recordDecision({
         candidateId: candidate.id,
-        candidateKind: candidate.kind,
+        candidateKind: candidate.kind as 'todo' | 'note',
         action: 'keep',
-        resurfaceDate,
+        resurfaceDateStr,
       });
 
       // Update stats and move to next card
@@ -2554,8 +2484,8 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const handleConfirmNoteAction = useCallback(
     (action: {
       noteAction: 'fine' | 'resurface';
-      resurfaceDate?: Date;
-      reminderDate?: Date;
+      resurfaceDateStr?: string;
+      reminderDateStr?: string;
       spaceId?: string;
       resurfaceTiming?: 'nextweek' | '2weeks' | 'pick';
       eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
@@ -2567,7 +2497,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           updateAgeUpState(aged, newAge);
         })
         .catch((err) => {
-          console.warn('[Sweep] Failed to increment sweep count:', err);
+          sweepLog.warn('[Sweep] Failed to increment sweep count:', err);
         });
 
       const candidateWithMeta = candidatesWithMeta[currentIndex];
@@ -2579,8 +2509,8 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         candidateKind: 'note',
         action: 'keep',
         noteAction: action.noteAction,
-        resurfaceDate: action.resurfaceDate,
-        reminderDate: action.reminderDate,
+        resurfaceDateStr: action.resurfaceDateStr,
+        reminderDateStr: action.reminderDateStr,
         spaceId: action.spaceId,
         resurfaceTiming: action.resurfaceTiming,
         eventReminder: action.eventReminder,
@@ -2610,7 +2540,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           updateAgeUpState(aged, newAge);
         })
         .catch((err) => {
-          console.warn('[Sweep] Failed to increment sweep count:', err);
+          sweepLog.warn('[Sweep] Failed to increment sweep count:', err);
         });
 
       const candidateWithMeta = candidatesWithMeta[currentIndex];
@@ -2659,7 +2589,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           updateAgeUpState(aged, newAge);
         })
         .catch((err) => {
-          console.warn('[Sweep] Failed to increment sweep count:', err);
+          sweepLog.warn('[Sweep] Failed to increment sweep count:', err);
         });
 
       const candidateWithMeta = candidatesWithMeta[currentIndex];
@@ -2709,7 +2639,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           updateAgeUpState(aged, newAge);
         })
         .catch((err) => {
-          console.warn('[Sweep] Failed to increment sweep count:', err);
+          sweepLog.warn('[Sweep] Failed to increment sweep count:', err);
         });
 
       const candidateWithMeta = candidatesWithMeta[currentIndex];
@@ -2719,75 +2649,13 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       // Only works for todos and notes (not habits)
       if (candidate.kind === 'habit') return;
 
+      const ds = getDateService();
       recordDecision({
         candidateId: candidate.id,
-        candidateKind: candidate.kind,
+        candidateKind: candidate.kind as 'todo' | 'note',
         action: 'keep',
-        dueDate: date,
+        dueDateStr: ds.toLocalDate(date),
       });
-
-      // Update stats and move to next card
-      const newStats = { ...stats, kept: stats.kept + 1 };
-      setStats(newStats);
-
-      if (currentIndex < candidatesWithMeta.length - 1) {
-        setCurrentIndex(currentIndex + 1);
-      } else {
-        handleAllCardsComplete(newStats);
-      }
-    },
-    [candidatesWithMeta, currentIndex, recordDecision, stats, handleAllCardsComplete],
-  );
-
-  /**
-   * Confirm Habit Start Handler - Records habit start decision
-   * Actual save happens in batch commit
-   */
-  const handleConfirmHabitStart = useCallback(
-    (action: 'asktomorrow' | 'starttomorrow' | 'startmonday', customDate?: Date) => {
-      // Increment sweep count for ritual progress
-      useGremlyStore
-        .getState()
-        .incrementSweepCount()
-        .then(({ didAgeUp: aged, newAge }) => {
-          updateAgeUpState(aged, newAge);
-        })
-        .catch((err) => {
-          console.warn('[Sweep] Failed to increment sweep count:', err);
-        });
-
-      const candidateWithMeta = candidatesWithMeta[currentIndex];
-      if (!candidateWithMeta || candidateWithMeta.candidate.kind !== 'habit') return;
-      const { candidate } = candidateWithMeta;
-
-      if (action === 'asktomorrow') {
-        // Skip - will ask again tomorrow
-        recordDecision({
-          candidateId: candidate.id,
-          candidateKind: 'habit',
-          action: 'skip',
-          habitAction: action,
-        });
-      } else {
-        // Calculate start date using DateService (timezone-safe)
-        const ds = getDateService();
-        let startDateStr: string;
-        if (customDate) {
-          startDateStr = ds.toLocalDate(customDate);
-        } else if (action === 'starttomorrow') {
-          startDateStr = ds.tomorrow();
-        } else {
-          startDateStr = ds.toLocalDate(ds.getNextWeekday(1)); // Monday=1
-        }
-
-        recordDecision({
-          candidateId: candidate.id,
-          candidateKind: 'habit',
-          action: 'keep',
-          startDateStr,
-          habitAction: action,
-        });
-      }
 
       // Update stats and move to next card
       const newStats = { ...stats, kept: stats.kept + 1 };
@@ -2816,14 +2684,14 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           updateAgeUpState(aged, newAge);
         })
         .catch((err) => {
-          console.warn('[Sweep] Failed to increment sweep count:', err);
+          sweepLog.warn('[Sweep] Failed to increment sweep count:', err);
         });
 
       const candidateWithMeta = candidatesWithMeta[currentIndex];
       if (!candidateWithMeta) return;
       const candidate = candidateWithMeta.candidate;
 
-      console.log('[SweepFlow] Adding to space:', candidate.id, 'space:', spaceId);
+      sweepLog.debug('[SweepFlow] Adding to space:', candidate.id, 'space:', spaceId);
 
       try {
         // Update the item with the space_id
@@ -2841,7 +2709,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         // Record decision
         recordDecision({
           candidateId: candidate.id,
-          candidateKind: candidate.kind,
+          candidateKind: candidate.kind as 'todo' | 'note',
           action: 'keep',
         });
 
@@ -2856,7 +2724,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           handleAllCardsComplete(newStats);
         }
       } catch (error) {
-        console.error('[SweepFlow] Failed to add to space:', error);
+        sweepLog.error('[SweepFlow] Failed to add to space:', error);
       }
     },
     [
@@ -2916,7 +2784,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           setTimeout(() => setIsClarified(false), 850);
         }, 1000);
       } catch (error) {
-        console.error('[Sweep] Clarification resolution failed:', error);
+        sweepLog.error('[Sweep] Clarification resolution failed:', error);
         // Still close popup on error - user can retry via edit
         setShowClarification(false);
       } finally {
@@ -3182,9 +3050,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
               onConfirmEventAction={handleConfirmEventAction}
               onAddToSpace={handleAddToSpace}
               onConfirmNoteAction={handleConfirmNoteAction}
-              onConfirmHabitStart={handleConfirmHabitStart}
               onClose={onClose}
-              hideBottomSaveExit={true}
               onGoBack={currentIndex > 0 ? handleGoBackCard : undefined}
               previousDecision={currentDecision}
               onOpenChat={handleOpenChat}
@@ -3553,7 +3419,7 @@ function SweepSummaryStep({
         .getState()
         .completeSweepSession(totalProcessed, journalWritten)
         .catch((err: unknown) => {
-          console.warn('[SweepFlowScreen] Sweep gauge reconciliation failed:', err);
+          sweepLog.warn('[SweepFlowScreen] Sweep gauge reconciliation failed:', err);
         });
     }
     // Navigate back directly, bypassing old age-up check
@@ -3839,15 +3705,13 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   const demoMode = route.params?.demoMode === true;
 
   // Debug logging for DEV mode step jumping
-  if (__DEV__) {
-    console.log('[SweepFlowScreen] Route params:', route.params);
-    console.log(
-      '[SweepFlowScreen] initialStep:',
-      initialStep,
-      'initialCardIndex:',
-      initialCardIndex,
-    );
-  }
+  sweepLog.debug('[SweepFlowScreen] Route params:', route.params);
+  sweepLog.debug(
+    '[SweepFlowScreen] initialStep:',
+    initialStep,
+    'initialCardIndex:',
+    initialCardIndex,
+  );
 
   const { user } = useAuth();
   const demoSweepCompletedAt = useGremlyStore((s) => s.demoSweepCompletedAt);
@@ -3890,20 +3754,18 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         !note.archived
       );
     });
-    if (__DEV__) {
-      console.log('[SweepFlowScreen] notes count:', notes.length);
-      console.log('[SweepFlowScreen] unresolvedMultiDrops count:', multiNotes.length);
-      if (multiNotes.length > 0) {
-        multiNotes.forEach((note) => {
-          const views = note.views as any;
-          console.log('[SweepFlowScreen] multi-note:', {
-            id: note.id,
-            title: note.title,
-            multiItemsCount: views?.multi_items?.length ?? 0,
-            minddropStage: views?.minddrop_stage,
-          });
+    sweepLog.debug('[SweepFlowScreen] notes count:', notes.length);
+    sweepLog.debug('[SweepFlowScreen] unresolvedMultiDrops count:', multiNotes.length);
+    if (multiNotes.length > 0) {
+      multiNotes.forEach((note) => {
+        const views = note.views as any;
+        sweepLog.debug('[SweepFlowScreen] multi-note:', {
+          id: note.id,
+          title: note.title,
+          multiItemsCount: views?.multi_items?.length ?? 0,
+          minddropStage: views?.minddrop_stage,
         });
-      }
+      });
     }
     return multiNotes;
   }, [notes]);
@@ -3993,7 +3855,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
   const [dcoSnapshot] = useState(() => {
     const dco = useGremlyStore.getState().dco;
-    console.log('[SweepFlow] DCO snapshot:', dco?.tone, dco?.life_moment);
+    sweepLog.debug('[SweepFlow] DCO snapshot:', dco?.tone, dco?.life_moment);
     return {
       tone: dco?.tone ?? null,
       lifeMoment: dco?.life_moment ?? null,
@@ -4041,7 +3903,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Using requestAnimationFrame to defer state updates and avoid cascading render warning
   useEffect(() => {
     if (__DEV__ && route.params?.initialStep !== undefined) {
-      console.log('[SweepFlowScreen] useEffect: Setting step to', route.params.initialStep);
+      sweepLog.debug('[SweepFlowScreen] useEffect: Setting step to', route.params.initialStep);
       const initialStepValue = route.params.initialStep;
 
       // Defer state updates to next frame to avoid cascading render warning
@@ -4050,7 +3912,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
         // Set mock summary data when jumping to summary step
         if (initialStepValue === 4) {
-          console.log('[SweepFlowScreen] Setting mock summary data for step 4');
+          sweepLog.debug('[SweepFlowScreen] Setting mock summary data for step 4');
           setKeptCount(5);
           setClearedCount(3);
           setSummaryGremlyAge(7);
@@ -4080,7 +3942,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Debug: log step changes
   useEffect(() => {
     if (__DEV__) {
-      console.log('[SweepFlowScreen] Step changed to:', step);
+      sweepLog.debug('[SweepFlowScreen] Step changed to:', step);
     }
   }, [step]);
 
@@ -4136,14 +3998,12 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   );
 
   const handleIntroStart = () => {
-    if (__DEV__) {
-      console.log('[SweepFlowScreen] handleIntroStart:', {
-        hasUnresolvedMultiDrops,
-        unresolvedMultiDropsCount: unresolvedMultiDrops.length,
-        hasLockedItems,
-        lockInCheckpointComplete,
-      });
-    }
+    sweepLog.debug('[SweepFlowScreen] handleIntroStart:', {
+      hasUnresolvedMultiDrops,
+      unresolvedMultiDropsCount: unresolvedMultiDrops.length,
+      hasLockedItems,
+      lockInCheckpointComplete,
+    });
     // Check for unresolved multi-drops first
     if (hasUnresolvedMultiDrops) {
       setStep(0.25); // Go to multi-split step
@@ -4190,7 +4050,11 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       archiveNote?.(dropId, 'split');
 
       if (__DEV__) {
-        console.log('[SweepFlowScreen] handleMultiSplit: created', selectedItems.length, 'items');
+        sweepLog.debug(
+          '[SweepFlowScreen] handleMultiSplit: created',
+          selectedItems.length,
+          'items',
+        );
       }
     },
     [],
@@ -4203,7 +4067,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     const note = state.notes.find((n) => n.id === dropId);
 
     if (!note) {
-      console.warn('[SweepFlowScreen] handleMultiKeepAsOne: note not found', { dropId });
+      sweepLog.warn('[SweepFlowScreen] handleMultiKeepAsOne: note not found', { dropId });
       return;
     }
 
@@ -4253,7 +4117,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             await archiveNote?.(dropId, 'converted_to_todo');
             entityId = newTodo.id;
             entityBucket = 'todo';
-            console.log('[SweepFlowScreen] Converted multi-drop to todo:', entityId);
+            sweepLog.debug('[SweepFlowScreen] Converted multi-drop to todo:', entityId);
           }
         } else if (dominantBucket === 'habit') {
           // Convert note → habit
@@ -4276,7 +4140,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             await archiveNote?.(dropId, 'converted_to_habit');
             entityId = newHabit.id;
             entityBucket = 'habit';
-            console.log('[SweepFlowScreen] Converted multi-drop to habit:', entityId);
+            sweepLog.debug('[SweepFlowScreen] Converted multi-drop to habit:', entityId);
           }
         } else {
           // Keep as note — clear multi flag, set up for enrichment
@@ -4287,7 +4151,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         const cortexUrl = readCortexUrl();
         const anonKey = readSupabaseAnonKey();
         if (!cortexUrl || !anonKey) {
-          console.warn('[SweepFlowScreen] Missing cortex URL or anon key, skipping enrichment');
+          sweepLog.warn('[SweepFlowScreen] Missing cortex URL or anon key, skipping enrichment');
           return;
         }
 
@@ -4296,7 +4160,10 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
-        console.log('[SweepFlowScreen] Running Phase 1.5a + Phase 2 for kept-as-single:', entityId);
+        sweepLog.debug(
+          '[SweepFlowScreen] Running Phase 1.5a + Phase 2 for kept-as-single:',
+          entityId,
+        );
 
         const [phase15aResult, phase2Result] = await Promise.all([
           // Phase 1.5a: Smart title + confirmation message
@@ -4318,7 +4185,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               if (!res.ok) return null;
               return await res.json();
             } catch (err) {
-              console.warn('[SweepFlowScreen] Phase 1.5a failed:', err);
+              sweepLog.warn('[SweepFlowScreen] Phase 1.5a failed:', err);
               return null;
             }
           })(),
@@ -4344,14 +4211,14 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
               if (!res.ok) return null;
               return await res.json();
             } catch (err) {
-              console.warn('[SweepFlowScreen] Phase 2 failed:', err);
+              sweepLog.warn('[SweepFlowScreen] Phase 2 failed:', err);
               return null;
             }
           })(),
         ]);
 
-        console.log('[SweepFlowScreen] Phase 1.5a result:', JSON.stringify(phase15aResult));
-        console.log('[SweepFlowScreen] Phase 2 result:', JSON.stringify(phase2Result));
+        sweepLog.debug('[SweepFlowScreen] Phase 1.5a result:', JSON.stringify(phase15aResult));
+        sweepLog.debug('[SweepFlowScreen] Phase 2 result:', JSON.stringify(phase2Result));
 
         // Build update payload
         const updatePayload: Record<string, unknown> = {};
@@ -4396,10 +4263,10 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           } else {
             await store.updateNote?.(entityId, updatePayload as any);
           }
-          console.log('[SweepFlowScreen] Enrichment applied for:', entityId);
+          sweepLog.debug('[SweepFlowScreen] Enrichment applied for:', entityId);
         }
       } catch (error) {
-        console.error('[SweepFlowScreen] Keep-as-single enrichment failed:', error);
+        sweepLog.error('[SweepFlowScreen] Keep-as-single enrichment failed:', error);
         // Silent failure — the entity is already saved, just without enrichment
       }
     })();
@@ -4463,14 +4330,14 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                 break;
             }
           } catch (err) {
-            console.warn('[LockIn] Failed to process decision for', itemId, err);
+            sweepLog.warn('[LockIn] Failed to process decision for', itemId, err);
           }
         }
       };
 
       // Fire and forget - don't block navigation
       processDecisions().catch((err) => {
-        console.warn('[LockIn] Failed to process decisions:', err);
+        sweepLog.warn('[LockIn] Failed to process decisions:', err);
       });
     },
     [lockedItems],
@@ -4509,7 +4376,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             kept: summary.kept,
             cleared: summary.cleared,
           });
-          console.log('[SweepFlowScreen] Sweep completed, streak:', result.streak);
+          sweepLog.debug('[SweepFlowScreen] Sweep completed, streak:', result.streak);
 
           // Update Zustand store with new sweep preferences
           const { setSweepPreferences, totalSweepCount } = useGremlyStore.getState();
@@ -4519,7 +4386,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             totalSweepCount: totalSweepCount + 1,
           });
         } catch (err) {
-          console.error('[SweepFlowScreen] Failed to mark sweep as completed:', err);
+          sweepLog.error('[SweepFlowScreen] Failed to mark sweep as completed:', err);
         }
       }
 
@@ -4632,11 +4499,10 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         ) : null}
 
         {/* Step Content - Full-bleed for decision step */}
-        {__DEV__ &&
-          (() => {
-            console.log('[SweepFlowScreen] Rendering step:', step);
-            return null;
-          })()}
+        {(() => {
+          sweepLog.debug('[SweepFlowScreen] Rendering step:', step);
+          return null;
+        })()}
         <View
           style={
             step === 1
@@ -4648,7 +4514,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         >
           {step === 0 && (!showCelebration || completedItems.length === 0) && (
             <>
-              {__DEV__ && console.log('[SweepFlowScreen] Rendering SweepIntroStep')}
+              {sweepLog.debug('[SweepFlowScreen] Rendering SweepIntroStep')}
               <SweepIntroStep
                 onStart={handleIntroStart}
                 onHelpPress={() => setShowInstructionsModal(true)}
@@ -4686,13 +4552,12 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           {step === 2 && <SweepHabitsStep onContinue={handleWrapUpContinue} />}
           {step === 3 && <SweepMoodStep onContinue={handleMoodContinue} />}
           {step === 4 &&
-            (__DEV__ &&
-              console.log(
-                '[SweepFlowScreen] Rendering SweepSummaryStep with kept:',
-                keptCount,
-                'cleared:',
-                clearedCount,
-              ),
+            (sweepLog.debug(
+              '[SweepFlowScreen] Rendering SweepSummaryStep with kept:',
+              keptCount,
+              'cleared:',
+              clearedCount,
+            ),
             (
               <SweepSummaryStep
                 keptCount={keptCount}
@@ -5828,14 +5693,6 @@ const styles = StyleSheet.create({
   decisionCardArea: {
     flex: 1,
     paddingHorizontal: 0,
-  },
-  decisionCardPlaceholder: {
-    backgroundColor: BRAND.colors.surface,
-    borderRadius: BRAND.radius.lg,
-    borderWidth: 1,
-    borderColor: BRAND.colors.borderSubtle,
-    padding: 24,
-    alignItems: 'center',
   },
   decisionCardKind: {
     fontSize: 12,

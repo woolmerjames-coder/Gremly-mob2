@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { Check, CheckSquare, Lightbulb, RotateCcw } from 'lucide-react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { Text } from '../../ui';
@@ -87,6 +88,7 @@ export function IdeaActionZone({
                 key={key}
                 style={[styles.subPill, isActive ? styles.subPillActive : styles.subPillInactive]}
                 onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   if (isActive) return;
                   if (key === 'pick') {
                     onRequestResurfaceDatePicker();

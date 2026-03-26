@@ -65,13 +65,7 @@ type SweepCardNewProps = {
   onConfirmRemindLater?: (date: Date) => void;
   onConfirmCustomDate?: (date: Date) => void;
   onAddToSpace?: (spaceId: string) => void;
-  onConfirmHabitStart?: (
-    action: 'asktomorrow' | 'starttomorrow' | 'startmonday',
-    customDate?: Date,
-  ) => void;
   onClose?: () => void;
-  hideBottomSaveExit?: boolean;
-  onSwipeProgress?: (progress: number) => void;
   onGoBack?: () => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   previousDecision?: any;
@@ -93,8 +87,8 @@ type SweepCardNewProps = {
   }) => void;
   onConfirmNoteAction?: (action: {
     noteAction: 'fine' | 'resurface';
-    resurfaceDate?: Date;
-    reminderDate?: Date;
+    resurfaceDateStr?: string;
+    reminderDateStr?: string;
     spaceId?: string;
     resurfaceTiming?: 'nextweek' | '2weeks' | 'pick';
     eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
@@ -253,12 +247,7 @@ export function SweepCardNew({
   useEffect(() => {
     if (isConverted) {
       const timer = setTimeout(() => {
-        const msg =
-          candidate.kind === 'todo'
-            ? 'Now a Todo'
-            : candidate.kind === 'note'
-              ? 'Now a Note'
-              : 'Now a Habit';
+        const msg = candidate.kind === 'todo' ? 'Now a Todo' : 'Now a Note';
         setConversionMessage(msg);
       }, 900);
       return () => clearTimeout(timer);
@@ -279,9 +268,7 @@ export function SweepCardNew({
           onOpenChat?.(
             candidate.kind === 'todo'
               ? 'Help me figure out what to do with this task'
-              : candidate.kind === 'note'
-                ? 'Help me organize this note'
-                : 'Help me with this habit',
+              : 'Help me organize this note',
           );
           break;
         case 'details':
@@ -371,17 +358,18 @@ export function SweepCardNew({
         // Already converted via onConvertToTodo in onSelectAction — just advance
         onSkip();
       } else if (noteAction === 'resurface') {
-        let resurfaceDate: Date | null = null;
+        const ds = getDateService();
+        let resurfaceDateStr: string | undefined;
         if (resurfaceTiming === 'nextweek') {
-          resurfaceDate = addDays(new Date(), 7);
+          resurfaceDateStr = ds.toLocalDate(addDays(new Date(), 7));
         } else if (resurfaceTiming === '2weeks') {
-          resurfaceDate = addDays(new Date(), 14);
+          resurfaceDateStr = ds.toLocalDate(addDays(new Date(), 14));
         } else if (resurfaceTiming === 'pick' && confirmedResurfaceDate) {
-          resurfaceDate = confirmedResurfaceDate;
+          resurfaceDateStr = ds.toLocalDate(confirmedResurfaceDate);
         }
         onConfirmNoteAction?.({
           noteAction: 'resurface',
-          resurfaceDate: resurfaceDate ?? undefined,
+          resurfaceDateStr,
           spaceId: selectedSpaceId ?? undefined,
           resurfaceTiming: resurfaceTiming ?? undefined,
         });
@@ -393,7 +381,7 @@ export function SweepCardNew({
         });
       }
     } else {
-      // Habits: placeholder
+      // Unsupported kind (e.g. habit) — skip
       onSkip();
     }
   }, [

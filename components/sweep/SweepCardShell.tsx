@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useRef, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { View, StyleSheet, Dimensions, Pressable, Image, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
@@ -40,6 +40,8 @@ const KEEP_MESSAGES = ['SAVED', 'KEEPING IT', 'ON IT', 'NOTED'];
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_FACE = require('../../assets/buttonforHP.png');
 
+// Test environment detection — only used in SweepCardShell to skip animations.
+// All other components should be unaware of test environment.
 const isTestEnv =
   typeof globalThis !== 'undefined' &&
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -80,7 +82,6 @@ function shouldHidePreview(title: string, preview: string | null | undefined): b
   return false;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function animateCardExit(
   direction: 'left' | 'right',
   translateX: SharedValue<number>,
@@ -92,12 +93,13 @@ function animateCardExit(
     return;
   }
   const toValue = direction === 'right' ? SWIPE_OUT_DISTANCE : -SWIPE_OUT_DISTANCE;
+  const delayedCallback = () => setTimeout(callback, CARD_EXIT_DELAY);
   translateX.value = withSpring(
     toValue,
     { damping: 15, stiffness: 120, overshootClamping: true },
     (finished) => {
       if (finished) {
-        runOnJS(callback)();
+        runOnJS(delayedCallback)();
       }
     },
   );
@@ -166,12 +168,22 @@ export function SweepCardShell({
   const hasTriggeredHaptic = useSharedValue(false);
   const letGoScale = useSharedValue(1);
   const keepScale = useSharedValue(1);
+  const entryScale = useSharedValue(1);
 
-  // Reset on candidate change
+  // Reset on candidate change — animate in
   useEffect(() => {
     translateX.value = 0;
-    cardOpacity.value = 1;
-  }, [candidate.id, translateX, cardOpacity]);
+    entryScale.value = 0.96;
+    cardOpacity.value = 0;
+    const timer = setTimeout(() => {
+      entryScale.value = withTiming(1, {
+        duration: 250,
+        easing: ReanimatedEasing.out(ReanimatedEasing.cubic),
+      });
+      cardOpacity.value = withTiming(1, { duration: 250 });
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [candidate.id, translateX, cardOpacity, entryScale]);
 
   // ── Conversion flip animation ──
   const flipRotation = useSharedValue(0);
@@ -199,36 +211,6 @@ export function SweepCardShell({
       { scale: flipScale.value },
     ],
   }));
-
-  // ── Callback refs for worklet bridge ──
-  const pendingCallbackRef = useRef<(() => void) | null>(null);
-
-  const executePendingCallback = useCallback(() => {
-    setTimeout(() => {
-      if (pendingCallbackRef.current) {
-        pendingCallbackRef.current();
-        pendingCallbackRef.current = null;
-      }
-    }, CARD_EXIT_DELAY);
-  }, []);
-
-  const animateOut = useCallback(
-    (direction: 'left' | 'right') => {
-      'worklet';
-      const toValue = direction === 'right' ? SWIPE_OUT_DISTANCE : -SWIPE_OUT_DISTANCE;
-      translateX.value = withSpring(
-        toValue,
-        { damping: 15, stiffness: 120, overshootClamping: true },
-        (finished) => {
-          if (finished) {
-            runOnJS(executePendingCallback)();
-          }
-        },
-      );
-      cardOpacity.value = withTiming(0, { duration: 300 });
-    },
-    [translateX, cardOpacity, executePendingCallback],
-  );
 
   // ── Haptic helpers ──
   const triggerHaptic = useCallback((type: 'light' | 'medium' | 'success') => {
@@ -260,6 +242,7 @@ export function SweepCardShell({
     .failOffsetY([-15, 15])
     .onStart(() => {
       isDragging.value = true;
+      runOnJS(setMenuVisible)(false);
       runOnJS(triggerDragStartHaptic)();
       borderOpacity.value = withTiming(1, { duration: 150 });
     })
@@ -339,7 +322,11 @@ export function SweepCardShell({
       ['#E0C47A', '#F9F6F1', '#BFD8C0'],
     );
     return {
-      transform: [{ translateX: translateX.value }, { rotate: `${rotate}deg` }, { scale }],
+      transform: [
+        { translateX: translateX.value },
+        { rotate: `${rotate}deg` },
+        { scale: scale * entryScale.value },
+      ],
       opacity: cardOpacity.value,
       backgroundColor,
     };
@@ -392,22 +379,12 @@ export function SweepCardShell({
 
   // ── Button handlers ──
   const handleKeepPress = useCallback(() => {
-    if (isTestEnv) {
-      onSwipeRight();
-      return;
-    }
-    pendingCallbackRef.current = onSwipeRight;
-    runOnUI(animateOut)('right');
-  }, [onSwipeRight, animateOut]);
+    animateCardExit('right', translateX, cardOpacity, onSwipeRight);
+  }, [onSwipeRight, translateX, cardOpacity]);
 
   const handleLetGoPress = useCallback(() => {
-    if (isTestEnv) {
-      onSwipeLeft();
-      return;
-    }
-    pendingCallbackRef.current = onSwipeLeft;
-    runOnUI(animateOut)('left');
-  }, [onSwipeLeft, animateOut]);
+    animateCardExit('left', translateX, cardOpacity, onSwipeLeft);
+  }, [onSwipeLeft, translateX, cardOpacity]);
 
   // ── Derived display ──
   const title = getCandidateTitle(candidate);
@@ -556,6 +533,8 @@ export function SweepCardShell({
         <View style={styles.buttonColumn}>
           <Animated.View style={letGoAnimatedStyle}>
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Let go of this item"
               onPressIn={() => {
                 letGoScale.value = withTiming(1.08, { duration: 120 });
               }}
@@ -582,6 +561,8 @@ export function SweepCardShell({
         <View style={styles.buttonColumn}>
           <Animated.View style={keepAnimatedStyle}>
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Keep this item"
               onPressIn={() => {
                 keepScale.value = withTiming(1.08, { duration: 120 });
               }}
