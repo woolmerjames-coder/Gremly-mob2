@@ -359,7 +359,7 @@ const SPEECH_POOLS = {
     'Age {age} and thriving. Honestly? I\u2019m impressed with me.',
     'Look at me. Age {age}. Growing up right before your eyes.',
     'Age {age}. I\u2019d thank you but I did most of the growing.',
-    'That\u2019s {age} whole days of wisdom. You can tell, right?',
+    'That\u2019s {age} whole levels of wisdom. You can tell, right?',
     'Age {age}! I need a moment. ...OK I\u2019m good.',
     'Age {age}. Someone throw me a party. Oh wait, this IS the party.',
     'I just aged. In a good way. Age {age}, baby.',

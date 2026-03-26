@@ -40,7 +40,7 @@ export default function RitualProgressPopover({
       <Pressable style={styles.backdrop} onPress={onDismiss}>
         <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
           {/* Title */}
-          <Text style={styles.title}>Day {gremlyAge} with Gremly</Text>
+          <Text style={styles.title}>Age {gremlyAge} with Gremly</Text>
 
           {/* Divider */}
           <View style={styles.divider} />

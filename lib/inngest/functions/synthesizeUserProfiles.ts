@@ -192,7 +192,7 @@ DATA:
       .join(', ') || 'No journal entries'
   }
 - Life areas (Spaces): ${input.spaces.join(', ') || 'None yet'}
-- Gremly age: ${input.gremlyAge} days
+- Gremly age: ${input.gremlyAge}
 
 Write a brief profile (~100-150 words) covering:
 1. Productivity patterns (how they work)

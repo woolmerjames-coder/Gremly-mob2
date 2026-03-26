@@ -29,12 +29,12 @@ describe('RitualProgressPopover', () => {
   describe('visibility', () => {
     it('renders when visible is true', () => {
       const { getByText } = render(<RitualProgressPopover {...defaultProps} />);
-      expect(getByText('Day 5 with Gremly')).toBeTruthy();
+      expect(getByText('Age 5 with Gremly')).toBeTruthy();
     });
 
     it('does not render when visible is false', () => {
       const { queryByText } = render(<RitualProgressPopover {...defaultProps} visible={false} />);
-      expect(queryByText('Day 5 with Gremly')).toBeNull();
+      expect(queryByText('Age 5 with Gremly')).toBeNull();
     });
   });
 
@@ -45,17 +45,17 @@ describe('RitualProgressPopover', () => {
   describe('title display', () => {
     it('shows correct age in title', () => {
       const { getByText } = render(<RitualProgressPopover {...defaultProps} gremlyAge={42} />);
-      expect(getByText('Day 42 with Gremly')).toBeTruthy();
+      expect(getByText('Age 42 with Gremly')).toBeTruthy();
     });
 
     it('shows day 1 correctly', () => {
       const { getByText } = render(<RitualProgressPopover {...defaultProps} gremlyAge={1} />);
-      expect(getByText('Day 1 with Gremly')).toBeTruthy();
+      expect(getByText('Age 1 with Gremly')).toBeTruthy();
     });
 
     it('shows three-digit ages', () => {
       const { getByText } = render(<RitualProgressPopover {...defaultProps} gremlyAge={100} />);
-      expect(getByText('Day 100 with Gremly')).toBeTruthy();
+      expect(getByText('Age 100 with Gremly')).toBeTruthy();
     });
   });
 
