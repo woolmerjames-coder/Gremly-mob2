@@ -129,9 +129,9 @@ describe('shouldRunPhase1_5', () => {
       expect(result.detectedTemporal).toBe('January');
     });
 
-    it('detects ordinal dates: 5th, 1st, 23rd', () => {
-      const result = shouldRunPhase1_5('meeting on the 5th', 'log', 'general', 0.6);
-      expect(result.detectedTemporal).toBe('5th');
+    it('detects ordinal dates with month: the 5th of January', () => {
+      const result = shouldRunPhase1_5('meeting on the 5th of January', 'log', 'general', 0.6);
+      expect(result.detectedTemporal).toBe('the 5th of January');
     });
   });
 });

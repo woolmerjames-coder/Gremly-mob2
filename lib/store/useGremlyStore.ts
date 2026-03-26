@@ -366,7 +366,8 @@ export interface PendingDrop {
     | 'enriching'
     | 'enriched'
     | 'syncing'
-    | 'synced';
+    | 'synced'
+    | 'failed';
   isMulti?: boolean;
   // Multi-drop fields (populated by Phase 0)
   multiSegments?: PendingDropSegment[];
