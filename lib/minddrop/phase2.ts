@@ -40,7 +40,7 @@ export interface Phase2Result {
 
 // --- Constants ---
 
-const PHASE2_TIMEOUT_MS = 8000;
+const PHASE2_TIMEOUT_MS = 20000;
 const PHASE2_RETRY_DELAY_MS = 3000;
 const MAX_RETRIES = 1;
 

@@ -977,6 +977,11 @@ function getMindDropVisualState(entity: {
     return 'failed';
   }
 
+  // Phase 2 enrichment timed out or failed — show retry affordance
+  if (views.minddrop_stage === 'enrichment_failed') {
+    return 'failed';
+  }
+
   // Successfully enriched
   if (views.minddrop_stage === 'enriched' || views.minddrop_stage === 'prefilled') {
     return 'complete';
@@ -3134,8 +3139,34 @@ const AnimatedMindDropCard = React.memo<{
             </View>
           </View>
 
-          {/* Row 2: Confirmation message, multi hint, or clarification hint */}
-          {isMulti ? (
+          {/* Row 2: Confirmation message, multi hint, clarification hint, or retry */}
+          {isFailed ? (
+            <Pressable
+              onPress={() => {
+                // Emit retry event — RecentDrops will handle it
+                eventBus.emit('drop:retry_enrichment', {
+                  localId: item.drop_id || item.id,
+                  text: item.text || item.title || '',
+                  bucket: item.kind === 'note' ? 'log' : item.kind,
+                  subtype: item.noteSubtype || null,
+                });
+              }}
+              style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}
+            >
+              <Animated.Image
+                source={require('../../assets/buttonforHP.png')}
+                style={{
+                  width: 26,
+                  height: 26,
+                  marginRight: 8,
+                  borderRadius: 13,
+                }}
+              />
+              <Text style={{ fontSize: 13, color: '#B8860B', fontWeight: '600' }}>
+                Couldn't finish loading. Tap to retry.
+              </Text>
+            </Pressable>
+          ) : isMulti ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
               <Animated.Image
                 source={require('../../assets/buttonforHP.png')}
@@ -3562,7 +3593,9 @@ const RecentDrops: React.FC<{
                         ? 'enriching'
                         : drop.status === 'enriched' || drop.status === 'synced'
                           ? 'enriched' // Phase 2 FULLY complete - NOW chips can animate
-                          : 'pending';
+                          : drop.status === 'enrichment_failed'
+                            ? 'enrichment_failed'
+                            : 'pending';
 
         // For multi-drops, use the summary as the title
         const displayTitle =
@@ -3584,13 +3617,19 @@ const RecentDrops: React.FC<{
           due_date: drop.extractedDate ?? null,
           due_day: drop.extractedDate?.split('T')[0] ?? null,
           views: {
-            ai_pending: drop.status !== 'synced' && drop.status !== 'enriched',
+            ai_pending:
+              drop.status !== 'synced' &&
+              drop.status !== 'enriched' &&
+              drop.status !== 'enrichment_failed',
             minddrop_stage: minddropStage,
             confirmation_message: drop.confirmationMessage,
             people: drop.people, // Include people for chip rendering
             // Flag for Row3Chips: only animate chips when Phase 2 is FULLY complete
             // This is separate from minddrop_stage which triggers Row 1-2 typewriter earlier
-            chip_data_ready: drop.status === 'enriched' || drop.status === 'synced',
+            chip_data_ready:
+              drop.status === 'enriched' ||
+              drop.status === 'synced' ||
+              drop.status === 'enrichment_failed',
             // Flag for badge animation - true when Phase 1 confirms the bucket
             bucket_confirmed: drop.status !== 'pending' && drop.status !== 'classifying',
             // Multi-drop data for UI rendering
@@ -4581,6 +4620,153 @@ const RecentDrops: React.FC<{
       clearInterval(stuckCardInterval);
     };
   }, [load]);
+
+  // Listen for enrichment retry events from failed cards
+  React.useEffect(() => {
+    const handleRetry = async (payload: {
+      localId: string;
+      text: string;
+      bucket: string;
+      subtype: string | null;
+    }) => {
+      console.log('[RecentDrops] Retrying enrichment', { localId: payload.localId });
+
+      // 1. Set card back to enriching state (shows shimmer)
+      const pendingDrop = pendingDropsMap.get(payload.localId);
+      if (pendingDrop) {
+        // Pending drop path — update via Zustand
+        useGremlyStore.getState().updatePendingDropEnrichment(payload.localId, {
+          status: 'enriching',
+          minddrop_stage: 'enriching',
+        });
+      } else {
+        // Already-synced entity path — update local items
+        setItems((prev) =>
+          prev.map((item) =>
+            item.drop_id === payload.localId || item.id === payload.localId
+              ? {
+                  ...item,
+                  views: {
+                    ...item.views,
+                    minddrop_stage: 'enriching',
+                    ai_pending: true,
+                    ai_failed: false,
+                  },
+                }
+              : item,
+          ),
+        );
+      }
+
+      // 2. Re-run Phase 2
+      try {
+        const bucket = payload.bucket as 'todo' | 'habit' | 'log';
+        const subtype = payload.subtype as any;
+
+        if (pendingDrop) {
+          // Re-run enrichment for pending drops via cortex directly
+          const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
+          const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+          const dateService = (await import('../../lib/date/DateService')).dateService;
+          const currentDate = dateService.today();
+          const now = new Date();
+          const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
+          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 20000);
+
+          const res = await fetch(cortexUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${anonKey}`,
+            },
+            body: JSON.stringify({
+              type: 'enrich-phase2',
+              text: payload.text,
+              bucket,
+              subtype,
+              currentDate,
+              dayOfWeek,
+              timezone,
+            }),
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeout);
+
+          if (res.ok) {
+            const json = await res.json();
+            useGremlyStore.getState().updatePendingDropEnrichment(payload.localId, {
+              status: 'enriched',
+              minddrop_stage: 'enriched',
+              tags: Array.isArray(json.tags) ? json.tags : [],
+              timeEstimateMinutes: json.time_estimate_minutes ?? null,
+              timeWindow: json.time_window ?? null,
+              extractedDate: json.extracted_date ?? null,
+              extractedFrequency: json.extracted_frequency ?? null,
+              extractedDays: json.extracted_days ?? null,
+              people: Array.isArray(json.people) ? json.people : [],
+              mood: json.mood ?? null,
+              target_date: json.target_date ?? null,
+              scheduled_date: json.scheduled_date ?? null,
+              event_time: json.event_time ?? null,
+            });
+            console.log('[RecentDrops] Retry enrichment succeeded', { localId: payload.localId });
+          } else {
+            throw new Error(`API returned ${res.status}`);
+          }
+        } else {
+          // Synced entity — find it and run phase2.ts
+          const entityId = payload.localId;
+          const item = items.find((i) => i.id === entityId || i.drop_id === entityId);
+          if (item) {
+            const repo =
+              item.kind === 'todo'
+                ? useGremlyStore.getState().todoRepo
+                : item.kind === 'habit'
+                  ? useGremlyStore.getState().habitRepo
+                  : useGremlyStore.getState().noteRepo;
+            const result = await runPhase2(entityId, payload.text, bucket, subtype, repo);
+            if (result) {
+              setItems((prev) =>
+                prev.map((i) => (i.id === entityId ? applyEnrichmentToItem(i, result) : i)),
+              );
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[RecentDrops] Retry enrichment failed', { error: String(err) });
+        // Set back to failed state so retry button reappears
+        if (pendingDrop) {
+          useGremlyStore.getState().updatePendingDropEnrichment(payload.localId, {
+            status: 'enrichment_failed',
+            minddrop_stage: 'enrichment_failed',
+          });
+        } else {
+          setItems((prev) =>
+            prev.map((item) =>
+              item.drop_id === payload.localId || item.id === payload.localId
+                ? {
+                    ...item,
+                    views: {
+                      ...item.views,
+                      minddrop_stage: 'enrichment_failed',
+                      ai_pending: false,
+                      ai_failed: true,
+                    },
+                  }
+                : item,
+            ),
+          );
+        }
+      }
+    };
+
+    const unsub = eventBus.on('drop:retry_enrichment', handleRetry);
+    return () => unsub();
+  }, [pendingDropsMap, items]);
 
   const handleEdit = React.useCallback(
     async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {

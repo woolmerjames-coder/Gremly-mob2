@@ -115,7 +115,7 @@ interface SyncResult {
 
 // --- Constants ---
 
-const PHASE2_TIMEOUT_MS = 8000;
+const PHASE2_TIMEOUT_MS = 20000;
 const PHASE1_5A_TIMEOUT_MS = 6000;
 
 const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
@@ -971,6 +971,19 @@ export async function processDrop(
 
   console.log('[DropProcessor] Processing drop', { localId, textPreview: text.substring(0, 30) });
 
+  // Safety net: if entire pipeline takes longer than 45 seconds,
+  // force the card to a terminal state so it never spins forever.
+  const maxProcessingTimer = setTimeout(() => {
+    console.error('[DropProcessor] MAX PROCESSING TIME exceeded — forcing enrichment_failed', {
+      localId,
+      elapsed: Date.now() - startTime,
+    });
+    useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+      status: 'enrichment_failed',
+      minddrop_stage: 'enrichment_failed',
+    });
+  }, 45000);
+
   try {
     try {
       // =========================================
@@ -1207,6 +1220,7 @@ export async function processDrop(
             localId,
             elapsed: Date.now() - startTime,
           });
+          clearTimeout(maxProcessingTimer);
           return { success: true, supabaseId: syncResult.supabaseId };
         } else {
           throw syncResult.error || new Error('Multi-drop sync failed');
@@ -1474,6 +1488,18 @@ export async function processDrop(
           event_time: enrichmentResult.event_time,
           date_type_ambiguous: enrichmentResult.date_type_ambiguous,
         });
+      } else {
+        // Phase 2 failed or timed out — move card to failed state with retry affordance.
+        // Card keeps its Phase 1.5a smart title and confirmation message but won't have
+        // metadata chips (tags, time estimate, etc.) until the user retries.
+        console.warn('[DropProcessor] Phase 2 failed — setting enrichment_failed', {
+          localId,
+          elapsed: Date.now() - startTime,
+        });
+        useGremlyStore.getState().updatePendingDropEnrichment(localId, {
+          status: 'enrichment_failed',
+          minddrop_stage: 'enrichment_failed',
+        });
       }
 
       // CHECKPOINT 2: Save ALL enrichment results in ONE write
@@ -1495,6 +1521,11 @@ export async function processDrop(
           scheduledDate: enrichmentResult.scheduled_date,
           eventTime: enrichmentResult.event_time,
           dateTypeAmbiguous: enrichmentResult.date_type_ambiguous,
+        });
+      } else {
+        // Save enrichment_failed checkpoint so processAllPending knows where to resume
+        await updateDrop(localId, {
+          status: 'enrichment_failed',
         });
       }
 
@@ -1679,12 +1710,14 @@ export async function processDrop(
           elapsed: Date.now() - startTime,
           total: Date.now() - startTime,
         });
+        clearTimeout(maxProcessingTimer);
         return { success: true, supabaseId: syncResult.supabaseId };
       } else {
         throw syncResult.error || new Error('Sync failed');
       }
     } catch (error) {
       console.error('[DropProcessor] Processing failed', { localId, error });
+      clearTimeout(maxProcessingTimer);
       await markFailed(localId);
       callbacks?.onError?.(localId, error as Error);
       return { success: false, error: error as Error };
