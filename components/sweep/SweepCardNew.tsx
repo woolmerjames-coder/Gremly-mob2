@@ -529,26 +529,31 @@ export function SweepCardNew({
           )}
         </SweepCardShell>
 
-        <WrongTypePicker
-          visible={showWrongTypePicker}
-          currentType={candidate.kind}
-          onSelect={(newType) => {
-            setShowWrongTypePicker(false);
-            if (newType === 'delete') {
-              onClear();
-            } else {
-              onConvertToType?.(newType);
-            }
-          }}
-          onClose={() => setShowWrongTypePicker(false)}
-        />
-
         <SweepConversionToast
           visible={conversionMessage !== null}
           message={conversionMessage || ''}
           onDismissed={() => setConversionMessage(null)}
         />
       </View>
+
+      {/* WrongTypePicker rendered OUTSIDE the card container so it layers on top */}
+      {showWrongTypePicker && (
+        <View style={styles.wrongTypePickerOverlay} pointerEvents="box-none">
+          <WrongTypePicker
+            visible={showWrongTypePicker}
+            currentType={candidate.kind}
+            onSelect={(newType) => {
+              setShowWrongTypePicker(false);
+              if (newType === 'delete') {
+                onClear();
+              } else {
+                onConvertToType?.(newType);
+              }
+            }}
+            onClose={() => setShowWrongTypePicker(false)}
+          />
+        </View>
+      )}
 
       {/* Date picker modal */}
       <Modal visible={showDatePicker} transparent animationType="fade">
@@ -843,6 +848,14 @@ const styles = StyleSheet.create({
   cardOverlayContainer: {
     flex: 1,
     position: 'relative',
+  },
+  wrongTypePickerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 200,
   },
   placeholderZone: {
     padding: 22,
