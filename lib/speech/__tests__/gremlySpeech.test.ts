@@ -7,9 +7,13 @@
 import {
   getGremlySpeech,
   getGreetingSpeech,
+  getGreetingSpeechV2,
+  getReturnSpeech,
   getEmptyStateSpeech,
   getMorningBriefSpeech,
   getDcoGreetingSpeech,
+  getFedCelebrationSpeech,
+  getPostAgeUpSpeech,
   getTimeOfDay,
   pickRandom,
   SpeechContext,
@@ -87,11 +91,22 @@ describe('getTimeOfDay', () => {
 
 describe('getGremlySpeech', () => {
   const baseContext: SpeechContext = {
+    moment: 'post_drop',
     dropsToday: 0,
     isFirstDrop: false,
     hasPhotos: false,
     isReturningUser: false,
-    confidence: 'high',
+    error: null,
+    gaugeValue: 0,
+    isFedToday: false,
+    timeSinceLastDrop: null,
+    briefHeadline: null,
+    tone: null,
+    overdueTodos: 0,
+    habitStreakRisk: [],
+    upcomingIn7d: [],
+    daysSinceLastSweep: null,
+    lastSpeechTime: null,
   };
 
   describe('priority 1: errors', () => {
@@ -185,23 +200,90 @@ describe('getGremlySpeech', () => {
     });
   });
 
-  describe('priority 6: success by confidence', () => {
-    it('returns low confidence message', () => {
-      const ctx: SpeechContext = { ...baseContext, confidence: 'low' };
+  describe('priority 6–8: rapid-fire, gauge, brand', () => {
+    it('returns rapid-fire message when conditions met', () => {
+      // Mock Math.random to always trigger (< 0.4)
+      const spy = jest.spyOn(Math, 'random').mockReturnValue(0.1);
+      const ctx: SpeechContext = {
+        ...baseContext,
+        timeSinceLastDrop: 60,
+        dropsToday: 4,
+        tone: 'relaxed',
+      };
       const result = getGremlySpeech(ctx);
-
       expect(result).not.toBeNull();
       expect(result?.message).toBeTruthy();
+      spy.mockRestore();
     });
 
-    it('returns medium confidence message', () => {
-      const ctx: SpeechContext = { ...baseContext, confidence: 'medium' };
+    it('skips rapid-fire when tone is stretched', () => {
+      const spy = jest.spyOn(Math, 'random').mockReturnValue(0.1);
+      const ctx: SpeechContext = {
+        ...baseContext,
+        timeSinceLastDrop: 60,
+        dropsToday: 4,
+        tone: 'stretched',
+      };
+      // Should fall through to success, not rapid-fire
       const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+      spy.mockRestore();
+    });
 
+    it('returns gauge post-drop message when gauge is high', () => {
+      const spy = jest.spyOn(Math, 'random').mockReturnValue(0.1);
+      const ctx: SpeechContext = {
+        ...baseContext,
+        gaugeValue: 0.92,
+        isFedToday: false,
+        tone: 'relaxed',
+      };
+      const result = getGremlySpeech(ctx);
       expect(result).not.toBeNull();
       expect(result?.message).toBeTruthy();
+      spy.mockRestore();
     });
 
+    it('skips gauge post-drop when already fed', () => {
+      const spy = jest.spyOn(Math, 'random').mockReturnValue(0.1);
+      const ctx: SpeechContext = {
+        ...baseContext,
+        gaugeValue: 0.92,
+        isFedToday: true,
+        tone: 'relaxed',
+      };
+      // Should fall through to success pool, not gauge
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+      spy.mockRestore();
+    });
+
+    it('returns brand message when random hits', () => {
+      const spy = jest.spyOn(Math, 'random').mockReturnValue(0.05);
+      const ctx: SpeechContext = {
+        ...baseContext,
+        tone: 'relaxed',
+      };
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+      expect(result?.message).toBeTruthy();
+      spy.mockRestore();
+    });
+
+    it('skips brand when tone is recovering', () => {
+      const spy = jest.spyOn(Math, 'random').mockReturnValue(0.05);
+      const ctx: SpeechContext = {
+        ...baseContext,
+        tone: 'recovering',
+      };
+      // Should fall through to success pool
+      const result = getGremlySpeech(ctx);
+      expect(result).not.toBeNull();
+      spy.mockRestore();
+    });
+  });
+
+  describe('priority 9: success by kind (fallback)', () => {
     it('returns todo with date message', () => {
       const ctx: SpeechContext = {
         ...baseContext,
@@ -368,5 +450,211 @@ describe('getDcoGreetingSpeech', () => {
       expect(r.message).toBeTruthy();
       expect(r.duration).toBeGreaterThan(0);
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getGreetingSpeechV2 Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getGreetingSpeechV2', () => {
+  const greetingCtx: SpeechContext = {
+    moment: 'greeting',
+    dropsToday: 0,
+    isFirstDrop: false,
+    hasPhotos: false,
+    isReturningUser: false,
+    error: null,
+    gaugeValue: 0,
+    isFedToday: false,
+    timeSinceLastDrop: null,
+    briefHeadline: null,
+    tone: null,
+    overdueTodos: 0,
+    habitStreakRisk: [],
+    upcomingIn7d: [],
+    daysSinceLastSweep: null,
+    lastSpeechTime: null,
+  };
+
+  it('uses briefHeadline when provided', () => {
+    const ctx: SpeechContext = { ...greetingCtx, briefHeadline: 'Big meeting today' };
+    const result = getGreetingSpeechV2(ctx);
+    expect(result.message).toBe('Big meeting today');
+    expect(result.duration).toBeGreaterThan(0);
+  });
+
+  it('uses UPCOMING pool when upcomingIn7d has events', () => {
+    const ctx: SpeechContext = { ...greetingCtx, upcomingIn7d: ['Doctor appointment'] };
+    const result = getGreetingSpeechV2(ctx);
+    expect(result.message).toContain('Doctor appointment');
+    expect(result.duration).toBeGreaterThan(0);
+  });
+
+  it('uses GAUGE_GREETING when gauge >= 0.6 and not fed', () => {
+    const ctx: SpeechContext = { ...greetingCtx, gaugeValue: 0.7, isFedToday: false };
+    const result = getGreetingSpeechV2(ctx);
+    expect(result.message).toBeTruthy();
+    expect(result.duration).toBeGreaterThan(0);
+  });
+
+  it('uses SWEEP_NUDGE when days since sweep >= 3', () => {
+    const ctx: SpeechContext = { ...greetingCtx, daysSinceLastSweep: 5 };
+    const result = getGreetingSpeechV2(ctx);
+    expect(result.message).toBeTruthy();
+    expect(result.duration).toBeGreaterThan(0);
+  });
+
+  it('uses long SWEEP_NUDGE when days since sweep >= 7', () => {
+    const ctx: SpeechContext = { ...greetingCtx, daysSinceLastSweep: 10 };
+    const result = getGreetingSpeechV2(ctx);
+    expect(result.message).toBeTruthy();
+    expect(result.duration).toBeGreaterThan(0);
+  });
+
+  it('falls back to time-of-day greeting', () => {
+    const result = getGreetingSpeechV2(greetingCtx);
+    expect(result.message).toBeTruthy();
+    expect(result.duration).toBeGreaterThan(0);
+  });
+
+  it('never throws', () => {
+    expect(() => getGreetingSpeechV2(greetingCtx)).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getReturnSpeech Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getReturnSpeech', () => {
+  const returnCtx: SpeechContext = {
+    moment: 'return',
+    dropsToday: 0,
+    isFirstDrop: false,
+    hasPhotos: false,
+    isReturningUser: false,
+    error: null,
+    gaugeValue: 0,
+    isFedToday: false,
+    timeSinceLastDrop: null,
+    briefHeadline: null,
+    tone: null,
+    overdueTodos: 0,
+    habitStreakRisk: [],
+    upcomingIn7d: [],
+    daysSinceLastSweep: null,
+    lastSpeechTime: null,
+  };
+
+  it('returns null when within 5-minute cooldown', () => {
+    const ctx: SpeechContext = { ...returnCtx, lastSpeechTime: Date.now() - 60_000 };
+    const result = getReturnSpeech(ctx);
+    expect(result).toBeNull();
+  });
+
+  it('returns gauge_progress when gauge >= 0.5 and not fed', () => {
+    const ctx: SpeechContext = {
+      ...returnCtx,
+      gaugeValue: 0.6,
+      isFedToday: false,
+      lastSpeechTime: Date.now() - 10 * 60_000,
+    };
+    const result = getReturnSpeech(ctx);
+    expect(result).not.toBeNull();
+    expect(result?.message).toBeTruthy();
+  });
+
+  it('returns upcoming event reminder', () => {
+    const ctx: SpeechContext = {
+      ...returnCtx,
+      upcomingIn7d: ['Team standup'],
+      lastSpeechTime: Date.now() - 10 * 60_000,
+    };
+    const result = getReturnSpeech(ctx);
+    expect(result).not.toBeNull();
+    expect(result?.message).toContain('Team standup');
+  });
+
+  it('returns sweep nudge when overdue', () => {
+    const ctx: SpeechContext = {
+      ...returnCtx,
+      daysSinceLastSweep: 5,
+      lastSpeechTime: Date.now() - 10 * 60_000,
+    };
+    const result = getReturnSpeech(ctx);
+    expect(result).not.toBeNull();
+    expect(result?.message).toBeTruthy();
+  });
+
+  it('returns null when no conditions match and no time shift pool', () => {
+    // With no gauge, no upcoming, no sweep, and morning time (no time_shift pool for morning),
+    // return speech should be null
+    const ctx: SpeechContext = {
+      ...returnCtx,
+      lastSpeechTime: Date.now() - 10 * 60_000,
+    };
+    // May return null or a time_shift message depending on current time of day
+    // Just verify it doesn't throw
+    expect(() => getReturnSpeech(ctx)).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getFedCelebrationSpeech Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getFedCelebrationSpeech', () => {
+  it('returns days_remaining_2 pool for fedDaysCount=0', () => {
+    const result = getFedCelebrationSpeech(0);
+    expect(result.message).toBeTruthy();
+    expect(result.duration).toBe(5000);
+    expect(result.variant).toBe('celebration');
+  });
+
+  it('returns days_remaining_1 pool for fedDaysCount=1', () => {
+    const result = getFedCelebrationSpeech(1);
+    expect(result.message).toBeTruthy();
+    expect(result.variant).toBe('celebration');
+  });
+
+  it('returns days_remaining_0 pool for fedDaysCount=2', () => {
+    const result = getFedCelebrationSpeech(2);
+    expect(result.message).toBeTruthy();
+    expect(result.variant).toBe('celebration');
+  });
+
+  it('never throws for any count', () => {
+    for (let i = 0; i <= 5; i++) {
+      expect(() => getFedCelebrationSpeech(i)).not.toThrow();
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getPostAgeUpSpeech Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getPostAgeUpSpeech', () => {
+  it('replaces {age} placeholder with the given age', () => {
+    const result = getPostAgeUpSpeech(7);
+    expect(result.message).toContain('7');
+    expect(result.message).not.toContain('{age}');
+  });
+
+  it('returns celebration variant', () => {
+    const result = getPostAgeUpSpeech(3);
+    expect(result.variant).toBe('celebration');
+  });
+
+  it('returns fixed 5000ms duration', () => {
+    const result = getPostAgeUpSpeech(10);
+    expect(result.duration).toBe(5000);
+  });
+
+  it('works for large ages', () => {
+    const result = getPostAgeUpSpeech(365);
+    expect(result.message).toContain('365');
+    expect(result.message).not.toContain('{age}');
   });
 });

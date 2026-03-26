@@ -212,4 +212,67 @@ describe('CelebrationController', () => {
       expect(call.age).toBe(42);
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Post Age-Up Speech Tests
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('showPostAgeUpSpeech', () => {
+    it('emits post_age_up celebration with correct age', () => {
+      listener.mockClear();
+      celebrationController.showPostAgeUpSpeech(5);
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'post_age_up',
+          age: 5,
+        }),
+      );
+    });
+
+    it('emits post_age_up for large ages', () => {
+      listener.mockClear();
+      celebrationController.showPostAgeUpSpeech(100);
+
+      const call = listener.mock.calls[0][0] as CelebrationPayload;
+      expect(call.kind).toBe('post_age_up');
+      expect(call.age).toBe(100);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Fed Celebration Tests
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('showFedCelebration', () => {
+    it('emits fed celebration with fedDaysCount', () => {
+      listener.mockClear();
+      celebrationController.showFedCelebration(1);
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'fed',
+          fedDaysCount: 1,
+        }),
+      );
+    });
+
+    it('emits fed celebration for day 2', () => {
+      listener.mockClear();
+      celebrationController.showFedCelebration(2);
+
+      const call = listener.mock.calls[0][0] as CelebrationPayload;
+      expect(call.kind).toBe('fed');
+      expect(call.fedDaysCount).toBe(2);
+    });
+
+    it('emits fed celebration for day 3', () => {
+      listener.mockClear();
+      celebrationController.showFedCelebration(3);
+
+      const call = listener.mock.calls[0][0] as CelebrationPayload;
+      expect(call.kind).toBe('fed');
+      expect(call.fedDaysCount).toBe(3);
+    });
+  });
 });
