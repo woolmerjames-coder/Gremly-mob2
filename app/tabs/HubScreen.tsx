@@ -817,6 +817,18 @@ export default function HubScreen() {
 
   const hasResults = searchResults.length > 0;
 
+  const searchFilterCounts = useMemo(() => {
+    let todoCount = 0;
+    let habitCount = 0;
+    let noteCount = 0;
+    for (const item of hubV1Items) {
+      if (item.type === 'todo') todoCount++;
+      else if (item.type === 'habit') habitCount++;
+      else if (item.type === 'note') noteCount++;
+    }
+    return { todos: todoCount, habits: habitCount, notes: noteCount };
+  }, [hubV1Items]);
+
   // =========================================================================
   // Hub V1 Memoized Derived Data (avoid recomputing on every render)
   // =========================================================================
@@ -1126,6 +1138,67 @@ export default function HubScreen() {
               );
             })}
           </View>
+
+          {/* Filter Pills - search mode (TimelineView style) */}
+          {isSearchMode && (
+            <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {[
+                  {
+                    key: 'todo' as HubV1TypeFilter,
+                    label: 'Todos',
+                    count: searchFilterCounts.todos,
+                  },
+                  {
+                    key: 'habit' as HubV1TypeFilter,
+                    label: 'Habits',
+                    count: searchFilterCounts.habits,
+                  },
+                  {
+                    key: 'note' as HubV1TypeFilter,
+                    label: 'Notes',
+                    count: searchFilterCounts.notes,
+                  },
+                ].map((f) => {
+                  const isActive = hubV1Types.has(f.key);
+                  return (
+                    <TouchableOpacity
+                      key={f.key}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingHorizontal: 14,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        backgroundColor: isActive ? '#2E5540' : '#FFFFFF',
+                        borderWidth: 1,
+                        borderColor: '#BFD8C0',
+                        gap: 4,
+                      }}
+                      onPress={() => toggleTypeFilter(f.key)}
+                      disabled={hubView === 'journals' || hubView === 'weekly'}
+                      testID={`filter-type-${f.key}`}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontWeight: '600',
+                          color: isActive ? '#FFFFFF' : '#768879',
+                        }}
+                      >
+                        {f.label}
+                      </Text>
+                      {f.count > 0 && !isActive && (
+                        <Text style={{ fontSize: 11, fontWeight: '500', color: '#999999' }}>
+                          {f.count}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
 
           {/* Loading indicator */}
           {storeIsLoading && (
