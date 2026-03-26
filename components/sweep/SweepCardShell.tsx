@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useRef, useEffect } from 'react';
-import { View, StyleSheet, Dimensions, Pressable, Image } from 'react-native';
+import { View, StyleSheet, Dimensions, Pressable, Image, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, {
@@ -21,7 +21,7 @@ import { ArrowLeft, ArrowRight } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { GremlyMenuButton, GremlyPopupMenu } from './GremlyPopupMenu';
-import type { SweepCandidate, SweepCardMeta } from '../../lib/sweep/types';
+import type { SweepCandidate, SweepCandidateNote, SweepCardMeta } from '../../lib/sweep/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -128,6 +128,7 @@ type SweepCardShellProps = {
   onGremlyMenuItem: (key: 'help' | 'chat' | 'details' | 'wrongtype') => void;
   isConverted?: boolean;
   isClarified?: boolean;
+  onRequestPhotoPreview?: (url: string) => void;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,6 +147,7 @@ export function SweepCardShell({
   onGremlyMenuItem,
   isConverted,
   isClarified,
+  onRequestPhotoPreview,
 }: SweepCardShellProps) {
   // ── Local state ──
   const [menuVisible, setMenuVisible] = useState(false);
@@ -417,6 +419,11 @@ export function SweepCardShell({
         : null;
   const hidePreview = shouldHidePreview(title, previewText);
 
+  const noteCandidate = candidate.kind === 'note' ? (candidate as SweepCandidateNote) : null;
+  const hasAttachments = noteCandidate?.attachments && noteCandidate.attachments.length > 0;
+  const firstAttachment = hasAttachments ? noteCandidate!.attachments![0] : null;
+  const attachmentCount = hasAttachments ? noteCandidate!.attachments!.length : 0;
+
   return (
     <View style={styles.cardWrapper}>
       <View style={styles.cardCenteringContainer}>
@@ -498,7 +505,7 @@ export function SweepCardShell({
               </View>
 
               {/* Title */}
-              <Text style={styles.title} numberOfLines={3}>
+              <Text style={styles.title} numberOfLines={hasAttachments ? 2 : 3}>
                 {title}
               </Text>
 
@@ -508,6 +515,27 @@ export function SweepCardShell({
                   {previewText}
                 </Text>
               ) : null}
+
+              {/* Photo hero for notes with attachments */}
+              {hasAttachments && firstAttachment && (
+                <TouchableOpacity
+                  style={styles.photoHero}
+                  onPress={() => onRequestPhotoPreview?.(firstAttachment.url)}
+                  activeOpacity={0.9}
+                  accessibilityLabel="Tap to view full photo"
+                >
+                  <Image
+                    source={{ uri: firstAttachment.url }}
+                    style={styles.photoHeroImage}
+                    resizeMode="cover"
+                  />
+                  {attachmentCount > 1 && (
+                    <View style={styles.photoCountBadge}>
+                      <Text style={styles.photoCountText}>+{attachmentCount - 1}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Flexible spacer */}
@@ -516,63 +544,65 @@ export function SweepCardShell({
             {/* Action zone (children) */}
             {children}
 
-            {/* Bottom buttons */}
-            <View style={styles.divider} />
-            <View style={styles.buttonsContainer}>
-              {/* Let go button */}
-              <View style={styles.buttonColumn}>
-                <Animated.View style={letGoAnimatedStyle}>
-                  <Pressable
-                    onPressIn={() => {
-                      letGoScale.value = withTiming(1.08, { duration: 120 });
-                    }}
-                    onPressOut={() => {
-                      letGoScale.value = withTiming(1.0, { duration: 120 });
-                    }}
-                    onPress={handleLetGoPress}
-                  >
-                    <View style={styles.letGoCircle}>
-                      <LinearGradient
-                        colors={['rgba(224,196,122,0.15)', 'rgba(224,196,122,0.06)']}
-                        start={{ x: 0.25, y: 0 }}
-                        end={{ x: 0.75, y: 1 }}
-                        style={StyleSheet.absoluteFill}
-                      />
-                      <ArrowLeft size={22} strokeWidth={2.5} color="#E0C47A" />
-                    </View>
-                  </Pressable>
-                </Animated.View>
-                <Text style={styles.letGoLabel}>LET GO</Text>
-              </View>
-
-              {/* Keep button */}
-              <View style={styles.buttonColumn}>
-                <Animated.View style={keepAnimatedStyle}>
-                  <Pressable
-                    onPressIn={() => {
-                      keepScale.value = withTiming(1.08, { duration: 120 });
-                    }}
-                    onPressOut={() => {
-                      keepScale.value = withTiming(1.0, { duration: 120 });
-                    }}
-                    onPress={handleKeepPress}
-                  >
-                    <View style={styles.keepCircle}>
-                      <LinearGradient
-                        colors={['#BFD8C0', 'rgba(191,216,192,0.7)']}
-                        start={{ x: 0.25, y: 0 }}
-                        end={{ x: 0.75, y: 1 }}
-                        style={StyleSheet.absoluteFill}
-                      />
-                      <ArrowRight size={22} strokeWidth={2.5} color="#2E5540" />
-                    </View>
-                  </Pressable>
-                </Animated.View>
-                <Text style={styles.keepLabel}>KEEP</Text>
-              </View>
-            </View>
+            {/* Bottom padding to keep content above borderRadius clip zone */}
+            <View style={{ paddingBottom: 24 }} />
           </Animated.View>
         </GestureDetector>
+      </View>
+
+      {/* Buttons sit BELOW the card, not inside it — never clipped by borderRadius */}
+      <View style={styles.buttonsContainer}>
+        {/* Let go button */}
+        <View style={styles.buttonColumn}>
+          <Animated.View style={letGoAnimatedStyle}>
+            <Pressable
+              onPressIn={() => {
+                letGoScale.value = withTiming(1.08, { duration: 120 });
+              }}
+              onPressOut={() => {
+                letGoScale.value = withTiming(1.0, { duration: 120 });
+              }}
+              onPress={handleLetGoPress}
+            >
+              <View style={styles.letGoCircle}>
+                <LinearGradient
+                  colors={['rgba(224,196,122,0.15)', 'rgba(224,196,122,0.06)']}
+                  start={{ x: 0.25, y: 0 }}
+                  end={{ x: 0.75, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+                <ArrowLeft size={22} strokeWidth={2.5} color="#E0C47A" />
+              </View>
+            </Pressable>
+          </Animated.View>
+          <Text style={styles.letGoLabel}>LET GO</Text>
+        </View>
+
+        {/* Keep button */}
+        <View style={styles.buttonColumn}>
+          <Animated.View style={keepAnimatedStyle}>
+            <Pressable
+              onPressIn={() => {
+                keepScale.value = withTiming(1.08, { duration: 120 });
+              }}
+              onPressOut={() => {
+                keepScale.value = withTiming(1.0, { duration: 120 });
+              }}
+              onPress={handleKeepPress}
+            >
+              <View style={styles.keepCircle}>
+                <LinearGradient
+                  colors={['#BFD8C0', 'rgba(191,216,192,0.7)']}
+                  start={{ x: 0.25, y: 0 }}
+                  end={{ x: 0.75, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+                <ArrowRight size={22} strokeWidth={2.5} color="#2E5540" />
+              </View>
+            </Pressable>
+          </Animated.View>
+          <Text style={styles.keepLabel}>KEEP</Text>
+        </View>
       </View>
     </View>
   );
@@ -591,11 +621,9 @@ const styles = StyleSheet.create({
   },
   cardCenteringContainer: {
     flex: 1,
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 0,
     zIndex: 2,
     overflow: 'visible',
   },
@@ -639,9 +667,6 @@ const styles = StyleSheet.create({
   swipeCardContainer: {
     width: CARD_WIDTH,
     maxWidth: 400,
-    minHeight: 400,
-    flex: 1,
-    maxHeight: 600,
     borderRadius: 22,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -734,15 +759,11 @@ const styles = StyleSheet.create({
     minHeight: 16,
   },
 
-  // Bottom buttons
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(191,216,192,0.2)',
-    marginTop: 14,
-  },
+  // Bottom buttons (outside the card)
   buttonsContainer: {
-    paddingVertical: 18,
-    paddingHorizontal: 24,
+    marginTop: 'auto',
+    paddingTop: 12,
+    paddingBottom: 4,
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 28,
@@ -785,5 +806,31 @@ const styles = StyleSheet.create({
     color: '#2E5540',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
+  },
+  photoHero: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginTop: 12,
+    backgroundColor: 'rgba(191,216,192,0.15)',
+  },
+  photoHeroImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoCountBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  photoCountText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

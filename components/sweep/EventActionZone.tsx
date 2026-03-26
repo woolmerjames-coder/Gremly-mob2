@@ -16,6 +16,8 @@ type EventActionZoneProps = {
   confirmedCustomReminderDate: string | null;
   onRequestReminderDatePicker: () => void;
   onRequestEditEventDate: () => void;
+  eventDateOverride?: string;
+  daysUntilEventOverride?: number;
   selectedSpaceId: string | null;
   selectedSpaceName: string | null;
   onRequestSpacePicker: () => void;
@@ -30,12 +32,15 @@ export function EventActionZone({
   confirmedCustomReminderDate,
   onRequestReminderDatePicker,
   onRequestEditEventDate,
+  eventDateOverride,
+  daysUntilEventOverride,
   selectedSpaceId,
   selectedSpaceName,
   onRequestSpacePicker,
   onClearSpace,
 }: EventActionZoneProps) {
-  const daysUntil = meta.daysUntilEvent;
+  const daysUntil = daysUntilEventOverride ?? meta.daysUntilEvent;
+  const eventDateLabel = eventDateOverride ?? meta.eventDateFormatted;
 
   return (
     <View style={styles.container}>
@@ -43,9 +48,7 @@ export function EventActionZone({
       <View style={styles.eventBar}>
         <Calendar size={16} strokeWidth={2} color="#9A7B2E" />
         <View style={styles.eventInfo}>
-          {meta.eventDateFormatted ? (
-            <Text style={styles.eventDate}>{meta.eventDateFormatted}</Text>
-          ) : null}
+          {eventDateLabel ? <Text style={styles.eventDate}>{eventDateLabel}</Text> : null}
           {daysUntil != null && (
             <Text
               style={[

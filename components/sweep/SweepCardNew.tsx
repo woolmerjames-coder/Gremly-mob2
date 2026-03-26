@@ -23,6 +23,7 @@ import * as Haptics from 'expo-haptics';
 import { Text, Box } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { parseDayString } from '../../lib/date/computeDueDay';
+import { getDateService } from '../../lib/date';
 import { useActiveSpaces } from '../../lib/store/selectors';
 import { SweepCardShell } from './SweepCardShell';
 import { TodoActionZone } from './TodoActionZone';
@@ -76,13 +77,27 @@ type SweepCardNewProps = {
   previousDecision?: any;
   onOpenChat?: (presetHint?: string) => void;
   onShowHelp?: () => void;
-  onConvertToType?: (newType: 'todo' | 'note' | 'habit') => void;
+  onConvertToType?: (newType: 'todo' | 'note' | 'habit' | 'delete') => void;
   onUpdateEventDate?: (date: Date) => void;
+  onRequestPhotoPreview?: (url: string) => void;
+  onConfirmTodoAction?: (action: {
+    dueDateStr: string;
+    reminderDateStr?: string;
+    reminderTime?: string;
+  }) => void;
+  onConfirmEventAction?: (action: {
+    reminderDateStr: string;
+    reminderTime?: string;
+    spaceId?: string;
+    eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
+  }) => void;
   onConfirmNoteAction?: (action: {
     noteAction: 'fine' | 'resurface';
     resurfaceDate?: Date;
     reminderDate?: Date;
     spaceId?: string;
+    resurfaceTiming?: 'nextweek' | '2weeks' | 'pick';
+    eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
   }) => void;
 };
 
@@ -107,7 +122,10 @@ export function SweepCardNew({
   onConvertToType,
   onConvertToTodo,
   onUpdateEventDate,
+  onRequestPhotoPreview,
   onAddToSpace,
+  onConfirmTodoAction,
+  onConfirmEventAction,
   onConfirmNoteAction,
 }: SweepCardNewProps) {
   const spaces = useActiveSpaces();
@@ -153,6 +171,7 @@ export function SweepCardNew({
     'daybefore',
   );
   const [confirmedEventReminderDate, setConfirmedEventReminderDate] = useState<Date | null>(null);
+  const [overriddenEventDate, setOverriddenEventDate] = useState<Date | null>(null);
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
   const [selectedSpaceName, setSelectedSpaceName] = useState<string | null>(null);
   const [showSpacePicker, setShowSpacePicker] = useState(false);
@@ -191,6 +210,33 @@ export function SweepCardNew({
       } else {
         setSelectedAction('pickdate');
         setConfirmedCustomDate(previousDecision.dueDate);
+      }
+    }
+
+    // Restore note-specific state
+    if (previousDecision?.noteAction) {
+      setNoteAction(previousDecision.noteAction);
+    }
+    if (previousDecision?.resurfaceTiming) {
+      setResurfaceTiming(previousDecision.resurfaceTiming);
+    }
+    if (previousDecision?.spaceId) {
+      setSelectedSpaceId(previousDecision.spaceId);
+      const space = spaces.find((s: any) => s.id === previousDecision.spaceId);
+      if (space) setSelectedSpaceName(space.name);
+    }
+    if (previousDecision?.eventReminder) {
+      setEventReminder(previousDecision.eventReminder);
+    }
+    if (previousDecision?.reminderDateStr) {
+      setReminderEnabled(true);
+      if (
+        previousDecision.reminderTime === '08:00' &&
+        previousDecision.reminderDateStr === previousDecision.dueDateStr
+      ) {
+        setSelectedReminder('morning');
+      } else {
+        setSelectedReminder('daybefore');
       }
     }
 
@@ -252,42 +298,72 @@ export function SweepCardNew({
   // ── Swipe handlers ──
   const handleSwipeRight = useCallback(() => {
     if (candidate.kind === 'todo') {
-      if (selectedAction === 'tomorrow' || selectedAction === 'nextweek') {
-        onConfirmQuickDate?.(selectedAction);
+      // Compute due date string
+      const ds = getDateService();
+      let dueDateStr: string | null = null;
+      if (selectedAction === 'tomorrow') {
+        dueDateStr = ds.tomorrow();
+      } else if (selectedAction === 'nextweek') {
+        dueDateStr = ds.toLocalDate(ds.getNextWeekday(1));
       } else if (selectedAction === 'pickdate' && confirmedCustomDate) {
-        onConfirmCustomDate?.(confirmedCustomDate);
+        dueDateStr = ds.toLocalDate(confirmedCustomDate);
+      }
+
+      if (dueDateStr) {
+        // Build reminder info if enabled
+        let reminderDateStr: string | undefined;
+        let reminderTime: string | undefined;
+        if (reminderEnabled && selectedReminder) {
+          if (selectedReminder === 'daybefore') {
+            const dueDate = new Date(dueDateStr + 'T12:00:00');
+            reminderDateStr = ds.toLocalDate(subDays(dueDate, 1));
+            reminderTime = '09:00';
+          } else if (selectedReminder === 'morning') {
+            reminderDateStr = dueDateStr;
+            reminderTime = '08:00';
+          } else if (selectedReminder === 'custom' && confirmedReminderDate) {
+            reminderDateStr = ds.toLocalDate(confirmedReminderDate);
+            reminderTime = '09:00';
+          }
+        }
+        onConfirmTodoAction?.({
+          dueDateStr,
+          reminderDateStr,
+          reminderTime,
+        });
       } else {
         onSkip();
       }
-
-      if (reminderEnabled && selectedReminder !== null && confirmedReminderDate) {
-        console.warn('[SweepCardNew] Reminder set but not yet wired to commit alongside schedule');
-      }
     } else if (candidate.kind === 'note' && meta.noteCardType === 'event') {
-      // Event notes: compute reminder date from event date, use onConfirmRemindLater
-      if (meta.eventDate && eventReminder) {
-        const eventDateObj = new Date(meta.eventDate);
-        let reminderDate: Date | null = null;
-        if (eventReminder === 'daybefore') {
-          reminderDate = subDays(eventDateObj, 1);
-        } else if (eventReminder === 'weekbefore') {
-          reminderDate = subDays(eventDateObj, 7);
-        } else if (eventReminder === 'custom' && confirmedEventReminderDate) {
-          reminderDate = confirmedEventReminderDate;
-        }
-        if (reminderDate) {
-          onConfirmNoteAction?.({
-            noteAction: 'fine',
-            reminderDate,
-            spaceId: selectedSpaceId ?? undefined,
-          });
-          return;
-        }
+      // Event notes: compute reminder date string for push notification
+      const eventDateStr = overriddenEventDate
+        ? getDateService().toLocalDate(overriddenEventDate)
+        : meta.eventDate || null;
+
+      if (!eventDateStr) {
+        onSkip();
+        return;
       }
-      // No valid reminder date — treat as fine
-      onConfirmNoteAction?.({
-        noteAction: 'fine',
+
+      const ds = getDateService();
+      const eventDate = new Date(eventDateStr + 'T12:00:00');
+      let reminderDateStr: string;
+
+      if (eventReminder === 'daybefore') {
+        reminderDateStr = ds.toLocalDate(subDays(eventDate, 1));
+      } else if (eventReminder === 'weekbefore') {
+        reminderDateStr = ds.toLocalDate(subDays(eventDate, 7));
+      } else if (eventReminder === 'custom' && confirmedEventReminderDate) {
+        reminderDateStr = ds.toLocalDate(confirmedEventReminderDate);
+      } else {
+        reminderDateStr = ds.toLocalDate(subDays(eventDate, 1));
+      }
+
+      onConfirmEventAction?.({
+        reminderDateStr,
+        reminderTime: '09:00',
         spaceId: selectedSpaceId ?? undefined,
+        eventReminder,
       });
     } else if (candidate.kind === 'note') {
       // Idea / general notes
@@ -307,6 +383,7 @@ export function SweepCardNew({
           noteAction: 'resurface',
           resurfaceDate: resurfaceDate ?? undefined,
           spaceId: selectedSpaceId ?? undefined,
+          resurfaceTiming: resurfaceTiming ?? undefined,
         });
       } else {
         // fine — mark as swept with optional space
@@ -328,14 +405,15 @@ export function SweepCardNew({
     reminderEnabled,
     selectedReminder,
     confirmedReminderDate,
+    selectedTimePreset,
     noteAction,
     resurfaceTiming,
     confirmedResurfaceDate,
     eventReminder,
     confirmedEventReminderDate,
     selectedSpaceId,
-    onConfirmQuickDate,
-    onConfirmCustomDate,
+    onConfirmTodoAction,
+    onConfirmEventAction,
     onConfirmNoteAction,
     onSkip,
   ]);
@@ -356,6 +434,7 @@ export function SweepCardNew({
       setConfirmedEventReminderDate(selectedDate);
       setEventReminder('custom');
     } else if (datePickerMode === 'eventdate') {
+      setOverriddenEventDate(selectedDate);
       onUpdateEventDate?.(selectedDate);
     } else {
       setConfirmedCustomDate(selectedDate);
@@ -390,6 +469,7 @@ export function SweepCardNew({
           onGremlyMenuItem={handleGremlyMenuItem}
           isConverted={isConverted}
           isClarified={isClarified}
+          onRequestPhotoPreview={onRequestPhotoPreview}
         >
           {candidate.kind === 'todo' && (
             <TodoActionZone
@@ -489,6 +569,16 @@ export function SweepCardNew({
                 setDatePickerMode('eventdate');
                 setShowDatePicker(true);
               }}
+              eventDateOverride={
+                overriddenEventDate ? format(overriddenEventDate, 'EEE, MMM d') : undefined
+              }
+              daysUntilEventOverride={
+                overriddenEventDate
+                  ? Math.round(
+                      (overriddenEventDate.getTime() - new Date().setHours(0, 0, 0, 0)) / 86400000,
+                    )
+                  : undefined
+              }
               selectedSpaceId={selectedSpaceId}
               selectedSpaceName={selectedSpaceName}
               onRequestSpacePicker={() => setShowSpacePicker(true)}
@@ -544,11 +634,7 @@ export function SweepCardNew({
             currentType={candidate.kind}
             onSelect={(newType) => {
               setShowWrongTypePicker(false);
-              if (newType === 'delete') {
-                onClear();
-              } else {
-                onConvertToType?.(newType);
-              }
+              onConvertToType?.(newType);
             }}
             onClose={() => setShowWrongTypePicker(false)}
           />
