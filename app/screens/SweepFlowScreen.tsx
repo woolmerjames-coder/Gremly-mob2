@@ -84,9 +84,8 @@ import type {
   SweepSummaryItem,
 } from '../../lib/sweep/types';
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
-import { SweepCard } from '../../components/sweep/SweepCard';
+import { SweepCardNew } from '../../components/sweep/SweepCardNew';
 import { SweepDemoFlow } from '../../components/sweep/SweepDemoFlow';
-import { SweepGremlyHeader } from '../../components/sweep/SweepGremlyHeader';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 import { SweepMultiSplitStep } from '../../components/sweep/SweepMultiSplitStep';
 import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionTransition';
@@ -2770,15 +2769,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       <View style={styles.decisionCardArea}>
         {!currentTransition && (
           <>
-            <Reanimated.View entering={FadeIn.duration(200)}>
-              <SweepGremlyHeader
-                candidate={currentCandidate}
-                meta={currentCandidateWithMeta.meta}
-                onOpenChat={handleOpenChat}
-                onMascotPress={() => setShowHelp(true)}
-              />
-            </Reanimated.View>
-            <SweepCard
+            <SweepCardNew
               key={`${currentCandidate.id}-${currentIndex}-${cardFlipKey}`}
               candidate={currentCandidate}
               meta={currentCandidateWithMeta.meta}
