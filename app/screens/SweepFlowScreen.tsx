@@ -3381,28 +3381,15 @@ function SweepSummaryStep({
 
       if (justCrossedFed) {
         const nextFedDay = useGremlyStore.getState().fedDaysCount + 1;
-        const willAgeUp = nextFedDay >= 3;
 
-        // Show fed toast after gauge animation completes
+        // Show fed toast after gauge animation completes.
+        // Age-up celebrations are handled by the store when the
+        // server confirms via addGaugeContribution -> markFedToday.
         setTimeout(() => {
           celebrationController.showFedCelebration(nextFedDay);
-
-          // If this is the 3rd fed day, trigger age-up after fed toast dismisses
-          if (willAgeUp) {
-            // Fed toast is 8 seconds. Fire age-up after it dismisses.
-            setTimeout(() => {
-              const currentAge = useGremlyStore.getState().gremlyAge;
-              const newAge = currentAge + 1;
-              const oldTier = getTierForAge(currentAge);
-              const newTier = getTierForAge(newAge);
-              const isTierTransition = oldTier.name !== newTier.name;
-              celebrationController.showAgeUpCelebration(newAge, {
-                tierName: newTier.name,
-                isTierTransition,
-                previousTierName: isTierTransition ? oldTier.name : undefined,
-              });
-            }, 8500);
-          }
+          useGremlyStore.setState({
+            todayFedCelebrationShownAt: new Date().toISOString(),
+          });
         }, 1200);
       }
     }, 1200);

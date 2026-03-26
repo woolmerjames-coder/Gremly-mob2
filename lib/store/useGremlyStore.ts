@@ -604,7 +604,6 @@ interface GremlyState {
   ensureCurrentRitualDay: () => string;
   incrementDropCount: () => Promise<{ dropsCount: number; didAgeUp: boolean; newAge: number }>;
   incrementSweepCount: () => Promise<{ sweepsCount: number; didAgeUp: boolean; newAge: number }>;
-  checkAndIncrementAge: () => Promise<{ didAgeUp: boolean; newAge: number }>;
   markAgeCelebrationShown: () => void;
   setDayBoundaryHour: (hour: number) => Promise<void>;
   setOnboardingCompletedAt: (timestamp: string) => Promise<void>;
@@ -1854,80 +1853,6 @@ export const useGremlyStore = create<GremlyState>()(
           return { sweepsCount: newSweepsCount, didAgeUp: false, newAge: get().gremlyAge };
         },
 
-        /**
-         * @deprecated Replaced by feeding gauge age-up system (Soul Document v8).
-         * Age-ups now flow through: addGaugeContribution → markFedToday → check_and_age_up_v2.
-         * This function is preserved for backward compatibility but is no longer called.
-         */
-        checkAndIncrementAge: async () => {
-          const { userId, dayBoundaryHour, todayRitualCompletedAt, todayRitualDay } = get();
-          if (!userId) return { didAgeUp: false, newAge: get().gremlyAge };
-
-          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
-
-          // Defensive check: if ritual was completed for a different day, it doesn't count for today
-          if (todayRitualCompletedAt && todayRitualDay !== currentRitualDay) {
-            console.log(
-              '[GremlyStore] checkAndIncrementAge: Stale ritual completion detected, clearing',
-            );
-            set({ todayRitualCompletedAt: null });
-            // Continue to check RPC - don't return early
-          } else if (todayRitualCompletedAt) {
-            // Already completed today (and day matches)
-            return { didAgeUp: false, newAge: get().gremlyAge };
-          }
-
-          const { data, error } = await supabase.rpc('check_and_increment_gremly_age', {
-            p_owner_id: userId,
-            p_ritual_day: currentRitualDay,
-          });
-
-          if (error) {
-            console.error('[GremlyStore] checkAndIncrementAge failed:', error);
-            return { didAgeUp: false, newAge: get().gremlyAge };
-          }
-
-          const result = data?.[0] ?? { did_age_up: false, new_age: get().gremlyAge };
-
-          if (result.did_age_up) {
-            // Check if celebration should show (hasn't been shown today)
-            const shouldShowCelebration = !get().todayAgeCelebrationShownAt;
-
-            // Capture old age BEFORE set() call for tier transition detection
-            const previousAge = get().gremlyAge;
-
-            set({
-              gremlyAge: result.new_age,
-              gremlyAgeLastIncrementedAt: new Date().toISOString(),
-              todayRitualCompletedAt: new Date().toISOString(),
-              // Mark celebration as shown in the same atomic update
-              ...(shouldShowCelebration && {
-                todayAgeCelebrationShownAt: new Date().toISOString(),
-              }),
-            });
-
-            // Detect tier transition using captured previous age
-            const oldTier = getTierForAge(previousAge);
-            const newTier = getTierForAge(result.new_age);
-            const isTierTransition = oldTier.name !== newTier.name;
-
-            // Trigger celebration via controller (App.tsx will render the modal)
-            if (shouldShowCelebration) {
-              celebrationController.showAgeUpCelebration(result.new_age, {
-                tierName: newTier.name,
-                isTierTransition,
-                previousTierName: isTierTransition ? oldTier.name : undefined,
-              });
-            }
-
-            console.log('[GremlyStore] Gremly aged up to', result.new_age);
-            return { didAgeUp: true, newAge: result.new_age };
-          }
-
-          return { didAgeUp: result.did_age_up, newAge: result.new_age };
-        },
-
         markAgeCelebrationShown: () => {
           set({ todayAgeCelebrationShownAt: new Date().toISOString() });
         },
@@ -2151,6 +2076,13 @@ export const useGremlyStore = create<GremlyState>()(
 
             const justFed = newIsFed && !get().isFedToday;
 
+            console.log('[GremlyStore] addGaugeContribution fed check', {
+              newIsFed,
+              isFedToday: get().isFedToday,
+              justFed,
+              source,
+            });
+
             set({
               feedingGaugeValue: newGaugeValue,
               isFedToday: newIsFed,
@@ -2167,18 +2099,29 @@ export const useGremlyStore = create<GremlyState>()(
             if (justFed) {
               const markResult = await get().markFedToday();
 
+              // Fed celebration: only fire from store if the UI hasn't
+              // already shown one (CatchAllNotepad and SweepFlowScreen
+              // fire fed celebrations from the optimistic preview result).
               if (!get().todayFedCelebrationShownAt) {
                 set({ todayFedCelebrationShownAt: new Date().toISOString() });
-                console.log('[GremlyStore] Fed celebration should fire here', {
-                  fedDaysCount: markResult.fedDaysCount,
-                });
+                celebrationController.showFedCelebration(markResult.fedDaysCount);
               }
 
+              // Age-up celebration: always fires from here (the store),
+              // never from the UI. This is the single authority for age-ups
+              // because only the server can confirm the age actually changed.
               if (markResult.didAgeUp && !get().todayFeedingAgeUpShownAt) {
                 set({ todayFeedingAgeUpShownAt: new Date().toISOString() });
-                console.log('[GremlyStore] Age-up celebration should fire here', {
-                  newAge: markResult.newAge,
-                  newTier: markResult.newTier,
+
+                const previousAge = markResult.newAge - 1;
+                const oldTier = getTierForAge(previousAge);
+                const newTier = getTierForAge(markResult.newAge);
+                const isTierTransition = oldTier.name !== newTier.name;
+
+                celebrationController.showAgeUpCelebration(markResult.newAge, {
+                  tierName: newTier.name,
+                  isTierTransition,
+                  previousTierName: isTierTransition ? oldTier.name : undefined,
                 });
               }
             }
@@ -2368,8 +2311,6 @@ export const useGremlyStore = create<GremlyState>()(
           set({
             feedingGaugeValue: optimisticValue,
             pendingGaugePreviews: pendingGaugePreviews + 1,
-            // Optimistically mark as fed if threshold crossed
-            ...(justCrossedFed && { isFedToday: true }),
           });
 
           if (__DEV__) {
@@ -2399,7 +2340,6 @@ export const useGremlyStore = create<GremlyState>()(
 
           set({
             feedingGaugeValue: optimisticValue,
-            ...(justCrossedFed && { isFedToday: true }),
           });
 
           if (__DEV__) {

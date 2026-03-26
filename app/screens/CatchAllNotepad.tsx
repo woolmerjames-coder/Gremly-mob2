@@ -8420,6 +8420,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             } else {
               celebrationController.showFedCelebration(useGremlyStore.getState().fedDaysCount + 1);
             }
+            // Mark fed celebration as shown so store path doesn't double-fire
+            useGremlyStore.setState({ todayFedCelebrationShownAt: new Date().toISOString() });
           }
 
           // Skip all generic speech below
@@ -8438,6 +8440,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             const fedSpeech = getFedCelebrationSpeech(fedDaysCount);
             showGremlySpeech(fedSpeech.message, fedSpeech.duration, 'celebration');
           }
+          // Mark fed celebration as shown so store path doesn't double-fire
+          useGremlyStore.setState({ todayFedCelebrationShownAt: new Date().toISOString() });
         } else {
           mascotRef.current?.celebrate();
 
