@@ -1,9 +1,10 @@
 /**
- * useDayRollover - Detects calendar day changes and triggers store reset
+ * useDayRollover - Detects ritual-day changes and triggers store reset
  *
  * Two detection mechanisms:
  * 1. AppState resume: checks on every background→active transition
- * 2. Midnight timer: fires at 00:00:00 if app stays in foreground
+ * 2. Day-boundary timer: fires at the user's configured boundary hour
+ *    (default midnight, but respects dayBoundaryHour from DateService)
  *
  * Mount this ONCE at the app root (App.tsx).
  */
@@ -14,22 +15,32 @@ import { useGremlyStore } from '../../store/useGremlyStore';
 import { getDateService } from '../../date';
 
 /**
- * Calculate milliseconds until the next midnight (local time).
- * Adds a 500ms buffer to avoid edge-case races right at midnight.
+ * Calculate milliseconds until the next day boundary (local time).
+ * Respects the user's configured dayBoundaryHour (e.g. 3 = 3 AM).
+ * Adds a 500ms buffer to avoid edge-case races right at the boundary.
  */
-function msUntilMidnight(): number {
-  const now = getDateService().now();
-  const midnight = new Date(now);
-  midnight.setDate(midnight.getDate() + 1);
-  midnight.setHours(0, 0, 0, 0);
-  return midnight.getTime() - now.getTime() + 500;
+function msUntilDayBoundary(): number {
+  const ds = getDateService();
+  const now = ds.now();
+  const boundaryHour = ds.getDayBoundaryHour();
+  const currentHour = ds.getHour();
+
+  // Calculate next boundary time
+  const target = new Date(now.getTime());
+  if (currentHour >= boundaryHour) {
+    // Boundary is tomorrow
+    target.setDate(target.getDate() + 1);
+  }
+  target.setHours(boundaryHour, 0, 0, 0);
+
+  return target.getTime() - now.getTime() + 500;
 }
 
 export function useDayRollover(): void {
-  const midnightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const boundaryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const checkAndRollover = useCallback(() => {
-    const now = getDateService().getCurrentDate();
+    const now = getDateService().ritualDay();
     const stored = useGremlyStore.getState().currentDate;
 
     if (now !== stored) {
@@ -39,33 +50,33 @@ export function useDayRollover(): void {
   }, []);
 
   useEffect(() => {
-    function armMidnightTimer() {
+    function armBoundaryTimer() {
       // Clear any existing timer
-      if (midnightTimer.current) {
-        clearTimeout(midnightTimer.current);
+      if (boundaryTimer.current) {
+        clearTimeout(boundaryTimer.current);
       }
 
-      const ms = msUntilMidnight();
-      console.log(`[DayRollover] Midnight timer armed: ${Math.round(ms / 1000 / 60)}min from now`);
+      const ms = msUntilDayBoundary();
+      console.log(`[DayRollover] Boundary timer armed: ${Math.round(ms / 1000 / 60)}min from now`);
 
-      midnightTimer.current = setTimeout(() => {
-        console.log('[DayRollover] Midnight timer fired');
+      boundaryTimer.current = setTimeout(() => {
+        console.log('[DayRollover] Boundary timer fired');
         checkAndRollover();
-        // Re-arm for the next midnight (handles multi-day idle)
-        armMidnightTimer();
+        // Re-arm for the next boundary (handles multi-day idle)
+        armBoundaryTimer();
       }, ms);
     }
 
-    // Arm the midnight timer on mount
-    armMidnightTimer();
+    // Arm the boundary timer on mount
+    armBoundaryTimer();
 
     // Listen for AppState changes (background → active)
     const handleAppStateChange = (nextState: AppStateStatus) => {
       if (nextState === 'active') {
         console.log('[DayRollover] App became active, checking date...');
         checkAndRollover();
-        // Re-arm midnight timer (in case device clock drifted or timezone changed)
-        armMidnightTimer();
+        // Re-arm boundary timer (in case device clock drifted or timezone changed)
+        armBoundaryTimer();
       }
     };
 
@@ -73,8 +84,8 @@ export function useDayRollover(): void {
 
     return () => {
       subscription.remove();
-      if (midnightTimer.current) {
-        clearTimeout(midnightTimer.current);
+      if (boundaryTimer.current) {
+        clearTimeout(boundaryTimer.current);
       }
     };
   }, [checkAndRollover]);

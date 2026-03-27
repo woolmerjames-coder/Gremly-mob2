@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '../lib/supabase/client';
 import { nowTimestamp, getDateService } from '../lib/date/DateService';
+import { useGremlyStore } from '../lib/store/useGremlyStore';
 
 const HEARTBEAT_DEBOUNCE_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -36,6 +37,11 @@ async function syncTimezone(userId: string): Promise<void> {
     console.log('[TimezoneSync] Update error:', updateErr.message);
     return;
   }
+
+  // Update in-memory DateService singleton + Zustand store so the app
+  // picks up the new timezone without a full restart.
+  getDateService().setTimezone(deviceTz);
+  useGremlyStore.getState().setUserTimezone(deviceTz);
 
   console.log(`[TimezoneSync] Updated: ${storedTz ?? '(none)'} → ${deviceTz}`);
 }
