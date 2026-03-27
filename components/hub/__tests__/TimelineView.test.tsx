@@ -28,7 +28,7 @@ jest.mock('lucide-react-native', () => {
 const TODAY_KEY = '2026-02-10';
 jest.mock('../../../lib/date', () => ({
   getDateService: () => ({
-    getCurrentDate: () => TODAY_KEY,
+    today: () => TODAY_KEY,
     toLocalDate: (date: Date) => {
       const y = date.getFullYear();
       const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -146,9 +146,7 @@ describe('TimelineView', () => {
         },
       ];
 
-      const { getByText, queryByText } = render(
-        <TimelineView onItemPress={mockOnItemPress} />,
-      );
+      const { getByText, queryByText } = render(<TimelineView onItemPress={mockOnItemPress} />);
 
       // Tap "Todos" filter
       fireEvent.press(getByText('Todos'));
@@ -242,9 +240,7 @@ describe('TimelineView', () => {
       fireEvent.press(getByText('Buy milk'));
 
       expect(mockOnItemPress).toHaveBeenCalledTimes(1);
-      expect(mockOnItemPress).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'todo-1' }),
-      );
+      expect(mockOnItemPress).toHaveBeenCalledWith(expect.objectContaining({ id: 'todo-1' }));
     });
   });
 
@@ -271,9 +267,7 @@ describe('TimelineView', () => {
         },
       ];
 
-      const { getByText, queryByText } = render(
-        <TimelineView onItemPress={mockOnItemPress} />,
-      );
+      const { getByText, queryByText } = render(<TimelineView onItemPress={mockOnItemPress} />);
       expect(getByText('Active task')).toBeTruthy();
       expect(queryByText('Archived task')).toBeNull();
     });

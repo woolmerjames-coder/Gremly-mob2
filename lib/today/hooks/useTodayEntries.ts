@@ -148,7 +148,7 @@ export function useTodayEntries(): TodayEntriesState {
           if (entry.type === 'todo') {
             if (entry.status === 'completed') return true;
             if (entry.completed_at) {
-              const completedDay = getDateService().extractDateFromIso(entry.completed_at);
+              const completedDay = getDateService().extractLocalDate(entry.completed_at);
               return completedDay === dayIso;
             }
             return false;

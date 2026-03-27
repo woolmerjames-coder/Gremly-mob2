@@ -110,7 +110,7 @@ interface MorningBriefSheetProps {
  * Get today's date string in YYYY-MM-DD format
  */
 function getTodayDateString(): string {
-  return getDateService().getCurrentDate();
+  return getDateService().today();
 }
 
 /**
@@ -422,7 +422,7 @@ export function MorningBriefSheet({
       } else if (isBreak) {
         // Break habits show streak from last_checked_in_at
         const lastDate = habit.last_checked_in_at
-          ? getDateService().extractDateFromIso(habit.last_checked_in_at)
+          ? getDateService().extractLocalDate(habit.last_checked_in_at)
           : undefined;
         if (lastDate) {
           const todayDate = new Date(today + 'T12:00:00');

@@ -38,8 +38,8 @@ jest.mock('../../env', () => ({
 const MOCK_TODAY = '2025-12-15'; // Monday
 jest.mock('../../date', () => ({
   getDateService: () => ({
-    getCurrentDate: () => MOCK_TODAY,
-    fromDateString: (str: string) => (str ? new Date(str + 'T00:00:00') : null),
+    today: () => MOCK_TODAY,
+    fromLocalDate: (str: string) => (str ? new Date(str + 'T00:00:00') : null),
     addDays: (dateStr: string, days: number) => {
       const d = new Date(dateStr + 'T00:00:00');
       d.setDate(d.getDate() + days);
@@ -73,7 +73,12 @@ function makeValidContent() {
     weeklyCommentary: 'Great week!',
     highlightMoment: { title: 'Test', reason: 'Notable', gremlyComment: 'Nice!' },
     magicMoments: [
-      { title: 'Breakthrough', body: 'Solved the hard bug.', date: '2025-12-16', connectedItems: ['todo-1'] },
+      {
+        title: 'Breakthrough',
+        body: 'Solved the hard bug.',
+        date: '2025-12-16',
+        connectedItems: ['todo-1'],
+      },
     ],
     insights: [],
     recommendations: [
@@ -85,7 +90,12 @@ function makeValidContent() {
         prefill: { name: 'Morning walk', frequency: 'daily', time_window: 'morning' },
       },
     ],
-    weekAhead: { introduction: 'Next week...', highlights: [], busyDayWarnings: [], totalEventCount: 0 },
+    weekAhead: {
+      introduction: 'Next week...',
+      highlights: [],
+      busyDayWarnings: [],
+      totalEventCount: 0,
+    },
     keyThemes: ['productive'],
     mood: 'focused',
     weekType: 'a focused week',
@@ -321,8 +331,8 @@ describe('generateWeeklySummary', () => {
     }));
     jest.doMock('../../date', () => ({
       getDateService: () => ({
-        getCurrentDate: () => MOCK_TODAY,
-        fromDateString: (s: string) => new Date(s + 'T00:00:00'),
+        today: () => MOCK_TODAY,
+        fromLocalDate: (s: string) => new Date(s + 'T00:00:00'),
         addDays: (d: string, n: number) => {
           const dt = new Date(d + 'T00:00:00');
           dt.setDate(dt.getDate() + n);

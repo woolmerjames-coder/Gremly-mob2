@@ -139,7 +139,7 @@ function computeTimeRange(range: HubV1TimeRange): {
   if (range === 'all') return {};
 
   const ds = getDateService();
-  const today = ds.getCurrentDate();
+  const today = ds.today();
   let startDate: string;
 
   switch (range) {
@@ -390,8 +390,8 @@ export default function HubScreen() {
       owner_id: '', // Not available from discovered data
       display_name: person.name,
       name: person.name,
-      created_at: getDateService().getCurrentDate() + 'T00:00:00.000Z',
-      updated_at: getDateService().getCurrentDate() + 'T00:00:00.000Z',
+      created_at: getDateService().today() + 'T00:00:00.000Z',
+      updated_at: getDateService().today() + 'T00:00:00.000Z',
       linkedCounts: {
         habits: 0,
         todos: 0,
@@ -549,7 +549,7 @@ export default function HubScreen() {
       const date = item.updated_at || item.created_at;
       const dateFormatted = date
         ? getDateService().formatDateForDisplay(
-            getDateService().extractDateFromIso(date) ?? date.split('T')[0],
+            getDateService().extractLocalDate(date) ?? date.split('T')[0],
           )
         : undefined;
 
@@ -866,9 +866,9 @@ export default function HubScreen() {
     const notes = hubV1Items.filter(
       (item) => item.type === 'note',
     ) as import('../../lib/types').Note[];
-    const today = getDateService().getCurrentDate(); // YYYY-MM-DD (local timezone)
+    const today = getDateService().today(); // YYYY-MM-DD (local timezone)
     return selectNeedsAttentionItems(todos, notes, {
-      nowIso: getDateService().getCurrentDate() + 'T12:00:00.000Z',
+      nowIso: getDateService().today() + 'T12:00:00.000Z',
       todayDate: today,
       todoStaleDays: 7,
       ideaStaleDays: 14,
@@ -976,8 +976,8 @@ export default function HubScreen() {
   // Format journal date for display
   const formatJournalDate = useCallback((dateStr: string): string => {
     const ds = getDateService();
-    const today = ds.getCurrentDate();
-    const itemDate = ds.extractDateFromIso(dateStr) ?? dateStr.split('T')[0];
+    const today = ds.today();
+    const itemDate = ds.extractLocalDate(dateStr) ?? dateStr.split('T')[0];
 
     if (itemDate === today) return 'Today';
     if (itemDate === ds.addDays(today, -1)) return 'Yesterday';
@@ -986,12 +986,12 @@ export default function HubScreen() {
     const sevenDaysAgo = ds.addDays(today, -7);
     if (itemDate > sevenDaysAgo) {
       // Parse at noon to avoid timezone shifts
-      const d = ds.fromDateString(itemDate) ?? new Date(itemDate + 'T12:00:00');
+      const d = ds.fromLocalDate(itemDate) ?? new Date(itemDate + 'T12:00:00');
       return format(d, 'EEE');
     }
 
     // Older dates: "Jan 5" format
-    const d = ds.fromDateString(itemDate) ?? new Date(itemDate + 'T12:00:00');
+    const d = ds.fromLocalDate(itemDate) ?? new Date(itemDate + 'T12:00:00');
     return format(d, 'MMM d');
   }, []);
 

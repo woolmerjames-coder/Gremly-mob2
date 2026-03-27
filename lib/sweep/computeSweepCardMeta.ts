@@ -52,7 +52,7 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
       const dueDay = candidate.raw.due_day;
       if (dueDay) {
         const ds = getDateService();
-        const tomorrowStr = ds.addDays(ds.getCurrentDate(), 1);
+        const tomorrowStr = ds.addDays(ds.today(), 1);
         if (dueDay === tomorrowStr) {
           todoStatus = 'due_tomorrow';
         }
@@ -187,7 +187,7 @@ export function computeSweepCardMeta(candidate: SweepCandidate, spaces: Space[])
   if (eventDate) {
     try {
       const ds = getDateService();
-      daysUntilEvent = ds.daysBetween(ds.getCurrentDate(), eventDate);
+      daysUntilEvent = ds.daysBetween(ds.today(), eventDate);
     } catch {
       daysUntilEvent = null;
     }

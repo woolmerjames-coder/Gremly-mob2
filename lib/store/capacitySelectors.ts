@@ -37,7 +37,7 @@ const EMPTY_TIME_OVERRIDES: Record<string, EventTimeOverride> = {};
  */
 function useToday(): string {
   // useMemo with empty deps = computed once per mount
-  return useMemo(() => getDateService().getCurrentDate(), []);
+  return useMemo(() => getDateService().today(), []);
 }
 
 /**
@@ -218,7 +218,7 @@ export function useCapacityForDate(date: string): DayCapacity {
   const timeBlockPreferences = useGremlyStore((s) => s.timeBlockPreferences);
 
   const currentHour = useMemo(() => {
-    const today = getDateService().getCurrentDate();
+    const today = getDateService().today();
     return date === today ? getDateService().getHour() : 0;
   }, [date]);
 

@@ -369,7 +369,7 @@ export function JournalFullScreen({
         }
 
         const ds = getDateService();
-        const currentDateStr = ds.getCurrentDate();
+        const currentDateStr = ds.today();
         const dayOfWeek = ds.getDayOfWeek();
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 

@@ -29,6 +29,7 @@ export type { LocalDateString, UtcTimestamp };
 export function useDateService(): DateService {
   // Get timezone from store (may be undefined initially)
   const userTimezone = useGremlyStore((s) => s.userTimezone);
+  const dayBoundaryHour = useGremlyStore((s) => s.dayBoundaryHour);
 
   // Sync timezone when store updates
   useEffect(() => {
@@ -36,6 +37,11 @@ export function useDateService(): DateService {
       dateService.setTimezone(userTimezone);
     }
   }, [userTimezone]);
+
+  // Sync day boundary hour when store updates (covers launch hydration + settings changes)
+  useEffect(() => {
+    dateService.setDayBoundaryHour(dayBoundaryHour);
+  }, [dayBoundaryHour]);
 
   return dateService;
 }

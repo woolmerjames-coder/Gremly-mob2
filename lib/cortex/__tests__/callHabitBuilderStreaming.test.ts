@@ -56,7 +56,7 @@ jest.mock('../../env', () => ({
 // Mock date service
 jest.mock('../../date/DateService', () => ({
   getDateService: () => ({
-    getCurrentDate: () => '2025-12-15',
+    today: () => '2025-12-15',
   }),
 }));
 
@@ -83,7 +83,12 @@ function makeRequest(): HabitBuilderRequest {
 }
 
 function makeCallbacks(): HabitBuilderStreamingCallbacks & { calls: Record<string, any[]> } {
-  const calls: Record<string, any[]> = { onDelta: [], onComplete: [], onError: [], onSearching: [] };
+  const calls: Record<string, any[]> = {
+    onDelta: [],
+    onComplete: [],
+    onError: [],
+    onSearching: [],
+  };
   return {
     calls,
     onDelta: jest.fn((d) => calls.onDelta.push(d)),
@@ -147,12 +152,21 @@ describe('callHabitBuilderStreaming', () => {
     eventListeners.message({
       data: JSON.stringify({
         done: true,
-        full_content: 'Sure, let\'s set that up!',
+        full_content: "Sure, let's set that up!",
         resolved_fields: {
-          name: 'Meditate', habit_type: 'start_habit', cadence: 'daily', target: 7,
-          start_date: null, time_window: 'morning', space_name: null,
-          notes: null, end_date: null, time_estimate_minutes: 10,
-          is_confirmation: false, next_field: 'cadence', required_count: 2,
+          name: 'Meditate',
+          habit_type: 'start_habit',
+          cadence: 'daily',
+          target: 7,
+          start_date: null,
+          time_window: 'morning',
+          space_name: null,
+          notes: null,
+          end_date: null,
+          time_estimate_minutes: 10,
+          is_confirmation: false,
+          next_field: 'cadence',
+          required_count: 2,
           suggested_chips: ['daily', 'weekdays'],
         },
         latency_ms: 1200,
@@ -161,7 +175,7 @@ describe('callHabitBuilderStreaming', () => {
 
     expect(callbacks.onComplete).toHaveBeenCalledTimes(1);
     const result = callbacks.calls.onComplete[0];
-    expect(result.content).toBe('Sure, let\'s set that up!');
+    expect(result.content).toBe("Sure, let's set that up!");
     expect(result.resolved_fields.name).toBe('Meditate');
     expect(result.latency_ms).toBe(1200);
     expect(mockClose).toHaveBeenCalled();
@@ -177,10 +191,19 @@ describe('callHabitBuilderStreaming', () => {
       data: JSON.stringify({
         done: true,
         resolved_fields: {
-          name: null, habit_type: null, cadence: null, target: null,
-          start_date: null, time_window: null, space_name: null,
-          notes: null, end_date: null, time_estimate_minutes: null,
-          is_confirmation: false, next_field: null, required_count: 0,
+          name: null,
+          habit_type: null,
+          cadence: null,
+          target: null,
+          start_date: null,
+          time_window: null,
+          space_name: null,
+          notes: null,
+          end_date: null,
+          time_estimate_minutes: null,
+          is_confirmation: false,
+          next_field: null,
+          required_count: 0,
           suggested_chips: null,
         },
       }),

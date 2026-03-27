@@ -60,10 +60,10 @@ export default function WeekStrip({ selectedDate, onSelectDate }: WeekStripProps
   };
 
   const goToToday = () => {
-    onSelectDate(dateService.getCurrentDate());
+    onSelectDate(dateService.today());
   };
 
-  const today = dateService.getCurrentDate();
+  const today = dateService.today();
 
   return (
     <View style={styles.container}>
@@ -92,7 +92,7 @@ export default function WeekStrip({ selectedDate, onSelectDate }: WeekStripProps
           const isSelected = day === selectedDate;
           const isToday = day === today;
           const hasItems = datesWithItems.has(day);
-          const dateObj = dateService.fromDateString(day);
+          const dateObj = dateService.fromLocalDate(day);
 
           if (!dateObj) return null;
 

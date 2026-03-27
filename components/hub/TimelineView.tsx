@@ -149,7 +149,7 @@ function getTypeLabel(type: 'todo' | 'habit' | 'note', subtype?: string | null):
  */
 function getStatus(item: Todo | Habit | Note): 'active' | 'completed' | 'overdue' {
   const dateService = getDateService();
-  const today = dateService.getCurrentDate();
+  const today = dateService.today();
 
   if (item.type === 'todo') {
     const todo = item as Todo;
@@ -200,7 +200,7 @@ export default function TimelineView({ onItemPress, onSpacePress }: TimelineView
   const spaces = useGremlyStore((s): Space[] => s.spaces) ?? [];
 
   const dateService = getDateService();
-  const todayKey = dateService.getCurrentDate();
+  const todayKey = dateService.today();
   const yesterdayKey = getYesterdayKey(todayKey);
 
   // Space lookup

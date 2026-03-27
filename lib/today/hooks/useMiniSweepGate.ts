@@ -64,7 +64,7 @@ export function useMiniSweepGate(): UseMiniSweepGateReturn {
         !t.daily_block &&
         !t.commitment &&
         t.created_at != null &&
-        getDateService().extractDateFromIso(t.created_at) === todayDate
+        getDateService().extractLocalDate(t.created_at) === todayDate,
     );
   }, [todos]);
 
@@ -76,7 +76,7 @@ export function useMiniSweepGate(): UseMiniSweepGateReturn {
     if (!miniSweepLastCompletedAt) return false;
     const todayDate = getTodayDateString();
     // miniSweepLastCompletedAt is ISO timestamp, extract date portion
-    const completedDate = getDateService().extractDateFromIso(miniSweepLastCompletedAt);
+    const completedDate = getDateService().extractLocalDate(miniSweepLastCompletedAt);
     return completedDate === todayDate;
   }, [miniSweepLastCompletedAt]);
 
@@ -87,8 +87,16 @@ export function useMiniSweepGate(): UseMiniSweepGateReturn {
   const shouldShowMiniSweep = useMemo(() => {
     if (gremlyAge < 1) return false; // Don't show for brand new users
     if (hasCompletedMiniSweepToday) return false;
-    return rolledOverTodos.length > 0 || unscheduledTodos.length > 0 || todayUnprocessedDrops.length > 0;
-  }, [gremlyAge, hasCompletedMiniSweepToday, rolledOverTodos.length, unscheduledTodos.length, todayUnprocessedDrops.length]);
+    return (
+      rolledOverTodos.length > 0 || unscheduledTodos.length > 0 || todayUnprocessedDrops.length > 0
+    );
+  }, [
+    gremlyAge,
+    hasCompletedMiniSweepToday,
+    rolledOverTodos.length,
+    unscheduledTodos.length,
+    todayUnprocessedDrops.length,
+  ]);
 
   return {
     shouldShowMiniSweep,

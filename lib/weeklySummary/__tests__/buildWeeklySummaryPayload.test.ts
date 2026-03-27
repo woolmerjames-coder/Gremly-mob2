@@ -22,8 +22,8 @@ const MOCK_TODAY = '2025-12-15'; // Monday
 
 jest.mock('../../date', () => ({
   getDateService: () => ({
-    getCurrentDate: () => MOCK_TODAY,
-    fromDateString: (str: string) => (str ? new Date(str + 'T00:00:00') : null),
+    today: () => MOCK_TODAY,
+    fromLocalDate: (str: string) => (str ? new Date(str + 'T00:00:00') : null),
     addDays: (dateStr: string, days: number) => {
       const d = new Date(dateStr + 'T00:00:00');
       d.setDate(d.getDate() + days);

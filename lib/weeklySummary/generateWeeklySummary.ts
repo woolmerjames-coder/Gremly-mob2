@@ -79,8 +79,8 @@ export async function generateWeeklySummary(): Promise<GenerateWeeklySummaryResu
 
     // 5. Compute week boundaries
     const ds = getDateService();
-    const today = ds.getCurrentDate();
-    const date = ds.fromDateString(today);
+    const today = ds.today();
+    const date = ds.fromLocalDate(today);
     if (!date) {
       return { success: false, error: 'Date service error' };
     }

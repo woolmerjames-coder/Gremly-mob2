@@ -618,8 +618,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       const isAnimating = animatingTodoIdsRef.current.has(todo.id);
       return {
         ...todo,
-        completed_at:
-          isCompleted && !isAnimating ? todo.completed_at || nowTimestamp() : null,
+        completed_at: isCompleted && !isAnimating ? todo.completed_at || nowTimestamp() : null,
         _isAnimatingOut: isAnimating && isCompleted, // Pass flag for styling
       };
     });
@@ -1093,7 +1092,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       return Math.max(acc, ts);
     }, 0);
     const lastTs = Math.max(lastChatTs, lastItemTs);
-    const daysSince = lastTs ? getDateService().daysBetween(getDateService().toLocalDate(new Date(lastTs)), getDateService().today()) : 999;
+    const daysSince = lastTs
+      ? getDateService().daysBetween(
+          getDateService().toLocalDate(new Date(lastTs)),
+          getDateService().today(),
+        )
+      : 999;
     if (daysSince >= 7)
       return { tone: 'low' as const, text: 'It’s been quiet — want to revisit your goals?' };
     const todayISO = dateService.today();
@@ -1113,7 +1117,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       return Math.max(acc, ts);
     }, 0);
     const lastTs = Math.max(lastChatTs, lastItemTs);
-    const daysSince = lastTs ? getDateService().daysBetween(getDateService().toLocalDate(new Date(lastTs)), getDateService().today()) : 999;
+    const daysSince = lastTs
+      ? getDateService().daysBetween(
+          getDateService().toLocalDate(new Date(lastTs)),
+          getDateService().today(),
+        )
+      : 999;
 
     if (daysSince >= 7) return 'low';
 
@@ -1128,7 +1137,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // v33: Compute daily witty line
   const v33WittyLine = React.useMemo(() => {
-    const dailySeed = getDateService().getCurrentDate();
+    const dailySeed = getDateService().today();
     return getWittyLine(space?.name ?? 'Space', v33Mood, dailySeed);
   }, [space?.name, v33Mood]);
 
@@ -2613,7 +2622,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                             ? stripMarkdown(aiSummaries[c.id] || c.last_message_snippet || '')
                             : getRelativeTime(c.updated_at)
                         }
-                        lastActive={getDateService().formatForChip(getDateService().extractLocalDate(c.updated_at))}
+                        lastActive={getDateService().formatForChip(
+                          getDateService().extractLocalDate(c.updated_at),
+                        )}
                         onOpen={() => handleChatPress(c.id)}
                         onMenu={() => {}}
                         onArchive={async () => {

@@ -23,8 +23,8 @@ const MOCK_TODAY = '2025-12-15'; // Monday
 
 jest.mock('../../date', () => ({
   getDateService: () => ({
-    getCurrentDate: () => MOCK_TODAY,
-    fromDateString: (str: string) => (str ? new Date(str + 'T00:00:00') : null),
+    today: () => MOCK_TODAY,
+    fromLocalDate: (str: string) => (str ? new Date(str + 'T00:00:00') : null),
     addDays: (dateStr: string, days: number) => {
       const d = new Date(dateStr + 'T00:00:00');
       d.setDate(d.getDate() + days);
@@ -405,8 +405,18 @@ describe('buildTrendContext', () => {
             weeklyCommentary: 'W1',
             highlightMoment: { title: 'H', reason: 'R', gremlyComment: 'G' },
             insights: [
-              { type: 'life_event', headline: 'Birthday week', body: 'Celebrations', isActionable: false },
-              { type: 'week_rhythm', headline: 'Slow start', body: 'Energy built through the week', isActionable: false },
+              {
+                type: 'life_event',
+                headline: 'Birthday week',
+                body: 'Celebrations',
+                isActionable: false,
+              },
+              {
+                type: 'week_rhythm',
+                headline: 'Slow start',
+                body: 'Energy built through the week',
+                isActionable: false,
+              },
             ],
             weekAhead: {
               introduction: '',
@@ -424,7 +434,12 @@ describe('buildTrendContext', () => {
             weeklyCommentary: 'W2',
             highlightMoment: { title: 'H', reason: 'R', gremlyComment: 'G' },
             insights: [
-              { type: 'life_event', headline: 'Travel week', body: 'On the road', isActionable: false },
+              {
+                type: 'life_event',
+                headline: 'Travel week',
+                body: 'On the road',
+                isActionable: false,
+              },
               { type: 'stale_cleanup', headline: 'H', body: 'B', isActionable: true },
             ],
             weekAhead: {

@@ -132,7 +132,7 @@ function calculateAverageFrequency(
   },
 ): { average: number; periodLabel: string; target: number } {
   const ds = getDateService();
-  const today = ds.getCurrentDate();
+  const today = ds.today();
   const startDate = habit.start_date || today;
 
   // Count total completions
@@ -212,7 +212,7 @@ function getRolling7Days(
   isFuture: boolean;
 }> {
   const ds = getDateService();
-  const today = ds.getCurrentDate(); // YYYY-MM-DD
+  const today = ds.today(); // YYYY-MM-DD
   const days: Array<{
     dateIso: string;
     dayLabel: string;
@@ -229,7 +229,7 @@ function getRolling7Days(
 
   for (let i = 6; i >= 0; i--) {
     const dateIso = ds.addDays(today, -i);
-    const dateObj = ds.fromDateString(dateIso);
+    const dateObj = ds.fromLocalDate(dateIso);
     const dayOfWeek = dateObj?.getDay() ?? 0;
 
     days.push({
@@ -261,7 +261,7 @@ function getCalendarDays(
   isFuture: boolean;
 }> {
   const ds = getDateService();
-  const todayIso = ds.getCurrentDate();
+  const todayIso = ds.today();
 
   // First day of the month
   const firstDay = new Date(year, month, 1);
@@ -328,7 +328,7 @@ function calculateMonthlyAdherence(
   habitStartDate?: string | null,
 ): number {
   const ds = getDateService();
-  const todayIso = ds.getCurrentDate();
+  const todayIso = ds.today();
 
   // First day of target month
   const monthStart = new Date(year, month, 1);
@@ -493,7 +493,7 @@ export default function HabitViewMode({
   }, [onLogToday, buttonScale]);
 
   // Get current date info from DateService (must be first - used by other calculations)
-  const todayIso = ds.getCurrentDate();
+  const todayIso = ds.today();
 
   // Detect if this is a break habit
   const isBreakHabit = habit.subtype === 'break_habit';
@@ -536,7 +536,7 @@ export default function HabitViewMode({
     [habit.id, habitProgress],
   );
   const completedCount = rolling7Days.filter((d) => d.isCompleted).length;
-  const todayDate = ds.fromDateString(todayIso);
+  const todayDate = ds.fromLocalDate(todayIso);
   const currentYear = todayDate?.getFullYear() ?? getDateService().now().getFullYear();
   const currentMonth = todayDate?.getMonth() ?? getDateService().now().getMonth();
 

@@ -139,8 +139,8 @@ jest.mock('../../../lib/store/selectors', () => ({
 
 jest.mock('../../../lib/date', () => ({
   getDateService: () => ({
-    getCurrentDate: () => '2025-12-15',
-    fromDateString: (str: string) => (str ? new Date(str + 'T00:00:00') : null),
+    today: () => '2025-12-15',
+    fromLocalDate: (str: string) => (str ? new Date(str + 'T00:00:00') : null),
     addDays: (dateStr: string, days: number) => {
       const d = new Date(dateStr + 'T00:00:00');
       d.setDate(d.getDate() + days);

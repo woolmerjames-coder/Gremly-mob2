@@ -339,7 +339,7 @@ export default function NowScreenV1() {
   const lastSweepCompletedAt = useGremlyStore((s) => s.lastSweepCompletedAt);
   const hasSweepedToday = useMemo(() => {
     if (!lastSweepCompletedAt) return false;
-    const sweepDay = getDateService().extractDateFromIso(lastSweepCompletedAt);
+    const sweepDay = getDateService().extractLocalDate(lastSweepCompletedAt);
     return sweepDay === todayStr;
   }, [lastSweepCompletedAt, todayStr]);
 

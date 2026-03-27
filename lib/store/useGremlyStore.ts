@@ -64,14 +64,14 @@ import type { TimeBlockPreferences } from '../capacity';
  *    drop/sweep counts, fed status, age-up, feeding history, day rollover.
  *    Accounts for dayBoundaryHour (e.g., 3 AM boundary means 2 AM is still "yesterday").
  *
- * 2. getDateService().getCurrentDate()
+ * 2. getDateService().today()
  *    Use for: calendar display, due dates, scheduled dates, commitment dates,
  *    daily brief date, UI highlights, "what's on my plate today."
  *    Returns the actual calendar date in device local time.
  *
  * Rule of thumb: if the function reads/writes daily_ritual_progress or
  * cortex_preferences.fed_days_count, use getRitualDay. Everything else
- * uses getCurrentDate.
+ * uses today().
  *
  * NEVER use new Date() or Date.now() for day-level logic. Only for timestamps.
  */
@@ -88,7 +88,7 @@ let eventBusUnsubscribe: (() => void) | null = null;
  */
 export function isHabitLockedIn(habit: Habit): boolean {
   if (!habit.commitment_until) return false;
-  const today = getDateService().getCurrentDate();
+  const today = getDateService().today();
   return habit.commitment_until >= today;
 }
 
@@ -117,7 +117,7 @@ async function loadHiddenEventsFromStorage(): Promise<Record<string, string[]>> 
     const parsed = JSON.parse(stored) as Record<string, string[]>;
 
     // Clean up old dates (only keep today and future)
-    const today = getDateService().getCurrentDate();
+    const today = getDateService().today();
     const cleaned: Record<string, string[]> = {};
     for (const [date, ids] of Object.entries(parsed)) {
       if (date >= today) {
@@ -156,7 +156,7 @@ async function loadHiddenTodayFromStorage(): Promise<HiddenTodayData | null> {
     if (!stored) return null;
 
     const parsed = JSON.parse(stored) as HiddenTodayData;
-    const today = getDateService().getCurrentDate();
+    const today = getDateService().today();
 
     // Only return if the date matches today (auto-reset for new day)
     if (parsed.date === today) {
@@ -973,7 +973,7 @@ interface GremlyState {
   /** Date the user last completed the brief (for re-entry detection) */
   briefCompletedToday: string | null;
   setBriefCompletedToday: (date: string | null) => void;
-  /** Reactive current date — updated by useDayRollover hook. Components should read this instead of calling getDateService().getCurrentDate() */
+  /** Reactive current date — updated by useDayRollover hook. Components should read this instead of calling getDateService().today() */
   currentDate: string;
 
   // Calendar actions
@@ -1147,7 +1147,7 @@ const initialState = {
   briefSelectionDate: null as string | null,
   parkedForDay: [] as string[],
   briefCompletedToday: null as string | null,
-  currentDate: getDateService().getCurrentDate(),
+  currentDate: getDateService().today(),
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1246,7 +1246,7 @@ export const useGremlyStore = create<GremlyState>()(
                 .from('daily_briefs')
                 .select('*')
                 .eq('owner_id', userId)
-                .eq('date', getDateService().getCurrentDate())
+                .eq('date', getDateService().today())
                 .maybeSingle(),
               // Sweep preferences + Gremly age + training + feeding from cortex_preferences
               supabase
@@ -1862,6 +1862,10 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
+          // Local-first: update DateService + Zustand before Supabase (offline-safe)
+          getDateService().setDayBoundaryHour(hour);
+          set({ dayBoundaryHour: hour });
+
           const { error } = await supabase
             .from('cortex_preferences')
             .upsert(
@@ -1871,10 +1875,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           if (error) {
             console.error('[GremlyStore] setDayBoundaryHour failed:', error);
-            return;
           }
-
-          set({ dayBoundaryHour: hour });
 
           // Refresh ritual progress since the day boundary changed
           await get().refreshRitualProgress();
@@ -3037,7 +3038,7 @@ export const useGremlyStore = create<GremlyState>()(
           if (!userId) throw new Error('Not authenticated');
 
           // Use DateService for consistent local date across the app
-          const todayDate = getDateService().getCurrentDate();
+          const todayDate = getDateService().today();
           // CRITICAL: occurred_at must derive to same date as occurred_day
           // Use noon UTC on the local day to avoid timezone boundary issues
           const occurredAt = `${todayDate}T12:00:00.000Z`;
@@ -3154,7 +3155,7 @@ export const useGremlyStore = create<GremlyState>()(
           if (!userId) throw new Error('Not authenticated');
 
           // Use DateService for consistent local date across the app
-          const todayDate = getDateService().getCurrentDate();
+          const todayDate = getDateService().today();
           const prevHabit = get().habits.find((h) => h.id === id);
 
           // 1. OPTIMISTIC UPDATE
@@ -3233,7 +3234,7 @@ export const useGremlyStore = create<GremlyState>()(
          */
         toggleHabitToday: async (id: string) => {
           // Use DateService for consistent local date across the app
-          const todayDate = getDateService().getCurrentDate();
+          const todayDate = getDateService().today();
 
           const isDoneToday = get().habitProgress.some(
             (p) => p.habit_id === id && p.occurred_day === todayDate,
@@ -3258,7 +3259,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const occurredDay = getDateService().extractDateFromIso(dateIso) ?? dateIso.split('T')[0];
+          const occurredDay = getDateService().extractLocalDate(dateIso) ?? dateIso.split('T')[0];
           const occurredAt = `${occurredDay}T12:00:00.000Z`; // Use noon UTC on the target day
           const now = nowTimestamp(); // For last_checked_in_at only
 
@@ -3327,7 +3328,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const occurredDay = getDateService().extractDateFromIso(dateIso) ?? dateIso.split('T')[0];
+          const occurredDay = getDateService().extractLocalDate(dateIso) ?? dateIso.split('T')[0];
 
           // Find the record to remove
           const toRemove = get().habitProgress.find(
@@ -4511,7 +4512,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         applyOrganizeAssignments: (assignments) => {
           const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
-          const today = getDateService().getCurrentDate();
+          const today = getDateService().today();
           const [year, month, day] = today.split('-').map(Number);
           const now = getDateService().now();
           const fiveMinAgo = new Date(getDateService().now().getTime() - 5 * 60 * 1000);
@@ -4707,7 +4708,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         slotUnpositionedTasks: () => {
-          const today = getDateService().getCurrentDate();
+          const today = getDateService().today();
           const [year, month, day] = today.split('-').map(Number);
           const now = getDateService().now();
           const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
@@ -4988,7 +4989,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const todayDate = getDateService().getCurrentDate();
+          const todayDate = getDateService().today();
 
           set({ dailyBriefLoading: true });
 
@@ -5018,8 +5019,8 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const todayDate = input.date ?? getDateService().getCurrentDate();
-          const isToday = todayDate === getDateService().getCurrentDate();
+          const todayDate = input.date ?? getDateService().today();
+          const isToday = todayDate === getDateService().today();
           const now = nowTimestamp();
           const existingBrief = get().dailyBrief;
 
@@ -5095,7 +5096,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const todayDate = getDateService().getCurrentDate();
+          const todayDate = getDateService().today();
           const existingBrief = get().dailyBrief;
 
           // Optimistic update
@@ -5124,7 +5125,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const today = getDateService().getCurrentDate();
+          const today = getDateService().today();
           const brief = get().dailyBrief;
 
           // If no brief for today exists, create one first via saveBrief
@@ -5414,7 +5415,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           set({ dcoLoading: true });
           try {
-            const today = getDateService().getCurrentDate(); // YYYY-MM-DD
+            const today = getDateService().today(); // YYYY-MM-DD
             const { data, error } = await supabase
               .from('user_daily_state')
               .select('dco')
@@ -5451,7 +5452,7 @@ export const useGremlyStore = create<GremlyState>()(
           if (!userId || !dco) return;
 
           try {
-            const today = getDateService().getCurrentDate();
+            const today = getDateService().today();
             const updatedDco = { ...dco, today_focus: priorities };
 
             const { error } = await supabase
@@ -5508,7 +5509,7 @@ export const useGremlyStore = create<GremlyState>()(
           } else {
             // Habit: calculate commitment_until date
             const ds = getDateService();
-            const today = ds.getCurrentDate(); // YYYY-MM-DD
+            const today = ds.today(); // YYYY-MM-DD
             const durationDays = commitmentDurationDays ?? 7; // Default to 7 days
             const commitmentUntil = ds.addDays(today, durationDays);
 
@@ -5545,7 +5546,7 @@ export const useGremlyStore = create<GremlyState>()(
           } else {
             // Habit: persist commitment_until
             const ds = getDateService();
-            const today = ds.getCurrentDate();
+            const today = ds.today();
             const durationDays = commitmentDurationDays ?? 7;
             const commitmentUntil = ds.addDays(today, durationDays);
 
@@ -6230,16 +6231,12 @@ export const useGremlyStore = create<GremlyState>()(
           set((state) => {
             if (entityType === 'todo') {
               const todos = state.todos.map((t) =>
-                t.id === id
-                  ? { ...t, scheduled_start_iso: null, updated_at: nowTimestamp() }
-                  : t,
+                t.id === id ? { ...t, scheduled_start_iso: null, updated_at: nowTimestamp() } : t,
               );
               return { todos };
             } else {
               const habits = state.habits.map((h) =>
-                h.id === id
-                  ? { ...h, scheduled_start_iso: null, updated_at: nowTimestamp() }
-                  : h,
+                h.id === id ? { ...h, scheduled_start_iso: null, updated_at: nowTimestamp() } : h,
               );
               return { habits };
             }
@@ -6263,7 +6260,7 @@ export const useGremlyStore = create<GremlyState>()(
         // ═══════════════════════════════════════════════════════════════════
 
         hideForToday: (id: string, forDate?: string) => {
-          const targetDate = forDate ?? getDateService().getCurrentDate();
+          const targetDate = forDate ?? getDateService().today();
           set((state) => {
             // If the stored date doesn't match the target date, start fresh
             if (state.hiddenTodayDate !== targetDate) {
@@ -7325,7 +7322,7 @@ export const useGremlyStore = create<GremlyState>()(
                     selectedBucket: selectedBucket,
                     selectedSubtype: selectedSubtype,
                     selectedHabitSubtype: selectedHabitSubtype,
-                    currentDate: getDateService().getCurrentDate(),
+                    currentDate: getDateService().today(),
                     targetBucket: pendingDrop.bucket, // Hint for time estimation
                   }),
                 });
@@ -7595,7 +7592,7 @@ export const useGremlyStore = create<GremlyState>()(
                   selectedBucket: selectedBucket,
                   selectedSubtype: selectedSubtype,
                   selectedHabitSubtype: selectedHabitSubtype,
-                  currentDate: getDateService().getCurrentDate(),
+                  currentDate: getDateService().today(),
                   targetBucket: currentBucket, // Hint for time estimation
                 }),
               });
@@ -7763,7 +7760,7 @@ export const useGremlyStore = create<GremlyState>()(
                     text: phase2Text,
                     bucket: targetBucket,
                     subtype: newSubtype,
-                    currentDate: getDateService().getCurrentDate(),
+                    currentDate: getDateService().today(),
                   }),
                 });
 
@@ -8189,7 +8186,7 @@ export const useGremlyStore = create<GremlyState>()(
                     text: phase2Text,
                     bucket: targetBucket,
                     subtype: newSubtype,
-                    currentDate: getDateService().getCurrentDate(),
+                    currentDate: getDateService().today(),
                   }),
                 });
 
@@ -8475,7 +8472,7 @@ export const useGremlyStore = create<GremlyState>()(
                   text: originalText,
                   bucket: entityType === 'note' ? 'log' : entityType,
                   subtype: 'general',
-                  currentDate: getDateService().getCurrentDate(),
+                  currentDate: getDateService().today(),
                 }),
               });
 
@@ -9661,7 +9658,7 @@ export const useGremlyStore = create<GremlyState>()(
             isInitialized: false,
             lastSyncedAt: null,
             // Always use fresh date on app start, never restore stale date from storage
-            currentDate: getDateService().getCurrentDate(),
+            currentDate: getDateService().today(),
             // Always reset daily gauge state on hydration (Soul Document v8)
             // These are daily values that initialize() will populate from Supabase.
             // Stale MMKV values cause false fed status and wrong gauge display.

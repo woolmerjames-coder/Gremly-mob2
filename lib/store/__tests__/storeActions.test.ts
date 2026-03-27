@@ -384,7 +384,7 @@ describe('useGremlyStore actions', () => {
 
       // After error, optimistic update is rolled back to null.
       // This test verifies no crash and the action runs the right code path.
-      // The date logic (input.date ?? getCurrentDate()) is tested via the
+      // The date logic (input.date ?? today()) is tested via the
       // "throws when not authenticated" test and the tomorrow-mode tests below.
     });
 

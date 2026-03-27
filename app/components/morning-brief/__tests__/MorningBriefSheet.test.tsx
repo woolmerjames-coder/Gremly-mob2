@@ -554,7 +554,7 @@ describe('MorningBriefSheet - targetDate prop (documentary)', () => {
     it('documents that targetDate prop enables tomorrow mode', () => {
       // When targetDate is provided:
       //   const isTomorrow = !!targetDate;
-      //   const today = targetDate ?? getDateService().getCurrentDate();
+      //   const today = targetDate ?? getDateService().today();
       //
       // This affects:
       // 1. MorningBriefHeader receives targetDate → shows future date info
@@ -590,7 +590,7 @@ describe('MorningBriefSheet - targetDate prop (documentary)', () => {
       // 2. Skip optimistic dailyBrief update (isToday check)
 
       const saveBriefFlow = {
-        todayMode: 'no extra date field → saveBrief uses getCurrentDate()',
+        todayMode: 'no extra date field → saveBrief uses today()',
         tomorrowMode: 'date: targetDate → saveBrief uses it, skips optimistic update',
       };
 

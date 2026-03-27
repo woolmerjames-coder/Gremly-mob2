@@ -1123,7 +1123,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
   const handleLockIn = useCallback(
     async (item: StaleEntity) => {
       triggerLight();
-      const today = getDateService().getCurrentDate();
+      const today = getDateService().today();
       if (item.entityType === 'todo') {
         await updateTodo(item.id, { locked_in: true, due_day: today });
       }

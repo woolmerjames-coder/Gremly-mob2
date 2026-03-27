@@ -47,7 +47,7 @@ export function MorningBriefHeader({
   onExit,
 }: MorningBriefHeaderProps) {
   const isCustomDate = !!targetDate;
-  const effectiveDate = targetDate ?? getDateService().getCurrentDate();
+  const effectiveDate = targetDate ?? getDateService().today();
   const capacity = useCapacityForDate(effectiveDate);
   const hiddenEventCount = useHiddenEventCountForDate(effectiveDate);
   const hiddenTodayIds = useGremlyStore((s) => s.hiddenTodayIds);
@@ -59,7 +59,7 @@ export function MorningBriefHeader({
 
   // Format date/time using central date service
   const displayDate = targetDate
-    ? (getDateService().fromDateString(targetDate) ?? getDateService().now())
+    ? (getDateService().fromLocalDate(targetDate) ?? getDateService().now())
     : getDateService().now();
   const dayName = format(displayDate, 'EEEE');
   const dateString = format(displayDate, 'MMMM d');
@@ -131,7 +131,7 @@ interface HiddenItemsPopupProps {
 }
 
 function HiddenItemsPopup({ visible, onClose }: HiddenItemsPopupProps) {
-  const today = getDateService().getCurrentDate();
+  const today = getDateService().today();
 
   // Hidden events - select raw state, handle fallbacks in useMemo
   const calendarEvents = useGremlyStore((s) => s.calendarEvents);

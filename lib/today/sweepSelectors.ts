@@ -120,7 +120,7 @@ function getEffectiveDoDate(todo: SweepEligibleTodo): string | null {
     return todo.due_day;
   }
   if (todo.due_date) {
-    return getDateService().extractDateFromIso(todo.due_date);
+    return getDateService().extractLocalDate(todo.due_date);
   }
   return null;
 }
@@ -178,7 +178,7 @@ export function isSweepEligible(todo: SweepEligibleTodo, todayDay: string): bool
 
   // Must not be completed today
   if (todo.completed_at) {
-    const completedDay = getDateService().extractDateFromIso(todo.completed_at);
+    const completedDay = getDateService().extractLocalDate(todo.completed_at);
     if (completedDay === todayDay) {
       return false;
     }

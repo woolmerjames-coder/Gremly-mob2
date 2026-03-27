@@ -1938,7 +1938,7 @@ export class SupabaseRepo implements IRepo {
 
   async countPlannedToday(): Promise<number> {
     const userId = this.ensureUserId();
-    const today = getDateService().getCurrentDate(); // YYYY-MM-DD
+    const today = getDateService().today(); // YYYY-MM-DD
 
     // Count todos with due_day = today (timezone-safe)
     const { count: todoCount, error: todoError } = await supabase
@@ -1957,7 +1957,7 @@ export class SupabaseRepo implements IRepo {
   async countCompletedToday(): Promise<number> {
     try {
       const userId = this.ensureUserId();
-      const today = getDateService().getCurrentDate(); // YYYY-MM-DD (local timezone)
+      const today = getDateService().today(); // YYYY-MM-DD (local timezone)
 
       // Count todos completed today (completed_at = today)
       const { count: todoCount, error: todoError } = await supabase
@@ -2078,12 +2078,12 @@ export class SupabaseRepo implements IRepo {
     }
 
     const now = getDateService().now();
-    const todayStr = getDateService().getCurrentDate();
+    const todayStr = getDateService().today();
     const mapTodo = (t: any) => {
       let overdue = false;
       let nearDue = false;
       // Use due_day as source of truth for overdue calculation (timezone-safe)
-      const dueDay = t.due_day ?? getDateService().extractDateFromIso(t.due_date);
+      const dueDay = t.due_day ?? getDateService().extractLocalDate(t.due_date);
       if (dueDay) {
         overdue = dueDay < todayStr;
         // nearDue requires due_time - only if due today and has time
@@ -2831,7 +2831,7 @@ export class SupabaseRepo implements IRepo {
     // For habits, calculate commitment_until date
     let commitmentUntil: string | null = null;
     if (type === 'habit' && commitmentDurationDays) {
-      const today = dateService.getCurrentDate();
+      const today = dateService.today();
       commitmentUntil = dateService.addDays(today, commitmentDurationDays - 1);
     }
 
@@ -2971,7 +2971,7 @@ export class SupabaseRepo implements IRepo {
     }
 
     // Try habits - delete today's habit_progress entry
-    const todayDay = getDateService().getCurrentDate();
+    const todayDay = getDateService().today();
     const { data: progressData, error: progressError } = await supabase
       .from('habit_progress')
       .delete()

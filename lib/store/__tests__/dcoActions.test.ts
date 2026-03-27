@@ -38,7 +38,6 @@ jest.mock('../../supabase/client', () => ({
 // Mock date service
 jest.mock('../../date', () => ({
   getDateService: () => ({
-    getCurrentDate: () => '2025-12-15',
     today: () => '2025-12-15',
     now: () => new Date('2025-12-15T10:00:00'),
   }),

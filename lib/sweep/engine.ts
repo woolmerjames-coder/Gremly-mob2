@@ -127,7 +127,9 @@ export async function fetchSweepCandidatesForUser(
   const lastSweepAt = await getLastSweepCompletedAt(ownerId, client);
 
   // For first-time users, use a 48-hour lookback window
-  const fallbackCutoff = new Date(getDateService().now().getTime() - 48 * 60 * 60 * 1000).toISOString();
+  const fallbackCutoff = new Date(
+    getDateService().now().getTime() - 48 * 60 * 60 * 1000,
+  ).toISOString();
   const cutoffTimestamp = lastSweepAt ?? fallbackCutoff;
 
   const candidates: SweepCandidate[] = [];
@@ -137,7 +139,7 @@ export async function fetchSweepCandidatesForUser(
   // ─────────────────────────────────────────────────────────────────────────
   try {
     // Get today's date string for due date comparison
-    const todayDay = getDateService().getCurrentDate();
+    const todayDay = getDateService().today();
 
     // Build the OR clause using shared filter logic
     // This aligns with lib/today/sweepSelectors.ts for consistency
@@ -183,7 +185,7 @@ export async function fetchSweepCandidatesForUser(
         const isDueToday = dueDay !== null && dueDay === todayDay;
 
         // Compute isCreatedToday: createdAt is on today's date
-        const createdDay = getDateService().extractDateFromIso(row.created_at);
+        const createdDay = getDateService().extractLocalDate(row.created_at);
         const isCreatedToday = createdDay === todayDay;
 
         candidates.push({
@@ -208,13 +210,13 @@ export async function fetchSweepCandidatesForUser(
   // ─────────────────────────────────────────────────────────────────────────
   try {
     // Get today's date string for filtering
-    const todayDay = getDateService().getCurrentDate();
+    const todayDay = getDateService().today();
 
     // Helper to process note rows into candidates
     const processNoteRows = (rows: any[]) => {
       for (const row of rows) {
         // Compute isCreatedToday: createdAt is on today's date
-        const createdDay = getDateService().extractDateFromIso(row.created_at);
+        const createdDay = getDateService().extractLocalDate(row.created_at);
         const isCreatedToday = createdDay === todayDay;
 
         // Extract attachments from the joined log_photos
@@ -574,7 +576,7 @@ export async function markSweepCompleted(
   summary: { kept: number; cleared: number },
 ): Promise<{ streak: number }> {
   const now = getDateService().now();
-  const todayDate = getDateService().getCurrentDate(); // YYYY-MM-DD (local timezone)
+  const todayDate = getDateService().today(); // YYYY-MM-DD (local timezone)
 
   try {
     // 1. Insert event for analytics/history

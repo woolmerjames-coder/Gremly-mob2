@@ -228,7 +228,7 @@ export function KeyDatesModal({
 
         // Get date context for Phase 2
         const ds = getDateService();
-        const currentDate = ds.getCurrentDate();
+        const currentDate = ds.today();
         const dayOfWeek = ds.getDayOfWeek();
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 

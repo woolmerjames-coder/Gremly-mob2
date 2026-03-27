@@ -509,14 +509,14 @@ export class MemoryRepo implements IRepo {
   }
 
   async listDueToday(_nowIso: string): Promise<AppRecord[]> {
-    const today = getDateService().getCurrentDate();
+    const today = getDateService().today();
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
       if (r.type !== 'todo' && r.type !== 'habit') return false;
       // Exclude archived items
       if (this.isArchived(r)) return false;
       // Use due_day as primary source of truth (timezone-safe)
-      const dueDay = (r as any).due_day ?? getDateService().extractDateFromIso((r as any).due_date);
+      const dueDay = (r as any).due_day ?? getDateService().extractLocalDate((r as any).due_date);
       return dueDay === today;
     });
   }
@@ -529,12 +529,12 @@ export class MemoryRepo implements IRepo {
   }
 
   async countPlannedToday(): Promise<number> {
-    const today = getDateService().getCurrentDate();
+    const today = getDateService().today();
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
       if (r.type !== 'todo') return false;
       // Use due_day as primary source of truth (timezone-safe)
-      const dueDay = (r as any).due_day ?? getDateService().extractDateFromIso((r as any).due_date);
+      const dueDay = (r as any).due_day ?? getDateService().extractLocalDate((r as any).due_date);
       return dueDay === today;
     }).length;
   }
@@ -1234,7 +1234,7 @@ export class MemoryRepo implements IRepo {
     // For habits, calculate commitment_until date
     let commitmentUntil: string | null = null;
     if (type === 'habit' && commitmentDurationDays) {
-      const today = dateService.getCurrentDate();
+      const today = dateService.today();
       commitmentUntil = dateService.addDays(today, commitmentDurationDays - 1);
     }
 

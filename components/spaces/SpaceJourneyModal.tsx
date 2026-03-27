@@ -550,7 +550,7 @@ export function SpaceJourneyModal({
         }
 
         const ds = getDateService();
-        const currentDate = ds.getCurrentDate();
+        const currentDate = ds.today();
         const dayOfWeek = ds.getDayOfWeek();
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 

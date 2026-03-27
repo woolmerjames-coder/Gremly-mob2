@@ -7,9 +7,9 @@
  *   const dateService = getDateService();
  *
  * Migration guide:
- *   getTodayDayString() → dateService.getCurrentDate()
- *   toDayString(date) → dateService.toDateString(date)
- *   parseDayString(str) → dateService.fromDateString(str)
+ *   getTodayDayString() → dateService.today()
+ *   toDayString(date) → dateService.toLocalDate(date)
+ *   parseDayString(str) → dateService.fromLocalDate(str)
  *   computeDueDay(iso) → dateService.parseAIDate(iso)
  *   computeDueTime(iso) → extract time manually or use DateService
  *
@@ -19,32 +19,31 @@
 import { getDateService } from './DateService';
 
 /**
- * @deprecated Use getDateService().getCurrentDate() instead
+ * @deprecated Use getDateService().today() instead
  */
 export function getTodayDayString(): string {
-  return getDateService().getCurrentDate();
+  return getDateService().today();
 }
 
 /**
- * @deprecated Use getDateService().toDateString(date) instead
+ * @deprecated Use getDateService().toLocalDate(date) instead
  */
 export function toDayString(date: Date): string {
-  // eslint-disable-next-line no-restricted-syntax -- toDateString is a DateService method, not Date.prototype.toDateString
-  return getDateService().toDateString(date);
+  return getDateService().toLocalDate(date);
 }
 
 /**
- * @deprecated Use getDateService().fromDateString(str) instead
+ * @deprecated Use getDateService().fromLocalDate(str) instead
  */
 export function parseDayString(dayString: string | null | undefined): Date | null {
-  return getDateService().fromDateString(dayString);
+  return getDateService().fromLocalDate(dayString);
 }
 
 /**
- * @deprecated Use getDateService().extractDateFromIso(isoDate) instead
+ * @deprecated Use getDateService().extractLocalDate(isoDate) instead
  */
 export function computeDueDay(isoDate: string | null | undefined): string | null {
-  return getDateService().extractDateFromIso(isoDate);
+  return getDateService().extractLocalDate(isoDate);
 }
 
 /**

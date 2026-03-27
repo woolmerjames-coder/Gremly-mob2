@@ -493,7 +493,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
       const sweepViews = {
         sweep_origin: true,
         sweep_reflection: true,
-        sweep_date: getDateService().getCurrentDate(),
+        sweep_date: getDateService().today(),
         sweep_moods: selectedMoods,
       };
 
@@ -524,7 +524,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
             }
 
             const ds = getDateService();
-            const currentDateStr = ds.getCurrentDate();
+            const currentDateStr = ds.today();
             const dayOfWeek = ds.getDayOfWeek();
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
@@ -1804,8 +1804,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           outcome = details.kind === 'note' ? 'archived' : 'cleared';
         } else if (decision.action === 'keep') {
           // Helper to format YYYY-MM-DD string for display
-          const formatDateStr = (dateStr: string) =>
-            getDateService().formatForChip(dateStr);
+          const formatDateStr = (dateStr: string) => getDateService().formatForChip(dateStr);
 
           if (decision.resurfaceDateStr) {
             outcome = 'remind';
@@ -4138,7 +4137,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
         }
 
         const ds = getDateService();
-        const currentDateStr = ds.getCurrentDate();
+        const currentDateStr = ds.today();
         const dayOfWeek = ds.getDayOfWeek();
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
@@ -4276,7 +4275,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
       const processDecisions = async () => {
         const { updateTodo, archiveTodo, archiveHabit, completeHabit } = useGremlyStore.getState();
         const ds = getDateService();
-        const tomorrow = ds.addDays(ds.getCurrentDate(), 1);
+        const tomorrow = ds.addDays(ds.today(), 1);
 
         for (const [itemId, decision] of decisions) {
           const item = lockedItems.find((i) => i.id === itemId);

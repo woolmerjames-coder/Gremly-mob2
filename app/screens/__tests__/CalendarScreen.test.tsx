@@ -46,7 +46,7 @@ const TODAY = '2025-12-22';
 jest.mock('../../../lib/date', () => ({
   getDateService: () => ({
     todayLocalDate: () => TODAY,
-    getCurrentDate: () => TODAY,
+    today: () => TODAY,
     formatDate: (date: string) => {
       const d = new Date(date + 'T12:00:00');
       return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });

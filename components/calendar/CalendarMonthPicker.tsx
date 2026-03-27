@@ -103,7 +103,7 @@ export function CalendarMonthPicker({
     onClose();
   };
 
-  const today = dateService.getCurrentDate();
+  const today = dateService.today();
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>

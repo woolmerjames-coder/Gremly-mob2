@@ -870,8 +870,7 @@ export function UnifiedCreateOverlay({
             if (COMMITMENTS_FEATURE_ENABLED) {
               // Habit uses commitment_until (date string), not commitment boolean
               const isLockedIn =
-                entity.commitment_until != null &&
-                entity.commitment_until >= dateService.getCurrentDate();
+                entity.commitment_until != null && entity.commitment_until >= dateService.today();
               setCommitmentEnabled(Boolean(isLockedIn && !entity.commitment_archived_at));
               setCommitmentNote(entity.commitment_note ?? '');
               setCommitmentNoteDraft(entity.commitment_note ?? '');

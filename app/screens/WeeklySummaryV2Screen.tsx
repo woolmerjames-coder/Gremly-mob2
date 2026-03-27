@@ -781,7 +781,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
     async (item: MatchedStaleItem) => {
       triggerLight();
       if (item.todoId) {
-        const today = getDateService().getCurrentDate();
+        const today = getDateService().today();
         await updateTodo(item.todoId, { locked_in: true, due_day: today });
       }
       triageItem(item.idx);

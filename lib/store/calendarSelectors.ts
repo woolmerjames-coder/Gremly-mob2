@@ -67,7 +67,7 @@ function habitOccursOnDate(habit: Habit, dateStr: string): boolean {
   }
 
   const cadence = habit.cadence || 'daily';
-  const targetDate = dateService.fromDateString(dateStr);
+  const targetDate = dateService.fromLocalDate(dateStr);
   if (!targetDate) return false;
 
   const dayOfWeek = targetDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
@@ -84,7 +84,7 @@ function habitOccursOnDate(habit: Habit, dateStr: string): boolean {
     case 'weekly':
       // Show on the same day of week as start_date, or Monday if no start_date
       if (habit.start_date) {
-        const startDate = dateService.fromDateString(habit.start_date);
+        const startDate = dateService.fromLocalDate(habit.start_date);
         if (startDate) {
           return startDate.getDay() === dayOfWeek;
         }
@@ -93,7 +93,7 @@ function habitOccursOnDate(habit: Habit, dateStr: string): boolean {
     case 'monthly':
       // Show on the same day of month as start_date, or 1st if no start_date
       if (habit.start_date) {
-        const startDate = dateService.fromDateString(habit.start_date);
+        const startDate = dateService.fromLocalDate(habit.start_date);
         if (startDate) {
           return startDate.getDate() === targetDate.getDate();
         }
@@ -275,14 +275,28 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
     // Skip if already covered by a synced Note entity
     if (coveredExternalIds.has(event.providerEventId)) return;
 
-    const startTime = event.isAllDay ? null : (() => {
-      const d = new Date(event.startAt);
-      return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: getDateService().getTimezone() }).format(d);
-    })();
-    const endTime = event.isAllDay ? null : (() => {
-      const d = new Date(event.endAt);
-      return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: getDateService().getTimezone() }).format(d);
-    })();
+    const startTime = event.isAllDay
+      ? null
+      : (() => {
+          const d = new Date(event.startAt);
+          return new Intl.DateTimeFormat('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: getDateService().getTimezone(),
+          }).format(d);
+        })();
+    const endTime = event.isAllDay
+      ? null
+      : (() => {
+          const d = new Date(event.endAt);
+          return new Intl.DateTimeFormat('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: getDateService().getTimezone(),
+          }).format(d);
+        })();
 
     items.push({
       id: `cal-${event.provider}-${event.providerEventId}`,

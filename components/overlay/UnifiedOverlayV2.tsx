@@ -6496,7 +6496,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   setIsExpandedEditor(false);
                                 }}
                                 journalDateTime={
-                                  effectiveLogSubtype === 'journal' ? getDateService().now() : undefined
+                                  effectiveLogSubtype === 'journal'
+                                    ? getDateService().now()
+                                    : undefined
                                 }
                                 isChecklistMode={isChecklistMode}
                                 onToggleChecklistMode={() => {
@@ -7077,7 +7079,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       onPress={() => {
                                         setMoodPickerExpanded(false);
                                         if (state.log.target_date) {
-                                          const parsed = getDateService().fromDateString(
+                                          const parsed = getDateService().fromLocalDate(
                                             state.log.target_date,
                                           );
                                           if (parsed) {
@@ -7138,7 +7140,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         onPress={() => {
                                           setMoodPickerExpanded(false);
                                           if (state.log.end_date) {
-                                            const parsed = getDateService().fromDateString(
+                                            const parsed = getDateService().fromLocalDate(
                                               state.log.end_date,
                                             );
                                             if (parsed) {
@@ -7146,7 +7148,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                             }
                                           } else {
                                             // Default to day after start date
-                                            const startDate = getDateService().fromDateString(
+                                            const startDate = getDateService().fromLocalDate(
                                               state.log.target_date!,
                                             );
                                             if (startDate) {
@@ -8249,7 +8251,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   variant="ghost"
                                   onPress={() => {
                                     if (d === '__token:today') {
-                                      handleTodoDueChange(getDateService().now(), { label: 'Today' });
+                                      handleTodoDueChange(getDateService().now(), {
+                                        label: 'Today',
+                                      });
                                     } else if (d === '__token:tomorrow') {
                                       handleTodoDueChange(addDays(getDateService().now(), 1), {
                                         label: 'Tomorrow',
@@ -8369,13 +8373,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   backgroundColor: pressed
                                     ? '#F5F5F5'
                                     : clearDateFlag === false &&
-                                        getDateService().toLocalDate(selectedDate) === getDateService().today()
+                                        getDateService().toLocalDate(selectedDate) ===
+                                          getDateService().today()
                                       ? '#F0F4F1'
                                       : '#FAFAFA',
                                   borderWidth: 1,
                                   borderColor:
                                     clearDateFlag === false &&
-                                    getDateService().toLocalDate(selectedDate) === getDateService().today()
+                                    getDateService().toLocalDate(selectedDate) ===
+                                      getDateService().today()
                                       ? '#2E5540'
                                       : '#E0E0E0',
                                 })}
@@ -8497,7 +8503,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       // Default to 9 AM if no preset selected
                                       if (!selectedTimePreset) {
                                         setSelectedTimePreset(PRESET_TIMES[0].key);
-                                        const defaultTime = setHours(setMinutes(getDateService().now(), 0), 9);
+                                        const defaultTime = setHours(
+                                          setMinutes(getDateService().now(), 0),
+                                          9,
+                                        );
                                         setSelectedTime(defaultTime);
                                       }
                                     } else {
@@ -9731,7 +9740,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         </Text>
                         <DateTimePicker
                           value={
-                            state.habit.start_date ? parseISO(state.habit.start_date) : getDateService().now()
+                            state.habit.start_date
+                              ? parseISO(state.habit.start_date)
+                              : getDateService().now()
                           }
                           mode="date"
                           display="spinner"
@@ -9835,7 +9846,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           mode="date"
                           display="spinner"
                           minimumDate={
-                            state.habit.start_date ? parseISO(state.habit.start_date) : getDateService().now()
+                            state.habit.start_date
+                              ? parseISO(state.habit.start_date)
+                              : getDateService().now()
                           }
                           onChange={(event, date) => {
                             if (event.type === 'set' && date) {

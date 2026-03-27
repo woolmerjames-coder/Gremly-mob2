@@ -103,7 +103,7 @@ async function callEnrichAPI(
 
   // Get date context from DateService (single source of truth)
   const dateService = getDateService();
-  const currentDate = dateService.getCurrentDate();
+  const currentDate = dateService.today();
   const timezone = dateService.getTimezone();
   const dayOfWeek = dateService.getDayOfWeek();
 
@@ -575,7 +575,9 @@ export async function runPhase2Streaming(
   onFieldUpdate?: (field: string, value: any) => void,
 ): Promise<Phase2EnrichmentResult | null> {
   const logTiming = (label: string, startTime: number) => {
-    console.log(`[Phase2:Streaming:Timing] ${label}: ${getDateService().now().getTime() - startTime}ms`);
+    console.log(
+      `[Phase2:Streaming:Timing] ${label}: ${getDateService().now().getTime() - startTime}ms`,
+    );
   };
 
   const t0 = getDateService().now().getTime();

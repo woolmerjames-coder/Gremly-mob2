@@ -17,11 +17,11 @@ import {
 // Mock getDateService
 jest.mock('../../date', () => ({
   getDateService: () => ({
-    extractDateFromIso: (iso: string) => {
+    extractLocalDate: (iso: string) => {
       if (!iso) return null;
       return iso.split('T')[0];
     },
-    getCurrentDate: () => '2025-12-05',
+    today: () => '2025-12-05',
   }),
 }));
 

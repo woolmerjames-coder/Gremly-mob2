@@ -816,7 +816,7 @@ function formatDueDate(dateStr?: string | null): string {
   if (!dateStr) return '';
   const ds = getDateService();
   // Handle both YYYY-MM-DD (due_day) and ISO timestamps (due_date)
-  const dueDay = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : ds.extractDateFromIso(dateStr);
+  const dueDay = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : ds.extractLocalDate(dateStr);
   if (!dueDay) return '';
   return `due ${ds.formatForChip(dueDay)}`;
 }

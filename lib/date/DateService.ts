@@ -356,7 +356,13 @@ export class DateService {
     });
     const weekdayName = formatter.format(now);
     const weekdayMap: Record<string, number> = {
-      Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+      Sun: 0,
+      Mon: 1,
+      Tue: 2,
+      Wed: 3,
+      Thu: 4,
+      Fri: 5,
+      Sat: 6,
     };
     const day = weekdayMap[weekdayName] ?? 0;
     // Convert Sunday (0) to 7 for easier Monday calculation
@@ -382,23 +388,6 @@ export class DateService {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // CURRENT DATE/TIME - Deprecated Aliases (for backward compatibility)
-  // ═══════════════════════════════════════════════════════════════════
-
-  /**
-   * @deprecated Use today() instead
-   */
-  getCurrentDate(): string {
-    return this.today();
-  }
-
-  /**
-   * @deprecated Use nowTimestamp() instead
-   */
-  getCurrentDateTime(): string {
-    return this.nowTimestamp();
-  }
-
   // ═══════════════════════════════════════════════════════════════════
   // PARSING - Multi-Stage Pipeline
   // ═══════════════════════════════════════════════════════════════════
@@ -467,7 +456,7 @@ export class DateService {
     if (eoyMatch) {
       const eoy = new Date(ref.getFullYear(), 11, 31); // Dec 31
       return {
-        date: this.toDateString(eoy),
+        date: this.toLocalDate(eoy),
         time: null,
         confidence: 0.9,
         originalText: eoyMatch[0],
@@ -481,7 +470,7 @@ export class DateService {
     if (eomMatch) {
       const eom = new Date(ref.getFullYear(), ref.getMonth() + 1, 0); // Last day of month
       return {
-        date: this.toDateString(eom),
+        date: this.toLocalDate(eom),
         time: null,
         confidence: 0.9,
         originalText: eomMatch[0],
@@ -495,7 +484,7 @@ export class DateService {
     if (nextWeekMatch) {
       const nextMonday = this.getNextWeekday(1, ref); // 1 = Monday
       return {
-        date: this.toDateString(nextMonday),
+        date: this.toLocalDate(nextMonday),
         time: null,
         confidence: 0.88,
         originalText: nextWeekMatch[0],
@@ -526,7 +515,7 @@ export class DateService {
         const targetDay = weekdayMap[weekdayMatch[0].toLowerCase()];
         const nextOccurrence = this.getNextWeekday(targetDay, ref);
         return {
-          date: this.toDateString(nextOccurrence),
+          date: this.toLocalDate(nextOccurrence),
           time: null,
           confidence: 0.85,
           originalText: weekdayMatch[0],
@@ -563,7 +552,7 @@ export class DateService {
     if (hasTime) confidence += 0.05;
 
     return {
-      date: this.toDateString(parsedDate),
+      date: this.toLocalDate(parsedDate),
       time,
       confidence: Math.min(confidence, 1),
       originalText: result.text,
@@ -583,7 +572,7 @@ export class DateService {
       const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), 12, 0, 0);
       if (!isNaN(date.getTime())) {
         return {
-          date: this.toDateString(date),
+          date: this.toLocalDate(date),
           time: null,
           confidence: 0.95,
           originalText: matched,
@@ -604,7 +593,7 @@ export class DateService {
       const date = new Date(year, parseInt(month) - 1, parseInt(day), 12, 0, 0);
       if (!isNaN(date.getTime())) {
         return {
-          date: this.toDateString(date),
+          date: this.toLocalDate(date),
           time: null,
           confidence: 0.9,
           originalText: matched,
@@ -644,7 +633,7 @@ export class DateService {
     else {
       const parsed = new Date(dateStr);
       if (!isNaN(parsed.getTime())) {
-        normalizedDate = this.toDateString(parsed);
+        normalizedDate = this.toLocalDate(parsed);
       }
     }
 
@@ -654,7 +643,7 @@ export class DateService {
     }
 
     // Validate date range
-    const today = this.getCurrentDate();
+    const today = this.today();
     const daysDiff = this.daysBetween(today, normalizedDate);
 
     if (daysDiff < -365) {
@@ -677,44 +666,15 @@ export class DateService {
   }
 
   /**
-   * Extract YYYY-MM-DD date from an ISO datetime string without range validation.
-   * Use this for general date extraction (not AI responses).
+   * Extract the local date (YYYY-MM-DD) from a UTC timestamp.
+   *
+   * IMPORTANT: This converts the UTC timestamp to local timezone first,
+   * so "2025-01-15T02:00:00Z" becomes "2025-01-14" in SF (UTC-8).
    *
    * Handles:
    * - Already in YYYY-MM-DD format: returns as-is
    * - ISO datetime with 'T': extracts date portion
    * - UTC midnight pattern: extracts date without timezone shift
-   */
-  extractDateFromIso(isoDate: string | null | undefined): string | null {
-    if (!isoDate || typeof isoDate !== 'string') return null;
-
-    // Already in correct format
-    if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
-      return isoDate;
-    }
-
-    // Check for UTC midnight pattern to avoid timezone shift
-    const utcMidnightMatch = isoDate.match(/^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?(?:Z|\+00:00)$/);
-    if (utcMidnightMatch) {
-      return utcMidnightMatch[1];
-    }
-
-    // Parse as date and extract local date
-    try {
-      const dateObj = new Date(isoDate);
-      if (isNaN(dateObj.getTime())) return null;
-      return this.toLocalDate(dateObj);
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Extract the local date (YYYY-MM-DD) from a UTC timestamp.
-   * This is the primary method - extractDateFromIso is a deprecated alias.
-   *
-   * IMPORTANT: This converts the UTC timestamp to local timezone first,
-   * so "2025-01-15T02:00:00Z" becomes "2025-01-14" in SF (UTC-8).
    *
    * @param isoTimestamp - UTC timestamp or YYYY-MM-DD string
    * @returns LocalDateString or null if invalid
@@ -724,7 +684,29 @@ export class DateService {
    * extractLocalDate("2025-01-14")            // "2025-01-14" (unchanged)
    */
   extractLocalDate(isoTimestamp: string | null | undefined): string | null {
-    return this.extractDateFromIso(isoTimestamp);
+    if (!isoTimestamp || typeof isoTimestamp !== 'string') return null;
+
+    // Already in correct format
+    if (/^\d{4}-\d{2}-\d{2}$/.test(isoTimestamp)) {
+      return isoTimestamp;
+    }
+
+    // Check for UTC midnight pattern to avoid timezone shift
+    const utcMidnightMatch = isoTimestamp.match(
+      /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?(?:Z|\+00:00)$/,
+    );
+    if (utcMidnightMatch) {
+      return utcMidnightMatch[1];
+    }
+
+    // Parse as date and extract local date
+    try {
+      const dateObj = new Date(isoTimestamp);
+      if (isNaN(dateObj.getTime())) return null;
+      return this.toLocalDate(dateObj);
+    } catch {
+      return null;
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -781,24 +763,6 @@ export class DateService {
     // Noon anchoring avoids DST edge cases where midnight could shift the day.
     const date = new Date(year, month, day, 12, 0, 0, 0);
     return isNaN(date.getTime()) ? null : date;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // CONVERSION - Deprecated Aliases (for backward compatibility)
-  // ═══════════════════════════════════════════════════════════════════
-
-  /**
-   * @deprecated Use toLocalDate() instead
-   */
-  toDateString(date: Date | null | undefined): string {
-    return this.toLocalDate(date);
-  }
-
-  /**
-   * @deprecated Use fromLocalDate() instead
-   */
-  fromDateString(dateStr: string | null | undefined): Date | null {
-    return this.fromLocalDate(dateStr);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -895,7 +859,7 @@ export class DateService {
     if (this.isToday(dateStr)) return 'Today';
     if (this.isTomorrow(dateStr)) return 'Tomorrow';
 
-    const date = this.fromDateString(dateStr);
+    const date = this.fromLocalDate(dateStr);
     if (!date) return 'Invalid date';
 
     const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -935,7 +899,7 @@ export class DateService {
     if (this.isToday(dateStr)) return 'Today';
     if (this.isTomorrow(dateStr)) return 'Tomorrow';
 
-    const days = this.daysBetween(this.getCurrentDate(), dateStr);
+    const days = this.daysBetween(this.today(), dateStr);
 
     if (days === -1) return 'Yesterday';
     if (days > 0 && days <= 7) return `in ${days} days`;
@@ -950,35 +914,35 @@ export class DateService {
 
   isToday(dateStr: string | null | undefined): boolean {
     if (!dateStr) return false;
-    return dateStr === this.getCurrentDate();
+    return dateStr === this.today();
   }
 
   isTomorrow(dateStr: string | null | undefined): boolean {
     if (!dateStr) return false;
-    const tomorrow = this.addDays(this.getCurrentDate(), 1);
+    const tomorrow = this.addDays(this.today(), 1);
     return dateStr === tomorrow;
   }
 
   isYesterday(dateStr: string | null | undefined): boolean {
     if (!dateStr) return false;
-    const yesterday = this.addDays(this.getCurrentDate(), -1);
+    const yesterday = this.addDays(this.today(), -1);
     return dateStr === yesterday;
   }
 
   isThisWeek(dateStr: string | null | undefined): boolean {
     if (!dateStr) return false;
-    const days = this.daysBetween(this.getCurrentDate(), dateStr);
+    const days = this.daysBetween(this.today(), dateStr);
     return days >= 0 && days <= 7;
   }
 
   isPast(dateStr: string | null | undefined): boolean {
     if (!dateStr) return false;
-    return dateStr < this.getCurrentDate();
+    return dateStr < this.today();
   }
 
   isFuture(dateStr: string | null | undefined): boolean {
     if (!dateStr) return false;
-    return dateStr > this.getCurrentDate();
+    return dateStr > this.today();
   }
 
   /**
@@ -997,7 +961,7 @@ export class DateService {
    * @returns true if the timestamp is today in local time
    */
   isTimestampToday(isoTimestamp: string | null | undefined): boolean {
-    const localDay = this.extractDateFromIso(isoTimestamp);
+    const localDay = this.extractLocalDate(isoTimestamp);
     return this.isToday(localDay);
   }
 
@@ -1009,9 +973,9 @@ export class DateService {
    * @returns true if timestamp is within the window
    */
   isTimestampWithinDays(isoTimestamp: string | null | undefined, days: number): boolean {
-    const localDay = this.extractDateFromIso(isoTimestamp);
+    const localDay = this.extractLocalDate(isoTimestamp);
     if (!localDay) return false;
-    const cutoff = this.addDays(this.getCurrentDate(), -days);
+    const cutoff = this.addDays(this.today(), -days);
     return localDay >= cutoff;
   }
 
@@ -1019,8 +983,8 @@ export class DateService {
    * Calculate days between two dates (positive if date2 > date1)
    */
   daysBetween(date1: string, date2: string): number {
-    const d1 = this.fromDateString(date1);
-    const d2 = this.fromDateString(date2);
+    const d1 = this.fromLocalDate(date1);
+    const d2 = this.fromLocalDate(date2);
     if (!d1 || !d2) return 0;
 
     const diffMs = d2.getTime() - d1.getTime();
@@ -1032,10 +996,10 @@ export class DateService {
   // ═══════════════════════════════════════════════════════════════════
 
   addDays(dateStr: string, days: number): string {
-    const date = this.fromDateString(dateStr);
+    const date = this.fromLocalDate(dateStr);
     if (!date) return dateStr;
     date.setDate(date.getDate() + days);
-    return this.toDateString(date);
+    return this.toLocalDate(date);
   }
 
   /**
@@ -1057,7 +1021,7 @@ export class DateService {
   getEndOfMonth(referenceDate?: Date): string {
     const ref = referenceDate || this.now();
     const lastDay = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 12, 0, 0);
-    return this.toDateString(lastDay);
+    return this.toLocalDate(lastDay);
   }
 
   getEndOfYear(referenceDate?: Date): string {
@@ -1070,10 +1034,10 @@ export class DateService {
   // ═══════════════════════════════════════════════════════════════════
 
   private isValidDate(dateStr: string): boolean {
-    const date = this.fromDateString(dateStr);
+    const date = this.fromLocalDate(dateStr);
     if (!date) return false;
     // Check the date didn't overflow (e.g., Feb 31 -> Mar 3)
-    return this.toDateString(date) === dateStr;
+    return this.toLocalDate(date) === dateStr;
   }
 
   private removeFromText(text: string, toRemove: string): string {
@@ -1147,27 +1111,6 @@ export const fromLocalDate = (dateStr: string | null | undefined) =>
   getDateService().fromLocalDate(dateStr);
 export const extractLocalDate = (iso: string | null | undefined) =>
   getDateService().extractLocalDate(iso);
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// FUNCTION EXPORTS - Deprecated Aliases (for backward compatibility)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/** @deprecated Use today() instead */
-export const getCurrentDate = () => getDateService().getCurrentDate();
-
-/** @deprecated Use nowTimestamp() instead */
-export const getCurrentDateTime = () => getDateService().getCurrentDateTime();
-
-/** @deprecated Use toLocalDate() instead */
-export const toDateString = (date: Date | null | undefined) => getDateService().toDateString(date);
-
-/** @deprecated Use fromLocalDate() instead */
-export const fromDateString = (dateStr: string | null | undefined) =>
-  getDateService().fromDateString(dateStr);
-
-/** @deprecated Use extractLocalDate() instead */
-export const extractDateFromIso = (iso: string | null | undefined) =>
-  getDateService().extractDateFromIso(iso);
 
 // Other exports (not renamed)
 export const parseNaturalDate = (input: string, ref?: Date) =>

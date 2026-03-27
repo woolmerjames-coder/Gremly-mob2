@@ -800,7 +800,7 @@ export async function callEnrichPhase2(params: {
         bucket: params.bucket,
         subtype: params.subtype || null,
         recentTitles: params.recentTitles || [],
-        currentDate: getDateService().getCurrentDate(),
+        currentDate: getDateService().today(),
       }),
     });
 
@@ -955,7 +955,7 @@ export function callEnrichPhase2Streaming(
   const supabaseAnonKey = readSupabaseAnonKey();
 
   const ds = getDateService();
-  const currentDate = ds.getCurrentDate();
+  const currentDate = ds.today();
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   const dayOfWeek = ds.getDayOfWeek();
 

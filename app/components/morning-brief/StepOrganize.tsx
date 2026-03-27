@@ -234,7 +234,7 @@ export function StepOrganize({
   const habitRolling7 = useGremlyStore(selectCompletionsInRolling7Days);
   const habitRolling30 = useGremlyStore(selectCompletionsInRolling30Days);
 
-  const today = targetDate ?? getDateService().getCurrentDate();
+  const today = targetDate ?? getDateService().today();
   const currentHour = targetDate ? 0 : getDateService().getHour();
   const capacity = useCapacityForDate(today);
   const calendarEvents = useCalendarEventsForDate(today);

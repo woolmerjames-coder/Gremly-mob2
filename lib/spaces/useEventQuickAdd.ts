@@ -103,7 +103,7 @@ export function useEventQuickAdd(options: EventQuickAddOptions): UseEventQuickAd
 
           // Get date context for Phase 2
           const ds = getDateService();
-          const currentDate = ds.getCurrentDate(); // YYYY-MM-DD
+          const currentDate = ds.today(); // YYYY-MM-DD
           const dayOfWeek = format(ds.now(), 'EEEE');
           const timezone = ds.getTimezone();
 
