@@ -97,7 +97,7 @@ export function getNoteSweepPrediction(note: Note): SweepPrediction {
 
   // Recent idea (< 7 days) = next sweep
   if (note.subtype === 'idea') {
-    const createdDate = dateService.toDateString(new Date(note.created_at));
+    const createdDate = dateService.toLocalDate(new Date(note.created_at));
     const daysSinceCreated = dateService.daysBetween(createdDate, today);
     if (daysSinceCreated <= 7) {
       return { type: 'next', label: 'Next Sweep' };
@@ -106,7 +106,7 @@ export function getNoteSweepPrediction(note: Note): SweepPrediction {
   }
 
   // Today's catchall/list/reference = next sweep
-  const createdDate = dateService.toDateString(new Date(note.created_at));
+  const createdDate = dateService.toLocalDate(new Date(note.created_at));
   if (createdDate === today) {
     return { type: 'next', label: 'Next Sweep' };
   }

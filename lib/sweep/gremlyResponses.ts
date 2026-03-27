@@ -13,6 +13,7 @@
  */
 
 import type { SweepCandidate } from './types';
+import { getDateService } from '../date/DateService';
 
 /**
  * Generates a contextual, supportive message for Gremly to display
@@ -41,7 +42,7 @@ export function getGremlyResponse(
     const resurfaceAt = (raw as { resurface_at?: string | null }).resurface_at;
     if (resurfaceAt) {
       const resurfaceDate = new Date(resurfaceAt);
-      const now = new Date();
+      const now = getDateService().now();
       const diffMs = now.getTime() - resurfaceDate.getTime();
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 

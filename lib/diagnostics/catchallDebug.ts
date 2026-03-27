@@ -1,3 +1,5 @@
+import { getDateService } from '../date/DateService';
+
 // Minimal tracer for one capture cycle
 export type TraceCtx = {
   id: string;
@@ -6,20 +8,20 @@ export type TraceCtx = {
 };
 
 export function startCatchallTrace(label = 'catchall'): TraceCtx {
-  const id = `${label}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  const now = globalThis?.performance?.now?.() ?? Date.now();
+  const id = `${label}-${getDateService().now().getTime().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const now = globalThis?.performance?.now?.() ?? getDateService().now().getTime();
   return { id, t0: now, steps: [] };
 }
 
 export function step(ctx: TraceCtx, msg: string, data?: unknown) {
-  const at = (globalThis?.performance?.now?.() ?? Date.now()) - ctx.t0;
+  const at = (globalThis?.performance?.now?.() ?? getDateService().now().getTime()) - ctx.t0;
   ctx.steps.push({ at, msg, data });
   // eslint-disable-next-line no-console
   console.log('[TRACE]', ctx.id, msg, data ? safePreview(data) : undefined);
 }
 
 export function end(ctx: TraceCtx, outcome: string, data?: unknown) {
-  const total = (globalThis?.performance?.now?.() ?? Date.now()) - ctx.t0;
+  const total = (globalThis?.performance?.now?.() ?? getDateService().now().getTime()) - ctx.t0;
   // eslint-disable-next-line no-console
   console.log('[TRACE][END]', ctx.id, {
     outcome,

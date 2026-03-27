@@ -20,7 +20,8 @@ import {
   Pressable,
   Modal,
 } from 'react-native';
-import { getDateService } from '../../lib/date';
+import { getDateService, nowTimestamp } from '../../lib/date';
+import { format } from 'date-fns';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -144,8 +145,8 @@ function toCompletedItem(item: Todo | Habit): NowCompletedItem {
     type: isHabit ? 'habit' : 'todo',
     name: item.name,
     completedAt: isHabit
-      ? ((item as Habit).last_completed_at ?? new Date().toISOString())
-      : ((item as Todo).completed_at ?? new Date().toISOString()),
+      ? ((item as Habit).last_completed_at ?? nowTimestamp())
+      : ((item as Todo).completed_at ?? nowTimestamp()),
   };
 }
 
@@ -481,14 +482,10 @@ export default function NowScreenV1() {
 
   // NowData for header (computed locally)
   const nowData = useMemo(() => {
-    const now = new Date();
+    const now = getDateService().now();
 
     // Just the date, no greeting (NowHeader adds its own greeting)
-    const dateTimeLabel = now.toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-    });
+    const dateTimeLabel = format(now, 'EEEE, MMMM d');
 
     return {
       dateTimeLabel,
@@ -732,7 +729,7 @@ export default function NowScreenV1() {
   }, []);
 
   const handleDismissEvent = useCallback((eventId: string) => {
-    const now = new Date().toISOString();
+    const now = nowTimestamp();
     useGremlyStore.getState().updateNote(eventId, {
       archived: true,
       archived_reason: 'dismissed_by_user',
@@ -1503,7 +1500,7 @@ function TodayFocusList({
   // Merge events and tasks into chronological lists per block
   const unifiedByBlock = useMemo(() => {
     const blocks = ['morning', 'afternoon', 'evening', 'anytime', 'allday'] as const;
-    const now = new Date();
+    const now = getDateService().now();
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
     const result: Record<
       string,

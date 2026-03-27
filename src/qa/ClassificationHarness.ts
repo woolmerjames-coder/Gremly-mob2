@@ -8,6 +8,7 @@
 import { heuristicClassify } from '../../lib/minddrop/heuristicClassify';
 import type { GoldenTestCase, TestCaseResult, HarnessSummary, HarnessOutput, FieldMismatch } from './types';
 import type { MindDropBucket, LogSubtype } from '../../lib/minddrop/types';
+import { getDateService, nowTimestamp } from '../../lib/date/DateService';
 
 /**
  * Configuration for harness run
@@ -37,7 +38,7 @@ const DEFAULT_CONFIG: Required<HarnessConfig> = {
  * Run a single test case through the heuristic classifier
  */
 export function runSingleTest(testCase: GoldenTestCase, config: HarnessConfig = {}): TestCaseResult {
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
   const cfg = { ...DEFAULT_CONFIG, ...config };
 
   // Run heuristic classification
@@ -71,7 +72,7 @@ export function runSingleTest(testCase: GoldenTestCase, config: HarnessConfig = 
   }
 
   const passed = mismatches.length === 0;
-  const execution_time_ms = Date.now() - startTime;
+  const execution_time_ms = getDateService().now().getTime() - startTime;
 
   if (cfg.verbose) {
     const status = passed ? '✅' : '❌';
@@ -167,8 +168,8 @@ export function filterTestCases(testCases: GoldenTestCase[], config: HarnessConf
  */
 export function runHarness(testCases: GoldenTestCase[], config: HarnessConfig = {}): HarnessOutput {
   const cfg = { ...DEFAULT_CONFIG, ...config };
-  const run_id = `harness-${Date.now()}`;
-  const run_at = new Date().toISOString();
+  const run_id = `harness-${getDateService().now().getTime()}`;
+  const run_at = nowTimestamp();
 
   // Filter test cases
   const filteredCases = filterTestCases(testCases, cfg);

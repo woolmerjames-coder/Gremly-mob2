@@ -14,6 +14,7 @@ import type { Habit, Todo } from '../types';
 import { getGreeting, getMascotSubline } from './copy';
 import { env, type TimeWindow } from '../env';
 import { getTodayDayString } from '../date/computeDueDay';
+import { getDateService, nowTimestamp } from '../date/DateService';
 
 export interface EnrichedHabit {
   id: string;
@@ -263,7 +264,7 @@ const MAX_VISIBLE = 5;
 const MAX_SUGGESTIONS = 3;
 
 function resolveCurrentHour(): number {
-  const candidate = new Date();
+  const candidate = getDateService().now();
   if (candidate && typeof (candidate as Date).getHours === 'function') {
     return (candidate as Date).getHours();
   }
@@ -276,7 +277,7 @@ function resolveCurrentHour(): number {
   }
 
   if (typeof Date.now === 'function') {
-    const fallback = new Date(Date.now());
+    const fallback = new Date(getDateService().now().getTime());
     if (typeof fallback.getHours === 'function') {
       return fallback.getHours();
     }
@@ -565,7 +566,7 @@ export function useTodayData() {
       setData((prev) => ({ ...prev, loading: true, error: null }));
 
       const timeWindow = getTimeWindow();
-      const nowIso = new Date().toISOString();
+      const nowIso = nowTimestamp();
 
       // Fetch due today items
       const [dueItems, plannedCount, completedCount, commitmentsRaw] = await Promise.all([
@@ -635,9 +636,9 @@ export function useTodayData() {
             if (todo.due_day === todayStr && todo.due_time) {
               // Parse due_time (HH:mm) and compare to current time
               const [hours, minutes] = todo.due_time.split(':').map(Number);
-              const dueDateTime = new Date();
+              const dueDateTime = getDateService().now();
               dueDateTime.setHours(hours, minutes, 0, 0);
-              const msUntilDue = dueDateTime.getTime() - new Date().getTime();
+              const msUntilDue = dueDateTime.getTime() - getDateService().now().getTime();
               nearDue = msUntilDue > 0 && msUntilDue < 3 * 60 * 60 * 1000; // Within 3 hours
             }
             // Set dueDate for sorting (use due_day at noon to avoid DST issues)

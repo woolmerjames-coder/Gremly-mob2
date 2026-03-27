@@ -40,6 +40,7 @@ import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
+import { nowTimestamp } from '../date/DateService';
 import celebrationController from '../../app/features/celebration/CelebrationController';
 import {
   calendarClient,
@@ -1333,7 +1334,7 @@ export const useGremlyStore = create<GremlyState>()(
             // If user has activity but no onboarding timestamp, they're an existing user - auto-complete onboarding
             let effectiveOnboardingCompleted = onboardingCompleted;
             if (hasExistingActivity && !onboardingCompleted) {
-              effectiveOnboardingCompleted = new Date().toISOString();
+              effectiveOnboardingCompleted = nowTimestamp();
               // Fire and forget - update DB in background
               supabase
                 .from('cortex_preferences')
@@ -1341,7 +1342,7 @@ export const useGremlyStore = create<GremlyState>()(
                   {
                     owner_id: userId,
                     onboarding_completed_at: effectiveOnboardingCompleted,
-                    updated_at: new Date().toISOString(),
+                    updated_at: nowTimestamp(),
                   },
                   { onConflict: 'owner_id' },
                 )
@@ -1433,7 +1434,7 @@ export const useGremlyStore = create<GremlyState>()(
               userTimezone: timezone,
               isLoading: false,
               isInitialized: true,
-              lastSyncedAt: new Date(),
+              lastSyncedAt: getDateService().now(),
             });
 
             // Populate training progress from cumulative data
@@ -1458,7 +1459,7 @@ export const useGremlyStore = create<GremlyState>()(
               }
               supabase
                 .from('notification_preferences')
-                .update({ timezone: detectedTimezone, updated_at: new Date().toISOString() })
+                .update({ timezone: detectedTimezone, updated_at: nowTimestamp() })
                 .eq('user_id', userId)
                 .then(({ error }) => {
                   if (error) {
@@ -1629,7 +1630,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Update in Supabase
           const { error } = await supabase
@@ -1697,7 +1698,7 @@ export const useGremlyStore = create<GremlyState>()(
                   .from('cortex_preferences')
                   .update({
                     unfed_streak_days: currentStreak,
-                    updated_at: new Date().toISOString(),
+                    updated_at: nowTimestamp(),
                   })
                   .eq('owner_id', userId)
                   .then(({ error }) => {
@@ -1854,7 +1855,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         markAgeCelebrationShown: () => {
-          set({ todayAgeCelebrationShownAt: new Date().toISOString() });
+          set({ todayAgeCelebrationShownAt: nowTimestamp() });
         },
 
         setDayBoundaryHour: async (hour: number) => {
@@ -1864,7 +1865,7 @@ export const useGremlyStore = create<GremlyState>()(
           const { error } = await supabase
             .from('cortex_preferences')
             .upsert(
-              { owner_id: userId, day_boundary_hour: hour, updated_at: new Date().toISOString() },
+              { owner_id: userId, day_boundary_hour: hour, updated_at: nowTimestamp() },
               { onConflict: 'owner_id' },
             );
 
@@ -1887,7 +1888,7 @@ export const useGremlyStore = create<GremlyState>()(
             {
               owner_id: userId,
               onboarding_completed_at: timestamp,
-              updated_at: new Date().toISOString(),
+              updated_at: nowTimestamp(),
             },
             { onConflict: 'owner_id' },
           );
@@ -1907,7 +1908,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           const { error } = await supabase
             .from('cortex_preferences')
@@ -1932,7 +1933,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           set({ trainingStartedAt: now });
 
           const { error } = await supabase
@@ -1951,7 +1952,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           const { error } = await supabase
             .from('cortex_preferences')
@@ -1973,7 +1974,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Set local state first — don't block UX on DB write
           set({ demoSweepCompletedAt: now });
@@ -2006,7 +2007,7 @@ export const useGremlyStore = create<GremlyState>()(
           // Don't overwrite if already set
           if (get().firstTodayVisitCompletedAt) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           const { error } = await supabase
             .from('cortex_preferences')
@@ -2071,7 +2072,7 @@ export const useGremlyStore = create<GremlyState>()(
             const contribution: FeedingContribution = {
               source: source as FeedingContribution['source'],
               value: adjustedValue,
-              timestamp: new Date().toISOString(),
+              timestamp: nowTimestamp(),
             };
 
             const justFed = newIsFed && !get().isFedToday;
@@ -2087,7 +2088,7 @@ export const useGremlyStore = create<GremlyState>()(
               feedingGaugeValue: newGaugeValue,
               isFedToday: newIsFed,
               feedingContributions: [...get().feedingContributions, contribution],
-              feedingGaugeLastUpdatedAt: new Date().toISOString(),
+              feedingGaugeLastUpdatedAt: nowTimestamp(),
             });
 
             // Decrement pending preview counter (server has confirmed this contribution)
@@ -2103,7 +2104,7 @@ export const useGremlyStore = create<GremlyState>()(
               // already shown one (CatchAllNotepad and SweepFlowScreen
               // fire fed celebrations from the optimistic preview result).
               if (!get().todayFedCelebrationShownAt) {
-                set({ todayFedCelebrationShownAt: new Date().toISOString() });
+                set({ todayFedCelebrationShownAt: nowTimestamp() });
                 celebrationController.showFedCelebration(markResult.fedDaysCount);
               }
 
@@ -2111,7 +2112,7 @@ export const useGremlyStore = create<GremlyState>()(
               // never from the UI. This is the single authority for age-ups
               // because only the server can confirm the age actually changed.
               if (markResult.didAgeUp && !get().todayFeedingAgeUpShownAt) {
-                set({ todayFeedingAgeUpShownAt: new Date().toISOString() });
+                set({ todayFeedingAgeUpShownAt: nowTimestamp() });
 
                 const previousAge = markResult.newAge - 1;
                 const oldTier = getTierForAge(previousAge);
@@ -2196,7 +2197,7 @@ export const useGremlyStore = create<GremlyState>()(
               if (didAgeUp) {
                 set({
                   gremlyAge: newAge,
-                  gremlyAgeLastIncrementedAt: new Date().toISOString(),
+                  gremlyAgeLastIncrementedAt: nowTimestamp(),
                   currentTierName: newTier,
                   fedDaysCount: 0,
                 });
@@ -2611,7 +2612,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         finalizeGraduation: async () => {
           const { userId, sockCount } = get();
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const newSockCount = sockCount + 1;
 
           set({
@@ -2651,7 +2652,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const sanitized = sanitizeForSupabase(todo as Record<string, unknown>, 'todo');
           const payload = {
             ...sanitized,
@@ -2688,7 +2689,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateTodo: async (id: string, updates: Partial<Todo>) => {
           const prevTodo = get().todos.find((t) => t.id === id);
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -2753,7 +2754,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         completeTodo: async (id: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const prevTodo = get().todos.find((t) => t.id === id);
 
           // 1. OPTIMISTIC UPDATE
@@ -2811,7 +2812,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         archiveTodo: async (id: string, reason?: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const prevTodo = get().todos.find((t) => t.id === id);
 
           // Cancel any scheduled reminders (fire and forget)
@@ -2894,7 +2895,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Parse frequency into structured fields if not already set
           let habitData = habit;
@@ -2967,7 +2968,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateHabit: async (id: string, updates: Partial<Habit>) => {
           const prevHabit = get().habits.find((h) => h.id === id);
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -3041,7 +3042,7 @@ export const useGremlyStore = create<GremlyState>()(
           // Use noon UTC on the local day to avoid timezone boundary issues
           const occurredAt = `${todayDate}T12:00:00.000Z`;
           // Keep nowIso for last_completed_at (actual timestamp of action)
-          const nowIso = new Date().toISOString();
+          const nowIso = nowTimestamp();
           const prevHabit = get().habits.find((h) => h.id === id);
 
           // 1. OPTIMISTIC UPDATE - update habit's last_completed_at
@@ -3074,7 +3075,7 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Add to local habitProgress array
             const newProgressRow: HabitProgressRow = {
-              id: `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+              id: `temp_${getDateService().now().getTime()}_${Math.random().toString(36).slice(2)}`,
               habit_id: id,
               owner_id: userId,
               occurred_at: occurredAt,
@@ -3259,7 +3260,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           const occurredDay = getDateService().extractDateFromIso(dateIso) ?? dateIso.split('T')[0];
           const occurredAt = `${occurredDay}T12:00:00.000Z`; // Use noon UTC on the target day
-          const now = new Date().toISOString(); // For last_checked_in_at only
+          const now = nowTimestamp(); // For last_checked_in_at only
 
           // Check if already completed for this date
           const existing = get().habitProgress.find(
@@ -3274,7 +3275,7 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           // 1. OPTIMISTIC UPDATE - add to habitProgress immediately
-          const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          const tempId = `temp_${getDateService().now().getTime()}_${Math.random().toString(36).slice(2)}`;
           const newProgressRow: HabitProgressRow = {
             id: tempId,
             habit_id: habitId,
@@ -3372,7 +3373,7 @@ export const useGremlyStore = create<GremlyState>()(
          * Used when opening habit details or manually checking in.
          */
         checkInHabit: async (habitId: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Update local state immediately
           set((state) => ({
@@ -3397,7 +3398,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         archiveHabit: async (id: string, reason?: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const prevHabit = get().habits.find((h) => h.id === id);
 
           // Cancel any scheduled reminders (fire and forget)
@@ -3475,7 +3476,7 @@ export const useGremlyStore = create<GremlyState>()(
           // Extract photoUris before sanitizing (not a DB field)
           const { photoUris, ...noteData } = note;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const sanitized = sanitizeForSupabase(noteData as Record<string, unknown>, 'note');
           const payload = {
             ...sanitized,
@@ -3526,7 +3527,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateNote: async (id: string, updates: Partial<Note>) => {
           const prevNote = get().notes.find((n) => n.id === id);
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -3590,7 +3591,7 @@ export const useGremlyStore = create<GremlyState>()(
           entityType: 'todo' | 'note' | 'habit',
           linkedEventId: string | null,
         ) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Optimistic update
@@ -3629,7 +3630,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         archiveNote: async (id: string, reason?: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const prevNote = get().notes.find((n) => n.id === id);
 
           // 1. OPTIMISTIC UPDATE
@@ -3699,7 +3700,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const payload = {
             ...space,
             owner_id: userId,
@@ -3737,7 +3738,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateSpace: async (id: string, updates: Partial<Space>) => {
           const prevSpace = get().spaces.find((s) => s.id === id);
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -3834,7 +3835,7 @@ export const useGremlyStore = create<GremlyState>()(
           const suggestion = get().spaceSuggestions.find((s) => s.id === suggestionId);
           if (!suggestion) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // 1. OPTIMISTIC UPDATE - remove from local state
           set((state) => ({
@@ -3861,7 +3862,7 @@ export const useGremlyStore = create<GremlyState>()(
           const suggestion = get().spaceSuggestions.find((s) => s.id === suggestionId);
           if (!suggestion) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // 1. OPTIMISTIC UPDATE - remove from local state
           set((state) => ({
@@ -3885,7 +3886,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         assignDropsToSpace: async (dropIds: string[], spaceId: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Build previous state for rollback
@@ -3965,7 +3966,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return null;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const newChat: Partial<SpaceChat> = {
             space_id: spaceId,
             user_id: userId,
@@ -3976,7 +3977,7 @@ export const useGremlyStore = create<GremlyState>()(
           };
 
           // Optimistic update with temp ID
-          const tempId = `temp-${Date.now()}`;
+          const tempId = `temp-${getDateService().now().getTime()}`;
           const optimisticChat = { ...newChat, id: tempId } as SpaceChat;
           set((state) => ({ spaceChats: [optimisticChat, ...state.spaceChats] }));
 
@@ -4027,7 +4028,7 @@ export const useGremlyStore = create<GremlyState>()(
           const prev = get().spaceChats.find((c) => c.id === chatId);
           if (!prev) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set((state) => ({
@@ -4062,7 +4063,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         archiveSpaceChat: async (chatId: string) => {
-          await get().updateSpaceChat(chatId, { archived_at: new Date().toISOString() });
+          await get().updateSpaceChat(chatId, { archived_at: nowTimestamp() });
         },
 
         deleteSpaceChat: async (chatId: string) => {
@@ -4096,8 +4097,8 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return null;
 
-          const tempId = `temp-${Date.now()}`;
-          const now = new Date().toISOString();
+          const tempId = `temp-${getDateService().now().getTime()}`;
+          const now = nowTimestamp();
           const optimisticMessage = {
             ...message,
             id: tempId,
@@ -4175,7 +4176,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return null;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const newMilestone = {
             space_id: spaceId,
             owner_id: userId,
@@ -4190,7 +4191,7 @@ export const useGremlyStore = create<GremlyState>()(
             updated_at: now,
           };
 
-          const tempId = `temp-${Date.now()}`;
+          const tempId = `temp-${getDateService().now().getTime()}`;
           set((state) => ({
             milestones: [...state.milestones, { ...newMilestone, id: tempId } as Milestone],
           }));
@@ -4222,7 +4223,7 @@ export const useGremlyStore = create<GremlyState>()(
           const prev = get().milestones.find((m) => m.id === milestoneId);
           if (!prev) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Sync title with name if name is being updated
           const syncedPatch = patch.name ? { ...patch, title: patch.name } : patch;
@@ -4294,7 +4295,7 @@ export const useGremlyStore = create<GremlyState>()(
 
               // 2. Generate unique storage path
               const fileExt = photoUri.split('.').pop() || 'jpg';
-              const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+              const uniqueId = `${getDateService().now().getTime()}-${Math.random().toString(36).substring(7)}`;
               const storagePath = `${userId}/${noteId}/${uniqueId}.${fileExt}`;
 
               // 3. Upload to Supabase storage
@@ -4475,7 +4476,7 @@ export const useGremlyStore = create<GremlyState>()(
             if (userId) {
               supabase
                 .from('cortex_preferences')
-                .update({ unfed_streak_days: currentStreak, updated_at: new Date().toISOString() })
+                .update({ unfed_streak_days: currentStreak, updated_at: nowTimestamp() })
                 .eq('owner_id', userId)
                 .then(({ error }) => {
                   if (error) {
@@ -4512,8 +4513,8 @@ export const useGremlyStore = create<GremlyState>()(
           const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
           const today = getDateService().getCurrentDate();
           const [year, month, day] = today.split('-').map(Number);
-          const now = new Date();
-          const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+          const now = getDateService().now();
+          const fiveMinAgo = new Date(getDateService().now().getTime() - 5 * 60 * 1000);
 
           // === PHASE 1: Validate all scheduledStartIso values ===
           const validatedAssignments = assignments.map((a) => {
@@ -4708,7 +4709,7 @@ export const useGremlyStore = create<GremlyState>()(
         slotUnpositionedTasks: () => {
           const today = getDateService().getCurrentDate();
           const [year, month, day] = today.split('-').map(Number);
-          const now = new Date();
+          const now = getDateService().now();
           const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
 
           // Build occupied ranges from calendar + all currently slotted tasks
@@ -4963,7 +4964,7 @@ export const useGremlyStore = create<GremlyState>()(
               milestones: milestonesRes.data ?? [],
               weeklySummaries: (weeklySummariesRes.data ?? []) as WeeklySummary[],
               isLoading: false,
-              lastSyncedAt: new Date(),
+              lastSyncedAt: getDateService().now(),
             });
 
             console.log('[GremlyStore] ✅ Refreshed from server');
@@ -5019,7 +5020,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           const todayDate = input.date ?? getDateService().getCurrentDate();
           const isToday = todayDate === getDateService().getCurrentDate();
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const existingBrief = get().dailyBrief;
 
           // Build the payload (one_thing_id/one_thing_type deprecated - locked items use locked_in field)
@@ -5039,7 +5040,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           // Optimistic update
           const optimisticBrief: DailyBrief = {
-            id: existingBrief?.id ?? `temp_${Date.now()}`,
+            id: existingBrief?.id ?? `temp_${getDateService().now().getTime()}`,
             ...payload,
             dismissed_habit_ids: payload.dismissed_habit_ids,
             created_at: existingBrief?.created_at ?? now,
@@ -5249,7 +5250,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           try {
             const { data, error } = await supabase
@@ -5282,7 +5283,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         markSummaryViewed: async (summaryId: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set({
@@ -5304,7 +5305,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         markSummaryFlowCompleted: async (summaryId: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set({
@@ -5326,7 +5327,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         dismissSummaryBanner: async (summaryId: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set({
@@ -5352,7 +5353,7 @@ export const useGremlyStore = create<GremlyState>()(
           if (!summary) return;
 
           const updatedActions = [...summary.cleanup_actions, action];
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set({
@@ -5378,7 +5379,7 @@ export const useGremlyStore = create<GremlyState>()(
           if (!summary) return;
 
           const updatedActions = [...summary.cleanup_actions, ...actions];
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set({
@@ -5457,7 +5458,7 @@ export const useGremlyStore = create<GremlyState>()(
               .from('user_daily_state')
               .update({
                 dco: updatedDco,
-                updated_at: new Date().toISOString(),
+                updated_at: nowTimestamp(),
               })
               .eq('user_id', userId)
               .eq('date', today);
@@ -5487,7 +5488,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const startedAt = new Date().toISOString();
+          const startedAt = nowTimestamp();
           const table = type === 'habit' ? 'habits' : 'todos';
 
           // 1. Optimistic update to Zustand
@@ -5569,7 +5570,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const archivedAt = new Date().toISOString();
+          const archivedAt = nowTimestamp();
           const table = type === 'habit' ? 'habits' : 'todos';
 
           // 1. Optimistic update to Zustand
@@ -5724,7 +5725,7 @@ export const useGremlyStore = create<GremlyState>()(
             set({
               calendarEvents: eventsByDate,
               calendarLoading: false,
-              calendarLastFetched: new Date().toISOString(),
+              calendarLastFetched: nowTimestamp(),
             });
 
             // Auto-normalize external events into Note entities
@@ -5814,7 +5815,7 @@ export const useGremlyStore = create<GremlyState>()(
             if (updates.length > 0) {
               const updatePromises = updates.map(({ id, patch }) => {
                 const sanitized = sanitizeForSupabase(
-                  { ...patch, updated_at: new Date().toISOString() } as Record<string, unknown>,
+                  { ...patch, updated_at: nowTimestamp() } as Record<string, unknown>,
                   'note',
                 );
                 return supabase.from('notes').update(sanitized).eq('id', id);
@@ -5836,7 +5837,7 @@ export const useGremlyStore = create<GremlyState>()(
               set({
                 notes: currentNotes.map((n) => {
                   const patch = patchMap.get(n.id);
-                  return patch ? { ...n, ...patch, updated_at: new Date().toISOString() } : n;
+                  return patch ? { ...n, ...patch, updated_at: nowTimestamp() } : n;
                 }),
               });
               console.log('[GremlyStore] Calendar sync updated', updates.length, 'notes');
@@ -5844,7 +5845,7 @@ export const useGremlyStore = create<GremlyState>()(
 
             // 6. Soft deletes — archive in Supabase, then update store
             if (softDeletes.length > 0) {
-              const now = new Date().toISOString();
+              const now = nowTimestamp();
               const { error: archiveError } = await supabase
                 .from('notes')
                 .update({ archived: true, archived_reason: 'calendar_deleted', archived_at: now })
@@ -6044,8 +6045,8 @@ export const useGremlyStore = create<GremlyState>()(
         setUserCalendarEvents: (events) => set({ userCalendarEvents: events }),
 
         createUserCalendarEvent: async (eventData) => {
-          const tempId = `temp_${Date.now()}`;
-          const now = new Date().toISOString();
+          const tempId = `temp_${getDateService().now().getTime()}`;
+          const now = nowTimestamp();
           const userId = get().userId;
 
           if (!userId) throw new Error('Not authenticated');
@@ -6102,7 +6103,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateUserCalendarEvent: async (id, patch) => {
           const prev = get().userCalendarEvents.find((e) => e.id === id);
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set((state) => ({
@@ -6195,14 +6196,14 @@ export const useGremlyStore = create<GremlyState>()(
             if (entityType === 'todo') {
               const todos = state.todos.map((t) =>
                 t.id === id
-                  ? { ...t, scheduled_start_iso: startIso, updated_at: new Date().toISOString() }
+                  ? { ...t, scheduled_start_iso: startIso, updated_at: nowTimestamp() }
                   : t,
               );
               return { todos };
             } else {
               const habits = state.habits.map((h) =>
                 h.id === id
-                  ? { ...h, scheduled_start_iso: startIso, updated_at: new Date().toISOString() }
+                  ? { ...h, scheduled_start_iso: startIso, updated_at: nowTimestamp() }
                   : h,
               );
               return { habits };
@@ -6230,14 +6231,14 @@ export const useGremlyStore = create<GremlyState>()(
             if (entityType === 'todo') {
               const todos = state.todos.map((t) =>
                 t.id === id
-                  ? { ...t, scheduled_start_iso: null, updated_at: new Date().toISOString() }
+                  ? { ...t, scheduled_start_iso: null, updated_at: nowTimestamp() }
                   : t,
               );
               return { todos };
             } else {
               const habits = state.habits.map((h) =>
                 h.id === id
-                  ? { ...h, scheduled_start_iso: null, updated_at: new Date().toISOString() }
+                  ? { ...h, scheduled_start_iso: null, updated_at: nowTimestamp() }
                   : h,
               );
               return { habits };
@@ -6735,7 +6736,7 @@ export const useGremlyStore = create<GremlyState>()(
           if (!userId) return;
 
           const STUCK_THRESHOLD_MS = 30000; // 30 seconds
-          const now = Date.now();
+          const now = getDateService().now().getTime();
           const cutoffTime = new Date(now - STUCK_THRESHOLD_MS).toISOString();
 
           try {
@@ -6996,7 +6997,7 @@ export const useGremlyStore = create<GremlyState>()(
             }
 
             // Archive the original multi-drop note
-            const now = new Date().toISOString();
+            const now = nowTimestamp();
             const updatedNotes = state.notes.map((n) =>
               n.id === noteId
                 ? {
@@ -7014,7 +7015,7 @@ export const useGremlyStore = create<GremlyState>()(
             const newNotes: typeof state.notes = [];
             items.forEach((item, index) => {
               const newNote = {
-                id: `${noteId}-split-${index}-${Date.now()}`,
+                id: `${noteId}-split-${index}-${getDateService().now().getTime()}`,
                 type: 'note' as const,
                 owner_id: note.owner_id,
                 title: item.smart_title ?? item.preview_title ?? item.text.substring(0, 50),
@@ -7091,7 +7092,7 @@ export const useGremlyStore = create<GremlyState>()(
               return state;
             }
 
-            const now = new Date().toISOString();
+            const now = nowTimestamp();
             const updatedNotes = state.notes.map((n) =>
               n.id === noteId
                 ? {
@@ -7935,7 +7936,7 @@ export const useGremlyStore = create<GremlyState>()(
                 needs_clarification: false,
                 clarification_resolved: true,
                 converted_from: entityType,
-                converted_at: new Date().toISOString(),
+                converted_at: nowTimestamp(),
                 confirmation_message: newConfirmation,
                 // Set processing state so card shows shimmer while Phase 2 runs
                 ai_pending: true,
@@ -8064,7 +8065,7 @@ export const useGremlyStore = create<GremlyState>()(
             // Archive the old entity (soft delete with reason)
             const archiveUpdates = {
               archived: true,
-              archived_at: new Date().toISOString(),
+              archived_at: nowTimestamp(),
               archived_reason: 'converted',
               views: {
                 ...(views || {}),
@@ -8623,8 +8624,8 @@ export const useGremlyStore = create<GremlyState>()(
           entityType: 'todo' | 'habit' | 'note',
           message: Omit<EntityChatMessage, 'id' | 'created_at'>,
         ): Promise<EntityChatMessage> => {
-          const now = new Date().toISOString();
-          const messageId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+          const now = nowTimestamp();
+          const messageId = `msg_${getDateService().now().getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
           const newMessage: EntityChatMessage = {
             ...message,
@@ -8732,8 +8733,8 @@ export const useGremlyStore = create<GremlyState>()(
           entityId: string,
           entityType: 'todo' | 'habit' | 'note',
         ): string => {
-          const now = new Date().toISOString();
-          const messageId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+          const now = nowTimestamp();
+          const messageId = `msg_${getDateService().now().getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
           const streamingMessage: EntityChatMessage = {
             id: messageId,
@@ -8922,7 +8923,7 @@ export const useGremlyStore = create<GremlyState>()(
           finalContent: string,
           metadata?: Record<string, unknown>,
         ): Promise<void> => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Helper to finalize streaming message
@@ -9021,8 +9022,8 @@ export const useGremlyStore = create<GremlyState>()(
           entityType: 'todo' | 'habit' | 'note',
           note: Omit<EntityChatNote, 'id' | 'created_at'>,
         ): Promise<EntityChatNote> => {
-          const now = new Date().toISOString();
-          const noteId = `cnote_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+          const now = nowTimestamp();
+          const noteId = `cnote_${getDateService().now().getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
           const newNote: EntityChatNote = {
             ...note,
@@ -9122,7 +9123,7 @@ export const useGremlyStore = create<GremlyState>()(
           itemId: string,
           completed: boolean,
         ): Promise<void> => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Helper to update checklist item
@@ -9218,7 +9219,7 @@ export const useGremlyStore = create<GremlyState>()(
           noteId: string,
           content: string,
         ): Promise<void> => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Helper to update note content
@@ -9314,7 +9315,7 @@ export const useGremlyStore = create<GremlyState>()(
             postamble?: string;
           },
         ): Promise<void> => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Helper to convert note to checklist
@@ -9410,7 +9411,7 @@ export const useGremlyStore = create<GremlyState>()(
           entityType: 'todo' | 'habit' | 'note',
           noteId: string,
         ): Promise<void> => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Helper to delete note from chat data
@@ -9496,7 +9497,7 @@ export const useGremlyStore = create<GremlyState>()(
           entityId: string,
           entityType: 'todo' | 'habit' | 'note',
         ): Promise<void> => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Helper to remove chat from views

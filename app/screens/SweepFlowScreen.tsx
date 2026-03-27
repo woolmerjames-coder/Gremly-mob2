@@ -266,7 +266,7 @@ function SweepIntroStep({
       return 'Your first sweep!';
     }
 
-    const now = new Date();
+    const now = getDateService().now();
     const last = new Date(lastSweepCompletedAt);
     const diffDays = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -457,7 +457,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
   // Format relative time
   const formatRelativeTime = useCallback((isoDate: string): string => {
     const date = new Date(isoDate);
-    const now = new Date();
+    const now = getDateService().now();
     const diffMs = now.getTime() - date.getTime();
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -524,7 +524,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
 
             const ds = getDateService();
             const currentDateStr = ds.getCurrentDate();
-            const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+            const dayOfWeek = ds.getDayOfWeek();
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
             sweepLog.debug('[SweepJournal] Running Phase 1.5a + Phase 2 enrichment');
@@ -1597,7 +1597,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
           // Schedule a local notification for the remind date
           const reminder: ItemReminder = {
-            id: `sweep-remind-${Date.now()}-${decision.candidateId.slice(0, 8)}`,
+            id: `sweep-remind-${getDateService().now().getTime()}-${decision.candidateId.slice(0, 8)}`,
             time: reminderTime,
             frequency: 'once',
             date: decision.resurfaceDateStr,
@@ -1632,7 +1632,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             const reminderTime = decision.reminderTime || '09:00';
 
             const reminder: ItemReminder = {
-              id: `sweep-remind-${Date.now()}-${decision.candidateId.slice(0, 8)}`,
+              id: `sweep-remind-${getDateService().now().getTime()}-${decision.candidateId.slice(0, 8)}`,
               time: reminderTime,
               frequency: 'once',
               date: decision.reminderDateStr,
@@ -1695,7 +1695,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             updates.push(
               updateNote(decision.candidateId, {
                 resurface_at: decision.resurfaceDateStr,
-                swept_at: new Date().toISOString(),
+                swept_at: getDateService().nowTimestamp(),
                 skipped_in_sweep_at: null,
                 resurface_count: currentResurfaceCount + 1,
                 ...(decision.spaceId ? { space_id: decision.spaceId } : {}),
@@ -1709,7 +1709,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             sweepLog.debug('[SweepFlowScreen] Marking note as swept:', decision.candidateId);
             updates.push(
               updateNote(decision.candidateId, {
-                swept_at: new Date().toISOString(),
+                swept_at: getDateService().nowTimestamp(),
                 skipped_in_sweep_at: null,
                 resurface_at: null,
                 ...(decision.spaceId ? { space_id: decision.spaceId } : {}),
@@ -1724,7 +1724,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
               originalNote?.title || originalNote?.body?.slice(0, 40) || 'Event reminder';
 
             const reminder: ItemReminder = {
-              id: `sweep-remind-${Date.now()}-${decision.candidateId.slice(0, 8)}`,
+              id: `sweep-remind-${getDateService().now().getTime()}-${decision.candidateId.slice(0, 8)}`,
               time: '09:00',
               frequency: 'once',
               date: decision.reminderDateStr,
@@ -1739,7 +1739,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
                   reminder,
                 );
                 await updateNote(decision.candidateId, {
-                  swept_at: new Date().toISOString(),
+                  swept_at: getDateService().nowTimestamp(),
                   skipped_in_sweep_at: null,
                   reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
                   ...(decision.spaceId ? { space_id: decision.spaceId } : {}),
@@ -1750,7 +1750,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         }
       } else if (decision.action === 'skip') {
         // Mark as skipped so it reappears in the next sweep session
-        const now = new Date().toISOString();
+        const now = getDateService().nowTimestamp();
         if (decision.candidateKind === 'todo') {
           updates.push(updateTodo(decision.candidateId, { skipped_in_sweep_at: now } as any));
         } else if (decision.candidateKind === 'note') {
@@ -1803,14 +1803,8 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
           outcome = details.kind === 'note' ? 'archived' : 'cleared';
         } else if (decision.action === 'keep') {
           // Helper to format YYYY-MM-DD string for display
-          const formatDateStr = (dateStr: string) => {
-            const [y, m, d] = dateStr.split('-').map(Number);
-            return new Date(y, m - 1, d).toLocaleDateString('en-US', {
-              weekday: 'short',
-              month: 'short',
-              day: 'numeric',
-            });
-          };
+          const formatDateStr = (dateStr: string) =>
+            getDateService().formatForChip(dateStr);
 
           if (decision.resurfaceDateStr) {
             outcome = 'remind';
@@ -2698,7 +2692,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         if (candidate.kind === 'note') {
           await updateNote(candidate.id, {
             space_id: spaceId,
-            swept_at: new Date().toISOString(),
+            swept_at: getDateService().nowTimestamp(),
             skipped_in_sweep_at: null,
             resurface_at: null, // Clear any old resurface date
           } as any);
@@ -3388,7 +3382,7 @@ function SweepSummaryStep({
         setTimeout(() => {
           celebrationController.showFedCelebration(nextFedDay);
           useGremlyStore.setState({
-            todayFedCelebrationShownAt: new Date().toISOString(),
+            todayFedCelebrationShownAt: getDateService().nowTimestamp(),
           });
         }, 1200);
       }
@@ -3855,7 +3849,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
     const calendarEventsMap = useGremlyStore.getState().calendarEvents;
     const today = useGremlyStore.getState().currentDate;
     const todayEvents = calendarEventsMap[today] || [];
-    const now = new Date();
+    const now = getDateService().now();
 
     return todayEvents
       .filter((event) => {
@@ -4144,7 +4138,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
         const ds = getDateService();
         const currentDateStr = ds.getCurrentDate();
-        const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+        const dayOfWeek = ds.getDayOfWeek();
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
         sweepLog.debug(
@@ -4293,7 +4287,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
             switch (decision) {
               case 'done':
                 if (isTodo) {
-                  await updateTodo(itemId, { completed_at: new Date().toISOString() });
+                  await updateTodo(itemId, { completed_at: getDateService().nowTimestamp() });
                 } else {
                   await completeHabit(itemId);
                 }
@@ -4368,7 +4362,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
           // Update Zustand store with new sweep preferences
           const { setSweepPreferences, totalSweepCount } = useGremlyStore.getState();
           setSweepPreferences({
-            lastSweepCompletedAt: new Date().toISOString(),
+            lastSweepCompletedAt: getDateService().nowTimestamp(),
             sweepStreak: result.streak,
             totalSweepCount: totalSweepCount + 1,
           });

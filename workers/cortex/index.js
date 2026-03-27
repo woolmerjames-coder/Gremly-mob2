@@ -2051,7 +2051,7 @@ const WEB_SEARCH_TOOL = {
   type: 'function',
   function: {
     name: 'web_search',
-    description: `Search the web for current, factual information. The current date is ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.
+    description: `Search the web for current, factual information. The current date is ${new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date())}.
 
 DEFAULT TO SEARCHING. If there is ANY chance that current, specific information would improve your answer, search first. The cost of an unnecessary search is near zero. The cost of giving generic advice when specific information exists is high.
 
@@ -2951,7 +2951,7 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
         // eslint-disable-next-line no-restricted-syntax -- server-side fallback; client sends local date via dateService
         const today = context.currentDate || new Date().toISOString().split('T')[0];
         const dow =
-          context.dayOfWeek || new Date().toLocaleDateString('en-US', { weekday: 'long' });
+          context.dayOfWeek || new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(new Date());
         contextParts.push(`Today is ${dow}, ${today}.`);
 
         if (context.userName) {
@@ -3545,12 +3545,14 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
             : '';
         }
 
-        const currentDate = new Date().toLocaleDateString('en-US', {
+        const tz = body.timezone || 'UTC';
+        const currentDate = new Intl.DateTimeFormat('en-US', {
           weekday: 'long',
           year: 'numeric',
           month: 'long',
           day: 'numeric',
-        });
+          timeZone: tz,
+        }).format(new Date());
 
         // Time of day for contextual suggestions
         const clientTime = body.currentTime ? new Date(body.currentTime) : new Date();

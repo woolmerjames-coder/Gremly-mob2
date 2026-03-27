@@ -1,4 +1,5 @@
 import { useGremlyStore } from '../store/useGremlyStore';
+import { getDateService } from '../date/DateService';
 
 export type TodayEmptyState = 'first-time' | 'post-sweep' | 'regular';
 
@@ -18,7 +19,7 @@ export function getTodayEmptyState(): TodayEmptyState {
   // Post-sweep: sweep completed within last 30 minutes
   if (lastSweepCompletedAt) {
     const sweepTime = new Date(lastSweepCompletedAt).getTime();
-    const now = Date.now();
+    const now = getDateService().now().getTime();
     const thirtyMinutes = 30 * 60 * 1000;
 
     if (now - sweepTime < thirtyMinutes) {

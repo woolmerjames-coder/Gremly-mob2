@@ -11,12 +11,13 @@
 
 function buildBirthdayContext(accountCreatedAt) {
   const today = new Date();
-  const todayStr = today.toLocaleDateString('en-US', {
+  const todayStr = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
     year: 'numeric',
-  });
+    timeZone: 'UTC',
+  }).format(today);
 
   let context = `=== DATE & RELATIONSHIP ===\n`;
   context += `Today is ${todayStr}.\n`;
@@ -26,11 +27,12 @@ function buildBirthdayContext(accountCreatedAt) {
     const msPerDay = 1000 * 60 * 60 * 24;
     const daysTogether = Math.floor((today.getTime() - birthDate.getTime()) / msPerDay);
 
-    const birthDateStr = birthDate.toLocaleDateString('en-US', {
+    const birthDateStr = new Intl.DateTimeFormat('en-US', {
       month: 'long',
       day: 'numeric',
       year: 'numeric',
-    });
+      timeZone: 'UTC',
+    }).format(birthDate);
 
     context += `You were born on ${birthDateStr} (when this user created their account).\n`;
     context += `You've been companions for ${daysTogether} day${daysTogether === 1 ? '' : 's'}.`;
@@ -513,12 +515,13 @@ export function buildSpaceChatSystemPrompt(
   sessionContextStr,
   userProfileText,
 ) {
-  const currentDate = new Date().toLocaleDateString('en-US', {
+  const currentDate = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-  });
+    timeZone: 'UTC',
+  }).format(new Date());
 
   return assembleGenerationConfig({
     triage,
@@ -543,12 +546,13 @@ export function buildEntityChatConfig(
   sessionContextStr,
   userProfileText,
 ) {
-  const currentDate = new Date().toLocaleDateString('en-US', {
+  const currentDate = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-  });
+    timeZone: 'UTC',
+  }).format(new Date());
 
   return assembleGenerationConfig({
     triage,

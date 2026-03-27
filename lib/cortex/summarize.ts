@@ -12,6 +12,7 @@ import { CortexClient, type ChatMessage } from './CortexClient';
 import type { ChatTurn } from './context/memory';
 import { getEnv } from '../env';
 import { supabase } from '../supabase/client';
+import { getDateService, nowTimestamp } from '../date/DateService';
 
 // Environment configuration
 const getConfig = () => ({
@@ -58,7 +59,7 @@ export function shouldRefreshSummary(thresholds: SummaryThresholds): boolean {
   }
 
   // Check time threshold
-  const elapsedMs = Date.now() - thresholds.lastSummaryAt.getTime();
+  const elapsedMs = getDateService().now().getTime() - thresholds.lastSummaryAt.getTime();
   return elapsedMs >= config.minMs;
 }
 
@@ -219,7 +220,7 @@ export async function maybeRefreshSummary(
         console.log('[SUMMARIZE] Thresholds not met', {
           turns: thresholds.turnCount,
           elapsed: thresholds.lastSummaryAt
-            ? Date.now() - thresholds.lastSummaryAt.getTime()
+            ? getDateService().now().getTime() - thresholds.lastSummaryAt.getTime()
             : 'never',
         });
       }
@@ -268,7 +269,7 @@ export async function maybeRefreshSummary(
       .from('spaces')
       .update({
         last_summary: summaryData.summary,
-        last_summary_at: new Date().toISOString(),
+        last_summary_at: nowTimestamp(),
         last_summary_tokens: summaryData.token_usage,
       })
       .eq('id', spaceId);

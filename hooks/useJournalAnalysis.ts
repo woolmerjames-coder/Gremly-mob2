@@ -14,6 +14,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { callJournalAnalyze } from '../lib/cortex/CortexClient';
+import { nowTimestamp, getDateService } from '../lib/date/DateService';
 import type { JournalAnalysisResult, JournalAnalyzeEntry } from '../lib/cortex/CortexClient';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -57,7 +58,7 @@ const COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // ═══════════════════════════════════════════════════════════════════
 
 function formatNextAvailable(date: Date): string {
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return getDateService().formatForChip(getDateService().toLocalDate(date));
 }
 
 async function loadCachedAnalysis(): Promise<CachedAnalysis | null> {
@@ -88,7 +89,7 @@ function getCooldownState(analyzedAt: string): {
 } {
   const analyzedTime = new Date(analyzedAt).getTime();
   const nextTime = analyzedTime + COOLDOWN_MS;
-  const now = Date.now();
+  const now = getDateService().now().getTime();
 
   if (now >= nextTime) {
     return { onCooldown: false, nextAvailableAt: null, nextAvailableLabel: null };
@@ -174,7 +175,7 @@ export function useJournalAnalysis(): JournalAnalysisState {
         setEntryCount(entry_count);
 
         // Cache the result
-        const now = new Date().toISOString();
+        const now = nowTimestamp();
         await saveCachedAnalysis({
           analysis: newAnalysis,
           entryCount: entry_count,

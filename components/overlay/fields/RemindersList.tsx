@@ -3,6 +3,7 @@
  */
 import React from 'react';
 import { View, Text, StyleSheet, Pressable, TextInput } from 'react-native';
+import { getDateService } from '../../../lib/date';
 
 // ============================================================================
 // Types
@@ -175,7 +176,7 @@ function ReminderRowComponent({
 export function RemindersList({ reminders, onChange, disabled = false }: RemindersListProps) {
   const handleAddReminder = () => {
     const newReminder: ReminderRow = {
-      id: Date.now().toString(),
+      id: getDateService().now().getTime().toString(),
       time: '09:00',
       days: 'every',
     };

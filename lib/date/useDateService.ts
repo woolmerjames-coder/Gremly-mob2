@@ -148,5 +148,19 @@ export function useDateOverlay(dateStr: string | null | undefined): string {
   return service.formatForOverlay(dateStr);
 }
 
+/**
+ * Get the current ritual day (YYYY-MM-DD), respecting dayBoundaryHour.
+ * If the current hour is before the boundary, returns yesterday's date.
+ *
+ * @example
+ * ```tsx
+ * const ritual = useRitualDay(); // "2026-03-25" if 2am with boundary=4
+ * ```
+ */
+export function useRitualDay(): string {
+  const service = useDateService();
+  return service.ritualDay();
+}
+
 // Also export the singleton for non-React contexts
 export { dateService };

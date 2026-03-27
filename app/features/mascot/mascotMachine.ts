@@ -6,6 +6,7 @@
  */
 
 import type { ChatEvent } from '../../lib/chat/events';
+import { getDateService } from '../../../lib/date';
 
 // Mascot states
 export type MascotState = 'idle' | 'thinking' | 'replying' | 'playful' | 'celebrate' | 'error';
@@ -90,7 +91,7 @@ export class MascotMachine {
   constructor(initialState: MascotState = 'idle') {
     this.state = {
       current: initialState,
-      lastTransition: Date.now(),
+      lastTransition: getDateService().now().getTime(),
     };
   }
 
@@ -117,7 +118,7 @@ export class MascotMachine {
     // Update state
     this.state = {
       current: newState,
-      lastTransition: Date.now(),
+      lastTransition: getDateService().now().getTime(),
     };
 
     // Set auto-timeout if needed

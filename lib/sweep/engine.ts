@@ -15,7 +15,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../../types/supabase';
 import type { SweepCandidate, SweepEntityKind, SweepAttachment } from './types';
 import { buildSweepTodoOrClause, getEffectiveDueDay } from './todoFilters';
-import { getDateService } from '../date';
+import { getDateService, nowTimestamp } from '../date';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Action Types
@@ -127,7 +127,7 @@ export async function fetchSweepCandidatesForUser(
   const lastSweepAt = await getLastSweepCompletedAt(ownerId, client);
 
   // For first-time users, use a 48-hour lookback window
-  const fallbackCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const fallbackCutoff = new Date(getDateService().now().getTime() - 48 * 60 * 60 * 1000).toISOString();
   const cutoffTimestamp = lastSweepAt ?? fallbackCutoff;
 
   const candidates: SweepCandidate[] = [];
@@ -189,7 +189,7 @@ export async function fetchSweepCandidatesForUser(
         candidates.push({
           id: row.id,
           kind: 'todo',
-          createdAt: row.created_at ?? new Date().toISOString(),
+          createdAt: row.created_at ?? nowTimestamp(),
           dropId: row.drop_id,
           skippedInSweepAt: row.skipped_in_sweep_at,
           isOverdue,
@@ -263,7 +263,7 @@ export async function fetchSweepCandidatesForUser(
         candidates.push({
           id: row.id,
           kind: 'note',
-          createdAt: row.created_at ?? new Date().toISOString(),
+          createdAt: row.created_at ?? nowTimestamp(),
           dropId: row.drop_id,
           skippedInSweepAt: row.skipped_in_sweep_at,
           isOverdue,
@@ -285,7 +285,7 @@ export async function fetchSweepCandidatesForUser(
     // ─────────────────────────────────────────────────────────────────────
     // IDEAS - 7 day window (ideas are worth revisiting longer)
     // ─────────────────────────────────────────────────────────────────────
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const sevenDaysAgo = new Date(getDateService().now().getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const ideaOrClause = `created_at.gt.${sevenDaysAgo},skipped_in_sweep_at.not.is.null,resurface_at.lte.${todayDay}`;
 
     const { data: ideas, error: ideaError } = await client
@@ -364,7 +364,7 @@ export async function fetchSweepCandidatesForUser(
     // EVENT NOTES - Notes with target_date that need reminder prompts
     // Include notes where target_date is within the next 7 days
     // ─────────────────────────────────────────────────────────────────────
-    const sevenDaysFromNow = new Date();
+    const sevenDaysFromNow = getDateService().now();
     sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
     const sevenDaysFromNowStr = getDateService().toLocalDate(sevenDaysFromNow);
 
@@ -475,7 +475,7 @@ export async function applySweepAction(
   client: SupabaseClient<Database>,
 ): Promise<void> {
   const tableName = getTableName(action.kind);
-  const now = new Date().toISOString();
+  const now = nowTimestamp();
 
   try {
     switch (action.type) {
@@ -572,7 +572,7 @@ export async function markSweepCompleted(
   client: SupabaseClient<Database>,
   summary: { kept: number; cleared: number },
 ): Promise<{ streak: number }> {
-  const now = new Date();
+  const now = getDateService().now();
   const todayDate = getDateService().getCurrentDate(); // YYYY-MM-DD (local timezone)
 
   try {

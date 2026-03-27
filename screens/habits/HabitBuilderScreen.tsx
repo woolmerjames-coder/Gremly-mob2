@@ -36,7 +36,7 @@ import { lightTokens } from '../../design/tokens';
 import { useNetworkStatus } from '../../lib/network/useNetworkStatus';
 import type { SpaceChatMessage, HabitBuilderResolvedFields, HabitSubtype } from '../../lib/types';
 import type { SaveableType } from '../../lib/chat/saveableTypes';
-import { dateService } from '../../lib/date/DateService';
+import { dateService, getDateService, nowTimestamp } from '../../lib/date/DateService';
 import { renderFormattedContent } from '../../lib/markdown/renderFormattedContent';
 
 // ─── Streaming Bubble ─────────────────────────────────────────────
@@ -216,7 +216,7 @@ const EMPTY_RESOLVED: HabitBuilderResolvedFields = {
 };
 
 let messageIdCounter = 0;
-const nextId = () => `hb-msg-${Date.now()}-${++messageIdCounter}`;
+const nextId = () => `hb-msg-${getDateService().now().getTime()}-${++messageIdCounter}`;
 
 // ─── Component ───────────────────────────────────────────────────────
 export function HabitBuilderScreen({
@@ -270,10 +270,10 @@ export function HabitBuilderScreen({
 
   // ─── Build context ──────────────────────────────────────────────
   const chatContext = useMemo(() => {
-    const now = new Date();
+    const now = getDateService().now();
     return {
       currentDate: dateService.today(),
-      dayOfWeek: now.toLocaleDateString('en-US', { weekday: 'long' }),
+      dayOfWeek: getDateService().getDayOfWeek(),
       userName: userName || undefined,
       existingHabits: habits
         .filter((h) => !h.archived_at)
@@ -303,7 +303,7 @@ export function HabitBuilderScreen({
           role: 'assistant',
           content:
             "I need an internet connection to chat. Your data is safe — I'll be ready when we're back online!",
-          created_at: new Date().toISOString(),
+          created_at: nowTimestamp(),
         };
         setMessages((prev) => [...prev, offlineMsg]);
         return;
@@ -319,7 +319,7 @@ export function HabitBuilderScreen({
         user_id: '',
         role: 'user',
         content: text,
-        created_at: new Date().toISOString(),
+        created_at: nowTimestamp(),
       };
 
       setMessages((prev) => [...prev, ...(isInitial ? [] : [userMsg])]);
@@ -374,7 +374,7 @@ export function HabitBuilderScreen({
               user_id: '',
               role: 'assistant',
               content: response.content,
-              created_at: new Date().toISOString(),
+              created_at: nowTimestamp(),
               sources: response.sources,
               wasStreamed: true, // Skip entering animation — content was already visible
             };
@@ -425,7 +425,7 @@ export function HabitBuilderScreen({
               user_id: '',
               role: 'assistant',
               content: 'Having trouble right now — try again in a sec.',
-              created_at: new Date().toISOString(),
+              created_at: nowTimestamp(),
             };
             setMessages((prev) => [...prev, errorMsg]);
             setIsLoading(false);
@@ -530,7 +530,7 @@ export function HabitBuilderScreen({
           id: nextId(),
           role: 'assistant',
           content: 'Something went wrong creating the habit. Try again?',
-          created_at: new Date().toISOString(),
+          created_at: nowTimestamp(),
           chat_id: '',
           space_id: '',
           user_id: '',

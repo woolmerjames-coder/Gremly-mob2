@@ -158,7 +158,7 @@ export function JournalFullScreen({
   const [saving, setSaving] = useState(false);
   const [content, setContent] = useState('');
   const [originalContent, setOriginalContent] = useState('');
-  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  const [currentDate, setCurrentDate] = useState<Date>(getDateService().now());
   const [currentJournalId, setCurrentJournalId] = useState<string | null>(null);
   // FIX 2: Use index-based prompt cycling instead of random
   const [promptIndex, setPromptIndex] = useState(-1); // -1 means no prompt shown yet
@@ -208,7 +208,7 @@ export function JournalFullScreen({
       setLoading(true);
       try {
         // Query for journals from the past year and find one matching this date
-        const sinceIso = subDays(new Date(), 365).toISOString();
+        const sinceIso = subDays(getDateService().now(), 365).toISOString();
         const recentDrops = await repo.listRecentDrops(sinceIso);
 
         // Filter to find journals for this specific date
@@ -249,7 +249,7 @@ export function JournalFullScreen({
         // Create mode: start fresh with today's date
         setContent('');
         setOriginalContent('');
-        setCurrentDate(new Date());
+        setCurrentDate(getDateService().now());
         setCurrentJournalId(null);
         // Focus input after mount
         setTimeout(() => inputRef.current?.focus(), 300);
@@ -370,7 +370,7 @@ export function JournalFullScreen({
 
         const ds = getDateService();
         const currentDateStr = ds.getCurrentDate();
-        const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+        const dayOfWeek = ds.getDayOfWeek();
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
         console.log('[JournalFullScreen] Running Phase 1.5a + Phase 2 enrichment');
@@ -505,7 +505,7 @@ export function JournalFullScreen({
   const goToNextDay = useCallback(() => {
     const nextDate = addDays(currentDate, 1);
     // Don't go past today
-    if (nextDate <= new Date()) {
+    if (nextDate <= getDateService().now()) {
       void loadJournalForDate(nextDate);
     }
   }, [currentDate, loadJournalForDate]);

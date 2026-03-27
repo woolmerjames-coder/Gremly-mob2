@@ -112,7 +112,7 @@ export default function HabitsScreen() {
   const updateHabit = useGremlyStore((s) => s.updateHabit);
   const [isLoading, setIsLoading] = useState(false);
   const [datePickerHabitId, setDatePickerHabitId] = useState<string | null>(null);
-  const [tempDate, setTempDate] = useState(new Date());
+  const [tempDate, setTempDate] = useState(dateService.now());
   // Store the initial sort order to prevent rows from jumping when toggled
   const [sortOrder, setSortOrder] = useState<string[] | null>(null);
   // Track if user has checked in this session
@@ -162,7 +162,7 @@ export default function HabitsScreen() {
         {
           text: 'Pick a date',
           onPress: () => {
-            setTempDate(new Date());
+            setTempDate(dateService.now());
             setDatePickerHabitId(habitId);
           },
         },
@@ -184,7 +184,7 @@ export default function HabitsScreen() {
   }, [datePickerHabitId, tempDate, updateHabit]);
 
   // Week date range - rolling 7 days ending today (matches useWeeklyHabitStats)
-  const today = useMemo(() => new Date(), []);
+  const today = useMemo(() => dateService.now(), []);
   const { startDate: weekStart, endDate: weekEnd } = useMemo(
     () => getRolling7DayRange(today),
     [today],
@@ -602,7 +602,7 @@ export default function HabitsScreen() {
                 value={tempDate}
                 mode="date"
                 display="spinner"
-                minimumDate={new Date()}
+                minimumDate={dateService.now()}
                 onChange={(_event, date) => {
                   if (date) setTempDate(date);
                 }}

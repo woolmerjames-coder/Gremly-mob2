@@ -37,7 +37,7 @@ export interface UseMiniSweepGateReturn {
  * Get today's date string in YYYY-MM-DD format (local time)
  */
 function getTodayDateString(): string {
-  const now = new Date();
+  const now = getDateService().now();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 

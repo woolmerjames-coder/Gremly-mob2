@@ -2,6 +2,8 @@ import React from 'react';
 import { View, TextInput, Pressable, StyleSheet, useColorScheme, Dimensions } from 'react-native';
 import { ChevronDown, CheckSquare } from 'lucide-react-native';
 import { Text } from '../../ui';
+import { format } from 'date-fns';
+import { getDateService } from '../../lib/date';
 import { lightTokens, darkTokens } from '../../design/tokens';
 import type { BaseType } from './overlayV2.state';
 import { ChecklistInput } from './ChecklistInput';
@@ -63,29 +65,16 @@ export function OverlayExpandedEditor({
   const isJournalMode = baseType === 'log' && effectiveLogSubtype === 'journal';
 
   // Current date/time for header
-  const currentDateTime = journalDateTime ?? new Date();
+  const currentDateTime = journalDateTime ?? getDateService().now();
 
   // Format date/time - more expansive for journal, compact for others
   const formatDateTime = (date: Date, isJournal: boolean): string => {
     if (isJournal) {
-      // Journal: "Wednesday, December 3 at 2:30 PM"
-      const options: Intl.DateTimeFormatOptions = {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      };
-      return date.toLocaleDateString('en-US', options).replace(',', ' •');
+      // Journal: "Wednesday • December 3 • 2:30 PM"
+      return format(date, 'EEEE • MMMM d • h:mm a');
     }
     // Standard: "Dec 3, 2:30 PM"
-    const options: Intl.DateTimeFormatOptions = {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    };
-    return date.toLocaleDateString('en-US', options);
+    return format(date, 'MMM d, h:mm a');
   };
 
   return (

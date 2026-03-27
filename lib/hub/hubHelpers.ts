@@ -24,7 +24,7 @@ export interface TimeRangeResult {
  * @param range - Time range selection
  * @param now - Optional date to use as "now" (for testing determinism)
  */
-export function computeTimeRange(range: HubV1TimeRange, now: Date = new Date()): TimeRangeResult {
+export function computeTimeRange(range: HubV1TimeRange, now: Date = getDateService().now()): TimeRangeResult {
   if (range === 'all') return {};
 
   let start: Date;
@@ -67,7 +67,7 @@ export interface Last30DaysQueryOptions {
  *
  * @param now - Optional date to use as "now" (for testing determinism)
  */
-export function computeLast30DaysRange(now: Date = new Date()): Last30DaysQueryOptions {
+export function computeLast30DaysRange(now: Date = getDateService().now()): Last30DaysQueryOptions {
   const thirtyDaysAgo = new Date(now);
   thirtyDaysAgo.setDate(now.getDate() - 30);
 
@@ -111,7 +111,7 @@ export interface ArchivedQueryOptions {
 export function computeArchivedQueryOptions(
   timeRange: ArchivedTimeRange,
   statusFilter: ArchivedStatusFilter,
-  now: Date = new Date(),
+  now: Date = getDateService().now(),
 ): ArchivedQueryOptions {
   const options: ArchivedQueryOptions = {};
 
@@ -264,7 +264,7 @@ export function suggestShortTitle(text: string, maxWords = 5): string {
  * @param dateStr - ISO date string
  * @param now - Optional reference date (for testing)
  */
-export function formatJournalDate(dateStr: string, now: Date = new Date()): string {
+export function formatJournalDate(dateStr: string, now: Date = getDateService().now()): string {
   // Use DateService for timezone-safe parsing of YYYY-MM-DD strings
   const date = getDateService().fromDateString(dateStr) ?? new Date(dateStr);
   const diffMs = now.getTime() - date.getTime();
@@ -272,8 +272,8 @@ export function formatJournalDate(dateStr: string, now: Date = new Date()): stri
 
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return date.toLocaleDateString('en-US', { weekday: 'short' });
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (diffDays < 7) return getDateService().formatForChip(getDateService().toLocalDate(date));
+  return getDateService().formatForChip(getDateService().toLocalDate(date));
 }
 
 // =============================================================================
@@ -322,7 +322,7 @@ export interface JournalMonthGroup {
  */
 export function groupJournalsByMonth(
   journals: JournalEntry[],
-  _now: Date = new Date(),
+  _now: Date = getDateService().now(),
 ): JournalMonthGroup[] {
   const groups = new Map<string, JournalEntry[]>();
 
@@ -356,7 +356,7 @@ export function groupJournalsByMonth(
     const entries = groups.get(key)!;
     const [yearStr, monthStr] = key.split('-');
     const date = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10) - 1, 1);
-    const label = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const label = getDateService().formatDateForDisplay(key + '-01');
 
     result.push({
       monthKey: key,

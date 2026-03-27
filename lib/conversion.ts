@@ -9,6 +9,7 @@ import { buildMindDropDerivedFields } from './minddrop/minddropShared';
 import { normalizeTodoTitle } from './minddrop/normalizeTodoTitle';
 import { getEffectiveLogSubtype } from './logs/getEffectiveLogSubtype';
 import { parseHabitFrequency } from './sweep/habitHelpers';
+import { nowTimestamp } from './date/DateService';
 
 type LineageMeta = {
   originId: string;
@@ -142,7 +143,7 @@ export const convertLogListToTodo = async (
       id: note.id,
       patch: {
         archived: true,
-        archived_at: new Date().toISOString(),
+        archived_at: nowTimestamp(),
         archived_reason: 'converted',
         why_string: noteWhy,
       },
@@ -211,7 +212,7 @@ export const convertTodoToLogList = async (
       id: todo.id,
       patch: {
         archived: true,
-        archived_at: new Date().toISOString(),
+        archived_at: nowTimestamp(),
         archived_reason: 'converted',
         why_string: todoWhy,
       },
@@ -318,7 +319,7 @@ export const convertUnsortedToTodo = async (
       id: note.id,
       patch: {
         archived: true,
-        archived_at: new Date().toISOString(),
+        archived_at: nowTimestamp(),
         archived_reason: 'converted',
         why_string: noteWhy,
       },
@@ -536,7 +537,7 @@ export const convertUnsortedToHabit = async (
       id: note.id,
       patch: {
         archived: true,
-        archived_at: new Date().toISOString(),
+        archived_at: nowTimestamp(),
         archived_reason: 'converted',
         why_string: noteWhy,
       },

@@ -106,9 +106,9 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
   const readinessLabel = getReadinessLabel(trainingReadiness);
   const pct = Math.min(trainingReadiness, 100);
 
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => dateService.now().getTime());
   useEffect(() => {
-    if (visible) setNow(Date.now());
+    if (visible) setNow(dateService.now().getTime());
   }, [visible]);
 
   const dayNumber = trainingStartedAt

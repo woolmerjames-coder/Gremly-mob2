@@ -5,6 +5,7 @@ import { SupabaseSpaceChatRepo } from '../lib/repo/supabase';
 import { MemorySpaceChatRepo } from '../lib/repo/memory';
 import type { SpaceChat } from '../lib/types';
 import { normalizeSearchTagInput } from '../lib/tags/search';
+import { getDateService } from '../lib/date/DateService';
 
 export type SearchItem = {
   id: string;
@@ -41,10 +42,7 @@ export function useSpaceSearch(spaceId: string) {
           ? item.body.slice(0, 60) + (item.body.length > 60 ? '...' : '')
           : undefined,
         dateLabel: item.date
-          ? new Date(item.date).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-            })
+          ? getDateService().formatForChip(getDateService().toLocalDate(new Date(item.date)))
           : undefined,
       });
 
@@ -78,10 +76,7 @@ export function useSpaceSearch(spaceId: string) {
               title: chat.title || 'New Chat',
               snippet: chat.last_message_snippet || undefined,
               dateLabel: chat.updated_at
-                ? new Date(chat.updated_at as unknown as string).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                  })
+                ? getDateService().formatForChip(getDateService().toLocalDate(new Date(chat.updated_at as unknown as string)))
                 : undefined,
             }));
         } else if (filter === 'notes') {

@@ -16,6 +16,7 @@ import { useCallback, useRef } from 'react';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { getDateService } from '../date';
 import { env, getEnv } from '../env';
+import { format } from 'date-fns';
 
 // --- Helpers to read env vars (same pattern as dropProcessor.ts) ---
 const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
@@ -103,8 +104,8 @@ export function useEventQuickAdd(options: EventQuickAddOptions): UseEventQuickAd
           // Get date context for Phase 2
           const ds = getDateService();
           const currentDate = ds.getCurrentDate(); // YYYY-MM-DD
-          const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+          const dayOfWeek = format(ds.now(), 'EEEE');
+          const timezone = ds.getTimezone();
 
           console.log('[EventQuickAdd] Running Phase 1.5a + Phase 2 in parallel');
 

@@ -4,6 +4,7 @@
  */
 
 import type { Mood } from './shared/moods';
+import { nowTimestamp, getDateService } from './date/DateService';
 
 export type ID = string;
 export type RecordType = 'habit' | 'todo' | 'note';
@@ -1039,10 +1040,10 @@ export interface EntityChatResponse {
 /**
  * Helper functions
  */
-export const nowIso = (): string => new Date().toISOString();
+export const nowIso = (): string => nowTimestamp();
 
 export const genId = (prefix = 'id'): ID =>
-  `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  `${prefix}_${getDateService().now().getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // HABIT BUILDER

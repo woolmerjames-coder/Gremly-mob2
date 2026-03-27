@@ -14,6 +14,7 @@ import { Pressable, View, StyleSheet } from 'react-native';
 import { Text } from '../../ui';
 import { CalendarDays } from 'lucide-react-native';
 import { format, differenceInDays, parseISO } from 'date-fns';
+import { getDateService } from '../../lib/date';
 import { BRAND } from '../../design/brand';
 import { useSpaceById } from '../../lib/store/selectors';
 import type { Note } from '../../lib/types';
@@ -65,7 +66,7 @@ export function KeyDateCard({ event, onPress }: KeyDateCardProps) {
   const space = useSpaceById(event.space_id || '');
 
   // Get today's date for multi-day calculation
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const today = format(getDateService().now(), 'yyyy-MM-dd');
 
   // Determine the theme color for space indicator
   const themeColor = space?.theme

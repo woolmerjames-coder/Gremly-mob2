@@ -27,6 +27,7 @@ import {
   ChevronUp,
 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
+import { getDateService } from '../../lib/date';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
 import { env } from '../../lib/env';
 import type { DcoTone } from '../../lib/types';
@@ -211,11 +212,11 @@ const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
     if (hasStarted.current) return;
     hasStarted.current = true;
 
-    const startTime = Date.now() + delay;
+    const startTime = getDateService().now().getTime() + delay;
     const endTime = startTime + duration;
 
     const interval = setInterval(() => {
-      const now = Date.now();
+      const now = getDateService().now().getTime();
 
       if (now < startTime) return;
 

@@ -15,9 +15,11 @@
 import React, { useCallback } from 'react';
 import { View, Text, Pressable, StyleSheet, Alert } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import { format } from 'date-fns';
 import type { Habit, Todo, Note } from '../../lib/types';
 import { isTestMode } from '../../lib/config/testMode';
 import { testLogger } from '../../src/utils/TestLogger';
+import { getDateService } from '../../lib/date';
 
 // =============================================================================
 // TYPES
@@ -121,7 +123,7 @@ function formatDueDate(dueDay?: string | null): string {
   if (!dueDay) return '';
   try {
     const date = new Date(dueDay + 'T00:00:00');
-    const today = new Date();
+    const today = getDateService().now();
     today.setHours(0, 0, 0, 0);
     const diffMs = date.getTime() - today.getTime();
     const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
@@ -130,7 +132,7 @@ function formatDueDate(dueDay?: string | null): string {
     if (diffDays === 0) return 'Today';
     if (diffDays === 1) return 'Tomorrow';
     if (diffDays < 7) return `${diffDays} days`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return format(date, 'MMM d');
   } catch {
     return '';
   }

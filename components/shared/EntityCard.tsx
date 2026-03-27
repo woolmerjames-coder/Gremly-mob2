@@ -13,6 +13,8 @@
 
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, ViewStyle } from 'react-native';
+import { format } from 'date-fns';
+import { getDateService } from '../../lib/date';
 import type { Habit, Todo, Note } from '../../lib/types';
 
 // =============================================================================
@@ -130,7 +132,7 @@ function formatDueDate(dueDay?: string | null): string {
   if (!dueDay) return '';
   try {
     const date = new Date(dueDay + 'T00:00:00');
-    const today = new Date();
+    const today = getDateService().now();
     today.setHours(0, 0, 0, 0);
     const diffMs = date.getTime() - today.getTime();
     const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
@@ -139,10 +141,10 @@ function formatDueDate(dueDay?: string | null): string {
     if (diffDays === 0) return 'Due: Today';
     if (diffDays === 1) return 'Due: Tomorrow';
     if (diffDays < 7) {
-      const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+      const dayName = format(date, 'EEEE');
       return `Due: ${dayName}`;
     }
-    return `Due: ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+    return `Due: ${format(date, 'MMM d')}`;
   } catch {
     return '';
   }

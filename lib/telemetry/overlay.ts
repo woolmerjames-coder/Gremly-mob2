@@ -1,4 +1,5 @@
 import { FF_OVERLAY_TELEMETRY } from '../flags';
+import { getDateService } from '../date/DateService';
 
 type OverlayEvent =
   | { type: 'overlay_open'; mode: 'create' | 'edit' | 'view'; entryType: 'log' | 'todo' | 'habit' }
@@ -24,7 +25,7 @@ export async function emitOverlayEvent(evt: OverlayEvent) {
     await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ts: Date.now(), evt }),
+      body: JSON.stringify({ ts: getDateService().now().getTime(), evt }),
     });
   } catch (_error) {
     // swallow telemetry failures to keep UX responsive

@@ -15,6 +15,7 @@ import { useRepo } from '../../providers/RepoProvider';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { eventBus } from '../events';
 import { emitChatEvent } from '../../app/lib/chat/events';
+import { nowTimestamp } from '../date/DateService';
 import type { AppRecord } from '../types';
 
 /** Undo window duration in milliseconds */
@@ -151,8 +152,8 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
           // Fallback to passed item if fetch fails
           const record = {
             ...item,
-            created_at: item.created_at || new Date().toISOString(),
-            updated_at: item.updated_at || new Date().toISOString(),
+            created_at: item.created_at || nowTimestamp(),
+            updated_at: item.updated_at || nowTimestamp(),
           } as AppRecord;
           overlayController.openEdit({ record });
         }
@@ -161,8 +162,8 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
         // Fallback to passed item if fetch fails
         const record = {
           ...item,
-          created_at: item.created_at || new Date().toISOString(),
-          updated_at: item.updated_at || new Date().toISOString(),
+          created_at: item.created_at || nowTimestamp(),
+          updated_at: item.updated_at || nowTimestamp(),
         } as AppRecord;
         overlayController.openEdit({ record });
       }
@@ -212,7 +213,7 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
         setPendingUpdateTrigger((t) => t + 1);
 
         try {
-          const nowIso = new Date().toISOString();
+          const nowIso = nowTimestamp();
           console.log('[useTodayInteractions] Persisting completion:', { id, type, nowIso });
 
           // Persist to Supabase

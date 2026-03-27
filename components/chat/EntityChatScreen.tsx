@@ -53,7 +53,7 @@ import type {
   Habit,
   Note,
 } from '../../lib/types';
-import { getDateService } from '../../lib/date';
+import { getDateService, nowTimestamp } from '../../lib/date';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -208,7 +208,7 @@ const getEntitySubtitle = (
 
 const getDaysSinceCreated = (createdAt: string): number => {
   const created = new Date(createdAt);
-  const now = new Date();
+  const now = getDateService().now();
   const diffMs = now.getTime() - created.getTime();
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
 };
@@ -396,7 +396,7 @@ export function EntityChatScreen({
           }
 
           // Compute habit completion stats from habitProgress
-          const today = new Date();
+          const today = getDateService().now();
           const ds = getDateService();
           const daysAgo = (n: number) => ds.daysAgo(n);
 
@@ -553,7 +553,7 @@ export function EntityChatScreen({
           preset,
           sweepContext,
           accountCreatedAt,
-          currentTime: new Date().toISOString(),
+          currentTime: nowTimestamp(),
           siblingContext,
         };
 

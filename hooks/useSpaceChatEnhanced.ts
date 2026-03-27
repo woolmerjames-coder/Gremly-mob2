@@ -39,6 +39,7 @@
  */
 
 import { useCallback } from 'react';
+import { nowTimestamp, getDateService } from '../lib/date/DateService';
 import { useChatContext } from './useChatContext';
 import { useSaveableCooldown } from './useSaveableCooldown';
 import { useSaveButtonState, SaveButtonState } from './useSaveButtonState';
@@ -253,7 +254,7 @@ export function useSpaceChatEnhanced({
    */
   const handleSaveThisCommand = useCallback(
     async (intent: SaveThisIntent, resolution: ThisResolution): Promise<SaveThisHandlerResult> => {
-      const messageId = `save_${Date.now()}`;
+      const messageId = `save_${getDateService().now().getTime()}`;
       const result = await metaIntent.handleSaveThis(intent, resolution, messageId);
 
       if (result.shouldShowSave) {
@@ -273,7 +274,7 @@ export function useSpaceChatEnhanced({
     async (
       recentMessages: Array<{ role: 'user' | 'assistant'; content: string }>,
     ): Promise<SummaryHandlerResult> => {
-      const messageId = `summary_${Date.now()}`;
+      const messageId = `summary_${getDateService().now().getTime()}`;
       const result = await metaIntent.handleSummary(context, recentMessages, messageId, spaceName);
 
       if (result.shouldShowSave) {
@@ -352,7 +353,7 @@ export function useSpaceChatEnhanced({
             dueDate: saveSuggestion.dueDate || saveSuggestion.due_date || null,
             steps: saveSuggestion.steps || [],
           },
-          detectedAt: new Date().toISOString(),
+          detectedAt: nowTimestamp(),
           messageId,
         };
 
@@ -393,7 +394,7 @@ export function useSpaceChatEnhanced({
           content: assistantMessage,
           tags: [],
         },
-        detectedAt: new Date().toISOString(),
+        detectedAt: nowTimestamp(),
         messageId,
       };
 

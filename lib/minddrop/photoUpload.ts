@@ -6,6 +6,7 @@
  */
 
 import { supabase } from '../supabase/client';
+import { getDateService } from '../date/DateService';
 
 /**
  * Upload photos to Supabase storage and link them to a note
@@ -42,7 +43,7 @@ export async function uploadPhotosToNote(
     try {
       // Generate unique storage path
       const fileExt = photoUri.split('.').pop() || 'jpg';
-      const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      const uniqueId = `${getDateService().now().getTime()}-${Math.random().toString(36).substring(7)}`;
       const storagePath = `${userId}/${noteId}/${uniqueId}.${fileExt}`;
 
       // Fetch file from local URI

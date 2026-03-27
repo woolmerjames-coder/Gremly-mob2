@@ -12,6 +12,7 @@ import { SupabaseSpaceChatMessageRepo, SupabaseSpaceChatRepo } from '../lib/repo
 import { formatFrequencyLabel, formatDueDateLabel } from '../src/lib/formatters/itemDisplayHelpers';
 import { useAuth } from '../providers/AuthProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
+import { nowTimestamp } from '../lib/date/DateService';
 
 /**
  * Generate a chat title from the first user message.
@@ -241,8 +242,8 @@ export function useChatMessages(
             last_message_snippet: text.trim().slice(0, 100),
             is_archived: false,
             pinned: false,
-            created_at: newChat.created_at || new Date().toISOString(),
-            updated_at: newChat.updated_at || new Date().toISOString(),
+            created_at: newChat.created_at || nowTimestamp(),
+            updated_at: newChat.updated_at || nowTimestamp(),
           } as SpaceChat);
         }
 

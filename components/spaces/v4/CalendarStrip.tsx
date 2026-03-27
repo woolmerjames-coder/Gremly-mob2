@@ -1,5 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { format } from 'date-fns';
+import { getDateService } from '../../../lib/date';
 import { lightTokens as t } from '../../../design/tokens';
 
 export type CalendarStripProps = {
@@ -7,8 +9,8 @@ export type CalendarStripProps = {
   activeDate?: Date;
 };
 
-export const CalendarStrip: React.FC<CalendarStripProps> = ({ days, activeDate = new Date() }) => {
-  const fmt = (d: Date) => d.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 3);
+export const CalendarStrip: React.FC<CalendarStripProps> = ({ days, activeDate = getDateService().now() }) => {
+  const fmt = (d: Date) => format(d, 'EEE').slice(0, 3);
   const isSame = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() &&
     a.getMonth() === b.getMonth() &&

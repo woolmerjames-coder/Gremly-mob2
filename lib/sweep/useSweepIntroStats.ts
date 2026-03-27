@@ -8,13 +8,14 @@
 import { useMemo, useState } from 'react';
 import type { SweepIntroStats, SweepIntroItem } from './introStats';
 import { useGremlyStore } from '../store/useGremlyStore';
+import { getDateService } from '../date/DateService';
 
 /**
  * Compute fallback cutoff timestamp (48 hours ago).
  * Extracted to a function to satisfy React purity rules.
  */
 function computeFallbackCutoff(): string {
-  return new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  return new Date(getDateService().now().getTime() - 48 * 60 * 60 * 1000).toISOString();
 }
 
 interface UseSweepIntroStatsResult {

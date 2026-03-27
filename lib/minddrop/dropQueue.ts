@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { generateDropId } from './ids';
 import type { MindDropBucket, LogSubtype } from './types';
 import type { HabitSubtype } from '../types';
+import { nowTimestamp } from '../date/DateService';
 
 // ============================================================================
 // Constants
@@ -287,7 +288,7 @@ export async function enqueue(
     localId: generateDropId(),
     status: 'queued',
     retryCount: 0,
-    createdAt: new Date().toISOString(),
+    createdAt: nowTimestamp(),
   };
 
   queue.push(queuedDrop);
@@ -352,7 +353,7 @@ export async function markFailed(localId: string): Promise<void> {
   await updateDrop(localId, {
     status: 'failed',
     retryCount: drop.retryCount + 1,
-    lastAttemptAt: new Date().toISOString(),
+    lastAttemptAt: nowTimestamp(),
   });
 
   console.log(`[DropQueue] Marked drop ${localId} as failed (retryCount: ${drop.retryCount + 1})`);

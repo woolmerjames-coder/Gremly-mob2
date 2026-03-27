@@ -22,6 +22,7 @@ import {
 } from '../context/memory';
 import { getPersonaPrompt } from '../persona/prompt';
 import { smartRefine } from '../persona/refine';
+import { getDateService } from '../../date/DateService';
 
 const CATCHALL_COPY_RE = /saving to catch[- ]all/i;
 const EXPLORATION_COPY_RE = /let's explore that a bit more\.?/i;
@@ -604,7 +605,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
   // Phase 14: Context-aware intent enhancement
   // Enhance intent detection using conversation context for vague references
   const contextValid = ctx.conversationContext?.contextExpiry
-    ? ctx.conversationContext.contextExpiry > Date.now()
+    ? ctx.conversationContext.contextExpiry > getDateService().now().getTime()
     : false;
 
   if (contextValid && ctx.conversationContext) {
@@ -820,7 +821,7 @@ export async function runConversationPipeline(input: DecideInput, ctx: CortexCon
 
     // PATTERN 0: Building mode = Lowest threshold (0.65) for follow-up messages
     if (convContext?.buildingMode && convContext.buildingStartedAt) {
-      const buildingDuration = Date.now() - convContext.buildingStartedAt;
+      const buildingDuration = getDateService().now().getTime() - convContext.buildingStartedAt;
       // Building mode active for up to 5 minutes
       if (buildingDuration < 300000) {
         if (__DEV__) {

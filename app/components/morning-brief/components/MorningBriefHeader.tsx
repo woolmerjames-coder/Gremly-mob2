@@ -18,6 +18,7 @@ import {
 } from '../../../../lib/store/capacitySelectors';
 import { formatDuration } from '../../../../lib/capacity';
 import { getDateService } from '../../../../lib/date';
+import { format } from 'date-fns';
 import type { CalendarEvent } from '../../../../lib/calendar/CalendarClient';
 
 const COLORS = {
@@ -60,8 +61,8 @@ export function MorningBriefHeader({
   const displayDate = targetDate
     ? (getDateService().fromDateString(targetDate) ?? getDateService().now())
     : getDateService().now();
-  const dayName = displayDate.toLocaleDateString('en-US', { weekday: 'long' });
-  const dateString = displayDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  const dayName = format(displayDate, 'EEEE');
+  const dateString = format(displayDate, 'MMMM d');
   const timeString = isCustomDate
     ? null
     : getDateService().now().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });

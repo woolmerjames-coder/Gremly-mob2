@@ -23,6 +23,7 @@ import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 import { eventBus } from '../../lib/events';
 import { emitChatEvent } from '../../app/lib/chat/events';
 import { env } from '../../lib/env';
+import { getDateService } from '../../lib/date';
 import TodayMascotHeader from '../../components/today/TodayMascotHeader';
 import TodaySection from '../../components/today/TodaySection';
 import TodayHabitCard from '../../components/today/TodayHabitCard';
@@ -81,7 +82,7 @@ function getCommitmentStartedLabel(started?: string | null): string {
     return 'Started recently';
   }
 
-  const now = new Date();
+  const now = getDateService().now();
   const diffMs = now.getTime() - startedDate.getTime();
   const days = Math.max(0, Math.floor(diffMs / MS_PER_DAY));
 
@@ -165,11 +166,11 @@ function TodayScreenV2() {
 
   // Check if we should show evening reflection teaser (18:00+)
   const shouldShowEveningTeaser =
-    !isTestLight && eveningTeaserEnabled && new Date().getHours() >= 18;
+    !isTestLight && eveningTeaserEnabled && getDateService().getHour() >= 18;
 
   // Emit analytics event on mount
   useEffect(() => {
-    const hour = new Date().getHours();
+    const hour = getDateService().getHour();
     const hourBlock = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
     eventBus.emit('TodayViewOpened', { hourBlock });
   }, []);

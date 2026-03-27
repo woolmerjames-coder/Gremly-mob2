@@ -167,7 +167,7 @@ export default function NotepadOverlay({ spaceId, isOpen, onClose }: Props) {
         setCurrentNoteId(newNote.id);
       }
       setHasUnsavedChanges(false);
-      setLastSavedAt(Date.now());
+      setLastSavedAt(dateService.now().getTime());
     } catch (error) {
       console.error('[NotepadOverlay] save failed', error);
     }
@@ -245,7 +245,7 @@ export default function NotepadOverlay({ spaceId, isOpen, onClose }: Props) {
 
   if (!isOpen) return null;
 
-  const savedTimeAgo = lastSavedAt && Date.now() - lastSavedAt < 2000;
+  const savedTimeAgo = lastSavedAt && dateService.now().getTime() - lastSavedAt < 2000;
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">

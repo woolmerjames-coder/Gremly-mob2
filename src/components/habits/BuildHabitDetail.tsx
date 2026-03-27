@@ -131,11 +131,7 @@ function formatSinceDate(habit: Habit): string {
 /** Human-friendly date: "Jan 15" or "Jan 15, 2025" (if not current year) */
 const formatDate = (iso: string) => {
   const d = new Date(iso);
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
-  });
+  return dateService.formatForChip(dateService.toLocalDate(d));
 };
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -154,7 +150,7 @@ export function BuildHabitDetail({
   const logHabitCompletionForDate = useGremlyStore((s) => s.logHabitCompletionForDate);
   const removeHabitCompletionForDate = useGremlyStore((s) => s.removeHabitCompletionForDate);
 
-  const today = useMemo(() => new Date(), []);
+  const today = useMemo(() => dateService.now(), []);
   const todayISO = useMemo(() => toLocalISO(today), [today]);
   const currentMonth = today.getMonth();
   const currentYear = today.getFullYear();
@@ -164,7 +160,7 @@ export function BuildHabitDetail({
   const [calYear, setCalYear] = useState(currentYear);
   const [showEntityChat, setShowEntityChat] = useState(false);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
-  const [tempDate, setTempDate] = useState(new Date());
+  const [tempDate, setTempDate] = useState(dateService.now());
   const updateHabit = useGremlyStore((s) => s.updateHabit);
   const calendarCanGoForward = calMonth !== currentMonth || calYear !== currentYear;
 
@@ -249,7 +245,7 @@ export function BuildHabitDetail({
   // Week header label
   const weekLabel = useMemo(() => {
     if (weekOffset === 0) return 'THIS WEEK';
-    return `WEEK OF ${weekData.weekStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}`;
+    return `WEEK OF ${dateService.formatForChip(dateService.toLocalDate(weekData.weekStartDate)).toUpperCase()}`;
   }, [weekOffset, weekData.weekStartDate]);
 
   // ── Day toggle handler ──
@@ -286,7 +282,7 @@ export function BuildHabitDetail({
       {
         text: 'Pick a date',
         onPress: () => {
-          setTempDate(new Date());
+          setTempDate(dateService.now());
           setDatePickerVisible(true);
         },
       },
@@ -599,7 +595,7 @@ export function BuildHabitDetail({
                 value={tempDate}
                 mode="date"
                 display="spinner"
-                minimumDate={new Date()}
+                minimumDate={dateService.now()}
                 onChange={(_event, date) => {
                   if (date) setTempDate(date);
                 }}

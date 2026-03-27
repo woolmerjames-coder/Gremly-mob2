@@ -1,4 +1,5 @@
 import { isToday, isTomorrow, format } from 'date-fns';
+import { getDateService } from '../date/DateService';
 
 /**
  * Format habit frequency_json into human-readable string
@@ -51,7 +52,7 @@ export function formatDueDateLabel(dueDate: string | null): string {
 
   try {
     const date = new Date(dueDate);
-    const now = new Date();
+    const now = getDateService().now();
 
     if (isToday(date)) {
       return 'Today';

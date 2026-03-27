@@ -1,6 +1,7 @@
 import type { CortexInput, CortexOutput, ICortexEngine } from './ICortexEngine';
 import { heuristicEngine } from './heuristicEngine';
 import { OpenAiEngine } from './openAiEngine';
+import { getDateService } from '../lib/date/DateService';
 
 const parseInteger = (value: string | undefined, fallback: number): number => {
   const parsed = Number.parseInt(value ?? '', 10);
@@ -33,7 +34,7 @@ class RateLimiter {
       return true;
     }
 
-    const now = Date.now();
+    const now = getDateService().now().getTime();
     while (this.timestamps.length > 0 && now - this.timestamps[0] > this.windowMs) {
       this.timestamps.shift();
     }

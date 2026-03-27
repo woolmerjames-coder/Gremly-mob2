@@ -101,7 +101,7 @@ export function useRolling7DayHabitStats(habits: Habit[]): Rolling7DayHabitStats
     }> = [];
     for (let i = 6; i >= 0; i--) {
       const dateStr = ds.addDays(todayStr, -i);
-      const d = ds.fromDateString(dateStr) ?? new Date();
+      const d = ds.fromDateString(dateStr) ?? getDateService().now();
       const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
       rolling7Days.push({
         date: dateStr,

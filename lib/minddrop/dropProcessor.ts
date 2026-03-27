@@ -27,7 +27,7 @@ import { calculateBuffers } from '../planning';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { eventBus } from '../events/EventBus';
 import { supabase } from '../supabase/client';
-import { dateService } from '../date/DateService';
+import { dateService, nowTimestamp, getDateService } from '../date/DateService';
 import { parseFrequencyString } from '../habits/frequencyUtils';
 import { scheduleItemReminder, scheduleQuickReminder } from '../notifications/itemReminderService';
 import { hasNotificationPermission } from '../../src/utils/notifications';
@@ -163,7 +163,7 @@ async function runPhase1_5InBackground(
     dateField?: string | null;
   }> | null,
 ): Promise<void> {
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
   const cortexUrl = readCortexUrl();
   const anonKey = readSupabaseAnonKey();
 
@@ -208,7 +208,7 @@ async function runPhase1_5InBackground(
     }
 
     const phase1_5Result = await res.json();
-    const latencyMs = Date.now() - startTime;
+    const latencyMs = getDateService().now().getTime() - startTime;
 
     console.log('[DropProcessor] Phase 1.5 complete', {
       localId,
@@ -311,7 +311,7 @@ async function runPhase1_5a(
     confirmation_message: string | null;
   } | null> => {
     try {
-      const t0 = Date.now();
+      const t0 = getDateService().now().getTime();
       const res = await fetch(cortexUrl, {
         method: 'POST',
         headers: {
@@ -336,7 +336,7 @@ async function runPhase1_5a(
 
       const json = await res.json();
       console.log('[DropProcessor] Phase 1.5a complete', {
-        latency_ms: Date.now() - t0,
+        latency_ms: getDateService().now().getTime() - t0,
         has_title: !!json.smart_title,
         has_message: !!json.confirmation_message,
       });
@@ -393,9 +393,8 @@ async function runPhase2(
     try {
       // Get date context for Phase 2 using DateService (timezone-safe)
       const currentDate = dateService.today(); // YYYY-MM-DD in local timezone
-      const now = new Date();
-      const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const dayOfWeek = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: getDateService().getTimezone() }).format(getDateService().now());
+      const timezone = getDateService().getTimezone();
 
       console.log('[DropProcessor] Phase 2 calling with date context:', {
         currentDate,
@@ -507,9 +506,8 @@ async function runPhase2b(
   const apiPromise = (async (): Promise<Phase2bResult | null> => {
     try {
       const currentDate = dateService.today();
-      const now = new Date();
-      const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      const dayOfWeek = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: getDateService().getTimezone() }).format(getDateService().now());
+      const timezone = getDateService().getTimezone();
 
       const res = await fetch(cortexUrl, {
         method: 'POST',
@@ -576,7 +574,7 @@ async function syncDropToSupabase(
     return { success: false, error: new Error('No bucket classification') };
   }
 
-  const now = new Date().toISOString();
+  const now = nowTimestamp();
   const today = dateService.today();
   // When caller provides dueDayOverride (e.g. "Plan tomorrow" mode), use that
   // instead of today's date for source === 'today' items.
@@ -886,7 +884,7 @@ async function syncMultiDropToSupabase(drop: QueuedDrop): Promise<SyncResult> {
     return { success: false, error: new Error('Not authenticated') };
   }
 
-  const now = new Date().toISOString();
+  const now = nowTimestamp();
 
   try {
     const payload = {
@@ -967,7 +965,7 @@ export async function processDrop(
   }
   processingLocks.add(localId);
 
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
 
   console.log('[DropProcessor] Processing drop', { localId, textPreview: text.substring(0, 30) });
 
@@ -976,7 +974,7 @@ export async function processDrop(
   const maxProcessingTimer = setTimeout(() => {
     console.error('[DropProcessor] MAX PROCESSING TIME exceeded — forcing enrichment_failed', {
       localId,
-      elapsed: Date.now() - startTime,
+      elapsed: getDateService().now().getTime() - startTime,
     });
     useGremlyStore.getState().updatePendingDropEnrichment(localId, {
       status: 'enrichment_failed',
@@ -994,7 +992,7 @@ export async function processDrop(
       console.log('[DropProcessor] Gate check', {
         localId,
         shouldCheckMulti,
-        elapsed: Date.now() - startTime,
+        elapsed: getDateService().now().getTime() - startTime,
       });
 
       // =========================================
@@ -1024,7 +1022,7 @@ export async function processDrop(
           localId,
           isMulti: multiResult.is_multi,
           bucket: phase1Result.bucket,
-          elapsed: Date.now() - startTime,
+          elapsed: getDateService().now().getTime() - startTime,
         });
       } else {
         // No delimiters - skip multi, just run pre-phase
@@ -1033,7 +1031,7 @@ export async function processDrop(
         console.log('[DropProcessor] Pre-phase only (no delimiters)', {
           localId,
           bucket: phase1Result.bucket,
-          elapsed: Date.now() - startTime,
+          elapsed: getDateService().now().getTime() - startTime,
         });
       }
 
@@ -1074,7 +1072,7 @@ export async function processDrop(
 
         console.log('[DropProcessor] Multi-drop Zustand update complete', {
           localId,
-          elapsed: Date.now() - startTime,
+          elapsed: getDateService().now().getTime() - startTime,
           segmentCount: initialSegments.length,
         });
 
@@ -1083,13 +1081,13 @@ export async function processDrop(
 
         console.log('[DropProcessor] Phase 0 complete callback fired (multi)', {
           localId,
-          elapsed: Date.now() - startTime,
+          elapsed: getDateService().now().getTime() - startTime,
         });
 
         // THEN run Phase 1 on each segment for accurate classification (async, ~2s more)
         const classifiedSegments = await Promise.all(
           multiResult.segments.map(async (seg, index) => {
-            const segmentStartTime = Date.now();
+            const segmentStartTime = getDateService().now().getTime();
             console.log('[DropProcessor:MultiPhase1] Starting segment', {
               localId,
               index,
@@ -1111,7 +1109,7 @@ export async function processDrop(
                 localId,
                 index,
                 error: String(err),
-                elapsed: Date.now() - segmentStartTime,
+                elapsed: getDateService().now().getTime() - segmentStartTime,
               });
               // Return a fallback instead of throwing
               phase1 = {
@@ -1138,7 +1136,7 @@ export async function processDrop(
               index,
               bucket: phase1.bucket,
               smartTitle: smartTitle?.substring(0, 20),
-              elapsed: Date.now() - segmentStartTime,
+              elapsed: getDateService().now().getTime() - segmentStartTime,
             });
 
             // Update this segment in Zustand as Phase 1 confirms it
@@ -1178,7 +1176,7 @@ export async function processDrop(
 
         console.log('[DropProcessor] Phase 1 segments complete', {
           localId,
-          elapsed: Date.now() - startTime,
+          elapsed: getDateService().now().getTime() - startTime,
           segmentTitles: classifiedSegments.map((s) => ({
             text: s.text.substring(0, 20),
             smart_title: s.smart_title,
@@ -1218,7 +1216,7 @@ export async function processDrop(
 
           console.log('[DropProcessor] Total timing (multi)', {
             localId,
-            elapsed: Date.now() - startTime,
+            elapsed: getDateService().now().getTime() - startTime,
           });
           clearTimeout(maxProcessingTimer);
           return { success: true, supabaseId: syncResult.supabaseId };
@@ -1241,7 +1239,7 @@ export async function processDrop(
           localId,
           source: phase1Result.classificationSource || phase1Result.source,
           fallbackBucket: phase1Result.bucket,
-          elapsed: Date.now() - startTime,
+          elapsed: getDateService().now().getTime() - startTime,
         });
 
         // Show "still thinking" message on the card
@@ -1263,7 +1261,7 @@ export async function processDrop(
                 previousBucket: phase1Result.bucket,
                 newBucket: retryResult.bucket,
                 newSource: retryResult.source,
-                elapsed: Date.now() - startTime,
+                elapsed: getDateService().now().getTime() - startTime,
               });
               // Replace the degraded result with the real one
               phase1Result = retryResult;
@@ -1271,14 +1269,14 @@ export async function processDrop(
               console.warn('[DropProcessor] Retry still degraded, proceeding with fallback', {
                 localId,
                 source: retryResult.classificationSource || retryResult.source,
-                elapsed: Date.now() - startTime,
+                elapsed: getDateService().now().getTime() - startTime,
               });
             }
           } catch (retryErr) {
             console.warn('[DropProcessor] Retry attempt threw error, proceeding with fallback', {
               localId,
               error: String(retryErr),
-              elapsed: Date.now() - startTime,
+              elapsed: getDateService().now().getTime() - startTime,
             });
           }
         } else {
@@ -1301,7 +1299,7 @@ export async function processDrop(
         bucket: phase1Result.bucket,
         is_ambiguous: phase1Result.is_ambiguous,
         ambiguity_reason: phase1Result.ambiguity_reason,
-        latency_ms: Date.now() - startTime,
+        latency_ms: getDateService().now().getTime() - startTime,
       });
 
       // =========================================
@@ -1394,7 +1392,7 @@ export async function processDrop(
         phase15aResult = await runPhase1_5a(text, phase1Result.bucket, phase1Result.subtype);
         console.log('[DropProcessor] Phase 1.5a timing', {
           localId,
-          elapsed: Date.now() - startTime,
+          elapsed: getDateService().now().getTime() - startTime,
         });
 
         // Update Zustand with title + confirmation for immediate typewriter animation
@@ -1410,7 +1408,7 @@ export async function processDrop(
             localId,
             smartTitle: phase15aResult.smart_title?.substring(0, 30),
             minddrop_stage: 'streaming',
-            timestamp: Date.now(),
+            timestamp: getDateService().now().getTime(),
           });
 
           // CRITICAL: Yield to the event loop so React can render the 'streaming' state
@@ -1458,7 +1456,7 @@ export async function processDrop(
             reminder_time: phase2bRes?.reminder_time,
           });
         }
-        console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: Date.now() - startTime });
+        console.log('[DropProcessor] Phase 2 timing', { localId, elapsed: getDateService().now().getTime() - startTime });
       }
 
       // Update Zustand with ALL metadata fields (time estimate, tags, frequency, people, etc.)
@@ -1494,7 +1492,7 @@ export async function processDrop(
         // metadata chips (tags, time estimate, etc.) until the user retries.
         console.warn('[DropProcessor] Phase 2 failed — setting enrichment_failed', {
           localId,
-          elapsed: Date.now() - startTime,
+          elapsed: getDateService().now().getTime() - startTime,
         });
         useGremlyStore.getState().updatePendingDropEnrichment(localId, {
           status: 'enrichment_failed',
@@ -1586,15 +1584,15 @@ export async function processDrop(
 
             const reminderToSave: ItemReminder = hasDate
               ? {
-                  id: `auto-${Date.now()}`,
+                  id: `auto-${getDateService().now().getTime()}`,
                   time: phase2bRes.reminder_time || '09:00',
                   frequency,
                   date: frequency === 'once' ? phase2bRes.reminder_date! : undefined,
                 }
               : {
                   // No date — quick 2-hour reminder
-                  id: `auto-quick-${Date.now()}`,
-                  time: new Date(Date.now() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5),
+                  id: `auto-quick-${getDateService().now().getTime()}`,
+                  time: new Date(getDateService().now().getTime() + 2 * 60 * 60 * 1000).toTimeString().slice(0, 5),
                   frequency: 'once' as const,
                   date: dateService.today(),
                 };
@@ -1604,7 +1602,7 @@ export async function processDrop(
               entityType === 'todo' ? 'todos' : entityType === 'habit' ? 'habits' : 'notes';
             supabase
               .from(table)
-              .update({ reminders_json: [reminderToSave], updated_at: new Date().toISOString() })
+              .update({ reminders_json: [reminderToSave], updated_at: nowTimestamp() })
               .eq('id', entityId)
               .then(
                 () => console.log('[DropProcessor] Auto-reminder persisted', { entityId }),
@@ -1656,7 +1654,7 @@ export async function processDrop(
                     .from(table)
                     .update({
                       reminders_json: [updatedReminder],
-                      updated_at: new Date().toISOString(),
+                      updated_at: nowTimestamp(),
                     })
                     .eq('id', entityId)
                     .then(
@@ -1707,8 +1705,8 @@ export async function processDrop(
 
         console.log('[DropProcessor] Sync timing', {
           localId,
-          elapsed: Date.now() - startTime,
-          total: Date.now() - startTime,
+          elapsed: getDateService().now().getTime() - startTime,
+          total: getDateService().now().getTime() - startTime,
         });
         clearTimeout(maxProcessingTimer);
         return { success: true, supabaseId: syncResult.supabaseId };
@@ -1828,7 +1826,7 @@ export async function reclassifyDegradedEntities(): Promise<void> {
               ai_degraded: false,
               classification_source: result.source,
             },
-            updated_at: new Date().toISOString(),
+            updated_at: nowTimestamp(),
           })
           .eq('id', entity.id);
 
@@ -1869,7 +1867,7 @@ export async function reclassifyDegradedEntities(): Promise<void> {
               reclassified_subtype: result.subtype,
               classification_source: result.source,
             },
-            updated_at: new Date().toISOString(),
+            updated_at: nowTimestamp(),
           })
           .eq('id', entity.id);
 

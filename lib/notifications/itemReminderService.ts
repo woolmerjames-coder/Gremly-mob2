@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import type { ItemReminder } from '../types';
 import { NOTIFICATION_CATEGORIES } from '../../src/utils/notifications';
+import { getDateService } from '../date';
 
 const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -96,10 +97,10 @@ export async function scheduleItemReminder(
         return null;
       }
 
-      const fireDate = new Date(`${reminder.date}T00:00:00`);
+      const fireDate = getDateService().fromLocalDate(reminder.date);
       fireDate.setHours(hour, minute, 0, 0);
 
-      if (fireDate.getTime() <= Date.now()) {
+      if (fireDate.getTime() <= getDateService().now().getTime()) {
         console.log(`[itemReminderService] Skipping past date: ${fireDate.toISOString()}`);
         return null;
       }

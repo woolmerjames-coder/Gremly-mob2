@@ -5,6 +5,7 @@ import { useGremlyStore } from '../../store/useGremlyStore';
 import type { Habit } from '../../types';
 import { normalizeCadence } from '../../sweep/habitHelpers';
 import { getFrequencyDisplayLabel } from '../../habits/frequencyUtils';
+import { getDateService } from '../../date/DateService';
 
 export interface HabitMetadata {
   type: 'streak' | 'days_since' | 'rolling_progress';
@@ -87,7 +88,7 @@ export function computeHabitMetadata(
   // Fall back to habit.target_per_period only if frequency doesn't have a number
   const inferredTarget = extractTargetFromFrequency(habit.frequency);
   const targetPerPeriod = inferredTarget ?? habit.target_per_period ?? 1;
-  const today = new Date();
+  const today = getDateService().now();
 
   // Use inferred cadence and target for the display label
   // This ensures "5 times a week" shows as "5x/week" even if cadence field is wrong

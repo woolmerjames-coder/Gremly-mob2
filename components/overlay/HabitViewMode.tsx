@@ -284,7 +284,7 @@ function getCalendarDays(
   for (let i = 0; i < 42; i++) {
     const date = new Date(gridStart);
     date.setDate(date.getDate() + i);
-    const dateIso = ds.toDateString(date);
+    const dateIso = ds.toLocalDate(date);
 
     days.push({
       dateIso,
@@ -332,11 +332,11 @@ function calculateMonthlyAdherence(
 
   // First day of target month
   const monthStart = new Date(year, month, 1);
-  const monthStartIso = ds.toDateString(monthStart);
+  const monthStartIso = ds.toLocalDate(monthStart);
 
   // Last day of target month
   const monthEnd = new Date(year, month + 1, 0);
-  const monthEndIso = ds.toDateString(monthEnd);
+  const monthEndIso = ds.toLocalDate(monthEnd);
 
   // Effective start: later of month start or habit start
   let effectiveStart = monthStartIso;
@@ -543,8 +543,8 @@ export default function HabitViewMode({
   );
   const completedCount = rolling7Days.filter((d) => d.isCompleted).length;
   const todayDate = ds.fromDateString(todayIso);
-  const currentYear = todayDate?.getFullYear() ?? new Date().getFullYear();
-  const currentMonth = todayDate?.getMonth() ?? new Date().getMonth();
+  const currentYear = todayDate?.getFullYear() ?? getDateService().now().getFullYear();
+  const currentMonth = todayDate?.getMonth() ?? getDateService().now().getMonth();
 
   // Calculate monthly adherence
   const currentMonthAdherence = useMemo(

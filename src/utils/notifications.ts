@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { nowTimestamp } from '../../lib/date/DateService';
 
 const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -97,7 +98,7 @@ export async function savePushToken(userId: string, token: string) {
       user_id: userId,
       token: token,
       platform: Platform.OS,
-      updated_at: new Date().toISOString(),
+      updated_at: nowTimestamp(),
     },
     { onConflict: 'user_id' },
   );

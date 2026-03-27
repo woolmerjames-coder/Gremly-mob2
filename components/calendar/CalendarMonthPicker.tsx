@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, Modal, Pressable, StyleSheet } from 'react-native';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react-native';
+import { format } from 'date-fns';
 import { getDateService } from '../../lib/date';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useNavigation } from '@react-navigation/native';
@@ -85,10 +86,7 @@ export function CalendarMonthPicker({
     return days;
   }, [viewingYear, viewingMonth, dateService]);
 
-  const monthYearLabel = new Date(viewingYear, viewingMonth).toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  });
+  const monthYearLabel = format(new Date(viewingYear, viewingMonth), 'MMMM yyyy');
 
   const handlePrevMonth = () => {
     const newDate = new Date(viewingYear, viewingMonth - 1, 1);

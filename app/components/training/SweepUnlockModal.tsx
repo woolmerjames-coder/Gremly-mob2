@@ -4,6 +4,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
 import { ArrowLeft } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
+import { getDateService } from '../../../lib/date';
 
 import SWEEP_IMAGE from '../../../assets/mascot/sweepcomplete.png';
 
@@ -16,7 +17,7 @@ interface SweepUnlockModalProps {
 }
 
 function getDefaultEveningTime(): Date {
-  const d = new Date();
+  const d = getDateService().now();
   d.setHours(20, 0, 0, 0);
   return d;
 }

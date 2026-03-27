@@ -4,6 +4,8 @@
  * Step 5: Copy variants with deterministic rotation
  */
 
+import { getDateService } from '../date/DateService';
+
 type TimeWindow = 'morning' | 'midday' | 'evening';
 
 /**
@@ -11,7 +13,7 @@ type TimeWindow = 'morning' | 'midday' | 'evening';
  * Returns 0-based index that changes daily
  */
 function getDayIndex(): number {
-  const now = new Date();
+  const now = getDateService().now();
   const startOfYear = new Date(now.getFullYear(), 0, 0);
   const diff = now.getTime() - startOfYear.getTime();
   const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));

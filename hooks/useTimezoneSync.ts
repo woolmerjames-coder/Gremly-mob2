@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '../lib/supabase/client';
+import { nowTimestamp, getDateService } from '../lib/date/DateService';
 
 const HEARTBEAT_DEBOUNCE_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -28,7 +29,7 @@ async function syncTimezone(userId: string): Promise<void> {
 
   const { error: updateErr } = await supabase
     .from('notification_preferences')
-    .update({ timezone: deviceTz, updated_at: new Date().toISOString() })
+    .update({ timezone: deviceTz, updated_at: nowTimestamp() })
     .eq('user_id', userId);
 
   if (updateErr) {
@@ -42,7 +43,7 @@ async function syncTimezone(userId: string): Promise<void> {
 async function writeHeartbeat(userId: string): Promise<void> {
   const { error } = await supabase
     .from('notification_preferences')
-    .update({ last_app_active_at: new Date().toISOString() })
+    .update({ last_app_active_at: nowTimestamp() })
     .eq('user_id', userId);
 
   if (error) {
@@ -89,7 +90,7 @@ export function useTimezoneSync(): void {
       syncTimezone(userId);
 
       // Heartbeat (debounced to 10-min intervals)
-      const now = Date.now();
+      const now = getDateService().now().getTime();
       if (now - lastHeartbeatRef.current >= HEARTBEAT_DEBOUNCE_MS) {
         lastHeartbeatRef.current = now;
         writeHeartbeat(userId);

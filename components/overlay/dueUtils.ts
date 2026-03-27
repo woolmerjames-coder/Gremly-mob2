@@ -2,6 +2,8 @@
  * Helpers for splitting and composing due date/time fields in the unified overlay.
  */
 
+import { getDateService } from '../../lib/date/DateService';
+
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_WITH_TIME_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
 const ISO_ZERO_Z_RE = /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.\d+)?Z$/;
@@ -10,9 +12,7 @@ const TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
 
 const toIsoLocal = (date: Date) => {
-  const year = date.getFullYear();
-  const month = pad(date.getMonth() + 1);
-  const day = pad(date.getDate());
+  const datePart = getDateService().toLocalDate(date);
   const hours = pad(date.getHours());
   const minutes = pad(date.getMinutes());
   const seconds = pad(date.getSeconds());
@@ -20,7 +20,7 @@ const toIsoLocal = (date: Date) => {
   const sign = offset >= 0 ? '+' : '-';
   const offsetHours = pad(Math.floor(Math.abs(offset) / 60));
   const offsetMinutes = pad(Math.abs(offset) % 60);
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offsetHours}:${offsetMinutes}`;
+  return `${datePart}T${hours}:${minutes}:${seconds}${sign}${offsetHours}:${offsetMinutes}`;
 };
 
 export const normalizeTimeInput = (value?: string | null): string | null => {

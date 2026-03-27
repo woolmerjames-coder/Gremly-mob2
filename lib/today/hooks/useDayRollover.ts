@@ -18,7 +18,7 @@ import { getDateService } from '../../date';
  * Adds a 500ms buffer to avoid edge-case races right at midnight.
  */
 function msUntilMidnight(): number {
-  const now = new Date();
+  const now = getDateService().now();
   const midnight = new Date(now);
   midnight.setDate(midnight.getDate() + 1);
   midnight.setHours(0, 0, 0, 0);

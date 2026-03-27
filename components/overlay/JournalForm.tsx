@@ -8,7 +8,7 @@ import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import { overlayStyles } from '../../app/styles/manualAdd.styles';
 import { Button } from '../../design-system/Button';
 import { JournalSchema } from '../../app/schemas/manualAdd';
-import { getTodayISO } from '../../app/utils/recurrence';
+import { today as getTodayISO } from '../../lib/date/DateService';
 import type { ManualAddPayload, TReminderRule } from '../../app/schemas/manualAdd';
 import type { AppRecord } from '../../lib/types';
 

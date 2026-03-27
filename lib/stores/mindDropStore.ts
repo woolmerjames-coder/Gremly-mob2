@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { MindDropBucket, MindDropItem, PendingItem } from '../minddrop/types';
+import { nowTimestamp, getDateService } from '../date/DateService';
 
 /**
  * State shape for the MindDrop store
@@ -111,7 +112,7 @@ export const useMindDropStore = create<MindDropStore>()(
           [id]: {
             ...state.items[id],
             ...patch,
-            updatedAt: new Date().toISOString(),
+            updatedAt: nowTimestamp(),
           },
         },
       }));
@@ -139,7 +140,7 @@ export const useMindDropStore = create<MindDropStore>()(
 
       set({
         items: itemsRecord,
-        lastFetchedAt: new Date().toISOString(),
+        lastFetchedAt: nowTimestamp(),
       });
     },
 
@@ -161,7 +162,7 @@ export const useMindDropStore = create<MindDropStore>()(
 
         return {
           items: itemsRecord,
-          lastFetchedAt: new Date().toISOString(),
+          lastFetchedAt: nowTimestamp(),
           isLoading: false,
         };
       });
@@ -198,7 +199,7 @@ export function getItemsBySpace(spaceId: string | null): MindDropItem[] {
  */
 export function getTodayItems(): MindDropItem[] {
   const { items } = useMindDropStore.getState();
-  const startOfToday = new Date();
+  const startOfToday = getDateService().now();
   startOfToday.setHours(0, 0, 0, 0);
   const startOfTodayISO = startOfToday.toISOString();
 

@@ -8,6 +8,7 @@
 import * as Haptics from 'expo-haptics';
 import { getEnv } from '../../../lib/env';
 import { subscribeToCelebrationEvents, type CelebrationEvent } from './celebrationBus';
+import { getDateService } from '../../../lib/date';
 
 export type CelebrationKind = 'micro' | 'confetti' | 'mascot' | 'age_up' | 'fed' | 'post_age_up';
 
@@ -134,7 +135,7 @@ class CelebrationController {
     // Rate limiting
     const minMsBetween = parseInt(getEnv('EXPO_PUBLIC_CELEBRATE_MIN_MS_BETWEEN') || '45000', 10);
 
-    const now = Date.now();
+    const now = getDateService().now().getTime();
     const elapsed = now - this.lastCelebrationTime;
 
     // Block confetti if last celebration was confetti and within rate limit

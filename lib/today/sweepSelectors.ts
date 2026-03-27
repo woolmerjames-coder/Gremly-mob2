@@ -208,7 +208,7 @@ export function isSweepEligible(todo: SweepEligibleTodo, todayDay: string): bool
   // Check: no dates at all - include if created in last 3 days
   if (!doDate && !todo.target_date) {
     if (todo.created_at) {
-      const threeDaysAgo = new Date();
+      const threeDaysAgo = getDateService().now();
       threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
       const createdDate = new Date(todo.created_at);
       return createdDate >= threeDaysAgo;

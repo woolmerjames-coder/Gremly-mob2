@@ -49,6 +49,7 @@ import TimelineView from '../../components/hub/TimelineView';
 import PeopleView from '../../components/hub/PeopleView';
 import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
 import { getDateService } from '../../lib/date';
+import { format } from 'date-fns';
 import UnsortedReviewSheet, { type UnsortedItem } from '../../components/UnsortedReviewSheet';
 import PeopleList, { type PersonWithCounts } from '../../components/people/PeopleList';
 import { colors, radii, spacing } from '../../theme/tokens';
@@ -183,8 +184,8 @@ function formatSummaryDateRange(startDate: string, endDate: string): string {
     const start = new Date(sy, sm - 1, sd);
     const end = new Date(ey, em - 1, ed);
     const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-    const startStr = start.toLocaleDateString('en-US', opts);
-    const endStr = end.toLocaleDateString('en-US', { ...opts, year: 'numeric' });
+    const startStr = format(start, 'MMM d');
+    const endStr = format(end, 'MMM d, yyyy');
     return `${startStr} – ${endStr}`;
   } catch {
     return `${startDate} – ${endDate}`;
@@ -986,12 +987,12 @@ export default function HubScreen() {
     if (itemDate > sevenDaysAgo) {
       // Parse at noon to avoid timezone shifts
       const d = ds.fromDateString(itemDate) ?? new Date(itemDate + 'T12:00:00');
-      return d.toLocaleDateString('en-US', { weekday: 'short' });
+      return format(d, 'EEE');
     }
 
     // Older dates: "Jan 5" format
     const d = ds.fromDateString(itemDate) ?? new Date(itemDate + 'T12:00:00');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return format(d, 'MMM d');
   }, []);
 
   // =========================================================================

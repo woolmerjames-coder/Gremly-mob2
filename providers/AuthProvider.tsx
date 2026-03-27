@@ -18,6 +18,7 @@ import { networkStatus } from '../lib/network/NetworkStatus';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { calendarClient } from '../lib/calendar/CalendarClient';
 import { FLAGS } from '../config/flags';
+import { nowTimestamp } from '../lib/date/DateService';
 import useDayBoundaryWatcher from '../lib/today/hooks/useDayBoundaryWatcher';
 import { registerForPushNotifications, savePushToken } from '../src/utils/notifications';
 import type { Session, User } from '@supabase/supabase-js';
@@ -328,7 +329,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       if (FLAGS.REPO_BACKEND === 'memory') {
-        const mockUser = { id: 'memory-user', email, created_at: new Date().toISOString() } as User;
+        const mockUser = { id: 'memory-user', email, created_at: nowTimestamp() } as User;
         setUser(mockUser);
         setSession({ user: mockUser } as Session);
         return;
@@ -359,7 +360,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const mockUser = {
           id: 'dev-user',
           email: 'dev@gremly.test',
-          created_at: new Date().toISOString(),
+          created_at: nowTimestamp(),
         } as User;
         setUser(mockUser);
         setSession({ user: mockUser } as Session);

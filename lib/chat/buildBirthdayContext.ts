@@ -3,14 +3,12 @@
  * Gremly's birthday = the day this user's account was created.
  * Always includes today's date so Gremly knows the current date.
  */
+import { getDateService } from '../date/DateService';
+import { format } from 'date-fns';
+
 export function buildBirthdayContext(accountCreatedAt: string | null): string {
-  const today = new Date();
-  const todayStr = today.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  const today = getDateService().now();
+  const todayStr = format(today, 'EEEE, MMMM d, yyyy');
 
   let context = `=== DATE & RELATIONSHIP ===\n`;
   context += `Today is ${todayStr}.\n`;
@@ -20,11 +18,7 @@ export function buildBirthdayContext(accountCreatedAt: string | null): string {
     const msPerDay = 1000 * 60 * 60 * 24;
     const daysTogether = Math.floor((today.getTime() - birthDate.getTime()) / msPerDay);
 
-    const birthDateStr = birthDate.toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
+    const birthDateStr = format(birthDate, 'MMMM d, yyyy');
 
     context += `You were born on ${birthDateStr} (when this user created their account).\n`;
     context += `You've been companions for ${daysTogether} day${daysTogether === 1 ? '' : 's'}.`;

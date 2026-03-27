@@ -4,6 +4,7 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, type ViewStyle } from 'react-native';
+import { format } from 'date-fns';
 import { lightTokens } from '../../design/tokens';
 
 interface InsightsCardProps {
@@ -52,11 +53,7 @@ export function InsightsCard({ summary, loading, lastUpdated }: InsightsCardProp
       {lastUpdated && (
         <Text style={styles.timestamp}>
           Last updated:{' '}
-          {new Date(lastUpdated).toLocaleDateString(undefined, {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-          })}
+          {format(new Date(lastUpdated), 'MMM d, yyyy')}
         </Text>
       )}
     </View>

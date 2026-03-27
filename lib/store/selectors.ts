@@ -111,7 +111,7 @@ export const selectCompletionsThisWeek = createSelector(
 export const selectCompletionsThisMonth = createSelector(
   [selectHabitProgress],
   (progress): Map<string, number> => {
-    const now = new Date();
+    const now = ds().now();
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     const map = new Map<string, number>();
 
@@ -318,7 +318,7 @@ export const selectUrgentFrequencyHabits = createSelector(
   (habits, progress): Habit[] => {
     const dateService = ds();
     const todayStr = dateService.getCurrentDate();
-    const today = dateService.fromDateString(todayStr) ?? new Date(); // Date at noon local time
+    const today = dateService.fromDateString(todayStr) ?? ds().now(); // Date at noon local time
 
     return habits.filter((h) => {
       if (h.archived) return false;
@@ -331,7 +331,7 @@ export const selectUrgentFrequencyHabits = createSelector(
       // Get completions in current window
       const windowStart = new Date(today);
       windowStart.setDate(today.getDate() - windowDays + 1);
-      const windowStartStr = dateService.toDateString(windowStart);
+      const windowStartStr = dateService.toLocalDate(windowStart);
 
       const completions = progress.filter(
         (p) =>
@@ -352,7 +352,7 @@ export const selectUrgentFrequencyHabits = createSelector(
       tomorrow.setDate(today.getDate() + 1);
       const tomorrowWindowStart = new Date(tomorrow);
       tomorrowWindowStart.setDate(tomorrow.getDate() - windowDays + 1);
-      const tomorrowWindowStartStr = dateService.toDateString(tomorrowWindowStart);
+      const tomorrowWindowStartStr = dateService.toLocalDate(tomorrowWindowStart);
 
       // If oldest completion would be outside tomorrow's window, it's urgent
       return oldestCompletion < tomorrowWindowStartStr;
@@ -413,7 +413,7 @@ function isHabitDueToday(
     case 'weekly':
       // Option A: specific days mode (days_active array)
       if (daysActive && daysActive.length > 0) {
-        const todayDayOfWeek = new Date().getDay();
+        const todayDayOfWeek = ds().now().getDay();
         // days_active contains day numbers (0-6) or day names
         const isDayActive = daysActive.some((day) => {
           if (typeof day === 'number') return day === todayDayOfWeek;
@@ -1338,7 +1338,7 @@ export const selectHubHabits = createSelector([selectHabits], (habits) =>
 function computeHabitWeeklyStatus(habit: Habit, completionsThisWeek: number): HabitWeeklyStatus {
   const cadence = habit.cadence ?? 'daily';
   const target = habit.target_per_period ?? (cadence === 'daily' ? 7 : 1);
-  const today = new Date();
+  const today = ds().now();
   const dayOfWeek = today.getDay(); // 0 = Sunday
   const daysRemaining = 7 - dayOfWeek; // days left including today
 
@@ -1716,7 +1716,7 @@ export const selectMilestoneCountdown = createSelector(
       return { days: null, dateFormatted: null, isPast: false };
     }
     const target = new Date(milestone.date);
-    const now = new Date();
+    const now = ds().now();
     // Reset time to start of day for accurate day calculation
     target.setHours(0, 0, 0, 0);
     now.setHours(0, 0, 0, 0);
@@ -1725,11 +1725,7 @@ export const selectMilestoneCountdown = createSelector(
     const isPast = diffDays < 0;
 
     // Format date as "Mon DD" or "Mon DD, YYYY" if different year
-    const dateFormatted = target.toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      ...(target.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}),
-    });
+    const dateFormatted = ds().formatForChip(ds().toLocalDate(target));
 
     return { days: diffDays, dateFormatted, isPast };
   },
@@ -2076,7 +2072,7 @@ export type TimelineDay = {
 
 /** Get current week's date range (Sunday to Saturday) */
 function getWeekDateRange(): string[] {
-  const now = new Date();
+  const now = ds().now();
   const dayOfWeek = now.getDay(); // 0 = Sunday
   const weekStart = new Date(now);
   weekStart.setDate(now.getDate() - dayOfWeek);
@@ -2084,7 +2080,7 @@ function getWeekDateRange(): string[] {
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
     d.setDate(weekStart.getDate() + i);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return ds().toLocalDate(d);
   });
 }
 
@@ -2210,7 +2206,7 @@ export const selectSweepIntroStats = (
   lastSweepCompletedAt: string | null,
 ): SweepIntroStats => {
   const cutoffTimestamp =
-    lastSweepCompletedAt || new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    lastSweepCompletedAt || new Date(ds().now().getTime() - 48 * 60 * 60 * 1000).toISOString();
 
   // Completed todos (has completed_at > cutoff)
   const completedTodos: SweepIntroItem[] = state.todos

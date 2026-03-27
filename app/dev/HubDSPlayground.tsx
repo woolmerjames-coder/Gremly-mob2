@@ -10,6 +10,8 @@ import { Screen, Box, Text, Button, Input, Chip } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
 import { getNoteLabel, kindToDisplayLabel } from '../../lib/canonicalTypes';
+import { getDateService, nowTimestamp } from '../../lib/date';
+import { format } from 'date-fns';
 // import { openManualAdd } from '../../components/ManualAddSheet'; // DEPRECATED - removed
 
 // Mock data
@@ -18,19 +20,19 @@ const mockRecentItems = [
     id: 'item-1',
     type: 'habit' as const,
     title: 'Morning Run',
-    updated_at: new Date().toISOString(),
+    updated_at: nowTimestamp(),
   },
   {
     id: 'item-2',
     type: 'todo' as const,
     title: 'Buy groceries',
-    updated_at: new Date(Date.now() - 86400000).toISOString(),
+    updated_at: new Date(getDateService().now().getTime() - 86400000).toISOString(),
   },
   {
     id: 'item-3',
     type: 'note' as const,
     title: 'Meeting notes',
-    updated_at: new Date(Date.now() - 172800000).toISOString(),
+    updated_at: new Date(getDateService().now().getTime() - 172800000).toISOString(),
   },
 ];
 
@@ -117,7 +119,7 @@ export default function HubDSPlayground() {
             <ListItem
               key={item.id}
               title={item.title}
-              subtitle={`${kindToDisplayLabel(item.type, { lowercase: true })} • ${new Date(item.updated_at).toLocaleDateString()}`}
+              subtitle={`${kindToDisplayLabel(item.type, { lowercase: true })} • ${format(new Date(item.updated_at), 'M/d/yyyy')}`}
               onPress={() => handleItemPress(item.id, item.type)}
               testID={`hub-recent-${item.id}`}
             />

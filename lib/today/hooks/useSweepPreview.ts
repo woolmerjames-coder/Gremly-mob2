@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRepo } from '../../../providers/RepoProvider';
 import { useAuth } from '../../../providers/AuthProvider';
 import { env } from '../../env';
+import { getDateService } from '../../date/DateService';
 
 export interface SweepPreviewState {
   completed: number;
@@ -26,7 +27,7 @@ export function useSweepPreview(thresholdHourLocal = 17): SweepPreviewState {
   const [error, setError] = useState<string | null>(null);
 
   const available = useMemo(() => {
-    const h = new Date().getHours();
+    const h = getDateService().now().getHours();
     const sweepEnabled =
       Boolean(env.feature.today.sweepPreview) || Boolean(env.feature.sweep?.eveningV1);
     return sweepEnabled && h >= thresholdHourLocal;

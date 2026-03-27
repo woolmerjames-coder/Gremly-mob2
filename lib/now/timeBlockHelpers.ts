@@ -6,6 +6,7 @@
  */
 
 import type { CalendarEvent } from '../calendar/CalendarClient';
+import { getDateService } from '../date/DateService';
 
 export type TimeBlock = 'allday' | 'morning' | 'afternoon' | 'evening' | 'anytime';
 
@@ -31,7 +32,7 @@ export function getTimeBlockForHour(hour: number): TimeBlock {
  * Get current time block based on current time
  */
 export function getCurrentTimeBlock(): TimeBlock {
-  const now = new Date();
+  const now = getDateService().now();
   return getTimeBlockForHour(now.getHours());
 }
 

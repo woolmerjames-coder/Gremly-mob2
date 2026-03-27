@@ -210,7 +210,7 @@ export default function TaskHabitStack() {
   }, [items]);
 
   const recordCompletion = (id: string, entryType: 'todo' | 'habit', title: string) => {
-    const completedAtIso = new Date().toISOString();
+    const completedAtIso = dateService.nowTimestamp();
     setSessionDone((current) => {
       if (current.some((entry) => entry.id === id && entry.type === entryType)) {
         return current;
@@ -233,7 +233,7 @@ export default function TaskHabitStack() {
     if (done + 1 >= target) {
       recordCompletion(id, 'habit', title);
     }
-    await repoWithHabitLogging.logHabitProgress?.(id, new Date().toISOString(), 1);
+    await repoWithHabitLogging.logHabitProgress?.(id, dateService.nowTimestamp(), 1);
     eventBus.emit('ItemCompleted', { id, type: 'habit' });
     // Store auto-updates, no reload needed
   };

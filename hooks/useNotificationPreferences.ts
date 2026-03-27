@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase/client';
 import { useAuth } from '../providers/AuthProvider';
+import { nowTimestamp, getDateService } from '../lib/date/DateService';
 
 /**
  * Notification preferences stored in Supabase
@@ -59,7 +60,7 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
  */
 function timeStringToDate(timeString: string): Date {
   const [hours, minutes] = timeString.split(':').map(Number);
-  const date = new Date();
+  const date = getDateService().now();
   date.setHours(hours, minutes, 0, 0);
   return date;
 }
@@ -226,7 +227,7 @@ export function useNotificationPreferences(): UseNotificationPreferencesResult {
             weekly_time: dbPrefs.weeklyTime,
             weekly_day: dbPrefs.weeklyDay,
             timezone,
-            updated_at: new Date().toISOString(),
+            updated_at: nowTimestamp(),
           },
           { onConflict: 'user_id' },
         );

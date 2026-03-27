@@ -2,6 +2,7 @@ import type { CortexInput, CortexOutput, ICortexEngine } from './ICortexEngine';
 import { callChat, callClassify, type ChatMessage } from '../lib/cortex/CortexClient';
 import { filterAndNormalizeTags, normalizeTag } from '../lib/tags/normalize';
 import { applyTagQualityFilter } from '../lib/tags/quality';
+import { getDateService } from '../lib/date/DateService';
 import { heuristicEngine } from './heuristicEngine';
 import { extractMeaningfulTags } from '../lib/tags/extractTags';
 import { classifyV2 } from '../lib/cortex/classify/classifyV2';
@@ -838,7 +839,7 @@ export async function classifyTextForEval(
   const now =
     typeof performance !== 'undefined' && typeof performance.now === 'function'
       ? () => performance.now()
-      : () => Date.now();
+      : () => getDateService().now().getTime();
   const start = now();
   const raw = await engine.classify({ text, spaceId: null });
   const latencyMs = now() - start;

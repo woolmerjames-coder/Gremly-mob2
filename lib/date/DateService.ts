@@ -109,10 +109,24 @@ export interface DateServiceLogger {
   warn: (message: string, data?: Record<string, unknown>) => void;
 }
 
+export interface DayBoundaryOption {
+  /** Hour value (0-23) */
+  value: number;
+  /** Human-readable label */
+  label: string;
+}
+
+export const DAY_BOUNDARY_OPTIONS: DayBoundaryOption[] = [
+  { value: 0, label: 'Midnight' },
+  { value: 3, label: '3:00 AM' },
+  { value: 5, label: '5:00 AM' },
+];
+
 export interface DateServiceConfig {
   timezone?: string; // e.g., 'America/Los_Angeles'
   clock?: () => Date; // Injectable clock for testing
   logger?: DateServiceLogger; // Optional logger
+  dayBoundaryHour?: number; // Hour (0-23) when the ritual day rolls over (default: 0)
 }
 
 // Default logger - only logs in __DEV__
@@ -135,6 +149,7 @@ export class DateService {
   private timezone: string;
   private clock: () => Date;
   private logger: DateServiceLogger;
+  private dayBoundaryHour: number;
 
   constructor(config?: DateServiceConfig) {
     // Auto-detect timezone if not provided
@@ -143,6 +158,8 @@ export class DateService {
     this.clock = config?.clock || (() => new Date());
     // Default logger
     this.logger = config?.logger || defaultLogger;
+    // Day boundary: 0 = midnight (standard), 3-5 = late-night rollover
+    this.dayBoundaryHour = config?.dayBoundaryHour ?? 0;
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -178,8 +195,11 @@ export class DateService {
   }
 
   getDayOfWeek(): string {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    return days[this.now().getDay()];
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: this.timezone,
+      weekday: 'long',
+    });
+    return formatter.format(this.now());
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -263,7 +283,60 @@ export class DateService {
    * }
    */
   getHour(): number {
-    return this.now().getHours();
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: this.timezone,
+      hour: 'numeric',
+      hour12: false,
+    });
+    const hour = parseInt(formatter.format(this.now()), 10);
+    // Intl may return 24 for midnight in some engines
+    return hour === 24 ? 0 : hour;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // RITUAL DAY
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Get the current "ritual day" based on dayBoundaryHour.
+   * If the current hour is before dayBoundaryHour, returns yesterday's date.
+   * Otherwise returns today's date.
+   */
+  ritualDay(): string {
+    const hour = this.getHour();
+    if (this.dayBoundaryHour > 0 && hour < this.dayBoundaryHour) {
+      return this.addDays(this.toLocalDate(this.now()), -1);
+    }
+    return this.toLocalDate(this.now());
+  }
+
+  /**
+   * Returns true if current time is in the late-night period
+   * (between midnight and dayBoundaryHour).
+   */
+  isInLateNightPeriod(): boolean {
+    if (this.dayBoundaryHour === 0) return false;
+    const hour = this.getHour();
+    return hour >= 0 && hour < this.dayBoundaryHour;
+  }
+
+  /**
+   * Hours remaining until the next day boundary rollover.
+   */
+  getHoursUntilDayBoundary(): number {
+    const currentHour = this.getHour();
+    if (currentHour < this.dayBoundaryHour) {
+      return this.dayBoundaryHour - currentHour;
+    }
+    return 24 - currentHour + this.dayBoundaryHour;
+  }
+
+  setDayBoundaryHour(hour: number): void {
+    this.dayBoundaryHour = hour;
+  }
+
+  getDayBoundaryHour(): number {
+    return this.dayBoundaryHour;
   }
 
   /**
@@ -276,12 +349,22 @@ export class DateService {
    */
   getStartOfWeek(): string {
     const now = this.now();
-    const day = now.getDay();
-    // Convert Sunday (0) to 7 for easier calculation
+    // Get weekday in the injected timezone via Intl
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: this.timezone,
+      weekday: 'short',
+    });
+    const weekdayName = formatter.format(now);
+    const weekdayMap: Record<string, number> = {
+      Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+    };
+    const day = weekdayMap[weekdayName] ?? 0;
+    // Convert Sunday (0) to 7 for easier Monday calculation
     const dayOfWeek = day === 0 ? 7 : day;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - (dayOfWeek - 1));
-    monday.setHours(12, 0, 0, 0);
+    // Get the timezone-correct date, then compute Monday via noon anchoring
+    const todayStr = this.toLocalDate(now);
+    const [y, m, d] = todayStr.split('-').map(Number);
+    const monday = new Date(y, m - 1, d - (dayOfWeek - 1), 12, 0, 0, 0);
     return this.toLocalDate(monday);
   }
 
@@ -664,10 +747,13 @@ export class DateService {
    */
   toLocalDate(date: Date | null | undefined): string {
     if (!date || isNaN(date.getTime())) return '';
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: this.timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    return formatter.format(date);
   }
 
   /**
@@ -690,7 +776,9 @@ export class DateService {
     const month = parseInt(match[2], 10) - 1;
     const day = parseInt(match[3], 10);
 
-    // Set to noon to avoid DST edge cases
+    // Intentionally uses the device timezone constructor: we're creating a Date
+    // from a YYYY-MM-DD string that already represents the user's local date.
+    // Noon anchoring avoids DST edge cases where midnight could shift the day.
     const date = new Date(year, month, day, 12, 0, 0, 0);
     return isNaN(date.getTime()) ? null : date;
   }
@@ -1051,6 +1139,9 @@ export const daysFromNow = (n: number) => getDateService().daysFromNow(n);
 export const nowTimestamp = () => getDateService().nowTimestamp();
 export const getHour = () => getDateService().getHour();
 export const getStartOfWeek = () => getDateService().getStartOfWeek();
+export const ritualDay = () => getDateService().ritualDay();
+export const isInLateNightPeriod = () => getDateService().isInLateNightPeriod();
+export const getHoursUntilDayBoundary = () => getDateService().getHoursUntilDayBoundary();
 export const toLocalDate = (date: Date | null | undefined) => getDateService().toLocalDate(date);
 export const fromLocalDate = (dateStr: string | null | undefined) =>
   getDateService().fromLocalDate(dateStr);

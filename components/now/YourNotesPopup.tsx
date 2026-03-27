@@ -25,6 +25,7 @@ import { useRecentNotes } from '../../lib/store/selectors';
 import { YourNotesRow } from './YourNotesRow';
 import type { Note } from '../../lib/types';
 import type { LogItem, LogSubtypeDisplay } from '../../lib/notes/useRecentLogs';
+import { getDateService } from '../../lib/date';
 
 /** Map Note to LogItem for display */
 function noteToLogItem(note: Note): LogItem {
@@ -160,7 +161,7 @@ export function YourNotesPopup({
 
   // Filter to last 7 days and exclude catchall
   const { logs, journals, ideas, general, totalCount } = useMemo(() => {
-    const sevenDaysAgo = new Date();
+    const sevenDaysAgo = getDateService().now();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const cutoff = sevenDaysAgo.toISOString();
 

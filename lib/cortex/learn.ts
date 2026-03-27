@@ -48,11 +48,13 @@ function mergeKeywordList(existing: string[] = [], incoming: string[], cap = 24)
   return Array.from(set).slice(0, cap);
 }
 
+import { nowTimestamp } from '../date/DateService';
+
 export function learnFromEvents(
   events: LeanEvent[],
   current: CortexPreferences,
 ): LearnResult {
-  const learnedAt = new Date().toISOString();
+  const learnedAt = nowTimestamp();
   const routing: Record<string, string[]> = { ...(current.routing_keywords || {}) };
 
   let acceptCount = 0;

@@ -17,6 +17,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Screen } from '../../ui/Screen';
 import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
+import { getDateService } from '../../lib/date';
 import { colors, spacing, radii } from '../../theme/tokens';
 import type { EntityPerson, ItemType } from '../../lib/repo/types';
 import type { AppRecord } from '../../lib/types';
@@ -178,7 +179,7 @@ export default function PersonDetailScreen() {
           >
             <Text style={styles.itemTitle}>{getItemTitle(item)}</Text>
             <Text style={styles.itemDate}>
-              {new Date(item.updated_at || item.created_at).toLocaleDateString()}
+              {getDateService().formatForChip(getDateService().extractLocalDate(item.updated_at || item.created_at))}
             </Text>
           </TouchableOpacity>
         ))}

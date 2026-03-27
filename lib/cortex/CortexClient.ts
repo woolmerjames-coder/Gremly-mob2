@@ -3,7 +3,7 @@
 // NO OpenAI keys in client code
 import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
-import { getDateService } from '../date/DateService';
+import { getDateService, nowTimestamp } from '../date/DateService';
 import type {
   EntityChatRequest,
   EntityChatResponse,
@@ -428,7 +428,7 @@ export function callSpaceChatStreaming(
       spaceId: opts.spaceId,
       chatId: opts.chatId,
       userId: opts.userId,
-      currentTime: new Date().toISOString(),
+      currentTime: nowTimestamp(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -957,7 +957,7 @@ export function callEnrichPhase2Streaming(
   const ds = getDateService();
   const currentDate = ds.getCurrentDate();
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const dayOfWeek = ds.getDayOfWeek();
 
   console.log('[CortexClient:SSE] Opening EventSource to', baseUrl);
 
@@ -1216,7 +1216,7 @@ export async function callEntityChat(request: EntityChatRequest): Promise<Entity
   const timeoutMs = toMs(env.cortex.timeoutMs);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
 
   try {
     log('ENTITY_CHAT', 'Calling entity chat', {
@@ -1237,7 +1237,7 @@ export async function callEntityChat(request: EntityChatRequest): Promise<Entity
       signal: controller.signal,
     });
 
-    const latency_ms = Date.now() - startTime;
+    const latency_ms = getDateService().now().getTime() - startTime;
 
     if (!res.ok) {
       const errorText = await res.text().catch(() => '');
@@ -1264,7 +1264,7 @@ export async function callEntityChat(request: EntityChatRequest): Promise<Entity
       latency_ms: data.latency_ms ?? latency_ms,
     };
   } catch (e: any) {
-    const latency_ms = Date.now() - startTime;
+    const latency_ms = getDateService().now().getTime() - startTime;
     if (e?.name === 'AbortError') {
       log('ENTITY_CHAT_TIMEOUT', 'Request timed out');
       return {
@@ -1327,7 +1327,7 @@ export function callEntityChatStreaming(
   }
 
   let fullContent = '';
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
 
   log('ENTITY_CHAT_STREAM', 'Starting streaming entity chat', {
     entityType: request.entity.type,
@@ -1385,7 +1385,7 @@ export function callEntityChatStreaming(
 
       // Handle completion
       if (data.done) {
-        const latency_ms = data.latency_ms ?? Date.now() - startTime;
+        const latency_ms = data.latency_ms ?? getDateService().now().getTime() - startTime;
         log('ENTITY_CHAT_STREAM_DONE', {
           contentLength: (data.full_content || fullContent).length,
           hasSaveable: !!data.saveable,
@@ -1457,7 +1457,7 @@ export function callHabitBuilderStreaming(
   }
 
   let fullContent = '';
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
 
   log('HABIT_BUILDER_STREAM', 'Starting streaming habit builder chat', {
     messageCount: request.messages.length,
@@ -1500,7 +1500,7 @@ export function callHabitBuilderStreaming(
 
       // Handle completion
       if (data.done) {
-        const latency_ms = data.latency_ms ?? Date.now() - startTime;
+        const latency_ms = data.latency_ms ?? getDateService().now().getTime() - startTime;
         log('HABIT_BUILDER_STREAM_DONE', {
           contentLength: (data.full_content || fullContent).length,
           requiredCount: data.resolved_fields?.required_count,
@@ -1621,7 +1621,7 @@ export async function callJournalAnalyze(
   const timeoutMs = 30000;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
 
   try {
     log('JOURNAL_ANALYZE', 'Calling journal analyze', { entryCount: entries.length });

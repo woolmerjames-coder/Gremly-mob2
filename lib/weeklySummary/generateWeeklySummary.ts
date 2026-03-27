@@ -1,6 +1,7 @@
 import { useGremlyStore } from '../store/useGremlyStore';
 import { env } from '../env';
 import { getDateService } from '../date';
+import { nowTimestamp } from '../date/DateService';
 import { buildWeeklySummaryPayload } from './buildWeeklySummaryPayload';
 import { buildTrendContext } from './buildTrendContext';
 import type { WeeklySummary, WeeklySummaryContent } from '../types';
@@ -93,7 +94,7 @@ export async function generateWeeklySummary(): Promise<GenerateWeeklySummaryResu
       user_id: payload.userId,
       week_start_date: weekStart,
       week_end_date: weekEnd,
-      generated_at: new Date().toISOString(),
+      generated_at: nowTimestamp(),
       content: parsedContent,
       stats_snapshot: payload.stats as unknown as Record<string, unknown>,
       trend_context: trendContext as unknown as Record<string, unknown> | null,

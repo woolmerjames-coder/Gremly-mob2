@@ -105,7 +105,7 @@ function formatTime(time24: string): string {
  */
 function formatCountdown(targetDate: string, isPastDate: boolean): string {
   const date = parseISO(targetDate);
-  const today = new Date();
+  const today = getDateService().now();
   today.setHours(0, 0, 0, 0);
 
   const days = Math.abs(differenceInDays(date, today));
@@ -171,7 +171,7 @@ function GoalBlock({
   // checkIns now passed as prop - no hook here
   const hasDate = Boolean(goal.target_date);
   const isPastDate =
-    hasDate && parseISO(goal.target_date!).getTime() < new Date().setHours(0, 0, 0, 0);
+    hasDate && parseISO(goal.target_date!).getTime() < getDateService().now().setHours(0, 0, 0, 0);
   const countdown = hasDate ? formatCountdown(goal.target_date!, isPastDate) : null;
 
   const handleSave = useCallback(() => {
@@ -232,7 +232,7 @@ function GoalBlock({
 
         {showDatePicker && (
           <DateTimePicker
-            value={editDate || new Date()}
+            value={editDate || getDateService().now()}
             mode="date"
             display="spinner"
             onChange={handleDateChange}
@@ -464,7 +464,7 @@ export function SpaceJourneyModal({
   // UI state
   const [showPast, setShowPast] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(getDateService().now());
   const [newEventTitle, setNewEventTitle] = useState('');
   const [showTitleInput, setShowTitleInput] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -551,7 +551,7 @@ export function SpaceJourneyModal({
 
         const ds = getDateService();
         const currentDate = ds.getCurrentDate();
-        const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+        const dayOfWeek = ds.getDayOfWeek();
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
         console.log('[SpaceJourneyModal] Running Phase 1.5a + Phase 2 in parallel');
@@ -825,7 +825,7 @@ export function SpaceJourneyModal({
               mode="date"
               display="inline"
               onChange={handleDateChange}
-              minimumDate={new Date()}
+              minimumDate={getDateService().now()}
               style={styles.datePicker}
             />
           </View>
@@ -925,7 +925,7 @@ export function SpaceJourneyModal({
                   </Pressable>
                   {showGoalDatePicker && (
                     <DateTimePicker
-                      value={newGoalDate || new Date()}
+                      value={newGoalDate || getDateService().now()}
                       mode="date"
                       display="spinner"
                       onChange={handleGoalDateChange}

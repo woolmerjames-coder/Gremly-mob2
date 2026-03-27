@@ -136,7 +136,7 @@ const truncateText = (text: string, maxLength: number): string => {
 const relativeTime = (iso?: string) => {
   if (!iso) return '';
   const d = new Date(iso);
-  const diff = Date.now() - d.getTime();
+  const diff = getDateService().now().getTime() - d.getTime();
   const s = Math.floor(diff / 1000);
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
@@ -145,7 +145,7 @@ const relativeTime = (iso?: string) => {
   if (h < 24) return `${h} hr${h > 1 ? 's' : ''} ago`;
   const days = Math.floor(h / 24);
   if (days < 7) return `${days}d ago`;
-  return d.toLocaleDateString();
+  return getDateService().formatForChip(getDateService().toLocalDate(d));
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

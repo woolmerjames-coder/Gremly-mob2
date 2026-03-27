@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { NOTIFICATION_CATEGORIES } from '../../src/utils/notifications';
+import { getDateService } from '../date';
 
 /**
  * Schedule a local push notification for an event.
@@ -22,12 +23,13 @@ export async function scheduleEventReminder(
 
     if (minutesBefore >= 1440) {
       // "Day before" — fire at 6:00 PM the day before
-      triggerDate = new Date(`${eventDate}T18:00:00`);
+      triggerDate = getDateService().fromLocalDate(eventDate);
+      triggerDate.setHours(18, 0, 0, 0);
       triggerDate.setDate(triggerDate.getDate() - 1);
     } else if (eventTime) {
       // Specific time event — fire minutesBefore the start
       const [h, m] = eventTime.split(':').map(Number);
-      triggerDate = new Date(`${eventDate}T00:00:00`);
+      triggerDate = getDateService().fromLocalDate(eventDate);
       triggerDate.setHours(h, m, 0, 0);
       triggerDate.setMinutes(triggerDate.getMinutes() - minutesBefore);
     } else {
@@ -35,7 +37,7 @@ export async function scheduleEventReminder(
     }
 
     // Don't schedule if the trigger is in the past
-    if (triggerDate.getTime() <= Date.now()) {
+    if (triggerDate.getTime() <= getDateService().now().getTime()) {
       return null;
     }
 

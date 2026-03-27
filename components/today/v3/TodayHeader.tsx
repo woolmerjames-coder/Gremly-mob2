@@ -2,15 +2,13 @@ import React, { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text } from '../../../ui';
 import { BRAND } from '../../../design/brand';
+import { getDateService } from '../../../lib/date';
+import { format } from 'date-fns';
 import { useAuth } from '../../../providers/AuthProvider';
 import TodayProgressHeader, { type TodayProgressItem } from './TodayProgressHeader';
 
-function formatLongDate(d: Date = new Date()): string {
-  return d.toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  });
+function formatLongDate(d: Date = getDateService().now()): string {
+  return format(d, 'EEEE, MMMM d');
 }
 
 export type TodayHeaderProps = {

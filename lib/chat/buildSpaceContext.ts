@@ -7,6 +7,8 @@
  * - Current habits, open tasks, saved guides
  */
 
+import { getDateService } from '../date/DateService';
+
 export interface SpaceContext {
   spaceName: string;
   milestone?: {
@@ -66,7 +68,7 @@ export function buildSpaceContext(params: {
   const completedTodos = todos.filter((t) => !!t.completed_at);
 
   // Process events with days until calculation
-  const today = new Date();
+  const today = getDateService().now();
   today.setHours(0, 0, 0, 0);
 
   const processedEvents = (events || [])

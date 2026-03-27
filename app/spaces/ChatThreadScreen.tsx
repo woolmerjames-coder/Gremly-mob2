@@ -60,6 +60,7 @@ import { emitChatEvent } from '../lib/chat/events';
 
 // Legacy mascot imports (to be removed)
 import { useMascotController } from '../../hooks/useMascotController';
+import { getDateService, nowTimestamp } from '../../lib/date';
 import { shouldShowMascot, shouldUseHaptics } from '../../config/featureFlags';
 import { openUnifiedFromChat, saveableTypeToOverlayKind } from './chat/openUnifiedFromChat';
 import type { OverlayKind } from './chat/openUnifiedFromChat';
@@ -355,7 +356,7 @@ export default function ChatThreadScreen({ route }: Props) {
     return messages.map((m) => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
-      timestamp: m.created_at ? new Date(m.created_at).getTime() : Date.now(),
+      timestamp: m.created_at ? new Date(m.created_at).getTime() : getDateService().now().getTime(),
     }));
   }, [messages]);
 
@@ -592,9 +593,9 @@ export default function ChatThreadScreen({ route }: Props) {
         pinned: false,
         archived_at: null,
         last_message_snippet: null,
-        updated_at: new Date().toISOString(),
+        updated_at: nowTimestamp(),
         metadata_json: null,
-        created_at: new Date().toISOString(),
+        created_at: nowTimestamp(),
       });
     } catch (error) {
       console.error('Failed to load chat:', error);
@@ -780,7 +781,7 @@ export default function ChatThreadScreen({ route }: Props) {
           // Phase 10.6: Emit request started event
           emitChatEvent({
             type: 'request_started',
-            payload: { requestId: Date.now().toString(), lane: 'space_chat' },
+            payload: { requestId: getDateService().now().getTime().toString(), lane: 'space_chat' },
           });
 
           // Build conversation history for context
@@ -1451,7 +1452,7 @@ export default function ChatThreadScreen({ route }: Props) {
           confidence: 1.0,
           suggestedType: 'log-general',
           prefill: { title: '', content: assistantMessage, tags: [] },
-          detectedAt: new Date().toISOString(),
+          detectedAt: nowTimestamp(),
           messageId: message.id,
         });
 

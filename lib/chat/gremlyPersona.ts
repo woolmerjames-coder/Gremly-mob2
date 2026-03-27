@@ -15,6 +15,8 @@ import { ChatContext } from './rollingContext';
 import { SpaceContext, formatSpaceContextForPrompt } from './buildSpaceContext';
 import { buildBirthdayContext } from './buildBirthdayContext';
 import type { TriageMode, TriageSearch, TriageResult } from './triage';
+import { format } from 'date-fns';
+import { getDateService } from '../date/DateService';
 
 // ============================================================================
 // SHARED IDENTITY
@@ -478,12 +480,7 @@ export function buildSpaceChatSystemPrompt(
   sessionContextStr?: string | null,
   userProfileText?: string | null,
 ): GenerationConfig {
-  const currentDate = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+  const currentDate = format(getDateService().now(), 'EEEE, MMMM d, yyyy');
 
   const formattedSpaceContext = spaceContext ? formatSpaceContextForPrompt(spaceContext) : null;
 
@@ -510,12 +507,7 @@ export function buildEntityChatConfig(
   sessionContextStr?: string | null,
   userProfileText?: string | null,
 ): GenerationConfig {
-  const currentDate = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+  const currentDate = format(getDateService().now(), 'EEEE, MMMM d, yyyy');
 
   return assembleGenerationConfig({
     triage,

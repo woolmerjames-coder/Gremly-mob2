@@ -1,4 +1,5 @@
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
+import { nowTimestamp } from '../../lib/date';
 
 export type BaseType = 'log' | 'todo' | 'habit';
 
@@ -510,7 +511,7 @@ export function v2Reducer(state: V2State, action: Action): V2State {
         commitment: turningOn,
         commitmentStartedAt:
           turningOn && !state.commitmentStartedAt
-            ? new Date().toISOString()
+            ? nowTimestamp()
             : state.commitmentStartedAt,
       };
     }

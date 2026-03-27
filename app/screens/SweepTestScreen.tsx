@@ -449,7 +449,7 @@ export default function SweepTestScreen() {
       Alert.alert('Error', 'Not logged in');
       return;
     }
-    const yesterday = new Date();
+    const yesterday = getDateService().now();
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(12, 0, 0, 0); // Noon yesterday
     const yesterdayISO = yesterday.toISOString();
@@ -494,7 +494,7 @@ export default function SweepTestScreen() {
       Alert.alert('Error', 'Not logged in');
       return;
     }
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const fiveMinutesAgo = new Date(getDateService().now().getTime() - 5 * 60 * 1000).toISOString();
 
     const { data: archivedTodos } = await supabase
       .from('todos')
@@ -524,7 +524,7 @@ export default function SweepTestScreen() {
       Alert.alert('Error', 'Not logged in');
       return;
     }
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const fiveMinutesAgo = new Date(getDateService().now().getTime() - 5 * 60 * 1000).toISOString();
 
     const { data: updatedTodos } = await supabase
       .from('todos')

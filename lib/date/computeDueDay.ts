@@ -29,6 +29,7 @@ export function getTodayDayString(): string {
  * @deprecated Use getDateService().toDateString(date) instead
  */
 export function toDayString(date: Date): string {
+  // eslint-disable-next-line no-restricted-syntax -- toDateString is a DateService method, not Date.prototype.toDateString
   return getDateService().toDateString(date);
 }
 

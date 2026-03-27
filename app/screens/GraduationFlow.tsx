@@ -33,6 +33,8 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Sparkles, TrendingUp, Heart, ArrowRight } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
+import { getDateService } from '../../lib/date';
+import { format } from 'date-fns';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { triggerSuccess } from '../../lib/haptics';
 import celebrationController from '../features/celebration/CelebrationController';
@@ -269,9 +271,9 @@ function ReportBeat({ onAdvance }: { onAdvance: () => void }) {
 
   // Date range
   const dateRange = useMemo(() => {
-    const start = trainingStartedAt ? new Date(trainingStartedAt) : new Date();
-    const end = new Date();
-    const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const start = trainingStartedAt ? new Date(trainingStartedAt) : getDateService().now();
+    const end = getDateService().now();
+    const fmt = (d: Date) => format(d, 'MMM d');
     return `${fmt(start)} – ${fmt(end)}`;
   }, [trainingStartedAt]);
 
@@ -429,7 +431,7 @@ function HookBeat({ onDismiss }: { onDismiss: () => void }) {
     if (!trainingStartedAt) return;
     const started = new Date(trainingStartedAt).getTime();
     const trialEnd = started + 14 * 24 * 60 * 60 * 1000; // 14-day trial
-    const remaining = Math.max(0, Math.ceil((trialEnd - Date.now()) / (1000 * 60 * 60 * 24)));
+    const remaining = Math.max(0, Math.ceil((trialEnd - getDateService().now().getTime()) / (1000 * 60 * 60 * 24)));
     setTrialDaysLeft(remaining);
   }, [trainingStartedAt]);
 

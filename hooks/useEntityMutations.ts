@@ -16,7 +16,7 @@ import { useRepo } from '../providers/RepoProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { isTestMode } from '../lib/config/testMode';
 import { testLogger } from '../src/utils/TestLogger';
-import { dateService } from '../lib/date/DateService';
+import { dateService, nowTimestamp } from '../lib/date/DateService';
 
 type EntityType = 'todo' | 'habit' | 'note';
 
@@ -336,7 +336,7 @@ export function useEntityMutations() {
           id: entityId,
           patch: {
             archived: true,
-            archived_at: new Date().toISOString(),
+            archived_at: nowTimestamp(),
             archived_reason: reason ?? null,
           } as any,
         });

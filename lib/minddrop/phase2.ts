@@ -212,10 +212,10 @@ export async function runPhase2(
   subtype: LogSubtype | null,
   repo: any, // eslint-disable-line @typescript-eslint/no-explicit-any
 ): Promise<Phase2Result | null> {
-  const t0 = Date.now();
+  const t0 = getDateService().now().getTime();
   const timing: Record<string, number> = {};
   const mark = (label: string) => {
-    timing[label] = Date.now() - t0;
+    timing[label] = getDateService().now().getTime() - t0;
     console.log(`[Phase2:Timing] ${label}: ${timing[label]}ms`);
   };
 
@@ -510,7 +510,7 @@ export async function runPhase2(
       // Log full timing summary
       console.log('[Phase2:Timing] SUMMARY', {
         entityId,
-        total: Date.now() - t0,
+        total: getDateService().now().getTime() - t0,
         breakdown: timing,
       });
 
@@ -575,10 +575,10 @@ export async function runPhase2Streaming(
   onFieldUpdate?: (field: string, value: any) => void,
 ): Promise<Phase2EnrichmentResult | null> {
   const logTiming = (label: string, startTime: number) => {
-    console.log(`[Phase2:Streaming:Timing] ${label}: ${Date.now() - startTime}ms`);
+    console.log(`[Phase2:Streaming:Timing] ${label}: ${getDateService().now().getTime() - startTime}ms`);
   };
 
-  const t0 = Date.now();
+  const t0 = getDateService().now().getTime();
   logTiming('start', t0);
 
   // Check feature flag

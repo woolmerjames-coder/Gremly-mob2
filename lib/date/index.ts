@@ -14,6 +14,7 @@ export {
   getDateService,
   resetDateService,
   dateService,
+  nowTimestamp,
   type ParsedDate,
   type DateServiceConfig,
 } from './DateService';

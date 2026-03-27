@@ -120,7 +120,7 @@ export function useTodayEntries(): TodayEntriesState {
   const [, setError] = useState<string | null>(null);
   const reflectedCommitmentIds = useRef<Set<string>>(new Set());
 
-  const nowIso = useMemo(() => new Date().toISOString(), []);
+  const nowIso = useMemo(() => getDateService().now().toISOString(), []);
 
   const load = useCallback(async () => {
     if (!user) {
