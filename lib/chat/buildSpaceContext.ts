@@ -68,16 +68,13 @@ export function buildSpaceContext(params: {
   const completedTodos = todos.filter((t) => !!t.completed_at);
 
   // Process events with days until calculation
-  const today = getDateService().now();
-  today.setHours(0, 0, 0, 0);
+  const ds = getDateService();
+  const todayDay = ds.today();
 
   const processedEvents = (events || [])
     .filter((e) => e.target_date)
     .map((e) => {
-      const eventDate = new Date(e.target_date!);
-      eventDate.setHours(0, 0, 0, 0);
-      const diffMs = eventDate.getTime() - today.getTime();
-      const daysUntil = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      const daysUntil = ds.daysBetween(todayDay, e.target_date!);
 
       return {
         name: e.name || e.title || 'Untitled',

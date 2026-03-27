@@ -106,13 +106,12 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
   const readinessLabel = getReadinessLabel(trainingReadiness);
   const pct = Math.min(trainingReadiness, 100);
 
-  const [now, setNow] = useState(() => dateService.now().getTime());
-  useEffect(() => {
-    if (visible) setNow(dateService.now().getTime());
-  }, [visible]);
+  const startDay = trainingStartedAt
+    ? dateService.toLocalDate(new Date(trainingStartedAt))
+    : dateService.today();
 
   const dayNumber = trainingStartedAt
-    ? Math.min(Math.floor((now - new Date(trainingStartedAt).getTime()) / 86400000) + 1, 7)
+    ? Math.min(dateService.daysBetween(startDay, dateService.today()) + 1, 7)
     : 1;
 
   return (
@@ -141,9 +140,7 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
             const isFuture = i + 1 > dayNumber;
 
             const dayDate = trainingStartedAt
-              ? dateService.toLocalDate(
-                  new Date(new Date(trainingStartedAt).getTime() + i * 86400000),
-                )
+              ? dateService.addDays(startDay, i)
               : null;
 
             const wasFull = isToday
@@ -185,7 +182,7 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
                 >
                   {
                     ['S', 'M', 'T', 'W', 'T', 'F', 'S'][
-                      new Date(new Date(trainingStartedAt || now).getTime() + i * 86400000).getDay()
+                      (dateService.fromLocalDate(dateService.addDays(startDay, i)) ?? dateService.now()).getDay()
                     ]
                   }
                 </Text>

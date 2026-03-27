@@ -266,9 +266,9 @@ function SweepIntroStep({
       return 'Your first sweep!';
     }
 
-    const now = getDateService().now();
-    const last = new Date(lastSweepCompletedAt);
-    const diffDays = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
+    const ds = getDateService();
+    const lastDay = ds.toLocalDate(new Date(lastSweepCompletedAt));
+    const diffDays = ds.daysBetween(lastDay, ds.today());
 
     if (diffDays === 0) {
       return 'Last sweep: earlier today';
@@ -457,10 +457,11 @@ function SweepMoodStep({ onContinue }: StepProps) {
   // Format relative time
   const formatRelativeTime = useCallback((isoDate: string): string => {
     const date = new Date(isoDate);
-    const now = getDateService().now();
+    const ds = getDateService();
+    const now = ds.now();
     const diffMs = now.getTime() - date.getTime();
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffDays = ds.daysBetween(ds.toLocalDate(date), ds.today());
 
     if (diffHours < 1) return 'Just now';
     if (diffHours < 24) return `${diffHours}h ago`;

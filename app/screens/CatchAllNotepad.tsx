@@ -2514,12 +2514,12 @@ function formatStartDate(startDate: string | null | undefined): string {
   if (!startDate) return 'Starts TBD';
 
   try {
-    const date = new Date(startDate + 'T00:00:00'); // Parse as local date
-    const now = getDateService().now();
-    const diffDays = Math.floor((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const ds = getDateService();
+    const diffDays = ds.daysBetween(ds.today(), startDate);
+    const date = ds.fromLocalDate(startDate) ?? new Date(startDate + 'T00:00:00');
 
     // If within next 7 days, show day name
-    const tz = getDateService().getTimezone();
+    const tz = ds.getTimezone();
     if (diffDays >= 0 && diffDays < 7) {
       const dayName = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: tz }).format(date);
       return `Starts ${dayName}`;
@@ -6085,9 +6085,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     if (!trainingStartedAt) return;
 
     // Check if today is after training Day 1
-    const startDate = new Date(trainingStartedAt);
-    const now = getDateService().now();
-    const daysSinceStart = Math.floor((now.getTime() - startDate.getTime()) / 86400000);
+    const ds = getDateService();
+    const startDay = ds.toLocalDate(new Date(trainingStartedAt));
+    const todayDay = ds.today();
+    const daysSinceStart = ds.daysBetween(startDay, todayDay);
     if (daysSinceStart < 1) return; // still Day 1
 
     // Auto-open the training meter

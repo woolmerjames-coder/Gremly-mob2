@@ -207,10 +207,8 @@ const getEntitySubtitle = (
 };
 
 const getDaysSinceCreated = (createdAt: string): number => {
-  const created = new Date(createdAt);
-  const now = getDateService().now();
-  const diffMs = now.getTime() - created.getTime();
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const ds = getDateService();
+  return ds.daysBetween(ds.toLocalDate(new Date(createdAt)), ds.today());
 };
 
 /**
@@ -434,7 +432,7 @@ export function EntityChatScreen({
 
           const lastCompletedDay = completedDays[0] || null;
           const daysSinceLast = lastCompletedDay
-            ? Math.floor((today.getTime() - new Date(lastCompletedDay).getTime()) / 86400000)
+            ? getDateService().daysBetween(lastCompletedDay, getDateService().toLocalDate(today))
             : null;
 
           entityContext.habitStats = {

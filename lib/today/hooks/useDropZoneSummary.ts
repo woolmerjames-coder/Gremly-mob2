@@ -45,9 +45,9 @@ export function useDropZoneSummary(): DropZoneSummary {
   const [error, setError] = useState<string | null>(null);
 
   const sinceIso = useMemo(() => {
-    const now = getDateService().now();
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    return yesterday.toISOString();
+    const ds = getDateService();
+    const yesterdayNoon = ds.fromLocalDate(ds.yesterday());
+    return (yesterdayNoon ?? ds.now()).toISOString();
   }, []);
 
   const load = useCallback(async () => {

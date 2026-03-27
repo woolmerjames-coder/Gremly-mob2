@@ -1715,17 +1715,12 @@ export const selectMilestoneCountdown = createSelector(
     if (!milestone?.date) {
       return { days: null, dateFormatted: null, isPast: false };
     }
-    const target = new Date(milestone.date);
-    const now = ds().now();
-    // Reset time to start of day for accurate day calculation
-    target.setHours(0, 0, 0, 0);
-    now.setHours(0, 0, 0, 0);
-    const diffMs = target.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    const todayDay = ds().today();
+    const diffDays = ds().daysBetween(todayDay, milestone.date);
     const isPast = diffDays < 0;
 
     // Format date as "Mon DD" or "Mon DD, YYYY" if different year
-    const dateFormatted = ds().formatForChip(ds().toLocalDate(target));
+    const dateFormatted = ds().formatForChip(milestone.date);
 
     return { days: diffDays, dateFormatted, isPast };
   },

@@ -41,10 +41,8 @@ export function getGremlyResponse(
     // Cast to access resurface_at which may not be in Supabase generated types yet
     const resurfaceAt = (raw as { resurface_at?: string | null }).resurface_at;
     if (resurfaceAt) {
-      const resurfaceDate = new Date(resurfaceAt);
-      const now = getDateService().now();
-      const diffMs = now.getTime() - resurfaceDate.getTime();
-      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      const ds = getDateService();
+      const diffDays = ds.daysBetween(ds.toLocalDate(new Date(resurfaceAt)), ds.today());
 
       let timeAgo: string;
       if (diffDays === 0) {

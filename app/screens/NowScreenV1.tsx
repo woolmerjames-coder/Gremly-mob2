@@ -160,9 +160,7 @@ function toSweepCandidate(todo: Todo, todayDayString: string): SweepCandidate {
   // Calculate days until deadline
   let daysUntilDeadline: number | null = null;
   if (targetDate) {
-    const today = new Date(todayDayString);
-    const deadline = new Date(targetDate);
-    daysUntilDeadline = Math.floor((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    daysUntilDeadline = getDateService().daysBetween(todayDayString, targetDate);
   }
 
   return {

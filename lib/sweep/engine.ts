@@ -285,7 +285,8 @@ export async function fetchSweepCandidatesForUser(
     // ─────────────────────────────────────────────────────────────────────
     // IDEAS - 7 day window (ideas are worth revisiting longer)
     // ─────────────────────────────────────────────────────────────────────
-    const sevenDaysAgo = new Date(getDateService().now().getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const ds = getDateService();
+    const sevenDaysAgo = (ds.fromLocalDate(ds.daysAgo(7)) ?? ds.now()).toISOString();
     const ideaOrClause = `created_at.gt.${sevenDaysAgo},skipped_in_sweep_at.not.is.null,resurface_at.lte.${todayDay}`;
 
     const { data: ideas, error: ideaError } = await client

@@ -356,10 +356,7 @@ function calculateMonthlyAdherence(
   }
 
   // Count days in range
-  const startDate = new Date(effectiveStart);
-  const endDate = new Date(effectiveEnd);
-  const totalDays =
-    Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const totalDays = getDateService().daysBetween(effectiveStart, effectiveEnd) + 1;
 
   if (totalDays <= 0) return 0;
 
@@ -522,15 +519,12 @@ export default function HabitViewMode({
     if (sortedProgress.length === 0) {
       // No slips recorded - clean since start
       if (habit.start_date) {
-        const startDate = new Date(habit.start_date);
-        const today = new Date(todayIso);
-        return Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+        return getDateService().daysBetween(habit.start_date, todayIso);
       }
       return 0;
     }
-    const lastSlipDate = new Date(sortedProgress[0]);
-    const today = new Date(todayIso);
-    return Math.floor((today.getTime() - lastSlipDate.getTime()) / (1000 * 60 * 60 * 24));
+    const lastSlipDate = sortedProgress[0];
+    return getDateService().daysBetween(lastSlipDate, todayIso);
   }, [isBreakHabit, habitProgress, habit.id, habit.start_date, todayIso]);
 
   // Calculate average frequency

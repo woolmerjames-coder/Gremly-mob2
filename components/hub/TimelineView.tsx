@@ -88,7 +88,7 @@ function formatDayLabel(dateKey: string, todayKey: string, yesterdayKey: string)
   const sameYear = date.getFullYear() === now.getFullYear();
 
   // Within last 7 days: show day name + date ("Thu, Feb 6")
-  const daysDiff = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+  const daysDiff = getDateService().daysBetween(dateKey, getDateService().today());
   if (daysDiff <= 6) {
     return format(date, 'EEE, MMM d');
   }

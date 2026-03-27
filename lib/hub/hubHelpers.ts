@@ -266,14 +266,13 @@ export function suggestShortTitle(text: string, maxWords = 5): string {
  */
 export function formatJournalDate(dateStr: string, now: Date = getDateService().now()): string {
   // Use DateService for timezone-safe parsing of YYYY-MM-DD strings
-  const date = getDateService().fromDateString(dateStr) ?? new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const ds = getDateService();
+  const dateDay = dateStr.match(/^\d{4}-\d{2}-\d{2}$/) ? dateStr : ds.toLocalDate(new Date(dateStr));
+  const diffDays = ds.daysBetween(dateDay, ds.toLocalDate(now));
 
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return getDateService().formatForChip(getDateService().toLocalDate(date));
-  return getDateService().formatForChip(getDateService().toLocalDate(date));
+  return ds.formatForChip(dateDay);
 }
 
 // =============================================================================

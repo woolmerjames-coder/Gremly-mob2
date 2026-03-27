@@ -28,20 +28,21 @@ async function syncTimezone(userId: string): Promise<void> {
 
   if (storedTz === deviceTz) return;
 
+  // Update local state FIRST so the app immediately reflects the correct
+  // timezone regardless of network connectivity.
+  getDateService().setTimezone(deviceTz);
+  useGremlyStore.getState().setUserTimezone(deviceTz);
+
+  // Persist to Supabase for server-side systems (workers, notifications).
+  // This can fail gracefully — the local timezone is already correct.
   const { error: updateErr } = await supabase
     .from('notification_preferences')
     .update({ timezone: deviceTz, updated_at: nowTimestamp() })
     .eq('user_id', userId);
 
   if (updateErr) {
-    console.log('[TimezoneSync] Update error:', updateErr.message);
-    return;
+    console.warn('[TimezoneSync] Supabase write failed (local timezone updated):', updateErr.message);
   }
-
-  // Update in-memory DateService singleton + Zustand store so the app
-  // picks up the new timezone without a full restart.
-  getDateService().setTimezone(deviceTz);
-  useGremlyStore.getState().setUserTimezone(deviceTz);
 
   console.log(`[TimezoneSync] Updated: ${storedTz ?? '(none)'} → ${deviceTz}`);
 }

@@ -6,6 +6,7 @@
  */
 
 import type { Todo, Note } from '../types';
+import { getDateService } from '../date';
 
 // =============================================================================
 // Types
@@ -53,10 +54,8 @@ export interface NeedsAttentionOptions {
  * Calculate age in days between two ISO date strings
  */
 function getDaysBetween(olderIso: string, newerIso: string): number {
-  const older = new Date(olderIso);
-  const newer = new Date(newerIso);
-  const diffMs = newer.getTime() - older.getTime();
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const ds = getDateService();
+  return ds.daysBetween(ds.toLocalDate(new Date(olderIso)), ds.toLocalDate(new Date(newerIso)));
 }
 
 /**

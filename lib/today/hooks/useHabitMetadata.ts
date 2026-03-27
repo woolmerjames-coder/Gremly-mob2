@@ -162,13 +162,8 @@ export function computeHabitMetadata(
     // If completed today, return 0
     if (lastCompletionStr === todayStr) return 0;
 
-    // Calculate day difference by parsing as local dates
-    const [y1, m1, d1] = lastCompletionStr.split('-').map(Number);
-    const lastDate = new Date(y1, m1 - 1, d1); // month is 0-indexed
-    const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-    const diffTime = todayDate.getTime() - lastDate.getTime();
-    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    // Calculate day difference using DST-safe daysBetween
+    return getDateService().daysBetween(lastCompletionStr, todayStr);
   };
 
   // Normalize cadence to handle both 'day'/'daily', 'week'/'weekly', 'month'/'monthly'

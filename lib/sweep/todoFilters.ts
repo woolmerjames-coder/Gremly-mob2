@@ -262,12 +262,7 @@ export function getDaysUntilDeadline(todo: FilterableTodo, todayDay: string): nu
     return null;
   }
 
-  const deadlineDate = new Date(deadline);
-  const today = new Date(todayDay);
-  const diffTime = deadlineDate.getTime() - today.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-  return diffDays;
+  return getDateService().daysBetween(todayDay, deadline);
 }
 
 /**

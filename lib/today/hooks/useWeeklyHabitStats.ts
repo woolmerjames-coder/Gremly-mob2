@@ -98,8 +98,8 @@ function getWeekdayIndex(date: Date): number {
  * Calculate days passed since Monday (1 = Monday, 7 = Sunday)
  */
 function getDaysPassed(today: Date, weekStart: Date): number {
-  const diffMs = today.getTime() - weekStart.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1;
+  const ds = getDateService();
+  const diffDays = ds.daysBetween(ds.toLocalDate(weekStart), ds.toLocalDate(today)) + 1;
   return Math.min(Math.max(diffDays, 1), 7);
 }
 

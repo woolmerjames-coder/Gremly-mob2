@@ -15,6 +15,7 @@ import { format } from 'date-fns';
 // import { openManualAdd } from '../../components/ManualAddSheet'; // DEPRECATED - removed
 
 // Mock data
+const ds = getDateService();
 const mockRecentItems = [
   {
     id: 'item-1',
@@ -26,13 +27,13 @@ const mockRecentItems = [
     id: 'item-2',
     type: 'todo' as const,
     title: 'Buy groceries',
-    updated_at: new Date(getDateService().now().getTime() - 86400000).toISOString(),
+    updated_at: (ds.fromLocalDate(ds.daysAgo(1)) ?? ds.now()).toISOString(),
   },
   {
     id: 'item-3',
     type: 'note' as const,
     title: 'Meeting notes',
-    updated_at: new Date(getDateService().now().getTime() - 172800000).toISOString(),
+    updated_at: (ds.fromLocalDate(ds.daysAgo(2)) ?? ds.now()).toISOString(),
   },
 ];
 

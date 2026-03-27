@@ -310,10 +310,11 @@ export function BuildHabitDetail({
   const weeksActive = useMemo(() => {
     const startRaw = habit.start_date || habit.created_at;
     if (!startRaw) return 1;
-    return Math.max(
-      1,
-      Math.ceil((today.getTime() - new Date(startRaw).getTime()) / (7 * 24 * 60 * 60 * 1000)),
-    );
+    const ds = dateService;
+    const startDay = ds.toLocalDate(new Date(startRaw));
+    const todayDay = ds.toLocalDate(today);
+    const totalDays = ds.daysBetween(startDay, todayDay);
+    return Math.max(1, Math.ceil(totalDays / 7));
   }, [habit.start_date, habit.created_at, today]);
 
   const totalCompletions = completedDates.length;

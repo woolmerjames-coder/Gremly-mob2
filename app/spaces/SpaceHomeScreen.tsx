@@ -156,15 +156,15 @@ const FILTER_OPTIONS: { key: FilterTab; label: string }[] = [
 function formatRelativeDate(dateString?: string | null): string {
   if (!dateString) return '';
   try {
+    const ds = getDateService();
     const date = new Date(dateString);
-    const now = getDateService().now();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const dateDay = ds.toLocalDate(date);
+    const diffDays = ds.daysBetween(dateDay, ds.today());
     if (diffDays === 0) return 'Today';
     if (diffDays === 1) return 'Yesterday';
     if (diffDays < 7) return `${diffDays} days ago`;
     if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-    return getDateService().formatForChip(getDateService().toLocalDate(date));
+    return ds.formatForChip(dateDay);
   } catch {
     return '';
   }
@@ -174,15 +174,14 @@ function formatRelativeDate(dateString?: string | null): string {
 function formatDueDate(dueDate?: string | null): string {
   if (!dueDate) return 'No due date';
   try {
+    const ds = getDateService();
     const date = new Date(dueDate);
-    const now = getDateService().now();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dueDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const diffDays = Math.floor((dueDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const dueDay = ds.toLocalDate(date);
+    const diffDays = ds.daysBetween(ds.today(), dueDay);
     if (diffDays < 0) return 'Overdue';
     if (diffDays === 0) return 'Due today';
     if (diffDays === 1) return 'Due tomorrow';
-    return `Due ${getDateService().formatForChip(getDateService().toLocalDate(date))}`;
+    return `Due ${ds.formatForChip(dueDay)}`;
   } catch {
     return 'No due date';
   }
@@ -1094,7 +1093,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       return Math.max(acc, ts);
     }, 0);
     const lastTs = Math.max(lastChatTs, lastItemTs);
-    const daysSince = lastTs ? Math.floor((getDateService().now().getTime() - lastTs) / (1000 * 60 * 60 * 24)) : 999;
+    const daysSince = lastTs ? getDateService().daysBetween(getDateService().toLocalDate(new Date(lastTs)), getDateService().today()) : 999;
     if (daysSince >= 7)
       return { tone: 'low' as const, text: 'It’s been quiet — want to revisit your goals?' };
     const todayISO = dateService.today();
@@ -1114,7 +1113,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       return Math.max(acc, ts);
     }, 0);
     const lastTs = Math.max(lastChatTs, lastItemTs);
-    const daysSince = lastTs ? Math.floor((getDateService().now().getTime() - lastTs) / (1000 * 60 * 60 * 24)) : 999;
+    const daysSince = lastTs ? getDateService().daysBetween(getDateService().toLocalDate(new Date(lastTs)), getDateService().today()) : 999;
 
     if (daysSince >= 7) return 'low';
 

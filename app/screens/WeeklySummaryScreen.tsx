@@ -1234,8 +1234,8 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
       return `Rescheduled ${item.sweep_reschedule_count} times in Sweep`;
     }
     if (item.created_at) {
-      const created = new Date(item.created_at);
-      const ageDays = Math.floor((getDateService().now().getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+      const ds = getDateService();
+      const ageDays = ds.daysBetween(ds.toLocalDate(new Date(item.created_at)), ds.today());
       return `On your list for ${ageDays} days`;
     }
     return '';
