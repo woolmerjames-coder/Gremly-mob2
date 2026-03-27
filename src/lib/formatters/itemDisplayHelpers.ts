@@ -1,5 +1,5 @@
 import { isToday, isTomorrow, format } from 'date-fns';
-import { getDateService } from '../date/DateService';
+import { getDateService } from '@/lib/date/DateService';
 
 /**
  * Format habit frequency_json into human-readable string
