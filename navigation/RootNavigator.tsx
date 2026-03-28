@@ -103,6 +103,7 @@ export type RootStackParamList = {
   WeeklySummaryV2: { weekStartDate?: string } | undefined;
   GraduationFlow: undefined;
   SweepTest: undefined; // DEV only
+  AskGremlyChat: { chatId?: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();

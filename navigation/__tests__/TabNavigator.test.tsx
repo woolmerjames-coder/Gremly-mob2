@@ -89,7 +89,7 @@ describe.skip('TabNavigator', () => {
       expect(getByText('Today')).toBeTruthy();
       expect(getByText('MindDrop')).toBeTruthy();
       expect(getByText('Spaces')).toBeTruthy();
-      expect(getByText('Hub')).toBeTruthy();
+      expect(getByText('Ask Gremly')).toBeTruthy();
     });
 
     it('starts on MindDrop tab as initial route', () => {
