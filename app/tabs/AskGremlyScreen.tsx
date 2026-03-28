@@ -66,6 +66,10 @@ export default function AskGremlyScreen() {
         >
           <Clock size={20} color={MOSS} />
         </TouchableOpacity>
+        <View style={styles.headerTitle}>
+          <Text style={styles.headerTitleText}>Ask Gremly</Text>
+          <View style={styles.headerUnderline} />
+        </View>
         <TouchableOpacity
           style={styles.headerButton}
           onPress={() => {}}
@@ -98,7 +102,7 @@ export default function AskGremlyScreen() {
       </ScrollView>
 
       {/* Bottom input area */}
-      <View style={[styles.bottomArea, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      <View style={[styles.bottomArea, { paddingBottom: 80 }]}>
         <MascotLottie ref={mascotRef} style={styles.mascot} />
         <ChatComposer onSend={handleSend} placeholder="Ask Gremly anything..." />
       </View>
@@ -114,8 +118,25 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
+  },
+  headerTitle: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  headerTitleText: {
+    fontFamily: 'PlusJakartaSans-Bold',
+    fontSize: 28,
+    color: '#222222',
+  },
+  headerUnderline: {
+    width: 50,
+    height: 2.5,
+    backgroundColor: '#E0C47A',
+    borderRadius: 2,
+    marginTop: 4,
   },
   headerButton: {
     width: 36,
@@ -161,12 +182,11 @@ const styles = StyleSheet.create({
     color: MOSS,
   },
   bottomArea: {
-    marginTop: 'auto',
     paddingHorizontal: 16,
   },
   mascot: {
     position: 'absolute',
-    top: -66,
+    top: -88,
     right: 0,
     width: 95,
     height: 111,
