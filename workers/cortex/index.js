@@ -1527,6 +1527,38 @@ function extractUrlsFromText(text) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// DAILY FOCUS FOR GREETING — lightweight DCO fetch for general-greeting
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function getDailyFocusForChat(userId, env) {
+  if (!userId) return null;
+  try {
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    };
+    const today = new Date().toISOString().slice(0, 10);
+    const res = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${today}&select=dco`,
+      { headers },
+    );
+    if (!res.ok) return null;
+    const rows = await res.json();
+    const dco = rows?.[0]?.dco;
+    if (!dco) return null;
+    return {
+      lifeMoment: dco.life_moment || null,
+      briefHeadline: dco.brief_headline || null,
+      namedAnchors: dco.named_anchors || [],
+      todayFocus: dco.today_focus || [],
+    };
+  } catch (err) {
+    console.warn('[getDailyFocusForChat] Failed:', err.message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // PLANNER PROJECTION — Life Map + daily state context for organize-day
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2916,6 +2948,70 @@ Do NOT mention saving — the app shows a save button automatically.
 
 === IF THEY DON'T WANT TIPS ===
 One warm sentence. Done. No guilt, no "are you sure?"`;
+
+      // =========================
+      // === GENERAL GREETING ===
+      // =========================
+      if (type === 'general-greeting') {
+        try {
+          const dailyFocus = await getDailyFocusForChat(body.userId, env);
+          const focusSnippet = dailyFocus
+            ? [
+                dailyFocus.lifeMoment && `Life moment: ${dailyFocus.lifeMoment}`,
+                dailyFocus.briefHeadline && `Headline: "${dailyFocus.briefHeadline}"`,
+                dailyFocus.namedAnchors?.length > 0 &&
+                  `People: ${dailyFocus.namedAnchors.map((a) => a.label).join(', ')}`,
+                dailyFocus.todayFocus?.length > 0 && `Focus: ${dailyFocus.todayFocus.join(', ')}`,
+              ]
+                .filter(Boolean)
+                .join('\n')
+            : '';
+
+          const prompt = `Generate a 1-2 sentence contextual greeting for Gremly, a productivity companion. This will show on the home screen when the user opens the chat tab.
+
+${focusSnippet ? `USER CONTEXT:\n${focusSnippet}` : 'No context available.'}
+
+Rules:
+- Be specific to what's happening in their life right now
+- No generic greetings like "Good evening" or "How can I help"
+- No exclamation marks
+- Warm but not performative, like a friend who knows your situation
+- Under 30 words
+- If context mentions something upcoming or notable, reference it
+- End with a natural question or opening that invites conversation
+
+Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
+
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1-nano',
+              messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: 'Generate greeting.' },
+              ],
+              max_tokens: 60,
+              temperature: 0.7,
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const greeting = (data.choices?.[0]?.message?.content || '')
+              .trim()
+              .replace(/^["']|["']$/g, '');
+            return j({ greeting });
+          }
+          return j({ greeting: null });
+        } catch (err) {
+          console.warn('[GeneralGreeting] Failed:', err.message);
+          return j({ greeting: null });
+        }
+      }
 
       // =========================
       // === HABIT BUILDER CHAT ===

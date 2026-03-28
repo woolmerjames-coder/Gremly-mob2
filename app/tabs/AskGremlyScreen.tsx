@@ -19,6 +19,7 @@ import { SaveSheet } from '../../components/chat/SaveSheet';
 import { ChatHistorySheet } from '../../components/chat/ChatHistorySheet';
 import {
   callGeneralChatStreaming,
+  callGeneralGreeting,
   callEnrichPhase15a,
   callEnrichPhase2,
 } from '../../lib/cortex/CortexClient';
@@ -53,6 +54,15 @@ export default function AskGremlyScreen() {
   const [activeChat, setActiveChat] = useState<SpaceChat | null>(null);
   const [sending, setSending] = useState(false);
   const [saveSheetVisible, setSaveSheetVisible] = useState(false);
+  const [greeting, setGreeting] = useState<string>("What's on your mind?");
+
+  useEffect(() => {
+    if (!activeChat && userId) {
+      callGeneralGreeting(userId).then((g) => {
+        if (g) setGreeting(g);
+      });
+    }
+  }, [activeChat, userId]);
   const [historyVisible, setHistoryVisible] = useState(false);
 
   const autoTitle = useGremlyStore((s) => s.generalChatAutoTitle);
@@ -380,7 +390,7 @@ export default function AskGremlyScreen() {
             />
           ) : (
             <View style={styles.emptyState}>
-              <Text style={styles.greeting}>What's on your mind?</Text>
+              <Text style={styles.greeting}>{greeting}</Text>
               <View style={styles.chipsContainer}>
                 {CHIPS.map((chip) => (
                   <TouchableOpacity

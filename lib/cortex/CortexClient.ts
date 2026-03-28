@@ -1815,6 +1815,29 @@ export async function callJournalAnalyze(
   }
 }
 
+export async function callGeneralGreeting(userId: string): Promise<string | null> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return null;
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const supabaseAnonKey = readSupabaseAnonKey();
+    if (supabaseAnonKey) {
+      headers.Authorization = `Bearer ${supabaseAnonKey}`;
+      headers.apikey = supabaseAnonKey;
+    }
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ type: 'general-greeting', userId }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.greeting || null;
+  } catch {
+    return null;
+  }
+}
+
 export const CortexClient = {
   callChat,
   callComplete,
@@ -1822,6 +1845,7 @@ export const CortexClient = {
   callSpaceChat,
   callSpaceChatStreaming,
   callGeneralChatStreaming,
+  callGeneralGreeting,
   callSpaceChatSave,
   callEnrichPhase2,
   callEnrichPhase2Streaming,
