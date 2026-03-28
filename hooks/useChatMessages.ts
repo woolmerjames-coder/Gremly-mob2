@@ -207,7 +207,7 @@ export function useChatMessages(
    */
   const sendUserMessage = useCallback(
     async (text: string): Promise<string | undefined> => {
-      if (!text.trim() || !user?.id) return undefined;
+      if (!text.trim() || !user?.id || !spaceId) return undefined;
 
       // Set flag to prevent refresh() from overwriting our optimistic update
       isAddingMessageRef.current = true;
@@ -322,7 +322,7 @@ export function useChatMessages(
       const targetChatId = overrideChatId || currentChatIdRef.current || currentChatId;
       // Allow empty text if metadata is provided (for locked cards, confirmations)
       const hasContent = text.trim() || (metadata && Object.keys(metadata).length > 0);
-      if (!hasContent || !targetChatId || !user?.id) {
+      if (!hasContent || !targetChatId || !user?.id || !spaceId) {
         if (!targetChatId) {
           console.error('[useChatMessages] Cannot append assistant message - no chat ID');
         }
@@ -401,7 +401,7 @@ export function useChatMessages(
       content: string,
       metadata: Record<string, unknown>,
     ): Promise<SpaceChatMessage | undefined> => {
-      if (!content.trim() || !currentChatId || !user?.id) return undefined;
+      if (!content.trim() || !currentChatId || !user?.id || !spaceId) return undefined;
 
       try {
         setError(null);
@@ -437,7 +437,7 @@ export function useChatMessages(
       entry: Record<string, any>,
       entryType: 'note' | 'todo' | 'habit' | 'person',
     ): Promise<SpaceChatMessage | undefined> => {
-      if (!entry || !currentChatId || !user?.id) return undefined;
+      if (!entry || !currentChatId || !user?.id || !spaceId) return undefined;
 
       try {
         setError(null);
@@ -530,7 +530,7 @@ export function useChatMessages(
       entity: Record<string, any>,
       entityType: 'note' | 'todo' | 'habit' | 'person',
     ): Promise<SpaceChatMessage | undefined> => {
-      if (!entity || !currentChatId || !user?.id) return undefined;
+      if (!entity || !currentChatId || !user?.id || !spaceId) return undefined;
 
       try {
         setError(null);
@@ -607,7 +607,7 @@ export function useChatMessages(
     { messageId: string; chatId: string } | undefined
   > => {
     const targetChatId = currentChatIdRef.current || currentChatId;
-    if (!targetChatId || !user?.id) return undefined;
+    if (!targetChatId || !user?.id || !spaceId) return undefined;
 
     isAddingMessageRef.current = true;
     try {

@@ -14,7 +14,7 @@ import { render } from '@testing-library/react-native';
 
 const mockGoBack = jest.fn();
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ goBack: mockGoBack }),
+  useNavigation: () => ({ goBack: mockGoBack, addListener: jest.fn(() => jest.fn()) }),
   useRoute: () => ({
     params: { weekStartDate: '2025-12-15' },
   }),

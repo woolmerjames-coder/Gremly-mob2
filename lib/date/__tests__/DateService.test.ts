@@ -407,3 +407,58 @@ describe('Edge cases', () => {
     expect(ds.daysBetween('2026-03-15', '2026-03-10')).toBe(-5);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// startOfRitualDay
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe('startOfRitualDay', () => {
+  it('returns midnight for default dayBoundaryHour=0', () => {
+    const ds = createDateService({
+      clock: () => new Date('2026-01-15T12:00:00Z'),
+      timezone: 'America/New_York',
+    });
+    const result = ds.startOfRitualDay('2026-01-15');
+    expect(result.getFullYear()).toBe(2026);
+    expect(result.getMonth()).toBe(0); // January
+    expect(result.getDate()).toBe(15);
+    expect(result.getHours()).toBe(0);
+    expect(result.getMinutes()).toBe(0);
+  });
+
+  it('returns 4 AM when dayBoundaryHour=4', () => {
+    const ds = createDateService({
+      clock: () => new Date('2026-01-15T12:00:00Z'),
+      timezone: 'America/New_York',
+    });
+    ds.setDayBoundaryHour(4);
+    const result = ds.startOfRitualDay('2026-01-15');
+    expect(result.getHours()).toBe(4);
+    expect(result.getMinutes()).toBe(0);
+    expect(result.getDate()).toBe(15);
+  });
+
+  it('defaults to today when no date argument', () => {
+    const ds = createDateService({
+      clock: () => new Date('2026-06-20T18:00:00Z'),
+      timezone: 'America/New_York',
+    });
+    const result = ds.startOfRitualDay();
+    // 18:00 UTC = 14:00 EDT, so today() = '2026-06-20'
+    expect(result.getFullYear()).toBe(2026);
+    expect(result.getMonth()).toBe(5); // June
+    expect(result.getDate()).toBe(20);
+  });
+
+  it('differs from fromLocalDate (noon vs boundary hour)', () => {
+    const ds = createDateService({
+      clock: () => new Date('2026-01-15T12:00:00Z'),
+      timezone: 'America/New_York',
+    });
+    const ritual = ds.startOfRitualDay('2026-01-15');
+    const local = ds.fromLocalDate('2026-01-15');
+    // fromLocalDate anchors at noon, startOfRitualDay at boundary hour (0)
+    expect(ritual.getHours()).toBe(0);
+    expect(local!.getHours()).toBe(12);
+  });
+});

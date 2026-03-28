@@ -110,10 +110,10 @@ describe('NowHeader', () => {
         capturesCount={3}
       />,
     );
-    // Check for card titles (Calendar, Habits, Your Notes)
+    // Check for card titles (Calendar, Habits, Search)
     expect(screen.getByText('Calendar')).toBeTruthy();
     expect(screen.getByText('Habits')).toBeTruthy();
-    expect(screen.getByText('Your Notes')).toBeTruthy();
+    expect(screen.getByText('Search')).toBeTruthy();
   });
 });
 

@@ -1019,7 +1019,7 @@ export default function HubScreen() {
                 accessibilityLabel="Go back"
                 accessibilityRole="button"
               >
-                <ChevronLeft size={28} color={BRAND.moss} />
+                <ChevronLeft size={28} color={BRAND.colors.mossGreen} />
               </TouchableOpacity>
               <Text style={[typeStyles.h1, { marginTop: spacing.sm }]}>Hub</Text>
             </View>

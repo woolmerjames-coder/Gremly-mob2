@@ -486,7 +486,6 @@ export default function AskGremlyScreen() {
                 });
               } else if (item.type === 'habit') {
                 await store.createHabit({
-                  title: smartTitle,
                   name: smartTitle,
                   frequency: (phase2.ok && phase2.extracted_frequency) || item.frequency || 'daily',
                   subtype: item.habit_subtype === 'break' ? 'break_habit' : 'start_habit',

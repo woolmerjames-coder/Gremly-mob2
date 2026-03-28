@@ -98,6 +98,7 @@ export async function scheduleItemReminder(
       }
 
       const fireDate = getDateService().fromLocalDate(reminder.date);
+      if (!fireDate) return null;
       fireDate.setHours(hour, minute, 0, 0);
 
       if (fireDate.getTime() <= getDateService().now().getTime()) {

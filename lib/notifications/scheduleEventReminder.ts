@@ -23,13 +23,17 @@ export async function scheduleEventReminder(
 
     if (minutesBefore >= 1440) {
       // "Day before" — fire at 6:00 PM the day before
-      triggerDate = getDateService().fromLocalDate(eventDate);
+      const d = getDateService().fromLocalDate(eventDate);
+      if (!d) return null;
+      triggerDate = d;
       triggerDate.setHours(18, 0, 0, 0);
       triggerDate.setDate(triggerDate.getDate() - 1);
     } else if (eventTime) {
       // Specific time event — fire minutesBefore the start
       const [h, m] = eventTime.split(':').map(Number);
-      triggerDate = getDateService().fromLocalDate(eventDate);
+      const d2 = getDateService().fromLocalDate(eventDate);
+      if (!d2) return null;
+      triggerDate = d2;
       triggerDate.setHours(h, m, 0, 0);
       triggerDate.setMinutes(triggerDate.getMinutes() - minutesBefore);
     } else {

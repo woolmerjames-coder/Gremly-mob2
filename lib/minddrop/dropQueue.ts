@@ -27,6 +27,7 @@ export type DropStatus =
   | 'queued' // Written to AsyncStorage, not yet processed
   | 'classified' // Phase 0/1 complete, ready for Phase 2
   | 'enriched' // Phase 2 complete, ready for sync
+  | 'enrichment_failed' // Phase 2 failed, can be retried
   | 'synced' // Complete, can be removed
   | 'failed'; // Failed, needs retry
 
@@ -451,6 +452,7 @@ export async function getQueueStats(): Promise<{
     queued: 0,
     classified: 0,
     enriched: 0,
+    enrichment_failed: 0,
     synced: 0,
     failed: 0,
   };

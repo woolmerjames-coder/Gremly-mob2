@@ -23,7 +23,11 @@ jest.mock('@react-navigation/native', () => {
   const actual = jest.requireActual('@react-navigation/native');
   return {
     ...actual,
-    useNavigation: () => ({ navigate: jest.fn(), setOptions: jest.fn() }),
+    useNavigation: () => ({
+      navigate: jest.fn(),
+      setOptions: jest.fn(),
+      addListener: jest.fn(() => jest.fn()),
+    }),
   };
 });
 

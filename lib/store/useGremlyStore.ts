@@ -366,6 +366,7 @@ export interface PendingDrop {
     | 'classified'
     | 'enriching'
     | 'enriched'
+    | 'enrichment_failed'
     | 'syncing'
     | 'synced'
     | 'failed';
@@ -451,7 +452,13 @@ export interface PendingDrop {
   // ═══════════════════════════════════════════════════════════════════
 
   /** Visual stage for animations - set by Phase 1.5a to trigger typewriter */
-  minddrop_stage?: 'pending' | 'classifying' | 'streaming' | 'enriching' | 'enriched';
+  minddrop_stage?:
+    | 'pending'
+    | 'classifying'
+    | 'streaming'
+    | 'enriching'
+    | 'enriched'
+    | 'enrichment_failed';
 
   /** True if this drop was captured while offline. Used for UI messaging. */
   _offlineCapture?: boolean;

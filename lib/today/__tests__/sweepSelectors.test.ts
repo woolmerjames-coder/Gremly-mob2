@@ -22,6 +22,12 @@ jest.mock('../../date', () => ({
       return iso.split('T')[0];
     },
     today: () => '2025-12-05',
+    now: () => new Date('2025-12-05T12:00:00.000Z'),
+    daysBetween: (a: string, b: string) => {
+      const da = new Date(a + 'T00:00:00Z');
+      const db = new Date(b + 'T00:00:00Z');
+      return Math.round((db.getTime() - da.getTime()) / (1000 * 60 * 60 * 24));
+    },
   }),
 }));
 
@@ -203,9 +209,8 @@ describe('sweepSelectors - Two-Date System', () => {
 
     describe('undated recent items', () => {
       it('returns true for items created within last 3 days with no dates', () => {
-        // Use actual recent date since the code uses new Date() internally
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
+        // Date relative to mocked now (2025-12-05)
+        const yesterday = new Date('2025-12-04T12:00:00.000Z');
 
         const item: SweepEligibleTodo = {
           id: '1',
@@ -216,9 +221,8 @@ describe('sweepSelectors - Two-Date System', () => {
       });
 
       it('returns false for items created more than 3 days ago with no dates', () => {
-        // Use actual old date since the code uses new Date() internally
-        const fifteenDaysAgo = new Date();
-        fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+        // Date relative to mocked now (2025-12-05)
+        const fifteenDaysAgo = new Date('2025-11-20T12:00:00.000Z');
 
         const item: SweepEligibleTodo = {
           id: '1',

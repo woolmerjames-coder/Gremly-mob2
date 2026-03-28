@@ -17,7 +17,14 @@ export type RecordType = 'habit' | 'todo' | 'note';
  * - 'list': checklist-style notes (legacy, rarely used)
  * - 'reference': reference materials (legacy, rarely used)
  */
-export type NoteSubtype = 'journal' | 'list' | 'catchall' | 'idea' | 'reference' | 'event';
+export type NoteSubtype =
+  | 'journal'
+  | 'list'
+  | 'catchall'
+  | 'idea'
+  | 'reference'
+  | 'event'
+  | 'general';
 
 export type CanonicalType = 'habit' | 'todo' | 'log' | 'unsorted';
 export type LegacyCanonicalType = 'note' | 'journal';
@@ -98,13 +105,19 @@ export interface Habit {
   archived_at?: string | null; // ISO 8601 timestamp when archived
   archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | 'goal_checkin' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | 'goal_checkin' | 'chat_save' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
     ai_pending?: boolean;
     ai_failed?: boolean;
-    minddrop_stage?: 'pending' | 'classified' | 'prefilled' | 'multi_pending' | 'enriched';
+    minddrop_stage?:
+      | 'pending'
+      | 'classified'
+      | 'prefilled'
+      | 'multi_pending'
+      | 'enriched'
+      | 'enrichment_failed';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags
@@ -221,13 +234,19 @@ export interface Todo {
   archived_at?: string | null; // ISO 8601 timestamp when archived
   archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | 'goal_checkin' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | 'goal_checkin' | 'chat_save' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
     ai_pending?: boolean;
     ai_failed?: boolean;
-    minddrop_stage?: 'pending' | 'classified' | 'prefilled' | 'multi_pending' | 'enriched';
+    minddrop_stage?:
+      | 'pending'
+      | 'classified'
+      | 'prefilled'
+      | 'multi_pending'
+      | 'enriched'
+      | 'enrichment_failed';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags
@@ -322,13 +341,19 @@ export interface Note {
   archived_at?: string | null; // ISO 8601 timestamp when archived
   archived_reason?: string | null; // 'swept' | 'manual' | 'user_deleted_drop' | 'converted'
   why_string?: string | null;
-  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | 'goal_checkin' | null;
+  origin?: 'catchall' | 'space_chat' | 'manual' | 'overlay' | 'goal_checkin' | 'chat_save' | null;
   canonicalType?: CanonicalType | LegacyCanonicalType;
   labels?: string[];
   views?: {
     ai_pending?: boolean;
     ai_failed?: boolean;
-    minddrop_stage?: 'pending' | 'classified' | 'prefilled' | 'multi_pending' | 'enriched';
+    minddrop_stage?:
+      | 'pending'
+      | 'classified'
+      | 'prefilled'
+      | 'multi_pending'
+      | 'enriched'
+      | 'enrichment_failed';
     minddrop_prefilled_v1?: boolean;
     [key: string]: any;
   }; // JSONB field for UI state flags

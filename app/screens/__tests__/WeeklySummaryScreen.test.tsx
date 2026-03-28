@@ -16,7 +16,12 @@ const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
 const mockReplace = jest.fn();
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ goBack: mockGoBack, navigate: mockNavigate, replace: mockReplace }),
+  useNavigation: () => ({
+    goBack: mockGoBack,
+    navigate: mockNavigate,
+    replace: mockReplace,
+    addListener: jest.fn(() => jest.fn()),
+  }),
   useRoute: () => ({
     params: { weekStartDate: '2025-12-15' },
   }),

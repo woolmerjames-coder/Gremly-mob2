@@ -4729,12 +4729,6 @@ const RecentDrops: React.FC<{
           const entityId = payload.localId;
           const item = items.find((i) => i.id === entityId || i.drop_id === entityId);
           if (item) {
-            const repo =
-              item.kind === 'todo'
-                ? useGremlyStore.getState().todoRepo
-                : item.kind === 'habit'
-                  ? useGremlyStore.getState().habitRepo
-                  : useGremlyStore.getState().noteRepo;
             const result = await runPhase2(entityId, payload.text, bucket, subtype, repo);
             if (result) {
               setItems((prev) =>
@@ -4773,7 +4767,7 @@ const RecentDrops: React.FC<{
 
     const unsub = eventBus.on('drop:retry_enrichment', handleRetry);
     return () => unsub();
-  }, [pendingDropsMap, items]);
+  }, [pendingDropsMap, items, repo]);
 
   const handleEdit = React.useCallback(
     async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {

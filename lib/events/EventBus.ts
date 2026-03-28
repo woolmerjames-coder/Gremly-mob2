@@ -111,6 +111,13 @@ export type EventMap = {
 
   // Day rollover event
   'day:rollover': { date: string };
+  // Retry enrichment for failed drops
+  'drop:retry_enrichment': {
+    localId: string;
+    text: string;
+    bucket: string;
+    subtype: string | null;
+  };
 };
 
 type Handler<T> = (payload: T) => void;

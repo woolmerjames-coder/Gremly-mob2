@@ -31,7 +31,7 @@ jest.mock('@react-navigation/native', () => {
   return {
     __esModule: true,
     ...actual,
-    useNavigation: () => ({ setOptions: jest.fn() }),
+    useNavigation: () => ({ setOptions: jest.fn(), addListener: jest.fn(() => jest.fn()) }),
   };
 });
 

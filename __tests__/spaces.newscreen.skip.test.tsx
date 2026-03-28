@@ -24,6 +24,7 @@ jest.mock('../providers/RepoProvider', () => ({
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
     goBack: jest.fn(),
+      addListener: jest.fn(() => jest.fn()),
     replace: jest.fn(),
   }),
 }));
