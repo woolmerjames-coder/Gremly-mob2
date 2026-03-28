@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,14 +8,7 @@ import {
   ScrollView,
   Pressable,
 } from 'react-native';
-import {
-  CheckSquare,
-  Repeat,
-  FileText,
-  MessageSquare,
-  CircleCheck,
-  Circle,
-} from 'lucide-react-native';
+import { Check, CheckSquare, Repeat, FileText, MessageSquare } from 'lucide-react-native';
 
 interface SaveSheetProps {
   visible: boolean;
@@ -49,33 +42,54 @@ export function SaveSheet({
   onDismiss,
   onSave,
 }: SaveSheetProps) {
-  const [dismissed, setDismissed] = useState<string[]>([]);
-  const [includeSummary, setIncludeSummary] = useState(true);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    new Set(extractions.map((e) => e.id)),
+  );
+  const [summarySelected, setSummarySelected] = useState(false);
 
-  const visibleItems = extractions.filter((e) => !dismissed.includes(e.id));
+  useEffect(() => {
+    setSelectedIds(new Set(extractions.map((e) => e.id)));
+  }, [extractions]);
 
-  const handleDismiss = (id: string) => {
-    setDismissed((prev) => [...prev, id]);
-    onDismiss(id);
+  const toggleItem = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
-  const handleSave = () => {
-    onSave(visibleItems, includeSummary);
-  };
+  const totalSelected = selectedIds.size + (summarySelected ? 1 : 0);
+  const nothingSelected = totalSelected === 0;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.handle} />
-          <Text style={styles.title}>{getTitle(visibleItems.length)}</Text>
+          <Text style={styles.title}>{getTitle(extractions.length)}</Text>
 
           <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
-            {visibleItems.map((item) => {
+            {extractions.map((item) => {
               const config = ICON_CONFIG[item.type] || ICON_CONFIG.note;
               const Icon = config.icon;
+              const selected = selectedIds.has(item.id);
               return (
-                <View key={item.id} style={styles.saveItem}>
+                <TouchableOpacity
+                  key={item.id}
+                  activeOpacity={0.7}
+                  onPress={() => toggleItem(item.id)}
+                  style={[styles.saveItem, { opacity: selected ? 1 : 0.4 }]}
+                >
+                  <View
+                    style={[
+                      styles.selectionCircle,
+                      selected ? styles.selectionCircleFilled : styles.selectionCircleEmpty,
+                    ]}
+                  >
+                    {selected && <Check size={14} color="#FFFFFF" />}
+                  </View>
                   <View style={[styles.iconContainer, { backgroundColor: config.bg }]}>
                     <Icon size={16} color={config.color} />
                   </View>
@@ -94,13 +108,7 @@ export function SaveSheet({
                     ) : null}
                     {item.frequency ? <Text style={styles.itemMeta}>{item.frequency}</Text> : null}
                   </View>
-                  <TouchableOpacity
-                    style={styles.dismissButton}
-                    onPress={() => handleDismiss(item.id)}
-                  >
-                    <Text style={styles.dismissX}>×</Text>
-                  </TouchableOpacity>
-                </View>
+                </TouchableOpacity>
               );
             })}
 
@@ -113,12 +121,20 @@ export function SaveSheet({
 
             {/* Chat summary card */}
             <Pressable
-              onPress={() => setIncludeSummary((prev) => !prev)}
+              onPress={() => setSummarySelected((prev) => !prev)}
               style={[
                 styles.saveItem,
-                { opacity: includeSummary ? 0.75 : 0.4, borderStyle: 'dashed' },
+                { opacity: summarySelected ? 0.75 : 0.4, borderStyle: 'dashed' },
               ]}
             >
+              <View
+                style={[
+                  styles.selectionCircle,
+                  summarySelected ? styles.selectionCircleFilled : styles.selectionCircleEmpty,
+                ]}
+              >
+                {summarySelected && <Check size={14} color="#FFFFFF" />}
+              </View>
               <View style={[styles.iconContainer, { backgroundColor: 'rgba(46,85,64,0.06)' }]}>
                 <MessageSquare size={16} color="#2E5540" />
               </View>
@@ -133,17 +149,26 @@ export function SaveSheet({
                   </Text>
                 ) : null}
               </View>
-              {includeSummary ? (
-                <CircleCheck size={20} color="#2E5540" style={{ alignSelf: 'center' }} />
-              ) : (
-                <Circle size={20} color="rgba(0,0,0,0.15)" style={{ alignSelf: 'center' }} />
-              )}
             </Pressable>
           </ScrollView>
 
           {/* Save button */}
-          <TouchableOpacity style={styles.saveButton} onPress={handleSave} activeOpacity={0.8}>
-            <Text style={styles.saveButtonText}>Save to Gremly</Text>
+          <TouchableOpacity
+            style={[styles.saveButton, nothingSelected && { opacity: 0.4 }]}
+            onPress={() => {
+              if (nothingSelected) return;
+              const selectedItems = extractions.filter((e) => selectedIds.has(e.id));
+              onSave(selectedItems, summarySelected);
+            }}
+            activeOpacity={nothingSelected ? 1 : 0.8}
+          >
+            <Text style={styles.saveButtonText}>
+              {nothingSelected
+                ? 'Save to Gremly'
+                : totalSelected === 1
+                  ? 'Save 1 item to Gremly'
+                  : `Save ${totalSelected} to Gremly`}
+            </Text>
           </TouchableOpacity>
         </Pressable>
       </Pressable>
@@ -229,18 +254,21 @@ const styles = StyleSheet.create({
     color: 'rgba(34,34,34,0.55)',
     marginTop: 2,
   },
-  dismissButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(0,0,0,0.04)',
+  selectionCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
   },
-  dismissX: {
-    fontSize: 16,
-    color: 'rgba(0,0,0,0.3)',
+  selectionCircleFilled: {
+    backgroundColor: '#2E5540',
+  },
+  selectionCircleEmpty: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: 'rgba(0,0,0,0.15)',
   },
   divider: {
     flexDirection: 'row',

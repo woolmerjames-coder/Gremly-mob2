@@ -16,7 +16,7 @@ import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { SaveIndicatorPill } from '../../components/chat/SaveIndicatorPill';
 import { SaveSheet } from '../../components/chat/SaveSheet';
-import { callGeneralChatStreaming } from '../../lib/cortex/CortexClient';
+import { callGeneralChatStreaming, callEnrichPhase2 } from '../../lib/cortex/CortexClient';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAuth } from '../../providers/AuthProvider';
 import { supabase } from '../../lib/supabase/client';
@@ -392,38 +392,69 @@ export default function AskGremlyScreen() {
 
           for (const item of items) {
             try {
+              const bucket =
+                item.type === 'todo' ? 'todo' : item.type === 'habit' ? 'habit' : 'log';
+              const subtype = item.type === 'note' ? item.subtype || 'general' : null;
+              const enrichText = item.title + (item.body ? '. ' + item.body : '');
+
+              const enriched = await callEnrichPhase2({
+                text: enrichText,
+                bucket,
+                subtype,
+              });
+
+              const views = enriched.ok
+                ? {
+                    confirmation_message: enriched.confirmation_message || null,
+                    bucket_confirmed: true,
+                  }
+                : { bucket_confirmed: true };
+
+              const enrichedTitle = (enriched.ok && enriched.smart_title) || item.title;
+              const enrichedTags = (enriched.ok && enriched.tags) || [];
+              const enrichedTimeEst = enriched.ok ? enriched.time_estimate_minutes : null;
+
               if (item.type === 'todo') {
                 await store.createTodo({
-                  title: item.title,
-                  name: item.title,
+                  title: enrichedTitle,
+                  name: enrichedTitle,
                   body: item.body || null,
                   due_date: item.due_date ? new Date(item.due_date).toISOString() : null,
                   due_day: item.due_date || null,
+                  tags: enrichedTags,
+                  time_estimate_minutes: enrichedTimeEst,
+                  views,
                   ai_placed: true,
                   origin: 'chat_save',
                 });
               } else if (item.type === 'habit') {
                 await store.createHabit({
-                  title: item.title,
-                  name: item.title,
-                  frequency: item.frequency || 'daily',
+                  title: enrichedTitle,
+                  name: enrichedTitle,
+                  frequency:
+                    (enriched.ok && enriched.extracted_frequency) || item.frequency || 'daily',
                   subtype: item.habit_subtype === 'break' ? 'break_habit' : 'start_habit',
                   notes: item.body || null,
+                  tags: enrichedTags,
+                  time_estimate_minutes: enrichedTimeEst,
+                  views,
                   ai_placed: true,
                   origin: 'chat_save',
                 });
               } else {
                 await store.createNote({
-                  title: item.title,
+                  title: enrichedTitle,
                   body: item.body || item.title,
-                  subtype: item.subtype || 'general',
+                  subtype: subtype || 'general',
+                  tags: enrichedTags,
+                  views,
                   ai_placed: true,
                   origin: 'chat_save',
                 });
               }
               savedIds.push(item.id);
             } catch (err) {
-              console.warn('[AskGremly] Failed to save item:', item.title, err);
+              console.warn('[AskGremly] Save failed:', item.title, err);
             }
           }
 

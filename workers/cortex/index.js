@@ -10021,8 +10021,14 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
                       .join('\n\n');
 
-                    const todayStr = new Date().toISOString().slice(0, 10);
-                    const extractionPromptText = `Today's date is ${todayStr}.
+                    const todayStr = new Intl.DateTimeFormat('en-US', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                      timeZone: 'UTC',
+                    }).format(new Date());
+                    const extractionPromptText = `Today is ${todayStr}.
 
 You are analyzing a conversation to identify items worth saving in a productivity app.
 
@@ -10036,6 +10042,13 @@ TODO: Actions the user committed to (concrete verb + object). NOT AI suggestions
 HABIT: Only with explicit frequency or stop/quit intent + trackable behavior.
 NOTE: Ideas the user was excited about, decisions reached, recommendations they engaged with.
 DO NOT EXTRACT: explorations, emotional processing, unaffirmed AI suggestions, small talk.
+
+WRITING STYLE for title and body fields:
+- Title should be a short action phrase: "Book restaurant for Saturday" not "Restaurant Booking Task"
+- Body should be a brief casual note, one sentence max
+- Never write "the user" or "user" — write as if jotting a note for them: "Getting up early for a 20-min run" not "User committed to getting up early"
+- If no meaningful body beyond the title, set body to null
+
 Also generate a chat title (3-6 words) and one-sentence summary.
 Return ONLY valid JSON:
 {"extractions":[{"id":"<8chars>","type":"todo|habit|note","title":"...","body":"...","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100}],"chat_summary":{"title":"...","summary":"..."}}`;
