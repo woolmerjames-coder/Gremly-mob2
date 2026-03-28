@@ -467,7 +467,7 @@ const styles = StyleSheet.create({
   composerContainer: { position: 'relative' as const },
   mascot: {
     position: 'absolute' as const,
-    top: -100,
+    top: -88,
     right: 0,
     width: 95,
     height: 111,
