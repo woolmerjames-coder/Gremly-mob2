@@ -2955,6 +2955,19 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
       if (type === 'general-greeting') {
         try {
           const dailyFocus = await getDailyFocusForChat(body.userId, env);
+          const now = new Date();
+          const userTimezone = body.timezone || 'America/Los_Angeles';
+          const timeStr = new Intl.DateTimeFormat('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: userTimezone,
+          }).format(now);
+          const dayStr = new Intl.DateTimeFormat('en-US', {
+            weekday: 'long',
+            timeZone: userTimezone,
+          }).format(now);
+
           const focusSnippet = dailyFocus
             ? [
                 dailyFocus.lifeMoment && `Life moment: ${dailyFocus.lifeMoment}`,
@@ -2967,18 +2980,19 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
                 .join('\n')
             : '';
 
-          const prompt = `Generate a 1-2 sentence contextual greeting for Gremly, a productivity companion. This will show on the home screen when the user opens the chat tab.
+          const prompt = `Generate a 1-2 sentence contextual greeting for Gremly, a productivity companion. This shows on the home screen when the user opens the chat tab.
 
-${focusSnippet ? `USER CONTEXT:\n${focusSnippet}` : 'No context available.'}
+Current time: ${timeStr} on ${dayStr}.
+${focusSnippet ? `\nUSER CONTEXT:\n${focusSnippet}` : 'No context available.'}
 
 Rules:
-- Be specific to what's happening in their life right now
-- No generic greetings like "Good evening" or "How can I help"
-- No exclamation marks
-- Warm but not performative, like a friend who knows your situation
-- Under 30 words
-- If context mentions something upcoming or notable, reference it
-- End with a natural question or opening that invites conversation
+- It is currently ${timeStr}. Be time-appropriate. Late evening means winding down or looking ahead to tomorrow, not starting a busy day.
+- Reference ONE specific detail from the context by name: a person, a project, an event, a milestone. If you can't name something specific, say "What's on your mind?" and nothing else.
+- Write like a friend who already knows what's going on. No introductions, no offers to help.
+- No productivity language. No "organize", "tasks", "stay on track", "moment to breathe", "focus".
+- No questions that a customer service bot would ask.
+- No exclamation marks.
+- Under 25 words.
 
 Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
 

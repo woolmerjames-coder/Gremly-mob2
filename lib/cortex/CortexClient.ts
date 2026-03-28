@@ -1828,7 +1828,11 @@ export async function callGeneralGreeting(userId: string): Promise<string | null
     const res = await fetch(baseUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ type: 'general-greeting', userId }),
+      body: JSON.stringify({
+        type: 'general-greeting',
+        userId,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
     });
     if (!res.ok) return null;
     const data = await res.json();
