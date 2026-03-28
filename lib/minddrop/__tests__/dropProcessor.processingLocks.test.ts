@@ -106,6 +106,11 @@ jest.mock('../../supabase/client', () => ({
 // Mock dateService
 jest.mock('../../date/DateService', () => ({
   dateService: { today: () => '2026-02-26' },
+  getDateService: () => ({
+    now: () => new Date('2026-02-26T12:00:00.000Z'),
+    getTimezone: () => 'America/New_York',
+  }),
+  nowTimestamp: () => '2026-02-26T12:00:00.000Z',
 }));
 
 // Mock textNormalization

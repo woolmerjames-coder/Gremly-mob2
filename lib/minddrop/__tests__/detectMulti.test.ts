@@ -5,7 +5,7 @@
  * Verifies the API call and response parsing.
  */
 
-import { detectMulti, type DetectMultiResult } from '../detectMulti';
+import { detectMulti } from '../detectMulti';
 
 // Mock env
 jest.mock('../../env', () => ({
