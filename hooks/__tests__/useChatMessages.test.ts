@@ -134,6 +134,21 @@ describe('useChatMessages hook', () => {
       unmount();
     });
 
+    it('accepts null spaceId for general chat (Ask Gremly)', async () => {
+      const chatId = 'general-chat-123';
+      const { result, unmount } = renderHook(() => useChatMessages(chatId, null));
+
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+      });
+
+      expect(result.current.currentChatId).toBe(chatId);
+      expect(typeof result.current.sendUserMessage).toBe('function');
+      expect(typeof result.current.createStreamingMessage).toBe('function');
+
+      unmount();
+    });
+
     it('exports all required functions', async () => {
       const { result, unmount } = renderHook(() => useChatMessages(undefined, spaceId));
 

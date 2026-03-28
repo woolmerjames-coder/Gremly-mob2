@@ -701,7 +701,7 @@ export interface SpaceChatMessage {
  */
 export interface SpaceChatMessageInsert {
   chat_id: ID;
-  space_id: ID;
+  space_id: ID | null;
   role: MessageRole;
   content: string;
   metadata_json?: {

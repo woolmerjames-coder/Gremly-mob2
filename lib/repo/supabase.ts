@@ -4706,7 +4706,7 @@ export class SupabaseSpaceChatRepo {
   }
 
   async create(
-    spaceId: string,
+    spaceId: string | null,
     input: import('../types').SpaceChatCreateInput,
   ): Promise<import('../types').SpaceChat> {
     const userId = this.ensureUserId();
