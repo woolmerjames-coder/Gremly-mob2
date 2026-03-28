@@ -2521,12 +2521,18 @@ function formatStartDate(startDate: string | null | undefined): string {
     // If within next 7 days, show day name
     const tz = ds.getTimezone();
     if (diffDays >= 0 && diffDays < 7) {
-      const dayName = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: tz }).format(date);
+      const dayName = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: tz }).format(
+        date,
+      );
       return `Starts ${dayName}`;
     }
 
     // Otherwise show "Jan 1" format
-    const formatted = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: tz }).format(date);
+    const formatted = new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      timeZone: tz,
+    }).format(date);
     return `Starts ${formatted}`;
   } catch {
     return 'Starts TBD';
@@ -2937,10 +2943,10 @@ const AnimatedMindDropCard = React.memo<{
 
     // Check if item is too old for animation (>30s old) - SYNCHRONOUS check
     // Uses mountTimeRef captured on mount to avoid impure Date.now() calls during render
-    const createdAtMs = item.created_at
-      ? new Date(item.created_at).getTime()
-      : mountTimeRef.current;
-    const ageMs = mountTimeRef.current - createdAtMs;
+    // eslint-disable-next-line react-hooks/refs -- intentional: stable ref set once on mount
+    const mountTimestamp = mountTimeRef.current;
+    const createdAtMs = item.created_at ? new Date(item.created_at).getTime() : mountTimestamp;
+    const ageMs = mountTimestamp - createdAtMs;
     const isTooOldForAnimation = ageMs >= 30000;
 
     // Check if this item needs reveal animation (not yet revealed)
@@ -4668,7 +4674,10 @@ const RecentDrops: React.FC<{
           const dateService = (await import('../../lib/date/DateService')).dateService;
           const currentDate = dateService.today();
           const tz = getDateService().getTimezone();
-          const dayOfWeek = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: tz }).format(getDateService().now());
+          const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+            weekday: 'long',
+            timeZone: tz,
+          }).format(getDateService().now());
           const timezone = tz;
 
           const controller = new AbortController();
@@ -5975,7 +5984,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     (moment: 'greeting' | 'return' | 'post_drop'): SpeechContext => {
       const daysSinceLastSweep = lastSweepCompletedAt
         ? Math.floor(
-            (getDateService().now().getTime() - new Date(lastSweepCompletedAt).getTime()) / (1000 * 60 * 60 * 24),
+            (getDateService().now().getTime() - new Date(lastSweepCompletedAt).getTime()) /
+              (1000 * 60 * 60 * 24),
           )
         : null;
 
@@ -5988,7 +5998,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         error: null,
         gaugeValue: feedingGaugeValue,
         isFedToday,
-        timeSinceLastDrop: storeLastDropTime ? getDateService().now().getTime() - storeLastDropTime : null,
+        timeSinceLastDrop: storeLastDropTime
+          ? getDateService().now().getTime() - storeLastDropTime
+          : null,
         briefHeadline,
         tone: dco?.tone ?? null,
         overdueTodos: dco?.active_today?.overdue_todos ?? 0,
@@ -6256,6 +6268,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       setRecentRefresh((v) => v + 1);
     });
   }, [setRecentRefresh]);
+
+  // Refresh items when MindDrop tab regains focus (e.g. after saving from Ask Gremly)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      triggerRecentRefresh();
+    });
+    return unsubscribe;
+  }, [navigation, triggerRecentRefresh]);
+
   const canonicalConversionsOn = env.feature.canonicalConversions;
 
   // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
@@ -8465,11 +8486,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               isFirstDrop: false,
               hasPhotos: pendingPhotoUris.length > 0,
               isReturningUser:
-                storeLastDropTime != null && getDateService().now().getTime() - storeLastDropTime > 24 * 60 * 60 * 1000,
+                storeLastDropTime != null &&
+                getDateService().now().getTime() - storeLastDropTime > 24 * 60 * 60 * 1000,
               error: null,
               gaugeValue: useGremlyStore.getState().feedingGaugeValue,
               isFedToday: useGremlyStore.getState().isFedToday,
-              timeSinceLastDrop: storeLastDropTime ? getDateService().now().getTime() - storeLastDropTime : null,
+              timeSinceLastDrop: storeLastDropTime
+                ? getDateService().now().getTime() - storeLastDropTime
+                : null,
               briefHeadline: null,
               tone: dco?.tone ?? null,
               overdueTodos: dco?.active_today?.overdue_todos ?? 0,
@@ -8477,7 +8501,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               upcomingIn7d: dco?.active_today?.upcoming_in_7d ?? [],
               daysSinceLastSweep: lastSweepCompletedAt
                 ? Math.floor(
-                    (getDateService().now().getTime() - new Date(lastSweepCompletedAt).getTime()) / (1000 * 60 * 60 * 24),
+                    (getDateService().now().getTime() - new Date(lastSweepCompletedAt).getTime()) /
+                      (1000 * 60 * 60 * 24),
                   )
                 : null,
               lastSpeechTime: lastSpeechTimeRef.current,
@@ -8719,11 +8744,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           isFirstDrop: false,
           hasPhotos: currentSubmissionHasPhotosRef.current,
           isReturningUser:
-            storeLastDropTime != null && getDateService().now().getTime() - storeLastDropTime > 24 * 60 * 60 * 1000,
+            storeLastDropTime != null &&
+            getDateService().now().getTime() - storeLastDropTime > 24 * 60 * 60 * 1000,
           error: null,
           gaugeValue: useGremlyStore.getState().feedingGaugeValue,
           isFedToday: useGremlyStore.getState().isFedToday,
-          timeSinceLastDrop: storeLastDropTime ? getDateService().now().getTime() - storeLastDropTime : null,
+          timeSinceLastDrop: storeLastDropTime
+            ? getDateService().now().getTime() - storeLastDropTime
+            : null,
           briefHeadline: null,
           tone: dco?.tone ?? null,
           overdueTodos: dco?.active_today?.overdue_todos ?? 0,
@@ -8731,7 +8759,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           upcomingIn7d: dco?.active_today?.upcoming_in_7d ?? [],
           daysSinceLastSweep: lastSweepCompletedAt
             ? Math.floor(
-                (getDateService().now().getTime() - new Date(lastSweepCompletedAt).getTime()) / (1000 * 60 * 60 * 24),
+                (getDateService().now().getTime() - new Date(lastSweepCompletedAt).getTime()) /
+                  (1000 * 60 * 60 * 24),
               )
             : null,
           lastSpeechTime: lastSpeechTimeRef.current,
