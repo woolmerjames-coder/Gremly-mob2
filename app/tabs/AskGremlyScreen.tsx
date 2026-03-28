@@ -300,13 +300,22 @@ export default function AskGremlyScreen() {
         {/* Header */}
         {inConversation ? (
           <View style={styles.chatHeader}>
-            <TouchableOpacity
-              style={styles.chatHeaderBtn}
-              onPress={goToEmptyState}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <ChevronLeft size={24} color="#222222" />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <TouchableOpacity
+                style={styles.chatHeaderBtn}
+                onPress={goToEmptyState}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <ChevronLeft size={24} color="#222222" strokeWidth={2.5} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.headerButton}
+                onPress={() => setHistoryVisible(true)}
+                accessibilityLabel="Chat history"
+              >
+                <Clock size={18} color={MOSS} />
+              </TouchableOpacity>
+            </View>
             <View style={styles.chatHeaderCenter}>
               <Text style={styles.chatHeaderTitle}>Ask Gremly</Text>
               <View style={styles.chatHeaderUnderline} />
