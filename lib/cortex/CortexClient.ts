@@ -846,6 +846,50 @@ export async function callClassify(opts: {
 }
 
 /**
+ * Call the Cortex proxy for Phase 1.5a enrichment (smart title + confirmation message).
+ * Lighter/faster than Phase 2 — used in parallel for title quality.
+ */
+export async function callEnrichPhase15a(params: {
+  text: string;
+  bucket: 'todo' | 'habit' | 'log';
+  subtype?: string | null;
+}): Promise<{ ok: boolean; smart_title?: string; confirmation_message?: string }> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false };
+  if (isAiDisabled()) return { ok: false };
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  try {
+    const response = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        type: 'enrich-phase1-5a',
+        text: params.text,
+        bucket: params.bucket,
+        subtype: params.subtype || null,
+        recentReactions: [],
+      }),
+    });
+    const data = await response.json();
+    if (data.error) return { ok: false };
+    return {
+      ok: true,
+      smart_title: data.smart_title,
+      confirmation_message: data.confirmation_message,
+    };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
  * Call the Cortex proxy for Phase 2 enrichment (smart titles, confirmation messages, etc.)
  * This runs AFTER entity creation to generate AI-enhanced metadata.
  *
