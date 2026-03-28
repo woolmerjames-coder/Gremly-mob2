@@ -331,6 +331,21 @@ export class DateService {
     return 24 - currentHour + this.dayBoundaryHour;
   }
 
+  /**
+   * Get the start of a ritual day as a Date object.
+   * Uses dayBoundaryHour (e.g. 0 = midnight, 4 = 4 AM).
+   * Useful as a cutoff timestamp for filtering "today" items.
+   *
+   * NOTE: Do NOT use fromLocalDate() for cutoffs — it anchors at noon.
+   *
+   * @param dateStr - YYYY-MM-DD string (defaults to today's ritual day)
+   */
+  startOfRitualDay(dateStr?: string): Date {
+    const d = dateStr || this.today();
+    const [y, m, day] = d.split('-').map(Number);
+    return new Date(y, m - 1, day, this.dayBoundaryHour, 0, 0, 0);
+  }
+
   setDayBoundaryHour(hour: number): void {
     this.dayBoundaryHour = hour;
   }

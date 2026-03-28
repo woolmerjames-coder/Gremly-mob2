@@ -3876,7 +3876,7 @@ const RecentDrops: React.FC<{
       const habits = selectRecentHabits(state, 50);
 
       // Time boundaries for filtering
-      const start = getDateService().fromLocalDate(getDateService().today())!;
+      const start = getDateService().startOfRitualDay();
       const todayCutoff = start.getTime();
 
       // 3 days ago at start of day (for "Show older" toggle)
@@ -5252,7 +5252,7 @@ const RecentDrops: React.FC<{
   // Derive hasTodayDrops from reactive items state (not todayCount which can be stale)
   const hasTodayDrops = React.useMemo(() => {
     if (pendingItems.length > 0) return true;
-    const todayCutoff = getDateService().fromLocalDate(getDateService().today())!.getTime();
+    const todayCutoff = getDateService().startOfRitualDay().getTime();
     return items.some((item) => {
       const ts = new Date(item.created_at).getTime();
       return Number.isFinite(ts) && ts >= todayCutoff;
