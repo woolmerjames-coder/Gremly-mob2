@@ -638,12 +638,6 @@ interface GremlyState {
     source: string,
     value: number,
   ) => Promise<{ newValue: number; justFed: boolean }>;
-  markFedToday: () => Promise<{
-    fedDaysCount: number;
-    didAgeUp: boolean;
-    newAge: number;
-    newTier: string;
-  }>;
   completeSweepSession: (cardsProcessed: number, didJournal: boolean) => Promise<void>;
   completeMorningBrief: () => Promise<void>;
   commitLockInItems: (count: number) => Promise<void>;
@@ -2054,47 +2048,60 @@ export const useGremlyStore = create<GremlyState>()(
 
           const currentRitualDay = get().ensureCurrentRitualDay();
 
-          // Training mode: 1.5x gauge multiplier (Training Challenge spec Section 8)
+          // Training mode: 1.25x gauge multiplier
           const multiplier = get().isTrainingMode ? 1.25 : 1.0;
           const adjustedValue = value * multiplier;
-          console.log('[GremlyStore] addGaugeContribution', {
-            source,
-            value,
-            multiplier,
-            adjustedValue,
-            userId,
-            currentRitualDay,
-          });
 
-          // Capture fed state BEFORE the async RPC call.
-          // A concurrent refreshRitualProgress (triggered by navigation)
-          // can set isFedToday = true in the store while this RPC is in-flight,
-          // which would cause justFed to be false even though this contribution
-          // is what actually crossed the threshold. Capturing before the await
-          // prevents this race condition.
-          const wasFedBeforeRpc = get().isFedToday;
+          if (__DEV__) {
+            console.log('[GremlyStore] addGaugeContribution', {
+              source,
+              value,
+              multiplier,
+              adjustedValue,
+              userId,
+              currentRitualDay,
+            });
+          }
 
           try {
-            const { data, error } = await supabase.rpc('update_feeding_gauge', {
+            // ONE atomic RPC: gauge update + fed detection + age-up
+            // No client-side orchestration. No race conditions.
+            const { data, error } = await supabase.rpc('update_gauge_atomic', {
               p_owner_id: userId,
               p_ritual_day: currentRitualDay,
               p_source: source,
               p_value: adjustedValue,
             });
 
-            console.log('[GremlyStore] update_feeding_gauge result', {
-              data: JSON.stringify(data),
-              error: error ? JSON.stringify(error) : null,
-            });
-
             if (error) {
-              console.error('[GremlyStore] update_feeding_gauge RPC failed:', error);
+              console.error('[GremlyStore] update_gauge_atomic RPC failed:', error);
               return { newValue: get().feedingGaugeValue, justFed: false };
             }
 
             const row = data?.[0];
-            const newGaugeValue: number = row?.new_gauge_value ?? get().feedingGaugeValue;
-            const newIsFed: boolean = row?.new_is_fed ?? false;
+            if (!row) {
+              console.error('[GremlyStore] update_gauge_atomic returned no data');
+              return { newValue: get().feedingGaugeValue, justFed: false };
+            }
+
+            const newGaugeValue: number = row.new_gauge_value ?? get().feedingGaugeValue;
+            const justFed: boolean = row.just_fed ?? false;
+            const newFedDaysCount: number = row.new_fed_days_count ?? get().fedDaysCount;
+            const didAgeUp: boolean = row.did_age_up ?? false;
+            const newAge: number = row.new_age ?? get().gremlyAge;
+            const newTier: string = row.new_tier ?? get().currentTierName;
+
+            if (__DEV__) {
+              console.log('[GremlyStore] update_gauge_atomic result', {
+                source,
+                newGaugeValue,
+                justFed,
+                newFedDaysCount,
+                didAgeUp,
+                newAge,
+                newTier,
+              });
+            }
 
             const contribution: FeedingContribution = {
               source: source as FeedingContribution['source'],
@@ -2102,152 +2109,60 @@ export const useGremlyStore = create<GremlyState>()(
               timestamp: nowTimestamp(),
             };
 
-            const justFed = newIsFed && !wasFedBeforeRpc;
-
-            console.log('[GremlyStore] addGaugeContribution fed check', {
-              newIsFed,
-              wasFedBeforeRpc,
-              isFedTodayNow: get().isFedToday,
-              justFed,
-              source,
-            });
-
+            // Update store with ALL server-confirmed values at once
             set({
               feedingGaugeValue: newGaugeValue,
-              isFedToday: newIsFed,
+              isFedToday: row.is_fed ?? false,
               feedingContributions: [...get().feedingContributions, contribution],
               feedingGaugeLastUpdatedAt: nowTimestamp(),
+              fedDaysCount: newFedDaysCount,
+              ...(didAgeUp
+                ? {
+                    gremlyAge: newAge,
+                    gremlyAgeLastIncrementedAt: nowTimestamp(),
+                    currentTierName: newTier,
+                  }
+                : {}),
             });
 
-            // Decrement pending preview counter (server has confirmed this contribution)
+            // Decrement pending preview counter
             const currentPending = get().pendingGaugePreviews;
             if (currentPending > 0) {
               set({ pendingGaugePreviews: currentPending - 1 });
             }
 
-            if (justFed) {
-              const markResult = await get().markFedToday();
+            // Fed celebration: only fire if the UI hasn't already shown one
+            // (CatchAllNotepad and SweepFlowScreen fire from optimistic preview)
+            if (justFed && !get().todayFedCelebrationShownAt) {
+              set({ todayFedCelebrationShownAt: nowTimestamp() });
+              celebrationController.showFedCelebration(newFedDaysCount);
+            }
 
-              // Fed celebration: only fire from store if the UI hasn't
-              // already shown one (CatchAllNotepad and SweepFlowScreen
-              // fire fed celebrations from the optimistic preview result).
-              if (!get().todayFedCelebrationShownAt) {
-                set({ todayFedCelebrationShownAt: nowTimestamp() });
-                celebrationController.showFedCelebration(markResult.fedDaysCount);
-              }
+            // Age-up celebration: always fires from here (the store),
+            // since only the server can confirm the age actually changed.
+            if (didAgeUp && !get().todayFeedingAgeUpShownAt) {
+              set({ todayFeedingAgeUpShownAt: nowTimestamp() });
 
-              // Age-up celebration: always fires from here (the store),
-              // never from the UI. This is the single authority for age-ups
-              // because only the server can confirm the age actually changed.
-              if (markResult.didAgeUp && !get().todayFeedingAgeUpShownAt) {
-                set({ todayFeedingAgeUpShownAt: nowTimestamp() });
+              const previousAge = newAge - 1;
+              const oldTier = getTierForAge(previousAge);
+              const newTierObj = getTierForAge(newAge);
+              const isTierTransition = oldTier.name !== newTierObj.name;
 
-                const previousAge = markResult.newAge - 1;
-                const oldTier = getTierForAge(previousAge);
-                const newTier = getTierForAge(markResult.newAge);
-                const isTierTransition = oldTier.name !== newTier.name;
-
-                celebrationController.showAgeUpCelebration(markResult.newAge, {
-                  tierName: newTier.name,
-                  isTierTransition,
-                  previousTierName: isTierTransition ? oldTier.name : undefined,
-                });
-              }
+              celebrationController.showAgeUpCelebration(newAge, {
+                tierName: newTierObj.name,
+                isTierTransition,
+                previousTierName: isTierTransition ? oldTier.name : undefined,
+              });
             }
 
             return { newValue: newGaugeValue, justFed };
           } catch (error) {
             console.error('[GremlyStore] addGaugeContribution CAUGHT', error);
-            // Roll back pending preview on failure
             const currentPendingOnError = get().pendingGaugePreviews;
             if (currentPendingOnError > 0) {
               set({ pendingGaugePreviews: currentPendingOnError - 1 });
             }
             return { newValue: get().feedingGaugeValue, justFed: false };
-          }
-        },
-
-        markFedToday: async () => {
-          const userId = get().userId;
-          if (!userId) {
-            return {
-              fedDaysCount: 0,
-              didAgeUp: false,
-              newAge: get().gremlyAge,
-              newTier: get().currentTierName,
-            };
-          }
-
-          const currentRitualDay = get().ensureCurrentRitualDay();
-
-          try {
-            const { data, error } = await supabase.rpc('mark_fed_today', {
-              p_owner_id: userId,
-              p_ritual_day: currentRitualDay,
-            });
-
-            if (error) {
-              console.error('[GremlyStore] mark_fed_today RPC failed:', error);
-              return {
-                fedDaysCount: get().fedDaysCount,
-                didAgeUp: false,
-                newAge: get().gremlyAge,
-                newTier: get().currentTierName,
-              };
-            }
-
-            const row = data?.[0];
-            const newFedDaysCount: number = row?.new_fed_days_count ?? get().fedDaysCount;
-            const didTriggerAgeUp: boolean = row?.did_trigger_age_up ?? false;
-
-            set({ fedDaysCount: newFedDaysCount });
-
-            if (didTriggerAgeUp) {
-              const { data: ageData, error: ageError } = await supabase.rpc('check_and_age_up_v2', {
-                p_owner_id: userId,
-              });
-
-              if (ageError) {
-                console.error('[GremlyStore] check_and_age_up_v2 RPC failed:', ageError);
-                return {
-                  fedDaysCount: newFedDaysCount,
-                  didAgeUp: false,
-                  newAge: get().gremlyAge,
-                  newTier: get().currentTierName,
-                };
-              }
-
-              const ageRow = ageData?.[0];
-              const didAgeUp: boolean = ageRow?.did_age_up ?? false;
-              const newAge: number = ageRow?.new_age ?? get().gremlyAge;
-              const newTier: string = ageRow?.new_tier ?? get().currentTierName;
-
-              if (didAgeUp) {
-                set({
-                  gremlyAge: newAge,
-                  gremlyAgeLastIncrementedAt: nowTimestamp(),
-                  currentTierName: newTier,
-                  fedDaysCount: 0,
-                });
-              }
-
-              return { fedDaysCount: 0, didAgeUp, newAge, newTier };
-            }
-
-            return {
-              fedDaysCount: newFedDaysCount,
-              didAgeUp: false,
-              newAge: get().gremlyAge,
-              newTier: get().currentTierName,
-            };
-          } catch (error) {
-            console.error('[GremlyStore] markFedToday failed:', error);
-            return {
-              fedDaysCount: get().fedDaysCount,
-              didAgeUp: false,
-              newAge: get().gremlyAge,
-              newTier: get().currentTierName,
-            };
           }
         },
 

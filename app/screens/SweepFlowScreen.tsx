@@ -3378,7 +3378,7 @@ function SweepSummaryStep({
 
         // Show fed toast after gauge animation completes.
         // Age-up celebrations are handled by the store when the
-        // server confirms via addGaugeContribution -> markFedToday.
+        // server confirms via update_gauge_atomic.
         setTimeout(() => {
           celebrationController.showFedCelebration(nextFedDay);
           useGremlyStore.setState({
