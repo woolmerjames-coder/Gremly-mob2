@@ -3,13 +3,13 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  Pressable,
   TouchableOpacity,
   Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppFlatList } from '../../components/common/AppFlatList';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
@@ -33,7 +33,6 @@ const CHIPS = [
 ];
 
 export default function AskGremlyScreen() {
-  const insets = useSafeAreaInsets();
   const { userId } = useAuth();
   const mascotRef = useRef<MascotLottieHandle>(null);
   const flatListRef = useRef<any>(null);
@@ -290,64 +289,56 @@ export default function AskGremlyScreen() {
           </View>
         )}
 
-        {/* Content */}
-        {inConversation ? (
-          <AppFlatList
-            ref={flatListRef}
-            data={messages}
-            keyExtractor={keyExtractor}
-            renderItem={renderMessage}
-            style={styles.messages}
-            contentContainerStyle={[
-              styles.messagesContent,
-              messages.length === 0 && styles.emptyListContent,
-            ]}
-            removeClippedSubviews={false}
-            maxToRenderPerBatch={10}
-            windowSize={10}
-            initialNumToRender={15}
-            onContentSizeChange={() => {
-              setTimeout(() => {
-                flatListRef.current?.scrollToEnd({ animated: true });
-              }, 100);
-            }}
-            ListEmptyComponent={<View style={styles.flex} />}
-            ListFooterComponent={null}
-          />
-        ) : (
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-          >
-            <Text style={styles.greeting}>What's on your mind?</Text>
-            <View style={styles.chipsContainer}>
-              {CHIPS.map((chip) => (
-                <TouchableOpacity
-                  key={chip}
-                  style={styles.chip}
-                  onPress={() => handleSend(chip)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.chipText}>{chip}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
-        )}
-
-        {/* Bottom: Mascot + Composer */}
-        <View
-          style={{
-            paddingHorizontal: 16,
-            paddingBottom: inConversation ? Math.max(insets.bottom, 8) : 80,
-          }}
-        >
-          <View style={styles.composerContainer}>
-            <MascotLottie
-              ref={mascotRef}
-              style={inConversation ? styles.mascotChat : styles.mascot}
+        {/* Content area — takes remaining space */}
+        <View style={styles.flex}>
+          {inConversation ? (
+            <AppFlatList
+              ref={flatListRef}
+              data={messages}
+              keyExtractor={keyExtractor}
+              renderItem={renderMessage}
+              style={styles.messages}
+              contentContainerStyle={[
+                styles.messagesContent,
+                messages.length === 0 && styles.emptyListContent,
+              ]}
+              removeClippedSubviews={false}
+              maxToRenderPerBatch={10}
+              windowSize={10}
+              initialNumToRender={15}
+              onContentSizeChange={() => {
+                setTimeout(() => {
+                  flatListRef.current?.scrollToEnd({ animated: true });
+                }, 100);
+              }}
+              ListEmptyComponent={<View style={styles.flex} />}
+              ListFooterComponent={null}
             />
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={styles.greeting}>What's on your mind?</Text>
+              <View style={styles.chipsContainer}>
+                {CHIPS.map((chip) => (
+                  <TouchableOpacity
+                    key={chip}
+                    style={styles.chip}
+                    onPress={() => handleSend(chip)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.chipText}>{chip}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Bottom section — fixed height, always at bottom */}
+        <View style={styles.bottomSection}>
+          <View style={styles.composerContainer}>
+            <Pressable style={styles.mascot}>
+              <MascotLottie ref={mascotRef} />
+            </Pressable>
             <ChatComposer
               onSend={handleSend}
               disabled={sending}
@@ -428,8 +419,7 @@ const styles = StyleSheet.create({
   },
 
   // Empty state content
-  scroll: { flex: 1 },
-  scrollContent: { flexGrow: 1, justifyContent: 'center' },
+  emptyState: { flex: 1, justifyContent: 'center' },
   greeting: {
     fontFamily: 'Inter-Regular',
     fontSize: 15,
@@ -470,18 +460,14 @@ const styles = StyleSheet.create({
   messageContainer: { marginBottom: 8 },
 
   // Bottom area
+  bottomSection: {
+    paddingHorizontal: 16,
+    paddingBottom: 80,
+  },
   composerContainer: { position: 'relative' as const },
   mascot: {
     position: 'absolute' as const,
-    top: -88,
-    right: 0,
-    width: 95,
-    height: 111,
-    zIndex: 10,
-  },
-  mascotChat: {
-    position: 'absolute' as const,
-    top: -66,
+    top: -100,
     right: 0,
     width: 95,
     height: 111,

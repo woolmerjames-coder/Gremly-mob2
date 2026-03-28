@@ -10038,11 +10038,32 @@ Also generate a chat title (3-6 words) and one-sentence summary.
 Return ONLY valid JSON:
 {"extractions":[{"id":"<8chars>","type":"todo|habit|note","title":"...","body":"...","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100}],"chat_summary":{"title":"...","summary":"..."}}`;
 
-                    const extractResult = await callMini(
-                      extractionPromptText,
-                      '',
-                      env.OPENAI_API_KEY,
-                    );
+                    let extractResult = null;
+                    try {
+                      const extractRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                          model: 'gpt-4.1-mini',
+                          messages: [
+                            { role: 'system', content: extractionPromptText },
+                            { role: 'user', content: 'Extract items from the conversation above.' },
+                          ],
+                          max_tokens: 500,
+                          temperature: 0.1,
+                        }),
+                      });
+                      if (extractRes.ok) {
+                        const extractJson = await extractRes.json();
+                        const rawContent = extractJson.choices?.[0]?.message?.content || '';
+                        extractResult = safeParseJson(rawContent);
+                      }
+                    } catch (parseErr) {
+                      console.warn('[GeneralChat] Extraction parse error:', parseErr.message);
+                    }
                     if (extractResult) {
                       await fetch(`${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}`, {
                         method: 'PATCH',
