@@ -484,6 +484,7 @@ interface GremlyState {
   generalChatExtractions: any[];
   generalChatDismissals: string[];
   generalChatAutoTitle: string | null;
+  generalChatRunningSummary: string | null;
   milestones: Milestone[];
   pendingDrops: Map<string, PendingDrop>;
 
@@ -1071,6 +1072,7 @@ const initialState = {
   generalChatExtractions: [] as any[],
   generalChatDismissals: [] as string[],
   generalChatAutoTitle: null as string | null,
+  generalChatRunningSummary: null as string | null,
   milestones: [] as Milestone[],
   // Space suggestions
   spaceSuggestions: [] as SpaceSuggestion[],
@@ -4026,6 +4028,7 @@ export const useGremlyStore = create<GremlyState>()(
             generalChatExtractions: [],
             generalChatDismissals: [],
             generalChatAutoTitle: null,
+            generalChatRunningSummary: null,
           });
         },
 
@@ -4046,7 +4049,9 @@ export const useGremlyStore = create<GremlyState>()(
         updateGeneralChatExtractions: async (chatId: string) => {
           const { data } = await supabase
             .from('space_chats')
-            .select('extracted_items, dismissed_extractions, saved_extraction_ids, auto_title')
+            .select(
+              'extracted_items, dismissed_extractions, saved_extraction_ids, auto_title, running_summary',
+            )
             .eq('id', chatId)
             .single();
           if (!data) return;
@@ -4060,6 +4065,7 @@ export const useGremlyStore = create<GremlyState>()(
             ),
             generalChatDismissals: (data as any).dismissed_extractions || [],
             generalChatAutoTitle: (data as any).auto_title || null,
+            generalChatRunningSummary: (data as any).running_summary || null,
           });
         },
 

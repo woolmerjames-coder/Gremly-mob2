@@ -14,12 +14,15 @@ import { AppFlatList } from '../../components/common/AppFlatList';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
+import { SaveIndicatorPill } from '../../components/chat/SaveIndicatorPill';
+import { SaveSheet } from '../../components/chat/SaveSheet';
 import { callGeneralChatStreaming } from '../../lib/cortex/CortexClient';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAuth } from '../../providers/AuthProvider';
 import { supabase } from '../../lib/supabase/client';
 import { nowTimestamp } from '../../lib/date/DateService';
 import MascotLottie, { type MascotLottieHandle } from '../components/MascotLottie';
+import * as Haptics from 'expo-haptics';
 import { Clock, SquarePen, ChevronLeft, Bookmark } from 'lucide-react-native';
 import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
 
@@ -43,8 +46,11 @@ export default function AskGremlyScreen() {
 
   const [activeChat, setActiveChat] = useState<SpaceChat | null>(null);
   const [sending, setSending] = useState(false);
+  const [saveSheetVisible, setSaveSheetVisible] = useState(false);
 
   const autoTitle = useGremlyStore((s) => s.generalChatAutoTitle);
+  const extractions = useGremlyStore((s) => s.generalChatExtractions);
+  const runningSummary = useGremlyStore((s) => s.generalChatRunningSummary);
 
   const {
     messages,
@@ -94,6 +100,13 @@ export default function AskGremlyScreen() {
     }, 150);
     return () => clearTimeout(timer);
   }, [messages, activeChat]);
+
+  // Poll extractions when resuming an existing chat
+  useEffect(() => {
+    if (activeChat?.id) {
+      useGremlyStore.getState().updateGeneralChatExtractions(activeChat.id);
+    }
+  }, [activeChat?.id]);
 
   // Clear active chat in store when returning to empty state
   const goToEmptyState = useCallback(() => {
@@ -161,7 +174,10 @@ export default function AskGremlyScreen() {
 
             setTimeout(() => {
               useGremlyStore.getState().updateGeneralChatExtractions(chat.id);
-            }, 3000);
+            }, 2000);
+            setTimeout(() => {
+              useGremlyStore.getState().updateGeneralChatExtractions(chat.id);
+            }, 5000);
 
             supabase
               .from('space_chats')
@@ -262,7 +278,10 @@ export default function AskGremlyScreen() {
               <View style={styles.chatHeaderUnderline} />
               {autoTitle ? <Text style={styles.chatHeaderSubtitle}>{autoTitle}</Text> : null}
             </View>
-            <TouchableOpacity style={styles.chatHeaderBtn} onPress={() => {}}>
+            <TouchableOpacity
+              style={styles.chatHeaderBtn}
+              onPress={() => setSaveSheetVisible(true)}
+            >
               <Bookmark size={20} color={MOSS} />
             </TouchableOpacity>
           </View>
@@ -336,6 +355,12 @@ export default function AskGremlyScreen() {
         {/* Bottom section — fixed height, always at bottom */}
         <View style={styles.bottomSection}>
           <View style={styles.composerContainer}>
+            <SaveIndicatorPill
+              count={extractions.length}
+              visible={!!activeChat && extractions.length > 0}
+              onPress={() => setSaveSheetVisible(true)}
+              style={{ position: 'absolute', top: -30, right: 105, zIndex: 11 }}
+            />
             <Pressable style={styles.mascot}>
               <MascotLottie ref={mascotRef} />
             </Pressable>
@@ -347,6 +372,94 @@ export default function AskGremlyScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      <SaveSheet
+        visible={saveSheetVisible}
+        onClose={() => setSaveSheetVisible(false)}
+        extractions={extractions}
+        autoTitle={autoTitle}
+        runningSummary={runningSummary}
+        onDismiss={(id) => {
+          if (activeChat?.id) {
+            useGremlyStore.getState().dismissExtraction(activeChat.id, id);
+          }
+        }}
+        onSave={async (items, includeSummary) => {
+          setSaveSheetVisible(false);
+
+          const store = useGremlyStore.getState();
+          const savedIds: string[] = [];
+
+          for (const item of items) {
+            try {
+              if (item.type === 'todo') {
+                await store.createTodo({
+                  title: item.title,
+                  name: item.title,
+                  body: item.body || null,
+                  due_date: item.due_date ? new Date(item.due_date).toISOString() : null,
+                  due_day: item.due_date || null,
+                  ai_placed: true,
+                  origin: 'chat_save',
+                });
+              } else if (item.type === 'habit') {
+                await store.createHabit({
+                  title: item.title,
+                  name: item.title,
+                  frequency: item.frequency || 'daily',
+                  subtype: item.habit_subtype === 'break' ? 'break_habit' : 'start_habit',
+                  notes: item.body || null,
+                  ai_placed: true,
+                  origin: 'chat_save',
+                });
+              } else {
+                await store.createNote({
+                  title: item.title,
+                  body: item.body || item.title,
+                  subtype: item.subtype || 'general',
+                  ai_placed: true,
+                  origin: 'chat_save',
+                });
+              }
+              savedIds.push(item.id);
+            } catch (err) {
+              console.warn('[AskGremly] Failed to save item:', item.title, err);
+            }
+          }
+
+          if (includeSummary && autoTitle) {
+            try {
+              await store.createNote({
+                title: autoTitle,
+                body: runningSummary || autoTitle,
+                subtype: 'general',
+                ai_placed: true,
+                origin: 'chat_save',
+              });
+            } catch (err) {
+              console.warn('[AskGremly] Failed to save summary:', err);
+            }
+          }
+
+          if (activeChat?.id && savedIds.length > 0) {
+            await store.markExtractionsSaved(activeChat.id, savedIds);
+          }
+
+          for (let i = 0; i < savedIds.length + (includeSummary ? 1 : 0); i++) {
+            try {
+              await store.addGaugeContribution('drop', 0.08);
+            } catch {
+              /* non-blocking */
+            }
+          }
+
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+          if (mascotRef.current) {
+            mascotRef.current.celebrate();
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }

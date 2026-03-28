@@ -9993,10 +9993,9 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 })();
                 ctx.waitUntil(summaryPromise);
 
-                // Background extraction (fire-and-forget, 1.5s delay)
+                // Background extraction (fire-and-forget)
                 const extractionPromise = (async () => {
                   try {
-                    await new Promise((r) => setTimeout(r, 1500));
                     const chatRes = await fetch(
                       `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=saved_extraction_ids,dismissed_extractions`,
                       {
@@ -10022,7 +10021,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
                       .join('\n\n');
 
-                    const extractionPromptText = `You are analyzing a conversation to identify items worth saving in a productivity app.
+                    const todayStr = new Date().toISOString().slice(0, 10);
+                    const extractionPromptText = `Today's date is ${todayStr}.
+
+You are analyzing a conversation to identify items worth saving in a productivity app.
 
 CONVERSATION:
 ${conversationText}

@@ -412,7 +412,7 @@ export async function buildChatContext(userId, lane, opts, env) {
     const result = parts.join('\n\n');
 
     // Token safety — generous limits since Life Map summaries are dense and valuable
-    const MAX_CONTEXT_CHARS = lane === 'space' || lane === 'general' ? 6000 : 4500;
+    const MAX_CONTEXT_CHARS = lane === 'general' ? 12000 : lane === 'space' ? 10000 : 6000;
     if (result.length > MAX_CONTEXT_CHARS) {
       console.warn(
         `[ChatProjection] Context truncated for ${userId.slice(0, 8)}: ${result.length} → ${MAX_CONTEXT_CHARS} chars`,

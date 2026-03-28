@@ -416,7 +416,9 @@ function buildSystemPrompt(opts) {
 
 When topics span multiple life areas, connect the dots. If their work stress might relate to a fitness goal slipping, you can name that. But don't force connections that aren't there.
 
-Never mention saving, dropping, or capturing. The app handles that separately. Your only job is to be a great thinking partner.`);
+Never mention saving, dropping, or capturing. The app handles that separately. Your only job is to be a great thinking partner.
+
+When the Life Map mentions future dates or upcoming events, check them against today's date. If a date has passed, treat it as having already happened. Don't reference future plans that have already occurred.`);
   }
 
   return parts.join('\n\n');
