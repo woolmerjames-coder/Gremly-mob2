@@ -38,6 +38,7 @@ import {
   Clock,
   TrendingUp,
   CalendarDays,
+  ChevronLeft,
 } from 'lucide-react-native';
 
 import { useAuth } from '../../providers/AuthProvider';
@@ -1011,7 +1012,17 @@ export default function HubScreen() {
         >
           {/* Header */}
           <View style={hubV1Styles.headerRow}>
-            <Text style={[typeStyles.h1, { marginTop: spacing.sm }]}>Hub</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <TouchableOpacity
+                onPress={() => navigation.goBack()}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="Go back"
+                accessibilityRole="button"
+              >
+                <ChevronLeft size={28} color={BRAND.moss} />
+              </TouchableOpacity>
+              <Text style={[typeStyles.h1, { marginTop: spacing.sm }]}>Hub</Text>
+            </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               {__DEV__ && (
                 <TouchableOpacity

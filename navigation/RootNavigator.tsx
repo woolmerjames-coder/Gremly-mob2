@@ -104,7 +104,7 @@ export type RootStackParamList = {
   WeeklySummaryV2: { weekStartDate?: string } | undefined;
   GraduationFlow: undefined;
   SweepTest: undefined; // DEV only
-  AskGremlyChat: { chatId?: string };
+  AskGremlyChat: { chatId?: string; initialMessage?: string };
   HubScreen: undefined;
 };
 

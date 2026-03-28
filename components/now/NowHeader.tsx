@@ -248,8 +248,8 @@ export function NowHeader({
           <TouchableOpacity style={styles.notesCard} onPress={onNotesPress} activeOpacity={0.8}>
             <View style={styles.notesCardHeader}>
               <View style={styles.notesTitleRow}>
-                <Icon name="FileText" size="sm" color={MOSS_GREEN} />
-                <Text style={styles.notesCardTitle}>Search & Notes</Text>
+                <Icon name="Search" size="sm" color={MOSS_GREEN} />
+                <Text style={styles.notesCardTitle}>Search</Text>
                 <Text style={styles.notesSeparator}> · </Text>
                 <Text style={styles.notesCount}>{notesCountText}</Text>
               </View>
