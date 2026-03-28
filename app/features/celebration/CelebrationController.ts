@@ -222,15 +222,13 @@ class CelebrationController {
     tierInfo?: { tierName: string; isTierTransition: boolean; previousTierName?: string },
   ): void {
     if (this._suppressAgeUp) {
-      // Queue for when suppression is released (fed toast dismisses)
       this._pendingAgeUp = { age, tierInfo };
       if (__DEV__) {
-        console.log('[Celebration] Age-up celebration QUEUED (suppressed) for age:', age);
+        console.log('[Celebration] Age-up QUEUED (suppressed) for age:', age);
       }
       return;
     }
 
-    // Clear any pending (in case this is called directly after unsuppression)
     this._pendingAgeUp = null;
 
     const payload: CelebrationPayload = {
@@ -258,13 +256,11 @@ class CelebrationController {
       console.log('[Celebration] Age-up suppression:', suppress ? 'ON' : 'OFF');
     }
 
-    // When suppression is released, fire any queued age-up
     if (!suppress && this._pendingAgeUp) {
       const { age, tierInfo } = this._pendingAgeUp;
       if (__DEV__) {
         console.log('[Celebration] Firing queued age-up for age:', age);
       }
-      // Small delay so the fed toast fully clears visually before the age-up modal appears
       setTimeout(() => {
         this.showAgeUpCelebration(age, tierInfo);
       }, 400);
