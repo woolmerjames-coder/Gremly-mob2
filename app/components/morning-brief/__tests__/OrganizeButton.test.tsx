@@ -222,7 +222,7 @@ describe('OrganizeButton - targetDate prop', () => {
   describe('date-parameterized behavior', () => {
     it('documents that targetDate overrides today for capacity/events hooks', () => {
       // When targetDate is provided:
-      //   const today = targetDate ?? getDateService().getCurrentDate();
+      //   const today = targetDate ?? getDateService().today();
       //   const currentHour = targetDate ? 0 : getDateService().getHour();
       // This means:
       // 1. Capacity calculated for targetDate instead of today

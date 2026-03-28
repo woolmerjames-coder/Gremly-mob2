@@ -49,7 +49,7 @@ describe('heuristicClassify', () => {
   // Summary test that shows pass rate
   it('should achieve acceptable pass rate on full test suite', () => {
     let passed = 0;
-    let failed = 0;
+    let _failed = 0;
     const failures: { id: number; input: string; expected: any; actual: any }[] = [];
 
     for (const tc of classificationTestCases) {
@@ -61,7 +61,7 @@ describe('heuristicClassify', () => {
       if (bucketMatch && subtypeMatch) {
         passed++;
       } else {
-        failed++;
+        _failed++;
         failures.push({
           id: tc.id,
           input: tc.input,

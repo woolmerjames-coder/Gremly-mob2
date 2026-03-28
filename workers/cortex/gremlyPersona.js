@@ -11,12 +11,13 @@
 
 function buildBirthdayContext(accountCreatedAt) {
   const today = new Date();
-  const todayStr = today.toLocaleDateString('en-US', {
+  const todayStr = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
     year: 'numeric',
-  });
+    timeZone: 'UTC',
+  }).format(today);
 
   let context = `=== DATE & RELATIONSHIP ===\n`;
   context += `Today is ${todayStr}.\n`;
@@ -26,11 +27,12 @@ function buildBirthdayContext(accountCreatedAt) {
     const msPerDay = 1000 * 60 * 60 * 24;
     const daysTogether = Math.floor((today.getTime() - birthDate.getTime()) / msPerDay);
 
-    const birthDateStr = birthDate.toLocaleDateString('en-US', {
+    const birthDateStr = new Intl.DateTimeFormat('en-US', {
       month: 'long',
       day: 'numeric',
       year: 'numeric',
-    });
+      timeZone: 'UTC',
+    }).format(birthDate);
 
     context += `You were born on ${birthDateStr} (when this user created their account).\n`;
     context += `You've been companions for ${daysTogether} day${daysTogether === 1 ? '' : 's'}.`;
@@ -409,6 +411,14 @@ function buildSystemPrompt(opts) {
     } else if (opts.spaceName) {
       parts.push(`This conversation is in the user's "${opts.spaceName}" space.`);
     }
+  } else if (opts.chatType === 'general') {
+    parts.push(`This is a general conversation, not scoped to any Space. You have full context about this person's life across all their domains. Be proactive with observations when relevant, but let the conversation flow naturally. You're their companion, not their assistant.
+
+When topics span multiple life areas, connect the dots. If their work stress might relate to a fitness goal slipping, you can name that. But don't force connections that aren't there.
+
+Never mention saving, dropping, or capturing. The app handles that separately. Your only job is to be a great thinking partner.
+
+When the Life Map mentions future dates or upcoming events, check them against today's date. If a date has passed, treat it as having already happened. Don't reference future plans that have already occurred.`);
   }
 
   return parts.join('\n\n');
@@ -513,12 +523,13 @@ export function buildSpaceChatSystemPrompt(
   sessionContextStr,
   userProfileText,
 ) {
-  const currentDate = new Date().toLocaleDateString('en-US', {
+  const currentDate = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-  });
+    timeZone: 'UTC',
+  }).format(new Date());
 
   return assembleGenerationConfig({
     triage,
@@ -543,18 +554,48 @@ export function buildEntityChatConfig(
   sessionContextStr,
   userProfileText,
 ) {
-  const currentDate = new Date().toLocaleDateString('en-US', {
+  const currentDate = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-  });
+    timeZone: 'UTC',
+  }).format(new Date());
 
   return assembleGenerationConfig({
     triage,
     chatType: 'entity',
     currentDate,
     entityContext: entityContextBlock,
+    sessionContext: sessionContextStr,
+    userProfileText,
+    accountCreatedAt,
+  });
+}
+
+/**
+ * Builds a full GenerationConfig for General Chat (Ask Gremly).
+ */
+export function buildGeneralChatConfig(
+  triage,
+  context,
+  accountCreatedAt,
+  sessionContextStr,
+  userProfileText,
+) {
+  const currentDate = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date());
+
+  return assembleGenerationConfig({
+    triage,
+    chatType: 'general',
+    currentDate,
+    conversationContext: context.runningSummary || null,
     sessionContext: sessionContextStr,
     userProfileText,
     accountCreatedAt,

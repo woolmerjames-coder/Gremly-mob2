@@ -11,6 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { format } from 'date-fns';
+import { getDateService } from '../../lib/date';
 import { Screen, Box, Text } from '../../ui';
 import { useTodayData } from '../../selectors/today/useTodayData';
 import { BRAND } from '../../design/brand';
@@ -81,7 +82,7 @@ export default function TodayV4LanesView() {
   );
   const { items: commitmentItems } = useCommitments(showCommitments);
   const displayName = (user?.user_metadata?.first_name as string) ?? 'James';
-  const todayString = format(new Date(), 'EEEE, MMMM do');
+  const todayString = format(getDateService().now(), 'EEEE, MMMM do');
   const verticalGuideColor =
     colorScheme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(34,34,34,0.06)';
   const doneCount = right.length;

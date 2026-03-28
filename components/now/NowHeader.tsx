@@ -19,6 +19,7 @@ import { makeStyles } from '../../design/makeStyles';
 import { Icon } from '../../design-system/Icon';
 import { BRAND } from '../../design/brand';
 import GREMLY_CLIPBOARD from '../../assets/mascot/clipboardgremly.png';
+import { getDateService } from '../../lib/date';
 import type { Note } from '../../lib/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,7 +82,7 @@ interface NowHeaderProps {
  * Get time-of-day greeting based on current hour
  */
 function getTimeOfDayGreeting(): string {
-  const hour = new Date().getHours();
+  const hour = getDateService().now().getHours();
 
   if (hour >= 5 && hour < 12) {
     return 'Good morning';
@@ -151,8 +152,7 @@ export function NowHeader({
   const timedEvents = events.filter((e) => e.event_time && !e.is_all_day);
   const totalHours = timedEvents.length; // 1hr estimate per event
 
-  // Find next upcoming event
-  const now = new Date();
+  const now = getDateService().now();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const upcomingEvent = events.find((e) => {
     if (!e.event_time) return false;
@@ -248,8 +248,8 @@ export function NowHeader({
           <TouchableOpacity style={styles.notesCard} onPress={onNotesPress} activeOpacity={0.8}>
             <View style={styles.notesCardHeader}>
               <View style={styles.notesTitleRow}>
-                <Icon name="FileText" size="sm" color={MOSS_GREEN} />
-                <Text style={styles.notesCardTitle}>Your Notes</Text>
+                <Icon name="Search" size="sm" color={MOSS_GREEN} />
+                <Text style={styles.notesCardTitle}>Search</Text>
                 <Text style={styles.notesSeparator}> · </Text>
                 <Text style={styles.notesCount}>{notesCountText}</Text>
               </View>

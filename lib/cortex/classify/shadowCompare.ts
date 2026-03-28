@@ -6,6 +6,7 @@
  */
 
 import { classifyV2, ClassifyResult } from './classifyV2';
+import { getDateService } from '../../date/DateService';
 
 export interface V1Result {
   type: 'todo' | 'habit' | 'log' | 'unsorted';
@@ -48,7 +49,7 @@ export function compareClassifications(input: string, v1Result: V1Result): Compa
     agreement,
     typeMatch,
     modeMatch,
-    timestamp: Date.now(),
+    timestamp: getDateService().now().getTime(),
   };
 }
 

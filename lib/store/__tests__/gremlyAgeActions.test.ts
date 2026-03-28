@@ -117,6 +117,8 @@ describe('Gremly Age Store Actions', () => {
       todaySweepsCount: 0,
       todayRitualDay: '2026-01-10',
       todayRitualCompletedAt: null,
+      isTrainingMode: false,
+      feedingGaugeValue: 0,
     });
   });
 
@@ -296,133 +298,6 @@ describe('Gremly Age Store Actions', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // checkAndIncrementAge
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe('checkAndIncrementAge', () => {
-    it('calls check_and_increment_gremly_age RPC', async () => {
-      mockRpcResponse('check_and_increment_gremly_age', {
-        data: [{ did_age_up: false, new_age: 5 }],
-        error: null,
-      });
-
-      await act(async () => {
-        await useGremlyStore.getState().checkAndIncrementAge();
-      });
-
-      // Verify RPC was called with correct function name and owner_id
-      // Note: p_ritual_day is computed dynamically via getRitualDay()
-      expect(mockRpc).toHaveBeenCalledWith(
-        'check_and_increment_gremly_age',
-        expect.objectContaining({
-          p_owner_id: 'user-123',
-        }),
-      );
-    });
-
-    it('returns didAgeUp: false if ritual not complete', async () => {
-      mockRpcResponse('check_and_increment_gremly_age', {
-        data: [{ did_age_up: false, new_age: 5 }],
-        error: null,
-      });
-
-      await act(async () => {
-        const result = await useGremlyStore.getState().checkAndIncrementAge();
-        expect(result.didAgeUp).toBe(false);
-        expect(result.newAge).toBe(5);
-      });
-
-      expect(useGremlyStore.getState().gremlyAge).toBe(5);
-    });
-
-    it('updates gremlyAge and sets completedAt when ritual completes', async () => {
-      mockRpcResponse('check_and_increment_gremly_age', {
-        data: [{ did_age_up: true, new_age: 6 }],
-        error: null,
-      });
-
-      await act(async () => {
-        const result = await useGremlyStore.getState().checkAndIncrementAge();
-        expect(result.didAgeUp).toBe(true);
-        expect(result.newAge).toBe(6);
-      });
-
-      const state = useGremlyStore.getState();
-      expect(state.gremlyAge).toBe(6);
-      expect(state.gremlyAgeLastIncrementedAt).toBeTruthy();
-      expect(state.todayRitualCompletedAt).toBeTruthy();
-    });
-
-    it('returns early if ritual already completed today', async () => {
-      useGremlyStore.setState({ todayRitualCompletedAt: '2026-01-10T08:00:00Z' });
-
-      await act(async () => {
-        const result = await useGremlyStore.getState().checkAndIncrementAge();
-        expect(result.didAgeUp).toBe(false);
-      });
-
-      // Should not have called RPC
-      expect(mockRpc).not.toHaveBeenCalled();
-    });
-
-    it('clears stale ritual completion and continues to RPC when day has changed', async () => {
-      // Set up: ritual was completed yesterday, but day has rolled over
-      useGremlyStore.setState({
-        todayRitualCompletedAt: '2026-01-09T22:00:00Z', // Completed "yesterday"
-        todayRitualDay: '2026-01-09', // Yesterday's day
-        gremlyAge: 5,
-      });
-
-      // getRitualDay returns "today" (different from stored day)
-      (getRitualDay as jest.Mock).mockReturnValueOnce('2026-01-10');
-
-      mockRpcResponse('check_and_increment_gremly_age', {
-        data: [{ did_age_up: false, new_age: 5 }],
-        error: null,
-      });
-
-      await act(async () => {
-        const result = await useGremlyStore.getState().checkAndIncrementAge();
-        expect(result.didAgeUp).toBe(false);
-      });
-
-      // Should have cleared stale completion and called RPC
-      expect(useGremlyStore.getState().todayRitualCompletedAt).toBeNull();
-      expect(mockRpc).toHaveBeenCalledWith(
-        'check_and_increment_gremly_age',
-        expect.objectContaining({
-          p_owner_id: 'user-123',
-        }),
-      );
-    });
-
-    it('returns current age if no userId', async () => {
-      useGremlyStore.setState({ userId: null });
-
-      await act(async () => {
-        const result = await useGremlyStore.getState().checkAndIncrementAge();
-        expect(result.didAgeUp).toBe(false);
-        expect(result.newAge).toBe(5);
-      });
-
-      expect(mockRpc).not.toHaveBeenCalled();
-    });
-
-    it('handles RPC error gracefully', async () => {
-      mockRpcResponse('check_and_increment_gremly_age', {
-        data: null,
-        error: { message: 'RPC failed' },
-      });
-
-      await act(async () => {
-        const result = await useGremlyStore.getState().checkAndIncrementAge();
-        expect(result.didAgeUp).toBe(false);
-        expect(result.newAge).toBe(5);
-      });
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────
   // setDayBoundaryHour
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -473,15 +348,15 @@ describe('Gremly Age Store Actions', () => {
       expect(mockFrom).not.toHaveBeenCalled();
     });
 
-    it('does not update local state on error', async () => {
+    it('updates local state even on upsert error (local-first)', async () => {
       mockUpsert.mockResolvedValueOnce({ error: { message: 'DB error' } });
 
       await act(async () => {
         await useGremlyStore.getState().setDayBoundaryHour(5);
       });
 
-      // Should remain at original value
-      expect(useGremlyStore.getState().dayBoundaryHour).toBe(4);
+      // Local-first: state is updated before the upsert call
+      expect(useGremlyStore.getState().dayBoundaryHour).toBe(5);
     });
   });
 
@@ -531,6 +406,146 @@ describe('Gremly Age Store Actions', () => {
       const timestamp = '2026-01-10T15:30:00Z';
       useGremlyStore.setState({ firstTodayVisitCompletedAt: timestamp });
       expect(useGremlyStore.getState().firstTodayVisitCompletedAt).toBe(timestamp);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // addGaugeContribution (atomic RPC)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('addGaugeContribution', () => {
+    it('calls update_gauge_atomic RPC with correct params', async () => {
+      mockRpcResponse('update_gauge_atomic', {
+        data: [
+          {
+            new_gauge_value: 0.08,
+            just_fed: false,
+            is_fed: false,
+            new_fed_days_count: 0,
+            did_age_up: false,
+            new_age: 5,
+            new_tier: 'Sprout',
+          },
+        ],
+        error: null,
+      });
+
+      await act(async () => {
+        await useGremlyStore.getState().addGaugeContribution('drop', 0.08);
+      });
+
+      expect(mockRpc).toHaveBeenCalledWith('update_gauge_atomic', {
+        p_owner_id: 'user-123',
+        p_ritual_day: '2026-01-10',
+        p_source: 'drop',
+        p_value: 0.08,
+      });
+    });
+
+    it('updates feedingGaugeValue from server response', async () => {
+      mockRpcResponse('update_gauge_atomic', {
+        data: [
+          {
+            new_gauge_value: 0.42,
+            just_fed: false,
+            is_fed: false,
+            new_fed_days_count: 3,
+            did_age_up: false,
+            new_age: 5,
+            new_tier: 'Sprout',
+          },
+        ],
+        error: null,
+      });
+
+      await act(async () => {
+        const result = await useGremlyStore.getState().addGaugeContribution('drop', 0.08);
+        expect(result.newValue).toBe(0.42);
+        expect(result.justFed).toBe(false);
+      });
+
+      expect(useGremlyStore.getState().feedingGaugeValue).toBe(0.42);
+    });
+
+    it('returns early with no userId', async () => {
+      useGremlyStore.setState({ userId: null });
+
+      await act(async () => {
+        const result = await useGremlyStore.getState().addGaugeContribution('drop', 0.08);
+        expect(result.newValue).toBe(0);
+        expect(result.justFed).toBe(false);
+      });
+
+      expect(mockRpc).not.toHaveBeenCalledWith('update_gauge_atomic', expect.anything());
+    });
+
+    it('handles did_age_up by updating gremlyAge', async () => {
+      mockRpcResponse('update_gauge_atomic', {
+        data: [
+          {
+            new_gauge_value: 1.0,
+            just_fed: true,
+            is_fed: true,
+            new_fed_days_count: 5,
+            did_age_up: true,
+            new_age: 6,
+            new_tier: 'Sprout',
+          },
+        ],
+        error: null,
+      });
+
+      await act(async () => {
+        await useGremlyStore.getState().addGaugeContribution('sweep', 0.15);
+      });
+
+      expect(useGremlyStore.getState().gremlyAge).toBe(6);
+    });
+
+    it('applies training mode multiplier', async () => {
+      useGremlyStore.setState({ isTrainingMode: true });
+
+      mockRpcResponse('update_gauge_atomic', {
+        data: [
+          {
+            new_gauge_value: 0.1,
+            just_fed: false,
+            is_fed: false,
+            new_fed_days_count: 0,
+            did_age_up: false,
+            new_age: 5,
+            new_tier: 'Sprout',
+          },
+        ],
+        error: null,
+      });
+
+      await act(async () => {
+        await useGremlyStore.getState().addGaugeContribution('drop', 0.08);
+      });
+
+      // Should send 0.08 * 1.25 = 0.1
+      expect(mockRpc).toHaveBeenCalledWith(
+        'update_gauge_atomic',
+        expect.objectContaining({
+          p_value: 0.1,
+        }),
+      );
+    });
+
+    it('handles RPC error gracefully', async () => {
+      useGremlyStore.setState({ feedingGaugeValue: 0.5 });
+
+      mockRpcResponse('update_gauge_atomic', {
+        data: null,
+        error: { message: 'RPC failed' },
+      });
+
+      await act(async () => {
+        const result = await useGremlyStore.getState().addGaugeContribution('drop', 0.08);
+        expect(result.newValue).toBe(0.5); // Keeps current value
+        expect(result.justFed).toBe(false);
+      });
     });
   });
 });

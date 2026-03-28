@@ -29,6 +29,7 @@ export type { LocalDateString, UtcTimestamp };
 export function useDateService(): DateService {
   // Get timezone from store (may be undefined initially)
   const userTimezone = useGremlyStore((s) => s.userTimezone);
+  const dayBoundaryHour = useGremlyStore((s) => s.dayBoundaryHour);
 
   // Sync timezone when store updates
   useEffect(() => {
@@ -36,6 +37,11 @@ export function useDateService(): DateService {
       dateService.setTimezone(userTimezone);
     }
   }, [userTimezone]);
+
+  // Sync day boundary hour when store updates (covers launch hydration + settings changes)
+  useEffect(() => {
+    dateService.setDayBoundaryHour(dayBoundaryHour);
+  }, [dayBoundaryHour]);
 
   return dateService;
 }
@@ -146,6 +152,20 @@ export function useDateChip(dateStr: string | null | undefined): string {
 export function useDateOverlay(dateStr: string | null | undefined): string {
   const service = useDateService();
   return service.formatForOverlay(dateStr);
+}
+
+/**
+ * Get the current ritual day (YYYY-MM-DD), respecting dayBoundaryHour.
+ * If the current hour is before the boundary, returns yesterday's date.
+ *
+ * @example
+ * ```tsx
+ * const ritual = useRitualDay(); // "2026-03-25" if 2am with boundary=4
+ * ```
+ */
+export function useRitualDay(): string {
+  const service = useDateService();
+  return service.ritualDay();
 }
 
 // Also export the singleton for non-React contexts

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useRepo } from '../../providers/RepoProvider';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { getDateService } from '../../lib/date';
 import type { CreateRecordInput } from '../../lib/repo/IRepo';
 import type {
   Frequency,
@@ -118,12 +119,12 @@ function normalizeDueDate(raw?: string | null): string | null {
   const dow = d.toLowerCase();
   if (DAY_ABBR[dow]) return DAY_ABBR[dow];
   if (/^tomorrow$/i.test(d)) {
-    const now = new Date();
+    const now = getDateService().now();
     now.setDate(now.getDate() + 1);
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][now.getDay()];
   }
   if (/^today$/i.test(d)) {
-    const now = new Date();
+    const now = getDateService().now();
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][now.getDay()];
   }
   // Month name + day (keep as e.g., "Jan 2")
@@ -191,7 +192,7 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
 
     // Check minimum display duration
     if (showTimeRef.current) {
-      const elapsed = Date.now() - showTimeRef.current;
+      const elapsed = getDateService().now().getTime() - showTimeRef.current;
       if (elapsed < MIN_DISPLAY_MS) {
         // Don't hide yet, schedule for later
         if (__DEV__) {
@@ -259,7 +260,7 @@ export function useActionToast(config: UseActionToastConfig = {}): UseActionToas
       isHidingRef.current = false;
 
       // Record show time for minimum display duration
-      showTimeRef.current = Date.now();
+      showTimeRef.current = getDateService().now().getTime();
 
       setPayload(input);
       payloadRef.current = input;

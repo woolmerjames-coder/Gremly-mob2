@@ -168,7 +168,7 @@ export function mapPersonToForm(p: Person): FormPerson {
     details: {
       email: p.email || '',
       dates: (p.dates || []).map((d, index) => ({
-        id: `date-${index}-${Date.now()}`, // Generate UI id
+        id: `date-${index}-${dateService.now().getTime()}`, // Generate UI id
         date: d.date,
         label: d.label as PersonDate['label'],
       })),

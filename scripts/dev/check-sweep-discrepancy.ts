@@ -8,6 +8,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { getDateService } from '../../lib/date';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -57,7 +58,7 @@ async function main() {
     console.log('  3. Run while authenticated');
     return;
   }
-  const today = new Date().toISOString().split('T')[0];
+  const today = getDateService().today();
   
   console.log('\n========================================');
   console.log('SWEEP DISCREPANCY DIAGNOSTIC');

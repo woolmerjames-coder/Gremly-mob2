@@ -90,6 +90,7 @@ jest.mock('@react-navigation/native', () => {
     ...actual,
     useNavigation: () => ({
       setOptions: jest.fn(),
+      addListener: jest.fn(() => jest.fn()),
       goBack: mockGoBack,
     }),
     useRoute: () => ({
@@ -104,6 +105,7 @@ const mockNavigation = {
   goBack: mockGoBack,
   navigate: jest.fn(),
   setOptions: jest.fn(),
+  addListener: jest.fn(() => jest.fn()),
 } as any; // Partial mock - only includes methods used in tests
 
 // ─────────────────────────────────────────────────────────────────────────────

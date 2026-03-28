@@ -4,7 +4,7 @@
  * Displays Gremly's age and daily ritual progress (drops + sweeps).
  * Used in Mind Drop screen and potentially other surfaces.
  *
- * Ritual: Drop 3 thoughts + Sweep 3 cards = Gremly ages by 1 day
+ * Ritual: Drop 3 thoughts + Sweep 3 cards = Gremly ages up
  */
 
 import React from 'react';
@@ -18,7 +18,7 @@ interface RitualProgressIndicatorProps {
   dropsCount: number;
   /** Number of sweeps completed today (0-3+) */
   sweepsCount: number;
-  /** Gremly's current age in days */
+  /** Gremly's current age */
   gremlyAge: number;
   /** Use compact layout for smaller displays */
   compact?: boolean;
@@ -76,9 +76,7 @@ export default function RitualProgressIndicator({
     <View style={[styles.container, compact && styles.containerCompact]}>
       {/* Age display */}
       {!hideAge && (
-        <Text style={[styles.ageText, compact && styles.ageTextCompact]}>
-          {gremlyAge} {gremlyAge === 1 ? 'Day' : 'Days'}
-        </Text>
+        <Text style={[styles.ageText, compact && styles.ageTextCompact]}>Age {gremlyAge}</Text>
       )}
 
       {/* Progress row */}

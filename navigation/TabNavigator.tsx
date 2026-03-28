@@ -1,15 +1,15 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Image, StyleSheet } from 'react-native';
 import TodayScreen from '../app/tabs/TodayScreen';
-import HubScreen from '../app/tabs/HubScreen';
 import SpacesScreen from '../app/tabs/SpacesScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
+import AskGremlyScreen from '../app/tabs/AskGremlyScreen';
 
 // Tab bar icon images (v1.20 brand refresh)
 import TODAY_ICON from '../assets/todayicon1.22.png';
 import MINDDROP_ICON from '../assets/minddropicon1.20.png';
 import SPACES_ICON from '../assets/spacesicon1.20.png';
-import HUB_ICON from '../assets/hubicon1.20.png';
+import ASK_GREMLY_ICON from '../assets/hubicon1.20.png';
 
 /**
  * Tab navigator param list for type safety
@@ -17,8 +17,8 @@ import HUB_ICON from '../assets/hubicon1.20.png';
 export type TabParamList = {
   Today: undefined;
   MindDrop: undefined;
+  AskGremly: undefined;
   Spaces: undefined;
-  Hub: undefined;
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -34,8 +34,8 @@ const LINEN_GRAY = '#E3E0D9';
  * Four tabs:
  * - Today: Daily view with todos, habits, and schedule
  * - MindDrop: Quick capture notepad
+ * - AskGremly: Chat with Gremly
  * - Spaces: Browse and manage Spaces
- * - Hub: Global search across all content
  */
 
 export default function TabNavigator() {
@@ -92,12 +92,13 @@ export default function TabNavigator() {
         }}
       />
       <Tab.Screen
-        name="Spaces"
-        component={SpacesScreen}
+        name="AskGremly"
+        component={AskGremlyScreen}
         options={{
+          tabBarLabel: 'Ask Gremly',
           tabBarIcon: ({ focused }) => (
             <Image
-              source={SPACES_ICON}
+              source={ASK_GREMLY_ICON}
               style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
               resizeMode="contain"
             />
@@ -105,12 +106,12 @@ export default function TabNavigator() {
         }}
       />
       <Tab.Screen
-        name="Hub"
-        component={HubScreen}
+        name="Spaces"
+        component={SpacesScreen}
         options={{
           tabBarIcon: ({ focused }) => (
             <Image
-              source={HUB_ICON}
+              source={SPACES_ICON}
               style={{ width: 32, height: 32, opacity: focused ? 1 : 0.4 }}
               resizeMode="contain"
             />

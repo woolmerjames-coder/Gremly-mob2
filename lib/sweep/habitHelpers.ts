@@ -142,28 +142,28 @@ export interface GroupedHabits {
  * Get today's date as YYYY-MM-DD in local timezone
  */
 export function getTodayDateString(): string {
-  return ds().getCurrentDate();
+  return ds().today();
 }
 
 /**
  * Get date string for N days ago
  */
 function getDateStringDaysAgo(daysAgo: number): string {
-  return ds().addDays(ds().getCurrentDate(), -daysAgo);
+  return ds().addDays(ds().today(), -daysAgo);
 }
 
 /**
  * Get the start of the rolling 7-day window (today minus 6 days) as YYYY-MM-DD
  */
 function getRolling7DayStartDateString(): string {
-  return ds().addDays(ds().getCurrentDate(), -6);
+  return ds().addDays(ds().today(), -6);
 }
 
 /**
  * Get the start of the current month as YYYY-MM-DD
  */
 function getMonthStartDateString(): string {
-  const today = ds().getCurrentDate();
+  const today = ds().today();
   return today.slice(0, 8) + '01'; // YYYY-MM-01
 }
 

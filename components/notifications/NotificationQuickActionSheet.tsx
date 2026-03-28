@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { getDateService } from '../../lib/date';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,15 +25,15 @@ interface NotificationQuickActionSheetProps {
 // ---------------------------------------------------------------------------
 
 function calculateSecondsUntilTomorrow9am(): number {
-  const now = new Date();
-  const tomorrow9am = new Date();
+  const now = getDateService().now();
+  const tomorrow9am = getDateService().now();
   tomorrow9am.setDate(tomorrow9am.getDate() + 1);
   tomorrow9am.setHours(9, 0, 0, 0);
   return Math.max(60, Math.floor((tomorrow9am.getTime() - now.getTime()) / 1000));
 }
 
 function formatDueDay(dueDay: string): string {
-  const today = new Date();
+  const today = getDateService().now();
   const due = new Date(dueDay + 'T12:00:00');
   const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   if (diffDays === 0) return 'Due today';

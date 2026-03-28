@@ -8,6 +8,7 @@ import { useRepo } from '../../providers/RepoProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { eventBus } from '../events';
 import { getDateService } from '../date';
+import { format } from 'date-fns';
 import { probeMembership } from '../config/surfaceProbe';
 import type { Habit, Todo, Note } from '../types';
 import type {
@@ -69,7 +70,7 @@ export interface UseNowDataReturn extends NowData {
 /**
  * Determines time window based on current hour
  */
-function getTimeWindow(date: Date = new Date()): TimeWindow {
+function getTimeWindow(date: Date = getDateService().now()): TimeWindow {
   const hour = date.getHours();
 
   if (hour >= 6 && hour < 11) {
@@ -87,11 +88,7 @@ function getTimeWindow(date: Date = new Date()): TimeWindow {
  * Format date for header (date only, no time)
  */
 function formatDateTime(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  });
+  return format(date, 'EEEE, MMM d');
 }
 
 /**
@@ -134,7 +131,7 @@ function calculateWeekStatus(
  * Main hook for NOW page data
  * Uses stale-while-revalidate pattern: keeps existing data visible during reload
  */
-export function useNowData(today: Date = new Date()): UseNowDataReturn {
+export function useNowData(today: Date = getDateService().now()): UseNowDataReturn {
   const repo = useRepo();
   const { user } = useAuth();
   const errorCountRef = useRef(0);
@@ -231,8 +228,8 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       weekEnd.setDate(weekStart.getDate() + 6);
       weekEnd.setHours(23, 59, 59, 999);
 
-      const weekStartIso = getDateService().toDateString(weekStart);
-      const weekEndIso = getDateService().toDateString(weekEnd);
+      const weekStartIso = getDateService().toLocalDate(weekStart);
+      const weekEndIso = getDateService().toLocalDate(weekEnd);
 
       const completionHistory = new Map<string, number>();
       await Promise.all(
@@ -325,7 +322,7 @@ export function useNowData(today: Date = new Date()): UseNowDataReturn {
       console.log('[useNowData] ✅ Load complete');
     } catch (error) {
       // Throttle error logging to prevent spam
-      const now = Date.now();
+      const now = getDateService().now().getTime();
       const timeSinceLastError = now - lastErrorTimeRef.current;
 
       // Only log error if it's been more than 5 seconds since last error

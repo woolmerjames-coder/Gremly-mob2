@@ -36,8 +36,8 @@ const ds = () => getDateService();
 
 /** Get Monday of the current week. */
 function getCurrentMonday(): string {
-  const today = ds().getCurrentDate();
-  const date = ds().fromDateString(today);
+  const today = ds().today();
+  const date = ds().fromLocalDate(today);
   if (!date) return today;
   const dow = date.getDay(); // 0=Sun … 6=Sat
   const offset = dow === 0 ? -6 : 1 - dow;

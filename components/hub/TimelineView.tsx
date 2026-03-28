@@ -12,6 +12,7 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { getDateService } from '../../lib/date';
+import { format } from 'date-fns';
 import type { Todo, Habit, Note, Space } from '../../lib/types';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -83,26 +84,22 @@ function formatDayLabel(dateKey: string, todayKey: string, yesterdayKey: string)
   // Parse the date key for display
   const [year, month, day] = dateKey.split('-').map(Number);
   const date = new Date(year, month - 1, day);
-  const now = new Date();
+  const now = getDateService().now();
   const sameYear = date.getFullYear() === now.getFullYear();
 
   // Within last 7 days: show day name + date ("Thu, Feb 6")
-  const daysDiff = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+  const daysDiff = getDateService().daysBetween(dateKey, getDateService().today());
   if (daysDiff <= 6) {
-    return date.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-    });
+    return format(date, 'EEE, MMM d');
   }
 
   // Same year: "Feb 6"
   if (sameYear) {
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return format(date, 'MMM d');
   }
 
   // Different year: "Feb 6, 2025"
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return format(date, 'MMM d, yyyy');
 }
 
 /**
@@ -152,7 +149,7 @@ function getTypeLabel(type: 'todo' | 'habit' | 'note', subtype?: string | null):
  */
 function getStatus(item: Todo | Habit | Note): 'active' | 'completed' | 'overdue' {
   const dateService = getDateService();
-  const today = dateService.getCurrentDate();
+  const today = dateService.today();
 
   if (item.type === 'todo') {
     const todo = item as Todo;
@@ -203,7 +200,7 @@ export default function TimelineView({ onItemPress, onSpacePress }: TimelineView
   const spaces = useGremlyStore((s): Space[] => s.spaces) ?? [];
 
   const dateService = getDateService();
-  const todayKey = dateService.getCurrentDate();
+  const todayKey = dateService.today();
   const yesterdayKey = getYesterdayKey(todayKey);
 
   // Space lookup

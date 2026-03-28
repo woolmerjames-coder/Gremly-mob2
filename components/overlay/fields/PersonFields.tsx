@@ -69,7 +69,7 @@ export function PersonFields({
 
   const handleAddDate = () => {
     const newDate: PersonDate = {
-      id: `date-${Date.now()}`,
+      id: `date-${dateService.now().getTime()}`,
       date: dateService.today(),
       label: 'birthday',
     };

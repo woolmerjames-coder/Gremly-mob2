@@ -57,6 +57,8 @@
  * - Unscheduled recent drop (no dates, created in last 3 days)
  */
 
+import { getDateService } from '../date/DateService';
+
 /**
  * Minimal todo interface for filter functions.
  * Accepts any object with at least these fields.
@@ -260,12 +262,7 @@ export function getDaysUntilDeadline(todo: FilterableTodo, todayDay: string): nu
     return null;
   }
 
-  const deadlineDate = new Date(deadline);
-  const today = new Date(todayDay);
-  const diffTime = deadlineDate.getTime() - today.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-  return diffDays;
+  return getDateService().daysBetween(todayDay, deadline);
 }
 
 /**
@@ -345,7 +342,7 @@ export function needsSweepAttention(todo: FilterableTodo, todayDay: string): boo
  */
 export function buildSweepTodoOrClause(todayDay: string, cutoffTimestamp: string): string {
   // Calculate 3 days ago for unscheduled items (matching recentDrops logic)
-  const threeDaysAgo = new Date();
+  const threeDaysAgo = getDateService().now();
   threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
   const threeDaysAgoIso = threeDaysAgo.toISOString();
 

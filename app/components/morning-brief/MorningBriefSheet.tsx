@@ -48,6 +48,7 @@ import MascotLottie from '../MascotLottie';
 import { computeHabitStreak } from '../../../lib/habits/streakUtils';
 import { useMiniSweepGate } from '../../../lib/today/hooks/useMiniSweepGate';
 import { getDateService } from '../../../lib/date';
+import { format } from 'date-fns';
 import { useCapacityForDate, useCalendarEventsForDate } from '../../../lib/store/capacitySelectors';
 import { calculateRealisticAvailableMinutes } from '../../../lib/capacity';
 import type { CalendarEvent } from '../../../lib/calendar/CalendarClient';
@@ -109,7 +110,7 @@ interface MorningBriefSheetProps {
  * Get today's date string in YYYY-MM-DD format
  */
 function getTodayDateString(): string {
-  return getDateService().getCurrentDate();
+  return getDateService().today();
 }
 
 /**
@@ -183,7 +184,7 @@ function getDueDateLabel(
 
   if (diffDays < 0) {
     // Overdue — gentle, not alarming
-    const monthDay = dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const monthDay = format(dueDate, 'MMM d');
     return { label: `from ${monthDay}`, tone: 'warm' };
   }
   if (diffDays === 0) return { label: 'due today', tone: 'gentle' };
@@ -421,7 +422,7 @@ export function MorningBriefSheet({
       } else if (isBreak) {
         // Break habits show streak from last_checked_in_at
         const lastDate = habit.last_checked_in_at
-          ? getDateService().extractDateFromIso(habit.last_checked_in_at)
+          ? getDateService().extractLocalDate(habit.last_checked_in_at)
           : undefined;
         if (lastDate) {
           const todayDate = new Date(today + 'T12:00:00');
@@ -804,7 +805,7 @@ export function MorningBriefSheet({
   // Day name for schedule section header (e.g., "TUESDAY'S SCHEDULE")
   const scheduleDayName = useMemo(() => {
     const d = new Date(today + 'T12:00:00');
-    return d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+    return format(d, 'EEEE').toUpperCase();
   }, [today]);
 
   // ─── Capacity helpers for planning card header ───
@@ -1162,7 +1163,7 @@ export function MorningBriefSheet({
 
       if (option === 'in2h') {
         label = 'in 2 hours';
-        const target = new Date();
+        const target = getDateService().now();
         target.setHours(target.getHours() + 2);
         const time = `${String(target.getHours()).padStart(2, '0')}:${String(target.getMinutes()).padStart(2, '0')}`;
         reminderObj = { id: 'brief-reminder', time, frequency: 'once' as const, date: today };
@@ -1382,7 +1383,7 @@ export function MorningBriefSheet({
 
       if (isUUID) {
         // Note event — archive in Supabase
-        const now = new Date().toISOString();
+        const now = getDateService().nowTimestamp();
         useGremlyStore.getState().updateNote(eventId, {
           archived: true,
           archived_reason: 'dismissed_by_user',

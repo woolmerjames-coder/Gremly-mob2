@@ -21,6 +21,7 @@ import { BuildHabitDetail } from '../../src/components/habits/BuildHabitDetail';
 import { BreakHabitDetail } from '../../src/components/habits/BreakHabitDetail';
 import { computeCurrentStreak, computeBestStreak } from '../../lib/habits/streakUtils';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { getDateService } from '../../lib/date';
 
 // ─── Milestone ladder ────────────────────────────────────────────────────────
 const MILESTONES = [7, 14, 30, 60, 90] as const;
@@ -87,7 +88,7 @@ export default function HabitDetailScreen() {
     if (!startDateStr) return null;
 
     const start = new Date(startDateStr);
-    const now = new Date();
+    const now = getDateService().now();
 
     // Count completed weeks (weeks where user hit their target)
     let weeksHit = 0;

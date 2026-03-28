@@ -509,14 +509,14 @@ export class MemoryRepo implements IRepo {
   }
 
   async listDueToday(_nowIso: string): Promise<AppRecord[]> {
-    const today = getDateService().getCurrentDate();
+    const today = getDateService().today();
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
       if (r.type !== 'todo' && r.type !== 'habit') return false;
       // Exclude archived items
       if (this.isArchived(r)) return false;
       // Use due_day as primary source of truth (timezone-safe)
-      const dueDay = (r as any).due_day ?? getDateService().extractDateFromIso((r as any).due_date);
+      const dueDay = (r as any).due_day ?? getDateService().extractLocalDate((r as any).due_date);
       return dueDay === today;
     });
   }
@@ -529,12 +529,12 @@ export class MemoryRepo implements IRepo {
   }
 
   async countPlannedToday(): Promise<number> {
-    const today = getDateService().getCurrentDate();
+    const today = getDateService().today();
     return this.data.filter((r) => {
       if (r.owner_id !== this.currentUserId) return false;
       if (r.type !== 'todo') return false;
       // Use due_day as primary source of truth (timezone-safe)
-      const dueDay = (r as any).due_day ?? getDateService().extractDateFromIso((r as any).due_date);
+      const dueDay = (r as any).due_day ?? getDateService().extractLocalDate((r as any).due_date);
       return dueDay === today;
     }).length;
   }
@@ -743,7 +743,7 @@ export class MemoryRepo implements IRepo {
         // nearDue requires due_time - only if due today and has time
         if (dueDay === day && t.due_time) {
           const [hours, minutes] = t.due_time.split(':').map(Number);
-          const dueDateTime = new Date();
+          const dueDateTime = getDateService().now();
           dueDateTime.setHours(hours, minutes, 0, 0);
           const msUntilDue = dueDateTime.getTime() - now.getTime();
           nearDue = msUntilDue > 0 && msUntilDue < 3 * 60 * 60 * 1000;
@@ -841,13 +841,13 @@ export class MemoryRepo implements IRepo {
     count = 1,
     occurrenceIndex?: number,
   ): Promise<void> {
-    const day = ensureDay(atIso ?? new Date().toISOString());
+    const day = ensureDay(atIso ?? getDateService().nowTimestamp());
     (this as any)._habitProgress = (this as any)._habitProgress || [];
     (this as any)._habitProgress.push({
-      id: `hp_${Date.now()}`,
+      id: `hp_${getDateService().now().getTime()}`,
       owner_id: this.currentUserId,
       habit_id: habitId,
-      occurred_at: atIso ?? new Date().toISOString(),
+      occurred_at: atIso ?? getDateService().nowTimestamp(),
       occurred_day: day,
       count,
       occurrence_index: occurrenceIndex ?? null,
@@ -969,12 +969,12 @@ export class MemoryRepo implements IRepo {
       (row) => !(row.owner_id === this.currentUserId && row.focus_day === day),
     );
     (this as any)._focusCards.push({
-      id: `fc_${Date.now()}`,
+      id: `fc_${getDateService().now().getTime()}`,
       owner_id: this.currentUserId,
       entry_id: params.entry_id,
       entry_type: params.entry_type,
       source: params.source,
-      created_at: new Date().toISOString(),
+      created_at: getDateService().nowTimestamp(),
       expires_at: params.expires_at,
       focus_day: day,
     });
@@ -991,7 +991,7 @@ export class MemoryRepo implements IRepo {
   async topFocusCandidates(
     limit: number,
   ): Promise<Array<{ id: ID; type: 'habit' | 'todo'; priority: number }>> {
-    const day = ensureDay(new Date().toISOString());
+    const day = ensureDay(getDateService().nowTimestamp());
 
     const todos = this.data
       .filter(
@@ -1044,7 +1044,7 @@ export class MemoryRepo implements IRepo {
   }
 
   async getTodaySummary(): Promise<{ completed: number; remaining: number }> {
-    const day = ensureDay(new Date().toISOString());
+    const day = ensureDay(getDateService().nowTimestamp());
 
     const completed = this.data.filter((row) => {
       if (row.owner_id !== this.currentUserId || row.type !== 'todo') return false;
@@ -1105,7 +1105,7 @@ export class MemoryRepo implements IRepo {
     dropId: string,
     archivedReason = 'user_deleted_drop',
   ): Promise<{ notesArchived: number; todosArchived: number; habitsArchived: number }> {
-    const nowIso = new Date().toISOString();
+    const nowIso = getDateService().nowTimestamp();
     let notesArchived = 0;
     let todosArchived = 0;
     let habitsArchived = 0;
@@ -1234,7 +1234,7 @@ export class MemoryRepo implements IRepo {
     // For habits, calculate commitment_until date
     let commitmentUntil: string | null = null;
     if (type === 'habit' && commitmentDurationDays) {
-      const today = dateService.getCurrentDate();
+      const today = dateService.today();
       commitmentUntil = dateService.addDays(today, commitmentDurationDays - 1);
     }
 
@@ -1442,9 +1442,9 @@ export class MemoryRepo implements IRepo {
     space_id?: string | null;
     tags?: string[] | null;
   }): Promise<Person> {
-    const now = new Date().toISOString();
+    const now = getDateService().nowTimestamp();
     const person: Person = {
-      id: `person-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `person-${getDateService().now().getTime()}-${Math.random().toString(36).substr(2, 9)}`,
       owner_id: this.currentUserId,
       display_name: input.display_name,
       name: input.display_name, // Deprecated field, mirror display_name
@@ -1481,7 +1481,7 @@ export class MemoryRepo implements IRepo {
 
     Object.assign(person, {
       ...patch,
-      updated_at: new Date().toISOString(),
+      updated_at: getDateService().nowTimestamp(),
     });
 
     // Update deprecated name field if display_name changed
@@ -1898,7 +1898,7 @@ export class MemoryRepo implements IRepo {
     position: number;
   }): Promise<{ id: string }> {
     // Memory backend stub - return fake ID
-    return { id: `photo-${Date.now()}` };
+    return { id: `photo-${getDateService().now().getTime()}` };
   }
 
   async updateLogPhotoPosition(_photoId: string, _position: number): Promise<void> {
@@ -1932,7 +1932,7 @@ export class MemoryRepo implements IRepo {
       note?: string | null;
     },
   ): Promise<import('../types').SpaceMilestone> {
-    const now = new Date().toISOString();
+    const now = getDateService().nowTimestamp();
     return {
       id: genId('milestone'),
       space_id: spaceId,
@@ -1986,7 +1986,7 @@ export class MemoryRepo implements IRepo {
     spaceId: string,
     payload: { success_criteria?: string | null; other_context?: string | null },
   ): Promise<import('../types').SpaceMeta> {
-    const now = new Date().toISOString();
+    const now = getDateService().nowTimestamp();
     return {
       id: genId('spacemeta'),
       space_id: spaceId,

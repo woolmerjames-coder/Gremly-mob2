@@ -132,7 +132,7 @@ function calculateAverageFrequency(
   },
 ): { average: number; periodLabel: string; target: number } {
   const ds = getDateService();
-  const today = ds.getCurrentDate();
+  const today = ds.today();
   const startDate = habit.start_date || today;
 
   // Count total completions
@@ -212,7 +212,7 @@ function getRolling7Days(
   isFuture: boolean;
 }> {
   const ds = getDateService();
-  const today = ds.getCurrentDate(); // YYYY-MM-DD
+  const today = ds.today(); // YYYY-MM-DD
   const days: Array<{
     dateIso: string;
     dayLabel: string;
@@ -229,7 +229,7 @@ function getRolling7Days(
 
   for (let i = 6; i >= 0; i--) {
     const dateIso = ds.addDays(today, -i);
-    const dateObj = ds.fromDateString(dateIso);
+    const dateObj = ds.fromLocalDate(dateIso);
     const dayOfWeek = dateObj?.getDay() ?? 0;
 
     days.push({
@@ -261,7 +261,7 @@ function getCalendarDays(
   isFuture: boolean;
 }> {
   const ds = getDateService();
-  const todayIso = ds.getCurrentDate();
+  const todayIso = ds.today();
 
   // First day of the month
   const firstDay = new Date(year, month, 1);
@@ -284,7 +284,7 @@ function getCalendarDays(
   for (let i = 0; i < 42; i++) {
     const date = new Date(gridStart);
     date.setDate(date.getDate() + i);
-    const dateIso = ds.toDateString(date);
+    const dateIso = ds.toLocalDate(date);
 
     days.push({
       dateIso,
@@ -328,15 +328,15 @@ function calculateMonthlyAdherence(
   habitStartDate?: string | null,
 ): number {
   const ds = getDateService();
-  const todayIso = ds.getCurrentDate();
+  const todayIso = ds.today();
 
   // First day of target month
   const monthStart = new Date(year, month, 1);
-  const monthStartIso = ds.toDateString(monthStart);
+  const monthStartIso = ds.toLocalDate(monthStart);
 
   // Last day of target month
   const monthEnd = new Date(year, month + 1, 0);
-  const monthEndIso = ds.toDateString(monthEnd);
+  const monthEndIso = ds.toLocalDate(monthEnd);
 
   // Effective start: later of month start or habit start
   let effectiveStart = monthStartIso;
@@ -356,10 +356,7 @@ function calculateMonthlyAdherence(
   }
 
   // Count days in range
-  const startDate = new Date(effectiveStart);
-  const endDate = new Date(effectiveEnd);
-  const totalDays =
-    Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const totalDays = getDateService().daysBetween(effectiveStart, effectiveEnd) + 1;
 
   if (totalDays <= 0) return 0;
 
@@ -496,7 +493,7 @@ export default function HabitViewMode({
   }, [onLogToday, buttonScale]);
 
   // Get current date info from DateService (must be first - used by other calculations)
-  const todayIso = ds.getCurrentDate();
+  const todayIso = ds.today();
 
   // Detect if this is a break habit
   const isBreakHabit = habit.subtype === 'break_habit';
@@ -522,15 +519,12 @@ export default function HabitViewMode({
     if (sortedProgress.length === 0) {
       // No slips recorded - clean since start
       if (habit.start_date) {
-        const startDate = new Date(habit.start_date);
-        const today = new Date(todayIso);
-        return Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+        return getDateService().daysBetween(habit.start_date, todayIso);
       }
       return 0;
     }
-    const lastSlipDate = new Date(sortedProgress[0]);
-    const today = new Date(todayIso);
-    return Math.floor((today.getTime() - lastSlipDate.getTime()) / (1000 * 60 * 60 * 24));
+    const lastSlipDate = sortedProgress[0];
+    return getDateService().daysBetween(lastSlipDate, todayIso);
   }, [isBreakHabit, habitProgress, habit.id, habit.start_date, todayIso]);
 
   // Calculate average frequency
@@ -542,9 +536,9 @@ export default function HabitViewMode({
     [habit.id, habitProgress],
   );
   const completedCount = rolling7Days.filter((d) => d.isCompleted).length;
-  const todayDate = ds.fromDateString(todayIso);
-  const currentYear = todayDate?.getFullYear() ?? new Date().getFullYear();
-  const currentMonth = todayDate?.getMonth() ?? new Date().getMonth();
+  const todayDate = ds.fromLocalDate(todayIso);
+  const currentYear = todayDate?.getFullYear() ?? getDateService().now().getFullYear();
+  const currentMonth = todayDate?.getMonth() ?? getDateService().now().getMonth();
 
   // Calculate monthly adherence
   const currentMonthAdherence = useMemo(

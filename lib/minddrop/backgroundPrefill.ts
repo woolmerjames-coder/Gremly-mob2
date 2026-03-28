@@ -19,6 +19,7 @@ import { filterAndNormalizeTags } from '../tags/normalize';
 import { applyTagQualityFilter } from '../tags/quality';
 import { applyThemeTags } from '../tags/themes';
 import { extractMeaningfulTags } from '../tags/extractTags';
+import { getDateService } from '../date/DateService';
 
 interface PrefillEntity {
   id: string;
@@ -109,7 +110,7 @@ export function computePrefillTitle({
  * void backgroundPrefill(entity, "Email the landlord about the leak");
  */
 export async function backgroundPrefill(entity: PrefillEntity, rawSentence: string): Promise<void> {
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
 
   console.log('[BackgroundPrefill] start', {
     entityId: entity.id,
@@ -190,7 +191,7 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
       aiTitle,
       aiTags,
       confirmationMessage,
-      elapsed: Date.now() - startTime,
+      elapsed: getDateService().now().getTime() - startTime,
     });
 
     // Step 2: Build update payload with freeze flags
@@ -436,7 +437,7 @@ export async function backgroundPrefill(entity: PrefillEntity, rawSentence: stri
       titleSet: titleWasSet,
       title: finalTitle,
       tagsCount: aiTags.length,
-      totalElapsed: Date.now() - startTime,
+      totalElapsed: getDateService().now().getTime() - startTime,
     });
 
     if (titleWasSet && finalTitle) {

@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Clock, StickyNote, Link2, Bell, EyeOff } from 'lucide-react-native';
 import type { Note } from '../../lib/types';
 import type { CalendarEvent } from '../../lib/calendar/CalendarClient';
+import { getDateService } from '../../lib/date';
 import { EventTimePicker } from '../../app/components/morning-brief/components/EventTimePicker';
 
 /* ─── unified event type ─── */
@@ -74,7 +75,7 @@ function formatTime12(hhmm: string): string {
 function hhmmToISO(hhmm: string | null | undefined): string | null {
   if (!hhmm) return null;
   const [h, m] = hhmm.split(':').map(Number);
-  const d = new Date();
+  const d = getDateService().now();
   d.setHours(h, m, 0, 0);
   return d.toISOString();
 }

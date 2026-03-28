@@ -47,7 +47,7 @@ function mapSubmitResult(
   result: SubmitResult,
   targetDate?: string | null,
 ): NowQuickAddCompleteResult {
-  const today = getDateService().getCurrentDate();
+  const today = getDateService().today();
   const effectiveDate = targetDate || today;
 
   if (!result.success || !result.bucket) {

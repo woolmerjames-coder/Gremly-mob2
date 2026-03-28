@@ -39,8 +39,8 @@ jest.mock('../../repo/supabase', () => ({
 // Mock DateService
 jest.mock('../../date/DateService', () => ({
   getDateService: () => ({
-    getCurrentDate: () => '2026-01-23',
-    getCurrentDateTime: () => new Date('2026-01-23T12:00:00Z'),
+    today: () => '2026-01-23',
+    todayTime: () => new Date('2026-01-23T12:00:00Z'),
   }),
   createDateService: jest.fn(),
   resetDateService: jest.fn(),

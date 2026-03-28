@@ -47,7 +47,10 @@ jest.mock('../../../lib/store/selectors', () => ({
       },
     },
   ],
-  useSweepIntroStats: () => ({ stats: { urgentCount: 1, pendingCount: 0, isFirstSweep: false }, isLoading: false }),
+  useSweepIntroStats: () => ({
+    stats: { urgentCount: 1, pendingCount: 0, isFirstSweep: false },
+    isLoading: false,
+  }),
   useIsLoading: () => false,
   useActiveSpaces: () => [],
   selectTodayLockedItems: () => [],
@@ -177,6 +180,7 @@ jest.mock('@react-navigation/native', () => {
     useNavigation: () => ({
       setOptions: jest.fn(),
       goBack: jest.fn(),
+      addListener: jest.fn(() => jest.fn()),
     }),
     useRoute: () => ({
       params: {},

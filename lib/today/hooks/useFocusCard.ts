@@ -41,7 +41,7 @@ export function useFocusCard(): UseFocusCard {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const todayDay = useMemo(() => getDateService().getCurrentDate(), []);
+  const todayDay = useMemo(() => getDateService().today(), []);
   const endOfDayIso = useMemo(() => `${todayDay}T23:59:59.999Z`, [todayDay]);
 
   const load = useCallback(async () => {

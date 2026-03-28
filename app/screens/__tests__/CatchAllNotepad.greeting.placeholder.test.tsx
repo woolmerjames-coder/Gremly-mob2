@@ -11,12 +11,15 @@ jest.mock('../../../providers/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'user-1' } }),
 }));
 
-// Mock navigation: we only need setOptions
+// Mock navigation: we need setOptions and addListener
 jest.mock('@react-navigation/native', () => {
   const actual = jest.requireActual('@react-navigation/native');
   return {
     ...actual,
-    useNavigation: () => ({ setOptions: jest.fn() }),
+    useNavigation: () => ({
+      setOptions: jest.fn(),
+      addListener: jest.fn(() => jest.fn()),
+    }),
   };
 });
 

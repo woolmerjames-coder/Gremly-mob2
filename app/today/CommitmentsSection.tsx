@@ -5,6 +5,7 @@ import { Card } from '../../design-system/Card';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { useTheme } from '../../providers/ThemeProvider';
 import type { CommitmentItem } from '../../lib/today/hooks/useCommitments';
+import { getDateService } from '../../lib/date';
 
 interface CommitmentsSectionProps {
   items: CommitmentItem[];
@@ -23,7 +24,7 @@ function getCommitmentStartedLabel(started?: string | null): string {
     return 'Started recently';
   }
 
-  const now = new Date();
+  const now = getDateService().now();
   const diffMs = now.getTime() - startedDate.getTime();
   const days = Math.max(0, Math.floor(diffMs / MS_PER_DAY));
 

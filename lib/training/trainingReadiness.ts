@@ -74,11 +74,13 @@ export function getReadinessLabel(score: number): string {
 // Days remaining in the 7-day training window
 // ---------------------------------------------------------------------------
 
+import { getDateService } from '../date/DateService';
+
 export function getTrainingDaysRemaining(trainingStartedAt: string | null): number | null {
   if (trainingStartedAt == null) return null;
 
   const startMs = new Date(trainingStartedAt).getTime();
-  const dayNumber = Math.floor((Date.now() - startMs) / 86_400_000) + 1;
+  const dayNumber = Math.floor((getDateService().now().getTime() - startMs) / 86_400_000) + 1;
 
   return Math.max(0, 7 - dayNumber);
 }

@@ -1,3 +1,5 @@
+import { getDateService } from './date/DateService';
+
 export type ActivityEvent = {
   id: string;
   timestamp: number;
@@ -18,7 +20,7 @@ export const ActivityLog = {
     destination: ActivityEvent['destination'];
     itemTitle?: string;
   }) {
-    const timestamp = Date.now();
+    const timestamp = getDateService().now().getTime();
     _events.unshift({
       id: `${details.itemId}:${timestamp}`,
       timestamp,

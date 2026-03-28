@@ -133,6 +133,7 @@ import {
 } from 'lucide-react-native';
 // ClarificationIndicatorChip moved to badge position - import removed
 import { formatDue } from '../../lib/date/formatDue';
+import { getDateService, nowTimestamp } from '../../lib/date/DateService';
 import { env } from '../../lib/env';
 import { kindToDisplayLabel } from '../../lib/ui/kindToDisplayLabel';
 import {
@@ -248,7 +249,7 @@ function createSubmissionId(): string {
     void error;
   }
   const rand = Math.random().toString(36).slice(2, 10);
-  const time = Date.now().toString(36);
+  const time = getDateService().now().getTime().toString(36);
   return `minddrop-${time}-${rand}`;
 }
 
@@ -651,7 +652,7 @@ export async function uploadPhotosToNote(
     try {
       // Generate unique storage path
       const fileExt = photoUri.split('.').pop() || 'jpg';
-      const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      const uniqueId = `${getDateService().now().getTime()}-${Math.random().toString(36).substring(7)}`;
       const storagePath = `${userId}/${noteId}/${uniqueId}.${fileExt}`;
 
       // Fetch file from local URI
@@ -816,11 +817,7 @@ export const PLACEHOLDERS = [
   'Just type everything...',
 ] as const;
 
-// Trust Builders helpers
-function startOfTodayLocal() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-}
+// Trust Builders helpers — startOfTodayLocal removed, use dateService below
 
 // Recent Drops helpers and component (colocated for now)
 type UnifiedDrop = {
@@ -974,6 +971,11 @@ function getMindDropVisualState(entity: {
 
   // Explicitly failed
   if (views.ai_failed === true) {
+    return 'failed';
+  }
+
+  // Phase 2 enrichment timed out or failed — show retry affordance
+  if (views.minddrop_stage === 'enrichment_failed') {
     return 'failed';
   }
 
@@ -2079,7 +2081,7 @@ const PendingSkeleton: React.FC<{
 
 const relativeTime = (iso: string) => {
   const d = new Date(iso);
-  const diff = Date.now() - d.getTime();
+  const diff = getDateService().now().getTime() - d.getTime();
   const s = Math.floor(diff / 1000);
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
@@ -2088,7 +2090,7 @@ const relativeTime = (iso: string) => {
   if (h < 24) return `${h} hr${h > 1 ? 's' : ''} ago`;
   const days = Math.floor(h / 24);
   if (days < 7) return `${days}d ago`;
-  return d.toLocaleDateString();
+  return getDateService().formatForChip(getDateService().toLocalDate(d));
 };
 
 /**
@@ -2512,18 +2514,25 @@ function formatStartDate(startDate: string | null | undefined): string {
   if (!startDate) return 'Starts TBD';
 
   try {
-    const date = new Date(startDate + 'T00:00:00'); // Parse as local date
-    const now = new Date();
-    const diffDays = Math.floor((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const ds = getDateService();
+    const diffDays = ds.daysBetween(ds.today(), startDate);
+    const date = ds.fromLocalDate(startDate) ?? new Date(startDate + 'T00:00:00');
 
     // If within next 7 days, show day name
+    const tz = ds.getTimezone();
     if (diffDays >= 0 && diffDays < 7) {
-      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+      const dayName = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: tz }).format(
+        date,
+      );
       return `Starts ${dayName}`;
     }
 
     // Otherwise show "Jan 1" format
-    const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const formatted = new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      timeZone: tz,
+    }).format(date);
     return `Starts ${formatted}`;
   } catch {
     return 'Starts TBD';
@@ -2543,7 +2552,7 @@ function formatDateForChip(dateStr: string | null | undefined): string {
     const date = new Date(year, month - 1, day);
 
     // Get today and tomorrow in local timezone
-    const today = new Date();
+    const today = getDateService().now();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -2767,7 +2776,7 @@ const AnimatedMindDropCard = React.memo<{
     // Capture render time in a ref (initialized once on mount)
     // This avoids calling Date.now() multiple times during render
     // eslint-disable-next-line react-hooks/purity -- Date.now() in useRef initializer is safe (runs once per mount)
-    const mountTimeRef = React.useRef(Date.now());
+    const mountTimeRef = React.useRef(getDateService().now().getTime());
 
     // Check for multi-entity drops
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
@@ -2900,7 +2909,7 @@ const AnimatedMindDropCard = React.memo<{
 
         if (isReadyForReveal) {
           const createdAt = new Date(item.created_at).getTime();
-          const ageMs = Date.now() - createdAt;
+          const ageMs = getDateService().now().getTime() - createdAt;
 
           if (ageMs >= 30000) {
             // Item is old (>30s) - skip animation entirely
@@ -2934,10 +2943,10 @@ const AnimatedMindDropCard = React.memo<{
 
     // Check if item is too old for animation (>30s old) - SYNCHRONOUS check
     // Uses mountTimeRef captured on mount to avoid impure Date.now() calls during render
-    const createdAtMs = item.created_at
-      ? new Date(item.created_at).getTime()
-      : mountTimeRef.current;
-    const ageMs = mountTimeRef.current - createdAtMs;
+    // eslint-disable-next-line react-hooks/refs -- intentional: stable ref set once on mount
+    const mountTimestamp = mountTimeRef.current;
+    const createdAtMs = item.created_at ? new Date(item.created_at).getTime() : mountTimestamp;
+    const ageMs = mountTimestamp - createdAtMs;
     const isTooOldForAnimation = ageMs >= 30000;
 
     // Check if this item needs reveal animation (not yet revealed)
@@ -3134,8 +3143,34 @@ const AnimatedMindDropCard = React.memo<{
             </View>
           </View>
 
-          {/* Row 2: Confirmation message, multi hint, or clarification hint */}
-          {isMulti ? (
+          {/* Row 2: Confirmation message, multi hint, clarification hint, or retry */}
+          {isFailed ? (
+            <Pressable
+              onPress={() => {
+                // Emit retry event — RecentDrops will handle it
+                eventBus.emit('drop:retry_enrichment', {
+                  localId: item.drop_id || item.id,
+                  text: item.text || item.title || '',
+                  bucket: item.kind === 'note' ? 'log' : item.kind,
+                  subtype: item.noteSubtype || null,
+                });
+              }}
+              style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}
+            >
+              <Animated.Image
+                source={require('../../assets/buttonforHP.png')}
+                style={{
+                  width: 26,
+                  height: 26,
+                  marginRight: 8,
+                  borderRadius: 13,
+                }}
+              />
+              <Text style={{ fontSize: 13, color: '#B8860B', fontWeight: '600' }}>
+                Couldn't finish loading. Tap to retry.
+              </Text>
+            </Pressable>
+          ) : isMulti ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: -2 }}>
               <Animated.Image
                 source={require('../../assets/buttonforHP.png')}
@@ -3390,7 +3425,7 @@ const RecentDrops: React.FC<{
     console.log('🔴 [CatchAllNotepad] pendingDropsMap CHANGED', {
       size: pendingDropsMap.size,
       keys: Array.from(pendingDropsMap.keys()),
-      timestamp: Date.now(),
+      timestamp: getDateService().now().getTime(),
     });
   }, [pendingDropsMap]);
 
@@ -3562,7 +3597,9 @@ const RecentDrops: React.FC<{
                         ? 'enriching'
                         : drop.status === 'enriched' || drop.status === 'synced'
                           ? 'enriched' // Phase 2 FULLY complete - NOW chips can animate
-                          : 'pending';
+                          : drop.status === 'enrichment_failed'
+                            ? 'enrichment_failed'
+                            : 'pending';
 
         // For multi-drops, use the summary as the title
         const displayTitle =
@@ -3584,13 +3621,19 @@ const RecentDrops: React.FC<{
           due_date: drop.extractedDate ?? null,
           due_day: drop.extractedDate?.split('T')[0] ?? null,
           views: {
-            ai_pending: drop.status !== 'synced' && drop.status !== 'enriched',
+            ai_pending:
+              drop.status !== 'synced' &&
+              drop.status !== 'enriched' &&
+              drop.status !== 'enrichment_failed',
             minddrop_stage: minddropStage,
             confirmation_message: drop.confirmationMessage,
             people: drop.people, // Include people for chip rendering
             // Flag for Row3Chips: only animate chips when Phase 2 is FULLY complete
             // This is separate from minddrop_stage which triggers Row 1-2 typewriter earlier
-            chip_data_ready: drop.status === 'enriched' || drop.status === 'synced',
+            chip_data_ready:
+              drop.status === 'enriched' ||
+              drop.status === 'synced' ||
+              drop.status === 'enrichment_failed',
             // Flag for badge animation - true when Phase 1 confirms the bucket
             bucket_confirmed: drop.status !== 'pending' && drop.status !== 'classifying',
             // Multi-drop data for UI rendering
@@ -3833,11 +3876,11 @@ const RecentDrops: React.FC<{
       const habits = selectRecentHabits(state, 50);
 
       // Time boundaries for filtering
-      const start = startOfTodayLocal();
+      const start = getDateService().startOfRitualDay();
       const todayCutoff = start.getTime();
 
       // 3 days ago at start of day (for "Show older" toggle)
-      const threeDaysAgo = new Date();
+      const threeDaysAgo = getDateService().now();
       threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
       threeDaysAgo.setHours(0, 0, 0, 0);
       const olderCutoff = threeDaysAgo.getTime();
@@ -4543,7 +4586,7 @@ const RecentDrops: React.FC<{
 
     // Timeout mechanism for stuck cards - recover after 30 seconds
     const stuckCardInterval = setInterval(() => {
-      const now = Date.now();
+      const now = getDateService().now().getTime();
       const STUCK_THRESHOLD_MS = 30000; // 30 seconds
 
       setItems((prev) => {
@@ -4581,6 +4624,150 @@ const RecentDrops: React.FC<{
       clearInterval(stuckCardInterval);
     };
   }, [load]);
+
+  // Listen for enrichment retry events from failed cards
+  React.useEffect(() => {
+    const handleRetry = async (payload: {
+      localId: string;
+      text: string;
+      bucket: string;
+      subtype: string | null;
+    }) => {
+      console.log('[RecentDrops] Retrying enrichment', { localId: payload.localId });
+
+      // 1. Set card back to enriching state (shows shimmer)
+      const pendingDrop = pendingDropsMap.get(payload.localId);
+      if (pendingDrop) {
+        // Pending drop path — update via Zustand
+        useGremlyStore.getState().updatePendingDropEnrichment(payload.localId, {
+          status: 'enriching',
+          minddrop_stage: 'enriching',
+        });
+      } else {
+        // Already-synced entity path — update local items
+        setItems((prev) =>
+          prev.map((item) =>
+            item.drop_id === payload.localId || item.id === payload.localId
+              ? {
+                  ...item,
+                  views: {
+                    ...item.views,
+                    minddrop_stage: 'enriching',
+                    ai_pending: true,
+                    ai_failed: false,
+                  },
+                }
+              : item,
+          ),
+        );
+      }
+
+      // 2. Re-run Phase 2
+      try {
+        const bucket = payload.bucket as 'todo' | 'habit' | 'log';
+        const subtype = payload.subtype as any;
+
+        if (pendingDrop) {
+          // Re-run enrichment for pending drops via cortex directly
+          const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
+          const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+          const dateService = (await import('../../lib/date/DateService')).dateService;
+          const currentDate = dateService.today();
+          const tz = getDateService().getTimezone();
+          const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+            weekday: 'long',
+            timeZone: tz,
+          }).format(getDateService().now());
+          const timezone = tz;
+
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 20000);
+
+          const res = await fetch(cortexUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${anonKey}`,
+            },
+            body: JSON.stringify({
+              type: 'enrich-phase2',
+              text: payload.text,
+              bucket,
+              subtype,
+              currentDate,
+              dayOfWeek,
+              timezone,
+            }),
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeout);
+
+          if (res.ok) {
+            const json = await res.json();
+            useGremlyStore.getState().updatePendingDropEnrichment(payload.localId, {
+              status: 'enriched',
+              minddrop_stage: 'enriched',
+              tags: Array.isArray(json.tags) ? json.tags : [],
+              timeEstimateMinutes: json.time_estimate_minutes ?? null,
+              timeWindow: json.time_window ?? null,
+              extractedDate: json.extracted_date ?? null,
+              extractedFrequency: json.extracted_frequency ?? null,
+              extractedDays: json.extracted_days ?? null,
+              people: Array.isArray(json.people) ? json.people : [],
+              mood: json.mood ?? null,
+              target_date: json.target_date ?? null,
+              scheduled_date: json.scheduled_date ?? null,
+              event_time: json.event_time ?? null,
+            });
+            console.log('[RecentDrops] Retry enrichment succeeded', { localId: payload.localId });
+          } else {
+            throw new Error(`API returned ${res.status}`);
+          }
+        } else {
+          // Synced entity — find it and run phase2.ts
+          const entityId = payload.localId;
+          const item = items.find((i) => i.id === entityId || i.drop_id === entityId);
+          if (item) {
+            const result = await runPhase2(entityId, payload.text, bucket, subtype, repo);
+            if (result) {
+              setItems((prev) =>
+                prev.map((i) => (i.id === entityId ? applyEnrichmentToItem(i, result) : i)),
+              );
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[RecentDrops] Retry enrichment failed', { error: String(err) });
+        // Set back to failed state so retry button reappears
+        if (pendingDrop) {
+          useGremlyStore.getState().updatePendingDropEnrichment(payload.localId, {
+            status: 'enrichment_failed',
+            minddrop_stage: 'enrichment_failed',
+          });
+        } else {
+          setItems((prev) =>
+            prev.map((item) =>
+              item.drop_id === payload.localId || item.id === payload.localId
+                ? {
+                    ...item,
+                    views: {
+                      ...item.views,
+                      minddrop_stage: 'enrichment_failed',
+                      ai_pending: false,
+                      ai_failed: true,
+                    },
+                  }
+                : item,
+            ),
+          );
+        }
+      }
+    };
+
+    const unsub = eventBus.on('drop:retry_enrichment', handleRetry);
+    return () => unsub();
+  }, [pendingDropsMap, items, repo]);
 
   const handleEdit = React.useCallback(
     async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
@@ -4711,7 +4898,7 @@ const RecentDrops: React.FC<{
                 kind: 'todo',
                 title: noteToUpdate.title || originalText,
                 text: originalText,
-                created_at: new Date().toISOString(),
+                created_at: nowTimestamp(),
                 tags: [],
                 views: { minddrop_stage: 'classified', ai_pending: true },
                 labels: [],
@@ -4768,7 +4955,7 @@ const RecentDrops: React.FC<{
                 kind: 'habit',
                 title: noteToUpdate.title || originalText,
                 text: originalText,
-                created_at: new Date().toISOString(),
+                created_at: nowTimestamp(),
                 tags: [],
                 views: { minddrop_stage: 'classified', ai_pending: true },
                 labels: [],
@@ -4878,7 +5065,7 @@ const RecentDrops: React.FC<{
       // );
       const noteToSplit = items.find((item) => item.id === noteId);
       const spaceId = noteToSplit?.views?.space_id ?? null;
-      const now = Date.now();
+      const now = getDateService().now().getTime();
 
       // 1. Create optimistic items immediately for instant visual feedback
       const optimisticItems: UnifiedDrop[] = selectedItems.map((splitItem, index) => {
@@ -4894,7 +5081,7 @@ const RecentDrops: React.FC<{
           kind,
           title: displayTitle,
           text: splitItem.text,
-          created_at: new Date().toISOString(),
+          created_at: nowTimestamp(),
           drop_id: `split-${noteId}-${index}`,
           tags: [],
           views: {
@@ -5059,7 +5246,7 @@ const RecentDrops: React.FC<{
   // Derive hasTodayDrops from reactive items state (not todayCount which can be stale)
   const hasTodayDrops = React.useMemo(() => {
     if (pendingItems.length > 0) return true;
-    const todayCutoff = startOfTodayLocal().getTime();
+    const todayCutoff = getDateService().startOfRitualDay().getTime();
     return items.some((item) => {
       const ts = new Date(item.created_at).getTime();
       return Number.isFinite(ts) && ts >= todayCutoff;
@@ -5379,7 +5566,7 @@ export function isUrgent(input: string): boolean {
  * Generates timing chip options based on current time
  */
 export function getTimingChips(): Array<{ option: TimingOption; label: string }> {
-  const now = new Date();
+  const now = getDateService().now();
   const hour = now.getHours();
   const day = now.getDay(); // 0 = Sunday, 5 = Friday
 
@@ -5431,7 +5618,7 @@ export function getTimingChips(): Array<{ option: TimingOption; label: string }>
  * Converts timing option to ISO date string
  */
 export function timingOptionToDate(option: TimingOption): string | null {
-  const now = new Date();
+  const now = getDateService().now();
 
   switch (option) {
     case 'today':
@@ -5551,7 +5738,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const storeHabits = useGremlyStore((s) => s.habits);
 
   const storeDropsToday = useMemo(() => {
-    const todayStart = new Date();
+    const todayStart = getDateService().now();
     todayStart.setHours(0, 0, 0, 0);
     const todayISO = todayStart.toISOString();
 
@@ -5570,7 +5757,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Actionable drops only (todos + habits) — used for milestone speech at 5/10
   const actionableDropsToday = useMemo(() => {
-    const todayStart = new Date();
+    const todayStart = getDateService().now();
     todayStart.setHours(0, 0, 0, 0);
     const todayISO = todayStart.toISOString();
 
@@ -5777,7 +5964,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         clearTimeout(gremlySpeechTimeoutRef.current);
       }
       lastSpeechRef.current = message;
-      lastSpeechTimeRef.current = Date.now();
+      lastSpeechTimeRef.current = getDateService().now().getTime();
       setGremlySpeech({ message, variant });
       gremlySpeechTimeoutRef.current = setTimeout(() => {
         // console.log('[Gremly Speech] Auto-dismissing speech bubble');
@@ -5791,7 +5978,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     (moment: 'greeting' | 'return' | 'post_drop'): SpeechContext => {
       const daysSinceLastSweep = lastSweepCompletedAt
         ? Math.floor(
-            (Date.now() - new Date(lastSweepCompletedAt).getTime()) / (1000 * 60 * 60 * 24),
+            (getDateService().now().getTime() - new Date(lastSweepCompletedAt).getTime()) /
+              (1000 * 60 * 60 * 24),
           )
         : null;
 
@@ -5804,7 +5992,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         error: null,
         gaugeValue: feedingGaugeValue,
         isFedToday,
-        timeSinceLastDrop: storeLastDropTime ? Date.now() - storeLastDropTime : null,
+        timeSinceLastDrop: storeLastDropTime
+          ? getDateService().now().getTime() - storeLastDropTime
+          : null,
         briefHeadline,
         tone: dco?.tone ?? null,
         overdueTodos: dco?.active_today?.overdue_todos ?? 0,
@@ -5901,9 +6091,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     if (!trainingStartedAt) return;
 
     // Check if today is after training Day 1
-    const startDate = new Date(trainingStartedAt);
-    const now = new Date();
-    const daysSinceStart = Math.floor((now.getTime() - startDate.getTime()) / 86400000);
+    const ds = getDateService();
+    const startDay = ds.toLocalDate(new Date(trainingStartedAt));
+    const todayDay = ds.today();
+    const daysSinceStart = ds.daysBetween(startDay, todayDay);
     if (daysSinceStart < 1) return; // still Day 1
 
     // Auto-open the training meter
@@ -6071,6 +6262,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       setRecentRefresh((v) => v + 1);
     });
   }, [setRecentRefresh]);
+
+  // Refresh items when MindDrop tab regains focus (e.g. after saving from Ask Gremly)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      triggerRecentRefresh();
+    });
+    return unsubscribe;
+  }, [navigation, triggerRecentRefresh]);
+
   const canonicalConversionsOn = env.feature.canonicalConversions;
 
   // Stable noop callbacks for RecentDrops to prevent unnecessary re-renders
@@ -6097,7 +6297,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   const isProcessing = isSubmitting || isThinking;
 
-  const hour = new Date().getHours();
+  const hour = getDateService().now().getHours();
   const contextPrompt =
     hour >= 6 && hour < 12
       ? "Good morning! What's on\nyour mind?"
@@ -8122,7 +8322,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     }
     setIsSubmitting(true);
 
-    const now = Date.now();
+    const now = getDateService().now().getTime();
     const trimmed = note.trim();
 
     // Photos go through the normal Mind Drop pipeline (no overlay shortcut)
@@ -8234,6 +8434,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             } else {
               celebrationController.showFedCelebration(useGremlyStore.getState().fedDaysCount + 1);
             }
+            // Mark fed celebration as shown so store path doesn't double-fire
+            useGremlyStore.setState({ todayFedCelebrationShownAt: nowTimestamp() });
           }
 
           // Skip all generic speech below
@@ -8252,6 +8454,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             const fedSpeech = getFedCelebrationSpeech(fedDaysCount);
             showGremlySpeech(fedSpeech.message, fedSpeech.duration, 'celebration');
           }
+          // Mark fed celebration as shown so store path doesn't double-fire
+          useGremlyStore.setState({ todayFedCelebrationShownAt: nowTimestamp() });
         } else {
           mascotRef.current?.celebrate();
 
@@ -8276,11 +8480,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               isFirstDrop: false,
               hasPhotos: pendingPhotoUris.length > 0,
               isReturningUser:
-                storeLastDropTime != null && Date.now() - storeLastDropTime > 24 * 60 * 60 * 1000,
+                storeLastDropTime != null &&
+                getDateService().now().getTime() - storeLastDropTime > 24 * 60 * 60 * 1000,
               error: null,
               gaugeValue: useGremlyStore.getState().feedingGaugeValue,
               isFedToday: useGremlyStore.getState().isFedToday,
-              timeSinceLastDrop: storeLastDropTime ? Date.now() - storeLastDropTime : null,
+              timeSinceLastDrop: storeLastDropTime
+                ? getDateService().now().getTime() - storeLastDropTime
+                : null,
               briefHeadline: null,
               tone: dco?.tone ?? null,
               overdueTodos: dco?.active_today?.overdue_todos ?? 0,
@@ -8288,7 +8495,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               upcomingIn7d: dco?.active_today?.upcoming_in_7d ?? [],
               daysSinceLastSweep: lastSweepCompletedAt
                 ? Math.floor(
-                    (Date.now() - new Date(lastSweepCompletedAt).getTime()) / (1000 * 60 * 60 * 24),
+                    (getDateService().now().getTime() - new Date(lastSweepCompletedAt).getTime()) /
+                      (1000 * 60 * 60 * 24),
                   )
                 : null,
               lastSpeechTime: lastSpeechTimeRef.current,
@@ -8530,11 +8738,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           isFirstDrop: false,
           hasPhotos: currentSubmissionHasPhotosRef.current,
           isReturningUser:
-            storeLastDropTime != null && Date.now() - storeLastDropTime > 24 * 60 * 60 * 1000,
+            storeLastDropTime != null &&
+            getDateService().now().getTime() - storeLastDropTime > 24 * 60 * 60 * 1000,
           error: null,
           gaugeValue: useGremlyStore.getState().feedingGaugeValue,
           isFedToday: useGremlyStore.getState().isFedToday,
-          timeSinceLastDrop: storeLastDropTime ? Date.now() - storeLastDropTime : null,
+          timeSinceLastDrop: storeLastDropTime
+            ? getDateService().now().getTime() - storeLastDropTime
+            : null,
           briefHeadline: null,
           tone: dco?.tone ?? null,
           overdueTodos: dco?.active_today?.overdue_todos ?? 0,
@@ -8542,7 +8753,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           upcomingIn7d: dco?.active_today?.upcoming_in_7d ?? [],
           daysSinceLastSweep: lastSweepCompletedAt
             ? Math.floor(
-                (Date.now() - new Date(lastSweepCompletedAt).getTime()) / (1000 * 60 * 60 * 24),
+                (getDateService().now().getTime() - new Date(lastSweepCompletedAt).getTime()) /
+                  (1000 * 60 * 60 * 24),
               )
             : null,
           lastSpeechTime: lastSpeechTimeRef.current,
@@ -9119,7 +9331,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 user_id: userId,
                 evening_enabled: true,
                 evening_time: timeStr,
-                updated_at: new Date().toISOString(),
+                updated_at: nowTimestamp(),
               },
               { onConflict: 'user_id' },
             );
@@ -9154,7 +9366,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                 user_id: userId,
                 evening_enabled: true,
                 evening_time: timeStr,
-                updated_at: new Date().toISOString(),
+                updated_at: nowTimestamp(),
               },
               { onConflict: 'user_id' },
             );

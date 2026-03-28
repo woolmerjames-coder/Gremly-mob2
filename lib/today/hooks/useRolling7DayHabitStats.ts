@@ -90,7 +90,7 @@ export function useRolling7DayHabitStats(habits: Habit[]): Rolling7DayHabitStats
 
   return useMemo(() => {
     const ds = getDateService();
-    const todayStr = ds.getCurrentDate();
+    const todayStr = ds.today();
 
     // Build rolling 7 days (today is rightmost)
     const rolling7Days: Array<{
@@ -101,7 +101,7 @@ export function useRolling7DayHabitStats(habits: Habit[]): Rolling7DayHabitStats
     }> = [];
     for (let i = 6; i >= 0; i--) {
       const dateStr = ds.addDays(todayStr, -i);
-      const d = ds.fromDateString(dateStr) ?? new Date();
+      const d = ds.fromLocalDate(dateStr) ?? getDateService().now();
       const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
       rolling7Days.push({
         date: dateStr,

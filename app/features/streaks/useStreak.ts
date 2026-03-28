@@ -9,7 +9,7 @@ import { useGremlyStore } from '../../../lib/store/useGremlyStore';
 import { useAuth } from '../../../providers/AuthProvider';
 import { getEnv } from '../../../lib/env';
 import { getCurrentStreak, type StreakResult } from './streakService';
-import { format, startOfDay, subDays } from 'date-fns';
+import { getDateService } from '../../../lib/date';
 
 export function useStreak() {
   const todos = useGremlyStore((s) => s.todos);
@@ -23,12 +23,12 @@ export function useStreak() {
   const activityDates = useMemo(() => {
     const lookbackDays = parseInt(getEnv('EXPO_PUBLIC_STREAK_LOOKBACK_DAYS') || '30', 10);
     const dates = new Set<string>();
-    const sinceDate = format(subDays(startOfDay(new Date()), lookbackDays), 'yyyy-MM-dd');
+    const sinceDate = getDateService().daysAgo(lookbackDays);
 
     // Get dates from completed todos
     todos.forEach((todo) => {
       if (todo.completed_at) {
-        const completedDate = format(startOfDay(new Date(todo.completed_at)), 'yyyy-MM-dd');
+        const completedDate = getDateService().toLocalDate(new Date(todo.completed_at));
         if (completedDate >= sinceDate) {
           dates.add(completedDate);
         }
@@ -44,7 +44,7 @@ export function useStreak() {
             const checkinDate =
               typeof checkin.date === 'string'
                 ? checkin.date
-                : format(startOfDay(new Date(checkin.date)), 'yyyy-MM-dd');
+                : getDateService().toLocalDate(new Date(checkin.date));
 
             if (checkinDate >= sinceDate) {
               dates.add(checkinDate);

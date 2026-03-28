@@ -13,7 +13,7 @@ import { render, fireEvent } from '@testing-library/react-native';
 
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
-  useNavigation: () => ({ navigate: mockNavigate }),
+  useNavigation: () => ({ navigate: mockNavigate, addListener: jest.fn(() => jest.fn()) }),
 }));
 
 const mockDismissBanner = jest.fn();

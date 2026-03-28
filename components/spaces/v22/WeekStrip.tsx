@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, useColorScheme, Animated } from 'react-native';
 import { COLORS, RADII, SPACE } from './_tokens';
+import { format } from 'date-fns';
 import { CalendarClock } from '../../icons';
 
 export type WeekStripDay = {
@@ -22,7 +23,7 @@ const DayCell: React.FC<{
   onSelect: (iso: string) => void;
 }> = ({ d, isDark, onSelect }) => {
   const date = new Date(d.dateISO);
-  const weekday = date.toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 1);
+  const weekday = format(date, 'EEEEE');
   const dayNum = date.getDate();
   const active = d.isActive;
   const selected = d.isSelected;
@@ -41,7 +42,7 @@ const DayCell: React.FC<{
       <TouchableOpacity
         onPress={handlePress}
         accessibilityRole="button"
-        accessibilityLabel={`Select ${date.toDateString()}`}
+        accessibilityLabel={`Select ${format(date, 'EEE MMM d yyyy')}`}
         style={[styles.cell, active ? styles.cellActive : styles.cellInactive]}
       >
         <Text

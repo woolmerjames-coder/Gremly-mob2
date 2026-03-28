@@ -123,6 +123,7 @@ jest.mock('@react-navigation/native', () => {
     useNavigation: () => ({
       setOptions: jest.fn(),
       goBack: jest.fn(),
+      addListener: jest.fn(() => jest.fn()),
     }),
     useRoute: () => ({
       params: {},

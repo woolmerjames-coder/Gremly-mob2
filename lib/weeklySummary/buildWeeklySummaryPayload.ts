@@ -99,7 +99,7 @@ const ds = () => getDateService();
 
 /** Compute the Monday YYYY-MM-DD for the week containing `today`. */
 function getMonday(today: string): string {
-  const date = ds().fromDateString(today);
+  const date = ds().fromLocalDate(today);
   if (!date) return today;
   const dow = date.getDay(); // 0=Sun … 6=Sat
   const offset = dow === 0 ? -6 : 1 - dow; // Mon=0, Tue=-1, …, Sun=-6
@@ -165,7 +165,7 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
   if (!state.userId || !state.isInitialized) return null;
 
   // ── Week boundaries ────────────────────────────────────────────────────
-  const today = ds().getCurrentDate(); // YYYY-MM-DD
+  const today = ds().today(); // YYYY-MM-DD
   const weekStartDate = getMonday(today); // Monday
   const weekEndDate = ds().addDays(weekStartDate, 6); // Sunday
 

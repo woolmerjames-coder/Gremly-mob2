@@ -1,4 +1,5 @@
 import type { AppRecord, SpaceChat } from '../types';
+import { getDateService } from '../date/DateService';
 
 export type SpaceIntent = 'habit' | 'trip' | 'goal' | 'other';
 
@@ -54,7 +55,7 @@ function withinDays(dateStr: string | null | undefined, days: number): boolean {
   }
   const t = targetDate.getTime();
   if (Number.isNaN(t)) return false;
-  const now = Date.now();
+  const now = getDateService().now().getTime();
   const horizon = now + days * 24 * 60 * 60 * 1000;
   return t >= now && t <= horizon;
 }

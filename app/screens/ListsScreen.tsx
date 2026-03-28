@@ -5,6 +5,7 @@ import { ListSwitcher } from '../../components/lists/ListSwitcher';
 import { ListItemRow } from '../../components/lists/ListItemRow';
 import type { ListItem } from '../../lib/repo/types';
 import { useRepo } from '../../providers/RepoProvider';
+import { getDateService, nowTimestamp } from '../../lib/date';
 
 type ListType = 'shopping' | 'packing';
 
@@ -52,11 +53,11 @@ export const ListsScreen: React.FC = () => {
     if (!newItemText.trim() || !currentListId) return;
 
     const optimisticItem: ListItem = {
-      id: `temp-${Date.now()}`,
+      id: `temp-${getDateService().now().getTime()}`,
       list_id: currentListId,
       label: newItemText.trim(),
       completed_at: null,
-      created_at: new Date().toISOString(),
+      created_at: nowTimestamp(),
     };
 
     // Optimistic update
@@ -82,7 +83,7 @@ export const ListsScreen: React.FC = () => {
     setListItems((prev) =>
       prev.map((item) =>
         item.id === itemId
-          ? { ...item, completed_at: done ? new Date().toISOString() : null }
+          ? { ...item, completed_at: done ? nowTimestamp() : null }
           : item,
       ),
     );
@@ -95,7 +96,7 @@ export const ListsScreen: React.FC = () => {
       setListItems((prev) =>
         prev.map((item) =>
           item.id === itemId
-            ? { ...item, completed_at: done ? null : new Date().toISOString() }
+            ? { ...item, completed_at: done ? null : nowTimestamp() }
             : item,
         ),
       );

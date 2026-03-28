@@ -13,6 +13,8 @@ import { Modal, StyleSheet, TouchableOpacity, ScrollView, View } from 'react-nat
 import { Text } from '../../ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { useCalendarItemsForDate, type CalendarItem } from '../../lib/store/calendarSelectors';
+import { getDateService } from '../../lib/date';
+import { format } from 'date-fns';
 import type { NowCompletedItem } from '../../lib/now/nowTypes';
 
 // Accent colors - same as NowFocusRow
@@ -54,7 +56,7 @@ export function NowProgressPopup({
 }: NowProgressPopupProps) {
   // Get today's date string
   const getTodayStr = () => {
-    const now = new Date();
+    const now = getDateService().now();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   };
 
@@ -94,17 +96,17 @@ export function NowProgressPopup({
     const date = new Date(dateStr + 'T12:00:00');
     if (dateStr === todayStr) return 'Today';
 
-    const yesterday = new Date();
+    const yesterday = getDateService().now();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
     if (dateStr === yesterdayStr) return 'Yesterday';
 
-    const tomorrow = new Date();
+    const tomorrow = getDateService().now();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
     if (dateStr === tomorrowStr) return 'Tomorrow';
 
-    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    return format(date, 'EEE, MMM d');
   };
 
   // Format time as "3:19pm" (lowercase am/pm)

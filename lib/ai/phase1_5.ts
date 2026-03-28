@@ -155,7 +155,7 @@ export async function runPhase1_5(
     return { is_ambiguous: false, reason: 'no_api_url' };
   }
 
-  const t0 = Date.now();
+  const t0 = dateService.now().getTime();
 
   try {
     const response = await fetch(apiUrl, {
@@ -175,7 +175,7 @@ export async function runPhase1_5(
       }),
     });
 
-    const latency = Date.now() - t0;
+    const latency = dateService.now().getTime() - t0;
 
     if (!response.ok) {
       console.log('[Phase1.5] HTTP error', { status: response.status, latency_ms: latency });
@@ -192,7 +192,7 @@ export async function runPhase1_5(
 
     return { ...result, latency_ms: latency };
   } catch (error) {
-    const latency = Date.now() - t0;
+    const latency = dateService.now().getTime() - t0;
     console.log('[Phase1.5] Request error', { error: String(error), latency_ms: latency });
     return { is_ambiguous: false, reason: 'request_error', latency_ms: latency };
   }

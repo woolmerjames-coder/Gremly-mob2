@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { getFrequencyDisplayLabelLong } from '../../habits/frequencyUtils';
+import { getDateService } from '../../date/DateService';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -97,8 +98,8 @@ function getWeekdayIndex(date: Date): number {
  * Calculate days passed since Monday (1 = Monday, 7 = Sunday)
  */
 function getDaysPassed(today: Date, weekStart: Date): number {
-  const diffMs = today.getTime() - weekStart.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1;
+  const ds = getDateService();
+  const diffDays = ds.daysBetween(ds.toLocalDate(weekStart), ds.toLocalDate(today)) + 1;
   return Math.min(Math.max(diffDays, 1), 7);
 }
 
@@ -393,7 +394,7 @@ function computeHabitStats(
  */
 export function useWeeklyHabitStats(habits: RawHabit[]): WeeklyHabitStats[] {
   return useMemo(() => {
-    const today = new Date();
+    const today = getDateService().now();
     today.setHours(23, 59, 59, 999); // End of today for comparison
 
     // Use rolling 7 days instead of calendar week
@@ -434,7 +435,7 @@ export function getWeeklySummary(stats: WeeklyHabitStats[]): WeeklySummary {
  * Uses rolling 7-day window ending today
  */
 export function computeWeeklyHabitStats(habits: RawHabit[]): WeeklyHabitStats[] {
-  const today = new Date();
+  const today = getDateService().now();
   today.setHours(23, 59, 59, 999);
 
   const { days: weekDays, labels: dayLabels, todayIndex } = getRolling7Days(today);

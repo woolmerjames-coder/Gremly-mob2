@@ -5,6 +5,8 @@
  * and prefill saveable content from Space Chat conversations.
  */
 
+import { nowTimestamp } from '../../../lib/date/DateService';
+
 // ============================================================================
 // Entity Types
 // ============================================================================
@@ -384,7 +386,7 @@ export function createNotSaveableResult(messageId: string): SaveableResult {
     confidence: 0,
     suggestedType: SAVEABLE_THRESHOLDS.DEFAULT_TYPE,
     prefill: createEmptyPrefill(),
-    detectedAt: new Date().toISOString(),
+    detectedAt: nowTimestamp(),
     messageId,
   };
 }

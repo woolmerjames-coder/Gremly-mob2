@@ -1,4 +1,5 @@
 import { inngest } from '../client';
+import { getDateService, nowTimestamp } from '../../date/DateService';
 
 // This function runs nightly to synthesize user profiles
 export const synthesizeUserProfiles = inngest.createFunction(
@@ -13,7 +14,7 @@ export const synthesizeUserProfiles = inngest.createFunction(
       const supabaseUrl = process.env.SUPABASE_URL!;
       const supabaseKey = process.env.SUPABASE_SERVICE_KEY!;
 
-      const weekAgo = new Date();
+      const weekAgo = getDateService().now();
       weekAgo.setDate(weekAgo.getDate() - 7);
 
       // Get users who created todos, notes, or habits in last 7 days
@@ -162,7 +163,7 @@ async function synthesizeUserProfile(
         user_id: userId,
         profile_text: profileText,
         signals: synthesisInput,
-        generated_at: new Date().toISOString(),
+        generated_at: nowTimestamp(),
         model_used: 'gpt-4o-mini',
       }),
     });
@@ -192,7 +193,7 @@ DATA:
       .join(', ') || 'No journal entries'
   }
 - Life areas (Spaces): ${input.spaces.join(', ') || 'None yet'}
-- Gremly age: ${input.gremlyAge} days
+- Gremly age: ${input.gremlyAge}
 
 Write a brief profile (~100-150 words) covering:
 1. Productivity patterns (how they work)
@@ -241,13 +242,13 @@ function formatDateOnly(d: Date): string {
 }
 
 function thirtyDaysAgo(): string {
-  const d = new Date();
+  const d = getDateService().now();
   d.setDate(d.getDate() - 30);
   return formatDateOnly(d);
 }
 
 function ninetyDaysAgo(): string {
-  const d = new Date();
+  const d = getDateService().now();
   d.setDate(d.getDate() - 90);
   return formatDateOnly(d);
 }

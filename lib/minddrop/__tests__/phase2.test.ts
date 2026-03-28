@@ -48,7 +48,7 @@ describe('Phase 2 Date Context', () => {
 
     it('should provide currentDate in YYYY-MM-DD format', () => {
       const dateService = getDateService();
-      const currentDate = dateService.getCurrentDate();
+      const currentDate = dateService.today();
 
       expect(currentDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
@@ -60,7 +60,7 @@ describe('Phase 2 Date Context', () => {
         timezone: 'America/Los_Angeles',
       });
 
-      expect(service.getCurrentDate()).toBe('2025-12-22');
+      expect(service.today()).toBe('2025-12-22');
       expect(service.getDayOfWeek()).toBe('Monday');
       expect(service.getTimezone()).toBe('America/Los_Angeles');
     });
@@ -75,7 +75,7 @@ describe('Phase 2 Date Context', () => {
         text: 'test text',
         bucket: 'todo',
         subtype: null,
-        currentDate: dateService.getCurrentDate(),
+        currentDate: dateService.today(),
         timezone: dateService.getTimezone(),
         dayOfWeek: dateService.getDayOfWeek(),
       };
@@ -95,7 +95,7 @@ describe('Phase 2 Date Context', () => {
       });
 
       const payload = {
-        currentDate: service.getCurrentDate(),
+        currentDate: service.today(),
         timezone: service.getTimezone(),
         dayOfWeek: service.getDayOfWeek(),
       };

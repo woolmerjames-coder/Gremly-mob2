@@ -1,0 +1,339 @@
+{
+  "vibe": "philosopher",
+  "week": "2026-03-16 to 2026-03-22",
+  "cards": [
+    {
+      "type": "gremly_mood",
+      "mood_line": "Bittersweet & becoming",
+      "hook": "The honeymoon ends mid-air — and somewhere over the Pacific, a new chapter quietly begins.",
+      "week_label": "2026-03-16 to 2026-03-22"
+    },
+    {
+      "type": "opening",
+      "headline": "The last perfect days",
+      "subheadline": "Honeymoon finale",
+      "body": "This week opened in the warmth of French Polynesia and closed on a plane home. Between those two points: 4am work calls from Tahaa, a lavish dinner with drinks that felt entirely worth it, and a flight back to SF carrying something new — not just memories, but the quiet weight of what comes next.",
+      "mood": "Grateful, becoming",
+      "quote": "Really really great day. So thankful to be here. More sun burnt than I want to be but it feels like a big dose of vitamin D did me good.",
+      "quote_date": "2026-03-13",
+      "image_hint": "French Polynesia lagoon at golden hour",
+      "image_url": "https://images.unsplash.com/photo-1652842183703-47c2f7bb8c3c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxGcmVuY2glMjBQb2x5bmVzaWF8ZW58MHwwfHx8MTc3NDU2MDUwOXww&ixlib=rb-4.1.0&q=80&w=1080",
+      "engagement": {
+        "drops": 29,
+        "sweeps": 9,
+        "journals": 7
+      }
+    },
+    {
+      "type": "moments",
+      "moments": [
+        {
+          "day_label": "THU",
+          "date": "2026-03-12",
+          "title": "The permission you gave yourself",
+          "body": "Something shifted on this day — not dramatically, but meaningfully. You wrote that even though you love Gremly, you needed to step back and just enjoy Dave on a once-in-a-lifetime vacation. That sentence wasn't a complaint. It was a choice. And the days that followed were lighter for it.",
+          "image_hint": "Bora Bora overwater bungalow at dusk",
+          "thread_tags": [
+            "Partnership with Dave",
+            "App Development & Launch",
+            "Mental Wellbeing & Negative Thought Management"
+          ],
+          "image_url": "https://images.unsplash.com/photo-1703548874537-acb9013332b2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxCb3JhJTIwQm9yYSUyMG92ZXJ3YXRlciUyMGJ1bmdhbG93JTIwYXQlMjBkdXNrfGVufDB8MHx8fDE3NzQ1NjA5NzR8MA&ixlib=rb-4.1.0&q=80&w=1080"
+        },
+        {
+          "day_label": "SUN",
+          "date": "2026-03-22",
+          "title": "Boarding with a list and a feeling",
+          "body": "Anxious and sad to be leaving, but grateful — and already building the mental architecture of return. The list you wrote mid-boarding (Gremly, work, myself, Dave) tells its own story about where your mind goes first. But you wrote it, which means you're watching yourself. That's not nothing.",
+          "image_hint": "Airport departure gate at dawn",
+          "thread_tags": [
+            "Bora Bora & Hawaii",
+            "Partnership with Dave",
+            "Surrogacy & Family Planning"
+          ],
+          "image_url": "https://images.unsplash.com/photo-1762960294856-7bedd842ae87?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxBaXJwb3J0JTIwZGVwYXJ0dXJlJTIwZ2F0ZSUyMGF0JTIwZGF3bnxlbnwwfDB8fHwxNzc0NTYwOTc0fDA&ixlib=rb-4.1.0&q=80&w=1080"
+        }
+      ]
+    },
+    {
+      "type": "thread_movements",
+      "title": "Life in motion",
+      "threads": [
+        {
+          "name": "Surrogacy & Family Planning",
+          "domain": "Relationship & Home Life",
+          "direction": "new",
+          "icon_hint": "personal",
+          "shift_label": "First signal of a new chapter",
+          "badge_label": "New thread",
+          "detail": "A single todo — 'Surrogacy Agencies Research' — created on March 15, the last day in Bora Bora, without fanfare or journal explanation.",
+          "is_highlight": true,
+          "badge_type": "info"
+        },
+        {
+          "name": "Sobriety & Alcohol-Free Streak",
+          "domain": "Fitness & Health",
+          "direction": "down",
+          "icon_hint": "health",
+          "shift_label": "Conscious break, no guilt",
+          "badge_label": "Struggling",
+          "detail": "On March 21, a lavish dinner with drinks — and unlike the Valentine's slip in February, the journal entry reads simply: 'it was worth it.'",
+          "is_highlight": true,
+          "badge_type": "danger"
+        },
+        {
+          "name": "Running & Half Marathon Training",
+          "domain": "Fitness & Health",
+          "direction": "milestone",
+          "icon_hint": "fitness",
+          "shift_label": "Race day passed in silence",
+          "badge_label": "Unresolved",
+          "detail": "March 22 was both race day and the return flight from Tahiti. Only one run was logged all week (March 18 in Tahaa). No journal entry mentions the race.",
+          "is_highlight": true,
+          "badge_type": "warning"
+        },
+        {
+          "name": "Mental Wellbeing & Negative Thought Management",
+          "domain": "Fitness & Health",
+          "direction": "up",
+          "icon_hint": "personal",
+          "shift_label": "Best streak since habit began",
+          "badge_label": "Building",
+          "detail": "Four consecutive completions from March 10–13, the longest run since the habit started, with gratitude language flooding every journal entry during the streak.",
+          "is_highlight": false,
+          "badge_type": "success"
+        },
+        {
+          "name": "Partnership with Dave",
+          "domain": "Relationship & Home Life",
+          "direction": "up",
+          "icon_hint": "relationship",
+          "shift_label": "Presence chosen over productivity",
+          "badge_label": "Thriving",
+          "detail": "Dave appears in all four journal entries this week — floaties, tennis on March 14, early morning islands — and the intimacy entry on March 17 is the most candid the journals have been.",
+          "is_highlight": false,
+          "badge_type": "success"
+        },
+        {
+          "name": "App Development & Launch",
+          "domain": "Gremly improvements",
+          "direction": "up",
+          "icon_hint": "work",
+          "shift_label": "Building from a beautiful island",
+          "badge_label": "Steady",
+          "detail": "Work maps concept introduced on March 19 from Tahaa — described as 'something for a long long time in the future but could be huge for B2B.'",
+          "is_highlight": false,
+          "badge_type": "success"
+        }
+      ]
+    },
+    {
+      "type": "discoveries",
+      "spotlight": {
+        "badge": "discovery",
+        "title": "Two health habits, running in opposite directions",
+        "takeaway": "Your mind has never been clearer. Your sobriety commitment has almost entirely dissolved. Both live in the same domain — and the journals never once name the gap.",
+        "evidence_trail": "Negative thought management hit a 4-day consecutive streak (March 10–13) — the best run since the habit began, at 33% cumulative. Sobriety logged only 1 completion across the entire week (March 9), sitting at 14% overall across 21 days. Multiple detailed journal entries from Bora Bora and Tahaa this week — not one mentions alcohol. The person managing their mind beautifully was also quietly not managing the commitment made to their body.",
+        "research_context": {
+          "title": "Why this happens",
+          "body": "Baumeister's ego depletion research suggests self-control draws from a shared resource pool. When emotional regulation is working well (gratitude practice, positive reframing), willpower for behavioral commitments like sobriety may quietly deplete — especially in high-reward environments."
+        }
+      },
+      "mini_discoveries": [
+        {
+          "title": "The todo that appeared mid-honeymoon",
+          "detail": "'Surrogacy Agencies Research' was created March 15 in Bora Bora — no journal entry explains it, no prior thread anticipates it."
+        },
+        {
+          "title": "Work walked in through the side door",
+          "detail": "4am calls from Tahaa on March 17 — still on honeymoon, already back on client obligations, and notably: 'I'm happy to be doing it from a beautiful island.'"
+        }
+      ]
+    },
+    {
+      "type": "recommends",
+      "primary": {
+        "title": "Decide what the sobriety commitment means now",
+        "body": "The March 21 dinner was guilt-free — 'it was worth it' — which is different from February's Valentine's slip. That shift matters. Before SF resets everything, it's worth asking: is this commitment still yours, or has it quietly become something you're carrying out of inertia? Either answer is valid. But choosing consciously is better than drifting.",
+        "type": "mindset_shift"
+      },
+      "secondary": [
+        {
+          "title": "Let the half marathon have a moment",
+          "body": "Race day passed on March 22 without a single journal word. Whether you ran it, deferred it, or simply let it go — it deserves a sentence. Goals that disappear in silence tend to leave residue.",
+          "type": "thought"
+        },
+        {
+          "title": "Don't rush the surrogacy todo",
+          "body": "It appeared mid-honeymoon, spontaneously. That timing is meaningful. Give it space before it becomes a project — some things are better held loosely at first.",
+          "type": "thought"
+        }
+      ]
+    },
+    {
+      "type": "stale_triage",
+      "headline": "12 items need attention",
+      "body": "Most of these were created before the honeymoon and held patiently while you were away. Now that you're back, a quick pass will clear the slate.",
+      "items": [
+        {
+          "title": "Charge Speakers",
+          "days_stale": 16,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "c026af6c-72af-4e77-bb38-d1b09333911a"
+        },
+        {
+          "title": "Remove Button for Suggested Spaces",
+          "days_stale": 17,
+          "domain": "Gremly improvements",
+          "severity": "low",
+          "item_id": "1b460044-4677-448e-981d-a139306ce98b"
+        },
+        {
+          "title": "Investigate Wrong User Notification",
+          "days_stale": 17,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "959c5693-6d02-4ba2-946b-2c1af282c8da"
+        },
+        {
+          "title": "Dco Implementation Across Areas",
+          "days_stale": 17,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "884395e9-91d4-4752-981b-4a32b06c6c36"
+        },
+        {
+          "title": "Daily Context Object Integration",
+          "days_stale": 17,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "a4fca40a-bb0b-4060-88b3-613ba13404ee"
+        },
+        {
+          "title": "Work Plan for Hawaii",
+          "days_stale": 18,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "f0087efa-ed52-4d7a-8865-f74aec4e6cc0"
+        },
+        {
+          "title": "Fed Metaphor Exploration",
+          "days_stale": 18,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "423cec26-0ff8-4756-9e70-e0f99e4caae6"
+        },
+        {
+          "title": "Notification Editing Issue",
+          "days_stale": 18,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "db872687-31b9-4ae3-ab2e-f56cd0098fc4"
+        },
+        {
+          "title": "Share Key Dates with Chat",
+          "days_stale": 18,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "b07b18b1-584f-4001-a365-e9161af34d8b"
+        },
+        {
+          "title": "Dco User Onboarding",
+          "days_stale": 18,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "284ce128-458c-4267-ac35-1739942b46c0"
+        },
+        {
+          "title": "Book Poolside Cabana",
+          "days_stale": 18,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "9dee544e-5aac-4380-a56f-c99d4130ec1e"
+        },
+        {
+          "title": "Tennis Match with Dave",
+          "days_stale": 18,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "2eb60979-9db5-48af-91eb-9d53d8d2d9c0"
+        }
+      ]
+    },
+    {
+      "type": "week_ahead",
+      "intro": "Sunday lands you back in SF — Bella, habits, and a 'new lease on life' all waiting. Two things on March 22 deserve attention before the week begins in earnest.",
+      "highlights": [
+        {
+          "day_label": "SUN",
+          "date": "2026-03-22",
+          "title": "Half Marathon",
+          "icon_hint": "flag",
+          "thread_connection": "Running & Half Marathon Training",
+          "prep_nudge": "Clarify whether this was run, deferred, or missed — then close the loop in your journal.",
+          "context": "Race day and return flight are both March 22. The data strongly suggests the race was not run.",
+          "importance": 9
+        },
+        {
+          "day_label": "SUN",
+          "date": "2026-03-22",
+          "title": "Flight to San Francisco",
+          "icon_hint": "plane",
+          "thread_connection": "Bora Bora & Hawaii",
+          "prep_nudge": "You wrote 'good habits and a focused mind' — consider writing down what that actually means before you land.",
+          "context": "The honeymoon officially ends here. You called it 'a new lease on life in SF.'",
+          "importance": 8
+        }
+      ],
+      "busy_day_warnings": [
+        {
+          "day": "Sunday",
+          "detail": "Long travel day from Tahiti plus potential race day conflict — give yourself grace on arrival."
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "week_type": "Honeymoon finale",
+    "mood": "Bittersweet, becoming",
+    "key_themes": [
+      "Honeymoon farewell",
+      "Sobriety & identity",
+      "Family planning emergence",
+      "Re-entry & resolve",
+      "Half marathon unresolved"
+    ],
+    "card_count": 8,
+    "card_types_used": [
+      "gremly_mood",
+      "opening",
+      "moments",
+      "thread_movements",
+      "discoveries",
+      "recommends",
+      "stale_triage",
+      "week_ahead"
+    ]
+  },
+  "perf": {
+    "latency_ms": 142421,
+    "brief_input_tokens": 29608,
+    "brief_output_tokens": 1500,
+    "story_input_tokens": 33284,
+    "story_output_tokens": 3675,
+    "model_brief": "claude-sonnet-4-6",
+    "model_storyteller": "claude-sonnet-4-6",
+    "card_count": 8,
+    "card_types": [
+      "gremly_mood",
+      "opening",
+      "moments",
+      "thread_movements",
+      "discoveries",
+      "recommends",
+      "stale_triage",
+      "week_ahead"
+    ]
+  }
+}

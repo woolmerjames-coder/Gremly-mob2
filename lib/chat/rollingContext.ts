@@ -7,6 +7,8 @@
  * - context_json: Structured data for quick lookups
  */
 
+import { nowTimestamp } from '../date/DateService';
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -75,7 +77,7 @@ export const EMPTY_CONTEXT: ChatContext = {
       people: [],
       goals: [],
     },
-    lastUpdatedAt: new Date().toISOString(),
+    lastUpdatedAt: nowTimestamp(),
     version: SCHEMA_VERSION,
   },
 };
@@ -100,7 +102,7 @@ export function createEmptyContext(): ChatContext {
         people: [],
         goals: [],
       },
-      lastUpdatedAt: new Date().toISOString(),
+      lastUpdatedAt: nowTimestamp(),
       version: SCHEMA_VERSION,
     },
   };
@@ -236,7 +238,7 @@ export function incrementTurnCount(context: ChatContext): ChatContext {
     structured: {
       ...context.structured,
       turnCount: context.structured.turnCount + 1,
-      lastUpdatedAt: new Date().toISOString(),
+      lastUpdatedAt: nowTimestamp(),
     },
   };
 }
@@ -274,7 +276,7 @@ export function addKeyTopic(context: ChatContext, topic: string): ChatContext {
     structured: {
       ...context.structured,
       keyTopics: newTopics,
-      lastUpdatedAt: new Date().toISOString(),
+      lastUpdatedAt: nowTimestamp(),
     },
   };
 }
@@ -340,7 +342,7 @@ export function addUserFact(
     structured: {
       ...context.structured,
       userMentioned,
-      lastUpdatedAt: new Date().toISOString(),
+      lastUpdatedAt: nowTimestamp(),
     },
   };
 }
@@ -359,7 +361,7 @@ export function updateRunningSummary(context: ChatContext, summary: string): Cha
     runningSummary: summary,
     structured: {
       ...context.structured,
-      lastUpdatedAt: new Date().toISOString(),
+      lastUpdatedAt: nowTimestamp(),
     },
   };
 }

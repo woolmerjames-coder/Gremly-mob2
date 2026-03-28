@@ -8,6 +8,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { View, TouchableOpacity, Text, Animated, StyleSheet } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useColorScheme } from 'react-native';
+import { getDateService } from '../../lib/date';
 
 interface EncouragementMessage {
   id: string;
@@ -58,7 +59,7 @@ export const ChatActionBar = ({ onAddPress, lastCreatedItem }: ChatActionBarProp
   useEffect(() => {
     if (!lastCreatedItem) return;
 
-    const id = Date.now().toString();
+    const id = getDateService().now().getTime().toString();
 
     // Defer the setState to avoid synchronous setState inside the effect
     const addTimer = setTimeout(() => {
@@ -69,7 +70,7 @@ export const ChatActionBar = ({ onAddPress, lastCreatedItem }: ChatActionBarProp
           id,
           text: getEncouragementText(lastCreatedItem.type),
           side,
-          timestamp: Date.now(),
+          timestamp: getDateService().now().getTime(),
         };
         return [...prev, newMessage];
       });

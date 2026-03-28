@@ -42,6 +42,7 @@ import type { TaskItemData } from './TaskItem';
 import type { TimeBlock } from '../../../../lib/capacity';
 import { getTimeBlockBoundaries } from '../../../../lib/capacity';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
+import { getDateService } from '../../../../lib/date';
 
 /* ─── design tokens (match EventQuickActionSheet) ─── */
 
@@ -214,7 +215,7 @@ export function TaskQuickActionSheet({
   // Gaps filtered to the selected block, excluding past time slots
   const blockGaps = useMemo(() => {
     if (!selectedBlock) return [];
-    const now = new Date();
+    const now = getDateService().now();
     return gaps
       .filter((g) => g.block === selectedBlock)
       .map((g) => {

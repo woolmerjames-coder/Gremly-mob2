@@ -107,7 +107,7 @@ import {
 } from './overlayV2.mapping';
 import { recordOverlayFeedback } from './overlayV2.feedback';
 import { eventBus } from '../../lib/events/EventBus';
-import { getTodayISO } from '../../app/utils/recurrence';
+import { today as getTodayISO, nowTimestamp } from '../../lib/date/DateService';
 import { TagsRow, type TagsRowTag } from './fields/TagsRow';
 import { normalizeTag, filterAndNormalizeTags } from '../../lib/tags/normalize';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
@@ -574,7 +574,7 @@ function mapRemindersToLegacyFields(reminders: OverlayReminder[]): {
   // (full recurrence will be handled in backend later)
   try {
     const [hour, minute] = first.time.split(':').map(Number);
-    const today = new Date();
+    const today = getDateService().now();
     const combined = setMinutes(setHours(today, hour), minute);
     return { reminderAt: combined.toISOString() };
   } catch {
@@ -596,7 +596,7 @@ function hydrateRemindersFromLegacy(reminderAt: string | null): OverlayReminder[
     // Create a single "once" reminder from existing reminderAt
     return [
       {
-        id: `reminder-${Date.now()}`,
+        id: `reminder-${getDateService().now().getTime()}`,
         time,
         repeat: 'once',
         date,
@@ -1125,7 +1125,7 @@ function formatLogTimestamp(mode: 'create' | 'edit' | 'view', entity: any | null
       }
     }
     // create mode – just show "Today" with time
-    const now = new Date();
+    const now = getDateService().now();
     return format(now, 'MMM d, h:mm a');
   } catch {
     return '';
@@ -1652,8 +1652,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [showRemindersModal, setShowRemindersModal] = useState(false);
   const [editingReminder, setEditingReminder] = useState<OverlayReminder | null>(null);
   const [editingMode, setEditingMode] = useState<'add' | 'edit'>('add');
-  const [reminderTimeValue, setReminderTimeValue] = useState(new Date());
-  const [reminderDateValue, setReminderDateValue] = useState(new Date());
+  const [reminderTimeValue, setReminderTimeValue] = useState(getDateService().now());
+  const [reminderDateValue, setReminderDateValue] = useState(getDateService().now());
   const [reminderRepeat, setReminderRepeat] = useState<OverlayReminder['repeat']>('once');
   const [reminderCustomDays, setReminderCustomDays] = useState<number[]>([]);
   const [reminderValidationError, setReminderValidationError] = useState<string | null>(null);
@@ -1662,8 +1662,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const [itemReminders, setItemReminders] = useState<ItemReminder[]>([]);
 
   // Date picker state
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [selectedTime, setSelectedTime] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(getDateService().now());
+  const [selectedTime, setSelectedTime] = useState(getDateService().now());
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [clearDateFlag, setClearDateFlag] = useState(false);
   // Preset time picker state
@@ -3971,7 +3971,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       if (dateOrNull) {
         // Compute due_day using local timezone helper
-        const dueDay = getDateService().toDateString(dateOrNull);
+        const dueDay = getDateService().toLocalDate(dateOrNull);
 
         console.log('[handleTodoDueChange] Setting due_day:', dueDay);
 
@@ -5021,7 +5021,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   try {
                     // Generate unique storage path
                     const fileExt = photo.url.split('.').pop() || 'jpg';
-                    const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+                    const uniqueId = `${getDateService().now().getTime()}-${Math.random().toString(36).substring(7)}`;
                     const storagePath = `${backgroundUserId}/${noteId}/${uniqueId}.${fileExt}`;
 
                     // React Native: Create ArrayBuffer from file URI
@@ -5298,7 +5298,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const targetDate = parseISO(state.log.target_date);
       const endDate = state.log.end_date ? parseISO(state.log.end_date) : null;
       const eventTime = state.log.event_time;
-      const today = new Date();
+      const today = getDateService().now();
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
@@ -5337,7 +5337,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       let timeStr = 'All day';
       if (eventTime) {
         const [hours, minutes] = eventTime.split(':').map(Number);
-        const timeDate = new Date();
+        const timeDate = getDateService().now();
         timeDate.setHours(hours, minutes, 0, 0);
         timeStr = format(timeDate, 'h:mm a');
       }
@@ -6496,7 +6496,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   setIsExpandedEditor(false);
                                 }}
                                 journalDateTime={
-                                  effectiveLogSubtype === 'journal' ? new Date() : undefined
+                                  effectiveLogSubtype === 'journal'
+                                    ? getDateService().now()
+                                    : undefined
                                 }
                                 isChecklistMode={isChecklistMode}
                                 onToggleChecklistMode={() => {
@@ -7077,14 +7079,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       onPress={() => {
                                         setMoodPickerExpanded(false);
                                         if (state.log.target_date) {
-                                          const parsed = getDateService().fromDateString(
+                                          const parsed = getDateService().fromLocalDate(
                                             state.log.target_date,
                                           );
                                           if (parsed) {
                                             setSelectedDate(parsed);
                                           }
                                         } else {
-                                          setSelectedDate(new Date());
+                                          setSelectedDate(getDateService().now());
                                         }
                                         setDateModalTarget('note_event');
                                         setShowDateModal(true);
@@ -7138,7 +7140,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         onPress={() => {
                                           setMoodPickerExpanded(false);
                                           if (state.log.end_date) {
-                                            const parsed = getDateService().fromDateString(
+                                            const parsed = getDateService().fromLocalDate(
                                               state.log.end_date,
                                             );
                                             if (parsed) {
@@ -7146,7 +7148,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                             }
                                           } else {
                                             // Default to day after start date
-                                            const startDate = getDateService().fromDateString(
+                                            const startDate = getDateService().fromLocalDate(
                                               state.log.target_date!,
                                             );
                                             if (startDate) {
@@ -7154,7 +7156,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                               nextDay.setDate(nextDay.getDate() + 1);
                                               setSelectedDate(nextDay);
                                             } else {
-                                              setSelectedDate(new Date());
+                                              setSelectedDate(getDateService().now());
                                             }
                                           }
                                           setDateModalTarget('note_end_date');
@@ -8249,9 +8251,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   variant="ghost"
                                   onPress={() => {
                                     if (d === '__token:today') {
-                                      handleTodoDueChange(new Date(), { label: 'Today' });
+                                      handleTodoDueChange(getDateService().now(), {
+                                        label: 'Today',
+                                      });
                                     } else if (d === '__token:tomorrow') {
-                                      handleTodoDueChange(addDays(new Date(), 1), {
+                                      handleTodoDueChange(addDays(getDateService().now(), 1), {
                                         label: 'Tomorrow',
                                       });
                                     } else {
@@ -8265,7 +8269,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         }
                                       } catch (e) {
                                         // Use today as fallback
-                                        setSelectedDate(new Date());
+                                        setSelectedDate(getDateService().now());
                                       }
                                       setDateModalTarget('todo_deadline');
                                       setShowDateModal(true);
@@ -8353,7 +8357,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             <Box row gap={2} style={{ flexWrap: 'wrap' }}>
                               <Pressable
                                 onPress={() => {
-                                  const today = new Date();
+                                  const today = getDateService().now();
                                   setSelectedDate(today);
                                   setClearDateFlag(false);
                                   if (dateModalTarget === 'reminder') {
@@ -8369,13 +8373,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   backgroundColor: pressed
                                     ? '#F5F5F5'
                                     : clearDateFlag === false &&
-                                        selectedDate.toDateString() === new Date().toDateString()
+                                        getDateService().toLocalDate(selectedDate) ===
+                                          getDateService().today()
                                       ? '#F0F4F1'
                                       : '#FAFAFA',
                                   borderWidth: 1,
                                   borderColor:
                                     clearDateFlag === false &&
-                                    selectedDate.toDateString() === new Date().toDateString()
+                                    getDateService().toLocalDate(selectedDate) ===
+                                      getDateService().today()
                                       ? '#2E5540'
                                       : '#E0E0E0',
                                 })}
@@ -8386,7 +8392,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               </Pressable>
                               <Pressable
                                 onPress={() => {
-                                  const tomorrow = addDays(new Date(), 1);
+                                  const tomorrow = addDays(getDateService().now(), 1);
                                   setSelectedDate(tomorrow);
                                   setClearDateFlag(false);
                                   if (dateModalTarget === 'reminder') {
@@ -8405,15 +8411,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   backgroundColor: pressed
                                     ? '#F5F5F5'
                                     : clearDateFlag === false &&
-                                        selectedDate.toDateString() ===
-                                          addDays(new Date(), 1).toDateString()
+                                        getDateService().toLocalDate(selectedDate) ===
+                                          getDateService().tomorrow()
                                       ? '#F0F4F1'
                                       : '#FAFAFA',
                                   borderWidth: 1,
                                   borderColor:
                                     clearDateFlag === false &&
-                                    selectedDate.toDateString() ===
-                                      addDays(new Date(), 1).toDateString()
+                                    getDateService().toLocalDate(selectedDate) ===
+                                      getDateService().tomorrow()
                                       ? '#2E5540'
                                       : '#E0E0E0',
                                 })}
@@ -8497,7 +8503,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       // Default to 9 AM if no preset selected
                                       if (!selectedTimePreset) {
                                         setSelectedTimePreset(PRESET_TIMES[0].key);
-                                        const defaultTime = setHours(setMinutes(new Date(), 0), 9);
+                                        const defaultTime = setHours(
+                                          setMinutes(getDateService().now(), 0),
+                                          9,
+                                        );
                                         setSelectedTime(defaultTime);
                                       }
                                     } else {
@@ -8533,7 +8542,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           setShowCustomTimePicker(false);
                                           // Update selectedTime for use in Set button
                                           const newTime = setHours(
-                                            setMinutes(new Date(), preset.minute),
+                                            setMinutes(getDateService().now(), preset.minute),
                                             preset.hour,
                                           );
                                           setSelectedTime(newTime);
@@ -8685,7 +8694,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   } else if (dateModalTarget === 'todo_deadline') {
                                     // Deadline (target_date) - when it's due
                                     if (finalDate) {
-                                      const dateStr = getDateService().toDateString(finalDate);
+                                      const dateStr = getDateService().toLocalDate(finalDate);
                                       dispatch({ type: 'SET_TODO_TARGET_DATE', date: dateStr });
                                       showDueToast(
                                         `Deadline set for ${format(finalDate, 'MMM d')}`,
@@ -8697,7 +8706,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   } else if (dateModalTarget === 'todo_dodate') {
                                     // Do date (scheduled_date) - when user will work on it
                                     if (finalDate) {
-                                      const dateStr = getDateService().toDateString(finalDate);
+                                      const dateStr = getDateService().toLocalDate(finalDate);
                                       dispatch({ type: 'SET_TODO_SCHEDULED_DATE', date: dateStr });
                                       // Also update legacy due_day for backwards compatibility
                                       dispatch({
@@ -8720,7 +8729,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   } else if (dateModalTarget === 'note_event') {
                                     // Event date for notes (target_date)
                                     if (finalDate) {
-                                      const dateStr = getDateService().toDateString(finalDate);
+                                      const dateStr = getDateService().toLocalDate(finalDate);
                                       dispatch({ type: 'SET_LOG_TARGET_DATE', date: dateStr });
                                       showDueToast(
                                         `Event date set for ${format(finalDate, 'MMM d')}`,
@@ -8732,7 +8741,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   } else if (dateModalTarget === 'note_end_date') {
                                     // End date for multi-day events
                                     if (finalDate) {
-                                      const dateStr = getDateService().toDateString(finalDate);
+                                      const dateStr = getDateService().toLocalDate(finalDate);
                                       dispatch({ type: 'SET_LOG_END_DATE', date: dateStr });
                                       showDueToast(
                                         `End date set for ${format(finalDate, 'MMM d')}`,
@@ -9614,7 +9623,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               value={
                                 scheduleModalState.startDate
                                   ? parseISO(scheduleModalState.startDate)
-                                  : new Date()
+                                  : getDateService().now()
                               }
                               mode="date"
                               display="inline"
@@ -9637,7 +9646,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 value={
                                   scheduleModalState.endDate
                                     ? parseISO(scheduleModalState.endDate)
-                                    : new Date()
+                                    : getDateService().now()
                                 }
                                 mode="date"
                                 display="inline"
@@ -9731,7 +9740,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         </Text>
                         <DateTimePicker
                           value={
-                            state.habit.start_date ? parseISO(state.habit.start_date) : new Date()
+                            state.habit.start_date
+                              ? parseISO(state.habit.start_date)
+                              : getDateService().now()
                           }
                           mode="date"
                           display="spinner"
@@ -9765,7 +9776,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             onPress={() => {
                               dispatch({
                                 type: 'SET_HABIT_START_DATE',
-                                date: format(new Date(), 'yyyy-MM-dd'),
+                                date: format(getDateService().now(), 'yyyy-MM-dd'),
                               });
                               setShowHabitStartDatePicker(false);
                             }}
@@ -9830,12 +9841,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           value={
                             state.habit.end_date
                               ? parseISO(state.habit.end_date)
-                              : addDays(new Date(), 30)
+                              : addDays(getDateService().now(), 30)
                           }
                           mode="date"
                           display="spinner"
                           minimumDate={
-                            state.habit.start_date ? parseISO(state.habit.start_date) : new Date()
+                            state.habit.start_date
+                              ? parseISO(state.habit.start_date)
+                              : getDateService().now()
                           }
                           onChange={(event, date) => {
                             if (event.type === 'set' && date) {

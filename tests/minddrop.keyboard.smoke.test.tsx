@@ -31,6 +31,7 @@ jest.mock('@react-navigation/native', () => {
       navigate: jest.fn(),
       canGoBack: () => true,
       goBack: jest.fn(),
+      addListener: jest.fn(() => jest.fn()),
     }),
   };
 });

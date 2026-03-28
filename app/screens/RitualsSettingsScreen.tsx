@@ -17,6 +17,7 @@ import { BRAND } from '../../design/brand';
 import DayBoundaryPicker from '../../components/settings/DayBoundaryPicker';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useNotificationPreferences } from '../../hooks/useNotificationPreferences';
+import { getDateService } from '../../lib/date';
 
 export default function RitualsSettingsScreen() {
   const navigation = useNavigation();
@@ -37,14 +38,14 @@ export default function RitualsSettingsScreen() {
   const [morningEnabled, setMorningEnabled] = useState(notificationPrefs?.morningEnabled ?? true);
   const [morningTime, setMorningTime] = useState(() => {
     if (notificationPrefs?.morningTime) return notificationPrefs.morningTime;
-    const d = new Date();
+    const d = getDateService().now();
     d.setHours(8, 0, 0, 0);
     return d;
   });
   const [eveningEnabled, setEveningEnabled] = useState(notificationPrefs?.eveningEnabled ?? true);
   const [eveningTime, setEveningTime] = useState(() => {
     if (notificationPrefs?.eveningTime) return notificationPrefs.eveningTime;
-    const d = new Date();
+    const d = getDateService().now();
     d.setHours(20, 0, 0, 0);
     return d;
   });
@@ -53,14 +54,14 @@ export default function RitualsSettingsScreen() {
   );
   const [afternoonTime, setAfternoonTime] = useState(() => {
     if (notificationPrefs?.afternoonTime) return notificationPrefs.afternoonTime;
-    const d = new Date();
+    const d = getDateService().now();
     d.setHours(14, 0, 0, 0);
     return d;
   });
   const [weeklyEnabled, setWeeklyEnabled] = useState(notificationPrefs?.weeklyEnabled ?? true);
   const [weeklyTime, setWeeklyTime] = useState(() => {
     if (notificationPrefs?.weeklyTime) return notificationPrefs.weeklyTime;
-    const d = new Date();
+    const d = getDateService().now();
     d.setHours(18, 0, 0, 0);
     return d;
   });

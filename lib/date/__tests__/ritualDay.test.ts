@@ -186,11 +186,10 @@ describe('ritualDay', () => {
       expect(isInLateNightPeriod(4, 'UTC')).toBe(false);
     });
 
-    it('returns false at midnight (hour 24 in en-US locale)', () => {
-      // Note: Intl.DateTimeFormat with hour12:false returns "24" for midnight
-      // in en-US locale, so isInLateNightPeriod returns false
+    it('returns true at midnight (hour 0 in late night period)', () => {
+      // Midnight is hour 0, which is in the late night period (0 < 4)
       mockDateToUTC('2026-01-10T00:00:00Z');
-      expect(isInLateNightPeriod(4, 'UTC')).toBe(false);
+      expect(isInLateNightPeriod(4, 'UTC')).toBe(true);
     });
 
     it('returns true one hour before boundary', () => {
@@ -243,11 +242,11 @@ describe('ritualDay', () => {
       expect(getHoursUntilDayBoundary(0, 'UTC')).toBe(2);
     });
 
-    it('returns 0 hours at midnight with midnight boundary (hour 24 edge case)', () => {
-      // Note: Intl.DateTimeFormat with hour12:false returns "24" for midnight
-      // in en-US locale, so 24 - 24 + 0 = 0
+    it('returns 24 hours at midnight with midnight boundary', () => {
+      // Midnight is hour 0. With boundary=0 we're at the boundary,
+      // so 24 hours until the next occurrence.
       mockDateToUTC('2026-01-10T00:00:00Z');
-      expect(getHoursUntilDayBoundary(0, 'UTC')).toBe(0);
+      expect(getHoursUntilDayBoundary(0, 'UTC')).toBe(24);
     });
 
     it('handles afternoon times correctly', () => {

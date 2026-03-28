@@ -24,6 +24,7 @@ import { GremlyPicker } from './spaces/GremlyPicker';
 import { getMascotSource } from '../lib/mascots/mascotConfig';
 import type { Space } from '../lib/types';
 import { getDateService } from '../lib/date';
+import { format } from 'date-fns';
 
 // Module-scope callback for navigation after creation
 let onCreatedCallback: ((space: Space) => void) | null = null;
@@ -349,11 +350,7 @@ export default function CreateSpaceModal() {
               <Calendar size={20} color={tokens.colors.subtle} />
               <Text style={[styles.dateText, !form.targetDate && styles.datePlaceholder]}>
                 {form.targetDate
-                  ? form.targetDate.toLocaleDateString(undefined, {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })
+                  ? format(form.targetDate, 'MMM d, yyyy')
                   : 'None set'}
               </Text>
               {form.targetDate && (
@@ -379,10 +376,10 @@ export default function CreateSpaceModal() {
                     </Pressable>
                   </View>
                   <DateTimePicker
-                    value={form.targetDate || new Date()}
+                    value={form.targetDate || getDateService().now()}
                     mode="date"
                     display="spinner"
-                    minimumDate={new Date()}
+                    minimumDate={getDateService().now()}
                     onChange={(event, date) => {
                       if (date) updateField('targetDate', date);
                     }}
@@ -390,10 +387,10 @@ export default function CreateSpaceModal() {
                 </View>
               ) : (
                 <DateTimePicker
-                  value={form.targetDate || new Date()}
+                  value={form.targetDate || getDateService().now()}
                   mode="date"
                   display="default"
-                  minimumDate={new Date()}
+                  minimumDate={getDateService().now()}
                   onChange={(event, date) => {
                     setShowDatePicker(false);
                     if (date) updateField('targetDate', date);

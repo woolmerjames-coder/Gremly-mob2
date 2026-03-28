@@ -3,7 +3,7 @@
 // NO OpenAI keys in client code
 import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
-import { getDateService } from '../date/DateService';
+import { getDateService, nowTimestamp } from '../date/DateService';
 import type {
   EntityChatRequest,
   EntityChatResponse,
@@ -428,7 +428,7 @@ export function callSpaceChatStreaming(
       spaceId: opts.spaceId,
       chatId: opts.chatId,
       userId: opts.userId,
-      currentTime: new Date().toISOString(),
+      currentTime: nowTimestamp(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -482,6 +482,104 @@ export function callSpaceChatStreaming(
       }
     } catch {
       // Ignore parse errors
+    }
+  });
+
+  es.addEventListener('error', (event: any) => {
+    callbacks.onError(event.message || 'Stream error', fullText);
+    es.close();
+  });
+
+  return { close: () => es.close() };
+}
+
+/**
+ * Stream a general chat (no space context) via Cortex.
+ */
+export function callGeneralChatStreaming(
+  messages: ChatMessage[],
+  opts: { chatId: string; userId?: string; systemPrompt?: string },
+  callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
+): { close: () => void } {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) {
+    callbacks.onError('Missing CORTEX_URL', '');
+    return { close: () => {} };
+  }
+  if (isAiDisabled()) {
+    callbacks.onError('AI disabled', '');
+    return { close: () => {} };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  const allMessages: ChatMessage[] = opts.systemPrompt
+    ? [{ role: 'system', content: opts.systemPrompt }, ...messages]
+    : messages;
+
+  let fullText = '';
+
+  const es = new EventSource(baseUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      type: 'chat',
+      model: 'gpt-4o',
+      messages: allMessages,
+      temperature: 0.7,
+      max_completion_tokens: 400,
+      lane: 'general_chat',
+      stream: true,
+      chatId: opts.chatId,
+      userId: opts.userId,
+      currentTime: nowTimestamp(),
+    }),
+    lineEndingCharacter: '\n',
+  });
+
+  es.addEventListener('message', (event: any) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.error) {
+        callbacks.onError(data.error, fullText);
+        es.close();
+        return;
+      }
+      if (data.searching && data.query) {
+        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
+        return;
+      }
+      if (data.fetching !== undefined) {
+        callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
+        return;
+      }
+      if (data.delta) {
+        fullText += data.delta;
+        callbacks.onChunk(data.delta, fullText);
+      }
+      if (data.done) {
+        const finalContent = data.full_content || fullText;
+        const richResult: SpaceChatStreamingResult = {
+          content: finalContent,
+          save_suggestion: data.save_suggestion ?? null,
+          saveable: data.saveable ?? null,
+          promotion: data.promotion ?? null,
+          latency_ms: data.latency_ms,
+          sources: data.sources,
+          search_query: data.search_query,
+          fetchedUrl: data.fetchedUrl ?? null,
+        };
+        log('GENERAL_CHAT_STREAM_DONE', { contentLength: finalContent.length });
+        (callbacks.onComplete as any)(finalContent, richResult);
+        es.close();
+      }
+    } catch {
+      /* Ignore parse errors */
     }
   });
 
@@ -748,6 +846,50 @@ export async function callClassify(opts: {
 }
 
 /**
+ * Call the Cortex proxy for Phase 1.5a enrichment (smart title + confirmation message).
+ * Lighter/faster than Phase 2 — used in parallel for title quality.
+ */
+export async function callEnrichPhase15a(params: {
+  text: string;
+  bucket: 'todo' | 'habit' | 'log';
+  subtype?: string | null;
+}): Promise<{ ok: boolean; smart_title?: string; confirmation_message?: string }> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { ok: false };
+  if (isAiDisabled()) return { ok: false };
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  try {
+    const response = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        type: 'enrich-phase1-5a',
+        text: params.text,
+        bucket: params.bucket,
+        subtype: params.subtype || null,
+        recentReactions: [],
+      }),
+    });
+    const data = await response.json();
+    if (data.error) return { ok: false };
+    return {
+      ok: true,
+      smart_title: data.smart_title,
+      confirmation_message: data.confirmation_message,
+    };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
  * Call the Cortex proxy for Phase 2 enrichment (smart titles, confirmation messages, etc.)
  * This runs AFTER entity creation to generate AI-enhanced metadata.
  *
@@ -800,7 +942,7 @@ export async function callEnrichPhase2(params: {
         bucket: params.bucket,
         subtype: params.subtype || null,
         recentTitles: params.recentTitles || [],
-        currentDate: getDateService().getCurrentDate(),
+        currentDate: getDateService().today(),
       }),
     });
 
@@ -955,9 +1097,9 @@ export function callEnrichPhase2Streaming(
   const supabaseAnonKey = readSupabaseAnonKey();
 
   const ds = getDateService();
-  const currentDate = ds.getCurrentDate();
+  const currentDate = ds.today();
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const dayOfWeek = ds.getDayOfWeek();
 
   console.log('[CortexClient:SSE] Opening EventSource to', baseUrl);
 
@@ -1216,7 +1358,7 @@ export async function callEntityChat(request: EntityChatRequest): Promise<Entity
   const timeoutMs = toMs(env.cortex.timeoutMs);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
 
   try {
     log('ENTITY_CHAT', 'Calling entity chat', {
@@ -1237,7 +1379,7 @@ export async function callEntityChat(request: EntityChatRequest): Promise<Entity
       signal: controller.signal,
     });
 
-    const latency_ms = Date.now() - startTime;
+    const latency_ms = getDateService().now().getTime() - startTime;
 
     if (!res.ok) {
       const errorText = await res.text().catch(() => '');
@@ -1264,7 +1406,7 @@ export async function callEntityChat(request: EntityChatRequest): Promise<Entity
       latency_ms: data.latency_ms ?? latency_ms,
     };
   } catch (e: any) {
-    const latency_ms = Date.now() - startTime;
+    const latency_ms = getDateService().now().getTime() - startTime;
     if (e?.name === 'AbortError') {
       log('ENTITY_CHAT_TIMEOUT', 'Request timed out');
       return {
@@ -1327,7 +1469,7 @@ export function callEntityChatStreaming(
   }
 
   let fullContent = '';
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
 
   log('ENTITY_CHAT_STREAM', 'Starting streaming entity chat', {
     entityType: request.entity.type,
@@ -1385,7 +1527,7 @@ export function callEntityChatStreaming(
 
       // Handle completion
       if (data.done) {
-        const latency_ms = data.latency_ms ?? Date.now() - startTime;
+        const latency_ms = data.latency_ms ?? getDateService().now().getTime() - startTime;
         log('ENTITY_CHAT_STREAM_DONE', {
           contentLength: (data.full_content || fullContent).length,
           hasSaveable: !!data.saveable,
@@ -1457,7 +1599,7 @@ export function callHabitBuilderStreaming(
   }
 
   let fullContent = '';
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
 
   log('HABIT_BUILDER_STREAM', 'Starting streaming habit builder chat', {
     messageCount: request.messages.length,
@@ -1500,7 +1642,7 @@ export function callHabitBuilderStreaming(
 
       // Handle completion
       if (data.done) {
-        const latency_ms = data.latency_ms ?? Date.now() - startTime;
+        const latency_ms = data.latency_ms ?? getDateService().now().getTime() - startTime;
         log('HABIT_BUILDER_STREAM_DONE', {
           contentLength: (data.full_content || fullContent).length,
           requiredCount: data.resolved_fields?.required_count,
@@ -1621,7 +1763,7 @@ export async function callJournalAnalyze(
   const timeoutMs = 30000;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
 
   try {
     log('JOURNAL_ANALYZE', 'Calling journal analyze', { entryCount: entries.length });
@@ -1673,12 +1815,41 @@ export async function callJournalAnalyze(
   }
 }
 
+export async function callGeneralGreeting(userId: string): Promise<string | null> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return null;
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const supabaseAnonKey = readSupabaseAnonKey();
+    if (supabaseAnonKey) {
+      headers.Authorization = `Bearer ${supabaseAnonKey}`;
+      headers.apikey = supabaseAnonKey;
+    }
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        type: 'general-greeting',
+        userId,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.greeting || null;
+  } catch {
+    return null;
+  }
+}
+
 export const CortexClient = {
   callChat,
   callComplete,
   callClassify,
   callSpaceChat,
   callSpaceChatStreaming,
+  callGeneralChatStreaming,
+  callGeneralGreeting,
   callSpaceChatSave,
   callEnrichPhase2,
   callEnrichPhase2Streaming,

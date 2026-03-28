@@ -114,32 +114,26 @@ describe('AgeUpCelebrationModal', () => {
   describe('milestone messages', () => {
     it('shows message for day 1', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={1} />);
-      expect(getByText('Gremly gets stronger with age. So do you.')).toBeTruthy();
+      expect(getByText("One! Gremly's awake now. No turning back.")).toBeTruthy();
     });
 
     it('shows message for day 7 (one week)', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={7} />);
-      expect(
-        getByText(
-          "A whole week! Gremly's full, you're rested, the tabs are closing. This is the point.",
-        ),
-      ).toBeTruthy();
+      expect(getByText("Seven. Gremly's favourite number. Don't tell eight.")).toBeTruthy();
     });
 
     it('shows message for day 50', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={50} />);
       expect(
-        getByText("Fifty! Halfway to a hundred. Gremly's emotional. In a cool way. Very composed."),
+        getByText(
+          'Fifty! Halfway to a hundred. Gremly wanted to say something profound but just... wow. You did that.',
+        ),
       ).toBeTruthy();
     });
 
     it('shows message for day 100', () => {
       const { getByText } = render(<AgeUpCelebrationModal {...defaultProps} newAge={100} />);
-      expect(
-        getByText(
-          "One hundred. A hundred days together. Gremly's not crying, Gremly's just really proud. Of you, of us, of all of it. Thank you.",
-        ),
-      ).toBeTruthy();
+      expect(getByText(/One hundred/)).toBeTruthy();
     });
 
     it('shows no message for ages over 100', () => {
@@ -154,16 +148,16 @@ describe('AgeUpCelebrationModal', () => {
 
     it('shows unique messages for first 10 days', () => {
       const messages = [
-        'Gremly gets stronger with age. So do you.',
-        "Two! Gremly's warmed up now.",
-        'Three days. Gremly tried to play it cool but got excited anyway.',
-        "Four! The head's getting clearer. Gremly can feel it.",
-        "Five days and Gremly attempted a victory lap. Short legs. It's fine.",
-        "Six! One more and it's a whole week. Gremly's ready.",
-        "A whole week! Gremly's full, you're rested, the tabs are closing. This is the point.",
-        'Eight! Swept before sleep, slept like a rock. Gremly loves this bit.',
-        "Nine. Gremly's pretending not to think about double digits. Not working.",
-        'Double digits! Gremly did a little dance. Nailed it. Probably.',
+        "One! Gremly's awake now. No turning back.",
+        'Two. Still here. Gremly respects that more than you know.',
+        "Three! Gremly just outgrew its first pair of shoes. Metaphorically. Gremly doesn't wear shoes.",
+        'You showed up again. Gremly is taking notes.',
+        "Five. A starfish has five arms and zero productivity systems. You're already ahead.",
+        "Six! The part where most people quit. You didn't. Gremly noticed.",
+        "Seven. Gremly's favourite number. Don't tell eight.",
+        "Eight. Fun fact: an octopus has three hearts. Gremly has one and it's all yours.",
+        'Nine. One more to double digits and Gremly is unreasonably excited about it.',
+        'Double digits. You built a habit. Gremly built a home.',
       ];
 
       messages.forEach((message, index) => {

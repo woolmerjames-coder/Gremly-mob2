@@ -53,6 +53,8 @@ export interface TraceContext {
 /**
  * Create a new trace context
  */
+import { nowTimestamp } from '../date/DateService';
+
 export function createTraceContext(
   inputText: string,
   dropId: string,
@@ -61,7 +63,7 @@ export function createTraceContext(
   return {
     trace_id: generateTraceId(),
     input_text: inputText,
-    started_at: new Date().toISOString(),
+    started_at: nowTimestamp(),
     drop_id: dropId,
     source,
   };

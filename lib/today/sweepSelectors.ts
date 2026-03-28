@@ -120,7 +120,7 @@ function getEffectiveDoDate(todo: SweepEligibleTodo): string | null {
     return todo.due_day;
   }
   if (todo.due_date) {
-    return getDateService().extractDateFromIso(todo.due_date);
+    return getDateService().extractLocalDate(todo.due_date);
   }
   return null;
 }
@@ -141,12 +141,7 @@ function getDaysUntilDeadline(todo: SweepEligibleTodo, todayDay: string): number
     return null;
   }
 
-  const deadlineDate = new Date(deadline);
-  const today = new Date(todayDay);
-  const diffTime = deadlineDate.getTime() - today.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-  return diffDays;
+  return getDateService().daysBetween(todayDay, deadline);
 }
 
 /**
@@ -183,7 +178,7 @@ export function isSweepEligible(todo: SweepEligibleTodo, todayDay: string): bool
 
   // Must not be completed today
   if (todo.completed_at) {
-    const completedDay = getDateService().extractDateFromIso(todo.completed_at);
+    const completedDay = getDateService().extractLocalDate(todo.completed_at);
     if (completedDay === todayDay) {
       return false;
     }
@@ -208,7 +203,7 @@ export function isSweepEligible(todo: SweepEligibleTodo, todayDay: string): bool
   // Check: no dates at all - include if created in last 3 days
   if (!doDate && !todo.target_date) {
     if (todo.created_at) {
-      const threeDaysAgo = new Date();
+      const threeDaysAgo = getDateService().now();
       threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
       const createdDate = new Date(todo.created_at);
       return createdDate >= threeDaysAgo;

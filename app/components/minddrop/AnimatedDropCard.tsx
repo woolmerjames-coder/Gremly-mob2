@@ -136,7 +136,7 @@ const truncateText = (text: string, maxLength: number): string => {
 const relativeTime = (iso?: string) => {
   if (!iso) return '';
   const d = new Date(iso);
-  const diff = Date.now() - d.getTime();
+  const diff = getDateService().now().getTime() - d.getTime();
   const s = Math.floor(diff / 1000);
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
@@ -145,7 +145,7 @@ const relativeTime = (iso?: string) => {
   if (h < 24) return `${h} hr${h > 1 ? 's' : ''} ago`;
   const days = Math.floor(h / 24);
   if (days < 7) return `${days}d ago`;
-  return d.toLocaleDateString();
+  return getDateService().formatForChip(getDateService().toLocalDate(d));
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -816,7 +816,7 @@ function formatDueDate(dateStr?: string | null): string {
   if (!dateStr) return '';
   const ds = getDateService();
   // Handle both YYYY-MM-DD (due_day) and ISO timestamps (due_date)
-  const dueDay = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : ds.extractDateFromIso(dateStr);
+  const dueDay = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : ds.extractLocalDate(dateStr);
   if (!dueDay) return '';
   return `due ${ds.formatForChip(dueDay)}`;
 }

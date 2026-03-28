@@ -135,7 +135,7 @@
 import { buildChatContext } from './context/chatProjection.js';
 import { getUserProfile } from './context/userProfile.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
-import { triageMessage, generateLoadingMessage } from './triage';
+import { triageMessage, generateLoadingMessage, callMini } from './triage';
 import {
   geminiGenerate,
   geminiStream,
@@ -147,6 +147,7 @@ import {
   assembleGenerationConfig,
   buildSpaceChatSystemPrompt,
   buildEntityChatConfig,
+  buildGeneralChatConfig,
   buildEntityContextBlock,
   getSearchPolicy,
   MODE_TEMP,
@@ -1526,6 +1527,38 @@ function extractUrlsFromText(text) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// DAILY FOCUS FOR GREETING — lightweight DCO fetch for general-greeting
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function getDailyFocusForChat(userId, env) {
+  if (!userId) return null;
+  try {
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    };
+    const today = new Date().toISOString().slice(0, 10);
+    const res = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${today}&select=dco`,
+      { headers },
+    );
+    if (!res.ok) return null;
+    const rows = await res.json();
+    const dco = rows?.[0]?.dco;
+    if (!dco) return null;
+    return {
+      lifeMoment: dco.life_moment || null,
+      briefHeadline: dco.brief_headline || null,
+      namedAnchors: dco.named_anchors || [],
+      todayFocus: dco.today_focus || [],
+    };
+  } catch (err) {
+    console.warn('[getDailyFocusForChat] Failed:', err.message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // PLANNER PROJECTION — Life Map + daily state context for organize-day
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2051,7 +2084,7 @@ const WEB_SEARCH_TOOL = {
   type: 'function',
   function: {
     name: 'web_search',
-    description: `Search the web for current, factual information. The current date is ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.
+    description: `Search the web for current, factual information. The current date is ${new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date())}.
 
 DEFAULT TO SEARCHING. If there is ANY chance that current, specific information would improve your answer, search first. The cost of an unnecessary search is near zero. The cost of giving generic advice when specific information exists is high.
 
@@ -2917,6 +2950,84 @@ Do NOT mention saving — the app shows a save button automatically.
 One warm sentence. Done. No guilt, no "are you sure?"`;
 
       // =========================
+      // === GENERAL GREETING ===
+      // =========================
+      if (type === 'general-greeting') {
+        try {
+          const dailyFocus = await getDailyFocusForChat(body.userId, env);
+          const now = new Date();
+          const userTimezone = body.timezone || 'America/Los_Angeles';
+          const timeStr = new Intl.DateTimeFormat('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: userTimezone,
+          }).format(now);
+          const dayStr = new Intl.DateTimeFormat('en-US', {
+            weekday: 'long',
+            timeZone: userTimezone,
+          }).format(now);
+
+          const focusSnippet = dailyFocus
+            ? [
+                dailyFocus.lifeMoment && `Life moment: ${dailyFocus.lifeMoment}`,
+                dailyFocus.briefHeadline && `Headline: "${dailyFocus.briefHeadline}"`,
+                dailyFocus.namedAnchors?.length > 0 &&
+                  `People: ${dailyFocus.namedAnchors.map((a) => a.label).join(', ')}`,
+                dailyFocus.todayFocus?.length > 0 && `Focus: ${dailyFocus.todayFocus.join(', ')}`,
+              ]
+                .filter(Boolean)
+                .join('\n')
+            : '';
+
+          const prompt = `Generate a 1-2 sentence contextual greeting for Gremly, a productivity companion. This shows on the home screen when the user opens the chat tab.
+
+Current time: ${timeStr} on ${dayStr}.
+${focusSnippet ? `\nUSER CONTEXT:\n${focusSnippet}` : 'No context available.'}
+
+Rules:
+- It is currently ${timeStr}. Be time-appropriate. Late evening means winding down or looking ahead to tomorrow, not starting a busy day.
+- Reference ONE specific detail from the context by name: a person, a project, an event, a milestone. If you can't name something specific, say "What's on your mind?" and nothing else.
+- Write like a friend who already knows what's going on. No introductions, no offers to help.
+- No productivity language. No "organize", "tasks", "stay on track", "moment to breathe", "focus".
+- No questions that a customer service bot would ask.
+- No exclamation marks.
+- Under 25 words.
+
+Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
+
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1-nano',
+              messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: 'Generate greeting.' },
+              ],
+              max_tokens: 60,
+              temperature: 0.7,
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const greeting = (data.choices?.[0]?.message?.content || '')
+              .trim()
+              .replace(/^["']|["']$/g, '');
+            return j({ greeting });
+          }
+          return j({ greeting: null });
+        } catch (err) {
+          console.warn('[GeneralGreeting] Failed:', err.message);
+          return j({ greeting: null });
+        }
+      }
+
+      // =========================
       // === HABIT BUILDER CHAT ===
       // =========================
       if (type === 'habit-builder') {
@@ -2951,7 +3062,8 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
         // eslint-disable-next-line no-restricted-syntax -- server-side fallback; client sends local date via dateService
         const today = context.currentDate || new Date().toISOString().split('T')[0];
         const dow =
-          context.dayOfWeek || new Date().toLocaleDateString('en-US', { weekday: 'long' });
+          context.dayOfWeek ||
+          new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(new Date());
         contextParts.push(`Today is ${dow}, ${today}.`);
 
         if (context.userName) {
@@ -3545,12 +3657,14 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
             : '';
         }
 
-        const currentDate = new Date().toLocaleDateString('en-US', {
+        const tz = body.timezone || 'UTC';
+        const currentDate = new Intl.DateTimeFormat('en-US', {
           weekday: 'long',
           year: 'numeric',
           month: 'long',
           day: 'numeric',
-        });
+          timeZone: tz,
+        }).format(new Date());
 
         // Time of day for contextual suggestions
         const clientTime = body.currentTime ? new Date(body.currentTime) : new Date();
@@ -8769,6 +8883,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               : 200;
 
       const isSpaceChatLane = lane === 'space_chat' && type !== 'classify';
+      const isGeneralChatLane = lane === 'general_chat' && type !== 'classify';
+      const isGeneralChatStreaming = isGeneralChatLane && wantsStreaming;
       const actualModel = isSpaceChatLane ? 'gpt-4.1' : baseModel;
 
       const temperature =
@@ -9520,6 +9636,623 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       }
       // ============================================================================
       // END SPACE CHAT STREAMING
+      // ============================================================================
+
+      // ============================================================================
+      // GENERAL CHAT (ASK GREMLY) STREAMING
+      // ============================================================================
+      if (isGeneralChatStreaming && isGeneralChatLane) {
+        console.log('[GeneralChat:Streaming] Starting SSE stream');
+
+        const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
+
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+
+        // Loading message
+        (async () => {
+          try {
+            const loadingMsg = await generateLoadingMessage(lastUserMsg, null, env.OPENAI_API_KEY);
+            if (loadingMsg) {
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({ searching: true, query: loadingMsg, isLoadingHint: true })}\n\n`,
+                ),
+              );
+            }
+          } catch {
+            /* fire-and-forget */
+          }
+        })();
+
+        // Main work IIFE
+        (async () => {
+          try {
+            await writer.write(encoder.encode(': ping\n\n'));
+
+            // URL detection (same as space chat)
+            const detectedUrls = extractUrlsFromText(lastUserMsg);
+            let urlContext = '';
+            let fetchedUrl = null;
+
+            if (detectedUrls.length > 0) {
+              const urlToFetch = detectedUrls[0];
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({ fetching: true, fetchingUrl: urlToFetch, done: false })}\n\n`,
+                ),
+              );
+              const extracted = await executeTavilyExtract(urlToFetch, env.TAVILY_API_KEY);
+              if (extracted && extracted.success) {
+                fetchedUrl = { url: extracted.url, title: extracted.title };
+                urlContext = `\n\n=== EXTRACTED CONTENT FROM URL ===\nURL: ${extracted.url}\nTitle: ${extracted.title}\n\n${extracted.content}\n\n=== END EXTRACTED CONTENT ===\n\nThe user has shared this link. Summarize the key points and answer any questions they have about it.`;
+              } else {
+                urlContext = `\n\n[Note: The user shared a link (${urlToFetch}) but I couldn't access its content.]`;
+              }
+              await writer.write(
+                encoder.encode(`data: ${JSON.stringify({ fetching: false, done: false })}\n\n`),
+              );
+            }
+
+            // Context loading — general lane (no spaceId)
+            let sessionContextStr = '';
+            let userProfile = null;
+            if (body.userId) {
+              try {
+                const [chatContext, profile] = await Promise.all([
+                  buildChatContext(body.userId, 'general', {}, env),
+                  getUserProfile(body.userId, env),
+                ]);
+                sessionContextStr = chatContext;
+                userProfile = profile;
+                if (sessionContextStr || userProfile) {
+                  console.log('[GeneralChat] Context loaded', {
+                    userId: body.userId.slice(0, 8),
+                    contextLength: sessionContextStr?.length || 0,
+                    hasProfile: !!userProfile,
+                  });
+                }
+              } catch (err) {
+                console.error('[GeneralChat] Context error', err);
+              }
+            }
+
+            // Triage
+            const previousExchange = extractPreviousExchange(messages);
+            const cachedDomains = await getCachedDomainNames(body.userId, env);
+
+            const triage = await triageMessage({
+              userMessage: lastUserMsg,
+              previousExchange,
+              spaceName: undefined,
+              runningSummary: body.runningSummary || '',
+              chatType: 'general',
+              env,
+              domainNames: cachedDomains,
+              profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
+              messageCount: messages.length,
+            });
+
+            console.log('[GeneralChat:Triage]', {
+              mode: triage.mode,
+              search: triage.search,
+              personal: triage.personal,
+              depth: triage.depth,
+            });
+
+            const streamContext = { runningSummary: body.runningSummary || '' };
+
+            // Build generation config using general chat persona
+            const genConfig = buildGeneralChatConfig(
+              triage,
+              streamContext,
+              body.accountCreatedAt,
+              sessionContextStr,
+              userProfile?.profileText,
+            );
+
+            // Build messages with URL context if present
+            const processedMessages = messages.map((msg, idx, arr) => {
+              if (urlContext && idx === arr.length - 1 && msg.role === 'user') {
+                return { ...msg, content: msg.content + urlContext };
+              }
+              return msg;
+            });
+
+            const chatMessages = [
+              { role: 'system', content: genConfig.systemPrompt },
+              ...processedMessages.filter((m) => m.role !== 'system'),
+            ];
+
+            // Search policy
+            const searchPolicy = getSearchPolicy(triage.search);
+            const streamConfig = {
+              temperature: genConfig.temperature,
+              maxOutputTokens: genConfig.maxTokens,
+              thinkingLevel: genConfig.thinkingLevel,
+            };
+            if (searchPolicy.attachTool) {
+              streamConfig.tools = [WEB_SEARCH_TOOL];
+            }
+
+            const t0 = Date.now();
+
+            const geminiRes = await geminiStream(
+              genConfig.systemPrompt,
+              chatMessages,
+              streamConfig,
+              env.GOOGLE_API_KEY,
+            );
+
+            if (!geminiRes.ok || !geminiRes.body) {
+              const errText = geminiRes.error || 'unknown error';
+              console.log('[GeneralChat:Streaming] Gemini error', { error: errText });
+              await writer.write(
+                encoder.encode(`data: ${JSON.stringify({ error: errText, done: true })}\n\n`),
+              );
+              return;
+            }
+
+            // Stream processing — identical to space chat
+            const reader = geminiRes.body.getReader();
+            let buffer = '';
+            let fullContent = '';
+            let toolCalls = [];
+            let modelResponseParts = [];
+            let fillerBuffer = '';
+            let fillerFlushed = false;
+
+            try {
+              // eslint-disable-next-line no-constant-condition
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split(/\r?\n/);
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed || trimmed === 'data: [DONE]') continue;
+                  if (!trimmed.startsWith('data: ')) continue;
+                  try {
+                    const chunk = parseGeminiChunk(trimmed.slice(6));
+                    const delta = chunk.text;
+                    if (delta) {
+                      fullContent += delta;
+                      if (!fullContent.includes('<!--SAVE:')) {
+                        if (!fillerFlushed) {
+                          fillerBuffer += delta;
+                          const hasBreak =
+                            /[.?!]\s/.test(fillerBuffer) || fillerBuffer.length > 150;
+                          if (hasBreak) {
+                            const cleaned = stripFillerOpening(fillerBuffer);
+                            if (cleaned) {
+                              await writer.write(
+                                encoder.encode(
+                                  `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                ),
+                              );
+                            }
+                            fillerFlushed = true;
+                          }
+                        } else {
+                          await writer.write(
+                            encoder.encode(`data: ${JSON.stringify({ delta, done: false })}\n\n`),
+                          );
+                        }
+                      }
+                    }
+                    if (chunk.functionCalls) {
+                      for (const fc of chunk.functionCalls) {
+                        toolCalls.push({
+                          id: fc.id,
+                          name: fc.name,
+                          arguments: JSON.stringify(fc.args),
+                        });
+                        modelResponseParts.push({
+                          functionCall: { name: fc.name, args: fc.args, id: fc.id },
+                          thoughtSignature: fc.thoughtSignature,
+                        });
+                      }
+                    }
+                  } catch {
+                    /* skip */
+                  }
+                }
+              }
+
+              // Flush remaining filler
+              if (!fillerFlushed && fillerBuffer) {
+                const cleaned = stripFillerOpening(fillerBuffer);
+                if (cleaned) {
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`),
+                  );
+                }
+              }
+              fullContent = stripFillerOpening(fullContent);
+
+              // Web search follow-up (same pattern as space chat)
+              let sources = undefined;
+              let searchQueries = [];
+              const webSearchCalls = toolCalls.filter(
+                (tc) => tc.name === 'web_search' && tc.arguments,
+              );
+
+              if (webSearchCalls.length > 0) {
+                let firstQuery = '';
+                try {
+                  firstQuery = JSON.parse(webSearchCalls[0].arguments).query || '';
+                } catch {
+                  const m = webSearchCalls[0].arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                  firstQuery = m ? m[1] : '';
+                }
+                const searchNotice =
+                  webSearchCalls.length > 1
+                    ? `${firstQuery} (+${webSearchCalls.length - 1} more)`
+                    : firstQuery;
+                await writer.write(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ searching: true, query: searchNotice })}\n\n`,
+                  ),
+                );
+
+                const searchResults = await Promise.all(
+                  webSearchCalls.map(async (tc) => {
+                    try {
+                      let query;
+                      try {
+                        query = JSON.parse(tc.arguments).query;
+                      } catch {
+                        const m = tc.arguments.match(/"query"\s*:\s*"([^"]+)"/);
+                        query = m ? m[1] : null;
+                      }
+                      if (!query) return { toolCallId: tc.id, query: null, results: null };
+                      searchQueries.push(query);
+                      const results = await executeTavilySearch(query, env.TAVILY_API_KEY);
+                      return { toolCallId: tc.id, query, results };
+                    } catch {
+                      return { toolCallId: tc.id, query: null, results: null };
+                    }
+                  }),
+                );
+
+                const successfulSearches = searchResults.filter(
+                  (sr) => sr.results && sr.results.results.length > 0,
+                );
+
+                if (successfulSearches.length > 0) {
+                  const originalContents = convertMessages(chatMessages);
+                  if (fullContent) modelResponseParts.unshift({ text: fullContent });
+                  const functionResults = successfulSearches.map((sr) => ({
+                    name: 'web_search',
+                    id: sr.toolCallId,
+                    response: { results: formatSearchBrief(sr.results) },
+                  }));
+                  const followUpContents = buildFollowUpContents(
+                    originalContents,
+                    modelResponseParts,
+                    functionResults,
+                  );
+
+                  const followUpRes = await geminiStream(
+                    genConfig.systemPrompt,
+                    [],
+                    {
+                      temperature: genConfig.temperature,
+                      maxOutputTokens: Math.max(genConfig.maxTokens, 1200),
+                      thinkingLevel: genConfig.thinkingLevel,
+                      nativeContents: followUpContents,
+                    },
+                    env.GOOGLE_API_KEY,
+                  );
+
+                  const followUpReader = followUpRes.body.getReader();
+                  let followUpBuffer = '';
+                  let followUpFillerBuffer = '';
+                  let followUpFillerFlushed = false;
+                  let readerDone = false;
+                  while (!readerDone) {
+                    const result = await followUpReader.read();
+                    readerDone = result.done;
+                    if (readerDone) break;
+                    followUpBuffer += decoder.decode(result.value, { stream: true });
+                    const fLines = followUpBuffer.split('\n');
+                    followUpBuffer = fLines.pop() || '';
+                    for (const fl of fLines) {
+                      const ft = fl.trim();
+                      if (!ft.startsWith('data:')) continue;
+                      const fj = ft.replace(/^data:\s*/, '').trim();
+                      if (fj === '[DONE]') continue;
+                      try {
+                        const fc = parseGeminiChunk(fj);
+                        const fd = fc.text;
+                        if (fd) {
+                          fullContent += fd;
+                          if (!followUpFillerFlushed) {
+                            followUpFillerBuffer += fd;
+                            if (
+                              /[.?!]\s/.test(followUpFillerBuffer) ||
+                              followUpFillerBuffer.length > 150
+                            ) {
+                              const cleaned = stripFillerOpening(followUpFillerBuffer);
+                              if (cleaned)
+                                await writer.write(
+                                  encoder.encode(
+                                    `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                                  ),
+                                );
+                              followUpFillerFlushed = true;
+                            }
+                          } else {
+                            await writer.write(
+                              encoder.encode(
+                                `data: ${JSON.stringify({ delta: fd, done: false })}\n\n`,
+                              ),
+                            );
+                          }
+                        }
+                      } catch {
+                        /* skip */
+                      }
+                    }
+                  }
+                  if (!followUpFillerFlushed && followUpFillerBuffer) {
+                    const cleaned = stripFillerOpening(followUpFillerBuffer);
+                    if (cleaned)
+                      await writer.write(
+                        encoder.encode(
+                          `data: ${JSON.stringify({ delta: cleaned, done: false })}\n\n`,
+                        ),
+                      );
+                  }
+                  fullContent = stripFillerOpening(fullContent);
+                  sources = successfulSearches.flatMap((sr) =>
+                    sr.results.results.map((r) => ({ title: r.title, url: r.url })),
+                  );
+                }
+              }
+
+              // Search fallback
+              if (webSearchCalls.length > 0 && !fullContent) {
+                const fallbackResult = await geminiGenerate(
+                  genConfig.systemPrompt +
+                    '\n\nAnswer based on your existing knowledge. Do not mention search.',
+                  chatMessages,
+                  {
+                    temperature: genConfig.temperature,
+                    maxOutputTokens: genConfig.maxTokens,
+                    thinkingLevel: genConfig.thinkingLevel,
+                  },
+                  env.GOOGLE_API_KEY,
+                );
+                fullContent = fallbackResult.ok
+                  ? fallbackResult.content
+                  : 'I had trouble with that. Could you rephrase?';
+                fullContent = stripFillerOpening(fullContent);
+                const words = fullContent.split(' ');
+                for (let i = 0; i < words.length; i += 3) {
+                  const chunk = words.slice(i, i + 3).join(' ') + ' ';
+                  await writer.write(
+                    encoder.encode(`data: ${JSON.stringify({ delta: chunk, done: false })}\n\n`),
+                  );
+                  await new Promise((r) => setTimeout(r, 15));
+                }
+              }
+
+              const searchQuery = searchQueries.length > 0 ? searchQueries.join(' | ') : undefined;
+              const { suggestion: smartSuggestion, cleanContent } =
+                extractSaveSuggestion(fullContent);
+              fullContent = cleanContent
+                .replace(/<!--SAVE:.*?-->/gs, '')
+                .replace(/<!--SAVE:.*$/s, '')
+                .trim();
+              const save_suggestion = smartSuggestion || null;
+
+              const latency = Date.now() - t0;
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({
+                    done: true,
+                    full_content: fullContent,
+                    save_suggestion,
+                    sources,
+                    search_query: searchQuery,
+                    latency_ms: latency,
+                    fetchedUrl: fetchedUrl,
+                  })}\n\n`,
+                ),
+              );
+
+              console.log('[GeneralChat:Streaming] Complete', {
+                latency_ms: latency,
+                content_length: fullContent.length,
+              });
+
+              // Running summary (fire-and-forget)
+              if (body.chatId && body.userId && fullContent) {
+                const summaryPromise = (async () => {
+                  try {
+                    const prevSummaryRes = await fetch(
+                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                      {
+                        headers: {
+                          apikey: env.SUPABASE_SERVICE_KEY,
+                          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                        },
+                      },
+                    );
+                    const prevData = prevSummaryRes?.ok
+                      ? await prevSummaryRes.json().catch(() => [])
+                      : [];
+                    const previousSummary = prevData?.[0]?.running_summary || null;
+                    await generateRunningSummary(
+                      messages.filter((m) => m.role !== 'system'),
+                      fullContent,
+                      body.chatId,
+                      null,
+                      previousSummary,
+                      env,
+                    );
+                  } catch (err) {
+                    console.warn('[GeneralChat] Summary failed:', err.message);
+                  }
+                })();
+                ctx.waitUntil(summaryPromise);
+
+                // Background extraction (fire-and-forget)
+                const extractionPromise = (async () => {
+                  try {
+                    const chatRes = await fetch(
+                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=saved_extraction_ids,dismissed_extractions`,
+                      {
+                        headers: {
+                          apikey: env.SUPABASE_SERVICE_KEY,
+                          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                        },
+                      },
+                    );
+                    const chatData = chatRes.ok ? await chatRes.json().catch(() => []) : [];
+                    const existing = chatData?.[0] || {};
+                    const handledIds = [
+                      ...(existing.saved_extraction_ids || []),
+                      ...(existing.dismissed_extractions || []),
+                    ];
+
+                    const allMsgs = [
+                      ...messages.filter((m) => m.role !== 'system'),
+                      { role: 'assistant', content: fullContent },
+                    ];
+                    const recentMsgs = allMsgs.slice(-8);
+                    const conversationText = recentMsgs
+                      .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
+                      .join('\n\n');
+
+                    const todayStr = new Intl.DateTimeFormat('en-US', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                      timeZone: 'UTC',
+                    }).format(new Date());
+                    const extractionPromptText = `Today is ${todayStr}.
+
+You are analyzing a conversation to identify items worth saving in a productivity app.
+
+CONVERSATION:
+${conversationText}
+
+${handledIds.length > 0 ? 'ALREADY HANDLED (skip these): ' + handledIds.join(', ') : ''}
+
+Extract ONLY items where the user showed clear commitment or intent:
+TODO: Actions the user committed to (concrete verb + object). NOT AI suggestions the user didn't affirm.
+HABIT: Only with explicit frequency or stop/quit intent + trackable behavior.
+NOTE: Ideas the user was excited about, decisions reached, recommendations they engaged with.
+DO NOT EXTRACT: explorations, emotional processing, unaffirmed AI suggestions, small talk.
+
+WRITING STYLE for title and body fields:
+- Title should be a short action phrase: "Book restaurant for Saturday" not "Restaurant Booking Task"
+- Body should be a brief casual note, one sentence max
+- Never write "the user" or "user" — write as if jotting a note for them: "Getting up early for a 20-min run" not "User committed to getting up early"
+- If no meaningful body beyond the title, set body to null
+
+Also generate a chat title (3-6 words) and one-sentence summary.
+Return ONLY valid JSON:
+{"extractions":[{"id":"<8chars>","type":"todo|habit|note","title":"...","body":"...","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100}],"chat_summary":{"title":"...","summary":"..."}}`;
+
+                    let extractResult = null;
+                    try {
+                      const extractRes = await fetch('https://api.openai.com/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                          model: 'gpt-4.1-mini',
+                          messages: [
+                            { role: 'system', content: extractionPromptText },
+                            { role: 'user', content: 'Extract items from the conversation above.' },
+                          ],
+                          max_tokens: 500,
+                          temperature: 0.1,
+                        }),
+                      });
+                      if (extractRes.ok) {
+                        const extractJson = await extractRes.json();
+                        const rawContent = extractJson.choices?.[0]?.message?.content || '';
+                        extractResult = safeParseJson(rawContent);
+                      }
+                    } catch (parseErr) {
+                      console.warn('[GeneralChat] Extraction parse error:', parseErr.message);
+                    }
+                    if (extractResult) {
+                      await fetch(`${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}`, {
+                        method: 'PATCH',
+                        headers: {
+                          apikey: env.SUPABASE_SERVICE_KEY,
+                          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                          'Content-Type': 'application/json',
+                          Prefer: 'return=minimal',
+                        },
+                        body: JSON.stringify({
+                          extracted_items: extractResult.extractions || [],
+                          auto_title: extractResult.chat_summary?.title || null,
+                        }),
+                      });
+                      console.log('[GeneralChat] Extraction complete', {
+                        items: (extractResult.extractions || []).length,
+                        title: extractResult.chat_summary?.title,
+                      });
+                    }
+                  } catch (err) {
+                    console.warn('[GeneralChat] Extraction failed:', err.message);
+                  }
+                })();
+                ctx.waitUntil(extractionPromise);
+              }
+            } catch (streamErr) {
+              console.log('[GeneralChat:Streaming] Stream error', { error: String(streamErr) });
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({ error: String(streamErr), done: true, full_content: fullContent })}\n\n`,
+                ),
+              );
+            }
+          } catch (outerErr) {
+            console.error('[GeneralChat:Streaming] Outer error', { error: String(outerErr) });
+            try {
+              await writer.write(
+                encoder.encode(
+                  `data: ${JSON.stringify({ error: String(outerErr), done: true })}\n\n`,
+                ),
+              );
+            } catch {
+              /* closed */
+            }
+          } finally {
+            try {
+              await writer.close();
+            } catch {
+              /* already closed */
+            }
+          }
+        })();
+
+        return new Response(readable, {
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+          },
+        });
+      }
+      // ============================================================================
+      // END GENERAL CHAT STREAMING
       // ============================================================================
 
       // --- NON-STREAMING (original logic, with web search for space_chat) ---

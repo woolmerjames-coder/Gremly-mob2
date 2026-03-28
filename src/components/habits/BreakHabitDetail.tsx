@@ -163,11 +163,7 @@ function formatSinceDate(habit: Habit): string {
 /** Human-friendly date: "Jan 15" or "Jan 15, 2025" (if not current year) */
 const formatDate = (iso: string) => {
   const d = new Date(iso);
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
-  });
+  return dateService.formatForChip(dateService.toLocalDate(d));
 };
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -209,7 +205,7 @@ export function BreakHabitDetail({
     }
   }, [whyDraft, habit.id, habit.why_string, habit.notes, updateHabit]);
 
-  const today = useMemo(() => new Date(), []);
+  const today = useMemo(() => dateService.now(), []);
   const todayISO = useMemo(() => toLocalISO(today), [today]);
   const currentMonth = today.getMonth();
   const currentYear = today.getFullYear();
@@ -220,7 +216,7 @@ export function BreakHabitDetail({
   const [showEntityChat, setShowEntityChat] = useState(false);
   const [chatPreset, setChatPreset] = useState<EntityChatPreset | undefined>(undefined);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
-  const [tempDate, setTempDate] = useState(new Date());
+  const [tempDate, setTempDate] = useState(dateService.now());
   const calendarCanGoForward = calMonth !== currentMonth || calYear !== currentYear;
 
   // ── Week navigation ──
@@ -281,7 +277,7 @@ export function BreakHabitDetail({
   // Week header label
   const weekLabel = useMemo(() => {
     if (weekOffset === 0) return 'THIS WEEK';
-    return `WEEK OF ${weekData.weekStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}`;
+    return `WEEK OF ${dateService.formatForChip(dateService.toLocalDate(weekData.weekStartDate)).toUpperCase()}`;
   }, [weekOffset, weekData.weekStartDate]);
 
   // ── Start date picker ──
@@ -302,7 +298,7 @@ export function BreakHabitDetail({
       {
         text: 'Pick a date',
         onPress: () => {
-          setTempDate(new Date());
+          setTempDate(dateService.now());
           setDatePickerVisible(true);
         },
       },
@@ -645,7 +641,7 @@ export function BreakHabitDetail({
                 value={tempDate}
                 mode="date"
                 display="spinner"
-                minimumDate={new Date()}
+                minimumDate={dateService.now()}
                 onChange={(_event, date) => {
                   if (date) setTempDate(date);
                 }}

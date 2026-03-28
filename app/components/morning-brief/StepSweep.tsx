@@ -93,7 +93,7 @@ export function StepSweep({
     if (isSaving) return;
     setIsSaving(true);
 
-    const today = getDateService().getCurrentDate();
+    const today = getDateService().today();
 
     const updates: Promise<void>[] = [];
 
@@ -286,9 +286,8 @@ export function StepSweep({
           </View>
         )}
         {/* Section separator */}
-        {(rolledOverTodos.length > 0 || unscheduledTodos.length > 0) && todayUnprocessedDrops.length > 0 && (
-          <View style={styles.separator} />
-        )}
+        {(rolledOverTodos.length > 0 || unscheduledTodos.length > 0) &&
+          todayUnprocessedDrops.length > 0 && <View style={styles.separator} />}
 
         {/* ─── Fresh Drops section ─── */}
         {todayUnprocessedDrops.length > 0 && (
@@ -297,7 +296,9 @@ export function StepSweep({
             <View style={styles.sectionBanner}>
               <View style={styles.sectionTitleRow}>
                 <View style={styles.sectionAccent} />
-                <Text style={styles.sectionTitle}>Fresh Drops ({todayUnprocessedDrops.length})</Text>
+                <Text style={styles.sectionTitle}>
+                  Fresh Drops ({todayUnprocessedDrops.length})
+                </Text>
                 <Text style={styles.sectionHelper}>{'  ·  dropped this morning'}</Text>
               </View>
               <View style={styles.columnLabels}>

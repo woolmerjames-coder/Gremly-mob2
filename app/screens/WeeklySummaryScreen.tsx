@@ -134,7 +134,7 @@ function formatShortDate(dateStr: string): string {
   try {
     const [y, m, d] = dateStr.split('-').map(Number);
     const date = new Date(y, m - 1, d);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return format(date, 'MMM d');
   } catch {
     return dateStr;
   }
@@ -1123,7 +1123,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
   const handleLockIn = useCallback(
     async (item: StaleEntity) => {
       triggerLight();
-      const today = getDateService().getCurrentDate();
+      const today = getDateService().today();
       if (item.entityType === 'todo') {
         await updateTodo(item.id, { locked_in: true, due_day: today });
       }
@@ -1169,7 +1169,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
     async (item: StaleEntity) => {
       triggerLight();
 
-      const tomorrow = addDays(new Date(), 1);
+      const tomorrow = addDays(getDateService().now(), 1);
       const dateStr = format(tomorrow, 'yyyy-MM-dd');
       const entityTitle = item.title || item.name || 'Reminder';
 
@@ -1179,7 +1179,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
       if (item.time_window === 'evening') reminderTime = '18:00';
 
       const reminder: ItemReminder = {
-        id: `weekly-remind-${Date.now()}-${item.id.slice(0, 8)}`,
+        id: `weekly-remind-${getDateService().now().getTime()}-${item.id.slice(0, 8)}`,
         time: reminderTime,
         frequency: 'once' as const,
         date: dateStr,
@@ -1234,8 +1234,8 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
       return `Rescheduled ${item.sweep_reschedule_count} times in Sweep`;
     }
     if (item.created_at) {
-      const created = new Date(item.created_at);
-      const ageDays = Math.floor((Date.now() - created.getTime()) / (1000 * 60 * 60 * 24));
+      const ds = getDateService();
+      const ageDays = ds.daysBetween(ds.toLocalDate(new Date(item.created_at)), ds.today());
       return `On your list for ${ageDays} days`;
     }
     return '';
@@ -1389,7 +1389,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
                         >
                           <Pressable
                             onPress={() => {
-                              const tomorrow = addDays(new Date(), 1);
+                              const tomorrow = addDays(getDateService().now(), 1);
                               const dateStr = format(tomorrow, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'Tomorrow');
                             }}
@@ -1403,7 +1403,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
 
                           <Pressable
                             onPress={() => {
-                              const monday = nextMonday(new Date());
+                              const monday = nextMonday(getDateService().now());
                               const dateStr = format(monday, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'Next Week');
                             }}
@@ -1417,7 +1417,7 @@ function StaleCleanupCard({ insight }: { insight: WeeklySummaryInsight }) {
 
                           <Pressable
                             onPress={() => {
-                              const twoWeeks = addDays(new Date(), 14);
+                              const twoWeeks = addDays(getDateService().now(), 14);
                               const dateStr = format(twoWeeks, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'In 2 Weeks');
                             }}

@@ -19,6 +19,8 @@
 
 import type { CalendarEvent, CalendarProvider } from './CalendarClient';
 import type { Note } from '../types';
+import { getDateService } from '../date';
+import { nowTimestamp } from '../date/DateService';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -31,7 +33,14 @@ function extractDate(iso: string): string {
 
 /** Extract HH:mm from an ISO timestamp string */
 function extractTime(iso: string): string {
-  return new Date(iso).toTimeString().slice(0, 5);
+  const d = new Date(iso);
+  const fmt = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: getDateService().getTimezone(),
+  });
+  return fmt.format(d);
 }
 
 /**
@@ -100,7 +109,7 @@ export function transformCalendarEventToNote(
       provider: mapProvider(event.provider),
       externalId: event.providerEventId,
       calendarId: event.provider,
-      lastSyncedAt: new Date().toISOString(),
+      lastSyncedAt: nowTimestamp(),
       etag: null,
     },
   };

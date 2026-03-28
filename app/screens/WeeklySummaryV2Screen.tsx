@@ -340,10 +340,10 @@ function OpeningCard({
     try {
       const start = new Date(weekStart + 'T00:00:00');
       const end = new Date(weekEnd + 'T00:00:00');
-      const monthShort = start.toLocaleDateString('en-US', { month: 'short' });
+      const monthShort = format(start, 'MMM');
       const startDay = start.getDate();
       const endDay = end.getDate();
-      const endMonth = end.toLocaleDateString('en-US', { month: 'short' });
+      const endMonth = format(end, 'MMM');
       if (monthShort === endMonth) {
         return `${monthShort} ${startDay} – ${endDay}`;
       }
@@ -781,7 +781,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
     async (item: MatchedStaleItem) => {
       triggerLight();
       if (item.todoId) {
-        const today = getDateService().getCurrentDate();
+        const today = getDateService().today();
         await updateTodo(item.todoId, { locked_in: true, due_day: today });
       }
       triageItem(item.idx);
@@ -823,11 +823,11 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
   const handleRemind = useCallback(
     async (item: MatchedStaleItem) => {
       triggerLight();
-      const tomorrow = addDays(new Date(), 1);
+      const tomorrow = addDays(getDateService().now(), 1);
       const dateStr = format(tomorrow, 'yyyy-MM-dd');
 
       const reminder: ItemReminder = {
-        id: `weekly-remind-${Date.now()}-${(item.todoId ?? item.idx).toString().slice(0, 8)}`,
+        id: `weekly-remind-${getDateService().now().getTime()}-${(item.todoId ?? item.idx).toString().slice(0, 8)}`,
         time: '09:00',
         frequency: 'once' as const,
         date: dateStr,
@@ -1017,7 +1017,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
                         >
                           <Pressable
                             onPress={() => {
-                              const tomorrow = addDays(new Date(), 1);
+                              const tomorrow = addDays(getDateService().now(), 1);
                               const dateStr = format(tomorrow, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'Tomorrow');
                             }}
@@ -1031,7 +1031,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
 
                           <Pressable
                             onPress={() => {
-                              const monday = nextMonday(new Date());
+                              const monday = nextMonday(getDateService().now());
                               const dateStr = format(monday, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'Next Week');
                             }}
@@ -1045,7 +1045,7 @@ function StaleTriageCard({ card }: { card: WSV2StaleTriageCard }) {
 
                           <Pressable
                             onPress={() => {
-                              const twoWeeks = addDays(new Date(), 14);
+                              const twoWeeks = addDays(getDateService().now(), 14);
                               const dateStr = format(twoWeeks, 'yyyy-MM-dd');
                               handleDateSelect(item, dateStr, 'In 2 Weeks');
                             }}
@@ -1476,7 +1476,7 @@ export default function WeeklySummaryV2Screen() {
       case 'gremly_mood':
         return <GremlyMoodCard card={card} />;
       case 'opening': {
-        const ws = weekStartParam ?? format(new Date(), 'yyyy-MM-dd');
+        const ws = weekStartParam ?? getDateService().today();
         const we = format(addDays(new Date(ws + 'T00:00:00'), 6), 'yyyy-MM-dd');
         return <OpeningCard card={card} weekStart={ws} weekEnd={we} />;
       }

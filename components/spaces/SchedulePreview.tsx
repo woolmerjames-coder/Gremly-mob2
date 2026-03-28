@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { getDateService } from '../../lib/date';
 import { lightTokens } from '../../design/tokens';
 
 export type UpcomingItem = {
@@ -44,7 +45,7 @@ export function SchedulePreview({ items, onViewAll }: SchedulePreviewProps) {
                 : '📅';
         const isSoon = (() => {
           if (!item.dueAt) return false;
-          const now = Date.now();
+          const now = getDateService().now().getTime();
           const ts = new Date(item.dueAt).getTime();
           return ts - now <= 48 * 60 * 60 * 1000; // within 48h
         })();

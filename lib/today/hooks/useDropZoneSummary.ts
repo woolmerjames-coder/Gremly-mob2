@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRepo } from '../../../providers/RepoProvider';
 import { useAuth } from '../../../providers/AuthProvider';
 import { env } from '../../env';
+import { getDateService } from '../../date/DateService';
 
 export interface DropZoneSummary {
   count: number;
@@ -44,9 +45,9 @@ export function useDropZoneSummary(): DropZoneSummary {
   const [error, setError] = useState<string | null>(null);
 
   const sinceIso = useMemo(() => {
-    const now = new Date();
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    return yesterday.toISOString();
+    const ds = getDateService();
+    const yesterdayNoon = ds.fromLocalDate(ds.yesterday());
+    return (yesterdayNoon ?? ds.now()).toISOString();
   }, []);
 
   const load = useCallback(async () => {

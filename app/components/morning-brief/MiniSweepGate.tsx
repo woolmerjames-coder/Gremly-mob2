@@ -252,7 +252,7 @@ export function MiniSweepGate({
     if (isSaving) return;
     setIsSaving(true);
 
-    const today = getDateService().getCurrentDate();
+    const today = getDateService().today();
     console.log('[MiniSweepGate] handleSave called. Decisions:', decisions.size);
 
     // Start all updates but don't wait for them

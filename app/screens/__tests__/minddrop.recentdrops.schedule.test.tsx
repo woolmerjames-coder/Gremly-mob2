@@ -68,7 +68,7 @@ jest.mock('../../../providers/AuthProvider', () => ({
 
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
-  useNavigation: () => ({ setOptions: jest.fn() }),
+  useNavigation: () => ({ setOptions: jest.fn(), addListener: jest.fn(() => jest.fn()) }),
 }));
 
 jest.mock('@react-navigation/elements', () => ({

@@ -617,15 +617,13 @@ describe('HubScreen - Journal View Data Filtering', () => {
     // Check that non-note chips are disabled
     const todoChip = getByTestId('filter-type-todo');
     const habitChip = getByTestId('filter-type-habit');
-    const spaceChip = getByTestId('filter-type-space');
 
     // Check disabled prop (TouchableOpacity uses accessibilityState when disabled)
     expect(todoChip.props.accessibilityState?.disabled).toBe(true);
     expect(habitChip.props.accessibilityState?.disabled).toBe(true);
-    expect(spaceChip.props.accessibilityState?.disabled).toBe(true);
   });
 
-  it('shows "Journals" label instead of "Logs" when in Journal View (search mode)', async () => {
+  it('disables filter chips when in Journal View (search mode)', async () => {
     const { getByTestId, queryByText } = render(
       <TestWrapper>
         <HubScreen />
@@ -640,10 +638,9 @@ describe('HubScreen - Journal View Data Filtering', () => {
     const searchInput = getByTestId('hub-search');
     fireEvent.changeText(searchInput, 'test');
 
-    // Initially the Logs filter chip shows "Logs"
+    // The note filter chip shows "Notes"
     const noteFilterChip = getByTestId('filter-type-note');
     expect(noteFilterChip).toBeTruthy();
-    // The chip text should be "Logs" initially (not "Journals")
     expect(queryByText('Notes')).toBeTruthy();
 
     // Switch to Journal View
@@ -651,8 +648,8 @@ describe('HubScreen - Journal View Data Filtering', () => {
     fireEvent.press(journalToggle);
 
     await waitFor(() => {
-      // The filter chip should now show "Journals" instead of "Logs"
-      expect(queryByText('Notes')).toBeNull();
+      // Filter chips remain visible but are disabled in journal view
+      expect(noteFilterChip.props.accessibilityState?.disabled).toBe(true);
     });
   });
 

@@ -60,6 +60,7 @@
  */
 
 import { useCallback } from 'react';
+import { nowTimestamp } from '../lib/date/DateService';
 import {
   detectSaveThisIntent,
   detectSummaryIntent,
@@ -309,7 +310,7 @@ export function useMetaIntentHandler(): UseMetaIntentHandlerReturn {
             content: resolution.content,
             tags: [],
           },
-          detectedAt: new Date().toISOString(),
+          detectedAt: nowTimestamp(),
           messageId,
         };
       } else {
@@ -359,7 +360,7 @@ export function useMetaIntentHandler(): UseMetaIntentHandlerReturn {
               content: resolution.content,
               tags: [],
             },
-            detectedAt: new Date().toISOString(),
+            detectedAt: nowTimestamp(),
             messageId,
           };
         }
@@ -440,7 +441,7 @@ export function useMetaIntentHandler(): UseMetaIntentHandlerReturn {
           tags: summaryResult.tags,
         },
         reasoning: 'User requested conversation summary',
-        detectedAt: new Date().toISOString(),
+        detectedAt: nowTimestamp(),
         messageId,
       };
 

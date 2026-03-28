@@ -340,7 +340,7 @@ export default function App() {
             logSnoozeEvent(entityId, entityType, label, snoozeCount + 1);
 
             // Build updated reminders with new snoozed time + incremented snooze count
-            const snoozeTargetDate = new Date(Date.now() + seconds * 1000);
+            const snoozeTargetDate = new Date(getDateService().now().getTime() + seconds * 1000);
             const snoozeTime = `${String(snoozeTargetDate.getHours()).padStart(2, '0')}:${String(snoozeTargetDate.getMinutes()).padStart(2, '0')}`;
             const snoozeDate = getDateService().toLocalDate(snoozeTargetDate);
 
@@ -359,7 +359,7 @@ export default function App() {
                   )
                 : [
                     {
-                      id: `snooze-${Date.now()}`,
+                      id: `snooze-${getDateService().now().getTime()}`,
                       time: snoozeTime,
                       date: snoozeDate,
                       frequency: 'once',
@@ -422,7 +422,7 @@ export default function App() {
               const snoozeTarget = new Date(dueDateTime.getTime() - 30 * 60 * 1000);
               const secondsFromNow = Math.max(
                 60,
-                Math.floor((snoozeTarget.getTime() - Date.now()) / 1000),
+                Math.floor((snoozeTarget.getTime() - getDateService().now().getTime()) / 1000),
               );
               await scheduleQuickReminder(
                 entityId,
@@ -585,7 +585,7 @@ export default function App() {
 
                                 // 2. Build updated reminders with new snoozed time
                                 const currentReminders = (entity as any)?.reminders ?? [];
-                                const snoozeTargetDate = new Date(Date.now() + seconds * 1000);
+                                const snoozeTargetDate = new Date(getDateService().now().getTime() + seconds * 1000);
                                 const snoozeTime = `${String(snoozeTargetDate.getHours()).padStart(2, '0')}:${String(snoozeTargetDate.getMinutes()).padStart(2, '0')}`;
                                 const snoozeDate = getDateService().toLocalDate(snoozeTargetDate);
 
@@ -604,7 +604,7 @@ export default function App() {
                                       )
                                     : [
                                         {
-                                          id: `snooze-${Date.now()}`,
+                                          id: `snooze-${getDateService().now().getTime()}`,
                                           time: snoozeTime,
                                           date: snoozeDate,
                                           frequency: 'once',

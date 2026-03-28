@@ -60,7 +60,7 @@ interface AllItemsTableProps {
  */
 function formatCaptured(createdAt: string): string {
   const dateService = getDateService();
-  const today = dateService.getCurrentDate();
+  const today = dateService.today();
   const createdDate = createdAt.split('T')[0];
   const daysDiff = dateService.daysBetween(createdDate, today);
 
@@ -81,7 +81,7 @@ function formatCaptured(createdAt: string): string {
  */
 function getDueLabel(item: Todo | Habit | Note): string {
   const dateService = getDateService();
-  const today = dateService.getCurrentDate();
+  const today = dateService.today();
 
   if (item.type === 'todo') {
     const todo = item as Todo;
@@ -113,7 +113,7 @@ function getDueLabel(item: Todo | Habit | Note): string {
  */
 function getStatus(item: Todo | Habit | Note): 'active' | 'completed' | 'overdue' {
   const dateService = getDateService();
-  const today = dateService.getCurrentDate();
+  const today = dateService.today();
 
   if (item.type === 'todo') {
     const todo = item as Todo;

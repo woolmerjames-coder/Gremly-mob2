@@ -18,6 +18,7 @@ import { BRAND } from '../../design/brand';
 // @ts-ignore — OLD file kept for reference; demo needs rewrite to SweepCardNew
 import { SweepCard } from './SweepCard.OLD';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
+import { nowTimestamp } from '../../lib/date/DateService';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type {
   SweepCandidate,
@@ -45,7 +46,7 @@ function makeDemoTodo(): SweepCandidateTodo {
   return {
     id: 'demo-todo-1',
     kind: 'todo',
-    createdAt: new Date().toISOString(),
+    createdAt: nowTimestamp(),
     dropId: null,
     skippedInSweepAt: null,
     isOverdue: false,
@@ -71,7 +72,7 @@ function makeDemoTodo(): SweepCandidateTodo {
       commitment_note: null,
       commitment_started_at: null,
       completed_at: null,
-      created_at: new Date().toISOString(),
+      created_at: nowTimestamp(),
       drop_id: null,
       due_date: null,
       due_day: null,
@@ -108,7 +109,7 @@ function makeDemoNote1(): SweepCandidateNote {
   return {
     id: 'demo-note-1',
     kind: 'note',
-    createdAt: new Date().toISOString(),
+    createdAt: nowTimestamp(),
     dropId: null,
     skippedInSweepAt: null,
     isOverdue: false,
@@ -127,7 +128,7 @@ function makeDemoNote1(): SweepCandidateNote {
       has_list: false,
       body_legacy: null,
       canonical_type: null,
-      created_at: new Date().toISOString(),
+      created_at: nowTimestamp(),
       date: null,
       drop_id: null,
       fmt: null,
@@ -164,7 +165,7 @@ function makeDemoNote2(): SweepCandidateNote {
   return {
     id: 'demo-note-2',
     kind: 'note',
-    createdAt: new Date().toISOString(),
+    createdAt: nowTimestamp(),
     dropId: null,
     skippedInSweepAt: null,
     isOverdue: false,
@@ -183,7 +184,7 @@ function makeDemoNote2(): SweepCandidateNote {
       has_list: false,
       body_legacy: null,
       canonical_type: null,
-      created_at: new Date().toISOString(),
+      created_at: nowTimestamp(),
       date: null,
       drop_id: null,
       fmt: null,

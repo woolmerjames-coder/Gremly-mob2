@@ -8,6 +8,7 @@
 import { Screen, Box, Text, Button } from '../../ui';
 import { Card } from '../../design-system/Card';
 import { ListItem } from '../../design-system/ListItem';
+import { getDateService, nowTimestamp } from '../../lib/date/DateService';
 // import { openManualAdd } from '../../components/ManualAddSheet'; // DEPRECATED - removed
 
 // Mock data
@@ -17,8 +18,8 @@ const mockHabits = [
     type: 'habit' as const,
     title: 'Morning Run',
     frequency: 'daily',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: nowTimestamp(),
+    updated_at: nowTimestamp(),
     owner_id: 'user-1',
   },
   {
@@ -26,8 +27,8 @@ const mockHabits = [
     type: 'habit' as const,
     title: 'Read for 30 minutes',
     frequency: 'daily',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: nowTimestamp(),
+    updated_at: nowTimestamp(),
     owner_id: 'user-1',
   },
 ];
@@ -37,10 +38,10 @@ const mockTodos = [
     id: 'todo-1',
     type: 'todo' as const,
     title: 'Buy groceries',
-    due_date: new Date().toISOString(),
+    due_date: nowTimestamp(),
     undefined_due: false,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: nowTimestamp(),
+    updated_at: nowTimestamp(),
     owner_id: 'user-1',
   },
   {
@@ -49,8 +50,8 @@ const mockTodos = [
     title: 'Call dentist',
     due_date: null,
     undefined_due: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: nowTimestamp(),
+    updated_at: nowTimestamp(),
     owner_id: 'user-1',
   },
 ];
@@ -86,7 +87,7 @@ export default function TodayDSPlayground() {
               title={todo.title}
               subtitle={
                 todo.due_date
-                  ? `Due: ${new Date(todo.due_date).toLocaleDateString()}`
+                  ? `Due: ${getDateService().formatForChip(getDateService().toLocalDate(new Date(todo.due_date)))}`
                   : 'No due date'
               }
               onPress={() => handleItemPress(todo.id)}

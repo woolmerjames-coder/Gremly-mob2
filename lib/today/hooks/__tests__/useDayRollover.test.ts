@@ -19,7 +19,11 @@ const mockRemove = jest.fn();
 const mockGetCurrentDate = jest.fn(() => '2025-12-15');
 jest.mock('../../../date', () => ({
   getDateService: () => ({
-    getCurrentDate: () => mockGetCurrentDate(),
+    today: () => mockGetCurrentDate(),
+    ritualDay: () => mockGetCurrentDate(),
+    now: () => new Date(),
+    getDayBoundaryHour: () => 4,
+    getHour: () => new Date().getHours(),
     addDays: (date: string, days: number) => {
       const d = new Date(date + 'T00:00:00');
       d.setDate(d.getDate() + days);

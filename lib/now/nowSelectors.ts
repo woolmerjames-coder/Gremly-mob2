@@ -24,6 +24,7 @@ import type {
   NowWeekHealth,
 } from './nowTypes';
 import { getTodayDayString } from '../date/computeDueDay';
+import { getDateService } from '../date';
 import {
   jsonToFrequency,
   getFrequencyLabel,
@@ -129,7 +130,7 @@ function getWeekStart(date: Date): Date {
  * @param date - Reference date for "today" (defaults to now)
  * @returns Count of logs created today
  */
-export function getTodayLogsCount(logs: Note[], date: Date = new Date()): number {
+export function getTodayLogsCount(logs: Note[], date: Date = getDateService().now()): number {
   // Compute today string in local timezone
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -164,7 +165,7 @@ export function getTodayLogsCount(logs: Note[], date: Date = new Date()): number
 
 export function getWeeklyCaptureCounts(
   logs: Note[],
-  date: Date = new Date(),
+  date: Date = getDateService().now(),
 ): NowWeeklyCaptureCounts {
   const weekStart = getWeekStart(date);
   const weekEnd = new Date(weekStart);
@@ -191,7 +192,7 @@ export function getWeeklyCaptureCounts(
  * This is the canonical format for day-based comparisons.
  * Uses the central helper from computeDueDay.ts
  */
-function getTodayString(date: Date = new Date()): string {
+function getTodayString(date: Date = getDateService().now()): string {
   // For compatibility with existing code that passes a specific date,
   // compute the string in local timezone
   const year = date.getFullYear();
@@ -269,7 +270,7 @@ function isFuture(date: Date, checkDate: Date | string): boolean {
 export function getHabitWeeklyStatus(
   habit: Habit,
   completionsThisWeek: number,
-  date: Date = new Date(),
+  date: Date = getDateService().now(),
 ): HabitWeeklyStatus {
   const cadence = habit.cadence || 'daily';
   const targetPerWeek = habit.target_per_period || 7;
@@ -332,7 +333,7 @@ function formatHabitStatusText(
   return HABIT_STATUS_LABELS[weeklyStatus] ?? HABIT_STATUS_LABELS.on_track_today;
 }
 
-function formatTodoStatusText(todo: Todo, date: Date = new Date()): string {
+function formatTodoStatusText(todo: Todo, date: Date = getDateService().now()): string {
   const dueTime = (todo as any).due_time;
   if (dueTime) {
     return dueTime;
@@ -346,8 +347,7 @@ function formatTodoStatusText(todo: Todo, date: Date = new Date()): string {
       return 'Due today';
     }
     if (isTodoDueFuture(todo, todayStr)) {
-      const dueDate = parseDateString(todo.due_day);
-      return `Due ${dueDate.toLocaleDateString(undefined, { weekday: 'short' })}`;
+      return `Due ${getDateService().formatForChip(todo.due_day)}`;
     }
     return 'Overdue';
   }
@@ -368,7 +368,7 @@ function formatTodoStatusText(todo: Todo, date: Date = new Date()): string {
 export function isHabitNeededToday(
   habit: Habit,
   completionsThisWeek: number,
-  date: Date = new Date(),
+  date: Date = getDateService().now(),
 ): boolean {
   const cadence = habit.cadence || 'daily';
 
@@ -390,7 +390,7 @@ export function isHabitNeededToday(
 export function getLockedItems(
   allEntities: NowEntity[],
   completionHistory: Map<string, number>, // habitId -> completions this week
-  date: Date = new Date(),
+  date: Date = getDateService().now(),
 ): NowLockedItem[] {
   const locked: NowLockedItem[] = [];
 
@@ -455,7 +455,7 @@ export function getLockedItems(
 export function getActiveTodayItems(
   allEntities: NowEntity[],
   completionHistory: Map<string, number>,
-  date: Date = new Date(),
+  date: Date = getDateService().now(),
 ): NowActiveItem[] {
   const active: NowActiveItem[] = [];
   const lockedIds = new Set(
@@ -525,7 +525,7 @@ export function getActiveTodayItems(
 export function getFutureItems(
   allEntities: NowEntity[],
   completionHistory: Map<string, number>,
-  date: Date = new Date(),
+  date: Date = getDateService().now(),
 ): NowFutureItem[] {
   const future: NowFutureItem[] = [];
   const todayIds = new Set([
@@ -573,7 +573,7 @@ export function getFutureItems(
 export function getProgressEligibleItems(
   allEntities: NowEntity[],
   completionHistory: Map<string, number>,
-  date: Date = new Date(),
+  date: Date = getDateService().now(),
 ): Array<{ id: string; type: 'habit' | 'todo' }> {
   const eligible: Array<{ id: string; type: 'habit' | 'todo' }> = [];
 
@@ -647,7 +647,7 @@ export function getProgressState(
  */
 export function getCompletedTodayItems(
   allEntities: NowEntity[],
-  date: Date = new Date(),
+  date: Date = getDateService().now(),
 ): NowCompletedItem[] {
   const completed: NowCompletedItem[] = [];
 
@@ -691,7 +691,7 @@ export function getCompletedTodayItems(
  */
 export function getMindVaultSummary(
   logs: Note[],
-  date: Date = new Date(),
+  date: Date = getDateService().now(),
   weeklyCaptureCounts?: NowWeeklyCaptureCounts,
 ): MindVaultSummary {
   const { listCount, journalCount, ideaCount } =
@@ -755,7 +755,7 @@ export function computeWeekHealth(summaries: NowWeeklyHabitSummary[]): NowWeekHe
 export function getWeeklyHabitSummaries(
   allHabits: Habit[],
   completionHistory: Map<string, number>,
-  date: Date = new Date(),
+  date: Date = getDateService().now(),
 ): NowWeeklyHabitSummary[] {
   return allHabits.map((habit) => {
     const completionsThisWeek = completionHistory.get(habit.id) || 0;

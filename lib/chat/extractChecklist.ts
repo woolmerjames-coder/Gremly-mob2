@@ -114,10 +114,12 @@ export function extractChecklistFromContent(
  * Convert extracted checklist to the format expected by EntityChatNote
  * Generates unique IDs for each checklist item
  */
+import { getDateService } from '../date/DateService';
+
 export function toChecklistItems(
   items: string[],
 ): Array<{ id: string; label: string; completed: boolean }> {
-  const timestamp = Date.now();
+  const timestamp = getDateService().now().getTime();
   return items.map((label, index) => ({
     id: `item_${timestamp}_${index}`,
     label,

@@ -341,7 +341,7 @@ export function StepPrioritize({
     return result;
   }, [visibleKeyDates, visibleCalEvents, blocks]);
 
-  const today = dateContext ?? getDateService().getCurrentDate();
+  const today = dateContext ?? getDateService().today();
 
   return (
     <View style={styles.wrapper}>

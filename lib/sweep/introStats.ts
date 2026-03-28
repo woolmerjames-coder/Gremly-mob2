@@ -7,6 +7,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../supabase/database.types';
+import { nowTimestamp, getDateService } from '../date/DateService';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -59,7 +60,7 @@ export async function fetchSweepIntroStats(
     completed: { todos: [], habits: [] },
     dropped: { todos: [], habits: [], notes: [] },
     isFirstSweep: true,
-    cutoffTimestamp: new Date().toISOString(),
+    cutoffTimestamp: nowTimestamp(),
     totalSweepCount: 0,
     sweepStreak: 0,
   };
@@ -80,7 +81,7 @@ export async function fetchSweepIntroStats(
     // 2. Determine cutoff - use last sweep time or 48-hour fallback
     const lastSweepAt = prefs?.last_sweep_completed_at;
     const isFirstSweep = !lastSweepAt;
-    const cutoffTimestamp = lastSweepAt || new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const cutoffTimestamp = lastSweepAt || new Date(getDateService().now().getTime() - 48 * 60 * 60 * 1000).toISOString();
 
     // 3. Run all data queries in parallel for faster loading
     const [

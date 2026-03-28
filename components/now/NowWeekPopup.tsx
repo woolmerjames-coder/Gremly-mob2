@@ -186,7 +186,7 @@ export function NowWeekPopup({
   );
 
   // Week date range - rolling 7 days ending today (matches useWeeklyHabitStats)
-  const today = useMemo(() => new Date(), []);
+  const today = useMemo(() => dateService.now(), []);
   const { startDate: weekStart, endDate: weekEnd } = useMemo(
     () => getRolling7DayRange(today),
     [today],
@@ -316,7 +316,7 @@ export function NowWeekPopup({
   const computeSummaryStats = useCallback(() => {
     if (!allHabits) return { upToDate: 0, total: 0 };
 
-    const now = Date.now();
+    const now = dateService.now().getTime();
     const yesterday = dateService.yesterday();
     const sevenDaysAgo = dateService.daysAgo(7);
 

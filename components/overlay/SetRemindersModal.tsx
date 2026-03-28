@@ -5,6 +5,7 @@ import { X, Bell, Plus, Trash2, Clock, AlarmClock, Repeat } from 'lucide-react-n
 import { BRAND } from '../../design/brand';
 import { colors, spacing, borderRadius } from '../../design/tokens';
 import type { ItemReminder } from '../../lib/types';
+import { getDateService } from '../../lib/date/DateService';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -37,10 +38,7 @@ function formatReminderDescription(reminder: ItemReminder): string {
     return `Daily at ${timeStr}`;
   }
   if (reminder.date) {
-    const d = new Date(`${reminder.date}T00:00:00`);
-    const month = d.toLocaleDateString('en-US', { month: 'short' });
-    const day = d.getDate();
-    return `${month} ${day} at ${timeStr}`;
+    return `${getDateService().formatForChip(reminder.date)} at ${timeStr}`;
   }
   return `At ${timeStr}`;
 }
@@ -50,24 +48,15 @@ function roundToNearest(minutes: number, interval: number): number {
 }
 
 function getTodayDateString(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return getDateService().today();
 }
 
 function getTomorrowDateString(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return getDateService().tomorrow();
 }
 
 function makeId(): string {
-  return `reminder-${Date.now()}`;
+  return `reminder-${getDateService().now().getTime()}`;
 }
 
 function padTime(h: number, m: number): string {
@@ -75,7 +64,7 @@ function padTime(h: number, m: number): string {
 }
 
 function getTodayMidnight(): Date {
-  const d = new Date();
+  const d = getDateService().now();
   d.setHours(0, 0, 0, 0);
   return d;
 }
@@ -87,7 +76,7 @@ function dateFromReminder(reminder: ItemReminder): Date {
     d.setHours(h, m, 0, 0);
     return d;
   }
-  const d = new Date();
+  const d = getDateService().now();
   d.setHours(h, m, 0, 0);
   return d;
 }
@@ -101,9 +90,7 @@ function liveEditDescription(freq: ReminderFrequency, date: Date, daysOfWeek: nu
     return `${dayNames} at ${timeStr}`;
   }
   if (freq === 'daily') return `Daily at ${timeStr}`;
-  const month = date.toLocaleDateString('en-US', { month: 'short' });
-  const day = date.getDate();
-  return `${month} ${day} at ${timeStr}`;
+  return `${getDateService().formatForChip(getDateService().toLocalDate(date))} at ${timeStr}`;
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -140,7 +127,7 @@ export default function SetRemindersModal({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // Edit state for the expanded reminder
   const [editFrequency, setEditFrequency] = useState<ReminderFrequency>('once');
-  const [editDate, setEditDate] = useState<Date>(new Date());
+  const [editDate, setEditDate] = useState<Date>(getDateService().now());
   const [editDaysOfWeek, setEditDaysOfWeek] = useState<number[]>([]);
   const [visiblePicker, setVisiblePicker] = useState<'none' | 'date' | 'time'>('none');
 
@@ -207,7 +194,7 @@ export default function SetRemindersModal({
 
   const startNewCustom = useCallback(() => {
     if (atMax) return;
-    const now = new Date();
+    const now = getDateService().now();
     now.setMinutes(roundToNearest(now.getMinutes(), 5), 0, 0);
     now.setHours(now.getHours() + 1);
     setEditFrequency('once');
@@ -265,7 +252,7 @@ export default function SetRemindersModal({
   // ─── Quick add handlers (unchanged behavior) ──────────────────────────
 
   const handleIn1Hour = useCallback(() => {
-    const now = new Date();
+    const now = getDateService().now();
     now.setHours(now.getHours() + 1);
     const mins = roundToNearest(now.getMinutes(), 5);
     now.setMinutes(mins, 0, 0);
@@ -288,7 +275,7 @@ export default function SetRemindersModal({
   }, []);
 
   const handleDaily = useCallback(() => {
-    const now = new Date();
+    const now = getDateService().now();
     const mins = roundToNearest(now.getMinutes(), 15);
     setLocalReminders((prev) => [
       ...prev,

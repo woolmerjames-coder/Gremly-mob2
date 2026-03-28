@@ -16,6 +16,7 @@ import type { TimeBlockCapacity, TimeBlock } from '../../../../lib/capacity';
 import type { CalendarEvent } from '../../../../lib/calendar/CalendarClient';
 import type { Todo, Habit, Note } from '../../../../lib/types';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
+import { getDateService } from '../../../../lib/date';
 import { TaskItem, type TaskItemData } from './TaskItem';
 import { EventTimePicker } from './EventTimePicker';
 import { GapRow } from './GapRow';
@@ -341,7 +342,7 @@ export function TimeBlockSection({
     // Past time is NOT free time — don't count it in gaps.
     const rawBlockStart = capacity.startHour * 60;
     const isToday = (() => {
-      const d = new Date();
+      const d = getDateService().now();
       const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       return dateContext === todayStr;
     })();
@@ -352,7 +353,7 @@ export function TimeBlockSection({
       blockStartMins = blockEndMins;
     } else if (isToday) {
       // Current/future block today: clip to current minute
-      const now = new Date();
+      const now = getDateService().now();
       const nowMinutes = now.getHours() * 60 + now.getMinutes();
       blockStartMins = Math.max(rawBlockStart, nowMinutes);
     } else {

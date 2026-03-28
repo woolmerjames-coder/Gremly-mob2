@@ -3,6 +3,8 @@
  * Theme-aware, mood-sensitive, daily-stable selections
  */
 
+import { getDateService } from '../date/DateService';
+
 export type Mood = 'calm' | 'proud' | 'low' | 'neutral';
 
 type Theme = 'fitness' | 'career' | 'travel' | 'learning' | 'finance' | 'home' | 'neutral';
@@ -123,7 +125,7 @@ export function getWittyLine(spaceName: string, mood: Mood = 'neutral', seed?: s
   }
 
   // Use seed (default: today's date) for stable daily selection
-  const dailySeed = seed || new Date().toISOString().slice(0, 10);
+  const dailySeed = seed || getDateService().today();
   const hashInput = `${spaceName}-${theme}-${dailySeed}`;
   const hash = hashString(hashInput);
   const index = hash % candidates.length;

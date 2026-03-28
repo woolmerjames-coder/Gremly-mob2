@@ -60,7 +60,7 @@ jest.mock('../../../../lib/api/organizeDay', () => ({
 jest.mock('../../../../lib/date', () => ({
   getDateService: () => ({
     now: () => new Date('2025-12-15T09:00:00'),
-    getCurrentDate: () => '2025-12-15',
+    today: () => '2025-12-15',
     getHour: () => 9,
     nowTimestamp: () => '2025-12-15T09:00:00Z',
   }),

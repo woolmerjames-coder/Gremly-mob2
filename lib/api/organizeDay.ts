@@ -11,6 +11,7 @@ import type { DayCapacity } from '../capacity';
 import { calculateRealisticAvailableMinutes } from '../capacity';
 import { computeTotalMinutes, validateEnergyType } from '../planning';
 import { computeTimeGaps, getBlockBoundaryIso, type TimeGap } from '../timeGaps';
+import { getDateService } from '../date/DateService';
 
 // =============================================================================
 // TYPES
@@ -101,7 +102,7 @@ const CORTEX_URL =
   'https://gentle-thunder-5854.woolmerjames.workers.dev';
 
 export async function organizeDay(request: OrganizeDayRequest): Promise<OrganizeDayResponse> {
-  const startTime = Date.now();
+  const startTime = getDateService().now().getTime();
 
   console.log('[organizeDay] Calling API', {
     tasks: request.tasks.length,
@@ -128,7 +129,7 @@ export async function organizeDay(request: OrganizeDayRequest): Promise<Organize
         overflow: request.tasks.map((t) => ({ taskId: t.id, reason: 'API request failed' })),
         reasoning: [],
         summary: 'Could not reach AI. Tasks left flexible.',
-        latency_ms: Date.now() - startTime,
+        latency_ms: getDateService().now().getTime() - startTime,
         error: `HTTP ${response.status}`,
       };
     }
@@ -151,7 +152,7 @@ export async function organizeDay(request: OrganizeDayRequest): Promise<Organize
       overflow: request.tasks.map((t) => ({ taskId: t.id, reason: 'Network error' })),
       reasoning: [],
       summary: 'Network error. Tasks left flexible.',
-      latency_ms: Date.now() - startTime,
+      latency_ms: getDateService().now().getTime() - startTime,
       error: 'network_error',
       detail: String(err),
     };

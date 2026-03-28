@@ -14,6 +14,7 @@ import { StyleSheet, Pressable, View } from 'react-native';
 import { Text } from '../../ui';
 import { WeeklyDotsRow } from '../../src/components/habits/WeeklyDotsRow';
 import { Flame } from 'lucide-react-native';
+import { format } from 'date-fns';
 import type { DayDot, HabitStatus } from '../../lib/today/hooks/useWeeklyHabitStats';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -156,8 +157,8 @@ export const HabitWeeklyRow = React.memo(function HabitWeeklyRow({
               {startDate && (
                 <Text style={styles.startedLabel}>
                   {startDate > dayDates[dayDates.length - 1]
-                    ? `Starts ${new Date(startDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}`
-                    : `Started ${new Date(startDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}`}
+                    ? `Starts ${format(new Date(startDate + 'T12:00:00'), 'M/d')}`
+                    : `Started ${format(new Date(startDate + 'T12:00:00'), 'M/d')}`}
                 </Text>
               )}
               {streakDays !== undefined && streakDays > 0 && (

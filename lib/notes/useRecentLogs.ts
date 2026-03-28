@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabase/client';
 import { useAuth } from '../../providers/AuthProvider';
 import { probeMembership } from '../config/surfaceProbe';
+import { getDateService, nowTimestamp } from '../date/DateService';
 
 /** Labels that indicate unsorted Mind Drop items */
 const UNSORTED_LABELS = ['catchall', 'needs_review'];
@@ -219,7 +220,7 @@ export function useRecentLogs(days: number = 7): UseRecentLogsReturn {
 
     try {
       // Calculate date threshold
-      const threshold = new Date();
+      const threshold = getDateService().now();
       threshold.setDate(threshold.getDate() - days);
       const thresholdISO = threshold.toISOString();
 
@@ -278,8 +279,8 @@ export function useRecentLogs(days: number = 7): UseRecentLogsReturn {
             logSubtype,
             isList,
             listItems,
-            createdAt: row.created_at || new Date().toISOString(),
-            updatedAt: row.updated_at || row.created_at || new Date().toISOString(),
+            createdAt: row.created_at || nowTimestamp(),
+            updatedAt: row.updated_at || row.created_at || nowTimestamp(),
             tags,
             mood: row.mood || undefined,
           };

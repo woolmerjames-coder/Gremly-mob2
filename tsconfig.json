@@ -17,8 +17,6 @@
     // relative to their location. These are distribution artifacts, not source.
     "artifacts/**/*",
     "scripts/**/*",
-    // Exclude minddrop-reference - documentation/snippet files not meant to compile
-    "minddrop-reference/**/*",
     // Exclude minddrop-voice-bundle - copied code with broken relative imports
     "minddrop-voice-bundle/**/*",
     // Exclude habit-sync-bundle - standalone bundle with broken relative imports
@@ -29,9 +27,6 @@
     "entity-chat-bundle/**/*",
     // Exclude date-audit - temporary audit folder with stale imports
     "date-audit/**/*",
-    // Exclude audit bundles - extracted zips with broken imports
-    "classification-audit-bundle/**/*",
-    "minddrop-audit-bundle/**/*",
     "minddrop-bundle/**/*",
     // Generic bundle pattern - all *-bundle directories
     "*-bundle/**/*",

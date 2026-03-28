@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Calendar, ChevronRight } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { colors } from '../../src/theme/tokens';
+import { getDateService } from '../../lib/date';
 import type { Note } from '../../lib/types';
 
 /* ─── helpers ─────────────────────────────────────────────────── */
@@ -15,7 +16,7 @@ function formatTime12h(time24: string): string {
 }
 
 function getMinutesUntil(eventTime: string): number {
-  const now = new Date();
+  const now = getDateService().now();
   const [h, m] = eventTime.split(':').map(Number);
   const eventMinutes = h * 60 + m;
   const nowMinutes = now.getHours() * 60 + now.getMinutes();

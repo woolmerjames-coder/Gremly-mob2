@@ -9,6 +9,7 @@ import React from 'react';
 import { Text, StyleSheet, Pressable } from 'react-native';
 import { Calendar, ChevronRight } from 'lucide-react-native';
 import { format, differenceInDays, parseISO } from 'date-fns';
+import { getDateService } from '../../lib/date';
 import { useSpaceById } from '../../lib/store/selectors';
 import type { Note } from '../../lib/types';
 
@@ -51,7 +52,7 @@ export function EventRow({ event, onPress, isFirst: _isFirst = false }: EventRow
   const space = useSpaceById(event.space_id || '');
 
   // Get today's date for multi-day calculation
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const today = format(getDateService().now(), 'yyyy-MM-dd');
 
   // Format time if present
   const timeDisplay = event.event_time ? formatTime(event.event_time) : null;

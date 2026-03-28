@@ -17,7 +17,6 @@ import type { HabitProgressRow } from '../../../lib/store/useGremlyStore';
 jest.mock('../../../lib/date', () => ({
   getDateService: jest.fn(() => ({
     today: jest.fn(() => '2025-01-15'),
-    getCurrentDate: jest.fn(() => '2025-01-15'),
     addDays: jest.fn((date: string, days: number) => {
       const d = new Date(date);
       d.setDate(d.getDate() + days);
@@ -28,8 +27,8 @@ jest.mock('../../../lib/date', () => ({
       const toDate = new Date(to);
       return Math.floor((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24));
     }),
-    fromDateString: jest.fn((dateStr: string) => new Date(dateStr)),
-    toDateString: jest.fn((date: Date) => date.toISOString().split('T')[0]),
+    fromLocalDate: jest.fn((dateStr: string) => new Date(dateStr)),
+    toLocalDate: jest.fn((date: Date) => date.toISOString().split('T')[0]),
   })),
 }));
 

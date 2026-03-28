@@ -94,7 +94,7 @@ function formatTime(time24: string): string {
  */
 function formatCountdown(targetDate: string, isPastDate: boolean): string {
   const date = parseISO(targetDate);
-  const today = new Date();
+  const today = getDateService().now();
   today.setHours(0, 0, 0, 0);
 
   const days = Math.abs(differenceInDays(date, today));
@@ -144,7 +144,7 @@ export function KeyDatesModal({
   // UI state
   const [showPast, setShowPast] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(getDateService().now());
   const [newEventTitle, setNewEventTitle] = useState('');
   const [showTitleInput, setShowTitleInput] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -228,8 +228,8 @@ export function KeyDatesModal({
 
         // Get date context for Phase 2
         const ds = getDateService();
-        const currentDate = ds.getCurrentDate();
-        const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+        const currentDate = ds.today();
+        const dayOfWeek = ds.getDayOfWeek();
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
         console.log('[KeyDatesModal] Running Phase 1.5a + Phase 2 in parallel');
@@ -448,7 +448,7 @@ export function KeyDatesModal({
               mode="date"
               display="inline"
               onChange={handleDateChange}
-              minimumDate={new Date()}
+              minimumDate={getDateService().now()}
               style={styles.datePicker}
             />
           </View>

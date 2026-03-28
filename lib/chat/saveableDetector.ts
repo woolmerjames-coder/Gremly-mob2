@@ -29,6 +29,7 @@ import {
 } from './saveableTypes';
 import { detectFrequency } from './frequencyDetector';
 import { ConversationMode } from './conversationMode';
+import { getDateService, nowTimestamp } from '../date/DateService';
 
 // Re-export for convenience
 export { createNotSaveableResult as createEmptySaveableResult };
@@ -128,7 +129,7 @@ export function resolveRelativeDate(indicator: string | undefined): string | und
   if (!indicator) return undefined;
 
   const normalized = indicator.toLowerCase().trim();
-  const today = new Date();
+  const today = getDateService().now();
   today.setHours(0, 0, 0, 0);
 
   // Helper to format date as YYYY-MM-DD
@@ -307,7 +308,7 @@ export function parseDetectionResponse(
       suggestedType,
       prefill,
       reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : undefined,
-      detectedAt: new Date().toISOString(),
+      detectedAt: nowTimestamp(),
       messageId,
     };
   } catch (error) {
@@ -414,7 +415,7 @@ export async function detectSaveable(input: SaveableDetectionInput): Promise<Sav
   const { assistantMessage, userMessage, conversationContext, recentMessages } = input;
 
   // Generate a message ID if not tracking externally
-  const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  const messageId = `msg_${getDateService().now().getTime()}_${Math.random().toString(36).slice(2, 9)}`;
 
   log('DETECT_START', {
     assistantLength: assistantMessage.length,

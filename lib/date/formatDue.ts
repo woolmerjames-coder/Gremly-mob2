@@ -39,7 +39,7 @@ export function formatDue(optionsOrDueIso?: FormatDueOptions | string | null): s
   if (typeof optionsOrDueIso === 'string') {
     // Legacy: passed a string directly - extract date portion only
     // No time extraction to avoid timezone bugs
-    dueDay = dateService.extractDateFromIso(optionsOrDueIso);
+    dueDay = dateService.extractLocalDate(optionsOrDueIso);
   } else if (optionsOrDueIso && typeof optionsOrDueIso === 'object') {
     // New: passed options object - prefer dueDay
     dueDay = optionsOrDueIso.dueDay;
@@ -47,7 +47,7 @@ export function formatDue(optionsOrDueIso?: FormatDueOptions | string | null): s
 
     // Fallback to dueIso for date if dueDay not provided
     if (!dueDay && optionsOrDueIso.dueIso) {
-      dueDay = dateService.extractDateFromIso(optionsOrDueIso.dueIso);
+      dueDay = dateService.extractLocalDate(optionsOrDueIso.dueIso);
     }
   }
 

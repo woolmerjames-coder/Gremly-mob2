@@ -6,6 +6,8 @@
  * All output is single-line JSON.
  */
 
+import { nowTimestamp } from '../../lib/date/DateService';
+
 type LogMeta = Record<string, unknown>;
 
 /**
@@ -63,7 +65,7 @@ class TestLogger {
       case: caseName,
       event: 'TEST_CASE_START',
       ...meta,
-      ts: new Date().toISOString(),
+      ts: nowTimestamp(),
     };
     console.log(`[TEST] ${safeStringify(payload)}`);
   }
@@ -80,7 +82,7 @@ class TestLogger {
       event: 'TEST_STEP',
       step,
       ...meta,
-      ts: new Date().toISOString(),
+      ts: nowTimestamp(),
     };
     console.log(`[TEST] ${safeStringify(payload)}`);
   }
@@ -98,7 +100,7 @@ class TestLogger {
       assert: name,
       ok,
       ...meta,
-      ts: new Date().toISOString(),
+      ts: nowTimestamp(),
     };
     console.log(`[TEST] ${safeStringify(payload)}`);
   }
@@ -117,7 +119,7 @@ class TestLogger {
       entityId,
       present,
       ...meta,
-      ts: new Date().toISOString(),
+      ts: nowTimestamp(),
     };
     console.log(`[TEST] ${safeStringify(payload)}`);
   }
@@ -134,7 +136,7 @@ class TestLogger {
       event: 'TEST_CASE_END',
       ok,
       ...meta,
-      ts: new Date().toISOString(),
+      ts: nowTimestamp(),
     };
     console.log(`[TEST] ${safeStringify(payload)}`);
     this.currentCase = null;

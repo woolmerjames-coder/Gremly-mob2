@@ -53,7 +53,7 @@ import type { Space, SpaceChat, AppRecord, RecordType, Note } from '../../lib/ty
 import { lightTokens, darkTokens } from '../../design/tokens';
 import { startOfWeek, formatISO, addDays, format, parseISO } from 'date-fns';
 import { getDateService } from '../../lib/date';
-import { dateService } from '../../lib/date/DateService';
+import { dateService, nowTimestamp } from '../../lib/date/DateService';
 
 // Components
 import { SpaceBanner } from '../../components/spaces/SpaceBanner';
@@ -156,15 +156,15 @@ const FILTER_OPTIONS: { key: FilterTab; label: string }[] = [
 function formatRelativeDate(dateString?: string | null): string {
   if (!dateString) return '';
   try {
+    const ds = getDateService();
     const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const dateDay = ds.toLocalDate(date);
+    const diffDays = ds.daysBetween(dateDay, ds.today());
     if (diffDays === 0) return 'Today';
     if (diffDays === 1) return 'Yesterday';
     if (diffDays < 7) return `${diffDays} days ago`;
     if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-    return date.toLocaleDateString();
+    return ds.formatForChip(dateDay);
   } catch {
     return '';
   }
@@ -174,15 +174,14 @@ function formatRelativeDate(dateString?: string | null): string {
 function formatDueDate(dueDate?: string | null): string {
   if (!dueDate) return 'No due date';
   try {
+    const ds = getDateService();
     const date = new Date(dueDate);
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dueDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const diffDays = Math.floor((dueDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const dueDay = ds.toLocalDate(date);
+    const diffDays = ds.daysBetween(ds.today(), dueDay);
     if (diffDays < 0) return 'Overdue';
     if (diffDays === 0) return 'Due today';
     if (diffDays === 1) return 'Due tomorrow';
-    return `Due ${date.toLocaleDateString()}`;
+    return `Due ${ds.formatForChip(dueDay)}`;
   } catch {
     return 'No due date';
   }
@@ -368,7 +367,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // Compute weekly habit progress from store items + timeline data
   const weekly = useMemo(() => {
-    const start = startOfWeek(new Date());
+    const start = startOfWeek(getDateService().now());
     const weekDates = Array.from({ length: 7 }, (_v, i) => addDays(start, i));
     const weekISO = dateService.toLocalDate(start);
 
@@ -619,8 +618,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       const isAnimating = animatingTodoIdsRef.current.has(todo.id);
       return {
         ...todo,
-        completed_at:
-          isCompleted && !isAnimating ? todo.completed_at || new Date().toISOString() : null,
+        completed_at: isCompleted && !isAnimating ? todo.completed_at || nowTimestamp() : null,
         _isAnimatingOut: isAnimating && isCompleted, // Pass flag for styling
       };
     });
@@ -641,7 +639,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       .filter((todo: any) => localCompletedIdsRef.current.has(todo.id))
       .map((todo: any) => ({
         ...todo,
-        completed_at: new Date().toISOString(),
+        completed_at: nowTimestamp(),
       }));
 
     // Check if any completed todos were optimistically uncompleted
@@ -1094,7 +1092,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       return Math.max(acc, ts);
     }, 0);
     const lastTs = Math.max(lastChatTs, lastItemTs);
-    const daysSince = lastTs ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24)) : 999;
+    const daysSince = lastTs
+      ? getDateService().daysBetween(
+          getDateService().toLocalDate(new Date(lastTs)),
+          getDateService().today(),
+        )
+      : 999;
     if (daysSince >= 7)
       return { tone: 'low' as const, text: 'It’s been quiet — want to revisit your goals?' };
     const todayISO = dateService.today();
@@ -1114,7 +1117,12 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
       return Math.max(acc, ts);
     }, 0);
     const lastTs = Math.max(lastChatTs, lastItemTs);
-    const daysSince = lastTs ? Math.floor((Date.now() - lastTs) / (1000 * 60 * 60 * 24)) : 999;
+    const daysSince = lastTs
+      ? getDateService().daysBetween(
+          getDateService().toLocalDate(new Date(lastTs)),
+          getDateService().today(),
+        )
+      : 999;
 
     if (daysSince >= 7) return 'low';
 
@@ -1129,7 +1137,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
 
   // v33: Compute daily witty line
   const v33WittyLine = React.useMemo(() => {
-    const dailySeed = getDateService().getCurrentDate();
+    const dailySeed = getDateService().today();
     return getWittyLine(space?.name ?? 'Space', v33Mood, dailySeed);
   }, [space?.name, v33Mood]);
 
@@ -1158,7 +1166,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         const until = await AsyncStorage.getItem(key);
         if (until) {
           const ts = new Date(until).getTime();
-          if (!isNaN(ts) && ts > Date.now()) setFocusDismissed(true);
+          if (!isNaN(ts) && ts > getDateService().now().getTime()) setFocusDismissed(true);
         }
       } catch {
         /* ignore */
@@ -1261,7 +1269,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
     if (spaceWithInsight?.last_summary) {
       setSpaceInsight({
         summary: spaceWithInsight.last_summary,
-        summary_at: spaceWithInsight.last_summary_at || new Date().toISOString(),
+        summary_at: spaceWithInsight.last_summary_at || nowTimestamp(),
         tokens: spaceWithInsight.last_summary_tokens || 0,
       });
     } else {
@@ -2614,11 +2622,9 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
                             ? stripMarkdown(aiSummaries[c.id] || c.last_message_snippet || '')
                             : getRelativeTime(c.updated_at)
                         }
-                        lastActive={new Date(c.updated_at).toLocaleDateString(undefined, {
-                          weekday: 'short',
-                          month: 'short',
-                          day: 'numeric',
-                        })}
+                        lastActive={getDateService().formatForChip(
+                          getDateService().extractLocalDate(c.updated_at),
+                        )}
                         onOpen={() => handleChatPress(c.id)}
                         onMenu={() => {}}
                         onArchive={async () => {
@@ -2950,7 +2956,7 @@ function computeLastTimeText(items: AppRecord[], chats: SpaceChat[]): string {
   const lastTs = Math.max(lastChatTs, lastItemTs);
   if (!lastTs) return 'Last time you were here, we set things up. Ready to explore?';
   const d = new Date(lastTs);
-  return `Last time you were here on ${d.toLocaleDateString()}.`;
+  return `Last time you were here on ${getDateService().formatForChip(getDateService().toLocalDate(d))}.`;
 }
 
 // Build concise one-line summary
@@ -2983,18 +2989,18 @@ function buildLastVisitedLabel(items: AppRecord[], chats: SpaceChat[]): string {
   const lastTs = Math.max(lastChatTs, lastItemTs);
   if (!lastTs) return 'Welcome — new space';
   const d = new Date(lastTs);
-  const today = new Date();
+  const today = getDateService().now();
   const sameDay =
     d.getFullYear() === today.getFullYear() &&
     d.getMonth() === today.getMonth() &&
     d.getDate() === today.getDate();
   if (sameDay) return 'Last visited today';
-  return `Last visited ${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`;
+  return `Last visited ${getDateService().formatForChip(getDateService().toLocalDate(d))}`;
 }
 
 // v22 helpers
 function buildMockWeek(selectedISO: string) {
-  const start = startOfWeek(new Date());
+  const start = startOfWeek(getDateService().now());
   const todayISO = dateService.today();
   return Array.from({ length: 7 }, (_, i) => {
     const d = addDays(start, i);
@@ -3023,12 +3029,8 @@ function buildCalendarDays(items: AppRecord[]): Array<{
   hasNotes?: boolean;
   hasHabits?: boolean;
 }> {
-  const start = startOfWeek(new Date());
+  const start = startOfWeek(getDateService().now());
   const days = Array.from({ length: 7 }, (_v, i) => addDays(start, i));
-  const isSameDay = (a: Date, b: Date) =>
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate();
 
   return days.map((d) => {
     const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

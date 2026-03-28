@@ -29,6 +29,7 @@ import {
 } from '../../store/selectors';
 import type { SweepCandidate } from '../sweepSelectors';
 import { getTodayDayString, computeDueDay } from '../../date/computeDueDay';
+import { nowTimestamp } from '../../date/DateService';
 import { probeMembership } from '../../config/surfaceProbe';
 import type { Todo, Habit } from '../../types';
 
@@ -192,7 +193,7 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
       id: item.id,
       type: 'target_count' in item ? ('habit' as const) : ('todo' as const),
       name: (item as any).name || (item as any).title || '',
-      completedAt: (item as any).completed_at || new Date().toISOString(),
+      completedAt: (item as any).completed_at || nowTimestamp(),
     }));
 
     // Count new optimistic completions (not yet persisted)
@@ -207,7 +208,7 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
             id: item.id,
             type: 'todo',
             name: item.name,
-            completedAt: new Date().toISOString(),
+            completedAt: nowTimestamp(),
           });
           optimisticCount++;
         }
@@ -225,7 +226,7 @@ function useTodayStatsInternal(options: UseTodayStatsOptions = {}): TodayStats {
             id: item.id,
             type: 'habit',
             name: item.name,
-            completedAt: new Date().toISOString(),
+            completedAt: nowTimestamp(),
           });
           optimisticCount++;
         }

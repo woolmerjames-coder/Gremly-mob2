@@ -40,6 +40,7 @@ import type { Milestone } from '../schemas';
 import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
+import { nowTimestamp } from '../date/DateService';
 import celebrationController from '../../app/features/celebration/CelebrationController';
 import {
   calendarClient,
@@ -63,14 +64,14 @@ import type { TimeBlockPreferences } from '../capacity';
  *    drop/sweep counts, fed status, age-up, feeding history, day rollover.
  *    Accounts for dayBoundaryHour (e.g., 3 AM boundary means 2 AM is still "yesterday").
  *
- * 2. getDateService().getCurrentDate()
+ * 2. getDateService().today()
  *    Use for: calendar display, due dates, scheduled dates, commitment dates,
  *    daily brief date, UI highlights, "what's on my plate today."
  *    Returns the actual calendar date in device local time.
  *
  * Rule of thumb: if the function reads/writes daily_ritual_progress or
  * cortex_preferences.fed_days_count, use getRitualDay. Everything else
- * uses getCurrentDate.
+ * uses today().
  *
  * NEVER use new Date() or Date.now() for day-level logic. Only for timestamps.
  */
@@ -87,7 +88,7 @@ let eventBusUnsubscribe: (() => void) | null = null;
  */
 export function isHabitLockedIn(habit: Habit): boolean {
   if (!habit.commitment_until) return false;
-  const today = getDateService().getCurrentDate();
+  const today = getDateService().today();
   return habit.commitment_until >= today;
 }
 
@@ -116,7 +117,7 @@ async function loadHiddenEventsFromStorage(): Promise<Record<string, string[]>> 
     const parsed = JSON.parse(stored) as Record<string, string[]>;
 
     // Clean up old dates (only keep today and future)
-    const today = getDateService().getCurrentDate();
+    const today = getDateService().today();
     const cleaned: Record<string, string[]> = {};
     for (const [date, ids] of Object.entries(parsed)) {
       if (date >= today) {
@@ -155,7 +156,7 @@ async function loadHiddenTodayFromStorage(): Promise<HiddenTodayData | null> {
     if (!stored) return null;
 
     const parsed = JSON.parse(stored) as HiddenTodayData;
-    const today = getDateService().getCurrentDate();
+    const today = getDateService().today();
 
     // Only return if the date matches today (auto-reset for new day)
     if (parsed.date === today) {
@@ -365,6 +366,7 @@ export interface PendingDrop {
     | 'classified'
     | 'enriching'
     | 'enriched'
+    | 'enrichment_failed'
     | 'syncing'
     | 'synced'
     | 'failed';
@@ -450,7 +452,13 @@ export interface PendingDrop {
   // ═══════════════════════════════════════════════════════════════════
 
   /** Visual stage for animations - set by Phase 1.5a to trigger typewriter */
-  minddrop_stage?: 'pending' | 'classifying' | 'streaming' | 'enriching' | 'enriched';
+  minddrop_stage?:
+    | 'pending'
+    | 'classifying'
+    | 'streaming'
+    | 'enriching'
+    | 'enriched'
+    | 'enrichment_failed';
 
   /** True if this drop was captured while offline. Used for UI messaging. */
   _offlineCapture?: boolean;
@@ -478,6 +486,12 @@ interface GremlyState {
   habitProgress: HabitProgressRow[];
   spaceChats: SpaceChat[];
   spaceChatMessages: SpaceChatMessage[];
+  generalChats: SpaceChat[];
+  activeGeneralChatId: string | null;
+  generalChatExtractions: any[];
+  generalChatDismissals: string[];
+  generalChatAutoTitle: string | null;
+  generalChatRunningSummary: string | null;
   milestones: Milestone[];
   pendingDrops: Map<string, PendingDrop>;
 
@@ -604,7 +618,6 @@ interface GremlyState {
   ensureCurrentRitualDay: () => string;
   incrementDropCount: () => Promise<{ dropsCount: number; didAgeUp: boolean; newAge: number }>;
   incrementSweepCount: () => Promise<{ sweepsCount: number; didAgeUp: boolean; newAge: number }>;
-  checkAndIncrementAge: () => Promise<{ didAgeUp: boolean; newAge: number }>;
   markAgeCelebrationShown: () => void;
   setDayBoundaryHour: (hour: number) => Promise<void>;
   setOnboardingCompletedAt: (timestamp: string) => Promise<void>;
@@ -632,12 +645,6 @@ interface GremlyState {
     source: string,
     value: number,
   ) => Promise<{ newValue: number; justFed: boolean }>;
-  markFedToday: () => Promise<{
-    fedDaysCount: number;
-    didAgeUp: boolean;
-    newAge: number;
-    newTier: string;
-  }>;
   completeSweepSession: (cardsProcessed: number, didJournal: boolean) => Promise<void>;
   completeMorningBrief: () => Promise<void>;
   commitLockInItems: (count: number) => Promise<void>;
@@ -730,6 +737,12 @@ interface GremlyState {
   syncSpaceChat: (chat: SpaceChat) => void; // Sync chat from external source (no Supabase write)
   archiveSpaceChat: (chatId: string) => Promise<void>;
   deleteSpaceChat: (chatId: string) => Promise<void>;
+  createGeneralChat: (title?: string) => Promise<SpaceChat | null>;
+  fetchGeneralChats: () => Promise<void>;
+  setActiveGeneralChat: (chatId: string | null) => void;
+  updateGeneralChatExtractions: (chatId: string) => Promise<void>;
+  dismissExtraction: (chatId: string, extractionId: string) => Promise<void>;
+  markExtractionsSaved: (chatId: string, extractionIds: string[]) => Promise<void>;
   addChatMessage: (
     message: Omit<SpaceChatMessage, 'id' | 'created_at'>,
   ) => Promise<SpaceChatMessage | null>;
@@ -973,7 +986,7 @@ interface GremlyState {
   /** Date the user last completed the brief (for re-entry detection) */
   briefCompletedToday: string | null;
   setBriefCompletedToday: (date: string | null) => void;
-  /** Reactive current date — updated by useDayRollover hook. Components should read this instead of calling getDateService().getCurrentDate() */
+  /** Reactive current date — updated by useDayRollover hook. Components should read this instead of calling getDateService().today() */
   currentDate: string;
 
   // Calendar actions
@@ -1055,6 +1068,12 @@ const initialState = {
   habitProgress: [] as HabitProgressRow[],
   spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
+  generalChats: [] as SpaceChat[],
+  activeGeneralChatId: null as string | null,
+  generalChatExtractions: [] as any[],
+  generalChatDismissals: [] as string[],
+  generalChatAutoTitle: null as string | null,
+  generalChatRunningSummary: null as string | null,
   milestones: [] as Milestone[],
   // Space suggestions
   spaceSuggestions: [] as SpaceSuggestion[],
@@ -1147,7 +1166,7 @@ const initialState = {
   briefSelectionDate: null as string | null,
   parkedForDay: [] as string[],
   briefCompletedToday: null as string | null,
-  currentDate: getDateService().getCurrentDate(),
+  currentDate: getDateService().today(),
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1246,7 +1265,7 @@ export const useGremlyStore = create<GremlyState>()(
                 .from('daily_briefs')
                 .select('*')
                 .eq('owner_id', userId)
-                .eq('date', getDateService().getCurrentDate())
+                .eq('date', getDateService().today())
                 .maybeSingle(),
               // Sweep preferences + Gremly age + training + feeding from cortex_preferences
               supabase
@@ -1334,7 +1353,7 @@ export const useGremlyStore = create<GremlyState>()(
             // If user has activity but no onboarding timestamp, they're an existing user - auto-complete onboarding
             let effectiveOnboardingCompleted = onboardingCompleted;
             if (hasExistingActivity && !onboardingCompleted) {
-              effectiveOnboardingCompleted = new Date().toISOString();
+              effectiveOnboardingCompleted = nowTimestamp();
               // Fire and forget - update DB in background
               supabase
                 .from('cortex_preferences')
@@ -1342,7 +1361,7 @@ export const useGremlyStore = create<GremlyState>()(
                   {
                     owner_id: userId,
                     onboarding_completed_at: effectiveOnboardingCompleted,
-                    updated_at: new Date().toISOString(),
+                    updated_at: nowTimestamp(),
                   },
                   { onConflict: 'owner_id' },
                 )
@@ -1434,7 +1453,7 @@ export const useGremlyStore = create<GremlyState>()(
               userTimezone: timezone,
               isLoading: false,
               isInitialized: true,
-              lastSyncedAt: new Date(),
+              lastSyncedAt: getDateService().now(),
             });
 
             // Populate training progress from cumulative data
@@ -1459,7 +1478,7 @@ export const useGremlyStore = create<GremlyState>()(
               }
               supabase
                 .from('notification_preferences')
-                .update({ timezone: detectedTimezone, updated_at: new Date().toISOString() })
+                .update({ timezone: detectedTimezone, updated_at: nowTimestamp() })
                 .eq('user_id', userId)
                 .then(({ error }) => {
                   if (error) {
@@ -1630,7 +1649,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Update in Supabase
           const { error } = await supabase
@@ -1698,7 +1717,7 @@ export const useGremlyStore = create<GremlyState>()(
                   .from('cortex_preferences')
                   .update({
                     unfed_streak_days: currentStreak,
-                    updated_at: new Date().toISOString(),
+                    updated_at: nowTimestamp(),
                   })
                   .eq('owner_id', userId)
                   .then(({ error }) => {
@@ -1854,101 +1873,28 @@ export const useGremlyStore = create<GremlyState>()(
           return { sweepsCount: newSweepsCount, didAgeUp: false, newAge: get().gremlyAge };
         },
 
-        /**
-         * @deprecated Replaced by feeding gauge age-up system (Soul Document v8).
-         * Age-ups now flow through: addGaugeContribution → markFedToday → check_and_age_up_v2.
-         * This function is preserved for backward compatibility but is no longer called.
-         */
-        checkAndIncrementAge: async () => {
-          const { userId, dayBoundaryHour, todayRitualCompletedAt, todayRitualDay } = get();
-          if (!userId) return { didAgeUp: false, newAge: get().gremlyAge };
-
-          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
-
-          // Defensive check: if ritual was completed for a different day, it doesn't count for today
-          if (todayRitualCompletedAt && todayRitualDay !== currentRitualDay) {
-            console.log(
-              '[GremlyStore] checkAndIncrementAge: Stale ritual completion detected, clearing',
-            );
-            set({ todayRitualCompletedAt: null });
-            // Continue to check RPC - don't return early
-          } else if (todayRitualCompletedAt) {
-            // Already completed today (and day matches)
-            return { didAgeUp: false, newAge: get().gremlyAge };
-          }
-
-          const { data, error } = await supabase.rpc('check_and_increment_gremly_age', {
-            p_owner_id: userId,
-            p_ritual_day: currentRitualDay,
-          });
-
-          if (error) {
-            console.error('[GremlyStore] checkAndIncrementAge failed:', error);
-            return { didAgeUp: false, newAge: get().gremlyAge };
-          }
-
-          const result = data?.[0] ?? { did_age_up: false, new_age: get().gremlyAge };
-
-          if (result.did_age_up) {
-            // Check if celebration should show (hasn't been shown today)
-            const shouldShowCelebration = !get().todayAgeCelebrationShownAt;
-
-            // Capture old age BEFORE set() call for tier transition detection
-            const previousAge = get().gremlyAge;
-
-            set({
-              gremlyAge: result.new_age,
-              gremlyAgeLastIncrementedAt: new Date().toISOString(),
-              todayRitualCompletedAt: new Date().toISOString(),
-              // Mark celebration as shown in the same atomic update
-              ...(shouldShowCelebration && {
-                todayAgeCelebrationShownAt: new Date().toISOString(),
-              }),
-            });
-
-            // Detect tier transition using captured previous age
-            const oldTier = getTierForAge(previousAge);
-            const newTier = getTierForAge(result.new_age);
-            const isTierTransition = oldTier.name !== newTier.name;
-
-            // Trigger celebration via controller (App.tsx will render the modal)
-            if (shouldShowCelebration) {
-              celebrationController.showAgeUpCelebration(result.new_age, {
-                tierName: newTier.name,
-                isTierTransition,
-                previousTierName: isTierTransition ? oldTier.name : undefined,
-              });
-            }
-
-            console.log('[GremlyStore] Gremly aged up to', result.new_age);
-            return { didAgeUp: true, newAge: result.new_age };
-          }
-
-          return { didAgeUp: result.did_age_up, newAge: result.new_age };
-        },
-
         markAgeCelebrationShown: () => {
-          set({ todayAgeCelebrationShownAt: new Date().toISOString() });
+          set({ todayAgeCelebrationShownAt: nowTimestamp() });
         },
 
         setDayBoundaryHour: async (hour: number) => {
           const userId = get().userId;
           if (!userId) return;
 
+          // Local-first: update DateService + Zustand before Supabase (offline-safe)
+          getDateService().setDayBoundaryHour(hour);
+          set({ dayBoundaryHour: hour });
+
           const { error } = await supabase
             .from('cortex_preferences')
             .upsert(
-              { owner_id: userId, day_boundary_hour: hour, updated_at: new Date().toISOString() },
+              { owner_id: userId, day_boundary_hour: hour, updated_at: nowTimestamp() },
               { onConflict: 'owner_id' },
             );
 
           if (error) {
             console.error('[GremlyStore] setDayBoundaryHour failed:', error);
-            return;
           }
-
-          set({ dayBoundaryHour: hour });
 
           // Refresh ritual progress since the day boundary changed
           await get().refreshRitualProgress();
@@ -1962,7 +1908,7 @@ export const useGremlyStore = create<GremlyState>()(
             {
               owner_id: userId,
               onboarding_completed_at: timestamp,
-              updated_at: new Date().toISOString(),
+              updated_at: nowTimestamp(),
             },
             { onConflict: 'owner_id' },
           );
@@ -1982,7 +1928,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           const { error } = await supabase
             .from('cortex_preferences')
@@ -2007,7 +1953,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           set({ trainingStartedAt: now });
 
           const { error } = await supabase
@@ -2026,7 +1972,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           const { error } = await supabase
             .from('cortex_preferences')
@@ -2048,7 +1994,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Set local state first — don't block UX on DB write
           set({ demoSweepCompletedAt: now });
@@ -2081,7 +2027,7 @@ export const useGremlyStore = create<GremlyState>()(
           // Don't overwrite if already set
           if (get().firstTodayVisitCompletedAt) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           const { error } = await supabase
             .from('cortex_preferences')
@@ -2109,173 +2055,121 @@ export const useGremlyStore = create<GremlyState>()(
 
           const currentRitualDay = get().ensureCurrentRitualDay();
 
-          // Training mode: 1.5x gauge multiplier (Training Challenge spec Section 8)
+          // Training mode: 1.25x gauge multiplier
           const multiplier = get().isTrainingMode ? 1.25 : 1.0;
           const adjustedValue = value * multiplier;
-          console.log('[GremlyStore] addGaugeContribution', {
-            source,
-            value,
-            multiplier,
-            adjustedValue,
-            userId,
-            currentRitualDay,
-          });
+
+          if (__DEV__) {
+            console.log('[GremlyStore] addGaugeContribution', {
+              source,
+              value,
+              multiplier,
+              adjustedValue,
+              userId,
+              currentRitualDay,
+            });
+          }
 
           try {
-            const { data, error } = await supabase.rpc('update_feeding_gauge', {
+            // ONE atomic RPC: gauge update + fed detection + age-up
+            // No client-side orchestration. No race conditions.
+            const { data, error } = await supabase.rpc('update_gauge_atomic', {
               p_owner_id: userId,
               p_ritual_day: currentRitualDay,
               p_source: source,
               p_value: adjustedValue,
             });
 
-            console.log('[GremlyStore] update_feeding_gauge result', {
-              data: JSON.stringify(data),
-              error: error ? JSON.stringify(error) : null,
-            });
-
             if (error) {
-              console.error('[GremlyStore] update_feeding_gauge RPC failed:', error);
+              console.error('[GremlyStore] update_gauge_atomic RPC failed:', error);
               return { newValue: get().feedingGaugeValue, justFed: false };
             }
 
             const row = data?.[0];
-            const newGaugeValue: number = row?.new_gauge_value ?? get().feedingGaugeValue;
-            const newIsFed: boolean = row?.new_is_fed ?? false;
+            if (!row) {
+              console.error('[GremlyStore] update_gauge_atomic returned no data');
+              return { newValue: get().feedingGaugeValue, justFed: false };
+            }
+
+            const newGaugeValue: number = row.new_gauge_value ?? get().feedingGaugeValue;
+            const justFed: boolean = row.just_fed ?? false;
+            const newFedDaysCount: number = row.new_fed_days_count ?? get().fedDaysCount;
+            const didAgeUp: boolean = row.did_age_up ?? false;
+            const newAge: number = row.new_age ?? get().gremlyAge;
+            const newTier: string = row.new_tier ?? get().currentTierName;
+
+            if (__DEV__) {
+              console.log('[GremlyStore] update_gauge_atomic result', {
+                source,
+                newGaugeValue,
+                justFed,
+                newFedDaysCount,
+                didAgeUp,
+                newAge,
+                newTier,
+              });
+            }
 
             const contribution: FeedingContribution = {
               source: source as FeedingContribution['source'],
               value: adjustedValue,
-              timestamp: new Date().toISOString(),
+              timestamp: nowTimestamp(),
             };
 
-            const justFed = newIsFed && !get().isFedToday;
-
+            // Update store with ALL server-confirmed values at once
             set({
               feedingGaugeValue: newGaugeValue,
-              isFedToday: newIsFed,
+              isFedToday: row.is_fed ?? false,
               feedingContributions: [...get().feedingContributions, contribution],
-              feedingGaugeLastUpdatedAt: new Date().toISOString(),
+              feedingGaugeLastUpdatedAt: nowTimestamp(),
+              fedDaysCount: newFedDaysCount,
+              ...(didAgeUp
+                ? {
+                    gremlyAge: newAge,
+                    gremlyAgeLastIncrementedAt: nowTimestamp(),
+                    currentTierName: newTier,
+                  }
+                : {}),
             });
 
-            // Decrement pending preview counter (server has confirmed this contribution)
+            // Decrement pending preview counter
             const currentPending = get().pendingGaugePreviews;
             if (currentPending > 0) {
               set({ pendingGaugePreviews: currentPending - 1 });
             }
 
-            if (justFed) {
-              const markResult = await get().markFedToday();
+            // Fed celebration: only fire if the UI hasn't already shown one
+            // (CatchAllNotepad and SweepFlowScreen fire from optimistic preview)
+            if (justFed && !get().todayFedCelebrationShownAt) {
+              set({ todayFedCelebrationShownAt: nowTimestamp() });
+              celebrationController.showFedCelebration(newFedDaysCount);
+            }
 
-              if (!get().todayFedCelebrationShownAt) {
-                set({ todayFedCelebrationShownAt: new Date().toISOString() });
-                console.log('[GremlyStore] Fed celebration should fire here', {
-                  fedDaysCount: markResult.fedDaysCount,
-                });
-              }
+            // Age-up celebration: always fires from here (the store),
+            // since only the server can confirm the age actually changed.
+            if (didAgeUp && !get().todayFeedingAgeUpShownAt) {
+              set({ todayFeedingAgeUpShownAt: nowTimestamp() });
 
-              if (markResult.didAgeUp && !get().todayFeedingAgeUpShownAt) {
-                set({ todayFeedingAgeUpShownAt: new Date().toISOString() });
-                console.log('[GremlyStore] Age-up celebration should fire here', {
-                  newAge: markResult.newAge,
-                  newTier: markResult.newTier,
-                });
-              }
+              const previousAge = newAge - 1;
+              const oldTier = getTierForAge(previousAge);
+              const newTierObj = getTierForAge(newAge);
+              const isTierTransition = oldTier.name !== newTierObj.name;
+
+              celebrationController.showAgeUpCelebration(newAge, {
+                tierName: newTierObj.name,
+                isTierTransition,
+                previousTierName: isTierTransition ? oldTier.name : undefined,
+              });
             }
 
             return { newValue: newGaugeValue, justFed };
           } catch (error) {
             console.error('[GremlyStore] addGaugeContribution CAUGHT', error);
-            // Roll back pending preview on failure
             const currentPendingOnError = get().pendingGaugePreviews;
             if (currentPendingOnError > 0) {
               set({ pendingGaugePreviews: currentPendingOnError - 1 });
             }
             return { newValue: get().feedingGaugeValue, justFed: false };
-          }
-        },
-
-        markFedToday: async () => {
-          const userId = get().userId;
-          if (!userId) {
-            return {
-              fedDaysCount: 0,
-              didAgeUp: false,
-              newAge: get().gremlyAge,
-              newTier: get().currentTierName,
-            };
-          }
-
-          const currentRitualDay = get().ensureCurrentRitualDay();
-
-          try {
-            const { data, error } = await supabase.rpc('mark_fed_today', {
-              p_owner_id: userId,
-              p_ritual_day: currentRitualDay,
-            });
-
-            if (error) {
-              console.error('[GremlyStore] mark_fed_today RPC failed:', error);
-              return {
-                fedDaysCount: get().fedDaysCount,
-                didAgeUp: false,
-                newAge: get().gremlyAge,
-                newTier: get().currentTierName,
-              };
-            }
-
-            const row = data?.[0];
-            const newFedDaysCount: number = row?.new_fed_days_count ?? get().fedDaysCount;
-            const didTriggerAgeUp: boolean = row?.did_trigger_age_up ?? false;
-
-            set({ fedDaysCount: newFedDaysCount });
-
-            if (didTriggerAgeUp) {
-              const { data: ageData, error: ageError } = await supabase.rpc('check_and_age_up_v2', {
-                p_owner_id: userId,
-              });
-
-              if (ageError) {
-                console.error('[GremlyStore] check_and_age_up_v2 RPC failed:', ageError);
-                return {
-                  fedDaysCount: newFedDaysCount,
-                  didAgeUp: false,
-                  newAge: get().gremlyAge,
-                  newTier: get().currentTierName,
-                };
-              }
-
-              const ageRow = ageData?.[0];
-              const didAgeUp: boolean = ageRow?.did_age_up ?? false;
-              const newAge: number = ageRow?.new_age ?? get().gremlyAge;
-              const newTier: string = ageRow?.new_tier ?? get().currentTierName;
-
-              if (didAgeUp) {
-                set({
-                  gremlyAge: newAge,
-                  gremlyAgeLastIncrementedAt: new Date().toISOString(),
-                  currentTierName: newTier,
-                  fedDaysCount: 0,
-                });
-              }
-
-              return { fedDaysCount: 0, didAgeUp, newAge, newTier };
-            }
-
-            return {
-              fedDaysCount: newFedDaysCount,
-              didAgeUp: false,
-              newAge: get().gremlyAge,
-              newTier: get().currentTierName,
-            };
-          } catch (error) {
-            console.error('[GremlyStore] markFedToday failed:', error);
-            return {
-              fedDaysCount: get().fedDaysCount,
-              didAgeUp: false,
-              newAge: get().gremlyAge,
-              newTier: get().currentTierName,
-            };
           }
         },
 
@@ -2368,8 +2262,6 @@ export const useGremlyStore = create<GremlyState>()(
           set({
             feedingGaugeValue: optimisticValue,
             pendingGaugePreviews: pendingGaugePreviews + 1,
-            // Optimistically mark as fed if threshold crossed
-            ...(justCrossedFed && { isFedToday: true }),
           });
 
           if (__DEV__) {
@@ -2399,7 +2291,6 @@ export const useGremlyStore = create<GremlyState>()(
 
           set({
             feedingGaugeValue: optimisticValue,
-            ...(justCrossedFed && { isFedToday: true }),
           });
 
           if (__DEV__) {
@@ -2671,7 +2562,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         finalizeGraduation: async () => {
           const { userId, sockCount } = get();
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const newSockCount = sockCount + 1;
 
           set({
@@ -2711,7 +2602,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const sanitized = sanitizeForSupabase(todo as Record<string, unknown>, 'todo');
           const payload = {
             ...sanitized,
@@ -2748,7 +2639,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateTodo: async (id: string, updates: Partial<Todo>) => {
           const prevTodo = get().todos.find((t) => t.id === id);
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -2813,7 +2704,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         completeTodo: async (id: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const prevTodo = get().todos.find((t) => t.id === id);
 
           // 1. OPTIMISTIC UPDATE
@@ -2871,7 +2762,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         archiveTodo: async (id: string, reason?: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const prevTodo = get().todos.find((t) => t.id === id);
 
           // Cancel any scheduled reminders (fire and forget)
@@ -2954,7 +2845,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Parse frequency into structured fields if not already set
           let habitData = habit;
@@ -3027,7 +2918,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateHabit: async (id: string, updates: Partial<Habit>) => {
           const prevHabit = get().habits.find((h) => h.id === id);
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -3096,12 +2987,12 @@ export const useGremlyStore = create<GremlyState>()(
           if (!userId) throw new Error('Not authenticated');
 
           // Use DateService for consistent local date across the app
-          const todayDate = getDateService().getCurrentDate();
+          const todayDate = getDateService().today();
           // CRITICAL: occurred_at must derive to same date as occurred_day
           // Use noon UTC on the local day to avoid timezone boundary issues
           const occurredAt = `${todayDate}T12:00:00.000Z`;
           // Keep nowIso for last_completed_at (actual timestamp of action)
-          const nowIso = new Date().toISOString();
+          const nowIso = nowTimestamp();
           const prevHabit = get().habits.find((h) => h.id === id);
 
           // 1. OPTIMISTIC UPDATE - update habit's last_completed_at
@@ -3134,7 +3025,7 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Add to local habitProgress array
             const newProgressRow: HabitProgressRow = {
-              id: `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+              id: `temp_${getDateService().now().getTime()}_${Math.random().toString(36).slice(2)}`,
               habit_id: id,
               owner_id: userId,
               occurred_at: occurredAt,
@@ -3213,7 +3104,7 @@ export const useGremlyStore = create<GremlyState>()(
           if (!userId) throw new Error('Not authenticated');
 
           // Use DateService for consistent local date across the app
-          const todayDate = getDateService().getCurrentDate();
+          const todayDate = getDateService().today();
           const prevHabit = get().habits.find((h) => h.id === id);
 
           // 1. OPTIMISTIC UPDATE
@@ -3292,7 +3183,7 @@ export const useGremlyStore = create<GremlyState>()(
          */
         toggleHabitToday: async (id: string) => {
           // Use DateService for consistent local date across the app
-          const todayDate = getDateService().getCurrentDate();
+          const todayDate = getDateService().today();
 
           const isDoneToday = get().habitProgress.some(
             (p) => p.habit_id === id && p.occurred_day === todayDate,
@@ -3317,9 +3208,9 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const occurredDay = getDateService().extractDateFromIso(dateIso) ?? dateIso.split('T')[0];
+          const occurredDay = getDateService().extractLocalDate(dateIso) ?? dateIso.split('T')[0];
           const occurredAt = `${occurredDay}T12:00:00.000Z`; // Use noon UTC on the target day
-          const now = new Date().toISOString(); // For last_checked_in_at only
+          const now = nowTimestamp(); // For last_checked_in_at only
 
           // Check if already completed for this date
           const existing = get().habitProgress.find(
@@ -3334,7 +3225,7 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           // 1. OPTIMISTIC UPDATE - add to habitProgress immediately
-          const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          const tempId = `temp_${getDateService().now().getTime()}_${Math.random().toString(36).slice(2)}`;
           const newProgressRow: HabitProgressRow = {
             id: tempId,
             habit_id: habitId,
@@ -3386,7 +3277,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const occurredDay = getDateService().extractDateFromIso(dateIso) ?? dateIso.split('T')[0];
+          const occurredDay = getDateService().extractLocalDate(dateIso) ?? dateIso.split('T')[0];
 
           // Find the record to remove
           const toRemove = get().habitProgress.find(
@@ -3432,7 +3323,7 @@ export const useGremlyStore = create<GremlyState>()(
          * Used when opening habit details or manually checking in.
          */
         checkInHabit: async (habitId: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Update local state immediately
           set((state) => ({
@@ -3457,7 +3348,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         archiveHabit: async (id: string, reason?: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const prevHabit = get().habits.find((h) => h.id === id);
 
           // Cancel any scheduled reminders (fire and forget)
@@ -3535,7 +3426,7 @@ export const useGremlyStore = create<GremlyState>()(
           // Extract photoUris before sanitizing (not a DB field)
           const { photoUris, ...noteData } = note;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const sanitized = sanitizeForSupabase(noteData as Record<string, unknown>, 'note');
           const payload = {
             ...sanitized,
@@ -3586,7 +3477,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateNote: async (id: string, updates: Partial<Note>) => {
           const prevNote = get().notes.find((n) => n.id === id);
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -3650,7 +3541,7 @@ export const useGremlyStore = create<GremlyState>()(
           entityType: 'todo' | 'note' | 'habit',
           linkedEventId: string | null,
         ) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Optimistic update
@@ -3689,7 +3580,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         archiveNote: async (id: string, reason?: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const prevNote = get().notes.find((n) => n.id === id);
 
           // 1. OPTIMISTIC UPDATE
@@ -3759,7 +3650,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const payload = {
             ...space,
             owner_id: userId,
@@ -3797,7 +3688,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateSpace: async (id: string, updates: Partial<Space>) => {
           const prevSpace = get().spaces.find((s) => s.id === id);
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // 1. OPTIMISTIC UPDATE
           set((state) => ({
@@ -3894,7 +3785,7 @@ export const useGremlyStore = create<GremlyState>()(
           const suggestion = get().spaceSuggestions.find((s) => s.id === suggestionId);
           if (!suggestion) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // 1. OPTIMISTIC UPDATE - remove from local state
           set((state) => ({
@@ -3921,7 +3812,7 @@ export const useGremlyStore = create<GremlyState>()(
           const suggestion = get().spaceSuggestions.find((s) => s.id === suggestionId);
           if (!suggestion) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // 1. OPTIMISTIC UPDATE - remove from local state
           set((state) => ({
@@ -3945,7 +3836,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         assignDropsToSpace: async (dropIds: string[], spaceId: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Build previous state for rollback
@@ -4021,11 +3912,126 @@ export const useGremlyStore = create<GremlyState>()(
         // SPACE CHAT MUTATIONS
         // ═══════════════════════════════════════════════════════════════════
 
+        createGeneralChat: async (title?: string) => {
+          const userId = get().userId;
+          if (!userId) return null;
+          const now = nowTimestamp();
+          const newChat: any = {
+            user_id: userId,
+            space_id: null,
+            chat_type: 'general',
+            title: title || 'New conversation',
+            pinned: false,
+            created_at: now,
+            updated_at: now,
+          };
+          const tempId = `temp-${getDateService().now().getTime()}`;
+          const optimistic = { ...newChat, id: tempId } as SpaceChat;
+          set((s) => ({
+            generalChats: [optimistic, ...s.generalChats],
+            activeGeneralChatId: tempId,
+          }));
+          try {
+            const { data, error } = await supabase
+              .from('space_chats')
+              .insert(newChat)
+              .select()
+              .single();
+            if (error) throw error;
+            set((s) => ({
+              generalChats: s.generalChats.map((c) => (c.id === tempId ? data : c)),
+              activeGeneralChatId: data.id,
+            }));
+            return data;
+          } catch (error) {
+            set((s) => ({
+              generalChats: s.generalChats.filter((c) => c.id !== tempId),
+              activeGeneralChatId: null,
+            }));
+            console.error('[GremlyStore] createGeneralChat failed:', error);
+            throw error;
+          }
+        },
+
+        setActiveGeneralChat: (chatId: string | null) => {
+          set({
+            activeGeneralChatId: chatId,
+            generalChatExtractions: [],
+            generalChatDismissals: [],
+            generalChatAutoTitle: null,
+            generalChatRunningSummary: null,
+          });
+        },
+
+        fetchGeneralChats: async () => {
+          const userId = get().userId;
+          if (!userId) return;
+          const { data, error } = await supabase
+            .from('space_chats')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('chat_type', 'general')
+            .is('archived_at', null)
+            .order('updated_at', { ascending: false })
+            .limit(50);
+          if (!error) set({ generalChats: data ?? [] });
+        },
+
+        updateGeneralChatExtractions: async (chatId: string) => {
+          const { data } = await supabase
+            .from('space_chats')
+            .select(
+              'extracted_items, dismissed_extractions, saved_extraction_ids, auto_title, running_summary',
+            )
+            .eq('id', chatId)
+            .single();
+          if (!data) return;
+          const exclude = new Set([
+            ...((data as any).dismissed_extractions || []),
+            ...((data as any).saved_extraction_ids || []),
+          ]);
+          set({
+            generalChatExtractions: ((data as any).extracted_items || []).filter(
+              (e: any) => !exclude.has(e.id),
+            ),
+            generalChatDismissals: (data as any).dismissed_extractions || [],
+            generalChatAutoTitle: (data as any).auto_title || null,
+            generalChatRunningSummary: (data as any).running_summary || null,
+          });
+        },
+
+        dismissExtraction: async (chatId: string, extractionId: string) => {
+          set((s) => ({
+            generalChatExtractions: s.generalChatExtractions.filter(
+              (e: any) => e.id !== extractionId,
+            ),
+            generalChatDismissals: [...s.generalChatDismissals, extractionId],
+          }));
+          await supabase
+            .from('space_chats')
+            .update({ dismissed_extractions: get().generalChatDismissals } as any)
+            .eq('id', chatId);
+        },
+
+        markExtractionsSaved: async (chatId: string, extractionIds: string[]) => {
+          set((s) => ({
+            generalChatExtractions: s.generalChatExtractions.filter(
+              (e: any) => !extractionIds.includes(e.id),
+            ),
+          }));
+          const chat = get().generalChats.find((c) => c.id === chatId) as any;
+          const merged = [...new Set([...(chat?.saved_extraction_ids || []), ...extractionIds])];
+          await supabase
+            .from('space_chats')
+            .update({ saved_extraction_ids: merged } as any)
+            .eq('id', chatId);
+        },
+
         createSpaceChat: async (spaceId: string, title: string) => {
           const userId = get().userId;
           if (!userId) return null;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const newChat: Partial<SpaceChat> = {
             space_id: spaceId,
             user_id: userId,
@@ -4036,7 +4042,7 @@ export const useGremlyStore = create<GremlyState>()(
           };
 
           // Optimistic update with temp ID
-          const tempId = `temp-${Date.now()}`;
+          const tempId = `temp-${getDateService().now().getTime()}`;
           const optimisticChat = { ...newChat, id: tempId } as SpaceChat;
           set((state) => ({ spaceChats: [optimisticChat, ...state.spaceChats] }));
 
@@ -4087,7 +4093,7 @@ export const useGremlyStore = create<GremlyState>()(
           const prev = get().spaceChats.find((c) => c.id === chatId);
           if (!prev) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set((state) => ({
@@ -4122,7 +4128,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         archiveSpaceChat: async (chatId: string) => {
-          await get().updateSpaceChat(chatId, { archived_at: new Date().toISOString() });
+          await get().updateSpaceChat(chatId, { archived_at: nowTimestamp() });
         },
 
         deleteSpaceChat: async (chatId: string) => {
@@ -4156,8 +4162,8 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return null;
 
-          const tempId = `temp-${Date.now()}`;
-          const now = new Date().toISOString();
+          const tempId = `temp-${getDateService().now().getTime()}`;
+          const now = nowTimestamp();
           const optimisticMessage = {
             ...message,
             id: tempId,
@@ -4235,7 +4241,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return null;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const newMilestone = {
             space_id: spaceId,
             owner_id: userId,
@@ -4250,7 +4256,7 @@ export const useGremlyStore = create<GremlyState>()(
             updated_at: now,
           };
 
-          const tempId = `temp-${Date.now()}`;
+          const tempId = `temp-${getDateService().now().getTime()}`;
           set((state) => ({
             milestones: [...state.milestones, { ...newMilestone, id: tempId } as Milestone],
           }));
@@ -4282,7 +4288,7 @@ export const useGremlyStore = create<GremlyState>()(
           const prev = get().milestones.find((m) => m.id === milestoneId);
           if (!prev) return;
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Sync title with name if name is being updated
           const syncedPatch = patch.name ? { ...patch, title: patch.name } : patch;
@@ -4354,7 +4360,7 @@ export const useGremlyStore = create<GremlyState>()(
 
               // 2. Generate unique storage path
               const fileExt = photoUri.split('.').pop() || 'jpg';
-              const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+              const uniqueId = `${getDateService().now().getTime()}-${Math.random().toString(36).substring(7)}`;
               const storagePath = `${userId}/${noteId}/${uniqueId}.${fileExt}`;
 
               // 3. Upload to Supabase storage
@@ -4535,7 +4541,7 @@ export const useGremlyStore = create<GremlyState>()(
             if (userId) {
               supabase
                 .from('cortex_preferences')
-                .update({ unfed_streak_days: currentStreak, updated_at: new Date().toISOString() })
+                .update({ unfed_streak_days: currentStreak, updated_at: nowTimestamp() })
                 .eq('owner_id', userId)
                 .then(({ error }) => {
                   if (error) {
@@ -4570,10 +4576,10 @@ export const useGremlyStore = create<GremlyState>()(
 
         applyOrganizeAssignments: (assignments) => {
           const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
-          const today = getDateService().getCurrentDate();
+          const today = getDateService().today();
           const [year, month, day] = today.split('-').map(Number);
-          const now = new Date();
-          const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+          const now = getDateService().now();
+          const fiveMinAgo = new Date(getDateService().now().getTime() - 5 * 60 * 1000);
 
           // === PHASE 1: Validate all scheduledStartIso values ===
           const validatedAssignments = assignments.map((a) => {
@@ -4766,9 +4772,9 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         slotUnpositionedTasks: () => {
-          const today = getDateService().getCurrentDate();
+          const today = getDateService().today();
           const [year, month, day] = today.split('-').map(Number);
-          const now = new Date();
+          const now = getDateService().now();
           const boundaries = getTimeBlockBoundaries(get().timeBlockPreferences);
 
           // Build occupied ranges from calendar + all currently slotted tasks
@@ -4978,6 +4984,7 @@ export const useGremlyStore = create<GremlyState>()(
               chatsRes,
               milestonesRes,
               weeklySummariesRes,
+              cortexPrefsRes,
             ] = await Promise.all([
               supabase.from('todos').select('*').eq('owner_id', userId),
               supabase.from('habits').select('*').eq('owner_id', userId),
@@ -4997,6 +5004,13 @@ export const useGremlyStore = create<GremlyState>()(
                 .eq('user_id', userId)
                 .order('week_start_date', { ascending: false })
                 .limit(12),
+              supabase
+                .from('cortex_preferences')
+                .select(
+                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open',
+                )
+                .eq('owner_id', userId)
+                .maybeSingle(),
             ]);
 
             set({
@@ -5023,10 +5037,63 @@ export const useGremlyStore = create<GremlyState>()(
               milestones: milestonesRes.data ?? [],
               weeklySummaries: (weeklySummariesRes.data ?? []) as WeeklySummary[],
               isLoading: false,
-              lastSyncedAt: new Date(),
+              lastSyncedAt: getDateService().now(),
             });
 
             console.log('[GremlyStore] ✅ Refreshed from server');
+
+            // Reconcile cortex_preferences (gremly age, fed days, tier, etc.)
+            // These aren't fetched by refreshRitualProgress, so they need
+            // explicit reconciliation from the server.
+            if (cortexPrefsRes.data) {
+              const cp = cortexPrefsRes.data as Record<string, unknown>;
+              set({
+                gremlyAge: (cp.gremly_age as number) ?? get().gremlyAge,
+                gremlyAgeLastIncrementedAt:
+                  (cp.gremly_age_last_incremented_at as string) ?? get().gremlyAgeLastIncrementedAt,
+                fedDaysCount: (cp.fed_days_count as number) ?? get().fedDaysCount,
+                currentTierName: (cp.current_tier as string) ?? get().currentTierName,
+                unfedStreakDays: (cp.unfed_streak_days as number) ?? get().unfedStreakDays,
+                lastFedAt: (cp.last_fed_at as string) ?? get().lastFedAt,
+                sockCount: (cp.sock_count as number) ?? get().sockCount,
+                aiMode: ((cp.ai_mode as string) ?? get().aiMode) as any,
+                isTrainingMode: (cp.is_training_mode as boolean) ?? get().isTrainingMode,
+                trainingStartedAt: (cp.training_started_at as string) ?? get().trainingStartedAt,
+                graduatedAt: (cp.graduated_at as string) ?? get().graduatedAt,
+                lastSweepCompletedAt:
+                  (cp.last_sweep_completed_at as string) ?? get().lastSweepCompletedAt,
+                sweepStreak: (cp.sweep_streak as number) ?? get().sweepStreak,
+                miniSweepLastCompletedAt:
+                  (cp.mini_sweep_last_completed_at as string) ?? get().miniSweepLastCompletedAt,
+                dayBoundaryHour: (cp.day_boundary_hour as number) ?? get().dayBoundaryHour,
+                trainingDropStep: (cp.training_drop_step as number) ?? get().trainingDropStep,
+                hasSeenGaugeExplanation:
+                  (cp.has_seen_gauge_explanation as boolean) ?? get().hasSeenGaugeExplanation,
+                hasSeenFirstFedModal:
+                  (cp.has_seen_first_fed_modal as boolean) ?? get().hasSeenFirstFedModal,
+                hasSeenSweepUnlockModal:
+                  (cp.has_seen_sweep_unlock_modal as boolean) ?? get().hasSeenSweepUnlockModal,
+                hasSeenEntityChatHighlight:
+                  (cp.has_seen_entity_chat_highlight as boolean) ??
+                  get().hasSeenEntityChatHighlight,
+                hasSeenTrainingMeterAutoOpen:
+                  (cp.has_seen_training_meter_auto_open as boolean) ??
+                  get().hasSeenTrainingMeterAutoOpen,
+              });
+
+              if (__DEV__) {
+                console.log('[GremlyStore] Cortex preferences reconciled from server', {
+                  gremlyAge: cp.gremly_age,
+                  fedDaysCount: cp.fed_days_count,
+                  currentTier: cp.current_tier,
+                });
+              }
+            } else if (cortexPrefsRes.error && cortexPrefsRes.error.code !== 'PGRST116') {
+              console.warn(
+                '[GremlyStore] cortex_preferences fetch in refreshFromServer failed:',
+                cortexPrefsRes.error,
+              );
+            }
 
             // Fetch DCO after server refresh (cached hydration path skips cold init)
             get().fetchTodayDco();
@@ -5047,7 +5114,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const todayDate = getDateService().getCurrentDate();
+          const todayDate = getDateService().today();
 
           set({ dailyBriefLoading: true });
 
@@ -5077,9 +5144,9 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const todayDate = input.date ?? getDateService().getCurrentDate();
-          const isToday = todayDate === getDateService().getCurrentDate();
-          const now = new Date().toISOString();
+          const todayDate = input.date ?? getDateService().today();
+          const isToday = todayDate === getDateService().today();
+          const now = nowTimestamp();
           const existingBrief = get().dailyBrief;
 
           // Build the payload (one_thing_id/one_thing_type deprecated - locked items use locked_in field)
@@ -5099,7 +5166,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           // Optimistic update
           const optimisticBrief: DailyBrief = {
-            id: existingBrief?.id ?? `temp_${Date.now()}`,
+            id: existingBrief?.id ?? `temp_${getDateService().now().getTime()}`,
             ...payload,
             dismissed_habit_ids: payload.dismissed_habit_ids,
             created_at: existingBrief?.created_at ?? now,
@@ -5154,7 +5221,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          const todayDate = getDateService().getCurrentDate();
+          const todayDate = getDateService().today();
           const existingBrief = get().dailyBrief;
 
           // Optimistic update
@@ -5183,7 +5250,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const today = getDateService().getCurrentDate();
+          const today = getDateService().today();
           const brief = get().dailyBrief;
 
           // If no brief for today exists, create one first via saveBrief
@@ -5309,7 +5376,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           try {
             const { data, error } = await supabase
@@ -5342,7 +5409,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         markSummaryViewed: async (summaryId: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set({
@@ -5364,7 +5431,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         markSummaryFlowCompleted: async (summaryId: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set({
@@ -5386,7 +5453,7 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         dismissSummaryBanner: async (summaryId: string) => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set({
@@ -5412,7 +5479,7 @@ export const useGremlyStore = create<GremlyState>()(
           if (!summary) return;
 
           const updatedActions = [...summary.cleanup_actions, action];
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set({
@@ -5438,7 +5505,7 @@ export const useGremlyStore = create<GremlyState>()(
           if (!summary) return;
 
           const updatedActions = [...summary.cleanup_actions, ...actions];
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set({
@@ -5473,7 +5540,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           set({ dcoLoading: true });
           try {
-            const today = getDateService().getCurrentDate(); // YYYY-MM-DD
+            const today = getDateService().today(); // YYYY-MM-DD
             const { data, error } = await supabase
               .from('user_daily_state')
               .select('dco')
@@ -5510,14 +5577,14 @@ export const useGremlyStore = create<GremlyState>()(
           if (!userId || !dco) return;
 
           try {
-            const today = getDateService().getCurrentDate();
+            const today = getDateService().today();
             const updatedDco = { ...dco, today_focus: priorities };
 
             const { error } = await supabase
               .from('user_daily_state')
               .update({
                 dco: updatedDco,
-                updated_at: new Date().toISOString(),
+                updated_at: nowTimestamp(),
               })
               .eq('user_id', userId)
               .eq('date', today);
@@ -5547,7 +5614,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const startedAt = new Date().toISOString();
+          const startedAt = nowTimestamp();
           const table = type === 'habit' ? 'habits' : 'todos';
 
           // 1. Optimistic update to Zustand
@@ -5567,7 +5634,7 @@ export const useGremlyStore = create<GremlyState>()(
           } else {
             // Habit: calculate commitment_until date
             const ds = getDateService();
-            const today = ds.getCurrentDate(); // YYYY-MM-DD
+            const today = ds.today(); // YYYY-MM-DD
             const durationDays = commitmentDurationDays ?? 7; // Default to 7 days
             const commitmentUntil = ds.addDays(today, durationDays);
 
@@ -5604,7 +5671,7 @@ export const useGremlyStore = create<GremlyState>()(
           } else {
             // Habit: persist commitment_until
             const ds = getDateService();
-            const today = ds.getCurrentDate();
+            const today = ds.today();
             const durationDays = commitmentDurationDays ?? 7;
             const commitmentUntil = ds.addDays(today, durationDays);
 
@@ -5629,7 +5696,7 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) throw new Error('Not authenticated');
 
-          const archivedAt = new Date().toISOString();
+          const archivedAt = nowTimestamp();
           const table = type === 'habit' ? 'habits' : 'todos';
 
           // 1. Optimistic update to Zustand
@@ -5784,7 +5851,7 @@ export const useGremlyStore = create<GremlyState>()(
             set({
               calendarEvents: eventsByDate,
               calendarLoading: false,
-              calendarLastFetched: new Date().toISOString(),
+              calendarLastFetched: nowTimestamp(),
             });
 
             // Auto-normalize external events into Note entities
@@ -5874,7 +5941,7 @@ export const useGremlyStore = create<GremlyState>()(
             if (updates.length > 0) {
               const updatePromises = updates.map(({ id, patch }) => {
                 const sanitized = sanitizeForSupabase(
-                  { ...patch, updated_at: new Date().toISOString() } as Record<string, unknown>,
+                  { ...patch, updated_at: nowTimestamp() } as Record<string, unknown>,
                   'note',
                 );
                 return supabase.from('notes').update(sanitized).eq('id', id);
@@ -5896,7 +5963,7 @@ export const useGremlyStore = create<GremlyState>()(
               set({
                 notes: currentNotes.map((n) => {
                   const patch = patchMap.get(n.id);
-                  return patch ? { ...n, ...patch, updated_at: new Date().toISOString() } : n;
+                  return patch ? { ...n, ...patch, updated_at: nowTimestamp() } : n;
                 }),
               });
               console.log('[GremlyStore] Calendar sync updated', updates.length, 'notes');
@@ -5904,7 +5971,7 @@ export const useGremlyStore = create<GremlyState>()(
 
             // 6. Soft deletes — archive in Supabase, then update store
             if (softDeletes.length > 0) {
-              const now = new Date().toISOString();
+              const now = nowTimestamp();
               const { error: archiveError } = await supabase
                 .from('notes')
                 .update({ archived: true, archived_reason: 'calendar_deleted', archived_at: now })
@@ -6104,8 +6171,8 @@ export const useGremlyStore = create<GremlyState>()(
         setUserCalendarEvents: (events) => set({ userCalendarEvents: events }),
 
         createUserCalendarEvent: async (eventData) => {
-          const tempId = `temp_${Date.now()}`;
-          const now = new Date().toISOString();
+          const tempId = `temp_${getDateService().now().getTime()}`;
+          const now = nowTimestamp();
           const userId = get().userId;
 
           if (!userId) throw new Error('Not authenticated');
@@ -6162,7 +6229,7 @@ export const useGremlyStore = create<GremlyState>()(
 
         updateUserCalendarEvent: async (id, patch) => {
           const prev = get().userCalendarEvents.find((e) => e.id === id);
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
 
           // Optimistic update
           set((state) => ({
@@ -6255,14 +6322,14 @@ export const useGremlyStore = create<GremlyState>()(
             if (entityType === 'todo') {
               const todos = state.todos.map((t) =>
                 t.id === id
-                  ? { ...t, scheduled_start_iso: startIso, updated_at: new Date().toISOString() }
+                  ? { ...t, scheduled_start_iso: startIso, updated_at: nowTimestamp() }
                   : t,
               );
               return { todos };
             } else {
               const habits = state.habits.map((h) =>
                 h.id === id
-                  ? { ...h, scheduled_start_iso: startIso, updated_at: new Date().toISOString() }
+                  ? { ...h, scheduled_start_iso: startIso, updated_at: nowTimestamp() }
                   : h,
               );
               return { habits };
@@ -6289,16 +6356,12 @@ export const useGremlyStore = create<GremlyState>()(
           set((state) => {
             if (entityType === 'todo') {
               const todos = state.todos.map((t) =>
-                t.id === id
-                  ? { ...t, scheduled_start_iso: null, updated_at: new Date().toISOString() }
-                  : t,
+                t.id === id ? { ...t, scheduled_start_iso: null, updated_at: nowTimestamp() } : t,
               );
               return { todos };
             } else {
               const habits = state.habits.map((h) =>
-                h.id === id
-                  ? { ...h, scheduled_start_iso: null, updated_at: new Date().toISOString() }
-                  : h,
+                h.id === id ? { ...h, scheduled_start_iso: null, updated_at: nowTimestamp() } : h,
               );
               return { habits };
             }
@@ -6322,7 +6385,7 @@ export const useGremlyStore = create<GremlyState>()(
         // ═══════════════════════════════════════════════════════════════════
 
         hideForToday: (id: string, forDate?: string) => {
-          const targetDate = forDate ?? getDateService().getCurrentDate();
+          const targetDate = forDate ?? getDateService().today();
           set((state) => {
             // If the stored date doesn't match the target date, start fresh
             if (state.hiddenTodayDate !== targetDate) {
@@ -6795,7 +6858,7 @@ export const useGremlyStore = create<GremlyState>()(
           if (!userId) return;
 
           const STUCK_THRESHOLD_MS = 30000; // 30 seconds
-          const now = Date.now();
+          const now = getDateService().now().getTime();
           const cutoffTime = new Date(now - STUCK_THRESHOLD_MS).toISOString();
 
           try {
@@ -7056,7 +7119,7 @@ export const useGremlyStore = create<GremlyState>()(
             }
 
             // Archive the original multi-drop note
-            const now = new Date().toISOString();
+            const now = nowTimestamp();
             const updatedNotes = state.notes.map((n) =>
               n.id === noteId
                 ? {
@@ -7074,7 +7137,7 @@ export const useGremlyStore = create<GremlyState>()(
             const newNotes: typeof state.notes = [];
             items.forEach((item, index) => {
               const newNote = {
-                id: `${noteId}-split-${index}-${Date.now()}`,
+                id: `${noteId}-split-${index}-${getDateService().now().getTime()}`,
                 type: 'note' as const,
                 owner_id: note.owner_id,
                 title: item.smart_title ?? item.preview_title ?? item.text.substring(0, 50),
@@ -7151,7 +7214,7 @@ export const useGremlyStore = create<GremlyState>()(
               return state;
             }
 
-            const now = new Date().toISOString();
+            const now = nowTimestamp();
             const updatedNotes = state.notes.map((n) =>
               n.id === noteId
                 ? {
@@ -7384,7 +7447,7 @@ export const useGremlyStore = create<GremlyState>()(
                     selectedBucket: selectedBucket,
                     selectedSubtype: selectedSubtype,
                     selectedHabitSubtype: selectedHabitSubtype,
-                    currentDate: getDateService().getCurrentDate(),
+                    currentDate: getDateService().today(),
                     targetBucket: pendingDrop.bucket, // Hint for time estimation
                   }),
                 });
@@ -7654,7 +7717,7 @@ export const useGremlyStore = create<GremlyState>()(
                   selectedBucket: selectedBucket,
                   selectedSubtype: selectedSubtype,
                   selectedHabitSubtype: selectedHabitSubtype,
-                  currentDate: getDateService().getCurrentDate(),
+                  currentDate: getDateService().today(),
                   targetBucket: currentBucket, // Hint for time estimation
                 }),
               });
@@ -7822,7 +7885,7 @@ export const useGremlyStore = create<GremlyState>()(
                     text: phase2Text,
                     bucket: targetBucket,
                     subtype: newSubtype,
-                    currentDate: getDateService().getCurrentDate(),
+                    currentDate: getDateService().today(),
                   }),
                 });
 
@@ -7995,7 +8058,7 @@ export const useGremlyStore = create<GremlyState>()(
                 needs_clarification: false,
                 clarification_resolved: true,
                 converted_from: entityType,
-                converted_at: new Date().toISOString(),
+                converted_at: nowTimestamp(),
                 confirmation_message: newConfirmation,
                 // Set processing state so card shows shimmer while Phase 2 runs
                 ai_pending: true,
@@ -8124,7 +8187,7 @@ export const useGremlyStore = create<GremlyState>()(
             // Archive the old entity (soft delete with reason)
             const archiveUpdates = {
               archived: true,
-              archived_at: new Date().toISOString(),
+              archived_at: nowTimestamp(),
               archived_reason: 'converted',
               views: {
                 ...(views || {}),
@@ -8248,7 +8311,7 @@ export const useGremlyStore = create<GremlyState>()(
                     text: phase2Text,
                     bucket: targetBucket,
                     subtype: newSubtype,
-                    currentDate: getDateService().getCurrentDate(),
+                    currentDate: getDateService().today(),
                   }),
                 });
 
@@ -8534,7 +8597,7 @@ export const useGremlyStore = create<GremlyState>()(
                   text: originalText,
                   bucket: entityType === 'note' ? 'log' : entityType,
                   subtype: 'general',
-                  currentDate: getDateService().getCurrentDate(),
+                  currentDate: getDateService().today(),
                 }),
               });
 
@@ -8683,8 +8746,8 @@ export const useGremlyStore = create<GremlyState>()(
           entityType: 'todo' | 'habit' | 'note',
           message: Omit<EntityChatMessage, 'id' | 'created_at'>,
         ): Promise<EntityChatMessage> => {
-          const now = new Date().toISOString();
-          const messageId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+          const now = nowTimestamp();
+          const messageId = `msg_${getDateService().now().getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
           const newMessage: EntityChatMessage = {
             ...message,
@@ -8792,8 +8855,8 @@ export const useGremlyStore = create<GremlyState>()(
           entityId: string,
           entityType: 'todo' | 'habit' | 'note',
         ): string => {
-          const now = new Date().toISOString();
-          const messageId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+          const now = nowTimestamp();
+          const messageId = `msg_${getDateService().now().getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
           const streamingMessage: EntityChatMessage = {
             id: messageId,
@@ -8982,7 +9045,7 @@ export const useGremlyStore = create<GremlyState>()(
           finalContent: string,
           metadata?: Record<string, unknown>,
         ): Promise<void> => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Helper to finalize streaming message
@@ -9081,8 +9144,8 @@ export const useGremlyStore = create<GremlyState>()(
           entityType: 'todo' | 'habit' | 'note',
           note: Omit<EntityChatNote, 'id' | 'created_at'>,
         ): Promise<EntityChatNote> => {
-          const now = new Date().toISOString();
-          const noteId = `cnote_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+          const now = nowTimestamp();
+          const noteId = `cnote_${getDateService().now().getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
           const newNote: EntityChatNote = {
             ...note,
@@ -9182,7 +9245,7 @@ export const useGremlyStore = create<GremlyState>()(
           itemId: string,
           completed: boolean,
         ): Promise<void> => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Helper to update checklist item
@@ -9278,7 +9341,7 @@ export const useGremlyStore = create<GremlyState>()(
           noteId: string,
           content: string,
         ): Promise<void> => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Helper to update note content
@@ -9374,7 +9437,7 @@ export const useGremlyStore = create<GremlyState>()(
             postamble?: string;
           },
         ): Promise<void> => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Helper to convert note to checklist
@@ -9470,7 +9533,7 @@ export const useGremlyStore = create<GremlyState>()(
           entityType: 'todo' | 'habit' | 'note',
           noteId: string,
         ): Promise<void> => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Helper to delete note from chat data
@@ -9556,7 +9619,7 @@ export const useGremlyStore = create<GremlyState>()(
           entityId: string,
           entityType: 'todo' | 'habit' | 'note',
         ): Promise<void> => {
-          const now = new Date().toISOString();
+          const now = nowTimestamp();
           const state = get();
 
           // Helper to remove chat from views
@@ -9720,7 +9783,7 @@ export const useGremlyStore = create<GremlyState>()(
             isInitialized: false,
             lastSyncedAt: null,
             // Always use fresh date on app start, never restore stale date from storage
-            currentDate: getDateService().getCurrentDate(),
+            currentDate: getDateService().today(),
             // Always reset daily gauge state on hydration (Soul Document v8)
             // These are daily values that initialize() will populate from Supabase.
             // Stale MMKV values cause false fed status and wrong gauge display.

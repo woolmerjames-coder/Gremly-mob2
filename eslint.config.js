@@ -109,6 +109,28 @@ module.exports = [
           message:
             "TIMEZONE BUG: formatISO with representation:'date' may have timezone issues. Use dateService.today() or dateService.toLocalDate(date) instead.",
         },
+        // ── Raw Date usage prevention ──────────────────────────────────────────
+        {
+          selector: "NewExpression[callee.name='Date'][arguments.length=0]",
+          message:
+            "Use DateService instead of new Date(). Import { today, nowTimestamp, getDateService } from '@/lib/date/DateService'.",
+        },
+        {
+          selector:
+            "CallExpression[callee.object.name='Date'][callee.property.name='now']",
+          message:
+            'Use getDateService().now().getTime() instead of Date.now(). See DateService.',
+        },
+        {
+          selector: "MemberExpression[property.name='toDateString']",
+          message:
+            'Do not use .toDateString() for comparisons. Use dateService.toLocalDate() and compare YYYY-MM-DD strings.',
+        },
+        {
+          selector: "MemberExpression[property.name='toLocaleDateString']",
+          message:
+            'Use dateService.formatForChip() or formatDateForDisplay() instead of .toLocaleDateString().',
+        },
       ],
       // Phase 7: Prevent imports from legacy/** and direct UnifiedCreateOverlay imports
       'no-restricted-imports': [
@@ -146,11 +168,47 @@ module.exports = [
       'no-restricted-imports': 'off',
       // Allow date patterns in tests (testing the patterns themselves)
       'regex/invalid': 'off',
+      // Allow raw Date usage in tests
+      'no-restricted-syntax': 'off',
     },
   },
   {
-    // DateService is allowed to use toISOString() - it's the safe wrapper
-    files: ['lib/date/DateService.ts', 'lib/date/__tests__/**/*.{ts,tsx}'],
+    // Workers / edge functions — no DateService available, raw Date is acceptable
+    // Date.now() for perf timing and new Date() are fine; toLocaleDateString/toDateString still warned
+    files: [
+      'workers/**/*.{js,ts}',
+      'supabase/functions/**/*.{js,ts}',
+      'gremly-calendar-worker/**/*.{js,ts}',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "JSXAttribute[name.name='className']",
+          message: 'Use StyleSheet or DS primitives instead of className in React Native files.',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='split'][callee.object.callee.property.name='toISOString']",
+          message:
+            "TIMEZONE BUG: toISOString().split('T')[0] returns UTC date, not local date. Use Intl.DateTimeFormat with user timezone.",
+        },
+        {
+          selector: "MemberExpression[property.name='toLocaleDateString']",
+          message:
+            'Use Intl.DateTimeFormat with explicit timezone instead of .toLocaleDateString().',
+        },
+        {
+          selector: "MemberExpression[property.name='toDateString']",
+          message:
+            'Do not use .toDateString() for comparisons. Use Intl.DateTimeFormat with explicit timezone.',
+        },
+      ],
+    },
+  },
+  {
+    // DateService and ritualDay are allowed to use raw Date — they ARE the safe wrappers
+    files: ['lib/date/DateService.ts', 'lib/date/ritualDay.ts', 'lib/date/__tests__/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-syntax': [
         'error',

@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, type ViewStyle } from 'react-native';
+import { format } from 'date-fns';
 import { lightTokens } from '../../design/tokens';
 
 export interface WhatWeDiscussedCardProps {
@@ -73,12 +74,7 @@ export function WhatWeDiscussedCard({
       {lastUpdated && (
         <Text style={styles.timestamp}>
           Updated{' '}
-          {new Date(lastUpdated).toLocaleDateString(undefined, {
-            month: 'short',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: 'numeric',
-          })}
+          {format(new Date(lastUpdated), 'MMM d, h:mm a')}
         </Text>
       )}
     </View>

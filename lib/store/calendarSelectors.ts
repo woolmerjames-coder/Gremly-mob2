@@ -67,7 +67,7 @@ function habitOccursOnDate(habit: Habit, dateStr: string): boolean {
   }
 
   const cadence = habit.cadence || 'daily';
-  const targetDate = dateService.fromDateString(dateStr);
+  const targetDate = dateService.fromLocalDate(dateStr);
   if (!targetDate) return false;
 
   const dayOfWeek = targetDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
@@ -84,7 +84,7 @@ function habitOccursOnDate(habit: Habit, dateStr: string): boolean {
     case 'weekly':
       // Show on the same day of week as start_date, or Monday if no start_date
       if (habit.start_date) {
-        const startDate = dateService.fromDateString(habit.start_date);
+        const startDate = dateService.fromLocalDate(habit.start_date);
         if (startDate) {
           return startDate.getDay() === dayOfWeek;
         }
@@ -93,7 +93,7 @@ function habitOccursOnDate(habit: Habit, dateStr: string): boolean {
     case 'monthly':
       // Show on the same day of month as start_date, or 1st if no start_date
       if (habit.start_date) {
-        const startDate = dateService.fromDateString(habit.start_date);
+        const startDate = dateService.fromLocalDate(habit.start_date);
         if (startDate) {
           return startDate.getDate() === targetDate.getDate();
         }
@@ -141,7 +141,7 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
 
     const isDueOnDate = todo.due_day === dateStr;
     const isCompletedOnDate =
-      todo.completed_at && dateService.toDateString(new Date(todo.completed_at)) === dateStr;
+      todo.completed_at && dateService.toLocalDate(new Date(todo.completed_at)) === dateStr;
 
     if (!isDueOnDate && !isCompletedOnDate) return;
 
@@ -171,7 +171,7 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
     // Check if completed on this date
     const isCompleted =
       habit.last_completed_at &&
-      dateService.toDateString(new Date(habit.last_completed_at)) === dateStr;
+      dateService.toLocalDate(new Date(habit.last_completed_at)) === dateStr;
 
     items.push({
       id: habit.id,
@@ -201,7 +201,7 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
     if (!isJournal) return;
 
     // Use note.date if available, otherwise created_at
-    const noteDate = note.date || dateService.toDateString(new Date(note.created_at));
+    const noteDate = note.date || dateService.toLocalDate(new Date(note.created_at));
     if (noteDate !== dateStr) return;
 
     items.push({
@@ -275,8 +275,28 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
     // Skip if already covered by a synced Note entity
     if (coveredExternalIds.has(event.providerEventId)) return;
 
-    const startTime = event.isAllDay ? null : new Date(event.startAt).toTimeString().slice(0, 5);
-    const endTime = event.isAllDay ? null : new Date(event.endAt).toTimeString().slice(0, 5);
+    const startTime = event.isAllDay
+      ? null
+      : (() => {
+          const d = new Date(event.startAt);
+          return new Intl.DateTimeFormat('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: getDateService().getTimezone(),
+          }).format(d);
+        })();
+    const endTime = event.isAllDay
+      ? null
+      : (() => {
+          const d = new Date(event.endAt);
+          return new Intl.DateTimeFormat('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: getDateService().getTimezone(),
+          }).format(d);
+        })();
 
     items.push({
       id: `cal-${event.provider}-${event.providerEventId}`,
@@ -339,7 +359,7 @@ export function useDatesWithItems(startDate: string, endDate: string): Set<strin
       (t) =>
         !t.archived &&
         (t.due_day === current ||
-          (t.completed_at && dateService.toDateString(new Date(t.completed_at)) === current)),
+          (t.completed_at && dateService.toLocalDate(new Date(t.completed_at)) === current)),
     );
 
     // Check habits (simplified - just check if any active habit exists)
@@ -353,7 +373,7 @@ export function useDatesWithItems(startDate: string, endDate: string): Set<strin
         (n.subtype as string) === 'journal' ||
         (n.canonicalType === 'log' && (n.subtype as string) === 'journal');
       if (!isJournal) return false;
-      const noteDate = n.date || dateService.toDateString(new Date(n.created_at));
+      const noteDate = n.date || dateService.toLocalDate(new Date(n.created_at));
       return noteDate === current;
     });
 

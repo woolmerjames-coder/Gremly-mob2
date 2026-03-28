@@ -4,6 +4,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { nowTimestamp } from '../date/DateService';
 
 interface ChatMetrics {
   quickResponsesServed: number;
@@ -21,7 +22,7 @@ const DEFAULT_METRICS: ChatMetrics = {
   apiCallsMade: 0,
   totalInteractions: 0,
   totalResponseTime: 0,
-  lastResetDate: new Date().toISOString(),
+  lastResetDate: nowTimestamp(),
 };
 
 class ChatPerformanceMonitor {
@@ -135,7 +136,7 @@ class ChatPerformanceMonitor {
   async resetMetrics() {
     this.metrics = {
       ...DEFAULT_METRICS,
-      lastResetDate: new Date().toISOString(),
+      lastResetDate: nowTimestamp(),
     };
     await this.saveMetrics();
     console.log('[PerfMonitor] Metrics reset');

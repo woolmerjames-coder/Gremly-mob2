@@ -23,7 +23,7 @@ import type {
 import { supabase } from '../supabase/client';
 import { eventBus } from '../events';
 import { computeDueDay, computeDueTime, getDateService } from '../date';
-import { dateService } from '../date/DateService';
+import { dateService, nowTimestamp } from '../date/DateService';
 import {
   logSupabaseError,
   getUserFriendlyErrorMessage,
@@ -1459,7 +1459,7 @@ export class SupabaseRepo implements IRepo {
   async listByType(type: AppRecord['type'], opts?: ListByTypeOptions): Promise<AppRecord[]> {
     const hasTagFilter = Boolean(opts?.tagNames && opts.tagNames.length > 0);
     const perfLabel = hasTagFilter ? `[PERF][tags] listByType:${type}` : null;
-    const perfStart = hasTagFilter ? Date.now() : null;
+    const perfStart = hasTagFilter ? getDateService().now().getTime() : null;
 
     if (__DEV__ && hasTagFilter && perfLabel) {
       try {
@@ -1651,7 +1651,7 @@ export class SupabaseRepo implements IRepo {
       });
     } finally {
       if (hasTagFilter && perfStart !== null && perfLabel) {
-        const elapsed = Date.now() - perfStart;
+        const elapsed = getDateService().now().getTime() - perfStart;
         if (__DEV__) {
           try {
             console.timeEnd(perfLabel);
@@ -1882,8 +1882,7 @@ export class SupabaseRepo implements IRepo {
     const results: AppRecord[] = [];
 
     // Compute today's date string in local timezone
-    const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const todayStr = getDateService().today();
 
     // Get todos with due_date or due_day set
     const { data: todos, error: todosError } = await supabase
@@ -1939,7 +1938,7 @@ export class SupabaseRepo implements IRepo {
 
   async countPlannedToday(): Promise<number> {
     const userId = this.ensureUserId();
-    const today = getDateService().getCurrentDate(); // YYYY-MM-DD
+    const today = getDateService().today(); // YYYY-MM-DD
 
     // Count todos with due_day = today (timezone-safe)
     const { count: todoCount, error: todoError } = await supabase
@@ -1958,7 +1957,7 @@ export class SupabaseRepo implements IRepo {
   async countCompletedToday(): Promise<number> {
     try {
       const userId = this.ensureUserId();
-      const today = getDateService().getCurrentDate(); // YYYY-MM-DD (local timezone)
+      const today = getDateService().today(); // YYYY-MM-DD (local timezone)
 
       // Count todos completed today (completed_at = today)
       const { count: todoCount, error: todoError } = await supabase
@@ -1971,7 +1970,7 @@ export class SupabaseRepo implements IRepo {
 
       if (todoError) {
         // Throttled logging: only warn once per minute
-        const now = Date.now();
+        const now = getDateService().now().getTime();
         if (now - this.lastCountCompletedTodayWarn > this.WARN_THROTTLE_MS) {
           this.lastCountCompletedTodayWarn = now;
           if (__DEV__) {
@@ -1990,7 +1989,7 @@ export class SupabaseRepo implements IRepo {
       return todoCount || 0;
     } catch (error) {
       // Catch any unexpected errors (e.g., ensureUserId throwing)
-      const now = Date.now();
+      const now = getDateService().now().getTime();
       if (now - this.lastCountCompletedTodayWarn > this.WARN_THROTTLE_MS) {
         this.lastCountCompletedTodayWarn = now;
         if (__DEV__) {
@@ -2078,19 +2077,19 @@ export class SupabaseRepo implements IRepo {
       this.todoCompletedAtSupported = true;
     }
 
-    const now = new Date();
-    const todayStr = getDateService().getCurrentDate();
+    const now = getDateService().now();
+    const todayStr = getDateService().today();
     const mapTodo = (t: any) => {
       let overdue = false;
       let nearDue = false;
       // Use due_day as source of truth for overdue calculation (timezone-safe)
-      const dueDay = t.due_day ?? getDateService().extractDateFromIso(t.due_date);
+      const dueDay = t.due_day ?? getDateService().extractLocalDate(t.due_date);
       if (dueDay) {
         overdue = dueDay < todayStr;
         // nearDue requires due_time - only if due today and has time
         if (dueDay === todayStr && t.due_time) {
           const [hours, minutes] = t.due_time.split(':').map(Number);
-          const dueDateTime = new Date();
+          const dueDateTime = getDateService().now();
           dueDateTime.setHours(hours, minutes, 0, 0);
           const msUntilDue = dueDateTime.getTime() - now.getTime();
           nearDue = msUntilDue > 0 && msUntilDue < 3 * 60 * 60 * 1000;
@@ -2334,7 +2333,7 @@ export class SupabaseRepo implements IRepo {
     limit: number,
   ): Promise<Array<{ id: ID; type: 'habit' | 'todo'; priority: number }>> {
     const ownerId = this.ensureUserId();
-    const day = ensureDay(new Date().toISOString());
+    const day = ensureDay(nowTimestamp());
 
     const { data, error } = await supabase
       .from('todos')
@@ -2415,7 +2414,7 @@ export class SupabaseRepo implements IRepo {
 
   async getTodaySummary(): Promise<{ completed: number; remaining: number }> {
     const ownerId = this.ensureUserId();
-    const day = ensureDay(new Date().toISOString());
+    const day = ensureDay(nowTimestamp());
 
     let completedCount = 0;
     if (this.todoCompletedAtSupported !== false) {
@@ -2499,7 +2498,7 @@ export class SupabaseRepo implements IRepo {
           .from('habits')
           .update({
             archived: true,
-            archived_at: new Date().toISOString(),
+            archived_at: nowTimestamp(),
             archived_reason: details?.archived_reason ?? 'swept',
           })
           .eq('id', id)
@@ -2540,7 +2539,7 @@ export class SupabaseRepo implements IRepo {
     archivedReason = 'user_deleted_drop',
   ): Promise<{ notesArchived: number; todosArchived: number; habitsArchived: number }> {
     const ownerId = this.ensureUserId();
-    const nowIso = new Date().toISOString();
+    const nowIso = nowTimestamp();
 
     let notesArchived = 0;
     let todosArchived = 0;
@@ -2723,7 +2722,7 @@ export class SupabaseRepo implements IRepo {
   /** Count active commitments (habits + todos). No archived predicate yet. */
   async countActiveCommitments(): Promise<number> {
     const userId = this.ensureUserId();
-    const now = Date.now();
+    const now = getDateService().now().getTime();
     if (now - this.lastCommitCountAt < 5000) {
       return this.lastCommitCountValue;
     }
@@ -2826,13 +2825,13 @@ export class SupabaseRepo implements IRepo {
     if (current >= 3) {
       throw new Error('MAX_COMMITMENTS_REACHED');
     }
-    const startedAt = new Date().toISOString();
+    const startedAt = nowTimestamp();
     const table = type === 'habit' ? 'habits' : 'todos';
 
     // For habits, calculate commitment_until date
     let commitmentUntil: string | null = null;
     if (type === 'habit' && commitmentDurationDays) {
-      const today = dateService.getCurrentDate();
+      const today = dateService.today();
       commitmentUntil = dateService.addDays(today, commitmentDurationDays - 1);
     }
 
@@ -2857,7 +2856,7 @@ export class SupabaseRepo implements IRepo {
       throw new Error(`COMMITMENT_SET_FAILED: ${error.message}`);
     }
 
-    this.lastCommitCountAt = Date.now();
+    this.lastCommitCountAt = getDateService().now().getTime();
     this.lastCommitCountValue = current + 1;
   }
 
@@ -2873,7 +2872,7 @@ export class SupabaseRepo implements IRepo {
       .from(table)
       .update({
         commitment: false,
-        commitment_archived_at: new Date().toISOString(),
+        commitment_archived_at: nowTimestamp(),
         ...(reason ? { commitment_note: reason } : {}),
       })
       .eq('id', id)
@@ -2883,7 +2882,7 @@ export class SupabaseRepo implements IRepo {
       throw new Error(`COMMITMENT_REMOVE_FAILED: ${error.message}`);
     }
 
-    this.lastCommitCountAt = Date.now();
+    this.lastCommitCountAt = getDateService().now().getTime();
     this.lastCommitCountValue = Math.max(0, this.lastCommitCountValue - 1);
   }
 
@@ -2972,7 +2971,7 @@ export class SupabaseRepo implements IRepo {
     }
 
     // Try habits - delete today's habit_progress entry
-    const todayDay = getDateService().getCurrentDate();
+    const todayDay = getDateService().today();
     const { data: progressData, error: progressError } = await supabase
       .from('habit_progress')
       .delete()
@@ -3311,7 +3310,7 @@ export class SupabaseRepo implements IRepo {
 
     return {
       summary: data.last_summary,
-      summary_at: data.last_summary_at || new Date().toISOString(),
+      summary_at: data.last_summary_at || nowTimestamp(),
       tokens: data.last_summary_tokens || 0,
     };
   }
@@ -3353,7 +3352,7 @@ export class SupabaseRepo implements IRepo {
   ): Promise<GroupedByType> {
     const hasTagFilter = Boolean(opts?.tagNames && opts.tagNames.length > 0);
     const perfLabel = '[PERF][tags] listBySpaceGrouped';
-    const perfStart = hasTagFilter ? Date.now() : null;
+    const perfStart = hasTagFilter ? getDateService().now().getTime() : null;
     if (hasTagFilter) {
       console.time(perfLabel);
     }
@@ -3471,7 +3470,7 @@ export class SupabaseRepo implements IRepo {
       };
     } finally {
       if (hasTagFilter && perfStart !== null) {
-        const elapsed = Date.now() - perfStart;
+        const elapsed = getDateService().now().getTime() - perfStart;
         try {
           console.timeEnd(perfLabel);
         } catch {
@@ -3916,7 +3915,7 @@ export class SupabaseRepo implements IRepo {
         {
           owner_id: userId,
           ...partial,
-          updated_at: new Date().toISOString(),
+          updated_at: nowTimestamp(),
         },
         { onConflict: 'owner_id' },
       )
@@ -4033,7 +4032,7 @@ export class SupabaseRepo implements IRepo {
   async toggleListItemComplete(listItemId: string, done: boolean): Promise<void> {
     const { error } = await supabase
       .from('list_items')
-      .update({ completed_at: done ? new Date().toISOString() : null })
+      .update({ completed_at: done ? nowTimestamp() : null })
       .eq('id', listItemId);
 
     if (error) throw new Error(`Failed to toggle list item: ${error.message}`);
@@ -4415,7 +4414,7 @@ export class SupabaseRepo implements IRepo {
     const userId = this.ensureUserId();
     const updatePayload: Record<string, any> = {
       ...compact(patch),
-      updated_at: new Date().toISOString(),
+      updated_at: nowTimestamp(),
     };
     if (patch.name) updatePayload.title = patch.name;
     if (patch.title && !patch.name) updatePayload.name = patch.title;
@@ -4445,7 +4444,7 @@ export class SupabaseRepo implements IRepo {
   async completeMilestone(id: string): Promise<import('../types').SpaceMilestone> {
     return this.updateMilestone(id, {
       completed: true,
-      completed_at: new Date().toISOString(),
+      completed_at: nowTimestamp(),
       is_active: false,
     });
   }
@@ -4495,7 +4494,7 @@ export class SupabaseRepo implements IRepo {
           owner_id: userId,
           success_criteria: payload.success_criteria ?? null,
           other_context: payload.other_context ?? null,
-          updated_at: new Date().toISOString(),
+          updated_at: nowTimestamp(),
         },
         { onConflict: 'space_id' },
       )
@@ -4530,7 +4529,7 @@ export class SupabaseRepo implements IRepo {
     const userId = this.ensureUserId();
     const { error } = await supabase
       .from('todos')
-      .update({ is_pinned: isPinned, updated_at: new Date().toISOString() })
+      .update({ is_pinned: isPinned, updated_at: nowTimestamp() })
       .eq('id', todoId)
       .eq('owner_id', userId);
     if (error) {
@@ -4543,7 +4542,7 @@ export class SupabaseRepo implements IRepo {
     const userId = this.ensureUserId();
     const { error } = await supabase
       .from('habits')
-      .update({ is_pinned: isPinned, updated_at: new Date().toISOString() })
+      .update({ is_pinned: isPinned, updated_at: nowTimestamp() })
       .eq('id', habitId)
       .eq('owner_id', userId);
     if (error) {
@@ -4556,7 +4555,7 @@ export class SupabaseRepo implements IRepo {
     const userId = this.ensureUserId();
     const { error } = await supabase
       .from('notes')
-      .update({ is_pinned: isPinned, updated_at: new Date().toISOString() })
+      .update({ is_pinned: isPinned, updated_at: nowTimestamp() })
       .eq('id', noteId)
       .eq('owner_id', userId);
     if (error) {
@@ -4766,7 +4765,7 @@ export class SupabaseSpaceChatRepo {
     const userId = this.ensureUserId();
     const { error } = await supabase
       .from('space_chats')
-      .update({ archived_at: new Date().toISOString() })
+      .update({ archived_at: nowTimestamp() })
       .eq('id', chatId)
       .eq('user_id', userId);
     if (error) throw new Error(`Failed to archive space chat: ${error.message}`);
@@ -4982,7 +4981,7 @@ export class SupabaseSpaceMilestoneRepo {
     const userId = this.ensureUserId();
     const updatePayload: Record<string, any> = {
       ...patch,
-      updated_at: new Date().toISOString(),
+      updated_at: nowTimestamp(),
     };
     if (patch.name) updatePayload.title = patch.name; // Sync for legacy
 
@@ -5003,7 +5002,7 @@ export class SupabaseSpaceMilestoneRepo {
   async complete(id: string): Promise<import('../types').SpaceMilestone> {
     return this.update(id, {
       completed: true,
-      completed_at: new Date().toISOString(),
+      completed_at: nowTimestamp(),
       is_active: false,
     });
   }

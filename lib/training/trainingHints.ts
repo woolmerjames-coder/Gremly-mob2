@@ -63,7 +63,7 @@ export function getTrainingHints(data: UserTrainingData): TrainingHint[] {
     hints.push({
       text: 'Tap any drop and chat with Gremly about it.',
       icon: 'MessageCircle',
-      navigateTo: 'Hub',
+      navigateTo: 'AskGremly',
       priority: 3,
     });
   }

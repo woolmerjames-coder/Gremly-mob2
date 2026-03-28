@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { getDateService, nowTimestamp } from '../../../lib/date';
 import type { Tag, EntityPerson, ItemType } from '../../../lib/repo/types';
 import type { IRepo } from '../../../lib/repo/IRepo';
 
@@ -156,7 +157,7 @@ export function usePhase8LinksState(
         return person as EntityPerson;
       } else {
         // 10R: New item - add to pending (uses owner_id, entity_id, entity_type, person_id)
-        const stamp = Date.now();
+        const stamp = getDateService().now().getTime();
         const tempId = `temp-${stamp}`;
         const tempPerson: EntityPerson = {
           id: tempId,
@@ -166,8 +167,8 @@ export function usePhase8LinksState(
           entity_type: itemType || 'note',
           person_name: personName,
           person_email: personEmail || null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          created_at: nowTimestamp(),
+          updated_at: nowTimestamp(),
         };
         setPendingPeople((prev) => [...prev, { id: tempId, personName, personEmail }]);
         setLinkedPeople((prev) => [...prev, tempPerson]);

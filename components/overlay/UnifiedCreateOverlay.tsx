@@ -870,8 +870,7 @@ export function UnifiedCreateOverlay({
             if (COMMITMENTS_FEATURE_ENABLED) {
               // Habit uses commitment_until (date string), not commitment boolean
               const isLockedIn =
-                entity.commitment_until != null &&
-                entity.commitment_until >= dateService.getCurrentDate();
+                entity.commitment_until != null && entity.commitment_until >= dateService.today();
               setCommitmentEnabled(Boolean(isLockedIn && !entity.commitment_archived_at));
               setCommitmentNote(entity.commitment_note ?? '');
               setCommitmentNoteDraft(entity.commitment_note ?? '');
@@ -1702,7 +1701,7 @@ export function UnifiedCreateOverlay({
       // AI mode - freeform catchall with optimistic UX
       if (aiMode && freeformText.trim()) {
         console.log('[UX] capture_submitted', { mode: 'ai' });
-        const t0 = Date.now();
+        const t0 = dateService.now().getTime();
 
         // Check AI disable flag
         const aiDisabledFlag = (getEnv('EXPO_PUBLIC_DISABLE_AI') ?? '').toLowerCase() === 'on';
@@ -1761,7 +1760,7 @@ export function UnifiedCreateOverlay({
             aiResult = { ok: false, error: (error as Error)?.message || 'unknown' };
           }
 
-          const elapsed = Date.now() - t0;
+          const elapsed = dateService.now().getTime() - t0;
 
           // Case A: AI finished within ~1s and succeeded
           if (optimisticEnabled && finishedEarly && aiResult?.ok) {

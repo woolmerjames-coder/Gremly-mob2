@@ -21,13 +21,13 @@ describe('Timezone Safety', () => {
     resetDateService();
   });
 
-  describe('getCurrentDate vs toISOString', () => {
+  describe('today vs toISOString', () => {
     it('returns local date, not UTC date', () => {
       // Use current time - whatever timezone we're in
       const now = new Date();
       const service = createDateService({ clock: () => now });
 
-      const localDate = service.getCurrentDate();
+      const localDate = service.today();
 
       // Format the expected local date the same way DateService does
       const year = now.getFullYear();
@@ -35,12 +35,12 @@ describe('Timezone Safety', () => {
       const day = String(now.getDate()).padStart(2, '0');
       const expectedLocalDate = `${year}-${month}-${day}`;
 
-      // getCurrentDate should return local date
+      // today should return local date
       expect(localDate).toBe(expectedLocalDate);
 
       // The key insight: toISOString().split('T')[0] gives UTC date,
       // which may differ from local date depending on time of day and timezone.
-      // We're verifying that getCurrentDate uses local time components.
+      // We're verifying that today uses local time components.
     });
 
     it('returns consistent date based on local time', () => {
@@ -50,17 +50,17 @@ describe('Timezone Safety', () => {
       // Early morning of Dec 22
       const morning = new Date(2025, 11, 22, 6, 0, 0); // Dec 22, 6am local
       const morningService = createDateService({ clock: () => morning });
-      expect(morningService.getCurrentDate()).toBe('2025-12-22');
+      expect(morningService.today()).toBe('2025-12-22');
 
       // Late evening of Dec 22
       const evening = new Date(2025, 11, 22, 23, 59, 59); // Dec 22, 11:59pm local
       const eveningService = createDateService({ clock: () => evening });
-      expect(eveningService.getCurrentDate()).toBe('2025-12-22');
+      expect(eveningService.today()).toBe('2025-12-22');
 
       // Right after midnight on Dec 23
       const midnight = new Date(2025, 11, 23, 0, 1, 0); // Dec 23, 12:01am local
       const midnightService = createDateService({ clock: () => midnight });
-      expect(midnightService.getCurrentDate()).toBe('2025-12-23');
+      expect(midnightService.today()).toBe('2025-12-23');
     });
   });
 
@@ -71,7 +71,7 @@ describe('Timezone Safety', () => {
         clock: () => new Date(2025, 11, 22, 20, 0, 0), // Dec 22, 8pm local
       });
 
-      const today = service.getCurrentDate();
+      const today = service.today();
       expect(today).toBe('2025-12-22');
 
       const tomorrow = service.addDays(today, 1);
@@ -90,7 +90,7 @@ describe('Timezone Safety', () => {
         clock: () => new Date(2025, 11, 30, 12, 0, 0), // Dec 30, noon local
       });
 
-      const dec30 = service.getCurrentDate();
+      const dec30 = service.today();
       expect(dec30).toBe('2025-12-30');
 
       const jan1 = service.addDays(dec30, 2);
@@ -104,7 +104,7 @@ describe('Timezone Safety', () => {
         clock: () => new Date(2025, 2, 8, 12, 0, 0), // March 8, noon local
       });
 
-      const march8 = service.getCurrentDate();
+      const march8 = service.today();
       expect(march8).toBe('2025-03-08');
 
       const march9 = service.addDays(march8, 1);
@@ -115,11 +115,11 @@ describe('Timezone Safety', () => {
     });
   });
 
-  describe('fromDateString timezone safety', () => {
+  describe('fromLocalDate timezone safety', () => {
     it('parses YYYY-MM-DD at noon to avoid DST issues', () => {
       const service = getDateService();
 
-      const date = service.fromDateString('2025-12-22');
+      const date = service.fromLocalDate('2025-12-22');
       expect(date).not.toBeNull();
       if (date) {
         // Should be parsed at noon local time
@@ -134,11 +134,11 @@ describe('Timezone Safety', () => {
       const service = getDateService();
 
       const original = '2025-12-22';
-      const dateObj = service.fromDateString(original);
+      const dateObj = service.fromLocalDate(original);
       expect(dateObj).not.toBeNull();
 
       if (dateObj) {
-        const backToString = service.toDateString(dateObj);
+        const backToString = service.toLocalDate(dateObj);
         expect(backToString).toBe(original);
       }
     });
@@ -160,29 +160,29 @@ describe('Timezone Safety', () => {
     });
   });
 
-  describe('extractDateFromIso', () => {
+  describe('extractLocalDate', () => {
     it('extracts date portion from ISO timestamp', () => {
       const service = getDateService();
 
       // Should extract "2025-12-22" regardless of time component
-      expect(service.extractDateFromIso('2025-12-22T00:00:00.000Z')).toBe('2025-12-22');
-      expect(service.extractDateFromIso('2025-12-22T23:59:59.999Z')).toBe('2025-12-22');
+      expect(service.extractLocalDate('2025-12-22T00:00:00.000Z')).toBe('2025-12-22');
+      expect(service.extractLocalDate('2025-12-22T23:59:59.999Z')).toBe('2025-12-22');
       // Use T18:00Z to avoid timezone shifts in western US timezones
-      expect(service.extractDateFromIso('2025-12-22T18:00:00.000Z')).toBe('2025-12-22');
+      expect(service.extractLocalDate('2025-12-22T18:00:00.000Z')).toBe('2025-12-22');
     });
 
     it('handles date-only strings', () => {
       const service = getDateService();
 
-      expect(service.extractDateFromIso('2025-12-22')).toBe('2025-12-22');
+      expect(service.extractLocalDate('2025-12-22')).toBe('2025-12-22');
     });
 
     it('returns null for invalid input', () => {
       const service = getDateService();
 
-      expect(service.extractDateFromIso('')).toBeNull();
-      expect(service.extractDateFromIso('invalid')).toBeNull();
-      expect(service.extractDateFromIso('not-a-date')).toBeNull();
+      expect(service.extractLocalDate('')).toBeNull();
+      expect(service.extractLocalDate('invalid')).toBeNull();
+      expect(service.extractLocalDate('not-a-date')).toBeNull();
     });
   });
 });
@@ -208,6 +208,6 @@ describe('Integration: habitHelpers uses DateService', () => {
 
     // Should match what DateService returns
     const ds = getDateService();
-    expect(result).toBe(ds.getCurrentDate());
+    expect(result).toBe(ds.today());
   });
 });

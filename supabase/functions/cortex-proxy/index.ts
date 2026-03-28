@@ -36,12 +36,13 @@ function bad(status: number, msg: string, detail?: unknown) {
 
 function buildBirthdayContext(accountCreatedAt: string | null): string {
   const today = new Date();
-  const todayStr = today.toLocaleDateString('en-US', {
+  const todayStr = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
     year: 'numeric',
-  });
+    timeZone: 'UTC',
+  }).format(today);
 
   let context = `\n=== DATE & RELATIONSHIP ===\n`;
   context += `Today is ${todayStr}.\n`;
@@ -51,11 +52,12 @@ function buildBirthdayContext(accountCreatedAt: string | null): string {
     const msPerDay = 1000 * 60 * 60 * 24;
     const daysTogether = Math.floor((today.getTime() - birthDate.getTime()) / msPerDay);
 
-    const birthDateStr = birthDate.toLocaleDateString('en-US', {
+    const birthDateStr = new Intl.DateTimeFormat('en-US', {
       month: 'long',
       day: 'numeric',
       year: 'numeric',
-    });
+      timeZone: 'UTC',
+    }).format(birthDate);
 
     context += `You were born on ${birthDateStr} (when this user created their account).\n`;
     context += `You've been companions for ${daysTogether} day${daysTogether === 1 ? '' : 's'}.`;

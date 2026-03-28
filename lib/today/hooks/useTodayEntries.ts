@@ -120,7 +120,7 @@ export function useTodayEntries(): TodayEntriesState {
   const [, setError] = useState<string | null>(null);
   const reflectedCommitmentIds = useRef<Set<string>>(new Set());
 
-  const nowIso = useMemo(() => new Date().toISOString(), []);
+  const nowIso = useMemo(() => getDateService().now().toISOString(), []);
 
   const load = useCallback(async () => {
     if (!user) {
@@ -148,7 +148,7 @@ export function useTodayEntries(): TodayEntriesState {
           if (entry.type === 'todo') {
             if (entry.status === 'completed') return true;
             if (entry.completed_at) {
-              const completedDay = getDateService().extractDateFromIso(entry.completed_at);
+              const completedDay = getDateService().extractLocalDate(entry.completed_at);
               return completedDay === dayIso;
             }
             return false;

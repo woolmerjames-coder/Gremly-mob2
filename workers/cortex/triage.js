@@ -215,7 +215,7 @@ async function callNano(systemPrompt, userInput, apiKey) {
   }
 }
 
-async function callMini(systemPrompt, userInput, apiKey) {
+export async function callMini(systemPrompt, userInput, apiKey) {
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

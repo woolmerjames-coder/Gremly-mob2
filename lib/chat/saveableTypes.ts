@@ -1,3 +1,5 @@
+import { nowTimestamp } from '../date/DateService';
+
 /**
  * Types and constants for the saveable detection system.
  *
@@ -396,7 +398,7 @@ export function createNotSaveableResult(messageId: string): SaveableResult {
     confidence: 0,
     suggestedType: SAVEABLE_THRESHOLDS.DEFAULT_TYPE,
     prefill: createEmptyPrefill(),
-    detectedAt: new Date().toISOString(),
+    detectedAt: nowTimestamp(),
     messageId,
   };
 }

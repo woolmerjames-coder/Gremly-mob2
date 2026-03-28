@@ -92,7 +92,7 @@ describe('SetRemindersModal', () => {
         { id: 'r2', time: '14:30', frequency: 'once', date: '2099-03-15' },
       ];
       const { getByText } = render(<SetRemindersModal {...defaultProps} reminders={reminders} />);
-      expect(getByText(/Mar 15 at 2:30 PM/)).toBeTruthy();
+      expect(getByText(/Mar 15.*at 2:30 PM/)).toBeTruthy();
     });
   });
 

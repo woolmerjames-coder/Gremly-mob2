@@ -69,15 +69,9 @@ export function describeNthWeekday(nth: number, weekday: number): string {
 }
 
 /**
- * Get today's date in YYYY-MM-DD format (local timezone)
+ * @deprecated Use `today()` from `@/lib/date/DateService` instead.
  */
-export function getTodayISO(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
+export { today as getTodayISO } from '../../lib/date/DateService';
 
 /**
  * Format a time string for display

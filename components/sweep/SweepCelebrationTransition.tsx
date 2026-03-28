@@ -7,14 +7,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import {
-  View,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  ScrollView,
-} from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, Pressable, ScrollView } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -34,6 +27,7 @@ import {
   ChevronUp,
 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
+import { getDateService } from '../../lib/date';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
 import { env } from '../../lib/env';
 import type { DcoTone } from '../../lib/types';
@@ -218,11 +212,11 @@ const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
     if (hasStarted.current) return;
     hasStarted.current = true;
 
-    const startTime = Date.now() + delay;
+    const startTime = getDateService().now().getTime() + delay;
     const endTime = startTime + duration;
 
     const interval = setInterval(() => {
-      const now = Date.now();
+      const now = getDateService().now().getTime();
 
       if (now < startTime) return;
 
@@ -423,132 +417,140 @@ export const SweepCelebrationTransition: React.FC<Props> = ({
 
   return (
     <View style={styles.container}>
+      {/* Full-screen tap target behind everything */}
+      <Pressable style={StyleSheet.absoluteFillObject} onPress={handleBackgroundTap} />
       <ScrollView
         contentContainerStyle={styles.outerScrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <TouchableWithoutFeedback onPress={handleBackgroundTap}>
-          <View style={styles.content}>
-            {/* Gremly Mascot */}
-            <Animated.Image
-              source={GREMLY_MASCOT}
-              style={styles.mascot}
-              resizeMode="contain"
-              entering={FadeIn.duration(600).delay(150)}
-            />
+        <View style={styles.content}>
+          {/* Gremly Mascot */}
+          <Animated.Image
+            source={GREMLY_MASCOT}
+            style={styles.mascot}
+            resizeMode="contain"
+            entering={FadeIn.duration(600).delay(150)}
+          />
 
-            {/* Celebration Phrase — DCO-aware */}
-            {phrase ? (
-              <Animated.Text key={phrase} style={styles.phrase} entering={FadeIn.duration(600)}>
-                {phrase}
-              </Animated.Text>
-            ) : (
-              <View style={{ height: 64, marginBottom: 8 }} />
-            )}
-
-            {/* Subtitle */}
-            <Animated.Text style={styles.subtitle} entering={FadeIn.duration(500).delay(350)}>
-              SINCE YOUR LAST SWEEP
+          {/* Celebration Phrase — DCO-aware */}
+          {phrase ? (
+            <Animated.Text key={phrase} style={styles.phrase} entering={FadeIn.duration(600)}>
+              {phrase}
             </Animated.Text>
+          ) : (
+            <View style={{ height: 64, marginBottom: 8 }} />
+          )}
 
-            {/* Counters */}
-            <View style={styles.countersContainer}>
-              {counts.todos > 0 && (
-                <AnimatedCounter
-                  targetValue={counts.todos}
-                  delay={getDelay(counterIndex++)}
-                  duration={COUNT_DURATION}
-                  icon={<Check size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
-                  label={counts.todos === 1 ? 'todo' : 'todos'}
-                  onComplete={handleCounterComplete}
-                />
-              )}
-              {counts.habits > 0 && (
-                <AnimatedCounter
-                  targetValue={counts.habits}
-                  delay={getDelay(counterIndex++)}
-                  duration={COUNT_DURATION}
-                  icon={<Repeat size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
-                  label={counts.habits === 1 ? 'habit' : 'habits'}
-                  onComplete={handleCounterComplete}
-                />
-              )}
-              {counts.events > 0 && (
-                <AnimatedCounter
-                  targetValue={counts.events}
-                  delay={getDelay(counterIndex++)}
-                  duration={COUNT_DURATION}
-                  icon={<Calendar size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
-                  label={counts.events === 1 ? 'event' : 'events'}
-                  onComplete={handleCounterComplete}
-                />
-              )}
-              {counts.drops > 0 && (
-                <AnimatedCounter
-                  targetValue={counts.drops}
-                  delay={getDelay(counterIndex++)}
-                  duration={COUNT_DURATION}
-                  icon={<ArrowDown size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
-                  label={counts.drops === 1 ? 'drop' : 'drops'}
-                  onComplete={handleCounterComplete}
-                />
-              )}
-              {counts.notes > 0 && (
-                <AnimatedCounter
-                  targetValue={counts.notes}
-                  delay={getDelay(counterIndex++)}
-                  duration={COUNT_DURATION}
-                  icon={<Lightbulb size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
-                  label={counts.notes === 1 ? 'idea' : 'ideas'}
-                  onComplete={handleCounterComplete}
-                />
-              )}
-            </View>
+          {/* Subtitle */}
+          <Animated.Text style={styles.subtitle} entering={FadeIn.duration(500).delay(350)}>
+            SINCE YOUR LAST SWEEP
+          </Animated.Text>
 
-            {/* Expand Button */}
-            {canContinue && (
-              <Animated.View entering={FadeIn.duration(400).delay(200)}>
-                <TouchableOpacity
-                  style={styles.expandButton}
-                  onPress={handleToggleExpand}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.expandButtonText}>
-                    {isExpanded ? 'Hide details' : 'See what you did'}
-                  </Text>
-                  {isExpanded ? (
-                    <ChevronUp size={18} color={BRAND.colors.mossGreen} />
-                  ) : (
-                    <ChevronDown size={18} color={BRAND.colors.mossGreen} />
-                  )}
-                </TouchableOpacity>
-              </Animated.View>
+          {/* Counters */}
+          <View style={styles.countersContainer}>
+            {counts.todos > 0 && (
+              <AnimatedCounter
+                targetValue={counts.todos}
+                delay={getDelay(counterIndex++)}
+                duration={COUNT_DURATION}
+                icon={<Check size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+                label={counts.todos === 1 ? 'todo' : 'todos'}
+                onComplete={handleCounterComplete}
+              />
+            )}
+            {counts.habits > 0 && (
+              <AnimatedCounter
+                targetValue={counts.habits}
+                delay={getDelay(counterIndex++)}
+                duration={COUNT_DURATION}
+                icon={<Repeat size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+                label={counts.habits === 1 ? 'habit' : 'habits'}
+                onComplete={handleCounterComplete}
+              />
+            )}
+            {counts.events > 0 && (
+              <AnimatedCounter
+                targetValue={counts.events}
+                delay={getDelay(counterIndex++)}
+                duration={COUNT_DURATION}
+                icon={<Calendar size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+                label={counts.events === 1 ? 'event' : 'events'}
+                onComplete={handleCounterComplete}
+              />
+            )}
+            {counts.drops > 0 && (
+              <AnimatedCounter
+                targetValue={counts.drops}
+                delay={getDelay(counterIndex++)}
+                duration={COUNT_DURATION}
+                icon={<ArrowDown size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+                label={counts.drops === 1 ? 'drop' : 'drops'}
+                onComplete={handleCounterComplete}
+              />
+            )}
+            {counts.notes > 0 && (
+              <AnimatedCounter
+                targetValue={counts.notes}
+                delay={getDelay(counterIndex++)}
+                duration={COUNT_DURATION}
+                icon={<Lightbulb size={20} color={BRAND.colors.mossGreen} strokeWidth={2.5} />}
+                label={counts.notes === 1 ? 'idea' : 'ideas'}
+                onComplete={handleCounterComplete}
+              />
             )}
           </View>
-        </TouchableWithoutFeedback>
 
-        {/* Expanded Item List — OUTSIDE the TouchableWithoutFeedback */}
-        {isExpanded && (
-          <Animated.View entering={FadeIn.duration(200)} style={styles.expandedWrapper}>
-            <View style={styles.expandedContainer}>
-              <ScrollView
-                style={styles.listScrollView}
-                contentContainerStyle={styles.listContent}
-                showsVerticalScrollIndicator={true}
-                bounces={true}
-                nestedScrollEnabled={true}
+          {/* Expand Button */}
+          {canContinue && (
+            <Animated.View entering={FadeIn.duration(400).delay(200)}>
+              <TouchableOpacity
+                style={styles.expandButton}
+                onPress={handleToggleExpand}
+                activeOpacity={0.7}
               >
-                <ItemList items={completedItems} events={completedEvents} />
-              </ScrollView>
-            </View>
-          </Animated.View>
+                <Text style={styles.expandButtonText}>
+                  {isExpanded ? 'Hide details' : 'See what you did'}
+                </Text>
+                {isExpanded ? (
+                  <ChevronUp size={18} color={BRAND.colors.mossGreen} />
+                ) : (
+                  <ChevronDown size={18} color={BRAND.colors.mossGreen} />
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+        </View>
+
+        {/* Expanded Item List */}
+        {isExpanded && (
+          <Pressable
+            onPress={() => {
+              /* swallow tap */
+            }}
+          >
+            <Animated.View entering={FadeIn.duration(200)} style={styles.expandedWrapper}>
+              <View style={styles.expandedContainer}>
+                <ScrollView
+                  style={styles.listScrollView}
+                  contentContainerStyle={styles.listContent}
+                  showsVerticalScrollIndicator={true}
+                  bounces={true}
+                  nestedScrollEnabled={true}
+                >
+                  <ItemList items={completedItems} events={completedEvents} />
+                </ScrollView>
+              </View>
+            </Animated.View>
+          </Pressable>
         )}
       </ScrollView>
 
       {/* Hint at bottom */}
-      <Animated.Text style={styles.hint} entering={FadeIn.duration(400).delay(1800)}>
-        {canContinue ? 'tap to continue' : 'tap to skip'}
-      </Animated.Text>
+      <Pressable onPress={handleBackgroundTap}>
+        <Animated.Text style={styles.hint} entering={FadeIn.duration(400).delay(1800)}>
+          {canContinue ? 'tap to continue' : 'tap to skip'}
+        </Animated.Text>
+      </Pressable>
     </View>
   );
 };

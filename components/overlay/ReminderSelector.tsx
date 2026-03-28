@@ -10,6 +10,7 @@ import { overlayStyles } from '../../app/styles/manualAdd.styles';
 import { theme } from '../../app/design/theme';
 import { formatTime } from '../../app/utils/recurrence';
 import type { TReminderRule } from '../../app/schemas/manualAdd';
+import { getDateService } from '../../lib/date';
 
 interface ReminderSelectorProps {
   value: TReminderRule[];
@@ -19,7 +20,7 @@ interface ReminderSelectorProps {
 export function ReminderSelector({ value, onChange }: ReminderSelectorProps) {
   const handleAdd = () => {
     const newReminder: TReminderRule = {
-      id: `reminder-${Date.now()}`,
+      id: `reminder-${getDateService().now().getTime()}`,
       timeISO: '08:00',
       frequency: 'daily',
     };

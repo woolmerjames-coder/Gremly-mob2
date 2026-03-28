@@ -13,8 +13,8 @@ import type { WeeklySummary, WeeklySummaryContent } from '../../types';
 
 jest.mock('../../date', () => ({
   getDateService: () => ({
-    getCurrentDate: () => '2025-12-15', // Monday
-    fromDateString: (str: string) => (str ? new Date(str + 'T00:00:00') : null),
+    today: () => '2025-12-15', // Monday
+    fromLocalDate: (str: string) => (str ? new Date(str + 'T00:00:00') : null),
     addDays: (dateStr: string, days: number) => {
       const d = new Date(dateStr + 'T00:00:00');
       d.setDate(d.getDate() + days);
@@ -32,7 +32,12 @@ function makeContent(overrides: Partial<WeeklySummaryContent> = {}): WeeklySumma
     weeklyCommentary: 'Good week overall.',
     highlightMoment: { title: 'Big Win', reason: 'Completed project', gremlyComment: 'Amazing!' },
     magicMoments: [
-      { title: 'Shipped API', body: 'Major milestone.', date: '2025-12-17', connectedItems: ['task-1'] },
+      {
+        title: 'Shipped API',
+        body: 'Major milestone.',
+        date: '2025-12-17',
+        connectedItems: ['task-1'],
+      },
     ],
     insights: [
       {
@@ -363,9 +368,7 @@ describe('weekly summary selectors', () => {
           makeSummary({
             week_start_date: '2025-12-15',
             content: makeContent({
-              magicMoments: [
-                { title: 'Big moment', body: 'Story', date: '2025-12-18' },
-              ],
+              magicMoments: [{ title: 'Big moment', body: 'Story', date: '2025-12-18' }],
               recommendations: [
                 {
                   trigger: 'sleep',

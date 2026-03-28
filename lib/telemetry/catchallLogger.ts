@@ -1,4 +1,5 @@
 import { getEnv } from '../env';
+import { nowTimestamp } from '../date/DateService';
 
 // Lightweight non-crypto hash (DJB2 variant). Not for security.
 export function hashString(input: string): string {
@@ -38,7 +39,7 @@ export async function logCatchallDecision(d: DecisionLog): Promise<void> {
     const url = getEnv('EXPO_PUBLIC_CORTEX_LOGS_URL');
     if (!url) return;
 
-    const ts = d.ts ?? new Date().toISOString();
+    const ts = d.ts ?? nowTimestamp();
 
     const payload = {
       ts,

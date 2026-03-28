@@ -101,7 +101,12 @@ jest.mock('../providers/CortexProvider', () => ({
 jest.mock('@react-navigation/native', () => ({
   __esModule: true,
   ...jest.requireActual('@react-navigation/native'),
-  useNavigation: () => ({ navigate: jest.fn(), goBack: jest.fn(), setOptions: jest.fn() }),
+  useNavigation: () => ({
+    navigate: jest.fn(),
+    goBack: jest.fn(),
+    setOptions: jest.fn(),
+    addListener: jest.fn(() => jest.fn()),
+  }),
   useRoute: () => ({ params: {} }),
 }));
 

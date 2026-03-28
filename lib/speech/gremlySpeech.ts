@@ -12,6 +12,9 @@
  * - References the ADHD brain fondly, never clinically
  */
 
+import { getDateService } from '../date/DateService';
+import { format } from 'date-fns';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,7 +79,7 @@ export function pickRandom<T>(options: T[], exclude?: T[]): T {
 }
 
 export function getTimeOfDay(): TimeOfDay {
-  const hour = new Date().getHours();
+  const hour = getDateService().now().getHours();
   if (hour >= 5 && hour < 12) return 'morning';
   if (hour >= 12 && hour < 17) return 'afternoon';
   if (hour >= 17 && hour < 21) return 'evening';
@@ -86,7 +89,7 @@ export function getTimeOfDay(): TimeOfDay {
 function formatDate(date: Date | string | null | undefined): string {
   if (!date) return '';
   const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return format(d, 'MMM d');
 }
 
 function calculateDuration(message: string): number {
@@ -359,7 +362,7 @@ const SPEECH_POOLS = {
     'Age {age} and thriving. Honestly? I\u2019m impressed with me.',
     'Look at me. Age {age}. Growing up right before your eyes.',
     'Age {age}. I\u2019d thank you but I did most of the growing.',
-    'That\u2019s {age} whole days of wisdom. You can tell, right?',
+    'That\u2019s {age} whole levels of wisdom. You can tell, right?',
     'Age {age}! I need a moment. ...OK I\u2019m good.',
     'Age {age}. Someone throw me a party. Oh wait, this IS the party.',
     'I just aged. In a good way. Age {age}, baby.',
@@ -584,7 +587,7 @@ export function getGreetingSpeechV2(ctx: SpeechContext): { message: string; dura
  */
 export function getReturnSpeech(ctx: SpeechContext): { message: string; duration: number } | null {
   // 5-minute cooldown
-  if (ctx.lastSpeechTime != null && Date.now() - ctx.lastSpeechTime < 5 * 60 * 1000) {
+  if (ctx.lastSpeechTime != null && getDateService().now().getTime() - ctx.lastSpeechTime < 5 * 60 * 1000) {
     return null;
   }
 

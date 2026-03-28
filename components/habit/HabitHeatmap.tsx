@@ -25,12 +25,12 @@ export function HabitHeatmap({ habitId, completedDates, adherencePercent }: Habi
 
   // Generate 28 days (4 weeks) ending today
   const heatmapData = useMemo(() => {
-    const today = ds.getCurrentDate();
+    const today = ds.today();
     const days: Array<{ dateIso: string; isCompleted: boolean; dayOfWeek: number }> = [];
 
     for (let i = 27; i >= 0; i--) {
       const dateIso = ds.addDays(today, -i);
-      const dateObj = ds.fromDateString(dateIso);
+      const dateObj = ds.fromLocalDate(dateIso);
       days.push({
         dateIso,
         isCompleted: completedDates.has(dateIso),

@@ -14,6 +14,7 @@ import { X as CloseIcon } from 'lucide-react-native';
 import { useGremlyStore } from '../../../../lib/store/useGremlyStore';
 import { useAllSpaceMilestones } from '../../../../lib/store/selectors';
 import { format } from 'date-fns';
+import { getDateService } from '../../../../lib/date';
 
 export type TimelineOverlayProps = {
   visible: boolean;
@@ -35,7 +36,7 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
 
   const [adding, setAdding] = React.useState(false);
   const [title, setTitle] = React.useState('');
-  const [date, setDate] = React.useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [date, setDate] = React.useState<string>(format(getDateService().now(), 'yyyy-MM-dd'));
   const [note, setNote] = React.useState<string>('');
 
   const handleAdd = async () => {
@@ -46,7 +47,7 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
         date,
       });
       setTitle('');
-      setDate(format(new Date(), 'yyyy-MM-dd'));
+      setDate(format(getDateService().now(), 'yyyy-MM-dd'));
       setNote('');
       setAdding(false);
     } catch (e) {

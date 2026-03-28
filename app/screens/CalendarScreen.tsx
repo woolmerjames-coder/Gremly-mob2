@@ -401,7 +401,7 @@ export default function CalendarScreen() {
   const overlayController = useUnifiedOverlayController();
 
   // Selected date state - starts with today
-  const [selectedDate, setSelectedDate] = useState(() => dateService.getCurrentDate());
+  const [selectedDate, setSelectedDate] = useState(() => dateService.today());
   const [isDatePickerVisible, setDatePickerVisible] = useState(false);
   const [isCompletedExpanded, setCompletedExpanded] = useState(false);
 
@@ -457,7 +457,7 @@ export default function CalendarScreen() {
   // Completed items for selected date
   const completedTodos = useMemo(() => {
     return todos.filter(
-      (t) => t.completed_at && dateService.extractDateFromIso(t.completed_at) === selectedDate,
+      (t) => t.completed_at && dateService.extractLocalDate(t.completed_at) === selectedDate,
     );
   }, [todos, selectedDate, dateService]);
 
@@ -477,7 +477,7 @@ export default function CalendarScreen() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   const { brief } = useMorningBrief();
-  const today = dateService.getCurrentDate();
+  const today = dateService.today();
   const isToday = selectedDate === today;
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -607,7 +607,7 @@ export default function CalendarScreen() {
 
     // Completed todos
     for (const todo of todos) {
-      if (todo.completed_at && dateService.extractDateFromIso(todo.completed_at) === selectedDate) {
+      if (todo.completed_at && dateService.extractLocalDate(todo.completed_at) === selectedDate) {
         completed.push({
           id: todo.id,
           name: todo.name,

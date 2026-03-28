@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, useColorScheme } from 'react-native';
+import { format } from 'date-fns';
 import { COLORS, RADII, SPACE } from './_tokens';
 
 export type HabitItem = { id: string; title: string; doneCount: number; target: number };
@@ -26,7 +27,7 @@ export const DayPanel: React.FC<DayPanelProps> = ({
   const isDark = scheme === 'dark';
   const dateLabel = useMemo(() => {
     const d = new Date(dateISO);
-    return d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+    return format(d, 'EEEE, MMM d');
   }, [dateISO]);
 
   // Expand/collapse animation on mount/update

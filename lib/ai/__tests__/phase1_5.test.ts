@@ -22,6 +22,7 @@ jest.mock('../../env', () => ({
 jest.mock('../../date/DateService', () => ({
   dateService: {
     today: () => '2025-12-05',
+    now: () => new Date('2025-12-05T00:00:00.000Z'),
   },
 }));
 

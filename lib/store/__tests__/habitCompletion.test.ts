@@ -29,7 +29,7 @@ describe('Habit Completion Timezone Logic', () => {
         clock: () => new Date('2026-01-23T10:00:00'),
       });
 
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = getDateService().today();
       const occurredAt = `${todayDate}T12:00:00.000Z`;
 
       expect(todayDate).toBe('2026-01-23');
@@ -41,7 +41,7 @@ describe('Habit Completion Timezone Logic', () => {
         clock: () => new Date('2026-01-23T23:30:00'), // Late night local
       });
 
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = getDateService().today();
       const occurredAt = `${todayDate}T12:00:00.000Z`;
 
       // Both should represent the same day
@@ -60,7 +60,7 @@ describe('Habit Completion Timezone Logic', () => {
         clock: () => new Date('2026-01-23T10:00:00'),
       });
 
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = getDateService().today();
       const occurredAt = `${todayDate}T12:00:00.000Z`;
 
       const occurredDay = todayDate;
@@ -75,7 +75,7 @@ describe('Habit Completion Timezone Logic', () => {
         clock: () => new Date('2026-01-23T06:00:00'), // 6 AM local
       });
 
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = getDateService().today();
       const occurredAt = `${todayDate}T12:00:00.000Z`;
 
       expect(todayDate).toBe('2026-01-23');
@@ -87,7 +87,7 @@ describe('Habit Completion Timezone Logic', () => {
         clock: () => new Date('2026-01-23T23:59:00'), // 11:59 PM local
       });
 
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = getDateService().today();
       const occurredAt = `${todayDate}T12:00:00.000Z`;
 
       expect(todayDate).toBe('2026-01-23');
@@ -109,7 +109,7 @@ describe('Habit Completion Timezone Logic', () => {
         clock: () => new Date('2026-01-23T23:00:00'), // 11 PM local
       });
 
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = getDateService().today();
 
       // Should be Jan 23 (local), not Jan 24 (UTC)
       expect(todayDate).toBe('2026-01-23');
@@ -121,7 +121,7 @@ describe('Habit Completion Timezone Logic', () => {
         clock: () => new Date('2026-01-23T01:00:00'), // 1 AM local
       });
 
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = getDateService().today();
       const occurredAt = `${todayDate}T12:00:00.000Z`;
 
       expect(todayDate).toBe('2026-01-23');
@@ -146,7 +146,7 @@ describe('Habit Completion Timezone Logic', () => {
         clock: () => new Date('2026-01-23T10:00:00'),
       });
 
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = getDateService().today();
       const occurredAt = `${todayDate}T12:00:00.000Z`;
 
       // occurred_at is always at noon UTC
@@ -158,7 +158,7 @@ describe('Habit Completion Timezone Logic', () => {
         clock: () => new Date('2026-01-23T15:30:00'),
       });
 
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = getDateService().today();
       const occurredAt = `${todayDate}T12:00:00.000Z`;
       const lastCompletedAt = '2026-01-23T15:30:00.000Z'; // Actual timestamp
 
@@ -184,7 +184,7 @@ describe('Habit Completion Timezone Logic', () => {
 
       const userId = 'user-123';
       const habitId = 'habit-456';
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = getDateService().today();
       const occurredAt = `${todayDate}T12:00:00.000Z`;
 
       const payload = {
@@ -205,7 +205,7 @@ describe('Habit Completion Timezone Logic', () => {
         clock: () => new Date('2026-01-23T10:00:00'),
       });
 
-      const todayDate = getDateService().getCurrentDate();
+      const todayDate = getDateService().today();
       const occurredAt = `${todayDate}T12:00:00.000Z`;
 
       const progressRow = {

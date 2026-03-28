@@ -11,6 +11,7 @@
 import { useMindDropStore } from './mindDropStore';
 import { eventBus } from '../events/EventBus';
 import { MindDropItem, MindDropBucket, MindDropStage, LogSubtype } from '../minddrop/types';
+import { nowTimestamp } from '../date/DateService';
 
 /**
  * Map entity type string to MindDropBucket
@@ -34,7 +35,7 @@ function typeToBucket(type: string): MindDropBucket {
  */
 export function dbRecordToMindDropItem(record: any, type: string): MindDropItem {
   const bucket = typeToBucket(type);
-  const now = new Date().toISOString();
+  const now = nowTimestamp();
 
   // Determine log subtype from record if available
   let subtype: LogSubtype | null = null;

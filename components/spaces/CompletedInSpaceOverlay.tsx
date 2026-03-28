@@ -20,6 +20,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, CheckCircle2, RotateCcw } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
+import { getDateService } from '../../lib/date';
 import type { Todo } from '../../lib/types';
 
 interface CompletedInSpaceOverlayProps {
@@ -45,8 +46,9 @@ export function CompletedInSpaceOverlay({
 
   // Group completed todos by recency
   const { thisWeek, older } = useMemo(() => {
-    const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const ds = getDateService();
+    const now = ds.now();
+    const weekAgo = ds.fromLocalDate(ds.daysAgo(7)) ?? now;
 
     const thisWeekItems: Todo[] = [];
     const olderItems: Todo[] = [];
@@ -72,16 +74,15 @@ export function CompletedInSpaceOverlay({
 
   const formatCompletedDate = useCallback((dateStr: string | null | undefined) => {
     if (!dateStr) return '';
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const ds = getDateService();
+    const dateDay = ds.toLocalDate(new Date(dateStr));
+    const diffDays = ds.daysBetween(dateDay, ds.today());
 
     if (diffDays === 0) return 'Today';
     if (diffDays === 1) return 'Yesterday';
     if (diffDays < 7) return `${diffDays} days ago`;
     if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-    return date.toLocaleDateString();
+    return ds.formatForChip(dateDay);
   }, []);
 
   const renderTodoRow = useCallback(

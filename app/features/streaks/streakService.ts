@@ -5,7 +5,7 @@
  * Provides milestone detection for celebration triggers.
  */
 
-import { format, parseISO, subDays, isAfter, isBefore, startOfDay } from 'date-fns';
+import { getDateService } from '../../../lib/date';
 
 export interface StreakResult {
   currentStreak: number;
@@ -32,8 +32,9 @@ export function getCurrentStreak(activityDates: string[]): StreakResult {
   // Sort dates descending (most recent first)
   const sortedDates = [...new Set(activityDates)].sort((a, b) => b.localeCompare(a));
 
-  const today = format(startOfDay(new Date()), 'yyyy-MM-dd');
-  const yesterday = format(subDays(startOfDay(new Date()), 1), 'yyyy-MM-dd');
+  const ds = getDateService();
+  const today = ds.ritualDay();
+  const yesterday = ds.addDays(today, -1);
 
   // Check if streak is active (today or yesterday)
   const mostRecent = sortedDates[0];
@@ -56,7 +57,7 @@ export function getCurrentStreak(activityDates: string[]): StreakResult {
   for (let i = 0; i < sortedDates.length; i++) {
     if (sortedDates[i] === checkDate) {
       streakCount++;
-      checkDate = format(subDays(parseISO(checkDate), 1), 'yyyy-MM-dd');
+      checkDate = getDateService().addDays(checkDate, -1);
     } else {
       // Gap found, break
       break;

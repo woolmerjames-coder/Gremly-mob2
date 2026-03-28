@@ -17,6 +17,7 @@ import { Card } from '../../../design-system/Card';
 import { Text, Box, Button } from '../../../ui';
 import { BRAND } from '../../../design/brand';
 import { useRepo } from '../../../providers/RepoProvider';
+import { getDateService } from '../../../lib/date';
 import type { TodayMergedEntry } from '../../../lib/today/hooks/useTodayEntries';
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -43,7 +44,7 @@ export type CompletedItemsModalProps = {
 /**
  * Determines time window based on current hour
  */
-function getTimeWindow(date: Date = new Date()): TimeWindow {
+function getTimeWindow(date: Date = getDateService().now()): TimeWindow {
   const hour = date.getHours();
 
   if (hour >= 6 && hour < 11) {

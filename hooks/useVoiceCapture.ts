@@ -10,6 +10,7 @@ import type { Audio as AudioType } from 'expo-av';
 import { triggerMedium, triggerLight } from '../lib/haptics';
 import { shouldUseHaptics } from '../config/featureFlags';
 import { callTranscribe } from '../lib/cortex/CortexClient';
+import { getDateService } from '../lib/date/DateService';
 
 // Lazy load expo-av and expo-file-system to avoid "Cannot find native module" errors in Expo Go
 let Audio: typeof AudioType | null = null;
@@ -131,7 +132,7 @@ export function useVoiceCapture(options: UseVoiceCaptureOptions = {}): UseVoiceC
       );
 
       recordingRef.current = recording;
-      startTimeRef.current = Date.now();
+      startTimeRef.current = getDateService().now().getTime();
       setState('recording');
       setDuration(0);
       setErrorMessage(null);
@@ -141,7 +142,7 @@ export function useVoiceCapture(options: UseVoiceCaptureOptions = {}): UseVoiceC
       }
 
       durationIntervalRef.current = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        const elapsed = Math.floor((getDateService().now().getTime() - startTimeRef.current) / 1000);
         setDuration(elapsed);
 
         if (elapsed >= maxDuration) {
@@ -169,7 +170,7 @@ export function useVoiceCapture(options: UseVoiceCaptureOptions = {}): UseVoiceC
       durationIntervalRef.current = null;
     }
 
-    const finalDuration = Math.floor((Date.now() - startTimeRef.current) / 1000);
+    const finalDuration = Math.floor((getDateService().now().getTime() - startTimeRef.current) / 1000);
     setState('transcribing');
 
     if (shouldUseHaptics()) {

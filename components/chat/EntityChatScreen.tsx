@@ -53,7 +53,7 @@ import type {
   Habit,
   Note,
 } from '../../lib/types';
-import { getDateService } from '../../lib/date';
+import { getDateService, nowTimestamp } from '../../lib/date';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -207,10 +207,8 @@ const getEntitySubtitle = (
 };
 
 const getDaysSinceCreated = (createdAt: string): number => {
-  const created = new Date(createdAt);
-  const now = new Date();
-  const diffMs = now.getTime() - created.getTime();
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const ds = getDateService();
+  return ds.daysBetween(ds.toLocalDate(new Date(createdAt)), ds.today());
 };
 
 /**
@@ -396,7 +394,7 @@ export function EntityChatScreen({
           }
 
           // Compute habit completion stats from habitProgress
-          const today = new Date();
+          const today = getDateService().now();
           const ds = getDateService();
           const daysAgo = (n: number) => ds.daysAgo(n);
 
@@ -434,7 +432,7 @@ export function EntityChatScreen({
 
           const lastCompletedDay = completedDays[0] || null;
           const daysSinceLast = lastCompletedDay
-            ? Math.floor((today.getTime() - new Date(lastCompletedDay).getTime()) / 86400000)
+            ? getDateService().daysBetween(lastCompletedDay, getDateService().toLocalDate(today))
             : null;
 
           entityContext.habitStats = {
@@ -553,7 +551,7 @@ export function EntityChatScreen({
           preset,
           sweepContext,
           accountCreatedAt,
-          currentTime: new Date().toISOString(),
+          currentTime: nowTimestamp(),
           siblingContext,
         };
 

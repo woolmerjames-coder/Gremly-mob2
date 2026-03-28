@@ -21,6 +21,9 @@
  * - time: HH:MM in local time
  * - iso: full timestamp with the user's intended time
  */
+
+import { getDateService } from '../../date/DateService';
+
 export type ParsedDue = {
   iso: string; // ISO string - noon UTC for date-only, actual time for explicit time
   date: string; // YYYY-MM-DD in local time
@@ -38,9 +41,7 @@ function pad(n: number) {
 
 function toIsoLocal(d: Date) {
   // ISO with timezone offset (not Z) so the backend can store local time if needed
-  const yyyy = d.getFullYear();
-  const mm = pad(d.getMonth() + 1);
-  const dd = pad(d.getDate());
+  const datePart = getDateService().toLocalDate(d);
   const hh = pad(d.getHours());
   const mi = pad(d.getMinutes());
   const ss = pad(d.getSeconds());
@@ -48,7 +49,7 @@ function toIsoLocal(d: Date) {
   const sign = tz >= 0 ? '+' : '-';
   const tzh = pad(Math.floor(Math.abs(tz) / 60));
   const tzm = pad(Math.abs(tz) % 60);
-  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}${sign}${tzh}:${tzm}`;
+  return `${datePart}T${hh}:${mi}:${ss}${sign}${tzh}:${tzm}`;
 }
 
 /**
@@ -102,7 +103,7 @@ const WEEKDAYS: Record<string, number> = {
   saturday: 6,
 };
 
-export function parseDue(input: string, now: Date = new Date()): ParsedDue | null {
+export function parseDue(input: string, now: Date = getDateService().now()): ParsedDue | null {
   if (!input || !input.trim()) return null;
   const text = input.trim();
   const low = text.toLowerCase();

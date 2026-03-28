@@ -47,7 +47,7 @@ jobs:
         run: npm run lint -- --quiet
 
       - name: Test
-        run: npm run test:ci -- --maxWorkers=50% --testPathIgnorePatterns='/node_modules/|__tests__/pending/|artifacts/|__tests__/(today\.ds|today\.grouping)\.test\.tsx'
+        run: npm run test:ci -- --maxWorkers=50% --testPathIgnorePatterns='/node_modules/|__tests__/pending/|artifacts/|\.claude/|__tests__/(today\.ds|today\.grouping)\.test\.tsx'
         timeout-minutes: 15
         env:
           NODE_OPTIONS: "--max-old-space-size=6144"

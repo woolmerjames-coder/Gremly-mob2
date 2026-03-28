@@ -95,7 +95,7 @@ export function LockInCheckpointStep({ onContinue, onClose }: LockInCheckpointSt
   );
 
   const completedHabitIds = useMemo(() => {
-    const today = getDateService().getCurrentDate();
+    const today = getDateService().today();
     return new Set(habitProgress.filter((p) => p.occurred_day === today).map((p) => p.habit_id));
   }, [habitProgress]);
 
