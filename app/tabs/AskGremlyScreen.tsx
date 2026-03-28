@@ -45,6 +45,7 @@ export default function AskGremlyScreen() {
   const flatListRef = useRef<any>(null);
   const streamingControllerRef = useRef<{ close: () => void } | null>(null);
   const streamingMessageIdRef = useRef<string | null>(null);
+  const streamTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wordBufferRef = useRef<string[]>([]);
   const wordFlushIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -60,6 +61,7 @@ export default function AskGremlyScreen() {
     messages,
     loading: messagesLoading,
     sendUserMessage,
+    appendAssistantMessage,
     createStreamingMessage,
     updateStreamingContent,
     updateStreamingSearching,
@@ -138,11 +140,30 @@ export default function AskGremlyScreen() {
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
       conversationHistory.push({ role: 'user', content: text });
 
+      let receivedChunks = false;
+      if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
+
+      const handleStreamTimeout = () => {
+        console.warn('[AskGremly] Stream timeout');
+        stopWordFlushInterval();
+        streamingControllerRef.current?.close();
+        const msgId = streamingMessageIdRef.current;
+        streamingMessageIdRef.current = null;
+        if (msgId) {
+          finalizeStreamingMessage(msgId, 'Something went wrong. Try sending your message again.');
+        }
+        setSending(false);
+      };
+
       streamingControllerRef.current = callGeneralChatStreaming(
         conversationHistory,
         { chatId: chat.id, userId: userId ?? undefined },
         {
           onChunk: (delta: string) => {
+            receivedChunks = true;
+            if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
+            streamTimeoutRef.current = setTimeout(handleStreamTimeout, 15000);
+
             const chunkMsgId = streamingMessageIdRef.current;
             if (chunkMsgId) {
               updateStreamingSearching(chunkMsgId, false, null);
@@ -162,6 +183,7 @@ export default function AskGremlyScreen() {
             if (msgId) updateMessage(msgId, { isFetching, fetchingUrl } as any);
           },
           onComplete: async (finalText: string, richResult?: any) => {
+            if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
             stopWordFlushInterval();
             const msgId = streamingMessageIdRef.current;
             streamingMessageIdRef.current = null;
@@ -192,6 +214,7 @@ export default function AskGremlyScreen() {
             setSending(false);
           },
           onError: (error: string, _partialText: string) => {
+            if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
             console.error('[AskGremly] Stream error:', error);
             stopWordFlushInterval();
             const msgId = streamingMessageIdRef.current;
@@ -201,6 +224,11 @@ export default function AskGremlyScreen() {
           },
         },
       );
+
+      // Initial timeout — if no chunks arrive within 15s
+      streamTimeoutRef.current = setTimeout(() => {
+        if (!receivedChunks) handleStreamTimeout();
+      }, 15000);
     },
     [
       messages,
@@ -479,6 +507,13 @@ export default function AskGremlyScreen() {
 
           if (activeChat?.id && savedIds.length > 0) {
             await store.markExtractionsSaved(activeChat.id, savedIds);
+
+            const savedNames = items.filter((i) => savedIds.includes(i.id)).map((i) => i.title);
+            const confirmText =
+              savedIds.length === 1
+                ? `Saved "${savedNames[0]}" to your list.`
+                : `Saved ${savedIds.length} items: ${savedNames.join(', ')}`;
+            await appendAssistantMessage(`✓ ${confirmText}`);
           }
 
           for (let i = 0; i < savedIds.length + (includeSummary ? 1 : 0); i++) {
