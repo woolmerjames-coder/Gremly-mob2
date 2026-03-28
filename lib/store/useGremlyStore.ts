@@ -479,6 +479,11 @@ interface GremlyState {
   habitProgress: HabitProgressRow[];
   spaceChats: SpaceChat[];
   spaceChatMessages: SpaceChatMessage[];
+  generalChats: SpaceChat[];
+  activeGeneralChatId: string | null;
+  generalChatExtractions: any[];
+  generalChatDismissals: string[];
+  generalChatAutoTitle: string | null;
   milestones: Milestone[];
   pendingDrops: Map<string, PendingDrop>;
 
@@ -730,6 +735,12 @@ interface GremlyState {
   syncSpaceChat: (chat: SpaceChat) => void; // Sync chat from external source (no Supabase write)
   archiveSpaceChat: (chatId: string) => Promise<void>;
   deleteSpaceChat: (chatId: string) => Promise<void>;
+  createGeneralChat: (title?: string) => Promise<SpaceChat | null>;
+  fetchGeneralChats: () => Promise<void>;
+  setActiveGeneralChat: (chatId: string | null) => void;
+  updateGeneralChatExtractions: (chatId: string) => Promise<void>;
+  dismissExtraction: (chatId: string, extractionId: string) => Promise<void>;
+  markExtractionsSaved: (chatId: string, extractionIds: string[]) => Promise<void>;
   addChatMessage: (
     message: Omit<SpaceChatMessage, 'id' | 'created_at'>,
   ) => Promise<SpaceChatMessage | null>;
@@ -1055,6 +1066,11 @@ const initialState = {
   habitProgress: [] as HabitProgressRow[],
   spaceChats: [] as SpaceChat[],
   spaceChatMessages: [] as SpaceChatMessage[],
+  generalChats: [] as SpaceChat[],
+  activeGeneralChatId: null as string | null,
+  generalChatExtractions: [] as any[],
+  generalChatDismissals: [] as string[],
+  generalChatAutoTitle: null as string | null,
   milestones: [] as Milestone[],
   // Space suggestions
   spaceSuggestions: [] as SpaceSuggestion[],
@@ -3962,6 +3978,117 @@ export const useGremlyStore = create<GremlyState>()(
         // ═══════════════════════════════════════════════════════════════════
         // SPACE CHAT MUTATIONS
         // ═══════════════════════════════════════════════════════════════════
+
+        createGeneralChat: async (title?: string) => {
+          const userId = get().userId;
+          if (!userId) return null;
+          const now = nowTimestamp();
+          const newChat: any = {
+            user_id: userId,
+            space_id: null,
+            chat_type: 'general',
+            title: title || 'New conversation',
+            pinned: false,
+            created_at: now,
+            updated_at: now,
+          };
+          const tempId = `temp-${getDateService().now().getTime()}`;
+          const optimistic = { ...newChat, id: tempId } as SpaceChat;
+          set((s) => ({
+            generalChats: [optimistic, ...s.generalChats],
+            activeGeneralChatId: tempId,
+          }));
+          try {
+            const { data, error } = await supabase
+              .from('space_chats')
+              .insert(newChat)
+              .select()
+              .single();
+            if (error) throw error;
+            set((s) => ({
+              generalChats: s.generalChats.map((c) => (c.id === tempId ? data : c)),
+              activeGeneralChatId: data.id,
+            }));
+            return data;
+          } catch (error) {
+            set((s) => ({
+              generalChats: s.generalChats.filter((c) => c.id !== tempId),
+              activeGeneralChatId: null,
+            }));
+            console.error('[GremlyStore] createGeneralChat failed:', error);
+            throw error;
+          }
+        },
+
+        setActiveGeneralChat: (chatId: string | null) => {
+          set({
+            activeGeneralChatId: chatId,
+            generalChatExtractions: [],
+            generalChatDismissals: [],
+            generalChatAutoTitle: null,
+          });
+        },
+
+        fetchGeneralChats: async () => {
+          const userId = get().userId;
+          if (!userId) return;
+          const { data, error } = await supabase
+            .from('space_chats')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('chat_type', 'general')
+            .is('archived_at', null)
+            .order('updated_at', { ascending: false })
+            .limit(50);
+          if (!error) set({ generalChats: data ?? [] });
+        },
+
+        updateGeneralChatExtractions: async (chatId: string) => {
+          const { data } = await supabase
+            .from('space_chats')
+            .select('extracted_items, dismissed_extractions, saved_extraction_ids, auto_title')
+            .eq('id', chatId)
+            .single();
+          if (!data) return;
+          const exclude = new Set([
+            ...((data as any).dismissed_extractions || []),
+            ...((data as any).saved_extraction_ids || []),
+          ]);
+          set({
+            generalChatExtractions: ((data as any).extracted_items || []).filter(
+              (e: any) => !exclude.has(e.id),
+            ),
+            generalChatDismissals: (data as any).dismissed_extractions || [],
+            generalChatAutoTitle: (data as any).auto_title || null,
+          });
+        },
+
+        dismissExtraction: async (chatId: string, extractionId: string) => {
+          set((s) => ({
+            generalChatExtractions: s.generalChatExtractions.filter(
+              (e: any) => e.id !== extractionId,
+            ),
+            generalChatDismissals: [...s.generalChatDismissals, extractionId],
+          }));
+          await supabase
+            .from('space_chats')
+            .update({ dismissed_extractions: get().generalChatDismissals } as any)
+            .eq('id', chatId);
+        },
+
+        markExtractionsSaved: async (chatId: string, extractionIds: string[]) => {
+          set((s) => ({
+            generalChatExtractions: s.generalChatExtractions.filter(
+              (e: any) => !extractionIds.includes(e.id),
+            ),
+          }));
+          const chat = get().generalChats.find((c) => c.id === chatId) as any;
+          const merged = [...new Set([...(chat?.saved_extraction_ids || []), ...extractionIds])];
+          await supabase
+            .from('space_chats')
+            .update({ saved_extraction_ids: merged } as any)
+            .eq('id', chatId);
+        },
 
         createSpaceChat: async (spaceId: string, title: string) => {
           const userId = get().userId;

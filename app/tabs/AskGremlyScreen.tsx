@@ -7,8 +7,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Clock, SquarePen } from 'lucide-react-native';
 import MascotLottie, { type MascotLottieHandle } from '../components/MascotLottie';
 import { ChatComposer } from '../../components/chat/ChatComposer';
-import { useAuth } from '../../providers/AuthProvider';
-import { supabase } from '../../lib/supabase/client';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
@@ -25,34 +24,28 @@ export default function AskGremlyScreen() {
   const navigation = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
   const mascotRef = useRef<MascotLottieHandle>(null);
-  const { user } = useAuth();
   const [historyVisible, setHistoryVisible] = useState(false);
 
   const handleSend = useCallback(
     async (text: string) => {
-      if (!text.trim() || !user?.id) return;
+      if (!text.trim()) return;
 
       try {
-        const { data, error } = await supabase
-          .from('space_chats')
-          .insert({ title: 'New conversation', user_id: user.id, space_id: null })
-          .select('id')
-          .single();
-
-        if (error || !data) {
+        const chat = await useGremlyStore.getState().createGeneralChat(text.trim().slice(0, 60));
+        if (!chat) {
           Alert.alert('Error', 'Could not create chat');
           return;
         }
 
         navigation.navigate('AskGremlyChat', {
-          chatId: data.id,
+          chatId: chat.id,
           initialMessage: text.trim(),
         });
       } catch {
         Alert.alert('Error', 'Could not create chat');
       }
     },
-    [user?.id, navigation],
+    [navigation],
   );
 
   return (

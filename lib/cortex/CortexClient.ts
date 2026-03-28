@@ -493,6 +493,104 @@ export function callSpaceChatStreaming(
   return { close: () => es.close() };
 }
 
+/**
+ * Stream a general chat (no space context) via Cortex.
+ */
+export function callGeneralChatStreaming(
+  messages: ChatMessage[],
+  opts: { chatId: string; userId?: string; systemPrompt?: string },
+  callbacks: StreamingCallbacks | SpaceChatStreamingCallbacks,
+): { close: () => void } {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) {
+    callbacks.onError('Missing CORTEX_URL', '');
+    return { close: () => {} };
+  }
+  if (isAiDisabled()) {
+    callbacks.onError('AI disabled', '');
+    return { close: () => {} };
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const supabaseAnonKey = readSupabaseAnonKey();
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  const allMessages: ChatMessage[] = opts.systemPrompt
+    ? [{ role: 'system', content: opts.systemPrompt }, ...messages]
+    : messages;
+
+  let fullText = '';
+
+  const es = new EventSource(baseUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      type: 'chat',
+      model: 'gpt-4o',
+      messages: allMessages,
+      temperature: 0.7,
+      max_completion_tokens: 400,
+      lane: 'general_chat',
+      stream: true,
+      chatId: opts.chatId,
+      userId: opts.userId,
+      currentTime: nowTimestamp(),
+    }),
+    lineEndingCharacter: '\n',
+  });
+
+  es.addEventListener('message', (event: any) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.error) {
+        callbacks.onError(data.error, fullText);
+        es.close();
+        return;
+      }
+      if (data.searching && data.query) {
+        callbacks.onSearching?.(data.query, data.isLoadingHint || false);
+        return;
+      }
+      if (data.fetching !== undefined) {
+        callbacks.onFetching?.(data.fetching, data.fetchingUrl || null);
+        return;
+      }
+      if (data.delta) {
+        fullText += data.delta;
+        callbacks.onChunk(data.delta, fullText);
+      }
+      if (data.done) {
+        const finalContent = data.full_content || fullText;
+        const richResult: SpaceChatStreamingResult = {
+          content: finalContent,
+          save_suggestion: data.save_suggestion ?? null,
+          saveable: data.saveable ?? null,
+          promotion: data.promotion ?? null,
+          latency_ms: data.latency_ms,
+          sources: data.sources,
+          search_query: data.search_query,
+          fetchedUrl: data.fetchedUrl ?? null,
+        };
+        log('GENERAL_CHAT_STREAM_DONE', { contentLength: finalContent.length });
+        (callbacks.onComplete as any)(finalContent, richResult);
+        es.close();
+      }
+    } catch {
+      /* Ignore parse errors */
+    }
+  });
+
+  es.addEventListener('error', (event: any) => {
+    callbacks.onError(event.message || 'Stream error', fullText);
+    es.close();
+  });
+
+  return { close: () => es.close() };
+}
+
 export async function callComplete(
   prompt: string,
   opts?: { model?: string; temperature?: number; maxTokens?: number },
@@ -1679,6 +1777,7 @@ export const CortexClient = {
   callClassify,
   callSpaceChat,
   callSpaceChatStreaming,
+  callGeneralChatStreaming,
   callSpaceChatSave,
   callEnrichPhase2,
   callEnrichPhase2Streaming,
