@@ -19,6 +19,7 @@ import OnboardingScreen from '../app/screens/OnboardingScreen';
 import PersonDetailScreen from '../app/people/PersonDetailScreen';
 import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
 import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
+import AskGremlyChatScreen from '../app/screens/AskGremlyChatScreen';
 import { ListsScreen } from '../app/screens/ListsScreen';
 import ArchivedItemsScreen from '../app/screens/ArchivedItemsScreen';
 import SweepTestScreen from '../app/screens/SweepTestScreen';
@@ -191,6 +192,12 @@ export default function RootNavigator() {
             component={ChatThreadScreen}
             options={{ title: 'Chat', headerShown: false }}
             getId={({ params }) => `${params?.spaceId}-${params?.chatId ?? 'new'}`}
+          />
+          <Stack.Screen
+            name="AskGremlyChat"
+            component={AskGremlyChatScreen}
+            options={{ headerShown: false }}
+            getId={({ params }) => params?.chatId ?? 'new'}
           />
           <Stack.Screen
             name="Lists"

@@ -294,6 +294,26 @@ function formatLifeMapForChat(lifeMap, lane, opts = {}) {
           }
         }
       }
+    } else if (lane === 'general') {
+      // General chat: all domains at summary level, high-importance threads get more detail
+      const activeThreads = (domain.threads || []).filter(
+        (t) => t.lifecycle === 'active' || t.lifecycle === 'dormant',
+      );
+      if (activeThreads.length === 0) continue;
+
+      parts.push(`\n${domain.name}:`);
+      for (const thread of activeThreads) {
+        const isHigh = thread.importance === 'high';
+        parts.push(
+          `  ${thread.name}: ${thread.status}, ${thread.momentum}${isHigh ? ' [important]' : ''}`,
+        );
+        if (isHigh && thread.summary) {
+          parts.push(`    "${thread.summary}"`);
+        }
+        if (isHigh && thread.recent_update) {
+          parts.push(`    Latest: "${thread.recent_update}"`);
+        }
+      }
     } else {
       // SUMMARY for other domains
       const activeThreads = (domain.threads || []).filter(
@@ -392,7 +412,7 @@ export async function buildChatContext(userId, lane, opts, env) {
     const result = parts.join('\n\n');
 
     // Token safety — generous limits since Life Map summaries are dense and valuable
-    const MAX_CONTEXT_CHARS = lane === 'space' ? 6000 : 4500;
+    const MAX_CONTEXT_CHARS = lane === 'space' || lane === 'general' ? 6000 : 4500;
     if (result.length > MAX_CONTEXT_CHARS) {
       console.warn(
         `[ChatProjection] Context truncated for ${userId.slice(0, 8)}: ${result.length} → ${MAX_CONTEXT_CHARS} chars`,

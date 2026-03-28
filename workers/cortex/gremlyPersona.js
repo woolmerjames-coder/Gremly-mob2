@@ -411,6 +411,12 @@ function buildSystemPrompt(opts) {
     } else if (opts.spaceName) {
       parts.push(`This conversation is in the user's "${opts.spaceName}" space.`);
     }
+  } else if (opts.chatType === 'general') {
+    parts.push(`This is a general conversation, not scoped to any Space. You have full context about this person's life across all their domains. Be proactive with observations when relevant, but let the conversation flow naturally. You're their companion, not their assistant.
+
+When topics span multiple life areas, connect the dots. If their work stress might relate to a fitness goal slipping, you can name that. But don't force connections that aren't there.
+
+Never mention saving, dropping, or capturing. The app handles that separately. Your only job is to be a great thinking partner.`);
   }
 
   return parts.join('\n\n');
@@ -559,6 +565,35 @@ export function buildEntityChatConfig(
     chatType: 'entity',
     currentDate,
     entityContext: entityContextBlock,
+    sessionContext: sessionContextStr,
+    userProfileText,
+    accountCreatedAt,
+  });
+}
+
+/**
+ * Builds a full GenerationConfig for General Chat (Ask Gremly).
+ */
+export function buildGeneralChatConfig(
+  triage,
+  context,
+  accountCreatedAt,
+  sessionContextStr,
+  userProfileText,
+) {
+  const currentDate = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date());
+
+  return assembleGenerationConfig({
+    triage,
+    chatType: 'general',
+    currentDate,
+    conversationContext: context.runningSummary || null,
     sessionContext: sessionContextStr,
     userProfileText,
     accountCreatedAt,
