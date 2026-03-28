@@ -5062,6 +5062,7 @@ export const useGremlyStore = create<GremlyState>()(
               chatsRes,
               milestonesRes,
               weeklySummariesRes,
+              cortexPrefsRes,
             ] = await Promise.all([
               supabase.from('todos').select('*').eq('owner_id', userId),
               supabase.from('habits').select('*').eq('owner_id', userId),
@@ -5081,6 +5082,13 @@ export const useGremlyStore = create<GremlyState>()(
                 .eq('user_id', userId)
                 .order('week_start_date', { ascending: false })
                 .limit(12),
+              supabase
+                .from('cortex_preferences')
+                .select(
+                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open',
+                )
+                .eq('owner_id', userId)
+                .maybeSingle(),
             ]);
 
             set({
@@ -5111,6 +5119,59 @@ export const useGremlyStore = create<GremlyState>()(
             });
 
             console.log('[GremlyStore] ✅ Refreshed from server');
+
+            // Reconcile cortex_preferences (gremly age, fed days, tier, etc.)
+            // These aren't fetched by refreshRitualProgress, so they need
+            // explicit reconciliation from the server.
+            if (cortexPrefsRes.data) {
+              const cp = cortexPrefsRes.data as Record<string, unknown>;
+              set({
+                gremlyAge: (cp.gremly_age as number) ?? get().gremlyAge,
+                gremlyAgeLastIncrementedAt:
+                  (cp.gremly_age_last_incremented_at as string) ?? get().gremlyAgeLastIncrementedAt,
+                fedDaysCount: (cp.fed_days_count as number) ?? get().fedDaysCount,
+                currentTierName: (cp.current_tier as string) ?? get().currentTierName,
+                unfedStreakDays: (cp.unfed_streak_days as number) ?? get().unfedStreakDays,
+                lastFedAt: (cp.last_fed_at as string) ?? get().lastFedAt,
+                sockCount: (cp.sock_count as number) ?? get().sockCount,
+                aiMode: ((cp.ai_mode as string) ?? get().aiMode) as any,
+                isTrainingMode: (cp.is_training_mode as boolean) ?? get().isTrainingMode,
+                trainingStartedAt: (cp.training_started_at as string) ?? get().trainingStartedAt,
+                graduatedAt: (cp.graduated_at as string) ?? get().graduatedAt,
+                lastSweepCompletedAt:
+                  (cp.last_sweep_completed_at as string) ?? get().lastSweepCompletedAt,
+                sweepStreak: (cp.sweep_streak as number) ?? get().sweepStreak,
+                miniSweepLastCompletedAt:
+                  (cp.mini_sweep_last_completed_at as string) ?? get().miniSweepLastCompletedAt,
+                dayBoundaryHour: (cp.day_boundary_hour as number) ?? get().dayBoundaryHour,
+                trainingDropStep: (cp.training_drop_step as number) ?? get().trainingDropStep,
+                hasSeenGaugeExplanation:
+                  (cp.has_seen_gauge_explanation as boolean) ?? get().hasSeenGaugeExplanation,
+                hasSeenFirstFedModal:
+                  (cp.has_seen_first_fed_modal as boolean) ?? get().hasSeenFirstFedModal,
+                hasSeenSweepUnlockModal:
+                  (cp.has_seen_sweep_unlock_modal as boolean) ?? get().hasSeenSweepUnlockModal,
+                hasSeenEntityChatHighlight:
+                  (cp.has_seen_entity_chat_highlight as boolean) ??
+                  get().hasSeenEntityChatHighlight,
+                hasSeenTrainingMeterAutoOpen:
+                  (cp.has_seen_training_meter_auto_open as boolean) ??
+                  get().hasSeenTrainingMeterAutoOpen,
+              });
+
+              if (__DEV__) {
+                console.log('[GremlyStore] Cortex preferences reconciled from server', {
+                  gremlyAge: cp.gremly_age,
+                  fedDaysCount: cp.fed_days_count,
+                  currentTier: cp.current_tier,
+                });
+              }
+            } else if (cortexPrefsRes.error && cortexPrefsRes.error.code !== 'PGRST116') {
+              console.warn(
+                '[GremlyStore] cortex_preferences fetch in refreshFromServer failed:',
+                cortexPrefsRes.error,
+              );
+            }
 
             // Fetch DCO after server refresh (cached hydration path skips cold init)
             get().fetchTodayDco();
