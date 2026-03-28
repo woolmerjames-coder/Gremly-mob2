@@ -2066,6 +2066,14 @@ export const useGremlyStore = create<GremlyState>()(
             currentRitualDay,
           });
 
+          // Capture fed state BEFORE the async RPC call.
+          // A concurrent refreshRitualProgress (triggered by navigation)
+          // can set isFedToday = true in the store while this RPC is in-flight,
+          // which would cause justFed to be false even though this contribution
+          // is what actually crossed the threshold. Capturing before the await
+          // prevents this race condition.
+          const wasFedBeforeRpc = get().isFedToday;
+
           try {
             const { data, error } = await supabase.rpc('update_feeding_gauge', {
               p_owner_id: userId,
@@ -2094,11 +2102,12 @@ export const useGremlyStore = create<GremlyState>()(
               timestamp: nowTimestamp(),
             };
 
-            const justFed = newIsFed && !get().isFedToday;
+            const justFed = newIsFed && !wasFedBeforeRpc;
 
             console.log('[GremlyStore] addGaugeContribution fed check', {
               newIsFed,
-              isFedToday: get().isFedToday,
+              wasFedBeforeRpc,
+              isFedTodayNow: get().isFedToday,
               justFed,
               source,
             });
