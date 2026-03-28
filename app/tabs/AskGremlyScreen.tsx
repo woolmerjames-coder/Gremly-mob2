@@ -16,6 +16,7 @@ import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { SaveIndicatorPill } from '../../components/chat/SaveIndicatorPill';
 import { SaveSheet } from '../../components/chat/SaveSheet';
+import { ChatHistorySheet } from '../../components/chat/ChatHistorySheet';
 import {
   callGeneralChatStreaming,
   callEnrichPhase15a,
@@ -52,6 +53,7 @@ export default function AskGremlyScreen() {
   const [activeChat, setActiveChat] = useState<SpaceChat | null>(null);
   const [sending, setSending] = useState(false);
   const [saveSheetVisible, setSaveSheetVisible] = useState(false);
+  const [historyVisible, setHistoryVisible] = useState(false);
 
   const autoTitle = useGremlyStore((s) => s.generalChatAutoTitle);
   const extractions = useGremlyStore((s) => s.generalChatExtractions);
@@ -321,7 +323,7 @@ export default function AskGremlyScreen() {
           <View style={styles.header}>
             <TouchableOpacity
               style={styles.headerButton}
-              onPress={() => {}}
+              onPress={() => setHistoryVisible(true)}
               accessibilityLabel="Chat history"
             >
               <Clock size={20} color={MOSS} />
@@ -332,7 +334,9 @@ export default function AskGremlyScreen() {
             </View>
             <TouchableOpacity
               style={styles.headerButton}
-              onPress={goToEmptyState}
+              onPress={() => {
+                if (activeChat) goToEmptyState();
+              }}
               accessibilityLabel="New chat"
             >
               <SquarePen size={20} color={MOSS} />
@@ -528,6 +532,18 @@ export default function AskGremlyScreen() {
 
           if (mascotRef.current) {
             mascotRef.current.celebrate();
+          }
+        }}
+      />
+      <ChatHistorySheet
+        visible={historyVisible}
+        onClose={() => setHistoryVisible(false)}
+        onSelectChat={(chatId) => {
+          setHistoryVisible(false);
+          const chat = useGremlyStore.getState().generalChats.find((c) => c.id === chatId);
+          if (chat) {
+            setActiveChat(chat);
+            useGremlyStore.getState().setActiveGeneralChat(chatId);
           }
         }}
       />
