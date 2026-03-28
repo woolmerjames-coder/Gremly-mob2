@@ -249,7 +249,7 @@ export function NowHeader({
             <View style={styles.notesCardHeader}>
               <View style={styles.notesTitleRow}>
                 <Icon name="FileText" size="sm" color={MOSS_GREEN} />
-                <Text style={styles.notesCardTitle}>Your Notes</Text>
+                <Text style={styles.notesCardTitle}>Search & Notes</Text>
                 <Text style={styles.notesSeparator}> · </Text>
                 <Text style={styles.notesCount}>{notesCountText}</Text>
               </View>

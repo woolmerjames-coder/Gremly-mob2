@@ -897,8 +897,8 @@ export default function NowScreenV1() {
 
   // Handle Your Notes card press
   const handleNotesPress = useCallback(() => {
-    setNotesVisible(true);
-  }, []);
+    navigation.navigate('HubScreen');
+  }, [navigation]);
 
   // Handle selecting a log from YourNotesPopup
   const handleSelectLog = useCallback(

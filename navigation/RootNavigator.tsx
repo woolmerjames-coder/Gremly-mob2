@@ -34,6 +34,7 @@ import { HabitBuilderScreen } from '../screens/habits/HabitBuilderScreen';
 import { MorningBriefSheet } from '../app/components/morning-brief/MorningBriefSheet';
 import WeeklySummaryScreen from '../app/screens/WeeklySummaryScreen';
 import WeeklySummaryV2Screen from '../app/screens/WeeklySummaryV2Screen';
+import HubScreen from '../app/tabs/HubScreen';
 
 // Wrapper to bridge navigation params to MorningBriefSheet props
 function MorningBriefWrapper({ navigation, route }: any) {
@@ -104,6 +105,7 @@ export type RootStackParamList = {
   GraduationFlow: undefined;
   SweepTest: undefined; // DEV only
   AskGremlyChat: { chatId?: string };
+  HubScreen: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -305,6 +307,11 @@ export default function RootNavigator() {
             name="DSPreview"
             component={DSPreview}
             options={{ title: 'Design System Preview', presentation: 'modal', headerShown: true }}
+          />
+          <Stack.Screen
+            name="HubScreen"
+            component={HubScreen}
+            options={{ headerShown: false, animation: 'slide_from_right' }}
           />
           {__DEV__ && (
             <Stack.Screen
