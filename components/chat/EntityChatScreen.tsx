@@ -552,6 +552,7 @@ export function EntityChatScreen({
           sweepContext,
           accountCreatedAt,
           currentTime: nowTimestamp(),
+          timezone: getDateService().getTimezone(),
           siblingContext,
         };
 

@@ -4,7 +4,12 @@
 import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
 import { getDateService } from '../date/DateService';
-import type { EntityChatRequest, EntityChatResponse, HabitBuilderRequest, HabitBuilderStreamingCallbacks } from '../types';
+import type {
+  EntityChatRequest,
+  EntityChatResponse,
+  HabitBuilderRequest,
+  HabitBuilderStreamingCallbacks,
+} from '../types';
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -422,6 +427,7 @@ export function callSpaceChatStreaming(
       chatId: opts.chatId,
       userId: opts.userId,
       currentTime: new Date().toISOString(),
+      timezone: getDateService().getTimezone(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -1501,10 +1507,19 @@ export function callHabitBuilderStreaming(
         callbacks.onComplete({
           content: data.full_content || fullContent,
           resolved_fields: data.resolved_fields || {
-            name: null, habit_type: null, cadence: null, target: null,
-            start_date: null, time_window: null, space_name: null,
-            notes: null, end_date: null, time_estimate_minutes: null,
-            is_confirmation: false, next_field: null, required_count: 0,
+            name: null,
+            habit_type: null,
+            cadence: null,
+            target: null,
+            start_date: null,
+            time_window: null,
+            space_name: null,
+            notes: null,
+            end_date: null,
+            time_estimate_minutes: null,
+            is_confirmation: false,
+            next_field: null,
+            required_count: 0,
             suggested_chips: null,
           },
           latency_ms,

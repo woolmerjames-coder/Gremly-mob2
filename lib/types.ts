@@ -1012,6 +1012,7 @@ export interface EntityChatRequest {
   };
   accountCreatedAt?: string | null;
   currentTime?: string; // ISO timestamp of when message was sent
+  timezone?: string; // IANA timezone e.g. 'America/New_York'
   siblingContext?: {
     sameSpace?: Array<{
       type: 'todo' | 'habit' | 'note';

@@ -429,6 +429,7 @@ export function callSpaceChatStreaming(
       chatId: opts.chatId,
       userId: opts.userId,
       currentTime: nowTimestamp(),
+      timezone: getDateService().getTimezone(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -538,6 +539,7 @@ export function callGeneralChatStreaming(
       chatId: opts.chatId,
       userId: opts.userId,
       currentTime: nowTimestamp(),
+      timezone: getDateService().getTimezone(),
     }),
     lineEndingCharacter: '\n',
   });
