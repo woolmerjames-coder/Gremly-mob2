@@ -1698,6 +1698,7 @@ async function generateRunningSummary(
   spaceName,
   previousSummary,
   env,
+  timezone = 'UTC',
 ) {
   const t0 = Date.now();
 
@@ -1709,7 +1710,7 @@ async function generateRunningSummary(
     return;
   }
 
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
 
   const turns = [
     ...conversationMessages
@@ -1799,6 +1800,7 @@ async function generateEntityChatSummary(
   spaceName,
   previousSummary,
   env,
+  timezone = 'UTC',
 ) {
   const t0 = Date.now();
 
@@ -1813,7 +1815,7 @@ async function generateEntityChatSummary(
     return;
   }
 
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
 
   const turns = [
     ...conversationMessages
@@ -3060,10 +3062,15 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
         const contextParts = [];
 
         // eslint-disable-next-line no-restricted-syntax -- server-side fallback; client sends local date via dateService
-        const today = context.currentDate || new Date().toISOString().split('T')[0];
+        const today =
+          context.currentDate ||
+          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
         const dow =
           context.dayOfWeek ||
-          new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(new Date());
+          new Intl.DateTimeFormat('en-US', {
+            weekday: 'long',
+            timeZone: body.timezone || 'UTC',
+          }).format(new Date());
         contextParts.push(`Today is ${dow}, ${today}.`);
 
         if (context.userName) {
@@ -3666,11 +3673,22 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
           timeZone: tz,
         }).format(new Date());
 
-        // Time of day for contextual suggestions
-        const clientTime = body.currentTime ? new Date(body.currentTime) : new Date();
-        const clientHour = clientTime.getHours();
+        // Time of day for contextual suggestions (timezone-aware)
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        const now = new Date();
+        const hourStr = new Intl.DateTimeFormat('en-US', {
+          hour: 'numeric',
+          hour12: false,
+          timeZone: tz,
+        }).format(now);
+        const clientHour = parseInt(hourStr, 10);
         const timeOfDay = clientHour < 12 ? 'morning' : clientHour < 17 ? 'afternoon' : 'evening';
-        const timeStr = `${clientHour}:${String(clientTime.getMinutes()).padStart(2, '0')}`;
+        const timeStr = new Intl.DateTimeFormat('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: tz,
+        }).format(now);
 
         /* [COMMENTED OUT — replaced by triage pipeline in buildEntityChatConfig]
         const entityChatSystemPrompt = `${GREMLY_CORE_PERSONA}
@@ -3853,6 +3871,7 @@ Almost never suggest creating a Space. Only if ALL true:
                 body.accountCreatedAt,
                 sessionContextStr,
                 userProfile?.profileText,
+                tz,
               );
 
               const entityMessages = [
@@ -4454,6 +4473,7 @@ Almost never suggest creating a Space. Only if ALL true:
                           entity.space_name || null,
                           previousEntitySummary,
                           env,
+                          tz,
                         );
                       } catch (err) {
                         console.warn('[EntityChat] Chat summary failed:', err.message);
@@ -4578,6 +4598,7 @@ Almost never suggest creating a Space. Only if ALL true:
           body.accountCreatedAt,
           sessionContextStr,
           userProfile?.profileText,
+          tz,
         );
 
         const entityMessages = [
@@ -4757,6 +4778,7 @@ Almost never suggest creating a Space. Only if ALL true:
                     entity.space_name || null,
                     previousEntitySummary,
                     env,
+                    tz,
                   );
                 } catch (err) {
                   console.warn('[EntityChat:NonStreaming] Chat summary failed:', err.message);
@@ -9198,6 +9220,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               body.accountCreatedAt,
               spaceSessionContextStr,
               spaceUserProfile?.profileText,
+              body.timezone || 'UTC',
             );
 
             // === BUILD MESSAGES ===
@@ -9680,6 +9703,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       body.spaceName || null,
                       previousSummary,
                       env,
+                      body.timezone || 'UTC',
                     );
                   } catch (err) {
                     console.warn('[SpaceChat] Running summary failed:', err.message);
@@ -9844,6 +9868,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               body.accountCreatedAt,
               sessionContextStr,
               userProfile?.profileText,
+              body.timezone || 'UTC',
             );
 
             // Build messages with URL context if present
@@ -10189,6 +10214,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       null,
                       previousSummary,
                       env,
+                      body.timezone || 'UTC',
                     );
                   } catch (err) {
                     console.warn('[GeneralChat] Summary failed:', err.message);
@@ -10229,7 +10255,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric',
-                      timeZone: 'UTC',
+                      timeZone: body.timezone || 'UTC',
                     }).format(new Date());
                     const extractionPromptText = `Today is ${todayStr}.
 
@@ -10426,6 +10452,7 @@ Return ONLY valid JSON:
           body.accountCreatedAt,
           sessionContextStr,
           userProfile?.profileText,
+          body.timezone || 'UTC',
         );
 
         // === BUILD MESSAGES: Replace old system prompt with triage-built one ===
@@ -10562,6 +10589,7 @@ Return ONLY valid JSON:
                 body.spaceName || null,
                 previousSummary,
                 env,
+                body.timezone || 'UTC',
               );
             } catch (err) {
               console.warn('[SpaceChat:NonStreaming] Running summary failed:', err.message);
