@@ -9132,9 +9132,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             // === USER PROFILE & SESSION CONTEXT FOR SPACE CHAT ===
             let spaceSessionContextStr = '';
             let spaceUserProfile = null;
+            let cachedDomains = [];
             if (body.userId) {
               try {
-                const [chatContext, profile] = await Promise.all([
+                const [chatContext, profile, domains] = await Promise.all([
                   buildChatContext(
                     body.userId,
                     'space',
@@ -9144,9 +9145,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     env,
                   ),
                   getUserProfile(body.userId, env),
+                  getCachedDomainNames(body.userId, env),
                 ]);
                 spaceSessionContextStr = chatContext;
                 spaceUserProfile = profile;
+                cachedDomains = domains;
                 if (spaceSessionContextStr || spaceUserProfile) {
                   console.log('[SpaceChat] Context loaded', {
                     userId: body.userId.slice(0, 8),
@@ -9161,7 +9164,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             // === TRIAGE: Classify message before generation ===
             const previousExchange = extractPreviousExchange(messages);
-            const cachedDomains = await getCachedDomainNames(body.userId, env);
 
             const triage = await triageMessage({
               userMessage: lastUserMsgSpace,
@@ -9788,14 +9790,17 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             // Context loading — general lane (no spaceId)
             let sessionContextStr = '';
             let userProfile = null;
+            let cachedDomains = [];
             if (body.userId) {
               try {
-                const [chatContext, profile] = await Promise.all([
+                const [chatContext, profile, domains] = await Promise.all([
                   buildChatContext(body.userId, 'general', {}, env),
                   getUserProfile(body.userId, env),
+                  getCachedDomainNames(body.userId, env),
                 ]);
                 sessionContextStr = chatContext;
                 userProfile = profile;
+                cachedDomains = domains;
                 if (sessionContextStr || userProfile) {
                   console.log('[GeneralChat] Context loaded', {
                     userId: body.userId.slice(0, 8),
@@ -9810,7 +9815,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             // Triage
             const previousExchange = extractPreviousExchange(messages);
-            const cachedDomains = await getCachedDomainNames(body.userId, env);
 
             const triage = await triageMessage({
               userMessage: lastUserMsg,
@@ -10354,9 +10358,10 @@ Return ONLY valid JSON:
         // --- Context loading (session + profile) ---
         let sessionContextStr = '';
         let userProfile = null;
+        let cachedDomains = [];
         if (body.userId) {
           try {
-            const [chatContext, profile] = await Promise.all([
+            const [chatContext, profile, domains] = await Promise.all([
               buildChatContext(
                 body.userId,
                 'space',
@@ -10366,9 +10371,11 @@ Return ONLY valid JSON:
                 env,
               ),
               getUserProfile(body.userId, env),
+              getCachedDomainNames(body.userId, env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
+            cachedDomains = domains;
             if (sessionContextStr || userProfile) {
               console.log('[SpaceChat:NonStreaming] Context loaded', {
                 userId: body.userId.slice(0, 8),
@@ -10388,8 +10395,6 @@ Return ONLY valid JSON:
         // === TRIAGE: Classify message before generation ===
         const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
         const previousExchange = extractPreviousExchange(messages);
-
-        const cachedDomains = await getCachedDomainNames(body.userId, env);
 
         const triage = await triageMessage({
           userMessage: lastUserMsg,
