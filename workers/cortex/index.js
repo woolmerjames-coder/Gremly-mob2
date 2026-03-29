@@ -4501,12 +4501,14 @@ Almost never suggest creating a Space. Only if ALL true:
           });
         }
 
-        // === USER PROFILE & SESSION CONTEXT (non-streaming) ===
+        // === CONTEXT LOADING (non-streaming) ===
         let sessionContextStr = '';
         let userProfile = null;
+        let cachedDomains = [];
+        const previousExchange = extractPreviousExchange(messages);
         if (body.userId) {
           try {
-            const [chatContext, profile] = await Promise.all([
+            const [chatContext, profile, domains] = await Promise.all([
               buildChatContext(
                 body.userId,
                 'entity',
@@ -4517,26 +4519,18 @@ Almost never suggest creating a Space. Only if ALL true:
                 env,
               ),
               getUserProfile(body.userId, env),
+              getCachedDomainNames(body.userId, env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
-            if (sessionContextStr || userProfile) {
-              console.log('[EntityChat] Context loaded', {
-                userId: body.userId.slice(0, 8),
-                sessionContextLength: sessionContextStr?.length || 0,
-                hasUserProfile: !!userProfile,
-              });
-            }
+            cachedDomains = domains;
           } catch (err) {
-            console.error('[EntityChat] Context error', err);
+            console.error('[EntityChat:NonStreaming] Context error', err);
           }
         }
 
         let urlContext = '';
         let fetchedUrl = null;
-
-        const previousExchange = extractPreviousExchange(messages);
-        const cachedDomains = await getCachedDomainNames(body.userId, env);
 
         const triage = await triageMessage({
           userMessage: lastUserMsg,
@@ -4550,7 +4544,7 @@ Almost never suggest creating a Space. Only if ALL true:
           messageCount: messages.length,
         });
 
-        console.log('[EntityChat:Triage]', {
+        console.log('[EntityChat:NonStreaming:Triage]', {
           mode: triage.mode,
           search: triage.search,
           personal: triage.personal,
