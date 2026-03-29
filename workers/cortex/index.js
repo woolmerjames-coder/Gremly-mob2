@@ -1530,14 +1530,15 @@ function extractUrlsFromText(text) {
 // DAILY FOCUS FOR GREETING — lightweight DCO fetch for general-greeting
 // ═══════════════════════════════════════════════════════════════════════════════
 
-async function getDailyFocusForChat(userId, env) {
+async function getDailyFocusForChat(userId, env, timezone = 'UTC') {
   if (!userId) return null;
   try {
     const headers = {
       apikey: env.SUPABASE_SERVICE_KEY,
       Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
     };
-    const today = new Date().toISOString().slice(0, 10);
+    // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
     const res = await fetch(
       `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${today}&select=dco`,
       { headers },
@@ -2956,9 +2957,9 @@ One warm sentence. Done. No guilt, no "are you sure?"`;
       // =========================
       if (type === 'general-greeting') {
         try {
-          const dailyFocus = await getDailyFocusForChat(body.userId, env);
-          const now = new Date();
           const userTimezone = body.timezone || 'America/Los_Angeles';
+          const dailyFocus = await getDailyFocusForChat(body.userId, env, userTimezone);
+          const now = new Date();
           const timeStr = new Intl.DateTimeFormat('en-US', {
             hour: 'numeric',
             minute: '2-digit',
@@ -4875,8 +4876,10 @@ Almost never suggest creating a Space. Only if ALL true:
        * Runs after streaming completes (~300ms). User doesn't see this call.
        */
       async function extractHabitFields(messages, apiKey, currentDate) {
-        // eslint-disable-next-line no-restricted-syntax -- server-side fallback, no dateService available
-        const fallbackDate = new Date().toISOString().split('T')[0];
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        const fallbackDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(
+          new Date(),
+        );
         const extractionPrompt = `You analyze a habit-building conversation and extract what has been resolved so far.
 Today's date is ${currentDate || fallbackDate}.
 Use this to resolve relative dates like "today", "tomorrow", "tonight", "next Monday", "this weekend" into actual YYYY-MM-DD format.
@@ -5137,9 +5140,20 @@ Return ONLY valid JSON, no explanation:
         const tasks = Array.isArray(body.tasks) ? body.tasks : [];
         const calendarEvents = Array.isArray(body.calendarEvents) ? body.calendarEvents : [];
         const blocks = body.blocks || {};
-        const currentHour = body.currentHour ?? new Date().getHours();
-        const userId = body.userId || null;
         const timezone = body.timezone || 'America/Los_Angeles';
+        let currentHour;
+        if (body.currentHour != null) {
+          currentHour = body.currentHour;
+        } else {
+          // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+          const hourStr = new Intl.DateTimeFormat('en-US', {
+            hour: 'numeric',
+            hour12: false,
+            timeZone: timezone,
+          }).format(new Date());
+          currentHour = parseInt(hourStr, 10);
+        }
+        const userId = body.userId || null;
 
         // === Expanded context (new in v2.0) ===
         const userPatterns = body.userPatterns || null;
@@ -5423,9 +5437,18 @@ Follow these steps IN ORDER:
 Keep the tone warm and reassuring — like a helpful friend explaining the plan.`;
 
         // === Dynamic user message ===
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
         const currentIso = new Date().toISOString();
+        const localTimeStr = new Intl.DateTimeFormat('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: timezone,
+          // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        }).format(new Date());
         const userMessage = `=== TIME ===
-Current time: ${currentIso}
+Current time (UTC): ${currentIso}
+Current local time: ${localTimeStr} (${timezone})
 Current hour: ${currentHour}:00
 Timezone: ${timezone}
 Do NOT schedule any task before the current time.
@@ -6955,8 +6978,10 @@ ${interpLines}`;
         const selectedLabel = body.selectedLabel || '';
         const selectedBucket = body.selectedBucket || null;
         const selectedSubtype = body.selectedSubtype || null;
-        // eslint-disable-next-line no-restricted-syntax -- Cloudflare Worker doesn't have dateService
-        const currentDate = body.currentDate || new Date().toISOString().split('T')[0];
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        const currentDate =
+          body.currentDate ||
+          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
         const targetBucket = body.targetBucket || null;
 
         const contextString = `=== CONTEXT ===
@@ -7938,7 +7963,11 @@ Return ONLY valid JSON:
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
         // Use client-provided date to avoid timezone issues
-        const currentDate = body.currentDate || body.today || '2026-01-25';
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        const currentDate =
+          body.currentDate ||
+          body.today ||
+          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
         const timezone = body.timezone || 'UTC';
         const dayOfWeek = body.dayOfWeek || 'Sunday';
 
@@ -8698,7 +8727,10 @@ For LOGS (event):
         const text = body.text || '';
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
-        const currentDate = body.currentDate || '2026-01-25';
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        const currentDate =
+          body.currentDate ||
+          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
         const timezone = body.timezone || 'UTC';
         const dayOfWeek = body.dayOfWeek || 'Sunday';
 
