@@ -3732,120 +3732,7 @@ Almost never suggest creating a Space. Only if ALL true:
 - User seems to be managing something complex`;
         */
 
-        // === USER PROFILE & SESSION CONTEXT ===
-        let sessionContextStr = '';
-        let userProfile = null;
-        if (body.userId) {
-          try {
-            const [chatContext, profile] = await Promise.all([
-              buildChatContext(
-                body.userId,
-                'entity',
-                {
-                  entityTitle: entity?.title || entity?.name || null,
-                  entitySpaceId: entity?.spaceId || entity?.space_id || null,
-                },
-                env,
-              ),
-              getUserProfile(body.userId, env),
-            ]);
-            sessionContextStr = chatContext;
-            userProfile = profile;
-            if (sessionContextStr || userProfile) {
-              console.log('[EntityChat] Context loaded', {
-                userId: body.userId.slice(0, 8),
-                sessionContextLength: sessionContextStr?.length || 0,
-                hasUserProfile: !!userProfile,
-              });
-            }
-          } catch (err) {
-            console.error('[EntityChat] Context error', err);
-            // Continue without context - not critical
-          }
-        }
-
-        // URL context placeholders - populated in streaming path if URLs detected
-        let urlContext = '';
-        let fetchedUrl = null;
-
-        // === TRIAGE: Classify message before generation ===
         const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
-        const previousExchange = extractPreviousExchange(messages);
-
-        const cachedDomains = await getCachedDomainNames(body.userId, env);
-
-        const triage = await triageMessage({
-          userMessage: lastUserMsg,
-          previousExchange,
-          spaceName: body.spaceName || undefined,
-          preset: preset || undefined,
-          chatType: 'entity',
-          env,
-          domainNames: cachedDomains,
-          profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
-          messageCount: messages.length,
-        });
-
-        console.log('[EntityChat:Triage]', {
-          mode: triage.mode,
-          search: triage.search,
-          personal: triage.personal,
-          depth: triage.depth,
-          source: triage.source,
-          preset: preset || 'none',
-          messagePreview: lastUserMsg.slice(0, 80),
-        });
-
-        // === BUILD ENTITY CONTEXT ===
-        const entityContextBlock = buildEntityContextBlock({
-          entity: {
-            type: entity.type,
-            title: entity.title || 'Untitled',
-            body: entity.body || null,
-            tags: entity.tags || [],
-            due_date: entity.due_date || null,
-            frequency: entity.frequency || null,
-            time_estimate: entity.time_estimate || null,
-            subtype: entity.subtype || null,
-          },
-          sweepContext: sweepContext || null,
-          siblingContext: body.siblingContext || null,
-          timeOfDay,
-          timeStr,
-          messageCount: messages.length,
-        });
-
-        // === COMPOSE: Build generation config from triage signals ===
-        const genConfig = buildEntityChatConfig(
-          triage,
-          entityContextBlock,
-          body.accountCreatedAt,
-          sessionContextStr,
-          userProfile?.profileText,
-        );
-
-        // === BUILD MESSAGES: Replace old system prompt with triage-built one ===
-        const entityMessages = [
-          { role: 'system', content: genConfig.systemPrompt },
-          ...messages.slice(-20).filter((m) => m.role !== 'system'),
-        ];
-
-        // Check if previous messages contain search results to avoid redundant searches
-        const previousSearchContext = messages
-          .filter((m) => m.role === 'assistant' && m.metadata?.sources?.length > 0)
-          .slice(-1)[0];
-
-        if (previousSearchContext) {
-          entityMessages.push({
-            role: 'system',
-            content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.metadata.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
-          });
-        }
-
-        // === SEARCH POLICY ===
-        const searchPolicy = getSearchPolicy(triage.search);
-
-        const t0 = Date.now();
 
         // =========================
         // STREAMING ENTITY CHAT
@@ -3884,6 +3771,110 @@ Almost never suggest creating a Space. Only if ALL true:
             try {
               // Send SSE ping
               await writer.write(encoder.encode(': ping\n\n'));
+
+              // === CONTEXT LOADING (inside IIFE — non-blocking for SSE) ===
+              let sessionContextStr = '';
+              let userProfile = null;
+              let cachedDomains = [];
+              const previousExchange = extractPreviousExchange(messages);
+              if (body.userId) {
+                try {
+                  const [chatContext, profile, domains] = await Promise.all([
+                    buildChatContext(
+                      body.userId,
+                      'entity',
+                      {
+                        entityTitle: entity?.title || entity?.name || null,
+                        entitySpaceId: entity?.spaceId || entity?.space_id || null,
+                      },
+                      env,
+                    ),
+                    getUserProfile(body.userId, env),
+                    getCachedDomainNames(body.userId, env),
+                  ]);
+                  sessionContextStr = chatContext;
+                  userProfile = profile;
+                  cachedDomains = domains;
+                  if (sessionContextStr || userProfile) {
+                    console.log('[EntityChat] Context loaded', {
+                      userId: body.userId.slice(0, 8),
+                      sessionContextLength: sessionContextStr?.length || 0,
+                      hasUserProfile: !!userProfile,
+                    });
+                  }
+                } catch (err) {
+                  console.error('[EntityChat] Context error', err);
+                }
+              }
+
+              const triage = await triageMessage({
+                userMessage: lastUserMsg,
+                previousExchange,
+                spaceName: body.spaceName || undefined,
+                preset: preset || undefined,
+                chatType: 'entity',
+                env,
+                domainNames: cachedDomains,
+                profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
+                messageCount: messages.length,
+              });
+
+              console.log('[EntityChat:Triage]', {
+                mode: triage.mode,
+                search: triage.search,
+                personal: triage.personal,
+                depth: triage.depth,
+                source: triage.source,
+                preset: preset || 'none',
+                messagePreview: lastUserMsg.slice(0, 80),
+              });
+
+              const entityContextBlock = buildEntityContextBlock({
+                entity: {
+                  type: entity.type,
+                  title: entity.title || 'Untitled',
+                  body: entity.body || null,
+                  tags: entity.tags || [],
+                  due_date: entity.due_date || null,
+                  frequency: entity.frequency || null,
+                  time_estimate: entity.time_estimate || null,
+                  subtype: entity.subtype || null,
+                },
+                sweepContext: sweepContext || null,
+                siblingContext: body.siblingContext || null,
+                timeOfDay,
+                timeStr,
+                messageCount: messages.length,
+              });
+
+              const genConfig = buildEntityChatConfig(
+                triage,
+                entityContextBlock,
+                body.accountCreatedAt,
+                sessionContextStr,
+                userProfile?.profileText,
+              );
+
+              const entityMessages = [
+                { role: 'system', content: genConfig.systemPrompt },
+                ...messages.slice(-20).filter((m) => m.role !== 'system'),
+              ];
+
+              const previousSearchContext = messages
+                .filter((m) => m.role === 'assistant' && m.metadata?.sources?.length > 0)
+                .slice(-1)[0];
+
+              if (previousSearchContext) {
+                entityMessages.push({
+                  role: 'system',
+                  content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.metadata.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
+                });
+              }
+
+              const searchPolicy = getSearchPolicy(triage.search);
+              const t0 = Date.now();
+              let urlContext = '';
+              let fetchedUrl = null;
 
               // Detect URLs in the user's message
               const detectedUrls = extractUrlsFromText(lastUserMsg);
@@ -4509,6 +4500,110 @@ Almost never suggest creating a Space. Only if ALL true:
             },
           });
         }
+
+        // === USER PROFILE & SESSION CONTEXT (non-streaming) ===
+        let sessionContextStr = '';
+        let userProfile = null;
+        if (body.userId) {
+          try {
+            const [chatContext, profile] = await Promise.all([
+              buildChatContext(
+                body.userId,
+                'entity',
+                {
+                  entityTitle: entity?.title || entity?.name || null,
+                  entitySpaceId: entity?.spaceId || entity?.space_id || null,
+                },
+                env,
+              ),
+              getUserProfile(body.userId, env),
+            ]);
+            sessionContextStr = chatContext;
+            userProfile = profile;
+            if (sessionContextStr || userProfile) {
+              console.log('[EntityChat] Context loaded', {
+                userId: body.userId.slice(0, 8),
+                sessionContextLength: sessionContextStr?.length || 0,
+                hasUserProfile: !!userProfile,
+              });
+            }
+          } catch (err) {
+            console.error('[EntityChat] Context error', err);
+          }
+        }
+
+        let urlContext = '';
+        let fetchedUrl = null;
+
+        const previousExchange = extractPreviousExchange(messages);
+        const cachedDomains = await getCachedDomainNames(body.userId, env);
+
+        const triage = await triageMessage({
+          userMessage: lastUserMsg,
+          previousExchange,
+          spaceName: body.spaceName || undefined,
+          preset: preset || undefined,
+          chatType: 'entity',
+          env,
+          domainNames: cachedDomains,
+          profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
+          messageCount: messages.length,
+        });
+
+        console.log('[EntityChat:Triage]', {
+          mode: triage.mode,
+          search: triage.search,
+          personal: triage.personal,
+          depth: triage.depth,
+          source: triage.source,
+          preset: preset || 'none',
+          messagePreview: lastUserMsg.slice(0, 80),
+        });
+
+        const entityContextBlock = buildEntityContextBlock({
+          entity: {
+            type: entity.type,
+            title: entity.title || 'Untitled',
+            body: entity.body || null,
+            tags: entity.tags || [],
+            due_date: entity.due_date || null,
+            frequency: entity.frequency || null,
+            time_estimate: entity.time_estimate || null,
+            subtype: entity.subtype || null,
+          },
+          sweepContext: sweepContext || null,
+          siblingContext: body.siblingContext || null,
+          timeOfDay,
+          timeStr,
+          messageCount: messages.length,
+        });
+
+        const genConfig = buildEntityChatConfig(
+          triage,
+          entityContextBlock,
+          body.accountCreatedAt,
+          sessionContextStr,
+          userProfile?.profileText,
+        );
+
+        const entityMessages = [
+          { role: 'system', content: genConfig.systemPrompt },
+          ...messages.slice(-20).filter((m) => m.role !== 'system'),
+        ];
+
+        const previousSearchContext = messages
+          .filter((m) => m.role === 'assistant' && m.metadata?.sources?.length > 0)
+          .slice(-1)[0];
+
+        if (previousSearchContext) {
+          entityMessages.push({
+            role: 'system',
+            content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.metadata.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
+          });
+        }
+
+        const searchPolicy = getSearchPolicy(triage.search);
+        const t0 = Date.now();
 
         // =========================
         // NON-STREAMING ENTITY CHAT
