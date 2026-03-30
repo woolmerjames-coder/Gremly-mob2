@@ -2504,7 +2504,8 @@ THREAD UPDATES:
 - NEW_EVIDENCE: Include 1-3 genuinely new evidence entries from this week. Focus on the most significant items. Code handles deduplication, but don't include things that are clearly already in the existing evidence.
 
 NEW THREADS:
-- Only create from analyst's new_theme_candidates with evidence_count >= 3 spanning 2+ days.
+- Create from analyst's new_theme_candidates with evidence_count >= 2 spanning 2+ days.
+- ALSO: Scan ALL thread updates for signals that share a common life theme but are scattered across different existing threads. If 3+ signals across 2+ weeks share an underlying theme that doesn't have its own thread yet, create one — even if each individual signal was already mapped to an existing thread. Scattered signals that belong together are MORE important to coalesce than unmatched signals.
 - If the candidate overlaps with an existing thread, add the data to that thread's update instead.
 - Keep summaries brief — 1 sentence. They'll accumulate over future weeks.
 
@@ -3347,6 +3348,8 @@ async function generateWeeklySummaryV2(
         .filter(Boolean)
         .join('; ') || 'none'
     }`,
+    `GROUNDED DISCOVERY (from web search — USE THESE SOURCES if present): ${groundedDiscovery ? JSON.stringify(groundedDiscovery) : 'null — generate your own using only post-2020 sources'}`,
+    `WEEK BOUNDARY: Only feature events from ${weekStart} to ${weekEnd} as moments or discoveries. Prior-week events are context only, never standalone content.`,
   ].join('\n');
 
   console.log(
@@ -3434,10 +3437,33 @@ ${JSON.stringify(storytellerData, null, 2)}`;
 
   if (editorialBrief && env.GEMINI_API_KEY) {
     try {
-      const discoveryMatch = editorialBrief.match(
-        /DISCOVERY:?\s*([\s\S]*?)(?=\n\s*\d+\.\s|WHAT'S COMING|QUOTES|FACTUAL|$)/i,
-      );
-      const discoveryTopic = discoveryMatch?.[1]?.trim() || '';
+      const discoveryPatterns = [
+        /DISCOVERY:?\s*([\s\S]*?)(?=\n\s*\d+[.)]\s|WHAT'S COMING|QUOTES|FACTUAL|$)/i,
+        /\d+\.\s*DISCOVERY:?\s*([\s\S]*?)(?=\n\s*\d+|WHAT|QUOTE|$)/i,
+        /discovery[:\s]+([\s\S]*?)(?=\n\n|\n\d|$)/i,
+      ];
+      let discoveryTopic = '';
+      for (const pattern of discoveryPatterns) {
+        const m = editorialBrief.match(pattern);
+        if (m?.[1]?.trim().length > 20) {
+          discoveryTopic = m[1].trim();
+          break;
+        }
+      }
+      if (!discoveryTopic) {
+        const paragraphs = editorialBrief.split(/\n\n+/).filter((p) => p.trim().length > 50);
+        discoveryTopic = (paragraphs[1] || paragraphs[0] || '').trim();
+        if (discoveryTopic) {
+          console.warn(
+            `[WeeklySummaryV2] Discovery extraction fallback used — no DISCOVERY section found in brief`,
+          );
+        }
+      }
+      if (discoveryTopic) {
+        console.log(
+          `[WeeklySummaryV2] Discovery topic extracted (${discoveryTopic.length} chars): ${discoveryTopic.slice(0, 100)}...`,
+        );
+      }
 
       if (discoveryTopic.length > 20) {
         console.log(`[WeeklySummaryV2] Grounding discovery: "${discoveryTopic.slice(0, 80)}..."`);
@@ -3699,7 +3725,12 @@ CRITICAL RULES:
 17. LETTER: Always include a "letter" card as the FINAL card (after week_ahead). It should read like a handwritten note left by someone who cares. Reference one specific thing from the week ahead, one habit to protect, and one emotional truth from this week. Never generic motivational language — always grounded in this specific week's data.
 16. VARIETY: ${storytellerData.previous_summary_style?.last_headline ? `Your previous summary used: headline "${storytellerData.previous_summary_style.last_headline}", subheadline "${storytellerData.previous_summary_style.last_subheadline}", mood_line "${storytellerData.previous_summary_style.last_mood_line}". Use a DIFFERENT sentence structure, rhythm, and emotional register for these fields this week. Don't repeat the same pattern.` : 'No previous summary style data available.'}
 18. QUOTE NON-REPETITION: Check the PRIOR WEEK QUOTES list in the factual context. Never use a quote that appeared in a previous summary's opening card. Pick a different journal quote from this week's data.
-19. WEEK BOUNDARY: Every moment and discovery must be grounded in events from ${weekStart} to ${weekEnd}. References to prior weeks are context, not content. If the analyst surfaced a prior-week event (e.g. a missed race), only mention it if it directly explains THIS week's behavior — never as a standalone mini_discovery or moment.`;
+19. WEEK BOUNDARY: Every moment and discovery must be grounded in events from ${weekStart} to ${weekEnd}. References to prior weeks are context, not content. If the analyst surfaced a prior-week event (e.g. a missed race), only mention it if it directly explains THIS week's behavior — never as a standalone mini_discovery or moment.
+20. CROSS-THREAD CONNECTIONS: In the thread_movements card, at least 2 thread details MUST reference how that thread connected to a different thread this week. Show cause and effect across life domains — not just what happened in isolation. In the discovery spotlight, the evidence_trail MUST explicitly name 3+ threads and show how they formed a chain. Isolated observations are less valuable than connected ones.
+21. DATE ACCURACY: Only include specific dates in week_ahead highlights if the date appears in the calendar data or was explicitly stated by the user. If an event was mentioned without a specific date, reference it without one — never fabricate a day.
+22. QUOTE NON-REPETITION: Check the PRIOR WEEK QUOTES in factual context. Never reuse a quote that appeared in a previous summary's opening card. Pick a different journal quote from this week's data.
+23. WEEK BOUNDARY: Every moment, discovery, and mini_discovery must be grounded in events from the current analysis week. Prior-week events may only be referenced as context explaining this week's behavior — never as standalone content.
+24. RESEARCH RECENCY: If generating your own research_context (when grounded_discovery is null), ONLY cite work from 2020 or later. One source maximum. Prefer practical frameworks or recent articles over academic papers. Never cite the same researcher used in a prior summary.`;
 
   const storytellerUser = `Write this user's weekly summary for ${weekStart} to ${weekEnd}.
 
@@ -3994,6 +4025,9 @@ Respond with ONLY the corrected JSON cards array. If nothing needs fixing, retur
           (t) => t.label === thread.name || t.life_map_thread === thread.name,
         );
         if (!analystTheme?.this_week?.activity_count) continue;
+        // Only show velocity on threads with enough completed todos to make the metric meaningful
+        const completedCount = analystTheme?.this_week?.completed_todo_refs?.length || 0;
+        if (completedCount < 3) continue;
         const thisWeekCount = analystTheme.this_week.activity_count;
 
         const priorCounts = (priorSummaries || [])
@@ -4014,7 +4048,7 @@ Respond with ONLY the corrected JSON cards array. If nothing needs fixing, retur
             const velocity = Math.round((thisWeekCount / avg) * 10) / 10;
             if (velocity !== 1.0) {
               thread.velocity = velocity;
-              thread.velocity_label = `${velocity}\u00d7 your ${priorCounts.length + 1}-week avg`;
+              thread.velocity_label = `${velocity}x your ${priorCounts.length + 1}-week avg`;
             }
           }
         }
@@ -4909,8 +4943,16 @@ function formatLifeMapForAnalyst(lifeMap) {
 
   const lines = [];
   for (const domain of lifeMap.domains) {
+    const activeThreads = (domain.threads || []).filter((thread) => {
+      if (thread.lifecycle !== 'concluded') return true;
+      const daysSinceActivity = Math.floor(
+        (Date.now() - new Date(thread.last_activity + 'T00:00:00Z').getTime()) / 86400000,
+      );
+      return daysSinceActivity <= 14;
+    });
+    if (activeThreads.length === 0) continue;
     lines.push(`\nDOMAIN: "${domain.name}" [${domain.source}]`);
-    for (const thread of domain.threads || []) {
+    for (const thread of activeThreads) {
       const firstSentence = thread.summary ? thread.summary.split(/\.\s/)[0] + '.' : 'No summary.';
       lines.push(
         `  THREAD: "${thread.name}" | ${thread.status} | ${thread.momentum} | ${thread.importance} | ${thread.lifecycle}`,
@@ -5182,6 +5224,9 @@ THEME MAPPING:
 - One data point can appear in multiple themes if it genuinely connects to multiple threads.
 - If a data point doesn't naturally fit ANY existing thread, do NOT force it — put it in new_theme_candidates.
 - Include a theme entry for every Life Map thread that had ANY activity this week, even minimal.
+
+EMERGING THEME DETECTION:
+When you see signals scattered across multiple existing themes that share a common underlying concern, flag them as a new_theme_candidate even if each signal individually maps to an existing thread. Look for recurring topics that appear in journals, todos, chats, or drops across 2+ weeks and 2+ existing threads but have no dedicated thread of their own. These scattered signals often represent an emerging life priority the user hasn't consciously organized yet.
 - For threads with ZERO activity this week, only include them if the absence is notable (e.g. a daily habit with no completions).
 
 BUNDLED HABIT THEMES:
@@ -5195,6 +5240,11 @@ EVENT SCORING:
 - LOW (1-3): Recurring meetings (daily standups, weekly syncs, bi-weekly 1:1s, all-hands, internal huddles), admin tasks (timesheets). These are routine noise.
 - Events with a non-work space (Vacation, Health, etc.) score higher.
 - Events tied to a Life Map thread with high importance score higher.
+
+DATE ACCURACY:
+- NEVER infer specific dates for events the user hasn't explicitly dated. If the user says "in a couple weeks" or "soon" or "upcoming," report it as "upcoming, date not specified" — do not assign a day.
+- For the week_ahead and event_analysis next_week_events, ONLY include events that have a specific date from the calendar data or were explicitly dated by the user in a journal, chat, or todo. Vague references to future events should appear in thread context, not as dated events.
+- If a chat or journal mentions a future event without a date, note it in the relevant theme's notable_items as "upcoming, undated" — never assign it to a specific day of the week.
 
 RECURRING MEETING DETECTION:
 - Meetings that appear on the same weekday every week are ALWAYS 1-3.
