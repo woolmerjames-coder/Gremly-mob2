@@ -499,105 +499,84 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
 
 export async function handleMultiDetected(drop: QueuedDrop): Promise<QueuedDrop> {
   const segments = drop.multiSegments || [];
-  const childIds: string[] = [];
 
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    const childId = `${drop.localId}__seg_${i}`;
+  // Run Phase 1 + Phase 1.5a on each segment for accurate classification and titles
+  // This matches the old dropProcessor behavior — classify segments but do NOT create child drops
+  const classifiedSegments = await Promise.all(
+    segments.map(async (seg: any) => {
+      let phase1;
+      let phase15a: { smart_title: string | null; confirmation_message: string | null } | null =
+        null;
 
-    const childDrop: QueuedDrop = {
-      localId: childId,
-      text: seg.text,
-      spaceId: drop.spaceId,
-      source: drop.source,
-      createdAt: drop.createdAt,
-      dueDayOverride: drop.dueDayOverride,
-      status: 'classified',
-      phase: 'classified',
-      retryCount: 0,
-      bucket: (seg.bucket || 'log') as MindDropBucket,
-      subtype: (seg.subtype || null) as LogSubtype | null,
-      classificationDegraded: false,
-      classificationSource: 'phase0-segment',
-      parentLocalId: drop.localId,
-    };
+      try {
+        phase1 = await withTimeout(runPhase1(seg.text, { hasAttachments: false }), 8000, {
+          bucket: seg.likely_bucket || seg.bucket || 'log',
+          subtype: seg.likely_subtype || seg.subtype || null,
+          habitSubtype: null,
+          confidence: 0.5,
+          source: 'phase0-fallback',
+        });
 
-    // Persist child to AsyncStorage
-    await saveDrop(childId, childDrop);
+        phase15a = await withTimeout(
+          callPhase1_5a(seg.text, phase1.bucket, phase1.subtype || null),
+          6000,
+          null,
+        );
+      } catch (err) {
+        console.warn('[DropPhases] Multi segment classification failed', {
+          text: seg.text?.substring(0, 30),
+          error: String(err),
+        });
+        phase1 = {
+          bucket: seg.likely_bucket || seg.bucket || 'log',
+          subtype: seg.likely_subtype || seg.subtype || null,
+          habitSubtype: null,
+        };
+      }
 
-    // Add child to Zustand so UI shows it
-    useGremlyStore.getState().addPendingDrop({
-      localId: childId,
-      text: seg.text,
-      spaceId: drop.spaceId,
-      source: drop.source,
-      createdAt: drop.createdAt,
-      bucket: childDrop.bucket,
-      subtype: childDrop.subtype,
-      status: 'classifying',
-    });
+      const smartTitle = phase15a?.smart_title || null;
+      const confirmationMessage = phase15a?.confirmation_message || null;
 
-    childIds.push(childId);
-  }
+      return {
+        text: seg.text,
+        bucket: phase1.bucket,
+        subtype: phase1.subtype || null,
+        habitSubtype: phase1.habitSubtype || null,
+        smart_title: smartTitle,
+        confirmation_message: confirmationMessage,
+      };
+    }),
+  );
 
-  console.log('[DropPhases] handleMultiDetected: spawned children', {
+  console.log('[DropPhases] handleMultiDetected: segments classified', {
     localId: drop.localId,
-    childCount: childIds.length,
-    childIds,
+    segmentCount: classifiedSegments.length,
+    segments: classifiedSegments.map((s: any) => ({
+      text: s.text?.substring(0, 20),
+      bucket: s.bucket,
+      smart_title: s.smart_title,
+    })),
   });
 
+  // Update Zustand with classified segments so the multi card shows correct data
+  useGremlyStore.getState().updatePendingDropEnrichment(drop.localId, {
+    isMulti: true,
+    multiSegments: classifiedSegments as any,
+    multiSummary: drop.multiSummary,
+    dominantBucket: drop.dominantBucket as any,
+    dominantSubtype: drop.dominantSubtype as any,
+    status: 'enriching',
+  });
+
+  // Advance directly to enriched — skip titled phase (multi drops don't need their own title)
+  // handleEnriched will call syncMultiDropToSupabase which creates ONE note with multi_items
   return {
     ...drop,
-    phase: 'multi_awaiting',
-    childLocalIds: childIds,
+    phase: 'enriched',
+    multiSegments: classifiedSegments as any,
     retryCount: 0,
     lastError: null,
   };
-}
-
-export async function handleMultiAwaiting(drop: QueuedDrop): Promise<QueuedDrop> {
-  const childIds = drop.childLocalIds || [];
-  const queue = await getQueue();
-
-  const children = childIds.map((id) => queue.find((d) => d.localId === id)).filter(Boolean);
-
-  const allComplete = children.every((c) => c!.phase === 'complete');
-  const anyFailed = children.some((c) => c!.phase === 'failed');
-
-  if (
-    allComplete ||
-    (anyFailed && children.every((c) => c!.phase === 'complete' || c!.phase === 'failed'))
-  ) {
-    // All children are in terminal state — parent can sync
-    console.log('[DropPhases] handleMultiAwaiting: all children done', {
-      localId: drop.localId,
-      complete: children.filter((c) => c!.phase === 'complete').length,
-      failed: children.filter((c) => c!.phase === 'failed').length,
-    });
-
-    // Collect classified segments from children for the parent sync
-    const classifiedSegments = children
-      .filter((c) => c!.phase === 'complete')
-      .map((c) => ({
-        text: c!.text,
-        bucket: c!.bucket || 'log',
-        subtype: c!.subtype || null,
-        habitSubtype: c!.habitSubtype || null,
-        smart_title: c!.smartTitle || null,
-        confirmation_message: c!.confirmationMessage || null,
-      }));
-
-    return {
-      ...drop,
-      phase: 'enriched', // Skip 'titled' — parent doesn't need its own title
-      multiSegments: classifiedSegments as any,
-      retryCount: 0,
-      lastError: null,
-    };
-  }
-
-  // Not all children done — stay in multi_awaiting (runner will check again next tick)
-  return drop;
 }
 
 export async function handleTitled(drop: QueuedDrop): Promise<QueuedDrop> {
@@ -748,7 +727,7 @@ export function getPhaseHandler(
     case 'multi_detected':
       return handleMultiDetected;
     case 'multi_awaiting':
-      return handleMultiAwaiting;
+      return null; // Legacy — no longer used
     case 'titled':
       return handleTitled;
     case 'enriched':
