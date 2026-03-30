@@ -47,6 +47,8 @@ const RETRY_DELAYS = [0, 3000, 8000]; // delays: instant, 3s, 8s
 let isRunning = false;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 const processing = new Set<string>();
+let lastQueueEmpty = false;
+let lastEnqueueTime = 0;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Phase → UI State Mapping
@@ -174,16 +176,8 @@ async function handleComplete(drop: QueuedDrop): Promise<void> {
     console.warn('[Pipeline] Failed to increment drop count', { error: String(err) });
   }
 
-  // 4. Emit entity created event
-  if (drop.supabaseId && drop.entityType) {
-    eventBus.emit('entity:created', {
-      entity: { id: drop.supabaseId, type: drop.entityType, drop_id: drop.localId },
-      type: drop.entityType,
-      spaceId: drop.spaceId,
-    });
-  }
-
-  // 5. Schedule auto-reminder if Phase 2b detected one (fire-and-forget)
+  // 4. Schedule auto-reminder if Phase 2b detected one (fire-and-forget)
+  // Note: entity:created event is already emitted by syncDropToSupabase with full data
   if (drop.autoReminder && drop.supabaseId && drop.entityType) {
     void scheduleAutoReminderForDrop(drop);
   }
@@ -406,7 +400,19 @@ function isReadyForProcessing(drop: QueuedDrop): boolean {
 
 async function tick(): Promise<void> {
   try {
+    // Skip AsyncStorage read if queue was empty last time and no new drops enqueued
+    if (lastQueueEmpty && getDateService().now().getTime() - lastEnqueueTime > TICK_INTERVAL_MS) {
+      return;
+    }
+
     const drops = await getQueue();
+
+    if (drops.length === 0) {
+      lastQueueEmpty = true;
+      return;
+    }
+    lastQueueEmpty = false;
+
     const actionable = drops.filter((d) => isReadyForProcessing(d));
 
     if (actionable.length === 0) return;
@@ -470,6 +476,8 @@ export function stopQueueRunner(): void {
  */
 export async function triggerProcessing(): Promise<void> {
   if (!isRunning) return;
+  lastQueueEmpty = false; // Force next tick to read queue
+  lastEnqueueTime = getDateService().now().getTime();
   await tick();
 }
 
