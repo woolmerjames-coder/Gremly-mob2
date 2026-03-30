@@ -706,13 +706,15 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
       const tokenMap = {};
       for (const t of tokens) tokenMap[t.user_id] = t.token;
 
-      return prefs.map((p) => ({
-        user_id: p.user_id,
-        timezone: p.timezone || 'America/Los_Angeles',
-        weekly_time: p.weekly_time,
-        weekly_day: p.weekly_day ?? 0, // 0 = Sunday
-        push_token: tokenMap[p.user_id] || null,
-      }));
+      return prefs
+        .filter((p) => tokenMap[p.user_id])
+        .map((p) => ({
+          user_id: p.user_id,
+          timezone: p.timezone || 'America/Los_Angeles',
+          weekly_time: p.weekly_time,
+          weekly_day: p.weekly_day ?? 0, // 0 = Sunday
+          push_token: tokenMap[p.user_id],
+        }));
     });
 
     // Step 2: Filter to users whose local time is within the 5-minute window of their configured weekly time AND it's their configured day
@@ -5193,13 +5195,17 @@ function buildWorldPicture(snapshot) {
     parts.push('  No events today.');
   }
 
-  // ── Section 4: Upcoming events (next 7 days) ──
+  // ── Section 4: Upcoming events (next 7 days) — label recurring/routine ──
   parts.push('\n=== UPCOMING EVENTS (next 7 days) ===');
   if (calendar.upcomingEvents.length > 0) {
+    const routinePatterns =
+      /\b(standup|stand-up|sync|1:1|one-on-one|retro|retrospective|scrum|daily|weekly|bi-weekly|biweekly|recurring|status update|check-in|check in|team meeting|staff meeting|office hours|sprint planning|sprint review|backlog grooming|refinement)\b/i;
     for (const e of calendar.upcomingEvents) {
       const daysAway = Math.ceil((new Date(e.date + 'T00:00:00Z') - target) / 86400000);
       const space = e.space ? ` [${e.space}]` : '';
-      parts.push(`  ${e.date} (${daysAway} days): ${e.title}${space}`);
+      const isRoutine = routinePatterns.test(e.title);
+      const tag = isRoutine ? ' {routine — do NOT feature}' : '';
+      parts.push(`  ${e.date} (${daysAway} days): ${e.title}${space}${tag}`);
     }
   } else {
     parts.push('  Nothing scheduled.');
@@ -5387,7 +5393,15 @@ STRICT RULES:
 JOB 2 — PRODUCE THE DAILY FOCUS
 Read the entire world picture and make these editorial decisions:
 
-lead_story: What is the single most important thing about this person's life TODAY? Pick the thread that best captures where they are right now. Use the Life Map to understand the significance and today's data for the specifics. The lead_story MUST reference an actual thread from the Life Map by exact domain and thread name.
+lead_story: What is the single most CONCRETE thing happening in this person's life TODAY? Pick the thread that best captures what they are DOING today — where they are, what events they have, what work they are tackling, what actions they are taking. The lead_story MUST reference an actual thread from the Life Map by exact domain and thread name.
+
+LEAD STORY SELECTION RULES:
+- ALWAYS prefer threads with concrete, observable activity today: calendar events, tasks due, travel, location, a project being worked on.
+- NEVER select a thread just because the person journaled about their feelings. Emotional state is COLOR for the detail field, not the lead story itself.
+- NEVER narrate the user's psychology back to them. "You're reflecting on your career" or "anxiety is present" are NOT lead stories. "Client meetings fill your Monday" IS a lead story.
+- If the most notable thing today is a calendar event, that is the lead story — even if the person journaled about something emotional yesterday.
+- If there is genuinely nothing concrete happening today (no events, no active work, no location change), THEN and only then consider emotional or reflective threads — but frame them around what the person is DOING, not what they are FEELING.
+- Events tagged {routine — do NOT feature} in the upcoming events section must NEVER be used as a lead story or referenced in the headline.
 
 secondary: A second thread worth noting today. Must also reference an actual Life Map thread.
 
@@ -5669,11 +5683,11 @@ async function generateHeadlineFromFocus(dailyFocus, snapshot, env) {
   const prevDco = snapshot.raw.previousDco?.dco;
   const prevHeadline = prevDco?.brief_headline || null;
 
-  const prompt = `You write a single line that appears on a companion app's morning screen. Your job is to OBSERVE what is true about today — not to advise, encourage, or motivate.
+  const prompt = `You write a single line that appears on a companion app's morning screen. Your job is to say what today LOOKS LIKE — not what the user FEELS like.
 
 TODAY is ${snapshot.targetDate}.
 
-THE LEAD STORY (already selected — write about THIS):
+THE LEAD STORY (write about THIS):
   Domain: ${lead.domain}
   Thread: ${lead.thread}
   Detail: ${lead.detail}
@@ -5687,7 +5701,6 @@ ${
 }
 
 TONE: ${dailyFocus.tone}
-LIFE MOMENT: ${dailyFocus.life_moment || 'none'}
 
 ${
   prevHeadline
@@ -5698,12 +5711,15 @@ Write something with a completely different structure.`
 
 RULES:
 - Maximum 10 words.
-- State what is true about today. That is all.
-- Reference the lead story — use concrete details from it.
+- Describe what today looks like: events, tasks, location, work, plans.
+- NEVER describe emotions, feelings, moods, or psychological states. No "anxiety", "exhaustion", "low feeling", "overwhelm", "tension", "weight of". You are a calendar, not a therapist.
+- NEVER narrate what the user is "reflecting on", "examining", "processing", or "adjusting to".
+- NEVER use "continues", "settling in", "also here", "both present", "are here today".
+- NEVER frame someone else's life event as a trigger for the user's inner state.
 - No exclamation marks. No questions. No advice. No encouragement.
 - No metric counts. Never say "X todos" or "X habits."
 - Every noun must come from the data above.
-- If there is nothing interesting, respond with exactly: null
+- If the lead story is purely emotional with no concrete activity, respond with exactly: null
 
 Respond with ONLY the headline text or null. Nothing else.`;
 
