@@ -142,8 +142,6 @@ function syncDropToZustand(drop: QueuedDrop): void {
     needs_clarification: drop.needsClarification,
     ambiguity_reason: drop.ambiguityReason,
     plausible_interpretations: drop.plausibleInterpretations as any,
-    clarification_question: drop.clarificationQuestion,
-    clarification_options: drop.clarificationOptions as any,
     isMulti: drop.isMulti,
     multiSegments: drop.multiSegments,
     multiSummary: drop.multiSummary,

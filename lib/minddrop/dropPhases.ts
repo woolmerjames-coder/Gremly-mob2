@@ -684,6 +684,19 @@ export async function handleEnriched(drop: QueuedDrop): Promise<QueuedDrop> {
       }
     : null;
 
+  // Read latest clarification data from Zustand — Phase 1.5 background
+  // may have populated these after the pipeline's QueuedDrop was saved
+  if (drop.needsClarification && !drop.isMulti) {
+    const pending = useGremlyStore.getState().pendingDrops.get(drop.localId);
+    if (pending?.clarification_question) {
+      drop = {
+        ...drop,
+        clarificationQuestion: pending.clarification_question,
+        clarificationOptions: pending.clarification_options as any,
+      };
+    }
+  }
+
   let syncResult;
 
   if (drop.isMulti) {
