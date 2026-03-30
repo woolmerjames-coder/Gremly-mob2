@@ -152,6 +152,7 @@ import {
   getSearchPolicy,
   MODE_TEMP,
 } from './gremlyPersona';
+import { aiClassify, aiGenerate, aiStream, getProviders } from './aiProvider.js';
 
 async function getCachedDomainNames(userId, env) {
   if (!userId || !env.CONTEXT_CACHE) return [];
@@ -686,39 +687,22 @@ const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JS
  * @returns {Promise<Object>} Parsed JSON result
  */
 async function runPreparseMini(text, env, systemPrompt) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  const result = await aiClassify({
+    mode: 'realtime',
+    ...getProviders('nano', env),
+    env,
+    systemPrompt,
+    messages: [{ role: 'user', content: text.substring(0, 500) }],
+    temperature: 0.1,
+    maxOutputTokens: 100,
+    endpoint: 'preparse-mini',
+  });
 
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1-nano',
-        temperature: 0.1,
-        max_tokens: 100,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: text.substring(0, 500) },
-        ],
-      }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '{}';
-    return JSON.parse(content);
-  } finally {
-    clearTimeout(timeout);
+  if (!result.parsed) {
+    throw new Error('preparse failed: both providers returned unusable output');
   }
+
+  return result.parsed;
 }
 
 /**
@@ -1078,120 +1062,98 @@ Rules:
 - is_ambiguous is true when bucket is "ambiguous"
 - When bucket is "ambiguous", always provide ambiguity_type and ambiguity_reason`;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const result = await aiClassify({
+    mode: 'realtime',
+    ...getProviders('mini', env),
+    env,
+    systemPrompt: phase1Prompt,
+    messages: [{ role: 'user', content: text.substring(0, 1000) }],
+    temperature: 0.1,
+    maxOutputTokens: 500,
+    endpoint: 'classify-phase1',
+    validate: (parsed) => {
+      // Must have a bucket field
+      if (!parsed || typeof parsed !== 'object') {
+        return { valid: false, reason: 'not_object' };
+      }
+      return { valid: true };
+    },
+  });
 
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1-mini',
-        temperature: 0.1,
-        max_tokens: 500,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: phase1Prompt },
-          { role: 'user', content: text.substring(0, 1000) },
-        ],
-      }),
-      signal: controller.signal,
-    });
+  const latency = Date.now() - t0;
 
-    if (!response.ok) {
-      const latency = Date.now() - t0;
-      const errorText = await response.text().catch(() => '');
-      console.error('[Phase1Class] OpenAI error', {
-        status: response.status,
-        error: errorText,
-        latency_ms: latency,
-      });
-      return { success: false, error: 'openai_error', latency_ms: latency };
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '{}';
-    const latency = Date.now() - t0;
-
-    let parsed;
-    try {
-      parsed = JSON.parse(content);
-    } catch (parseErr) {
-      console.error('[Phase1Class] JSON parse error', {
-        content,
-        error: String(parseErr),
-        latency_ms: latency,
-      });
-      return { success: false, error: 'json_parse_error', latency_ms: latency };
-    }
-
-    // Validate and normalize the result
-    const validBuckets = ['todo', 'habit', 'log', 'ambiguous'];
-    let bucket = validBuckets.includes(parsed.bucket) ? parsed.bucket : 'log';
-
-    // Normalize ambiguous to log/general for storage
-    if (bucket === 'ambiguous') {
-      bucket = 'log';
-    }
-
-    let subtype = null;
-    if (bucket === 'log') {
-      const validSubtypes = ['journal', 'idea', 'general'];
-      subtype = validSubtypes.includes(parsed.subtype) ? parsed.subtype : 'general';
-    }
-
-    let habitSubtype = null;
-    if (bucket === 'habit') {
-      const validHabitSubtypes = ['start_habit', 'break_habit'];
-      habitSubtype = validHabitSubtypes.includes(parsed.habitSubtype)
-        ? parsed.habitSubtype
-        : 'start_habit';
-    }
-
-    let confidence = Number(parsed.confidence);
-    if (!Number.isFinite(confidence)) confidence = 0.7;
-    confidence = Math.max(0, Math.min(1, confidence));
-
-    const isAmbiguous = parsed.bucket === 'ambiguous' || confidence < 0.7;
-    const ambiguityType =
-      isAmbiguous && ['bucket', 'action', 'date_type'].includes(parsed.ambiguity_type)
-        ? parsed.ambiguity_type
-        : null;
-    const ambiguityReason =
-      isAmbiguous && typeof parsed.ambiguity_reason === 'string'
-        ? parsed.ambiguity_reason.trim().substring(0, 200)
-        : null;
-
-    const result = {
-      bucket,
-      subtype,
-      habitSubtype,
-      confidence,
-      is_ambiguous: isAmbiguous,
-      ambiguity_type: ambiguityType,
-      ambiguity_reason: ambiguityReason,
-    };
-
-    console.log('[Phase1Class] Success', {
-      bucket: result.bucket,
-      subtype: result.subtype,
-      habitSubtype: result.habitSubtype,
-      confidence: result.confidence,
-      is_ambiguous: result.is_ambiguous,
+  if (!result.parsed) {
+    console.error('[Phase1Class] Both providers failed', {
+      wasFallback: result.wasFallback,
+      fallbackReason: result.fallbackReason,
       latency_ms: latency,
     });
-
-    return { success: true, result, latency_ms: latency };
-  } catch (err) {
-    const latency = Date.now() - t0;
-    console.error('[Phase1Class] Error', { error: String(err), latency_ms: latency });
-    return { success: false, error: String(err?.message || 'unknown'), latency_ms: latency };
-  } finally {
-    clearTimeout(timeoutId);
+    return { success: false, error: 'both_providers_failed', latency_ms: latency };
   }
+
+  const parsed = result.parsed;
+
+  // Validate and normalize the result
+  const validBuckets = ['todo', 'habit', 'log', 'ambiguous'];
+  let bucket = validBuckets.includes(parsed.bucket) ? parsed.bucket : 'log';
+
+  // Normalize ambiguous to log/general for storage
+  if (bucket === 'ambiguous') {
+    bucket = 'log';
+  }
+
+  let subtype = null;
+  if (bucket === 'log') {
+    const validSubtypes = ['journal', 'idea', 'general'];
+    subtype = validSubtypes.includes(parsed.subtype) ? parsed.subtype : 'general';
+  }
+
+  let habitSubtype = null;
+  if (bucket === 'habit') {
+    const validHabitSubtypes = ['start_habit', 'break_habit'];
+    habitSubtype = validHabitSubtypes.includes(parsed.habitSubtype)
+      ? parsed.habitSubtype
+      : 'start_habit';
+  }
+
+  let confidence = Number(parsed.confidence);
+  if (!Number.isFinite(confidence)) confidence = 0.7;
+  confidence = Math.max(0, Math.min(1, confidence));
+
+  const isAmbiguous = parsed.bucket === 'ambiguous' || confidence < 0.7;
+  const ambiguityType =
+    isAmbiguous && ['bucket', 'action', 'date_type'].includes(parsed.ambiguity_type)
+      ? parsed.ambiguity_type
+      : null;
+  const ambiguityReason =
+    isAmbiguous && typeof parsed.ambiguity_reason === 'string'
+      ? parsed.ambiguity_reason.trim().substring(0, 200)
+      : null;
+
+  const classResult = {
+    bucket,
+    subtype,
+    habitSubtype,
+    confidence,
+    is_ambiguous: isAmbiguous,
+    ambiguity_type: ambiguityType,
+    ambiguity_reason: ambiguityReason,
+  };
+
+  console.log('[Phase1Class] Complete', {
+    bucket: classResult.bucket,
+    subtype: classResult.subtype,
+    habitSubtype: classResult.habitSubtype,
+    confidence: classResult.confidence,
+    is_ambiguous: classResult.is_ambiguous,
+    latency_ms: latency,
+    wasFallback: result.wasFallback,
+    fallbackReason: result.fallbackReason,
+    provider: result.provider,
+    model: result.model,
+  });
+
+  return { success: true, result: classResult, latency_ms: latency };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -5852,156 +5814,137 @@ ${assistantMessage.substring(0, 2000)}
 
         const t0 = Date.now();
 
-        try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: spaceChatSavePrompt },
-                { role: 'user', content: contextBlock },
-              ],
-              temperature: 0.3,
-              max_tokens: 250,
-              response_format: { type: 'json_object' },
-            }),
-          });
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: spaceChatSavePrompt,
+          messages: [{ role: 'user', content: contextBlock }],
+          temperature: 0.3,
+          maxOutputTokens: 250,
+          endpoint: 'space-chat-save',
+        });
 
-          const oj = await res.json();
-          const latency = Date.now() - t0;
+        const latency = Date.now() - t0;
 
-          if (!res.ok) {
-            console.log('[space-chat-save] API error', { error: oj.error, latency_ms: latency });
-            return j({ error: 'classification_failed', latency_ms: latency }, 200);
-          }
-
-          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
-          let parsed;
-          try {
-            parsed = JSON.parse(rawContent);
-          } catch {
-            console.log('[space-chat-save] Parse error', { raw: rawContent });
-            return j({ error: 'parse_failed', latency_ms: latency }, 200);
-          }
-
-          // Validate and normalize type
-          const validTypes = ['habit', 'todo', 'log'];
-          let resultType = String(parsed.type || 'log').toLowerCase();
-          if (!validTypes.includes(resultType)) resultType = 'log';
-
-          // Validate and normalize subtype
-          const validSubtypes = {
-            habit: ['start_habit', 'break_habit'],
-            todo: [],
-            log: ['general', 'idea', 'journal'],
-          };
-
-          let subtype = parsed.subtype;
-          if (resultType === 'habit') {
-            subtype = validSubtypes.habit.includes(subtype) ? subtype : 'start_habit';
-          } else if (resultType === 'log') {
-            subtype = validSubtypes.log.includes(subtype) ? subtype : 'general';
-          } else {
-            subtype = null;
-          }
-
-          // Validate confidence
-          let confidence = Number(parsed.confidence);
-          if (!Number.isFinite(confidence)) confidence = 0.8;
-          confidence = Math.max(0, Math.min(1, confidence));
-
-          // Validate and sanitize title
-          let title = String(parsed.title || '').trim();
-          if (title.length < 3 || title.length > 60) {
-            // Fallback: use first part of user's question
-            title = userMessage.split(/[.?!]/)[0].trim();
-            if (title.length > 50) title = title.substring(0, 47) + '...';
-            if (title.length < 3) title = 'Saved From Chat';
-          }
-          // Title case
-          title = title
-            .split(/\s+/)
-            .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
-            .join(' ');
-
-          // Validate tags
-          let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
-          tags = tags
-            .map((t) =>
-              String(t)
-                .toLowerCase()
-                .replace(/\s+/g, '-')
-                .replace(/[^a-z0-9-]/g, ''),
-            )
-            .filter((t) => t.length >= 2 && t.length <= 30)
-            .filter((t) => !isStopTag(t))
-            .slice(0, 5);
-
-          // Validate frequency (habits only)
-          let frequency = null;
-          if (resultType === 'habit') {
-            frequency = parsed.frequency || 'daily';
-          }
-
-          // Validate days (habits only)
-          let days = null;
-          if (resultType === 'habit' && Array.isArray(parsed.days) && parsed.days.length > 0) {
-            const validDays = parsed.days
-              .map((d) => Number(d))
-              .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
-            if (validDays.length > 0) {
-              days = [...new Set(validDays)].sort((a, b) => a - b);
-            }
-          }
-          // Fallback: parse from user message
-          if (resultType === 'habit' && !days) {
-            days = parseDaysFromText(userMessage);
-          }
-
-          // Validate time_estimate_minutes — round to nearest 5, clamp 5-240
-          let timeEstimateMinutes = null;
-          if (resultType === 'habit' || resultType === 'todo') {
-            const num = Number(parsed.timeEstimateMinutes);
-            if (Number.isFinite(num) && num > 0) {
-              timeEstimateMinutes = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
-            }
-          }
-
-          // Validate hasList
-          const hasList = Boolean(parsed.hasList);
-
-          console.log('[space-chat-save] Success', {
-            type: resultType,
-            subtype,
-            title: title.substring(0, 30),
-            tags_count: tags.length,
-            has_frequency: !!frequency,
-            has_days: !!days,
-            has_time: !!timeEstimateMinutes,
-            latency_ms: latency,
-          });
-
-          return j({
-            type: resultType,
-            subtype,
-            confidence,
-            title,
-            tags,
-            frequency,
-            days,
-            timeEstimateMinutes,
-            hasList,
-            latency_ms: latency,
-          });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[space-chat-save] Error', { error: String(err), latency_ms: latency });
-          return j({ error: 'request_failed', detail: String(err) }, 200);
+        if (!result.parsed) {
+          console.log('[space-chat-save] Both providers failed', { latency_ms: latency });
+          return j({ error: 'classification_failed', latency_ms: latency }, 200);
         }
+
+        const parsed = result.parsed;
+
+        // Validate and normalize type
+        const validTypes = ['habit', 'todo', 'log'];
+        let resultType = String(parsed.type || 'log').toLowerCase();
+        if (!validTypes.includes(resultType)) resultType = 'log';
+
+        // Validate and normalize subtype
+        const validSubtypes = {
+          habit: ['start_habit', 'break_habit'],
+          todo: [],
+          log: ['general', 'idea', 'journal'],
+        };
+
+        let subtype = parsed.subtype;
+        if (resultType === 'habit') {
+          subtype = validSubtypes.habit.includes(subtype) ? subtype : 'start_habit';
+        } else if (resultType === 'log') {
+          subtype = validSubtypes.log.includes(subtype) ? subtype : 'general';
+        } else {
+          subtype = null;
+        }
+
+        // Validate confidence
+        let confidence = Number(parsed.confidence);
+        if (!Number.isFinite(confidence)) confidence = 0.8;
+        confidence = Math.max(0, Math.min(1, confidence));
+
+        // Validate and sanitize title
+        let title = String(parsed.title || '').trim();
+        if (title.length < 3 || title.length > 60) {
+          // Fallback: use first part of user's question
+          title = userMessage.split(/[.?!]/)[0].trim();
+          if (title.length > 50) title = title.substring(0, 47) + '...';
+          if (title.length < 3) title = 'Saved From Chat';
+        }
+        // Title case
+        title = title
+          .split(/\s+/)
+          .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
+          .join(' ');
+
+        // Validate tags
+        let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+        tags = tags
+          .map((t) =>
+            String(t)
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-]/g, ''),
+          )
+          .filter((t) => t.length >= 2 && t.length <= 30)
+          .filter((t) => !isStopTag(t))
+          .slice(0, 5);
+
+        // Validate frequency (habits only)
+        let frequency = null;
+        if (resultType === 'habit') {
+          frequency = parsed.frequency || 'daily';
+        }
+
+        // Validate days (habits only)
+        let days = null;
+        if (resultType === 'habit' && Array.isArray(parsed.days) && parsed.days.length > 0) {
+          const validDays = parsed.days
+            .map((d) => Number(d))
+            .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+          if (validDays.length > 0) {
+            days = [...new Set(validDays)].sort((a, b) => a - b);
+          }
+        }
+        // Fallback: parse from user message
+        if (resultType === 'habit' && !days) {
+          days = parseDaysFromText(userMessage);
+        }
+
+        // Validate time_estimate_minutes — round to nearest 5, clamp 5-240
+        let timeEstimateMinutes = null;
+        if (resultType === 'habit' || resultType === 'todo') {
+          const num = Number(parsed.timeEstimateMinutes);
+          if (Number.isFinite(num) && num > 0) {
+            timeEstimateMinutes = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
+          }
+        }
+
+        // Validate hasList
+        const hasList = Boolean(parsed.hasList);
+
+        console.log('[space-chat-save] Success', {
+          type: resultType,
+          subtype,
+          title: title.substring(0, 30),
+          tags_count: tags.length,
+          has_frequency: !!frequency,
+          has_days: !!days,
+          has_time: !!timeEstimateMinutes,
+          wasFallback: result.wasFallback,
+          fallbackReason: result.fallbackReason,
+          latency_ms: latency,
+        });
+
+        return j({
+          type: resultType,
+          subtype,
+          confidence,
+          title,
+          tags,
+          frequency,
+          days,
+          timeEstimateMinutes,
+          hasList,
+          latency_ms: latency,
+        });
       }
 
       // =========================
@@ -6588,76 +6531,43 @@ or if separately completable:
   "groupings": ["first item", "second item"]
 }`;
 
-        try {
-          // Run A, B, C in parallel
-          const [resA, resB, resC] = await Promise.all([
-            fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${key}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-4.1-nano',
-                messages: [
-                  { role: 'system', content: promptA },
-                  { role: 'user', content: text.substring(0, 1000) },
-                ],
-                temperature: 0.1,
-                max_tokens: 100,
-                response_format: { type: 'json_object' },
-              }),
+        {
+          const [resultA, resultB, resultC] = await Promise.all([
+            aiClassify({
+              mode: 'realtime',
+              ...getProviders('nano', env),
+              env,
+              systemPrompt: promptA,
+              messages: [{ role: 'user', content: text.substring(0, 1000) }],
+              temperature: 0.1,
+              maxOutputTokens: 100,
+              endpoint: 'detect-multi-A',
             }),
-            fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${key}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-4.1-nano',
-                messages: [
-                  { role: 'system', content: promptB },
-                  { role: 'user', content: text.substring(0, 1000) },
-                ],
-                temperature: 0.1,
-                max_tokens: 150,
-                response_format: { type: 'json_object' },
-              }),
+            aiClassify({
+              mode: 'realtime',
+              ...getProviders('nano', env),
+              env,
+              systemPrompt: promptB,
+              messages: [{ role: 'user', content: text.substring(0, 1000) }],
+              temperature: 0.1,
+              maxOutputTokens: 150,
+              endpoint: 'detect-multi-B',
             }),
-            fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${key}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-4.1-nano',
-                messages: [
-                  { role: 'system', content: promptC },
-                  { role: 'user', content: text.substring(0, 1000) },
-                ],
-                temperature: 0.1,
-                max_tokens: 200,
-                response_format: { type: 'json_object' },
-              }),
+            aiClassify({
+              mode: 'realtime',
+              ...getProviders('nano', env),
+              env,
+              systemPrompt: promptC,
+              messages: [{ role: 'user', content: text.substring(0, 1000) }],
+              temperature: 0.1,
+              maxOutputTokens: 200,
+              endpoint: 'detect-multi-C',
             }),
           ]);
 
-          const jsonA = await resA.json();
-          const jsonB = await resB.json();
-          const jsonC = await resC.json();
-
-          const a = JSON.parse(
-            jsonA?.choices?.[0]?.message?.content ||
-              '{"has_emotion": false, "emotion_is_primary": false}',
-          );
-          const b = JSON.parse(
-            jsonB?.choices?.[0]?.message?.content || '{"has_standalone_task": false}',
-          );
-          const c = JSON.parse(
-            jsonC?.choices?.[0]?.message?.content || '{"effort_count": 1, "groupings": []}',
-          );
+          const a = resultA.parsed || { has_emotion: false, emotion_is_primary: false };
+          const b = resultB.parsed || { has_standalone_task: false };
+          const c = resultC.parsed || { effort_count: 1, groupings: [] };
 
           console.log('[Phase0:A]', a);
           console.log('[Phase0:B]', b);
@@ -6711,26 +6621,18 @@ Return JSON only:
   ]
 }`;
 
-          const resD = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-nano',
-              messages: [
-                { role: 'system', content: promptD },
-                { role: 'user', content: text.substring(0, 1000) },
-              ],
-              temperature: 0.1,
-              max_tokens: 300,
-              response_format: { type: 'json_object' },
-            }),
+          const resultD = await aiClassify({
+            mode: 'realtime',
+            ...getProviders('nano', env),
+            env,
+            systemPrompt: promptD,
+            messages: [{ role: 'user', content: text.substring(0, 1000) }],
+            temperature: 0.1,
+            maxOutputTokens: 300,
+            endpoint: 'detect-multi-D',
           });
 
-          const jsonD = await resD.json();
-          const d = JSON.parse(jsonD?.choices?.[0]?.message?.content || '{"segments": []}');
+          const d = resultD.parsed || { segments: [] };
 
           console.log('[Phase0:D]', d);
 
@@ -6784,10 +6686,6 @@ Return JSON only:
             reason,
             latency_ms: latency,
           });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Phase0] Error', { error: String(err), latency_ms: latency });
-          return j({ is_multi: false, source: 'error-fallback', latency_ms: latency });
         }
       }
 
@@ -6878,78 +6776,64 @@ INTERPRETATIONS (return exactly ${interpretations.length} labels in the same ord
 ${interpLines}`;
 
         // --- Make AI call ---
-        try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-nano',
-              messages: [
-                { role: 'system', content: clarificationSystemPrompt },
-                { role: 'user', content: clarificationUserMessage },
-              ],
-              temperature: 0.3,
-              max_tokens: 200,
-              response_format: { type: 'json_object' },
-            }),
-          });
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('nano', env),
+          env,
+          systemPrompt: clarificationSystemPrompt,
+          messages: [{ role: 'user', content: clarificationUserMessage }],
+          temperature: 0.3,
+          maxOutputTokens: 200,
+          endpoint: 'clarify-ambiguity',
+        });
 
-          const oj = await res.json();
-          const latency = Date.now() - t0;
+        const latency = Date.now() - t0;
 
-          if (res.ok && oj?.choices?.[0]?.message?.content) {
-            const parsed = JSON.parse(oj.choices[0].message.content);
+        if (result.parsed) {
+          const parsed = result.parsed;
 
-            // --- Validate response ---
-            const question =
-              typeof parsed.question === 'string' && parsed.question.trim()
-                ? parsed.question.trim().substring(0, 100)
-                : null;
+          // --- Validate response ---
+          const question =
+            typeof parsed.question === 'string' && parsed.question.trim()
+              ? parsed.question.trim().substring(0, 100)
+              : null;
 
-            const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
+          const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
 
-            // Labels count must match interpretations count
-            if (
-              labels.length === interpretations.length &&
-              labels.every((l) => typeof l === 'string' && l.trim())
-            ) {
-              const options = interpretations.map((interp, i) => ({
-                id: `opt_${i + 1}`,
-                label: labels[i].trim().substring(0, 60),
-                bucket: interp.bucket || null,
-                subtype: interp.subtype || null,
-                habitSubtype: interp.habitSubtype || null,
-                dateField: interp.dateField || null,
-              }));
+          // Labels count must match interpretations count
+          if (
+            labels.length === interpretations.length &&
+            labels.every((l) => typeof l === 'string' && l.trim())
+          ) {
+            const options = interpretations.map((interp, i) => ({
+              id: `opt_${i + 1}`,
+              label: labels[i].trim().substring(0, 60),
+              bucket: interp.bucket || null,
+              subtype: interp.subtype || null,
+              habitSubtype: interp.habitSubtype || null,
+              dateField: interp.dateField || null,
+            }));
 
-              console.log('[Phase1.5] AI success', {
-                question,
-                options_count: options.length,
-                latency_ms: latency,
-              });
+            console.log('[Phase1.5] AI success', {
+              question,
+              options_count: options.length,
+              wasFallback: result.wasFallback,
+              fallbackReason: result.fallbackReason,
+              latency_ms: latency,
+            });
 
-              return j({
-                success: true,
-                clarification_question: question || FALLBACK_QUESTION,
-                options,
-                latency_ms: latency,
-              });
-            }
-
-            // Labels didn't match — fall through to fallback
-            console.log('[Phase1.5] AI labels mismatch, using fallback', {
-              expected: interpretations.length,
-              got: labels.length,
+            return j({
+              success: true,
+              clarification_question: question || FALLBACK_QUESTION,
+              options,
               latency_ms: latency,
             });
           }
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Phase1.5] AI error, using fallback', {
-            error: String(err),
+
+          // Labels didn't match — fall through to fallback
+          console.log('[Phase1.5] AI labels mismatch, using fallback', {
+            expected: interpretations.length,
+            got: labels.length,
             latency_ms: latency,
           });
         }
@@ -7076,125 +6960,21 @@ If no date in input, all date fields are null.
 
         const t0 = Date.now();
 
-        try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: reclassifyPrompt },
-                { role: 'user', content: contextString },
-              ],
-              temperature: 0.3,
-              max_tokens: 250,
-              response_format: { type: 'json_object' },
-            }),
-          });
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: reclassifyPrompt,
+          messages: [{ role: 'user', content: contextString }],
+          temperature: 0.3,
+          maxOutputTokens: 250,
+          endpoint: 'reclassify-after-clarification',
+        });
 
-          const oj = await res.json();
-          const latency = Date.now() - t0;
+        const latency = Date.now() - t0;
 
-          if (!res.ok) {
-            console.log('[Reclassify] API error', { error: oj.error });
-            return j({
-              bucket: 'log',
-              subtype: 'general',
-              habit_subtype: null,
-              smart_title: titleCase(text.substring(0, 50)),
-              confirmation_message: 'Saved for later.',
-              target_date: null,
-              scheduled_date: null,
-              latency_ms: latency,
-            });
-          }
-
-          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
-          const parsed = JSON.parse(rawContent);
-
-          // Use selected bucket/subtype if provided, otherwise fall back to AI response
-          const validBuckets = ['todo', 'habit', 'log'];
-          let bucket =
-            selectedBucket && validBuckets.includes(selectedBucket)
-              ? selectedBucket
-              : validBuckets.includes(parsed.bucket)
-                ? parsed.bucket
-                : 'log';
-
-          // Validate subtype
-          let subtype = null;
-          if (bucket === 'log') {
-            const validSubtypes = ['general', 'idea', 'journal'];
-            subtype =
-              selectedSubtype && validSubtypes.includes(selectedSubtype)
-                ? selectedSubtype
-                : validSubtypes.includes(parsed.subtype)
-                  ? parsed.subtype
-                  : 'general';
-          }
-
-          // Validate habit_subtype
-          let habitSubtype = null;
-          if (bucket === 'habit') {
-            const validHabitSubtypes = ['start_habit', 'break_habit'];
-            habitSubtype = validHabitSubtypes.includes(parsed.habit_subtype)
-              ? parsed.habit_subtype
-              : 'start_habit';
-          }
-
-          // Validate dates
-          let targetDate = null;
-          let scheduledDate = null;
-          if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
-            targetDate = parsed.target_date;
-          }
-          if (parsed.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduled_date)) {
-            scheduledDate = parsed.scheduled_date;
-          }
-
-          // Extract date_type_ambiguous flag
-          const dateTypeAmbiguous = parsed.date_type_ambiguous === true;
-
-          // Extract confirmation message (same as Phase 1)
-          let confirmationMessage = parsed.confirmation_message || null;
-          if (confirmationMessage) {
-            confirmationMessage = String(confirmationMessage).trim();
-            if (confirmationMessage.length < 3) {
-              confirmationMessage = null;
-            } else if (confirmationMessage.length > 50) {
-              confirmationMessage = confirmationMessage.substring(0, 47) + '...';
-            }
-          }
-
-          console.log('[Reclassify] Success', {
-            bucket,
-            subtype,
-            habit_subtype: habitSubtype,
-            title: parsed.smart_title?.substring(0, 30),
-            confirmation_message: confirmationMessage,
-            target_date: targetDate,
-            scheduled_date: scheduledDate,
-            date_type_ambiguous: dateTypeAmbiguous,
-            latency_ms: latency,
-          });
-
-          return j({
-            bucket,
-            subtype,
-            habit_subtype: habitSubtype,
-            smart_title: titleCase(parsed.smart_title || text.substring(0, 50)),
-            confirmation_message: confirmationMessage,
-            target_date: targetDate,
-            scheduled_date: scheduledDate,
-            date_type_ambiguous: dateTypeAmbiguous,
-            latency_ms: latency,
-          });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Reclassify] Error', { error: String(err), latency_ms: latency });
+        if (!result.parsed) {
+          console.log('[Reclassify] Both providers failed', { latency_ms: latency });
           return j({
             bucket: 'log',
             subtype: 'general',
@@ -7203,12 +6983,91 @@ If no date in input, all date fields are null.
             confirmation_message: 'Saved for later.',
             target_date: null,
             scheduled_date: null,
-            date_type_ambiguous: false,
-            time_estimate_minutes: null,
-            energy_type: null,
             latency_ms: latency,
           });
         }
+
+        const parsed = result.parsed;
+
+        // Use selected bucket/subtype if provided, otherwise fall back to AI response
+        const validBuckets = ['todo', 'habit', 'log'];
+        let bucket =
+          selectedBucket && validBuckets.includes(selectedBucket)
+            ? selectedBucket
+            : validBuckets.includes(parsed.bucket)
+              ? parsed.bucket
+              : 'log';
+
+        // Validate subtype
+        let subtype = null;
+        if (bucket === 'log') {
+          const validSubtypes = ['general', 'idea', 'journal'];
+          subtype =
+            selectedSubtype && validSubtypes.includes(selectedSubtype)
+              ? selectedSubtype
+              : validSubtypes.includes(parsed.subtype)
+                ? parsed.subtype
+                : 'general';
+        }
+
+        // Validate habit_subtype
+        let habitSubtype = null;
+        if (bucket === 'habit') {
+          const validHabitSubtypes = ['start_habit', 'break_habit'];
+          habitSubtype = validHabitSubtypes.includes(parsed.habit_subtype)
+            ? parsed.habit_subtype
+            : 'start_habit';
+        }
+
+        // Validate dates
+        let targetDate = null;
+        let scheduledDate = null;
+        if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
+          targetDate = parsed.target_date;
+        }
+        if (parsed.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduled_date)) {
+          scheduledDate = parsed.scheduled_date;
+        }
+
+        // Extract date_type_ambiguous flag
+        const dateTypeAmbiguous = parsed.date_type_ambiguous === true;
+
+        // Extract confirmation message (same as Phase 1)
+        let confirmationMessage = parsed.confirmation_message || null;
+        if (confirmationMessage) {
+          confirmationMessage = String(confirmationMessage).trim();
+          if (confirmationMessage.length < 3) {
+            confirmationMessage = null;
+          } else if (confirmationMessage.length > 50) {
+            confirmationMessage = confirmationMessage.substring(0, 47) + '...';
+          }
+        }
+
+        console.log('[Reclassify] Success', {
+          bucket,
+          subtype,
+          habit_subtype: habitSubtype,
+          title: parsed.smart_title?.substring(0, 30),
+          confirmation_message: confirmationMessage,
+          target_date: targetDate,
+          scheduled_date: scheduledDate,
+          date_type_ambiguous: dateTypeAmbiguous,
+          wasFallback: result.wasFallback,
+          fallbackReason: result.fallbackReason,
+          latency_ms: latency,
+        });
+
+        return j({
+          bucket,
+          subtype,
+          habit_subtype: habitSubtype,
+          smart_title: titleCase(parsed.smart_title || text.substring(0, 50)),
+          confirmation_message: confirmationMessage,
+          target_date: targetDate,
+          scheduled_date: scheduledDate,
+          date_type_ambiguous: dateTypeAmbiguous,
+          latency_ms: latency,
+        });
       }
 
       // =========================
@@ -7859,100 +7718,71 @@ Return ONLY valid JSON:
 
         const t0 = Date.now();
 
-        try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: phase15aSystemPrompt },
-                {
-                  role: 'user',
-                  content: (() => {
-                    let msg = `USER INPUT: "${text}"\nBUCKET: ${bucket}\nSUBTYPE: ${subtype || 'none'}`;
-                    if (recentReactions.length > 0) {
-                      msg += `\n\nRECENT REACTIONS (your last ${recentReactions.length} — do NOT reuse these sentence structures, endings, or patterns):\n${recentReactions.map((r) => `- "${r}"`).join('\n')}`;
-                    }
-                    return msg;
-                  })(),
-                },
-              ],
-              temperature: 0.7,
-              max_tokens: 150,
-              response_format: { type: 'json_object' },
-            }),
-          });
-
-          const oj = await res.json();
-          const latency = Date.now() - t0;
-
-          if (!res.ok) {
-            console.log('[Phase1.5a] API error', { error: oj.error });
-            return j({
-              smart_title: titleCase(text.substring(0, 50)),
-              confirmation_message: null,
-              latency_ms: latency,
-            });
+        const userMessage = (() => {
+          let msg = `USER INPUT: "${text}"\nBUCKET: ${bucket}\nSUBTYPE: ${subtype || 'none'}`;
+          if (recentReactions.length > 0) {
+            msg += `\n\nRECENT REACTIONS (your last ${recentReactions.length} — do NOT reuse these sentence structures, endings, or patterns):\n${recentReactions.map((r) => `- "${r}"`).join('\n')}`;
           }
+          return msg;
+        })();
 
-          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
-          let parsed;
-          try {
-            parsed = JSON.parse(rawContent);
-          } catch {
-            console.log('[Phase1.5a] Parse error', { raw: rawContent });
-            return j({
-              smart_title: titleCase(text.substring(0, 50)),
-              confirmation_message: null,
-              latency_ms: latency,
-            });
-          }
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: phase15aSystemPrompt,
+          messages: [{ role: 'user', content: userMessage }],
+          temperature: 0.7,
+          maxOutputTokens: 150,
+          endpoint: 'enrich-phase1-5a',
+        });
 
-          // Extract and validate smart_title
-          let smartTitle = parsed.smart_title || null;
-          if (smartTitle) {
-            smartTitle = String(smartTitle).trim();
-            if (smartTitle.length < 3 || smartTitle.length > 60) {
-              smartTitle = text.substring(0, 50).trim();
-            }
-            smartTitle = titleCase(smartTitle);
-          }
+        const latency = Date.now() - t0;
 
-          // Extract confirmation message
-          let confirmationMessage = parsed.confirmation_message || null;
-          if (confirmationMessage) {
-            confirmationMessage = String(confirmationMessage).trim();
-            if (confirmationMessage.length < 3) {
-              confirmationMessage = null;
-            } else if (confirmationMessage.length > 50) {
-              confirmationMessage = confirmationMessage.substring(0, 47) + '...';
-            }
-          }
-
-          console.log('[Phase1.5a] Success', {
-            title: smartTitle?.substring(0, 30),
-            has_message: !!confirmationMessage,
-            latency_ms: latency,
-          });
-
-          return j({
-            smart_title: smartTitle,
-            confirmation_message: confirmationMessage,
-            latency_ms: latency,
-          });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Phase1.5a] Error', { error: String(err), latency_ms: latency });
+        if (!result.parsed) {
           return j({
             smart_title: titleCase(text.substring(0, 50)),
             confirmation_message: null,
             latency_ms: latency,
           });
         }
+
+        const parsed = result.parsed;
+
+        // Extract and validate smart_title
+        let smartTitle = parsed.smart_title || null;
+        if (smartTitle) {
+          smartTitle = String(smartTitle).trim();
+          if (smartTitle.length < 3 || smartTitle.length > 60) {
+            smartTitle = text.substring(0, 50).trim();
+          }
+          smartTitle = titleCase(smartTitle);
+        }
+
+        // Extract confirmation message
+        let confirmationMessage = parsed.confirmation_message || null;
+        if (confirmationMessage) {
+          confirmationMessage = String(confirmationMessage).trim();
+          if (confirmationMessage.length < 3) {
+            confirmationMessage = null;
+          } else if (confirmationMessage.length > 50) {
+            confirmationMessage = confirmationMessage.substring(0, 47) + '...';
+          }
+        }
+
+        console.log('[Phase1.5a] Success', {
+          title: smartTitle?.substring(0, 30),
+          has_message: !!confirmationMessage,
+          wasFallback: result.wasFallback,
+          fallbackReason: result.fallbackReason,
+          latency_ms: latency,
+        });
+
+        return j({
+          smart_title: smartTitle,
+          confirmation_message: confirmationMessage,
+          latency_ms: latency,
+        });
       }
 
       // --- PHASE 2 ENRICHMENT (v4.1 - non-streaming, metadata only) ---
@@ -8476,250 +8306,221 @@ For LOGS (event):
 
         const t0 = Date.now();
 
-        try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: phase2Prompt },
-                { role: 'user', content: text.substring(0, 1500) },
-              ],
-              temperature: 0.2,
-              max_tokens: 300,
-              response_format: { type: 'json_object' },
-            }),
-          });
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: phase2Prompt,
+          messages: [{ role: 'user', content: text.substring(0, 1500) }],
+          temperature: 0.2,
+          maxOutputTokens: 300,
+          endpoint: 'enrich-phase2',
+        });
 
-          const oj = await res.json();
-          const latency = Date.now() - t0;
+        const latency = Date.now() - t0;
 
-          if (!res.ok) {
-            console.log('[Phase2] API error', { error: oj.error, latency_ms: latency });
-            return j({ error: 'enrichment_failed', latency_ms: latency }, 200);
-          }
-
-          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
-          let parsed;
-          try {
-            parsed = JSON.parse(rawContent);
-          } catch {
-            console.log('[Phase2] Parse error', { raw: rawContent });
-            return j({ error: 'parse_failed', latency_ms: latency }, 200);
-          }
-
-          // Debug: Log date extraction from LLM
-          console.log('[Phase2:DateDebug]', {
-            inputText: text.substring(0, 100),
-            currentDate,
-            dayOfWeek,
-            timezone,
-            llm_target_date: parsed.target_date,
-            llm_scheduled_date: parsed.scheduled_date,
-            llm_extracted_date: parsed.extracted_date,
-            llm_date_type_ambiguous: parsed.date_type_ambiguous,
-          });
-
-          // Validate and normalize tags
-          let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
-          tags = tags
-            .map((t) =>
-              String(t)
-                .toLowerCase()
-                .replace(/\s+/g, '-')
-                .replace(/[^a-z0-9-]/g, ''),
-            )
-            .filter((t) => t.length >= 2 && t.length <= 30)
-            .filter((t) => !isStopTag(t))
-            .slice(0, 7);
-
-          // Validate time estimate (not for break habits)
-          let timeEstimate = null;
-          const isBreakHabit = bucket === 'habit' && subtype === 'break_habit';
-          if ((bucket === 'todo' || bucket === 'habit') && !isBreakHabit) {
-            const num = Number(parsed.time_estimate_minutes);
-            if (Number.isFinite(num) && num > 0) {
-              // Round to nearest 5 minutes, clamp between 5 and 240
-              timeEstimate = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
-            }
-          }
-
-          // Validate time_window
-          let timeWindow = null;
-          if (parsed.time_window) {
-            const validWindows = ['morning', 'day', 'evening'];
-            const normalized = String(parsed.time_window).toLowerCase().trim();
-            timeWindow = validWindows.includes(normalized) ? normalized : null;
-          }
-
-          // Validate energy_type
-          let energyType = null;
-          if ((bucket === 'todo' || bucket === 'habit') && !isBreakHabit) {
-            const validEnergyTypes = [
-              'deep_focus',
-              'administrative',
-              'physical',
-              'social',
-              'quick',
-            ];
-            if (validEnergyTypes.includes(parsed.energy_type)) {
-              energyType = parsed.energy_type;
-            } else {
-              energyType = 'administrative'; // default fallback
-            }
-          }
-
-          // Validate date intelligence fields (todos only)
-          let targetDate = null;
-          let scheduledDate = null;
-          let dateTypeAmbiguous = false;
-          if (bucket === 'todo') {
-            // Target date (when something IS or is DUE)
-            if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
-              targetDate = parsed.target_date;
-            }
-
-            // Scheduled date (when user will DO the work)
-            if (parsed.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduled_date)) {
-              scheduledDate = parsed.scheduled_date;
-            }
-
-            // Ambiguity flag
-            dateTypeAmbiguous = parsed.date_type_ambiguous === true;
-
-            // Backward compatibility: if old extracted_date exists and no new fields, use it as scheduled_date
-            if (
-              !targetDate &&
-              !scheduledDate &&
-              parsed.extracted_date &&
-              /^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_date)
-            ) {
-              scheduledDate = parsed.extracted_date;
-            }
-          }
-
-          // Event dates for logs (notes that are events)
-          let noteTargetDate = null;
-          let eventTime = null;
-          let endDate = null;
-          let eventSmartTitle = null;
-          if (bucket === 'log') {
-            if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
-              noteTargetDate = parsed.target_date;
-            }
-            if (parsed.event_time && /^\d{2}:\d{2}$/.test(parsed.event_time)) {
-              eventTime = parsed.event_time;
-            }
-            if (parsed.end_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end_date)) {
-              endDate = parsed.end_date;
-            }
-            if (
-              subtype === 'event' &&
-              parsed.smart_title &&
-              typeof parsed.smart_title === 'string'
-            ) {
-              eventSmartTitle = parsed.smart_title.trim();
-            }
-          }
-
-          // Validate extracted_start_date (habits)
-          let extractedStartDate = null;
-          if (bucket === 'habit' && parsed.extracted_start_date) {
-            if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_start_date)) {
-              extractedStartDate = parsed.extracted_start_date;
-            }
-          }
-
-          // Validate extracted_frequency (habits)
-          let extractedFrequency = null;
-          if (bucket === 'habit' && parsed.extracted_frequency) {
-            extractedFrequency = String(parsed.extracted_frequency).trim();
-          }
-
-          // Validate extracted_days (habits)
-          let extractedDays = null;
-          if (bucket === 'habit') {
-            if (Array.isArray(parsed.extracted_days) && parsed.extracted_days.length > 0) {
-              const validDays = parsed.extracted_days
-                .map((d) => Number(d))
-                .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
-              if (validDays.length > 0) {
-                extractedDays = [...new Set(validDays)].sort((a, b) => a - b);
-              }
-            }
-            // Fallback: parse from text
-            if (!extractedDays) {
-              extractedDays = parseDaysFromText(text);
-            }
-          }
-
-          // Validate people
-          let people = [];
-          if (Array.isArray(parsed.people)) {
-            people = parsed.people
-              .map((p) => String(p).trim())
-              .filter((p) => p.length > 0 && p.length < 50)
-              .slice(0, 10);
-          }
-
-          // Validate mood (journals only)
-          let mood = null;
-          if (bucket === 'log' && subtype === 'journal' && Array.isArray(parsed.mood)) {
-            mood = parsed.mood
-              .map((m) => String(m).toLowerCase().trim())
-              .filter((m) => VALID_MOODS.includes(m))
-              .slice(0, 3);
-            if (mood.length === 0) mood = null;
-          }
-
-          console.log('[Phase2]', {
-            tags_count: tags.length,
-            has_time_estimate: timeEstimate !== null,
-            has_window: timeWindow !== null,
-            has_energy: energyType !== null,
-            has_target_date: targetDate !== null || noteTargetDate !== null,
-            has_scheduled_date: scheduledDate !== null,
-            date_ambiguous: dateTypeAmbiguous,
-            has_event_time: eventTime !== null,
-            has_frequency: extractedFrequency !== null,
-            has_days: extractedDays !== null,
-            has_start_date: extractedStartDate !== null,
-            has_people: people.length > 0,
-            has_mood: mood !== null,
-            latency_ms: latency,
-          });
-
-          return j({
-            tags,
-            time_estimate_minutes: timeEstimate,
-            time_window: timeWindow,
-            energy_type: energyType,
-            // New date intelligence fields for todos
-            target_date: bucket === 'todo' ? targetDate : noteTargetDate,
-            scheduled_date: scheduledDate,
-            date_type_ambiguous: dateTypeAmbiguous,
-            event_time: eventTime,
-            // Event-specific fields
-            end_date: endDate,
-            smart_title: eventSmartTitle,
-            // Keep existing habit fields
-            extracted_start_date: extractedStartDate,
-            extracted_frequency: extractedFrequency,
-            extracted_days: extractedDays,
-            // Other fields
-            people,
-            mood,
-            latency_ms: latency,
-          });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Phase2] Error', { error: String(err), latency_ms: latency });
-          return j({ error: 'enrichment_failed', detail: String(err), latency_ms: latency }, 200);
+        if (!result.parsed) {
+          console.log('[Phase2] Both providers failed', { latency_ms: latency });
+          return j({ error: 'enrichment_failed', latency_ms: latency }, 200);
         }
+
+        const parsed = result.parsed;
+
+        // Debug: Log date extraction from LLM
+        console.log('[Phase2:DateDebug]', {
+          inputText: text.substring(0, 100),
+          currentDate,
+          dayOfWeek,
+          timezone,
+          llm_target_date: parsed.target_date,
+          llm_scheduled_date: parsed.scheduled_date,
+          llm_extracted_date: parsed.extracted_date,
+          llm_date_type_ambiguous: parsed.date_type_ambiguous,
+        });
+
+        // Validate and normalize tags
+        let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+        tags = tags
+          .map((t) =>
+            String(t)
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-]/g, ''),
+          )
+          .filter((t) => t.length >= 2 && t.length <= 30)
+          .filter((t) => !isStopTag(t))
+          .slice(0, 7);
+
+        // Validate time estimate (not for break habits)
+        let timeEstimate = null;
+        const isBreakHabit = bucket === 'habit' && subtype === 'break_habit';
+        if ((bucket === 'todo' || bucket === 'habit') && !isBreakHabit) {
+          const num = Number(parsed.time_estimate_minutes);
+          if (Number.isFinite(num) && num > 0) {
+            // Round to nearest 5 minutes, clamp between 5 and 240
+            timeEstimate = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
+          }
+        }
+
+        // Validate time_window
+        let timeWindow = null;
+        if (parsed.time_window) {
+          const validWindows = ['morning', 'day', 'evening'];
+          const normalized = String(parsed.time_window).toLowerCase().trim();
+          timeWindow = validWindows.includes(normalized) ? normalized : null;
+        }
+
+        // Validate energy_type
+        let energyType = null;
+        if ((bucket === 'todo' || bucket === 'habit') && !isBreakHabit) {
+          const validEnergyTypes = ['deep_focus', 'administrative', 'physical', 'social', 'quick'];
+          if (validEnergyTypes.includes(parsed.energy_type)) {
+            energyType = parsed.energy_type;
+          } else {
+            energyType = 'administrative'; // default fallback
+          }
+        }
+
+        // Validate date intelligence fields (todos only)
+        let targetDate = null;
+        let scheduledDate = null;
+        let dateTypeAmbiguous = false;
+        if (bucket === 'todo') {
+          // Target date (when something IS or is DUE)
+          if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
+            targetDate = parsed.target_date;
+          }
+
+          // Scheduled date (when user will DO the work)
+          if (parsed.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduled_date)) {
+            scheduledDate = parsed.scheduled_date;
+          }
+
+          // Ambiguity flag
+          dateTypeAmbiguous = parsed.date_type_ambiguous === true;
+
+          // Backward compatibility: if old extracted_date exists and no new fields, use it as scheduled_date
+          if (
+            !targetDate &&
+            !scheduledDate &&
+            parsed.extracted_date &&
+            /^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_date)
+          ) {
+            scheduledDate = parsed.extracted_date;
+          }
+        }
+
+        // Event dates for logs (notes that are events)
+        let noteTargetDate = null;
+        let eventTime = null;
+        let endDate = null;
+        let eventSmartTitle = null;
+        if (bucket === 'log') {
+          if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
+            noteTargetDate = parsed.target_date;
+          }
+          if (parsed.event_time && /^\d{2}:\d{2}$/.test(parsed.event_time)) {
+            eventTime = parsed.event_time;
+          }
+          if (parsed.end_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end_date)) {
+            endDate = parsed.end_date;
+          }
+          if (subtype === 'event' && parsed.smart_title && typeof parsed.smart_title === 'string') {
+            eventSmartTitle = parsed.smart_title.trim();
+          }
+        }
+
+        // Validate extracted_start_date (habits)
+        let extractedStartDate = null;
+        if (bucket === 'habit' && parsed.extracted_start_date) {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_start_date)) {
+            extractedStartDate = parsed.extracted_start_date;
+          }
+        }
+
+        // Validate extracted_frequency (habits)
+        let extractedFrequency = null;
+        if (bucket === 'habit' && parsed.extracted_frequency) {
+          extractedFrequency = String(parsed.extracted_frequency).trim();
+        }
+
+        // Validate extracted_days (habits)
+        let extractedDays = null;
+        if (bucket === 'habit') {
+          if (Array.isArray(parsed.extracted_days) && parsed.extracted_days.length > 0) {
+            const validDays = parsed.extracted_days
+              .map((d) => Number(d))
+              .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+            if (validDays.length > 0) {
+              extractedDays = [...new Set(validDays)].sort((a, b) => a - b);
+            }
+          }
+          // Fallback: parse from text
+          if (!extractedDays) {
+            extractedDays = parseDaysFromText(text);
+          }
+        }
+
+        // Validate people
+        let people = [];
+        if (Array.isArray(parsed.people)) {
+          people = parsed.people
+            .map((p) => String(p).trim())
+            .filter((p) => p.length > 0 && p.length < 50)
+            .slice(0, 10);
+        }
+
+        // Validate mood (journals only)
+        let mood = null;
+        if (bucket === 'log' && subtype === 'journal' && Array.isArray(parsed.mood)) {
+          mood = parsed.mood
+            .map((m) => String(m).toLowerCase().trim())
+            .filter((m) => VALID_MOODS.includes(m))
+            .slice(0, 3);
+          if (mood.length === 0) mood = null;
+        }
+
+        console.log('[Phase2]', {
+          tags_count: tags.length,
+          has_time_estimate: timeEstimate !== null,
+          has_window: timeWindow !== null,
+          has_energy: energyType !== null,
+          has_target_date: targetDate !== null || noteTargetDate !== null,
+          has_scheduled_date: scheduledDate !== null,
+          date_ambiguous: dateTypeAmbiguous,
+          has_event_time: eventTime !== null,
+          has_frequency: extractedFrequency !== null,
+          has_days: extractedDays !== null,
+          has_start_date: extractedStartDate !== null,
+          has_people: people.length > 0,
+          has_mood: mood !== null,
+          wasFallback: result.wasFallback,
+          fallbackReason: result.fallbackReason,
+          latency_ms: latency,
+        });
+
+        return j({
+          tags,
+          time_estimate_minutes: timeEstimate,
+          time_window: timeWindow,
+          energy_type: energyType,
+          // New date intelligence fields for todos
+          target_date: bucket === 'todo' ? targetDate : noteTargetDate,
+          scheduled_date: scheduledDate,
+          date_type_ambiguous: dateTypeAmbiguous,
+          event_time: eventTime,
+          // Event-specific fields
+          end_date: endDate,
+          smart_title: eventSmartTitle,
+          // Keep existing habit fields
+          extracted_start_date: extractedStartDate,
+          extracted_frequency: extractedFrequency,
+          extracted_days: extractedDays,
+          // Other fields
+          people,
+          mood,
+          latency_ms: latency,
+        });
       }
 
       // --- PHASE 2B: AUTO-REMINDER DETECTION (standalone, lightweight) ---
@@ -8753,8 +8554,7 @@ For LOGS (event):
         }
 
         const t0 = Date.now();
-        try {
-          const phase2bPrompt = `You decide if a user's quick thought needs a reminder, and if so, when.
+        const phase2bPrompt = `You decide if a user's quick thought needs a reminder, and if so, when.
 
 === CONTEXT ===
 Today: ${currentDate} (${dayOfWeek})
@@ -8788,91 +8588,21 @@ Return ONLY valid JSON, no explanation:
   "reminder_frequency": "once" | "daily" | null
 }`;
 
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: phase2bPrompt },
-                { role: 'user', content: text.substring(0, 500) },
-              ],
-              temperature: 0.1,
-              max_tokens: 100,
-              response_format: { type: 'json_object' },
-            }),
-          });
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: phase2bPrompt,
+          messages: [{ role: 'user', content: text.substring(0, 500) }],
+          temperature: 0.1,
+          maxOutputTokens: 100,
+          endpoint: 'enrich-phase2b',
+        });
 
-          const oj = await res.json();
-          const latency = Date.now() - t0;
+        const latency = Date.now() - t0;
 
-          if (!res.ok) {
-            console.log('[Phase2b] API error', { error: oj.error, latency_ms: latency });
-            return j({
-              auto_reminder: false,
-              reminder_date: null,
-              reminder_time: null,
-              reminder_frequency: null,
-              latency_ms: latency,
-            });
-          }
-
-          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
-          let parsed;
-          try {
-            parsed = JSON.parse(rawContent);
-          } catch {
-            console.log('[Phase2b] Parse error', { raw: rawContent });
-            return j({
-              auto_reminder: false,
-              reminder_date: null,
-              reminder_time: null,
-              reminder_frequency: null,
-              latency_ms: latency,
-            });
-          }
-
-          // Validate reminder_time format (HH:mm)
-          let reminderTime = null;
-          if (parsed.reminder_time && /^\d{2}:\d{2}$/.test(parsed.reminder_time)) {
-            reminderTime = parsed.reminder_time;
-          }
-
-          // Validate reminder_date format (YYYY-MM-DD)
-          let reminderDate = null;
-          if (parsed.reminder_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.reminder_date)) {
-            reminderDate = parsed.reminder_date;
-          }
-
-          // Validate frequency
-          const validFreqs = ['once', 'daily'];
-          const reminderFrequency = validFreqs.includes(parsed.reminder_frequency)
-            ? parsed.reminder_frequency
-            : null;
-
-          const autoReminder = parsed.auto_reminder === true;
-
-          console.log('[Phase2b]', {
-            auto_reminder: autoReminder,
-            reminder_date: reminderDate,
-            reminder_time: reminderTime,
-            reminder_frequency: reminderFrequency,
-            latency_ms: latency,
-          });
-
-          return j({
-            auto_reminder: autoReminder,
-            reminder_date: autoReminder ? reminderDate : null,
-            reminder_time: autoReminder ? reminderTime : null,
-            reminder_frequency: autoReminder ? reminderFrequency : null,
-            latency_ms: latency,
-          });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Phase2b] Error', { error: String(err), latency_ms: latency });
+        if (!result.parsed) {
+          console.log('[Phase2b] Both providers failed', { latency_ms: latency });
           return j({
             auto_reminder: false,
             reminder_date: null,
@@ -8881,6 +8611,46 @@ Return ONLY valid JSON, no explanation:
             latency_ms: latency,
           });
         }
+
+        const parsed = result.parsed;
+
+        // Validate reminder_time format (HH:mm)
+        let reminderTime = null;
+        if (parsed.reminder_time && /^\d{2}:\d{2}$/.test(parsed.reminder_time)) {
+          reminderTime = parsed.reminder_time;
+        }
+
+        // Validate reminder_date format (YYYY-MM-DD)
+        let reminderDate = null;
+        if (parsed.reminder_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.reminder_date)) {
+          reminderDate = parsed.reminder_date;
+        }
+
+        // Validate frequency
+        const validFreqs = ['once', 'daily'];
+        const reminderFrequency = validFreqs.includes(parsed.reminder_frequency)
+          ? parsed.reminder_frequency
+          : null;
+
+        const autoReminder = parsed.auto_reminder === true;
+
+        console.log('[Phase2b]', {
+          auto_reminder: autoReminder,
+          reminder_date: reminderDate,
+          reminder_time: reminderTime,
+          reminder_frequency: reminderFrequency,
+          wasFallback: result.wasFallback,
+          fallbackReason: result.fallbackReason,
+          latency_ms: latency,
+        });
+
+        return j({
+          auto_reminder: autoReminder,
+          reminder_date: autoReminder ? reminderDate : null,
+          reminder_time: autoReminder ? reminderTime : null,
+          reminder_frequency: autoReminder ? reminderFrequency : null,
+          latency_ms: latency,
+        });
       }
 
       // ═══════════════════════════════════════════════════════════════════════════
