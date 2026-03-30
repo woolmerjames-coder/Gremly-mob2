@@ -1272,11 +1272,21 @@ export interface WeeklySummary {
 // Weekly Summary V2 — Life Map powered, flexible card schema
 // ═══════════════════════════════════════════════════════════════════
 
+export interface WSV2FedStats {
+  fed_days_this_week: number;
+  gremly_age: number;
+  current_tier: string;
+  fed_days_toward_next: number;
+  fed_days_needed: number;
+  sock_count: number;
+}
+
 export interface WSV2GremlyMoodCard {
   type: 'gremly_mood';
   mood_line: string;
   hook: string;
   week_label: string;
+  fed_stats?: WSV2FedStats;
 }
 
 export interface WSV2OpeningCard {
@@ -1293,7 +1303,15 @@ export interface WSV2OpeningCard {
     drops: number;
     sweeps: number;
     journals: number;
+    drops_delta?: number | null;
+    sweeps_delta?: number | null;
+    journals_delta?: number | null;
   };
+  mood_arc?: Array<{
+    date: string;
+    day: string;
+    valence: 'positive' | 'mixed' | 'anxious' | 'neutral';
+  }>;
 }
 
 export interface WSV2Thread {
@@ -1306,6 +1324,8 @@ export interface WSV2Thread {
   badge_type: 'success' | 'warning' | 'danger' | 'neutral' | 'info';
   detail: string;
   is_highlight: boolean;
+  velocity?: number;
+  velocity_label?: string;
 }
 
 export interface WSV2ThreadMovementsCard {
@@ -1340,6 +1360,7 @@ export interface WSV2DiscoveriesCard {
     evidence_trail: string;
     takeaway: string;
     research_context: WSV2ResearchContext | null;
+    ask_gremly_prompt?: string;
   };
   trends: WSV2Trend[];
   mini_discoveries?: WSV2MiniDiscovery[];
@@ -1430,6 +1451,13 @@ export interface WSV2RecommendsCard {
   secondary: WSV2RecommendsItem[];
 }
 
+export interface WSV2LetterCard {
+  type: 'letter';
+  body: string;
+  gremly_age?: number;
+  current_tier?: string;
+}
+
 export type WSV2Card =
   | WSV2GremlyMoodCard
   | WSV2OpeningCard
@@ -1440,7 +1468,8 @@ export type WSV2Card =
   | WSV2StaleTriageCard
   | WSV2WeekAheadCard
   | WSV2MonthlyRetroCard
-  | WSV2RecommendationCard;
+  | WSV2RecommendationCard
+  | WSV2LetterCard;
 
 export interface WSV2Metadata {
   week_type: string;

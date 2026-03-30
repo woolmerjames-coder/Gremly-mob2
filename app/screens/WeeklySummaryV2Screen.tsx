@@ -66,6 +66,7 @@ import {
   Lock,
   CalendarDays,
   Plus,
+  MessageCircle,
 } from 'lucide-react-native';
 import { addDays, nextMonday, format } from 'date-fns';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
@@ -318,6 +319,81 @@ function GremlyMoodCard({ card }: { card: any }) {
       >
         {formatWeekLabel(card.week_label)}
       </Animated.Text>
+
+      {/* Fed Stats */}
+      {card.fed_stats ? (
+        <Animated.View
+          entering={FadeInUp.delay(750).duration(400)}
+          style={{
+            backgroundColor: '#F6F9F4',
+            borderRadius: 14,
+            padding: 14,
+            marginTop: 20,
+            width: '100%',
+          }}
+        >
+          <View
+            style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+          >
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <Text style={{ fontSize: 20, fontFamily: 'DMSans-Bold', color: WS.sageDark }}>
+                {card.fed_stats.fed_days_this_week}
+              </Text>
+              <Text style={{ fontSize: 11, fontFamily: 'DMSans-Regular', color: WS.textSubtle }}>
+                fed days
+              </Text>
+            </View>
+            <View style={{ width: 1, height: 28, backgroundColor: '#D8E5D2' }} />
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <Text style={{ fontSize: 20, fontFamily: 'DMSans-Bold', color: WS.sageDark }}>
+                Level {card.fed_stats.gremly_age}
+              </Text>
+              <Text style={{ fontSize: 11, fontFamily: 'DMSans-Regular', color: WS.textSubtle }}>
+                age
+              </Text>
+            </View>
+            <View style={{ width: 1, height: 28, backgroundColor: '#D8E5D2' }} />
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <Text style={{ fontSize: 20, fontFamily: 'DMSans-Bold', color: WS.sageDark }}>
+                {card.fed_stats.fed_days_needed - card.fed_stats.fed_days_toward_next}
+              </Text>
+              <Text style={{ fontSize: 11, fontFamily: 'DMSans-Regular', color: WS.textSubtle }}>
+                to age up
+              </Text>
+            </View>
+          </View>
+          <View
+            style={{
+              marginTop: 10,
+              backgroundColor: '#D8E5D2',
+              borderRadius: 6,
+              height: 6,
+              overflow: 'hidden',
+            }}
+          >
+            <View
+              style={{
+                backgroundColor: '#4A8B5C',
+                height: '100%',
+                width: `${(card.fed_stats.fed_days_toward_next / card.fed_stats.fed_days_needed) * 100}%`,
+                borderRadius: 6,
+              }}
+            />
+          </View>
+          <Text
+            style={{
+              fontSize: 11,
+              fontFamily: 'DMSans-Regular',
+              color: WS.textSubtle,
+              textAlign: 'center',
+              marginTop: 6,
+            }}
+          >
+            {card.fed_stats.fed_days_toward_next} of {card.fed_stats.fed_days_needed} fed days
+            toward next age-up
+          </Text>
+        </Animated.View>
+      ) : null}
     </Animated.View>
   );
 }
@@ -418,17 +494,124 @@ function OpeningCard({
       {card.engagement &&
       (card.engagement.drops > 0 || card.engagement.sweeps > 0 || card.engagement.journals > 0) ? (
         <Animated.View entering={FadeInUp.delay(700).duration(350)}>
-          <View style={openingStyles.pulseRow}>
-            <Sparkles size={13} color={WS.sageDark} strokeWidth={2} />
-            <Text style={openingStyles.pulseText}>
-              {[
-                card.engagement.drops > 0 ? `${card.engagement.drops} drops` : null,
-                card.engagement.sweeps > 0 ? `${card.engagement.sweeps} sweeps` : null,
-                card.engagement.journals > 0 ? `${card.engagement.journals} journals` : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {[
+              { label: 'drops', value: card.engagement.drops, delta: card.engagement.drops_delta },
+              {
+                label: 'sweeps',
+                value: card.engagement.sweeps,
+                delta: card.engagement.sweeps_delta,
+              },
+              {
+                label: 'journals',
+                value: card.engagement.journals,
+                delta: card.engagement.journals_delta,
+              },
+            ].map((stat) => (
+              <View
+                key={stat.label}
+                style={{
+                  flex: 1,
+                  backgroundColor: WS.cream,
+                  borderRadius: 10,
+                  padding: 10,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 18, fontFamily: 'DMSans-Bold', color: WS.text }}>
+                  {stat.value}
+                </Text>
+                <Text style={{ fontSize: 11, fontFamily: 'DMSans-Regular', color: WS.textSubtle }}>
+                  {stat.label}
+                </Text>
+                {stat.delta != null && stat.delta !== 0 ? (
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontFamily: 'DMSans-Medium',
+                      color: stat.delta > 0 ? '#4A8B5C' : WS.textSubtle,
+                    }}
+                  >
+                    {stat.delta > 0 ? `↑ ${stat.delta}` : `↓ ${Math.abs(stat.delta)}`}
+                  </Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        </Animated.View>
+      ) : null}
+
+      {card.mood_arc && card.mood_arc.length > 0 ? (
+        <Animated.View entering={FadeInUp.delay(750).duration(350)}>
+          <View style={{ backgroundColor: WS.cream, borderRadius: 12, padding: 12, marginTop: 12 }}>
+            <Text
+              style={{
+                fontSize: 10,
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+                color: WS.textSubtle,
+                fontFamily: 'DMSans-Medium',
+                marginBottom: 6,
+              }}
+            >
+              YOUR WEEK'S MOOD ARC
             </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 3, height: 44 }}>
+              {card.mood_arc.map(
+                (entry: { date: string; day: string; valence: string }, i: number) => {
+                  const heightMap: Record<string, number> = {
+                    positive: 34,
+                    mixed: 22,
+                    neutral: 18,
+                    anxious: 12,
+                  };
+                  const colorMap: Record<string, string> = {
+                    positive: '#4A8B5C',
+                    mixed: '#B0C4A0',
+                    neutral: '#D8E5D2',
+                    anxious: '#D4A84A',
+                  };
+                  return (
+                    <View key={i} style={{ flex: 1, alignItems: 'center', gap: 2 }}>
+                      <View
+                        style={{
+                          width: '100%',
+                          backgroundColor: colorMap[entry.valence] || '#D8E5D2',
+                          borderRadius: 3,
+                          height: heightMap[entry.valence] || 18,
+                        }}
+                      />
+                      <Text
+                        style={{ fontSize: 9, fontFamily: 'DMSans-Regular', color: WS.textSubtle }}
+                      >
+                        {entry.day}
+                      </Text>
+                    </View>
+                  );
+                },
+              )}
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+              {[
+                { color: '#4A8B5C', label: 'positive' },
+                { color: '#B0C4A0', label: 'mixed' },
+                { color: '#D4A84A', label: 'anxious' },
+              ].map((item) => (
+                <View
+                  key={item.label}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                >
+                  <View
+                    style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.color }}
+                  />
+                  <Text
+                    style={{ fontSize: 10, fontFamily: 'DMSans-Regular', color: WS.textSubtle }}
+                  >
+                    {item.label}
+                  </Text>
+                </View>
+              ))}
+            </View>
           </View>
         </Animated.View>
       ) : null}
@@ -490,6 +673,36 @@ function ThreadTile({ thread }: { thread: WSV2Thread }) {
 
       {/* Detail */}
       <Text style={tileStyles.detail}>{thread.detail}</Text>
+
+      {thread.velocity != null && thread.velocity !== 1 ? (
+        <View
+          style={{
+            marginTop: 8,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            backgroundColor: '#FFFFFF',
+            borderRadius: 8,
+            paddingVertical: 5,
+            paddingHorizontal: 10,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 15,
+              fontFamily: 'DMSans-Bold',
+              color: thread.velocity > 1 ? '#2D5A3F' : '#C45A3A',
+            }}
+          >
+            {thread.velocity}×
+          </Text>
+          <Text
+            style={{ fontSize: 11, fontFamily: 'DMSans-Regular', color: WS.textSubtle, flex: 1 }}
+          >
+            {thread.velocity_label}
+          </Text>
+        </View>
+      ) : null}
     </Animated.View>
   );
 }
@@ -558,6 +771,7 @@ const TREND_ICON_COLOR: Record<string, string> = {
 function DiscoveriesCard({ card }: { card: WSV2DiscoveriesCard }) {
   const { spotlight, trends = [], mini_discoveries = [] } = card as any;
   const badgeStyle = SPOTLIGHT_BADGE_STYLES[spotlight.badge] ?? SPOTLIGHT_BADGE_STYLES.discovery;
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   return (
     <Animated.View entering={FadeIn.duration(400)} style={styles.card}>
@@ -607,6 +821,32 @@ function DiscoveriesCard({ card }: { card: WSV2DiscoveriesCard }) {
               </Text>
             ) : null}
           </Animated.View>
+        ) : null}
+
+        {card.spotlight.ask_gremly_prompt ? (
+          <Pressable
+            onPress={() => {
+              navigation.navigate('AskGremly' as any, {
+                prefillPrompt: card.spotlight.ask_gremly_prompt,
+              });
+            }}
+            style={{
+              backgroundColor: WS.sageDark,
+              borderRadius: 14,
+              paddingVertical: 14,
+              paddingHorizontal: 20,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              marginTop: 14,
+            }}
+          >
+            <MessageCircle size={16} color="#FFFFFF" strokeWidth={2} />
+            <Text style={{ color: '#FFFFFF', fontSize: 14, fontFamily: 'DMSans-Medium' }}>
+              Talk to Gremly about this
+            </Text>
+          </Pressable>
         ) : null}
       </Animated.View>
 
@@ -1391,6 +1631,70 @@ function RecommendationCard({ card }: { card: WSV2RecommendationCard }) {
 // Main screen
 // ─────────────────────────────────────────────────────────────────────────────
 
+function LetterCard({ card }: { card: any }) {
+  return (
+    <Animated.View
+      entering={FadeIn.duration(500)}
+      style={[
+        styles.card,
+        { backgroundColor: '#F6F9F4', borderWidth: 1.5, borderColor: '#D8E5D2' },
+      ]}
+    >
+      <Animated.View
+        entering={FadeInUp.delay(100).duration(400)}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 }}
+      >
+        <Text style={{ fontSize: 16 }}>✉️</Text>
+        <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: WS.sageDark }}>
+          A note for Monday-you
+        </Text>
+      </Animated.View>
+      <Animated.View entering={FadeInUp.delay(300).duration(400)}>
+        <Text
+          style={{
+            fontFamily: 'Instrument Serif',
+            fontSize: 16,
+            color: '#3D5A3A',
+            lineHeight: 26,
+            fontStyle: 'italic',
+          }}
+        >
+          {card.body}
+        </Text>
+      </Animated.View>
+      <Animated.View
+        entering={FadeInUp.delay(500).duration(400)}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 18 }}
+      >
+        <View
+          style={{
+            width: 32,
+            height: 32,
+            backgroundColor: '#D8E5D2',
+            borderRadius: 16,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Image
+            source={require('../../assets/gremlywaving.png')}
+            style={{ width: 22, height: 22 }}
+            resizeMode="contain"
+          />
+        </View>
+        <View>
+          <Text style={{ fontSize: 12, fontFamily: 'DMSans-Medium', color: WS.sageDark }}>
+            Your Gremly
+          </Text>
+          <Text style={{ fontSize: 11, fontFamily: 'DMSans-Regular', color: WS.textSubtle }}>
+            Level {card.gremly_age || 0} · rooting for you
+          </Text>
+        </View>
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
 export default function WeeklySummaryV2Screen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<NativeStackScreenProps<RootStackParamList, 'WeeklySummaryV2'>['route']>();
@@ -1496,6 +1800,8 @@ export default function WeeklySummaryV2Screen() {
         return <MonthlyRetroCard card={card} />;
       case 'recommendation':
         return <RecommendationCard card={card} />;
+      case 'letter':
+        return <LetterCard card={card} />;
       default:
         return null;
     }

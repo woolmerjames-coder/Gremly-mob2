@@ -615,7 +615,33 @@ const testWeeklySummaryV2 = inngest.createFunction(
           j.created_at.split('T')[0] <= weekDates.weekEnd,
       ).length;
 
-      return { drops: totalDrops, sweeps: totalSweeps, journals };
+      // Fed days this week
+      const fedRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/daily_ritual_progress?owner_id=eq.${userId}&ritual_day=gte.${weekDates.weekStart}&ritual_day=lte.${weekDates.weekEnd}&select=ritual_day,is_fed`,
+        { headers },
+      );
+      const fedRows = await fedRes.json();
+      const fedDaysThisWeek = (fedRows || []).filter((r) => r.is_fed).length;
+
+      // Gremly age + fed count from cortex_preferences
+      const ageRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=gremly_age,fed_days_count,current_tier,sock_count`,
+        { headers },
+      );
+      const ageData = (await ageRes.json())?.[0] || {};
+
+      return {
+        drops: totalDrops,
+        sweeps: totalSweeps,
+        journals,
+        fed_days_this_week: fedDaysThisWeek,
+        gremly_age: ageData.gremly_age || 0,
+        fed_days_total: ageData.fed_days_count || 0,
+        current_tier: ageData.current_tier || 'egg',
+        sock_count: ageData.sock_count || 0,
+        fed_days_toward_next: (ageData.fed_days_count || 0) % 3,
+        fed_days_needed: 3,
+      };
     });
 
     const summaryResult = await step.run('generate-summary-v2', async () => {
@@ -934,7 +960,33 @@ const weeklySummaryV2Worker = inngest.createFunction(
           j.created_at.split('T')[0] <= weekDates.weekEnd,
       ).length;
 
-      return { drops: totalDrops, sweeps: totalSweeps, journals };
+      // Fed days this week
+      const fedRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/daily_ritual_progress?owner_id=eq.${userId}&ritual_day=gte.${weekDates.weekStart}&ritual_day=lte.${weekDates.weekEnd}&select=ritual_day,is_fed`,
+        { headers },
+      );
+      const fedRows = await fedRes.json();
+      const fedDaysThisWeek = (fedRows || []).filter((r) => r.is_fed).length;
+
+      // Gremly age + fed count from cortex_preferences
+      const ageRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=gremly_age,fed_days_count,current_tier,sock_count`,
+        { headers },
+      );
+      const ageData = (await ageRes.json())?.[0] || {};
+
+      return {
+        drops: totalDrops,
+        sweeps: totalSweeps,
+        journals,
+        fed_days_this_week: fedDaysThisWeek,
+        gremly_age: ageData.gremly_age || 0,
+        fed_days_total: ageData.fed_days_count || 0,
+        current_tier: ageData.current_tier || 'egg',
+        sock_count: ageData.sock_count || 0,
+        fed_days_toward_next: (ageData.fed_days_count || 0) % 3,
+        fed_days_needed: 3,
+      };
     });
 
     const summaryResult = await step.run('generate-summary-v2', async () => {
@@ -3164,6 +3216,54 @@ async function generateWeeklySummaryV2(
   // User profile
   const userProfile = weeklySnapshot.userProfile || null;
 
+  let groundedDiscovery = null;
+
+  // Build mood arc from this week's journals (code-generated, not AI-generated)
+  const moodArc = (weeklySnapshot.journals || [])
+    .filter((j) => j.date >= weekStart && j.date <= weekEnd && j.mood && j.mood.length > 0)
+    .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+    .map((j) => {
+      const moods = j.mood || [];
+      const positiveWords = [
+        'grateful',
+        'happy',
+        'excited',
+        'proud',
+        'hopeful',
+        'motivated',
+        'calm',
+        'good',
+        'great',
+        'refreshed',
+        'optimistic',
+        'content',
+      ];
+      const negativeWords = [
+        'anxious',
+        'tired',
+        'stressed',
+        'overwhelmed',
+        'sad',
+        'frustrated',
+        'exhausted',
+        'worried',
+        'low',
+        'anxiety',
+        'knackered',
+      ];
+      const hasPositive = moods.some((m) => positiveWords.some((p) => m.toLowerCase().includes(p)));
+      const hasNegative = moods.some((m) => negativeWords.some((n) => m.toLowerCase().includes(n)));
+      let valence = 'neutral';
+      if (hasPositive && hasNegative) valence = 'mixed';
+      else if (hasPositive) valence = 'positive';
+      else if (hasNegative) valence = 'anxious';
+      const dayName = new Intl.DateTimeFormat('en-US', {
+        weekday: 'short',
+        timeZone: 'UTC',
+      }).format(new Date(j.date + 'T00:00:00Z'));
+      return { date: j.date, day: dayName, valence };
+    });
+
   // ════════════════════════════════════════════════════════════════════
   // BUILD STORYTELLER DATA PAYLOAD
   // ════════════════════════════════════════════════════════════════════
@@ -3320,8 +3420,6 @@ ${JSON.stringify(storytellerData, null, 2)}`;
   // STEP 1.5: DISCOVERY GROUNDING (Gemini + Google Search)
   // ════════════════════════════════════════════════════════════════════
 
-  let groundedDiscovery = null;
-
   if (editorialBrief && env.GEMINI_API_KEY) {
     try {
       const discoveryMatch = editorialBrief.match(
@@ -3332,26 +3430,38 @@ ${JSON.stringify(storytellerData, null, 2)}`;
       if (discoveryTopic.length > 20) {
         console.log(`[WeeklySummaryV2] Grounding discovery: "${discoveryTopic.slice(0, 80)}..."`);
 
-        const searchPrompt = `Based on this personal behavioral insight: "${discoveryTopic}"
+        const searchPrompt = `You are a research assistant finding practical web resources relevant to a specific behavioral insight from someone's weekly review.
 
-Find 2-3 genuinely relevant, practical resources (articles, podcast episodes, research, tools) that would help someone understand or act on this pattern.
+THE INSIGHT:
+"${discoveryTopic}"
 
-Context about the person: solo app founder working a day job in advertising, managing productivity with ADHD-adjacent patterns, working on sobriety goals, recently married, active fitness routine.
+YOUR TASK:
 
-DO NOT cite generic psychology textbooks or academic papers like Baumeister or Ariely. Find PRACTICAL, SPECIFIC, RECENT resources — blog posts from founders, podcast episodes, research summaries, tools, communities. Prefer sources from the last 2 years.
+1. Based ONLY on what the insight describes, generate 3-4 specific search queries that would find practical articles, podcast episodes, or tools relevant to this exact pattern. Derive your queries from the insight itself — do not assume anything about the person beyond what the insight states.
+
+2. Search and find 2-3 resources that meet ALL of these criteria:
+   - MUST have a real, working URL (no books, no academic papers without URLs)
+   - MUST be from the last 3 years (2023-2026)
+   - MUST be practical and actionable — blog posts, specific podcast episodes, newsletter issues, tools, community discussions
+   - PREFER sources from: Indie Hackers, First Round Review, HBR online, specific named podcast episodes with timestamps, Substack posts, well-sourced Reddit threads
+   - REJECT: Amazon book pages, academic journal abstracts, generic self-help listicles, anything without a verifiable URL
+
+3. Write a 2-3 sentence explanation (max 250 chars) connecting the insight to a broader pattern. Ground this in the sources you found, not in academic theory.
 
 Respond with ONLY valid JSON, no markdown:
 {
   "title": "Why this happens",
-  "body": "2-3 sentence explanation connecting the insight to broader patterns. Max 250 chars.",
+  "body": "2-3 sentence explanation grounded in found sources. Max 250 chars.",
   "sources": [
     {
-      "title": "Source title",
-      "url": "actual URL if found",
-      "why_relevant": "one sentence"
+      "title": "Article or episode title",
+      "url": "https://actual-url.com/article",
+      "why_relevant": "one sentence connecting to the specific insight"
     }
   ]
-}`;
+}
+
+If you cannot find resources with real URLs, return fewer sources rather than fabricating URLs. One real source beats three fake ones.`;
 
         const geminiRes = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_API_KEY}`,
@@ -3392,6 +3502,9 @@ Respond with ONLY valid JSON, no markdown:
       console.warn(`[WeeklySummaryV2] Discovery grounding error: ${e.message}`);
     }
   }
+
+  // Update storytellerData with grounded discovery (declared null before storytellerData was built)
+  storytellerData.grounded_discovery = groundedDiscovery;
 
   // ════════════════════════════════════════════════════════════════════
   // STEP 2: SONNET STORYTELLER (guided by brief, outputs full cards)
@@ -3535,6 +3648,10 @@ CARD SCHEMAS — output an ordered JSON array of cards. Respond with ONLY valid 
         { "day": "day name", "detail": "What makes it busy, max 80 chars" }
       ]
     }
+    {
+      "type": "letter",
+      "body": "2-3 sentences. Written as Gremly leaving a personal note for the user on Monday morning. Reference one specific upcoming event or deadline, one habit worth protecting, and one emotional truth from this week. Intimate, warm, never generic. Max 300 chars."
+    }
   ],
   "metadata": {
     "week_type": "2-3 word label",
@@ -3554,13 +3671,20 @@ CRITICAL RULES:
 6. RECOMMENDATIONS: Concrete, specific, grounded in evidence. At least one should address what's coming next week. Max 200 chars for primary body, max 150 chars for secondary body.
 7. WEEK AHEAD: Only events with importance >= 5. NEVER include recurring meetings, syncs, standups, status updates, or routine admin. Check the factual context for the explicit list of meetings to exclude.
 8. STALE TRIAGE: If stale items are provided in the schema above, include them exactly as given. Do not modify the items array.
-9. IMAGE HINTS: Broad scenic location keywords only. Never reference specific activities, objects, or people.
+9. IMAGE HINTS: Match the hint to the EMOTIONAL TONE of the moment, not just the location. Use variety across the summary:
+   - Reflective moments: "morning light through window texture", "still water reflection dawn", "empty desk warm light"
+   - Productive moments: "workspace overhead flat lay", "urban crosswalk motion blur", "city intersection golden hour"
+   - Social moments: "restaurant warm lighting evening", "park gathering afternoon", "neighborhood cafe sidewalk"
+   - Anxious/tense moments: "overcast skyline fog", "rain on window condensation", "empty corridor perspective"
+   - Milestone moments: "sunrise panoramic horizon", "mountain summit wide angle", "open road vanishing point"
+   Include a location keyword ONLY if the user was in a specific city that week. Never use the same image style twice in one summary.
 10. ${activeVibe.honesty}
 11. PRIOR WEEKS: If a thread appeared in a prior summary's key_themes with the same direction, you MUST frame it as a continuation, not a new observation. Use language like "for the second week..." or "the pattern that started in [prior week type]..." The reader has seen prior summaries — repeating the same observation feels hollow.
 12. DISCOVERY NON-REPETITION: Check prior_weeks for discovery_title values. Your spotlight discovery MUST be a different insight from any discovery in the previous 2 summaries. If the analyst's top discovery candidate was already covered, use a different one. Also, do NOT reuse the same research sources — check prior_weeks.discovery_sources and choose different researchers/frameworks.
-13. DISCOVERY SOURCES: If grounded_discovery data is provided in the analyst data, use those real sources and descriptions in the research_context instead of generating your own academic citations. Real article titles and URLs are dramatically more useful than "Baumeister (1998)." Format them as: sources: ["Title — why_relevant"]. If grounded_discovery is null, generate your own research_context but avoid Baumeister, Ariely, Newport, and Duckworth — find less obvious researchers.
+13. DISCOVERY SOURCES: If grounded_discovery data is provided in the analyst data, use those real sources and descriptions in the research_context instead of generating your own academic citations. Real article titles with URLs are dramatically more useful than textbook citations. Format them as: sources: ["Title — why_relevant"]. If grounded_discovery is null, generate your own research_context using lesser-known researchers, recent studies, or practical frameworks — never cite the same researcher twice across summaries, and check prior_weeks.discovery_sources to avoid repetition.
 14. STALE TRIAGE: Items are pre-sorted by priority. Items marked "actionable" connect to important life threads — surface these first. Items marked "suggest_delete" are likely obsolete (connected to concluded threads like honeymoon) — suggest the user delete them. Cap at showing 10 items max, note remaining count in the body.
 15. MONTH ARC: ${isFirstWeekOfMonth ? 'This IS the first week of a new month — include a month_arc card AFTER the opening card. Look at prior_weeks data to identify what grew, stalled, or emerged over the past 4 weeks. The month_discovery should be a pattern only visible at the month scale.' : 'This is NOT the first week of the month — do NOT include a month_arc card.'}
+17. LETTER: Always include a "letter" card as the FINAL card (after week_ahead). It should read like a handwritten note left by someone who cares. Reference one specific thing from the week ahead, one habit to protect, and one emotional truth from this week. Never generic motivational language — always grounded in this specific week's data.
 16. VARIETY: ${storytellerData.previous_summary_style?.last_headline ? `Your previous summary used: headline "${storytellerData.previous_summary_style.last_headline}", subheadline "${storytellerData.previous_summary_style.last_subheadline}", mood_line "${storytellerData.previous_summary_style.last_mood_line}". Use a DIFFERENT sentence structure, rhythm, and emotional register for these fields this week. Don't repeat the same pattern.` : 'No previous summary style data available.'}`;
 
   const storytellerUser = `Write this user's weekly summary for ${weekStart} to ${weekEnd}.
@@ -3667,7 +3791,7 @@ ${JSON.stringify(storytellerData, null, 2)}`;
     const constraintSystem = `You are a strict copy editor. You receive a weekly summary as a JSON cards array. Your ONLY job is to fix mechanical violations. Do NOT change meaning, tone, style, or content. Do NOT rewrite prose. Only fix these specific issues:
 
 1. CHARACTER LIMITS: If any field exceeds its limit, shorten it by removing the least important clause or trimming the end at a natural sentence boundary (period, semicolon, em dash). NEVER cut mid-word. NEVER leave a sentence fragment. If you cannot shorten without cutting mid-word, leave it as-is.
-   Limits: gremly_mood.mood_line: 30, gremly_mood.hook: 120, opening.headline: 60, opening.body: 350, thread detail: 140, thread shift_label: 40, thread badge_label: 15, moment title: 40, moment body: 300, spotlight title: 50, evidence_trail: 400, takeaway: 150, research_context body: 250, week_ahead intro: 200, stale headline: 50, stale body: 150, recommends primary title: 50, recommends primary body: 200, recommends secondary title: 50, recommends secondary body: 150.
+   Limits: gremly_mood.mood_line: 30, gremly_mood.hook: 120, opening.headline: 60, opening.body: 350, thread detail: 140, thread shift_label: 40, thread badge_label: 15, moment title: 40, moment body: 300, spotlight title: 50, evidence_trail: 400, takeaway: 150, research_context body: 250, week_ahead intro: 200, stale headline: 50, stale body: 150, recommends primary title: 50, recommends primary body: 200, recommends secondary title: 50, recommends secondary body: 150, letter body: 300.
 
 2. QUOTE DUPLICATION: If the exact same journal quote (or substantial substring of 10+ words) appears on more than one card, remove it from every card EXCEPT the first card it appears on. Replace the removed quote with a different observation or set to null.
 
@@ -3812,6 +3936,88 @@ Respond with ONLY the corrected JSON cards array. If nothing needs fixing, retur
           if (match) item.item_id = match.id;
         }
       }
+    }
+
+    // ── Fed stats on gremly_mood card ──
+    const moodCard = parsed.cards.find((c) => c.type === 'gremly_mood');
+    if (moodCard && engagementStats) {
+      moodCard.fed_stats = {
+        fed_days_this_week: engagementStats.fed_days_this_week || 0,
+        gremly_age: engagementStats.gremly_age || 0,
+        current_tier: engagementStats.current_tier || 'egg',
+        fed_days_toward_next: engagementStats.fed_days_toward_next || 0,
+        fed_days_needed: engagementStats.fed_days_needed || 3,
+        sock_count: engagementStats.sock_count || 0,
+      };
+    }
+
+    // ── Engagement deltas on opening card ──
+    const priorOpening = (priorSummaries || [])[0]?.content?.cards?.find(
+      (c) => c.type === 'opening',
+    );
+    const priorEngagement = priorOpening?.engagement || null;
+    if (openingCard && openingCard.engagement) {
+      openingCard.engagement.drops_delta = priorEngagement
+        ? (openingCard.engagement.drops || 0) - (priorEngagement.drops || 0)
+        : null;
+      openingCard.engagement.sweeps_delta = priorEngagement
+        ? (openingCard.engagement.sweeps || 0) - (priorEngagement.sweeps || 0)
+        : null;
+      openingCard.engagement.journals_delta = priorEngagement
+        ? (openingCard.engagement.journals || 0) - (priorEngagement.journals || 0)
+        : null;
+    }
+
+    // ── Mood arc on opening card ──
+    if (openingCard && moodArc && moodArc.length > 0) {
+      openingCard.mood_arc = moodArc;
+    }
+
+    // ── Thread velocity on thread movement tiles ──
+    if (tmCard?.threads && analystOutput.themes) {
+      for (const thread of tmCard.threads) {
+        const analystTheme = (analystOutput.themes || []).find(
+          (t) => t.label === thread.name || t.life_map_thread === thread.name,
+        );
+        if (!analystTheme?.this_week?.activity_count) continue;
+        const thisWeekCount = analystTheme.this_week.activity_count;
+
+        const priorCounts = (priorSummaries || [])
+          .slice(0, 3)
+          .map((ws) => {
+            const priorThreads =
+              (ws.content?.cards || []).find((c) => c.type === 'thread_movements')?.threads || [];
+            const match = priorThreads.find((t) => t.name === thread.name);
+            if (!match?.detail) return 0;
+            const nums = match.detail.match(/\d+/);
+            return nums ? parseInt(nums[0]) : 3;
+          })
+          .filter((c) => c > 0);
+
+        if (priorCounts.length > 0) {
+          const avg = priorCounts.reduce((a, b) => a + b, 0) / priorCounts.length;
+          if (avg > 0) {
+            const velocity = Math.round((thisWeekCount / avg) * 10) / 10;
+            if (velocity !== 1.0) {
+              thread.velocity = velocity;
+              thread.velocity_label = `${velocity}\u00d7 your ${priorCounts.length + 1}-week avg`;
+            }
+          }
+        }
+      }
+    }
+
+    // ── Ask Gremly prompt on discovery card ──
+    const discCard = parsed.cards.find((c) => c.type === 'discoveries');
+    if (discCard?.spotlight?.title && discCard?.spotlight?.takeaway) {
+      discCard.spotlight.ask_gremly_prompt = `I noticed something in my weekly summary: "${discCard.spotlight.title}". ${discCard.spotlight.takeaway} Can we talk about this?`;
+    }
+
+    // ── Sign letter card with Gremly identity ──
+    const letterCard = parsed.cards.find((c) => c.type === 'letter');
+    if (letterCard && engagementStats) {
+      letterCard.gremly_age = engagementStats.gremly_age || 0;
+      letterCard.current_tier = engagementStats.current_tier || 'egg';
     }
 
     // Structural enforcement — max 8 cards
