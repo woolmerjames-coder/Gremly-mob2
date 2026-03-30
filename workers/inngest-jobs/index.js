@@ -3337,6 +3337,16 @@ async function generateWeeklySummaryV2(
         .join('; ') || 'none'
     }`,
     `PRIOR DISCOVERY SOURCES (do NOT reuse): ${(priorContext || []).flatMap((p) => p.discovery_sources || []).join('; ') || 'none'}`,
+    `PRIOR WEEK QUOTES (do NOT reuse): ${
+      (priorSummaries || [])
+        .slice(0, 2)
+        .map((ws) => {
+          const opening = (ws.content?.cards || []).find((c) => c.type === 'opening');
+          return opening?.quote ? '"' + opening.quote.slice(0, 80) + '..."' : null;
+        })
+        .filter(Boolean)
+        .join('; ') || 'none'
+    }`,
   ].join('\n');
 
   console.log(
@@ -3367,7 +3377,9 @@ Your job: write a short editorial brief (250-350 words, plain English, no JSON) 
 
 6. QUOTES: Which 2-3 journal quotes best capture the week? Assign each to a specific card (opening, moment 1, moment 2). Each quote used only once.
 
-7. FACTUAL WARNINGS: Note anything the storyteller must get right — the person's current location, whether they're traveling or home, whether they're on leave or working, any common misinterpretation the data might invite.`;
+7. FACTUAL WARNINGS: Note anything the storyteller must get right — the person's current location, whether they're traveling or home, whether they're on leave or working, any common misinterpretation the data might invite.
+
+8. WEEK BOUNDARY: Your discoveries and moments MUST be about events that happened between ${weekStart} and ${weekEnd}. Do NOT feature events from prior weeks (like a half marathon on March 22 when this week starts March 23) as discoveries or moments. Prior week events may only be referenced as CONTEXT for this week's story — never as the story itself. If the analyst flagged a prior-week event, use it only to explain this week's behavior, not as a standalone discovery.`;
 
   const editorialUser = `Write the editorial brief for ${weekStart} to ${weekEnd}.
 
@@ -3685,7 +3697,9 @@ CRITICAL RULES:
 14. STALE TRIAGE: Items are pre-sorted by priority. Items marked "actionable" connect to important life threads — surface these first. Items marked "suggest_delete" are likely obsolete (connected to concluded threads like honeymoon) — suggest the user delete them. Cap at showing 10 items max, note remaining count in the body.
 15. MONTH ARC: ${isFirstWeekOfMonth ? 'This IS the first week of a new month — include a month_arc card AFTER the opening card. Look at prior_weeks data to identify what grew, stalled, or emerged over the past 4 weeks. The month_discovery should be a pattern only visible at the month scale.' : 'This is NOT the first week of the month — do NOT include a month_arc card.'}
 17. LETTER: Always include a "letter" card as the FINAL card (after week_ahead). It should read like a handwritten note left by someone who cares. Reference one specific thing from the week ahead, one habit to protect, and one emotional truth from this week. Never generic motivational language — always grounded in this specific week's data.
-16. VARIETY: ${storytellerData.previous_summary_style?.last_headline ? `Your previous summary used: headline "${storytellerData.previous_summary_style.last_headline}", subheadline "${storytellerData.previous_summary_style.last_subheadline}", mood_line "${storytellerData.previous_summary_style.last_mood_line}". Use a DIFFERENT sentence structure, rhythm, and emotional register for these fields this week. Don't repeat the same pattern.` : 'No previous summary style data available.'}`;
+16. VARIETY: ${storytellerData.previous_summary_style?.last_headline ? `Your previous summary used: headline "${storytellerData.previous_summary_style.last_headline}", subheadline "${storytellerData.previous_summary_style.last_subheadline}", mood_line "${storytellerData.previous_summary_style.last_mood_line}". Use a DIFFERENT sentence structure, rhythm, and emotional register for these fields this week. Don't repeat the same pattern.` : 'No previous summary style data available.'}
+18. QUOTE NON-REPETITION: Check the PRIOR WEEK QUOTES list in the factual context. Never use a quote that appeared in a previous summary's opening card. Pick a different journal quote from this week's data.
+19. WEEK BOUNDARY: Every moment and discovery must be grounded in events from ${weekStart} to ${weekEnd}. References to prior weeks are context, not content. If the analyst surfaced a prior-week event (e.g. a missed race), only mention it if it directly explains THIS week's behavior — never as a standalone mini_discovery or moment.`;
 
   const storytellerUser = `Write this user's weekly summary for ${weekStart} to ${weekEnd}.
 

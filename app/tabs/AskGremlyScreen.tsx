@@ -30,6 +30,7 @@ import { nowTimestamp } from '../../lib/date/DateService';
 import MascotLottie, { type MascotLottieHandle } from '../components/MascotLottie';
 import * as Haptics from 'expo-haptics';
 import { Clock, SquarePen, ChevronLeft, Bookmark } from 'lucide-react-native';
+import { useRoute } from '@react-navigation/native';
 import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
 
 const MOSS = '#2E5540';
@@ -42,6 +43,8 @@ const CHIPS = [
 ];
 
 export default function AskGremlyScreen() {
+  const route = useRoute<any>();
+  const prefillPrompt = route.params?.prefillPrompt || null;
   const { userId } = useAuth();
   const mascotRef = useRef<MascotLottieHandle>(null);
   const flatListRef = useRef<any>(null);
@@ -423,6 +426,7 @@ export default function AskGremlyScreen() {
               onSend={handleSend}
               disabled={sending}
               placeholder={inConversation ? 'Type a message...' : 'Ask Gremly anything...'}
+              initialText={prefillPrompt || undefined}
             />
           </View>
         </View>

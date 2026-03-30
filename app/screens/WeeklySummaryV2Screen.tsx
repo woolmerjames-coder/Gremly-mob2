@@ -67,6 +67,7 @@ import {
   CalendarDays,
   Plus,
   MessageCircle,
+  Mail,
 } from 'lucide-react-native';
 import { addDays, nextMonday, format } from 'date-fns';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
@@ -674,13 +675,10 @@ function ThreadTile({ thread }: { thread: WSV2Thread }) {
       {/* Detail */}
       <Text style={tileStyles.detail}>{thread.detail}</Text>
 
-      {thread.velocity != null && thread.velocity !== 1 ? (
+      {thread.velocity != null && (thread.velocity >= 1.5 || thread.velocity <= 0.7) ? (
         <View
           style={{
             marginTop: 8,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 6,
             backgroundColor: '#FFFFFF',
             borderRadius: 8,
             paddingVertical: 5,
@@ -689,17 +687,25 @@ function ThreadTile({ thread }: { thread: WSV2Thread }) {
         >
           <Text
             style={{
-              fontSize: 15,
-              fontFamily: 'DMSans-Bold',
-              color: thread.velocity > 1 ? '#2D5A3F' : '#C45A3A',
+              fontSize: 12,
+              fontFamily: 'DMSans-Medium',
+              color:
+                thread.velocity > 1.5
+                  ? '#2D5A3F'
+                  : thread.velocity < 0.5
+                    ? '#C45A3A'
+                    : WS.textSubtle,
             }}
           >
-            {thread.velocity}×
-          </Text>
-          <Text
-            style={{ fontSize: 11, fontFamily: 'DMSans-Regular', color: WS.textSubtle, flex: 1 }}
-          >
-            {thread.velocity_label}
+            {thread.velocity >= 3
+              ? 'Your busiest week in a month'
+              : thread.velocity >= 1.5
+                ? `Mentioned ${Math.round(thread.velocity)}× more than usual`
+                : thread.velocity <= 0.3
+                  ? 'Quieter than usual this week'
+                  : thread.velocity <= 0.7
+                    ? 'Slightly less active than usual'
+                    : ''}
           </Text>
         </View>
       ) : null}
@@ -1644,7 +1650,7 @@ function LetterCard({ card }: { card: any }) {
         entering={FadeInUp.delay(100).duration(400)}
         style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 }}
       >
-        <Text style={{ fontSize: 16 }}>✉️</Text>
+        <Mail size={18} color={WS.sageDark} strokeWidth={2} />
         <Text style={{ fontFamily: 'DMSans-Bold', fontSize: 18, color: WS.sageDark }}>
           A note for Monday-you
         </Text>
