@@ -429,3 +429,115 @@ export async function buildChatContext(userId, lane, opts, env) {
     return '';
   }
 }
+
+// ============================================================================
+// SPACE ENTITY CONTEXT
+// ============================================================================
+
+/**
+ * Fetch space-scoped entities (todos, events, habits). KV cached 5 minutes.
+ */
+export async function fetchSpaceEntities(userId, spaceId, env) {
+  if (!userId || !spaceId) return null;
+
+  try {
+    const cacheKey = `space-entities:${userId}:${spaceId}`;
+    if (env.CONTEXT_CACHE) {
+      const cached = await env.CONTEXT_CACHE.get(cacheKey);
+      if (cached) {
+        console.log(
+          `[ChatProjection] Space entities cache hit for ${userId.slice(0, 8)}:${spaceId.slice(0, 8)}`,
+        );
+        return JSON.parse(cached);
+      }
+    }
+
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    };
+
+    const [todosRes, eventsRes, habitsRes] = await Promise.all([
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${userId}&space_id=eq.${spaceId}&is_complete=eq.false&select=title,target_date,scheduled_date&order=target_date.asc.nullslast&limit=15`,
+        { headers },
+      )
+        .then((r) => r.json())
+        .catch(() => []),
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&space_id=eq.${spaceId}&subtype=eq.event&archived=eq.false&select=title,target_date,body&order=target_date.asc.nullslast&limit=10`,
+        { headers },
+      )
+        .then((r) => r.json())
+        .catch(() => []),
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${userId}&space_id=eq.${spaceId}&archived=eq.false&select=title,frequency,target_days&limit=10`,
+        { headers },
+      )
+        .then((r) => r.json())
+        .catch(() => []),
+    ]);
+
+    const entities = {
+      todos: Array.isArray(todosRes) ? todosRes : [],
+      events: Array.isArray(eventsRes) ? eventsRes : [],
+      habits: Array.isArray(habitsRes) ? habitsRes : [],
+    };
+
+    if (env.CONTEXT_CACHE) {
+      await env.CONTEXT_CACHE.put(cacheKey, JSON.stringify(entities), { expirationTtl: 300 });
+    }
+
+    console.log(
+      `[ChatProjection] Space entities loaded for ${userId.slice(0, 8)}:${spaceId.slice(0, 8)}: ${entities.todos.length} todos, ${entities.events.length} events, ${entities.habits.length} habits`,
+    );
+    return entities;
+  } catch (error) {
+    console.error('[ChatProjection] Space entities error:', error);
+    return null;
+  }
+}
+
+/**
+ * Format space entities into a plain-text context string.
+ */
+export function formatSpaceEntities(entities) {
+  if (!entities) return '';
+  const { todos = [], events = [], habits = [] } = entities;
+  if (todos.length === 0 && events.length === 0 && habits.length === 0) return '';
+
+  const parts = [];
+
+  if (events.length > 0) {
+    parts.push('Key dates:');
+    for (const e of events) {
+      parts.push(`  \u2022 ${e.title} \u2014 ${e.target_date || 'no date'}`);
+    }
+  }
+
+  const datedTodos = todos.filter((t) => t.target_date || t.scheduled_date);
+  const undatedTodos = todos.filter((t) => !t.target_date && !t.scheduled_date);
+
+  if (datedTodos.length > 0) {
+    parts.push('Upcoming tasks:');
+    for (const t of datedTodos) {
+      const dateLabel = t.target_date ? `due ${t.target_date}` : `scheduled ${t.scheduled_date}`;
+      parts.push(`  \u2022 ${t.title} \u2014 ${dateLabel}`);
+    }
+  }
+
+  if (undatedTodos.length > 0) {
+    const titles = undatedTodos.map((t) => t.title).join(', ');
+    parts.push(`Other tasks: ${titles}`);
+  }
+
+  if (habits.length > 0) {
+    parts.push('Habits:');
+    for (const h of habits) {
+      const freq = h.frequency ? ` (${h.frequency})` : '';
+      parts.push(`  \u2022 ${h.title}${freq}`);
+    }
+  }
+
+  return parts.join('\n');
+}

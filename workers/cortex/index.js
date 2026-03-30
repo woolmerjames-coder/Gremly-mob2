@@ -132,7 +132,11 @@
 // import { getSessionContext } from './context/sessionContext.js';
 // import { buildSessionContextString, buildDcoContextHeader } from './context/contextBuilder.js';
 // import { getDcoContext } from './context/dcoContext.js';
-import { buildChatContext } from './context/chatProjection.js';
+import {
+  buildChatContext,
+  fetchSpaceEntities,
+  formatSpaceEntities,
+} from './context/chatProjection.js';
 import { getUserProfile } from './context/userProfile.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
@@ -9038,9 +9042,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             let spaceSessionContextStr = '';
             let spaceUserProfile = null;
             let cachedDomains = [];
+            let spaceEntities = null;
             if (body.userId) {
               try {
-                const [chatContext, profile, domains] = await Promise.all([
+                const [chatContext, profile, domains, entities] = await Promise.all([
                   buildChatContext(
                     body.userId,
                     'space',
@@ -9051,15 +9056,18 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   ),
                   getUserProfile(body.userId, env),
                   getCachedDomainNames(body.userId, env),
+                  fetchSpaceEntities(body.userId, body.spaceId, env),
                 ]);
                 spaceSessionContextStr = chatContext;
                 spaceUserProfile = profile;
                 cachedDomains = domains;
+                spaceEntities = entities;
                 if (spaceSessionContextStr || spaceUserProfile) {
                   console.log('[SpaceChat] Context loaded', {
                     userId: body.userId.slice(0, 8),
                     sessionContextLength: spaceSessionContextStr?.length || 0,
                     hasUserProfile: !!spaceUserProfile,
+                    hasSpaceEntities: !!spaceEntities,
                   });
                 }
               } catch (err) {
@@ -9095,11 +9103,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const streamContext = { runningSummary: body.runningSummary || '' };
 
             // === COMPOSE: Build generation config from triage signals ===
+            const spaceContext = spaceEntities ? formatSpaceEntities(spaceEntities) : null;
             const genConfig = buildSpaceChatSystemPrompt(
               triage,
               streamContext,
               body.spaceName,
-              null, // spaceContext not available server-side
+              spaceContext,
               body.accountCreatedAt,
               spaceSessionContextStr,
               spaceUserProfile?.profileText,
@@ -10283,9 +10292,10 @@ Return ONLY valid JSON:
         let sessionContextStr = '';
         let userProfile = null;
         let cachedDomains = [];
+        let spaceEntities = null;
         if (body.userId) {
           try {
-            const [chatContext, profile, domains] = await Promise.all([
+            const [chatContext, profile, domains, entities] = await Promise.all([
               buildChatContext(
                 body.userId,
                 'space',
@@ -10296,15 +10306,18 @@ Return ONLY valid JSON:
               ),
               getUserProfile(body.userId, env),
               getCachedDomainNames(body.userId, env),
+              fetchSpaceEntities(body.userId, body.spaceId, env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
             cachedDomains = domains;
+            spaceEntities = entities;
             if (sessionContextStr || userProfile) {
               console.log('[SpaceChat:NonStreaming] Context loaded', {
                 userId: body.userId.slice(0, 8),
                 sessionContextLength: sessionContextStr?.length || 0,
                 hasUserProfile: !!userProfile,
+                hasSpaceEntities: !!spaceEntities,
               });
             }
           } catch (err) {
@@ -10314,7 +10327,7 @@ Return ONLY valid JSON:
 
         // Minimal ChatContext for rolling summary
         const context = { runningSummary: body.runningSummary || '' };
-        const spaceContext = null; // SpaceContext built client-side; not available server-side yet
+        const spaceContext = spaceEntities ? formatSpaceEntities(spaceEntities) : null;
 
         // === TRIAGE: Classify message before generation ===
         const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
