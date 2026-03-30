@@ -7531,21 +7531,21 @@ export const useGremlyStore = create<GremlyState>()(
           // ─────────────────────────────────────────────────────────────────────
           // SYNCED ENTITIES: Items already in Supabase (todo, habit, or note)
           // ─────────────────────────────────────────────────────────────────────
-          const entityId = localId;
+          let entityId = localId;
 
           // Find the entity across all types
           let entity: Todo | Habit | Note | undefined;
           let entityType: 'todo' | 'habit' | 'note' | undefined;
 
-          entity = state.todos.find((t) => t.id === entityId);
+          entity = state.todos.find((t) => t.id === entityId || t.drop_id === entityId);
           if (entity) {
             entityType = 'todo';
           } else {
-            entity = state.habits.find((h) => h.id === entityId);
+            entity = state.habits.find((h) => h.id === entityId || h.drop_id === entityId);
             if (entity) {
               entityType = 'habit';
             } else {
-              entity = state.notes.find((n) => n.id === entityId);
+              entity = state.notes.find((n) => n.id === entityId || n.drop_id === entityId);
               if (entity) {
                 entityType = 'note';
               }
@@ -7558,6 +7558,10 @@ export const useGremlyStore = create<GremlyState>()(
             });
             return;
           }
+
+          // Use the actual entity ID for all subsequent operations
+          // (entityId may be a drop_id/localId that differs from entity.id)
+          entityId = entity.id;
 
           // Get views from entity for use throughout this function
           const views = entity.views as Record<string, unknown> | undefined;
