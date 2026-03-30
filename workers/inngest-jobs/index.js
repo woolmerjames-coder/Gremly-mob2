@@ -652,6 +652,29 @@ const testWeeklySummaryV2 = inngest.createFunction(
             summary: summaryResult.summary,
             summary_metadata: summaryResult.metadata,
             analyst_output: analystResult.analysis,
+            trend_context: {
+              prior_week_types: (snapshot.raw.weeklySummaries || []).slice(0, 4).map((ws) => {
+                const meta = (ws.content || {}).metadata || {};
+                return {
+                  week_start: ws.week_start_date,
+                  week_type: meta.week_type || 'N/A',
+                  mood: meta.mood || 'N/A',
+                  key_themes: meta.key_themes || ws.key_themes || [],
+                };
+              }),
+              continuing_arcs: (analystResult.analysis?.themes || [])
+                .filter(
+                  (t) =>
+                    t.trajectory === 'declining' ||
+                    t.trajectory === 'building' ||
+                    (t.narrative_interest || 0) >= 7,
+                )
+                .map((t) => ({
+                  thread: t.label,
+                  trajectory: t.trajectory,
+                  narrative_interest: t.narrative_interest,
+                })),
+            },
             life_map_delta: rebuildResult.delta,
             rebuilt_life_map: rebuildResult.mergedLifeMap,
             rebuild_metadata: rebuildResult.metadata,
@@ -982,6 +1005,29 @@ const weeklySummaryV2Worker = inngest.createFunction(
             card_types: summaryResult.summary?.cards?.map((c) => c.type) || [],
           },
           key_themes: summaryResult.summary?.metadata?.key_themes || [],
+          trend_context: {
+            prior_week_types: (snapshot.raw.weeklySummaries || []).slice(0, 4).map((ws) => {
+              const meta = (ws.content || {}).metadata || {};
+              return {
+                week_start: ws.week_start_date,
+                week_type: meta.week_type || 'N/A',
+                mood: meta.mood || 'N/A',
+                key_themes: meta.key_themes || ws.key_themes || [],
+              };
+            }),
+            continuing_arcs: (analystResult.analysis?.themes || [])
+              .filter(
+                (t) =>
+                  t.trajectory === 'declining' ||
+                  t.trajectory === 'building' ||
+                  (t.narrative_interest || 0) >= 7,
+              )
+              .map((t) => ({
+                thread: t.label,
+                trajectory: t.trajectory,
+                narrative_interest: t.narrative_interest,
+              })),
+          },
           viewed: false,
           banner_dismissed: false,
           generated_at: new Date().toISOString(),
@@ -2716,12 +2762,120 @@ function mergeWeeklyLifeMapUpdates(lifeMap, delta) {
     }
   }
 
+  // --- Prune bloated evidence arrays ---
+  for (const domain of lifeMap.domains) {
+    for (const thread of domain.threads || []) {
+      if (!thread.evidence || thread.evidence.length <= 25) continue;
+      thread.evidence = pruneThreadEvidence(thread.evidence);
+    }
+  }
+
   // --- Update Life Map metadata ---
   lifeMap.version = (lifeMap.version || 1) + 1;
   lifeMap.rebuilt_at = now;
   lifeMap.updated_at = now;
 
   return lifeMap;
+}
+
+function pruneThreadEvidence(evidence) {
+  // 1. Collapse milestone countdowns: keep only the final (most recent) entry per milestone pattern
+  const milestoneGroups = {};
+  const nonMilestones = [];
+  for (const e of evidence) {
+    if (e.type === 'milestone') {
+      const pattern = (e.signal || '')
+        .replace(/\d+/g, '#')
+        .replace(/today/gi, '#')
+        .toLowerCase()
+        .trim();
+      if (!milestoneGroups[pattern] || e.date > milestoneGroups[pattern].date) {
+        milestoneGroups[pattern] = e;
+      }
+    } else {
+      nonMilestones.push(e);
+    }
+  }
+
+  // 2. Collapse same-week habit snapshots: keep only the latest per week per pattern
+  const habitGroups = {};
+  const nonHabits = [];
+  for (const e of nonMilestones) {
+    if (e.type === 'habit') {
+      const d = new Date(e.date + 'T00:00:00Z');
+      const weekStart = new Date(d);
+      weekStart.setUTCDate(d.getUTCDate() - d.getUTCDay());
+      // eslint-disable-next-line no-restricted-syntax -- UTC-only date math for evidence grouping
+      const weekKey = weekStart.toISOString().split('T')[0];
+      const pattern = (e.signal || '').replace(/\d+/g, '#').toLowerCase().trim();
+      const key = `${weekKey}|${pattern}`;
+      if (!habitGroups[key] || e.date > habitGroups[key].date) {
+        habitGroups[key] = e;
+      }
+    } else {
+      nonHabits.push(e);
+    }
+  }
+
+  // 3. Fuzzy-dedup remaining: if two entries share same date + type and signals are >80% similar, keep the longer one
+  const seen = [];
+  for (const e of nonHabits) {
+    const isDuplicate = seen.some(
+      (existing) =>
+        existing.date === e.date &&
+        existing.type === e.type &&
+        stringSimilarity(existing.signal, e.signal) > 0.8,
+    );
+    if (!isDuplicate) {
+      seen.push(e);
+    } else {
+      // If the new one is longer, replace
+      const existingIdx = seen.findIndex(
+        (existing) =>
+          existing.date === e.date &&
+          existing.type === e.type &&
+          stringSimilarity(existing.signal, e.signal) > 0.8,
+      );
+      if (existingIdx !== -1 && (e.signal || '').length > (seen[existingIdx].signal || '').length) {
+        seen[existingIdx] = e;
+      }
+    }
+  }
+
+  // Reassemble and sort by date
+  const result = [...Object.values(milestoneGroups), ...Object.values(habitGroups), ...seen].sort(
+    (a, b) => (a.date || '').localeCompare(b.date || ''),
+  );
+
+  // 4. Cap at 50, preserving all high-salience entries
+  if (result.length > 50) {
+    const high = result.filter((e) => e.salience === 'high');
+    const rest = result
+      .filter((e) => e.salience !== 'high')
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      .slice(0, 50 - high.length);
+    return [...high, ...rest].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  }
+
+  return result;
+}
+
+function stringSimilarity(a, b) {
+  if (!a || !b) return 0;
+  const la = a.toLowerCase().trim();
+  const lb = b.toLowerCase().trim();
+  if (la === lb) return 1;
+  const longer = la.length > lb.length ? la : lb;
+  const shorter = la.length > lb.length ? lb : la;
+  if (longer.length === 0) return 1;
+  // Simple containment + length ratio check
+  if (longer.includes(shorter)) return shorter.length / longer.length;
+  // Word overlap
+  const wordsA = new Set(la.split(/\s+/));
+  const wordsB = new Set(lb.split(/\s+/));
+  const intersection = [...wordsA].filter((w) => wordsB.has(w)).length;
+  const union = new Set([...wordsA, ...wordsB]).size;
+  return union > 0 ? intersection / union : 0;
 }
 
 // ============================================================================
@@ -2900,12 +3054,24 @@ async function generateWeeklySummaryV2(
   // Format prior summaries for trend context
   const priorContext = (priorSummaries || []).slice(0, 4).map((ws) => {
     const content = ws.content || ws;
+    const meta = content.metadata || {};
+    const opening = (content.cards || []).find((c) => c.type === 'opening');
+    const gremlyMood = (content.cards || []).find((c) => c.type === 'gremly_mood');
+    const discoveries = (content.cards || []).find((c) => c.type === 'discoveries');
+    const threadCard = (content.cards || []).find((c) => c.type === 'thread_movements');
     return {
       week_start: ws.week_start_date,
-      week_type: content.weekTypeShort || content.weekType || 'N/A',
-      mood: content.mood || 'N/A',
-      commentary: content.weeklyCommentary || 'N/A',
-      key_themes: content.keyThemes || [],
+      week_type: meta.week_type || 'N/A',
+      mood: meta.mood || opening?.mood || 'N/A',
+      hook: gremlyMood?.hook || 'N/A',
+      headline: opening?.headline || 'N/A',
+      key_themes: meta.key_themes || ws.key_themes || [],
+      discovery_title: discoveries?.spotlight?.title || null,
+      discovery_takeaway: discoveries?.spotlight?.takeaway || null,
+      discovery_sources: discoveries?.spotlight?.research_context?.sources || [],
+      highlighted_threads: (threadCard?.threads || [])
+        .filter((t) => t.is_highlight)
+        .map((t) => ({ name: t.name, direction: t.direction, shift_label: t.shift_label })),
     };
   });
 
@@ -2960,6 +3126,37 @@ async function generateWeeklySummaryV2(
       };
     });
 
+  // Enrich stale items with thread connections and obsolescence detection
+  const concludedThreadNames = (rebuiltLifeMap?.domains || [])
+    .flatMap((d) => d.threads || [])
+    .filter((t) => t.lifecycle === 'concluded')
+    .map((t) => t.name.toLowerCase());
+
+  for (const item of staleItems) {
+    // Check if item belongs to a concluded thread (likely obsolete)
+    const titleLower = (item.title || '').toLowerCase();
+    item.is_obsolete = concludedThreadNames.some((name) => {
+      const firstWord = name.split(/\s+/)[0];
+      return titleLower.includes(firstWord) && firstWord.length > 3;
+    });
+
+    // Check if item connects to a front_of_mind thread (actually matters)
+    const frontThreads = (rebuiltLifeMap?.domains || [])
+      .flatMap((d) => (d.threads || []).map((t) => ({ ...t, domain: d.name })))
+      .filter((t) => t.attention === 'front_of_mind' || t.importance === 'high');
+
+    const threadMatch = frontThreads.find((t) => {
+      const threadWords = t.name.toLowerCase().split(/\s+/);
+      return threadWords.some((w) => w.length > 3 && titleLower.includes(w));
+    });
+    item.thread_connection = threadMatch?.name || null;
+    item.priority = threadMatch ? 'actionable' : item.is_obsolete ? 'suggest_delete' : 'low';
+  }
+
+  // Sort: actionable first, then suggest_delete, then low
+  const priorityOrder = { actionable: 0, suggest_delete: 1, low: 2 };
+  staleItems.sort((a, b) => (priorityOrder[a.priority] || 2) - (priorityOrder[b.priority] || 2));
+
   console.log(
     `[WeeklySummaryV2] Stale items from snapshot: ${staleItems.length} (analyst had: ${(analystOutput.stale_items || []).length})`,
   );
@@ -2991,7 +3188,19 @@ async function generateWeeklySummaryV2(
     completed_todos: completedTodos.slice(0, 20),
     stale_items: staleItems,
     prior_weeks: priorContext,
+    grounded_discovery: groundedDiscovery,
     is_first_week_of_month: isFirstWeekOfMonth,
+    previous_summary_style: (() => {
+      const prev = (priorSummaries || [])[0];
+      if (!prev?.content?.cards) return null;
+      const opening = prev.content.cards.find((c) => c.type === 'opening');
+      const gremlyMood = prev.content.cards.find((c) => c.type === 'gremly_mood');
+      return {
+        last_headline: opening?.headline || null,
+        last_subheadline: opening?.subheadline || null,
+        last_mood_line: gremlyMood?.mood_line || null,
+      };
+    })(),
     user_profile: userProfile,
   };
 
@@ -3021,6 +3230,13 @@ async function generateWeeklySummaryV2(
       .filter((f) => f.is_discovery_candidate)
       .map((f) => `[${f.narrative_interest || '?'}] ${f.pattern}`)
       .join('; ')}`,
+    `PRIOR DISCOVERY TITLES (do NOT repeat): ${
+      (priorContext || [])
+        .map((p) => p.discovery_title)
+        .filter(Boolean)
+        .join('; ') || 'none'
+    }`,
+    `PRIOR DISCOVERY SOURCES (do NOT reuse): ${(priorContext || []).flatMap((p) => p.discovery_sources || []).join('; ') || 'none'}`,
   ].join('\n');
 
   console.log(
@@ -3042,6 +3258,10 @@ Your job: write a short editorial brief (250-350 words, plain English, no JSON) 
 3. MOMENTS (pick 2 from different days): Which days had the most vivid, emotionally charged experiences? Reference specific journal quotes or events. These should be days where something SHIFTED or was FELT deeply, not just busy or productive days.
 
 4. DISCOVERY: What is the single most surprising behavioral pattern the person wouldn't have noticed on their own? This should span multiple life threads if possible. Avoid the most obvious quantitative finding — dig for the insight that connects dots across different areas.
+
+4b. MULTI-WEEK ARCS: Check the prior_weeks data in the analyst payload. If a thread appeared in the previous summary with the same direction (e.g. sobriety was "down" last week and is "down" again), DEEPEN the analysis rather than re-introduce the topic. Say what CHANGED or ESCALATED. If a prior week's discovery or recommendation was validated or contradicted this week, that's a high-interest story.
+
+4c. AVOID RE-OBSERVATION: If the prior weeks already covered a pattern (check prior_weeks key_themes and discovery_title), don't re-surface it as if it's new. Instead, frame it as a continuation: "This is the third week where X..." or "Last week we noted X — this week it deepened/reversed."
 
 5. WHAT'S COMING: What are the 2-3 most significant events next week? Only mention events with importance >= 5. Never mention recurring meetings, standups, syncs, or routine admin.
 
@@ -3097,6 +3317,83 @@ ${JSON.stringify(storytellerData, null, 2)}`;
   }
 
   // ════════════════════════════════════════════════════════════════════
+  // STEP 1.5: DISCOVERY GROUNDING (Gemini + Google Search)
+  // ════════════════════════════════════════════════════════════════════
+
+  let groundedDiscovery = null;
+
+  if (editorialBrief && env.GEMINI_API_KEY) {
+    try {
+      const discoveryMatch = editorialBrief.match(
+        /DISCOVERY:?\s*([\s\S]*?)(?=\n\s*\d+\.\s|WHAT'S COMING|QUOTES|FACTUAL|$)/i,
+      );
+      const discoveryTopic = discoveryMatch?.[1]?.trim() || '';
+
+      if (discoveryTopic.length > 20) {
+        console.log(`[WeeklySummaryV2] Grounding discovery: "${discoveryTopic.slice(0, 80)}..."`);
+
+        const searchPrompt = `Based on this personal behavioral insight: "${discoveryTopic}"
+
+Find 2-3 genuinely relevant, practical resources (articles, podcast episodes, research, tools) that would help someone understand or act on this pattern.
+
+Context about the person: solo app founder working a day job in advertising, managing productivity with ADHD-adjacent patterns, working on sobriety goals, recently married, active fitness routine.
+
+DO NOT cite generic psychology textbooks or academic papers like Baumeister or Ariely. Find PRACTICAL, SPECIFIC, RECENT resources — blog posts from founders, podcast episodes, research summaries, tools, communities. Prefer sources from the last 2 years.
+
+Respond with ONLY valid JSON, no markdown:
+{
+  "title": "Why this happens",
+  "body": "2-3 sentence explanation connecting the insight to broader patterns. Max 250 chars.",
+  "sources": [
+    {
+      "title": "Source title",
+      "url": "actual URL if found",
+      "why_relevant": "one sentence"
+    }
+  ]
+}`;
+
+        const geminiRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${env.GEMINI_API_KEY}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: searchPrompt }] }],
+              tools: [{ google_search: {} }],
+            }),
+          },
+        );
+
+        if (geminiRes.ok) {
+          const geminiData = await geminiRes.json();
+          const geminiText = (geminiData.candidates?.[0]?.content?.parts || [])
+            .map((p) => p.text || '')
+            .join('');
+          if (geminiText) {
+            let cleaned = geminiText.trim();
+            if (cleaned.startsWith('```')) {
+              cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+            }
+            try {
+              groundedDiscovery = JSON.parse(cleaned);
+              console.log(
+                `[WeeklySummaryV2] Discovery grounded: ${groundedDiscovery.sources?.length || 0} sources`,
+              );
+            } catch (e) {
+              console.warn(`[WeeklySummaryV2] Discovery grounding parse failed: ${e.message}`);
+            }
+          }
+        } else {
+          console.warn(`[WeeklySummaryV2] Gemini discovery grounding failed: ${geminiRes.status}`);
+        }
+      }
+    } catch (e) {
+      console.warn(`[WeeklySummaryV2] Discovery grounding error: ${e.message}`);
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // STEP 2: SONNET STORYTELLER (guided by brief, outputs full cards)
   // ════════════════════════════════════════════════════════════════════
 
@@ -3132,6 +3429,19 @@ CARD SCHEMAS — output an ordered JSON array of cards. Respond with ONLY valid 
       "quote_date": "YYYY-MM-DD",
       "image_hint": "Broad scenic keyword for photo search — location name + scene type. Never activity-specific words."
     },
+    ${
+      isFirstWeekOfMonth
+        ? `{
+      "type": "month_arc",
+      "title": "Your ${monthName} in review",
+      "body": "3-4 sentences covering the dominant arc of the past month. What moved, what stalled, what emerged. Max 500 chars.",
+      "threads_that_grew": ["thread names with upward momentum from prior_weeks"],
+      "threads_that_stalled": ["thread names with declining/stalled momentum"],
+      "emerged": ["new thread names that appeared this month"],
+      "month_discovery": "One sentence — the most surprising cross-week pattern visible only at the month level. Max 150 chars."
+    },`
+        : ''
+    }
     {
       "type": "moments",
       "moments": [
@@ -3202,7 +3512,7 @@ CARD SCHEMAS — output an ordered JSON array of cards. Respond with ONLY valid 
       "type": "stale_triage",
       "headline": "${staleItems.length} items need attention",
       "body": "1-2 sentences. Compassionate framing. Max 150 chars.",
-      "items": ${JSON.stringify(staleItems)}
+      "items": ${JSON.stringify(staleItems.slice(0, 10))}
     },`
         : ''
     }
@@ -3245,7 +3555,13 @@ CRITICAL RULES:
 7. WEEK AHEAD: Only events with importance >= 5. NEVER include recurring meetings, syncs, standups, status updates, or routine admin. Check the factual context for the explicit list of meetings to exclude.
 8. STALE TRIAGE: If stale items are provided in the schema above, include them exactly as given. Do not modify the items array.
 9. IMAGE HINTS: Broad scenic location keywords only. Never reference specific activities, objects, or people.
-10. ${activeVibe.honesty}`;
+10. ${activeVibe.honesty}
+11. PRIOR WEEKS: If a thread appeared in a prior summary's key_themes with the same direction, you MUST frame it as a continuation, not a new observation. Use language like "for the second week..." or "the pattern that started in [prior week type]..." The reader has seen prior summaries — repeating the same observation feels hollow.
+12. DISCOVERY NON-REPETITION: Check prior_weeks for discovery_title values. Your spotlight discovery MUST be a different insight from any discovery in the previous 2 summaries. If the analyst's top discovery candidate was already covered, use a different one. Also, do NOT reuse the same research sources — check prior_weeks.discovery_sources and choose different researchers/frameworks.
+13. DISCOVERY SOURCES: If grounded_discovery data is provided in the analyst data, use those real sources and descriptions in the research_context instead of generating your own academic citations. Real article titles and URLs are dramatically more useful than "Baumeister (1998)." Format them as: sources: ["Title — why_relevant"]. If grounded_discovery is null, generate your own research_context but avoid Baumeister, Ariely, Newport, and Duckworth — find less obvious researchers.
+14. STALE TRIAGE: Items are pre-sorted by priority. Items marked "actionable" connect to important life threads — surface these first. Items marked "suggest_delete" are likely obsolete (connected to concluded threads like honeymoon) — suggest the user delete them. Cap at showing 10 items max, note remaining count in the body.
+15. MONTH ARC: ${isFirstWeekOfMonth ? 'This IS the first week of a new month — include a month_arc card AFTER the opening card. Look at prior_weeks data to identify what grew, stalled, or emerged over the past 4 weeks. The month_discovery should be a pattern only visible at the month scale.' : 'This is NOT the first week of the month — do NOT include a month_arc card.'}
+16. VARIETY: ${storytellerData.previous_summary_style?.last_headline ? `Your previous summary used: headline "${storytellerData.previous_summary_style.last_headline}", subheadline "${storytellerData.previous_summary_style.last_subheadline}", mood_line "${storytellerData.previous_summary_style.last_mood_line}". Use a DIFFERENT sentence structure, rhythm, and emotional register for these fields this week. Don't repeat the same pattern.` : 'No previous summary style data available.'}`;
 
   const storytellerUser = `Write this user's weekly summary for ${weekStart} to ${weekEnd}.
 
@@ -4693,7 +5009,16 @@ WEEK TIMELINE:
 
 STALE ITEMS:
 - Only flag todos marked [STALE] in the data.
-- Severity: high = important domain + 30+ days, medium = 14-30 days, low = minor items.`;
+- Severity: high = important domain + 30+ days, medium = 14-30 days, low = minor items.
+
+CROSS-WEEK PATTERN DETECTION:
+Prior weekly summaries are provided under "PRIOR WEEKLY SUMMARIES." Use them to:
+- Identify threads that appeared in previous weeks and track whether they're progressing, regressing, or cycling.
+- Flag when a theme has appeared for 3+ consecutive weeks — this is an arc, not an observation.
+- Note when a discovery from a prior week predicted this week's behavior (or the opposite happened).
+- If a habit was flagged as struggling last week and is still struggling, escalate the narrative_interest score by +2.
+- If a thread has reversed direction from the prior week (up → down or down → up), flag this explicitly in trajectory_reasoning.
+- When scoring narrative_interest, BOOST scores by +2 for patterns that span 2+ weeks and by +3 for patterns spanning 3+ weeks. Multi-week arcs are inherently more interesting than single-week observations.`;
 
   const dataLines = [];
 
@@ -4879,11 +5204,30 @@ STALE ITEMS:
     );
     for (const ws of weeklySnapshot.weeklySummaries.slice(0, 3)) {
       const content = ws.content || ws;
-      const commentary = content.weeklyCommentary || content.commentary || 'N/A';
-      const weekType = content.weekType || content.weekTypeShort || 'N/A';
-      const mood = content.mood || 'N/A';
-      dataLines.push(`  ${ws.week_start_date}: [${weekType}] mood: ${mood}`);
-      dataLines.push(`    "${commentary}"`);
+      const meta = content.metadata || {};
+      const opening = (content.cards || []).find((c) => c.type === 'opening');
+      const gremlyMood = (content.cards || []).find((c) => c.type === 'gremly_mood');
+      const threadCard = (content.cards || []).find((c) => c.type === 'thread_movements');
+      const discoveries = (content.cards || []).find((c) => c.type === 'discoveries');
+
+      dataLines.push(
+        `  ${ws.week_start_date}: [${meta.week_type || 'N/A'}] mood: ${meta.mood || 'N/A'}`,
+      );
+      dataLines.push(`    Hook: "${gremlyMood?.hook || 'N/A'}"`);
+      dataLines.push(`    Headline: "${opening?.headline || 'N/A'}"`);
+      dataLines.push(`    Key themes: ${(meta.key_themes || ws.key_themes || []).join(', ')}`);
+      if (discoveries?.spotlight?.title) {
+        dataLines.push(
+          `    Discovery: "${discoveries.spotlight.title}" — ${discoveries.spotlight.takeaway || ''}`,
+        );
+      }
+      if (threadCard?.threads) {
+        const highlights = threadCard.threads
+          .filter((t) => t.is_highlight)
+          .map((t) => `${t.name} (${t.direction}: ${t.shift_label})`)
+          .join('; ');
+        if (highlights) dataLines.push(`    Highlighted threads: ${highlights}`);
+      }
     }
   }
 
