@@ -19,7 +19,6 @@ export function initOfflineSync(): void {
   // Reconnect: flush pending drops when network transitions offline → online
   networkStatus.subscribe((connected) => {
     if (connected) {
-      consecutiveFailures = 0;
       setTimeout(async () => {
         await flushOfflineQueue();
         await reclassifyDegradedEntities();
