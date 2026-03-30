@@ -20,7 +20,7 @@ import {
 } from '../lib/minddrop/photoDrop';
 import { generateDropId } from '../lib/minddrop/ids';
 import { enqueue } from '../lib/minddrop/dropQueue';
-import { processDrop } from '../lib/minddrop/dropProcessor';
+import { triggerProcessing } from '../lib/minddrop/dropPipeline';
 import type { MindDropBucket, LogSubtype } from '../lib/minddrop/types';
 import { isTestMode } from '../lib/config/testMode';
 import { testLogger } from '../src/utils/TestLogger';
@@ -236,82 +236,21 @@ export function useMindDropSubmit(): {
         // STEP 2: BACKGROUND (non-blocking, parallel)
         // ============================================
 
-        if (networkStatus.isConnected) {
-          // Online: process immediately (existing behavior)
-          processDrop(queuedDrop, {
-            onPhase0Complete: (localId, isMulti) => {
-              console.log('[MindDrop:Background] Phase 0 complete', { localId, isMulti });
-              if (testEnabled) {
-                testLogger.step('phase0_complete', { localId, isMulti });
-              }
-            },
-            onPhase1Complete: (localId, classifiedBucket) => {
-              console.log('[MindDrop:Background] Phase 1 complete', {
-                localId,
-                bucket: classifiedBucket,
-              });
-              if (testEnabled) {
-                testLogger.step('phase1_complete', { localId, bucket: classifiedBucket });
-              }
-            },
-            onPhase2Complete: (localId) => {
-              console.log('[MindDrop:Background] Phase 2 complete', { localId });
-              if (testEnabled) {
-                testLogger.step('phase2_complete', { localId });
-              }
-            },
-            onSyncComplete: (localId, supabaseId) => {
-              console.log('[MindDrop:Background] Synced to Supabase', { localId, supabaseId });
-
-              // Increment drop count for ritual progress
-              incrementDropCount()
-                .then(({ didAgeUp, newAge }) => {
-                  if (didAgeUp) {
-                    console.log('[MindDrop:Background] Ritual complete! Gremly aged up to', newAge);
-                  }
-                })
-                .catch((err) => {
-                  console.warn('[MindDrop:Background] Failed to increment drop count:', err);
-                });
-
-              if (testEnabled) {
-                testLogger.assert('sync_complete', true, { localId, supabaseId });
-                testLogger.end(true);
-              }
-            },
-            onError: (localId, error) => {
-              console.error('[MindDrop:Background] Processing failed', { localId, error });
-
-              // Update status instead of removing — card stays visible for retry
-              // The drop remains in AsyncStorage queue (marked 'failed' by dropProcessor)
-              // and processAllPending will pick it up on next sweep
-              useGremlyStore.getState().updatePendingDropEnrichment(localId, {
-                status: 'failed',
-                _retryable: true,
-              });
-
-              if (testEnabled) {
-                testLogger.assert('error', false, {
-                  where: 'background_processing',
-                  message: error.message,
-                });
-                testLogger.end(false);
-              }
-            },
-          }).catch((err) => {
-            console.error('[MindDrop:Background] Unexpected error', err);
-          });
-        } else {
-          // Offline: drop is safely queued in AsyncStorage via enqueue() above
-          // Update the pending drop to show offline status
-          const store = useGremlyStore.getState();
-          store.updatePendingDropEnrichment(queuedDrop.localId, {
+        // Trigger pipeline processing — the queue runner handles everything:
+        // - Online: processes immediately through all phases
+        // - Offline: drop sits in AsyncStorage, processes when connectivity returns
+        // - Errors: automatic retry with backoff (3 attempts per phase)
+        // - Timeouts: per-phase timeouts prevent hangs (6-15s depending on phase)
+        if (!networkStatus.isConnected) {
+          useGremlyStore.getState().updatePendingDropEnrichment(queuedDrop.localId, {
             _offlineCapture: true,
           });
           console.log('[MindDrop:Submit] Offline — drop queued for later processing', {
             localId: queuedDrop.localId,
           });
         }
+
+        void triggerProcessing();
 
         // Return immediately with the local ID (not Supabase ID)
         return {

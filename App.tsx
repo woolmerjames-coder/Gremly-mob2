@@ -3,7 +3,7 @@ import 'react-native-url-polyfill/auto'; // URL polyfill for React Native
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useColorScheme, Linking, View, Keyboard } from 'react-native';
+import { useColorScheme, Linking, View, Keyboard, AppState } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SheetProvider } from 'react-native-actions-sheet';
@@ -43,6 +43,7 @@ import GraduationFlow from './app/screens/GraduationFlow';
 import { GlobalEventPopup } from './components/calendar/GlobalEventPopup';
 import { GlobalEventTimePicker } from './components/calendar/GlobalEventTimePicker';
 import { initOfflineSync } from './lib/network/offlineSync';
+import { startQueueRunner, stopQueueRunner } from './lib/minddrop/dropPipeline';
 import { useDayRollover } from './lib/today/hooks/useDayRollover';
 import { useTimezoneSync } from './hooks/useTimezoneSync';
 
@@ -116,6 +117,24 @@ export default function App() {
   // Start offline sync
   useEffect(() => {
     initOfflineSync();
+  }, []);
+
+  // Start the drop pipeline queue runner
+  useEffect(() => {
+    void startQueueRunner();
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void startQueueRunner();
+      } else {
+        stopQueueRunner();
+      }
+    });
+
+    return () => {
+      stopQueueRunner();
+      subscription.remove();
+    };
   }, []);
 
   // Ensure notification categories (action buttons) are registered on every launch
@@ -585,7 +604,9 @@ export default function App() {
 
                                 // 2. Build updated reminders with new snoozed time
                                 const currentReminders = (entity as any)?.reminders ?? [];
-                                const snoozeTargetDate = new Date(getDateService().now().getTime() + seconds * 1000);
+                                const snoozeTargetDate = new Date(
+                                  getDateService().now().getTime() + seconds * 1000,
+                                );
                                 const snoozeTime = `${String(snoozeTargetDate.getHours()).padStart(2, '0')}:${String(snoozeTargetDate.getMinutes()).padStart(2, '0')}`;
                                 const snoozeDate = getDateService().toLocalDate(snoozeTargetDate);
 

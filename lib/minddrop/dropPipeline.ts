@@ -377,6 +377,10 @@ async function processOne(drop: QueuedDrop): Promise<void> {
 // ──────────────────────────────────────────────────────────────────────────────
 
 function isReadyForProcessing(drop: QueuedDrop): boolean {
+  // Don't attempt if offline — drops stay at their current phase
+  // and will be processed when connectivity returns
+  if (!networkStatus.isConnected) return false;
+
   const phase = drop.phase || 'queued';
 
   // Terminal phases — skip

@@ -14,7 +14,7 @@
 import { useEffect, useRef } from 'react';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { cleanupSynced, hasPendingDrops } from '../lib/minddrop/dropQueue';
-import { processAllPending } from '../lib/minddrop/dropProcessor';
+import { triggerProcessing } from '../lib/minddrop/dropPipeline';
 
 export function useDropRecovery(): void {
   const userId = useGremlyStore((s) => s.userId);
@@ -43,8 +43,8 @@ export function useDropRecovery(): void {
           console.log('[DropRecovery] Cleaned up synced drops', { count: cleanedCount });
         }
 
-        // Process any that didn't finish
-        await processAllPending();
+        // Trigger the pipeline to process any remaining drops
+        void triggerProcessing();
 
         console.log('[DropRecovery] Recovery complete');
       } catch (err) {
