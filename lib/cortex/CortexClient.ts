@@ -1322,6 +1322,47 @@ function getDefaultSaveResponse(): SpaceChatSaveResponse {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// CHAT FULL SUMMARY - Generate comprehensive summary from all chat messages
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export async function callChatFullSummary(chatId: string): Promise<{ summary: string | null }> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { summary: null };
+  if (isAiDisabled()) return { summary: null };
+
+  const supabaseAnonKey = readSupabaseAnonKey();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        type: 'chat-full-summary',
+        chatId,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return { summary: null };
+    const data = await res.json();
+    return { summary: data.summary || null };
+  } catch {
+    return { summary: null };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // ENTITY CHAT - Chat within entity overlays and sweep cards
 // ═══════════════════════════════════════════════════════════════════════════════
 

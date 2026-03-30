@@ -1686,17 +1686,18 @@ async function generateRunningSummary(
     ? `\nPRIOR SUMMARY (build on this — preserve important context from earlier in the conversation, update with new developments):\n${previousSummary}`
     : '';
 
-  const prompt = `Today is ${today}. Summarize this conversation${spaceName ? ` (in the user's "${spaceName}" life area)` : ''} in 2-4 sentences.${priorContext}
+  const prompt = `Today is ${today}. Summarize this conversation${spaceName ? ` (in the user's "${spaceName}" life area)` : ''} in 3-6 sentences.${priorContext}
 
 Capture:
-- What was discussed or explored
+- What was discussed or explored — cover ALL major topics, not just the most recent ones
 - Any decisions made, conclusions reached, or plans formed
 - Emotional tone or signals the user expressed
 - Open questions or unresolved threads
+- Specific names, dates, numbers, and actionable details mentioned
 
-Write as factual notes about the conversation. Be specific — include names, dates, numbers, and details mentioned. Reference when things were discussed relative to today.
+CRITICAL: If a PRIOR SUMMARY exists, treat it as established fact about earlier parts of the conversation. Your job is to MERGE the prior summary with the new messages — preserving all key details from the prior summary while adding new developments. Never discard important context from the prior summary just because it's older. The final summary should cover the ENTIRE conversation arc.
 
-CONVERSATION:
+CONVERSATION (most recent messages):
 ${turns}
 
 SUMMARY:`;
@@ -1711,7 +1712,7 @@ SUMMARY:`;
       body: JSON.stringify({
         model: 'gpt-4.1-nano',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 200,
+        max_tokens: 350,
         temperature: 0.3,
       }),
     });
@@ -1726,7 +1727,7 @@ SUMMARY:`;
     if (!summary) return;
 
     // eslint-disable-next-line no-control-regex
-    summary = truncateAtSentence(summary.replace(/[\0-\x1f\x7f]/g, ' ').trim(), 500);
+    summary = truncateAtSentence(summary.replace(/[\0-\x1f\x7f]/g, ' ').trim(), 800);
 
     const patchRes = await fetch(`${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${chatId}`, {
       method: 'PATCH',
@@ -6061,6 +6062,86 @@ ${assistantMessage.substring(0, 2000)}
       }
 
       // =========================
+      // === CHAT FULL SUMMARY ===
+      // Generate a comprehensive summary from ALL chat messages at save time
+      // =========================
+      if (type === 'chat-full-summary') {
+        const chatId = body.chatId;
+        if (!chatId) return j({ error: 'missing_chatId' }, 400);
+
+        try {
+          const msgRes = await fetch(
+            `${env.SUPABASE_URL}/rest/v1/space_chat_messages?chat_id=eq.${encodeURIComponent(chatId)}&select=role,content&order=created_at.asc`,
+            {
+              headers: {
+                apikey: env.SUPABASE_SERVICE_KEY,
+                Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+              },
+            },
+          );
+          if (!msgRes.ok) {
+            console.warn(`[ChatFullSummary] Failed to fetch messages: ${msgRes.status}`);
+            return j({ error: 'fetch_failed' }, 500);
+          }
+
+          const allMessages = await msgRes.json();
+          const userMessages = allMessages.filter((m) => m.role !== 'system');
+
+          if (userMessages.length === 0) {
+            return j({ summary: null });
+          }
+
+          const conversationText = userMessages
+            .map(
+              (m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${(m.content || '').slice(0, 600)}`,
+            )
+            .join('\n\n');
+
+          const todayStr = new Intl.DateTimeFormat('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            timeZone: body.timezone || 'UTC',
+          }).format(new Date());
+
+          const summaryPrompt = `Today is ${todayStr}. Summarize this entire conversation in 3-6 sentences. Cover ALL major topics discussed from start to finish — not just the beginning or the end. Include specific names, dates, decisions, recommendations, and action items mentioned. Write as a factual note the user can reference later.
+
+CONVERSATION:
+${conversationText}
+
+SUMMARY:`;
+
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1-mini',
+              messages: [{ role: 'user', content: summaryPrompt }],
+              max_tokens: 400,
+              temperature: 0.3,
+            }),
+          });
+
+          if (!res.ok) {
+            console.warn(`[ChatFullSummary] OpenAI call failed: ${res.status}`);
+            return j({ error: 'openai_failed' }, 500);
+          }
+
+          const data = await res.json();
+          const summary = (data.choices?.[0]?.message?.content || '').trim();
+          console.log(`[ChatFullSummary] Generated ${summary.length} chars for chat ${chatId}`);
+          return j({ summary: summary || null });
+        } catch (err) {
+          console.warn(`[ChatFullSummary] Error: ${err.message}`);
+          return j({ error: 'request_failed', detail: String(err) }, 500);
+        }
+      }
+
+      // =========================
       // === TRANSCRIPTION ===
       // Voice-to-text via OpenAI Whisper
       // =========================
@@ -10043,11 +10124,26 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       ...(existing.dismissed_extractions || []),
                     ];
 
+                    // Fetch the rolling summary to give extraction context about earlier conversation
+                    const summaryRes = await fetch(
+                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                      {
+                        headers: {
+                          apikey: env.SUPABASE_SERVICE_KEY,
+                          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                        },
+                      },
+                    );
+                    const summaryData = summaryRes.ok
+                      ? await summaryRes.json().catch(() => [])
+                      : [];
+                    const runningSummary = summaryData?.[0]?.running_summary || null;
+
                     const allMsgs = [
                       ...messages.filter((m) => m.role !== 'system'),
                       { role: 'assistant', content: fullContent },
                     ];
-                    const recentMsgs = allMsgs.slice(-8);
+                    const recentMsgs = allMsgs.slice(-20);
                     const conversationText = recentMsgs
                       .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
                       .join('\n\n');
@@ -10062,7 +10158,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     const extractionPromptText = `Today is ${todayStr}.
 
 You are analyzing a conversation to identify items worth saving in a productivity app.
-
+${runningSummary ? `\nCONVERSATION CONTEXT (summary of earlier messages not shown below):\n${runningSummary}\n` : ''}
 CONVERSATION:
 ${conversationText}
 
@@ -10080,7 +10176,7 @@ WRITING STYLE for title and body fields:
 - Never write "the user" or "user" — write as if jotting a note for them: "Getting up early for a 20-min run" not "User committed to getting up early"
 - If no meaningful body beyond the title, set body to null
 
-Also generate a chat title (3-6 words) and one-sentence summary.
+Also generate a chat title (3-6 words) and a one-sentence summary that covers the ENTIRE conversation — not just the most recent messages. Use the CONVERSATION CONTEXT above to include earlier topics. The summary should capture the full arc of what was discussed.
 Return ONLY valid JSON:
 {"extractions":[{"id":"<8chars>","type":"todo|habit|note","title":"...","body":"...","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100}],"chat_summary":{"title":"...","summary":"..."}}`;
 

@@ -22,6 +22,7 @@ import {
   callGeneralGreeting,
   callEnrichPhase15a,
   callEnrichPhase2,
+  callChatFullSummary,
 } from '../../lib/cortex/CortexClient';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAuth } from '../../providers/AuthProvider';
@@ -57,6 +58,7 @@ export default function AskGremlyScreen() {
   const [activeChat, setActiveChat] = useState<SpaceChat | null>(null);
   const [sending, setSending] = useState(false);
   const [saveSheetVisible, setSaveSheetVisible] = useState(false);
+  const [savingChat, setSavingChat] = useState(false);
   const [greeting, setGreeting] = useState<string>("What's on your mind?");
 
   useEffect(() => {
@@ -438,12 +440,26 @@ export default function AskGremlyScreen() {
         extractions={extractions}
         autoTitle={autoTitle}
         runningSummary={runningSummary}
+        saving={savingChat}
         onDismiss={(id) => {
           if (activeChat?.id) {
             useGremlyStore.getState().dismissExtraction(activeChat.id, id);
           }
         }}
         onSave={async (items, includeSummary) => {
+          // Fetch full summary before closing sheet if user wants to save summary
+          let fullSummary: string | null = null;
+          if (includeSummary && activeChat?.id) {
+            setSavingChat(true);
+            try {
+              const result = await callChatFullSummary(activeChat.id);
+              fullSummary = result.summary;
+            } catch {
+              // Fall back to runningSummary
+            } finally {
+              setSavingChat(false);
+            }
+          }
           setSaveSheetVisible(false);
 
           const store = useGremlyStore.getState();
@@ -521,7 +537,7 @@ export default function AskGremlyScreen() {
             try {
               await store.createNote({
                 title: autoTitle,
-                body: runningSummary || autoTitle,
+                body: fullSummary || runningSummary || autoTitle,
                 subtype: 'general',
                 ai_placed: true,
                 origin: 'chat_save',
