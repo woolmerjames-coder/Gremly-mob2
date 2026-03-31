@@ -9,14 +9,15 @@
 // BIRTHDAY CONTEXT (inlined from buildBirthdayContext.ts)
 // ============================================================================
 
-function buildBirthdayContext(accountCreatedAt) {
+function buildBirthdayContext(accountCreatedAt, timezone = 'UTC') {
+  // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
   const today = new Date();
   const todayStr = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
     year: 'numeric',
-    timeZone: 'UTC',
+    timeZone: timezone,
   }).format(today);
 
   let context = `=== DATE & RELATIONSHIP ===\n`;
@@ -31,7 +32,7 @@ function buildBirthdayContext(accountCreatedAt) {
       month: 'long',
       day: 'numeric',
       year: 'numeric',
-      timeZone: 'UTC',
+      timeZone: timezone,
     }).format(birthDate);
 
     context += `You were born on ${birthDateStr} (when this user created their account).\n`;
@@ -381,7 +382,7 @@ function buildSystemPrompt(opts) {
 
   // 6. Birthday context
   if (opts.accountCreatedAt) {
-    const birthday = buildBirthdayContext(opts.accountCreatedAt);
+    const birthday = buildBirthdayContext(opts.accountCreatedAt, opts.timezone);
     if (birthday) {
       parts.push(birthday);
     }
@@ -522,13 +523,15 @@ export function buildSpaceChatSystemPrompt(
   accountCreatedAt,
   sessionContextStr,
   userProfileText,
+  timezone = 'UTC',
 ) {
+  // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
   const currentDate = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-    timeZone: 'UTC',
+    timeZone: timezone,
   }).format(new Date());
 
   return assembleGenerationConfig({
@@ -541,6 +544,7 @@ export function buildSpaceChatSystemPrompt(
     sessionContext: sessionContextStr,
     userProfileText,
     accountCreatedAt,
+    timezone,
   });
 }
 
@@ -553,13 +557,15 @@ export function buildEntityChatConfig(
   accountCreatedAt,
   sessionContextStr,
   userProfileText,
+  timezone = 'UTC',
 ) {
+  // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
   const currentDate = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-    timeZone: 'UTC',
+    timeZone: timezone,
   }).format(new Date());
 
   return assembleGenerationConfig({
@@ -570,6 +576,7 @@ export function buildEntityChatConfig(
     sessionContext: sessionContextStr,
     userProfileText,
     accountCreatedAt,
+    timezone,
   });
 }
 
@@ -582,13 +589,15 @@ export function buildGeneralChatConfig(
   accountCreatedAt,
   sessionContextStr,
   userProfileText,
+  timezone = 'UTC',
 ) {
+  // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
   const currentDate = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
-    timeZone: 'UTC',
+    timeZone: timezone,
   }).format(new Date());
 
   return assembleGenerationConfig({
@@ -599,5 +608,6 @@ export function buildGeneralChatConfig(
     sessionContext: sessionContextStr,
     userProfileText,
     accountCreatedAt,
+    timezone,
   });
 }

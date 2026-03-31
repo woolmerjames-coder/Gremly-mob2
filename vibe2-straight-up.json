@@ -1,0 +1,356 @@
+{
+  "vibe": "straight_up",
+  "week": "2026-03-23 to 2026-03-29",
+  "cards": [
+    {
+      "type": "gremly_mood",
+      "mood_line": "Running on fumes and pride",
+      "hook": "22 todos shipped, a breakthrough feature landed — and the anxiety support system stayed silent for 16 days.",
+      "week_label": "2026-03-23 to 2026-03-29",
+      "fed_stats": {
+        "fed_days_this_week": 0,
+        "gremly_age": 0,
+        "current_tier": "egg",
+        "fed_days_toward_next": 0,
+        "fed_days_needed": 3,
+        "sock_count": 0
+      }
+    },
+    {
+      "type": "opening",
+      "headline": "The engine is running. Check the fuel.",
+      "subheadline": "High output, quiet cost",
+      "body": "You came home from the honeymoon with a plan and you executed it — 22 todos completed, the Ask Gremly chat function shipped, fitness back on track. But the same week delivered three separate anxiety episodes and the mental wellbeing habit that's supposed to catch all of that has now been untouched for 16 consecutive days.",
+      "mood": "Driven and stretched",
+      "quote": "Grateful to be home after an amazing trip. Feeling hopefully for getting back to some normalcy an the motivation I have for Gremly. Bring it on",
+      "quote_date": "2026-03-23",
+      "image_hint": "San Francisco morning fog clearing over city hills",
+      "image_url": "https://images.unsplash.com/photo-1588915102917-50d5841172c3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxTYW4lMjBGcmFuY2lzY28lMjBtb3JuaW5nJTIwZm9nJTIwY2xlYXJpbmclMjBvdmVyJTIwY2l0eSUyMGhpbGxzfGVufDB8MHx8fDE3NzQ4OTI5MTZ8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "engagement": {
+        "drops": 68,
+        "sweeps": 7,
+        "journals": 8,
+        "drops_delta": 0,
+        "sweeps_delta": 0,
+        "journals_delta": 0
+      },
+      "mood_arc": [
+        {
+          "date": "2026-03-23",
+          "day": "Mon",
+          "valence": "positive"
+        },
+        {
+          "date": "2026-03-24",
+          "day": "Tue",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-24",
+          "day": "Tue",
+          "valence": "anxious"
+        },
+        {
+          "date": "2026-03-25",
+          "day": "Wed",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-26",
+          "day": "Thu",
+          "valence": "positive"
+        },
+        {
+          "date": "2026-03-26",
+          "day": "Thu",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-28",
+          "day": "Sat",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-29",
+          "day": "Sun",
+          "valence": "positive"
+        }
+      ]
+    },
+    {
+      "type": "moments",
+      "moments": [
+        {
+          "day_label": "THU",
+          "date": "2026-03-26",
+          "title": "Dave's news cracked something open",
+          "body": "You wrote two journal entries on the same day. The first: focused, productive, keeping pace. The second — hours later, after Dave got the Decagon job — pivoted in a single sentence: 'If the app doesn't work I don't know what I'll do as I really don't enjoy working at Dentsu anymore.' Then you caught yourself: 'But it's not about me today.' The pride was real. So was the fear it unlocked.",
+          "image_hint": "overcast SF skyline late afternoon fog",
+          "thread_tags": [
+            "Partnership with Dave",
+            "App Development & Launch",
+            "Mental Wellbeing & Negative Thought Management"
+          ],
+          "image_url": "https://images.unsplash.com/photo-1558396376-beacad07c43e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxvdmVyY2FzdCUyMFNGfGVufDB8MHx8fDE3NzQ5MDkyNTN8MA&ixlib=rb-4.1.0&q=80&w=1080"
+        },
+        {
+          "day_label": "SAT",
+          "date": "2026-03-28",
+          "title": "The body sent the bill",
+          "body": "You played tennis, shipped the general chat function in half a day, and felt genuinely proud of it. Then a restaurant — too loud, a hangover, the lorazepam weaning — and the journal entry cuts off mid-sentence: 'My anxiety came when I was in a restaurant with a lot of overwhelming sounds, with hangover and anxiety so I wonder if its all because of th—' Sleep debt, sensory overwhelm, and a compounding withdrawal effect arriving all at once. You named it and kept going.",
+          "image_hint": "rain on window condensation evening blur",
+          "thread_tags": [
+            "Mental Wellbeing & Negative Thought Management",
+            "App Development & Launch",
+            "Strength Training"
+          ],
+          "image_url": "https://images.unsplash.com/photo-1773597701818-3e82aea02b05?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxyYWluJTIwb24lMjB3aW5kb3clMjBjb25kZW5zYXRpb24lMjBldmVuaW5nJTIwYmx1cnxlbnwwfDB8fHwxNzc0OTA5MjUzfDA&ixlib=rb-4.1.0&q=80&w=1080"
+        }
+      ]
+    },
+    {
+      "type": "thread_movements",
+      "title": "Life in motion",
+      "threads": [
+        {
+          "name": "App Development & Launch",
+          "domain": "Gremly improvements",
+          "direction": "milestone",
+          "icon_hint": "creative",
+          "shift_label": "Chat breakthrough + pre-launch audit",
+          "badge_label": "Breakthrough",
+          "detail": "Ask Gremly chat function completed March 29 ('could be game changing') — the highest single-feature confidence signal since TestFlight in February.",
+          "is_highlight": true,
+          "badge_type": "warning",
+          "velocity": 2.2,
+          "velocity_label": "2.2x your 4-week avg"
+        },
+        {
+          "name": "Mental Wellbeing & Negative Thought Management",
+          "domain": "Fitness & Health",
+          "direction": "down",
+          "icon_hint": "health",
+          "shift_label": "16 days dormant, anxiety on three days",
+          "badge_label": "Needs action",
+          "detail": "Zero completions for the third consecutive week — while career anxiety (Thursday), sensory overwhelm (Saturday), and lorazepam weaning all compounded simultaneously.",
+          "is_highlight": true,
+          "badge_type": "danger"
+        },
+        {
+          "name": "Partnership with Dave",
+          "domain": "Relationship & Home Life",
+          "direction": "up",
+          "icon_hint": "relationship",
+          "shift_label": "Milestone week — celebration and mirror",
+          "badge_label": "Thriving",
+          "detail": "Dave's Decagon job confirmed Thursday, followed by tennis and Californios dinner Saturday, drinks Sunday — and Berlin birthday planning (May 1–6) actively underway.",
+          "is_highlight": true,
+          "badge_type": "success"
+        },
+        {
+          "name": "Running & Half Marathon Training",
+          "domain": "Fitness & Health",
+          "direction": "up",
+          "icon_hint": "fitness",
+          "shift_label": "Back at 2/3 — no race, no fanfare",
+          "badge_label": "Reactivated",
+          "detail": "Two runs logged (March 26 and 28) in the first full week back — the half marathon date passed on the return flight without acknowledgment, and a 're-entry run' todo signals a conscious reset to casual running.",
+          "is_highlight": false,
+          "badge_type": "success"
+        },
+        {
+          "name": "Social Life & Friendships in SF",
+          "domain": "Relationship & Home Life",
+          "direction": "steady",
+          "icon_hint": "personal",
+          "shift_label": "Showing up despite the loneliness",
+          "badge_label": "Active",
+          "detail": "Liv catch-up Wednesday produced the week's most honest social line — 'I miss having friends here in SF' — then Victoria's housewarming Sunday was attended through fatigue, with genuine warmth reconnecting with Marshal.",
+          "is_highlight": false,
+          "badge_type": "info"
+        },
+        {
+          "name": "Mind Drop & Core UX",
+          "domain": "Gremly improvements",
+          "direction": "up",
+          "icon_hint": "creative",
+          "shift_label": "Backlog cleared, reliability audit open",
+          "badge_label": "Building",
+          "detail": "Eight mind drop todos completed March 24–26 clearing the honeymoon backlog; a Calendar View idea dropped March 29 signals the shift from reactive fixes to strategic expansion — directly enabled by the app anxiety driving daily output.",
+          "is_highlight": false,
+          "badge_type": "success"
+        }
+      ]
+    },
+    {
+      "type": "discoveries",
+      "spotlight": {
+        "badge": "discovery",
+        "title": "The support system dropped first — not last",
+        "takeaway": "Fitness, sobriety, and Gremly all came back after the honeymoon. The mental wellbeing habit did not — and anxiety filled the gap.",
+        "evidence_trail": "App Development & Launch: 22 todos completed, highest output since TestFlight. Running: 2/3 weekly target hit. Strength Training: re-engaged March 28. Sobriety: 4/7 days logged. Mental Wellbeing: 0 completions for 16 consecutive days — while anxiety appeared on March 26 (career worry, Dave's job), March 28 (sensory overwhelm, lorazepam weaning), and March 29 (anxious mood). The habit with 11 completions across six weeks through March 13 was the first dropped and the last to return.",
+        "research_context": {
+          "title": "Why this happens",
+          "body": "Wendy Wood's 2021 research on habit reinstatement shows that after disruption, people restore habits in order of perceived urgency and social visibility — fitness and work habits return first because their absence is externally noticeable. Internal regulation practices are invisible to others and return last, or not at all.",
+          "sources": [
+            "Wood (2021) — Good Habits, Bad Habits: Reinstatement after disruption"
+          ]
+        },
+        "ask_gremly_prompt": "I noticed something in my weekly summary: \"The support system dropped first — not last\". Fitness, sobriety, and Gremly all came back after the honeymoon. The mental wellbeing habit did not — and anxiety filled the gap. Can we talk about this?"
+      },
+      "mini_discoveries": [
+        {
+          "title": "Dave's milestone became your mirror",
+          "detail": "His Decagon job triggered your most explicit career-exit statement yet — 'I really don't enjoy working at Dentsu anymore' — in the same journal entry as his celebration."
+        },
+        {
+          "title": "The triage session signals a gear change",
+          "detail": "12 new technical todos created in a single focused batch on March 29 — the shift from building to pre-launch hardening happened in one deliberate session."
+        },
+        {
+          "title": "Social loneliness and social effort coexist",
+          "detail": "You attended both social events this week despite fatigue and reluctance, then journaled honestly about missing deeper SF friendships — showing up while naming the gap."
+        }
+      ]
+    },
+    {
+      "type": "recommends",
+      "primary": {
+        "title": "Restart the mental wellbeing habit — one day",
+        "body": "Not a streak. Not a system. One completion this week. The habit had 11 completions through March 13 and has been at zero for 16 days while anxiety appeared on three separate days. The work meeting cadence resumes Monday — that's the moment to put it back.",
+        "type": "habit_idea"
+      },
+      "secondary": [
+        {
+          "title": "Name the lorazepam weaning to someone",
+          "body": "You flagged it in a chat note on March 28 as a compounding factor for anxiety. It deserves a conversation with a doctor or therapist, not just a journal mention.",
+          "type": "thought"
+        },
+        {
+          "title": "Let the pre-launch audit be the week's shape",
+          "body": "The 12-todo triage batch on March 29 already defined the next phase. Resist adding new features this week — the audit is the work.",
+          "type": "mindset_shift"
+        }
+      ]
+    },
+    {
+      "type": "stale_triage",
+      "headline": "4 items need attention",
+      "body": "One connects directly to Dave — worth scheduling now while the momentum from this week is still there.",
+      "items": [
+        {
+          "title": "Tennis Match with Dave",
+          "days_stale": 17,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "e788b1e5-07ac-48bd-9523-8c7a4ac766e4",
+          "is_obsolete": false,
+          "thread_connection": "Partnership with Dave",
+          "priority": "actionable"
+        },
+        {
+          "title": "Watch Strap Adjustment",
+          "days_stale": 15,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "d8cb288f-5d5e-475f-8845-ccac66448470",
+          "is_obsolete": false,
+          "thread_connection": null,
+          "priority": "low"
+        },
+        {
+          "title": "Surrogacy Agencies Research",
+          "days_stale": 16,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "34f26cf3-4a3e-4b29-b808-710dccf382e6",
+          "is_obsolete": false,
+          "thread_connection": null,
+          "priority": "low"
+        },
+        {
+          "title": "Fix Notification Issues",
+          "days_stale": 18,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "ac596227-1f13-4e09-9d7a-fdb524c1d71d",
+          "is_obsolete": false,
+          "thread_connection": null,
+          "priority": "low"
+        }
+      ]
+    },
+    {
+      "type": "week_ahead",
+      "intro": "No major personal events on the calendar this week — but the full work meeting cadence resumes Monday after a light re-entry week, and the Sage Monthly Offline Report is due April 1.",
+      "highlights": [
+        {
+          "day_label": "WED",
+          "date": "2026-04-01",
+          "title": "Sage Monthly Offline Report due",
+          "icon_hint": "file-text",
+          "thread_connection": "Day-to-Day Client Work",
+          "prep_nudge": "Block focus time Monday or Tuesday if you still need data pulls.",
+          "context": "First hard work deadline since returning from the honeymoon.",
+          "importance": 4
+        }
+      ],
+      "busy_day_warnings": [
+        {
+          "day": "Monday",
+          "detail": "Full meeting cadence resumes after a week of minimal work presence."
+        }
+      ]
+    },
+    {
+      "type": "letter",
+      "body": "The Sage report lands Wednesday — get ahead of it Monday before the meetings stack up. More importantly: you ran, lifted, and shipped a feature you called game-changing, all in the same week. The one thing that didn't come back was the thought management habit. That's the thing worth protecting this week — not as a streak, just once.",
+      "gremly_age": 0,
+      "current_tier": "egg"
+    }
+  ],
+  "metadata": {
+    "week_type": "High output, quiet cost",
+    "mood": "Driven and stretched",
+    "key_themes": [
+      "App Development & Launch",
+      "Mental Wellbeing gap deepens",
+      "Partnership with Dave as mirror",
+      "Post-honeymoon re-entry",
+      "Anxiety without a container"
+    ],
+    "card_count": 9,
+    "card_types_used": [
+      "gremly_mood",
+      "opening",
+      "moments",
+      "thread_movements",
+      "discoveries",
+      "recommends",
+      "stale_triage",
+      "week_ahead",
+      "letter"
+    ]
+  },
+  "perf": {
+    "latency_ms": 139775,
+    "brief_input_tokens": 33666,
+    "brief_output_tokens": 1500,
+    "story_input_tokens": 37517,
+    "story_output_tokens": 3438,
+    "model_brief": "claude-sonnet-4-6",
+    "model_storyteller": "claude-sonnet-4-6",
+    "card_count": 9,
+    "card_types": [
+      "gremly_mood",
+      "opening",
+      "moments",
+      "thread_movements",
+      "discoveries",
+      "recommends",
+      "stale_triage",
+      "week_ahead",
+      "letter"
+    ]
+  }
+}

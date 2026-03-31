@@ -126,13 +126,39 @@
  * - NEW: Daily usage limit (5/day per user via KV)
  * - IMPROVED: ADHD-aware scheduling rules (quick wins, transition costs, streak protection)
  * - IMPROVED: max_tokens 1200 → 4096 for larger task sets
+ *
+ * v6.0 (Habit Builder V2 — Phase 6):
+ * - POST-CREATION: Habit stacking suggestion via prompt (existing habits context)
+ * - POST-CREATION: First-week nudge notification
+ *   Cron query for notification worker (NOT in this file — add to notification cron):
+ *
+ *   SELECT h.*
+ *   FROM habits h
+ *   WHERE h.check_in_after IS NOT NULL
+ *     AND h.check_in_after > 0
+ *     AND h.check_in_sent IS NOT TRUE
+ *     AND h.archived_at IS NULL
+ *     AND (
+ *       SELECT COUNT(*)
+ *       FROM habit_progress hp
+ *       WHERE hp.habit_id = h.id
+ *         AND hp.occurred_day >= h.start_date
+ *     ) >= h.check_in_after;
+ *
+ *   When triggered: send push notification opening entity chat for the habit.
+ *   Then UPDATE habits SET check_in_sent = true WHERE id = h.id;
  */
 
 // DEPRECATED Phase 3 — replaced by chatProjection.js
 // import { getSessionContext } from './context/sessionContext.js';
 // import { buildSessionContextString, buildDcoContextHeader } from './context/contextBuilder.js';
 // import { getDcoContext } from './context/dcoContext.js';
-import { buildChatContext } from './context/chatProjection.js';
+import {
+  buildChatContext,
+  fetchSpaceEntities,
+  formatSpaceEntities,
+  getLifeMapForChat,
+} from './context/chatProjection.js';
 import { getUserProfile } from './context/userProfile.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
@@ -152,6 +178,7 @@ import {
   getSearchPolicy,
   MODE_TEMP,
 } from './gremlyPersona';
+import { aiClassify, aiGenerate, aiStream, getProviders } from './aiProvider.js';
 
 async function getCachedDomainNames(userId, env) {
   if (!userId || !env.CONTEXT_CACHE) return [];
@@ -686,39 +713,22 @@ const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JS
  * @returns {Promise<Object>} Parsed JSON result
  */
 async function runPreparseMini(text, env, systemPrompt) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  const result = await aiClassify({
+    mode: 'realtime',
+    ...getProviders('nano', env),
+    env,
+    systemPrompt,
+    messages: [{ role: 'user', content: text.substring(0, 500) }],
+    temperature: 0.1,
+    maxOutputTokens: 100,
+    endpoint: 'preparse-mini',
+  });
 
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1-nano',
-        temperature: 0.1,
-        max_tokens: 100,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: text.substring(0, 500) },
-        ],
-      }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '{}';
-    return JSON.parse(content);
-  } finally {
-    clearTimeout(timeout);
+  if (!result.parsed) {
+    throw new Error('preparse failed: both providers returned unusable output');
   }
+
+  return result.parsed;
 }
 
 /**
@@ -1078,120 +1088,98 @@ Rules:
 - is_ambiguous is true when bucket is "ambiguous"
 - When bucket is "ambiguous", always provide ambiguity_type and ambiguity_reason`;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const result = await aiClassify({
+    mode: 'realtime',
+    ...getProviders('mini', env),
+    env,
+    systemPrompt: phase1Prompt,
+    messages: [{ role: 'user', content: text.substring(0, 1000) }],
+    temperature: 0.1,
+    maxOutputTokens: 500,
+    endpoint: 'classify-phase1',
+    validate: (parsed) => {
+      // Must have a bucket field
+      if (!parsed || typeof parsed !== 'object') {
+        return { valid: false, reason: 'not_object' };
+      }
+      return { valid: true };
+    },
+  });
 
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1-mini',
-        temperature: 0.1,
-        max_tokens: 500,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: phase1Prompt },
-          { role: 'user', content: text.substring(0, 1000) },
-        ],
-      }),
-      signal: controller.signal,
-    });
+  const latency = Date.now() - t0;
 
-    if (!response.ok) {
-      const latency = Date.now() - t0;
-      const errorText = await response.text().catch(() => '');
-      console.error('[Phase1Class] OpenAI error', {
-        status: response.status,
-        error: errorText,
-        latency_ms: latency,
-      });
-      return { success: false, error: 'openai_error', latency_ms: latency };
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '{}';
-    const latency = Date.now() - t0;
-
-    let parsed;
-    try {
-      parsed = JSON.parse(content);
-    } catch (parseErr) {
-      console.error('[Phase1Class] JSON parse error', {
-        content,
-        error: String(parseErr),
-        latency_ms: latency,
-      });
-      return { success: false, error: 'json_parse_error', latency_ms: latency };
-    }
-
-    // Validate and normalize the result
-    const validBuckets = ['todo', 'habit', 'log', 'ambiguous'];
-    let bucket = validBuckets.includes(parsed.bucket) ? parsed.bucket : 'log';
-
-    // Normalize ambiguous to log/general for storage
-    if (bucket === 'ambiguous') {
-      bucket = 'log';
-    }
-
-    let subtype = null;
-    if (bucket === 'log') {
-      const validSubtypes = ['journal', 'idea', 'general'];
-      subtype = validSubtypes.includes(parsed.subtype) ? parsed.subtype : 'general';
-    }
-
-    let habitSubtype = null;
-    if (bucket === 'habit') {
-      const validHabitSubtypes = ['start_habit', 'break_habit'];
-      habitSubtype = validHabitSubtypes.includes(parsed.habitSubtype)
-        ? parsed.habitSubtype
-        : 'start_habit';
-    }
-
-    let confidence = Number(parsed.confidence);
-    if (!Number.isFinite(confidence)) confidence = 0.7;
-    confidence = Math.max(0, Math.min(1, confidence));
-
-    const isAmbiguous = parsed.bucket === 'ambiguous' || confidence < 0.7;
-    const ambiguityType =
-      isAmbiguous && ['bucket', 'action', 'date_type'].includes(parsed.ambiguity_type)
-        ? parsed.ambiguity_type
-        : null;
-    const ambiguityReason =
-      isAmbiguous && typeof parsed.ambiguity_reason === 'string'
-        ? parsed.ambiguity_reason.trim().substring(0, 200)
-        : null;
-
-    const result = {
-      bucket,
-      subtype,
-      habitSubtype,
-      confidence,
-      is_ambiguous: isAmbiguous,
-      ambiguity_type: ambiguityType,
-      ambiguity_reason: ambiguityReason,
-    };
-
-    console.log('[Phase1Class] Success', {
-      bucket: result.bucket,
-      subtype: result.subtype,
-      habitSubtype: result.habitSubtype,
-      confidence: result.confidence,
-      is_ambiguous: result.is_ambiguous,
+  if (!result.parsed) {
+    console.error('[Phase1Class] Both providers failed', {
+      wasFallback: result.wasFallback,
+      fallbackReason: result.fallbackReason,
       latency_ms: latency,
     });
-
-    return { success: true, result, latency_ms: latency };
-  } catch (err) {
-    const latency = Date.now() - t0;
-    console.error('[Phase1Class] Error', { error: String(err), latency_ms: latency });
-    return { success: false, error: String(err?.message || 'unknown'), latency_ms: latency };
-  } finally {
-    clearTimeout(timeoutId);
+    return { success: false, error: 'both_providers_failed', latency_ms: latency };
   }
+
+  const parsed = result.parsed;
+
+  // Validate and normalize the result
+  const validBuckets = ['todo', 'habit', 'log', 'ambiguous'];
+  let bucket = validBuckets.includes(parsed.bucket) ? parsed.bucket : 'log';
+
+  // Normalize ambiguous to log/general for storage
+  if (bucket === 'ambiguous') {
+    bucket = 'log';
+  }
+
+  let subtype = null;
+  if (bucket === 'log') {
+    const validSubtypes = ['journal', 'idea', 'general'];
+    subtype = validSubtypes.includes(parsed.subtype) ? parsed.subtype : 'general';
+  }
+
+  let habitSubtype = null;
+  if (bucket === 'habit') {
+    const validHabitSubtypes = ['start_habit', 'break_habit'];
+    habitSubtype = validHabitSubtypes.includes(parsed.habitSubtype)
+      ? parsed.habitSubtype
+      : 'start_habit';
+  }
+
+  let confidence = Number(parsed.confidence);
+  if (!Number.isFinite(confidence)) confidence = 0.7;
+  confidence = Math.max(0, Math.min(1, confidence));
+
+  const isAmbiguous = parsed.bucket === 'ambiguous' || confidence < 0.7;
+  const ambiguityType =
+    isAmbiguous && ['bucket', 'action', 'date_type'].includes(parsed.ambiguity_type)
+      ? parsed.ambiguity_type
+      : null;
+  const ambiguityReason =
+    isAmbiguous && typeof parsed.ambiguity_reason === 'string'
+      ? parsed.ambiguity_reason.trim().substring(0, 200)
+      : null;
+
+  const classResult = {
+    bucket,
+    subtype,
+    habitSubtype,
+    confidence,
+    is_ambiguous: isAmbiguous,
+    ambiguity_type: ambiguityType,
+    ambiguity_reason: ambiguityReason,
+  };
+
+  console.log('[Phase1Class] Complete', {
+    bucket: classResult.bucket,
+    subtype: classResult.subtype,
+    habitSubtype: classResult.habitSubtype,
+    confidence: classResult.confidence,
+    is_ambiguous: classResult.is_ambiguous,
+    latency_ms: latency,
+    wasFallback: result.wasFallback,
+    fallbackReason: result.fallbackReason,
+    provider: result.provider,
+    model: result.model,
+  });
+
+  return { success: true, result: classResult, latency_ms: latency };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1530,14 +1518,15 @@ function extractUrlsFromText(text) {
 // DAILY FOCUS FOR GREETING — lightweight DCO fetch for general-greeting
 // ═══════════════════════════════════════════════════════════════════════════════
 
-async function getDailyFocusForChat(userId, env) {
+async function getDailyFocusForChat(userId, env, timezone = 'UTC') {
   if (!userId) return null;
   try {
     const headers = {
       apikey: env.SUPABASE_SERVICE_KEY,
       Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
     };
-    const today = new Date().toISOString().slice(0, 10);
+    // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
     const res = await fetch(
       `${env.SUPABASE_URL}/rest/v1/user_daily_state?user_id=eq.${userId}&date=eq.${today}&select=dco`,
       { headers },
@@ -1698,6 +1687,7 @@ async function generateRunningSummary(
   spaceName,
   previousSummary,
   env,
+  timezone = 'UTC',
 ) {
   const t0 = Date.now();
 
@@ -1709,7 +1699,7 @@ async function generateRunningSummary(
     return;
   }
 
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
 
   const turns = [
     ...conversationMessages
@@ -1722,17 +1712,18 @@ async function generateRunningSummary(
     ? `\nPRIOR SUMMARY (build on this — preserve important context from earlier in the conversation, update with new developments):\n${previousSummary}`
     : '';
 
-  const prompt = `Today is ${today}. Summarize this conversation${spaceName ? ` (in the user's "${spaceName}" life area)` : ''} in 2-4 sentences.${priorContext}
+  const prompt = `Today is ${today}. Summarize this conversation${spaceName ? ` (in the user's "${spaceName}" life area)` : ''} in 3-6 sentences.${priorContext}
 
 Capture:
-- What was discussed or explored
+- What was discussed or explored — cover ALL major topics, not just the most recent ones
 - Any decisions made, conclusions reached, or plans formed
 - Emotional tone or signals the user expressed
 - Open questions or unresolved threads
+- Specific names, dates, numbers, and actionable details mentioned
 
-Write as factual notes about the conversation. Be specific — include names, dates, numbers, and details mentioned. Reference when things were discussed relative to today.
+CRITICAL: If a PRIOR SUMMARY exists, treat it as established fact about earlier parts of the conversation. Your job is to MERGE the prior summary with the new messages — preserving all key details from the prior summary while adding new developments. Never discard important context from the prior summary just because it's older. The final summary should cover the ENTIRE conversation arc.
 
-CONVERSATION:
+CONVERSATION (most recent messages):
 ${turns}
 
 SUMMARY:`;
@@ -1747,7 +1738,7 @@ SUMMARY:`;
       body: JSON.stringify({
         model: 'gpt-4.1-nano',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 200,
+        max_tokens: 350,
         temperature: 0.3,
       }),
     });
@@ -1762,7 +1753,7 @@ SUMMARY:`;
     if (!summary) return;
 
     // eslint-disable-next-line no-control-regex
-    summary = truncateAtSentence(summary.replace(/[\0-\x1f\x7f]/g, ' ').trim(), 500);
+    summary = truncateAtSentence(summary.replace(/[\0-\x1f\x7f]/g, ' ').trim(), 800);
 
     const patchRes = await fetch(`${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${chatId}`, {
       method: 'PATCH',
@@ -1799,6 +1790,7 @@ async function generateEntityChatSummary(
   spaceName,
   previousSummary,
   env,
+  timezone = 'UTC',
 ) {
   const t0 = Date.now();
 
@@ -1813,7 +1805,7 @@ async function generateEntityChatSummary(
     return;
   }
 
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
 
   const turns = [
     ...conversationMessages
@@ -2834,7 +2826,7 @@ export default {
 === CONTEXT: HABIT BUILDER ===
 You are helping someone design a new habit through a focused shaping conversation.
 
-LENGTH OVERRIDE: In this Habit Builder flow, keep responses to 1-3 sentences max. This is a focused shaping conversation, not a general chat. Every response should fit on a mobile screen without scrolling.
+LENGTH GUIDANCE: This is a mobile chat for shaping a habit — not a general knowledge conversation. During shaping exchanges (asking questions, proposing habits, confirming), keep responses to 2-4 sentences. When delivering research findings or post-lock-in tips, you can go longer — up to two short paragraphs — but never more. Every sentence must move the conversation forward. Cut anything that's context-setting or preamble.
 
 === YOUR JOB ===
 Help this person shape a habit through real conversation. You need to understand 4 things before you can confirm:
@@ -2845,10 +2837,7 @@ Help this person shape a habit through real conversation. You need to understand
 
 These should emerge naturally, not get collected like form fields.
 
-WRONG opening: "That's a great focus! Let's shape that into something concrete."
-RIGHT opening: "So a daily run — are you thinking mornings, or whenever you can fit it in?"
-
-Jump straight into the conversation. Never compliment their idea first.
+Jump straight into the conversation.
 
 === HOW TO HAVE THE CONVERSATION ===
 
@@ -2856,9 +2845,7 @@ Jump straight into the conversation. Never compliment their idea first.
 Your first follow-up after they tell you their idea should be about WHY or WHAT'S BEHIND IT. One question. Then start shaping.
 
 **By exchange 3-4, propose a habit.**
-Don't keep exploring. Synthesize what you've heard and suggest something concrete:
-"Sounds like a morning power hour — 30 minutes of focused work before checking email. Does that land, or should we shape it differently?"
-If you're wrong, they'll tell you. That's faster than five more questions.
+Don't keep exploring. Synthesize what you've heard into a specific proposal. If it doesn't land, they'll tell you. That's faster than five more questions.
 
 **Infer aggressively.**
 "I want to run every morning" = build, daily, morning. Don't reconfirm what's obvious.
@@ -2943,20 +2930,147 @@ Rules:
 - Pick the 2-3 most relevant from: habit stacking, first-day plan, ADHD-friendly friction reduction, realistic obstacle handling, or something specific to THEIR situation
 - Use **web_search** if real research would help — but tailor the search query to their specific context, not generic terms
 - Format with **bold** label + short sentence. Total under 100 words.
+- Each tip must cover a DIFFERENT strategy. Never repeat the same concept with different wording. If you can only think of two genuinely distinct tips, give two — never pad with a rephrased duplicate.
 
 Do NOT mention saving — the app shows a save button automatically.
 
 === IF THEY DON'T WANT TIPS ===
-One warm sentence. Done. No guilt, no "are you sure?"`;
+One warm sentence. Done. No guilt, no "are you sure?"
+
+=== AFTER TIPS (or if they decline tips) ===
+If the conversation is wrapping up after lock-in, offer one final thing: "Want me to send you a nudge after your first few sessions?" Keep it casual, one sentence. If they say yes, respond with a brief confirmation. If no, close warmly. Do not push or explain why — just offer and respect the answer.`;
+
+      // ─── V2 MODE-SPECIFIC PROMPT SECTIONS ─────────────────────────────
+      // DESIGN RULE: Semantic instructions only. No example phrases, no template
+      // sentences, no sample responses. The AI pattern-matches examples and
+      // regurgitates them verbatim. Describe WHAT to do, never HOW to say it.
+
+      const HABIT_MODE_QUICK_LOCK = `
+=== MODE: QUICK LOCK ===
+This user provided a fully-formed habit with behavior, type, and frequency already stated. They know what they want.
+
+APPROACH:
+- Confirm what you heard in a single natural sentence. Do not reformat it as a list or card.
+- If one element is ambiguous, ask ONE clarifying question. If nothing is ambiguous, move directly to the lock-in question.
+- If existing habits in context interact with this one (complement, conflict, or share a time window), mention it in one sentence.
+- Reach the lock-in question within 2 exchanges maximum.
+- Skip motivation and background — this user came to execute, not explore.`;
+
+      const HABIT_MODE_SHAPE = `
+=== MODE: SHAPE ===
+This user has a vague intent that needs shaping into a specific, trackable behavior. They said something broad without a concrete action or frequency.
+
+APPROACH:
+- Your first response: ask ONE question that narrows from category to specific behavior. Target the verb — what will they physically do?
+- By your third response in the conversation, propose a concrete habit with a specific behavior, frequency, and time. Don't keep asking — propose and let them react.
+- If your proposal doesn't land, iterate on it. Proposing and adjusting is faster than more questions.
+- Never ask more than one question per response.
+- The value you provide is turning vague intent into something schedulable. If they could have typed it into a form, you haven't added value.`;
+
+      const HABIT_MODE_RESEARCH = `
+=== MODE: RESEARCH ===
+This user wants information or perspective before committing. They asked a question or expressed curiosity about an approach.
+
+APPROACH:
+- You have web search results injected into context. Lead with the single most specific and useful finding — a number, a study result, a concrete data point. Never open with vague framing.
+- Synthesize no more than 2-3 findings and connect each one to the user's specific situation. Do not list findings generically.
+- After delivering the research value, pivot to shaping a specific habit based on what resonated. Propose something concrete.
+- The research IS the value-add. This is what differentiates the chat from a form. If you give generic advice without referencing search results, you've failed the mode.
+- If mid-conversation the user asks a follow-up research question, search again. Say you're looking into it and use web_search.
+- Prefer widely recognized sources — major health organizations, established fitness publications, university research, well-known media outlets. If search results only return niche or unfamiliar sites, rely on your training knowledge instead and be transparent that you couldn't find strong sources.`;
+
+      const HABIT_MODE_BREAK = `
+=== MODE: BREAK ===
+This user wants to stop, reduce, or eliminate a behavior. This is psychologically different from building a new habit. Use a completely different conversation structure.
+
+CONVERSATION STRUCTURE (follow this order):
+1. Clarify the specific behavior to stop and how often it currently happens.
+2. Identify the primary trigger — what situation, emotion, or time of day causes it. Ask ONE question about this, not a list of options.
+3. Identify or suggest a replacement behavior for when the trigger hits. If they don't know, suggest 2-3 context-appropriate alternatives.
+4. Shape a specific, binary, measurable boundary rule. The rule should be enforceable — something they can answer yes/no to at the end of each day.
+
+KEY DIFFERENCES FROM BUILD:
+- Frequency is implicit: daily avoidance is the default. Don't ask "how often do you want to avoid it."
+- Time window refers to when the TRIGGER occurs, not when they'll do a positive action.
+- Understanding WHY they want to stop drives the replacement behavior — motivation matters more here than in build.
+- Notes should capture: the trigger, the replacement, and any environment changes they plan.
+
+TRACKING FRAMING:
+Build habits show on the Today page for tick-off completion. Break habits are tracked through the Evening Sweep — the user reports whether they held the boundary. Frame tracking accordingly. Never describe the wrong mechanism.
+
+FRAMING:
+Never frame a break habit as deprivation or loss. Frame it as a trade — replacing one behavior with another when the trigger hits.`;
+
+      const HABIT_MODE_EVENT_ANCHORED = `
+=== MODE: EVENT ANCHORED ===
+This user's habit is tied to a deadline, event, or milestone. The event is the context for everything.
+
+APPROACH:
+- Acknowledge the timeline in your first response. Calculate the remaining weeks or months. Make the timeline feel concrete.
+- Shape the habit with the timeline in mind. For training goals, consider progressive difficulty. For lifestyle changes before an event, suggest a sustainable pace that doesn't burn out before the date.
+- End date is a required field in this mode, not optional. Extract or confirm it.
+- If appropriate, suggest starting easier and ramping up. The initial habit captures the starting point only — progression planning happens through entity chat after creation.
+- After lock-in, tell the user that Gremly shows a countdown and that the entity chat can help adjust the plan as the event approaches.
+- The event name and timeline should appear in the notes field.`;
+
+      const HABIT_MODE_RESTART = `
+=== RESTART CONTEXT ===
+This user has tried this habit (or something similar) before and stopped. Before shaping, ask ONE question about what got in the way previously.
+
+Use their answer to shape the habit differently than their last attempt:
+- Overcommitment → suggest smaller scope or lower frequency than they tried before.
+- Lost motivation → suggest accountability mechanisms or habit stacking with existing routines.
+- Life disruption → suggest flexible scheduling (weekly target rather than fixed days).
+- Forgetting → suggest anchoring to an existing behavior or time-based trigger.
+
+The notes field should capture what's different about this attempt compared to the previous one.
+
+Spend ONE exchange on what went wrong, then move forward. Do not dwell on failure or analyze it extensively.`;
+
+      const HABIT_MODE_NUDGE = `
+=== NUDGE ===
+This conversation has been going for a while without reaching a concrete proposal. It is time to synthesize. Take everything the user has shared — goals, constraints, context, preferences — and shape it into one specific, concrete habit proposal with behavior, frequency, and timing. Ask if they want to lock it in or adjust.`;
+
+      const HABIT_SHARED_V2_ADDITIONS = `
+
+=== READINESS MODEL ===
+You are NOT collecting form fields. You are having a conversation that gradually resolves a habit. The extraction model runs in the background and tracks readiness — you don't need to mentally checklist fields. Focus on having a genuinely useful conversation. The UI handles showing what's been resolved.
+
+When you have enough to propose something concrete, propose it. When the conversation has been valuable AND all critical fields are resolved, move to confirmation. Don't rush to confirmation just because fields are complete — if the conversation is adding value, keep going.
+
+=== CONTEXT AWARENESS ===
+You receive context about the user's existing habits, life situation, and capacity. Use it naturally — don't dump all context at once, weave it in where relevant:
+- If they have many daily habits, lean toward suggesting weekly or 2-3x/week for the new one.
+- If they have a Space that matches the habit domain, mention it as a natural home for the habit.
+- If their life context is relevant (major transition, busy period, etc.), factor it into your suggestions.
+- If they have a habit that conflicts with or complements what they're building, reference it.
+
+=== CONVERSATION LENGTH ===
+If you're 6+ exchanges in without having proposed a specific habit, synthesize and propose. The user can always tweak after creation through entity chat. Don't let pursuit of the perfect habit prevent creating a good one.
+
+=== POST-LOCK-IN EDITS ===
+If the user requests a change after confirming (different frequency, different start date, etc.), acknowledge the change in one sentence. The app handles the update. Do not re-confirm or re-propose the entire habit.
+
+=== HABIT STACKING ===
+After the user confirms and locks in a habit, check the existing habits listed in the session context. If any existing habit shares the same time window (morning/evening) or cadence (daily) as the new habit, offer to anchor the new one to the existing one. One sentence, framed as a suggestion not a requirement. If the user agrees, mention it will be linked in the app. If no existing habits match or the user has no habits yet, skip this entirely — do not mention stacking.`;
+
+      // Map mode string to prompt section
+      const HABIT_MODE_PROMPTS = {
+        QUICK_LOCK: HABIT_MODE_QUICK_LOCK,
+        SHAPE: HABIT_MODE_SHAPE,
+        RESEARCH: HABIT_MODE_RESEARCH,
+        BREAK: HABIT_MODE_BREAK,
+        EVENT_ANCHORED: HABIT_MODE_EVENT_ANCHORED,
+      };
 
       // =========================
       // === GENERAL GREETING ===
       // =========================
       if (type === 'general-greeting') {
         try {
-          const dailyFocus = await getDailyFocusForChat(body.userId, env);
-          const now = new Date();
           const userTimezone = body.timezone || 'America/Los_Angeles';
+          const dailyFocus = await getDailyFocusForChat(body.userId, env, userTimezone);
+          const now = new Date();
           const timeStr = new Intl.DateTimeFormat('en-US', {
             hour: 'numeric',
             minute: '2-digit',
@@ -3060,10 +3174,15 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
         const contextParts = [];
 
         // eslint-disable-next-line no-restricted-syntax -- server-side fallback; client sends local date via dateService
-        const today = context.currentDate || new Date().toISOString().split('T')[0];
+        const today =
+          context.currentDate ||
+          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
         const dow =
           context.dayOfWeek ||
-          new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(new Date());
+          new Intl.DateTimeFormat('en-US', {
+            weekday: 'long',
+            timeZone: body.timezone || 'UTC',
+          }).format(new Date());
         contextParts.push(`Today is ${dow}, ${today}.`);
 
         if (context.userName) {
@@ -3097,14 +3216,77 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
 
         const contextString = contextParts.join('\n');
 
-        const habitBuilderSystemPrompt = `${HABIT_BUILDER_PROMPT}\n\n=== SESSION CONTEXT ===\n${contextString}${userProfileContext}`;
+        // ── V2: Pre-parse triage ──
+        const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
+        const prevExchange = extractPreviousExchange(messages);
+
+        let preParse = null;
+        try {
+          const lifeMap = await getLifeMapForChat(body.userId, env);
+          const dailyFocus = await getDailyFocusForChat(body.userId, env);
+          const compressedLifeMap = compressLifeMapForHabits(lifeMap, dailyFocus);
+
+          preParse = await habitPreParse(
+            lastUserMsg,
+            prevExchange,
+            {
+              existingHabits: context.existingHabits || [],
+              currentMode: context.currentMode || null,
+              turnNumber: context.turnNumber || 0,
+              compressedLifeMap: compressedLifeMap.trim() || null,
+              currentDate: today,
+              habitCapacity: context.habitCapacity || null,
+            },
+            env,
+          );
+        } catch (err) {
+          console.warn('[HabitBuilder] Pre-parse failed, using V1 path:', err.message);
+        }
+
+        // Inject mode context into system prompt
+        const builderMode =
+          preParse?.mode !== 'CONTINUE' ? preParse?.mode : context.currentMode || 'SHAPE';
+
+        // Build mode-specific prompt section
+        const modePromptSection = HABIT_MODE_PROMPTS[builderMode] || HABIT_MODE_PROMPTS.SHAPE;
+        let dynamicSections = HABIT_SHARED_V2_ADDITIONS + '\n' + modePromptSection;
+
+        // Inject search hint for RESEARCH mode (Gemini's native web_search handles the actual search)
+        if (preParse?.search_query) {
+          dynamicSections += `\n\n=== SEARCH HINT ===\nThe user's intent suggests research would be valuable. Use web_search to look up: "${preParse.search_query}" and lead with specific findings.`;
+        }
+
+        // Add restart section if detected
+        if (preParse?.is_restart) {
+          dynamicSections += '\n' + HABIT_MODE_RESTART;
+        }
+
+        // Add nudge if conversation is long
+        if (preParse?.nudge_toward_proposal) {
+          dynamicSections += '\n' + HABIT_MODE_NUDGE;
+        }
+
+        // Add secondary mode context
+        if (preParse?.secondary_mode === 'EVENT_ANCHORED' && preParse?.event_context) {
+          dynamicSections += `\n\n=== EVENT CONTEXT ===\nThis habit is tied to: ${preParse.event_context.name} on ${preParse.event_context.date} (${preParse.event_context.weeks_until} weeks away). Factor the timeline into your shaping.`;
+        }
+        if (preParse?.secondary_mode === 'BREAK') {
+          dynamicSections +=
+            '\n\n=== NOTE ===\nThis user also wants to break/stop a behavior. Use break habit framing — focus on triggers, replacement, and boundaries rather than frequency and time slots.';
+        }
+
+        // Add capacity signal
+        if (preParse?.capacity_signal) {
+          dynamicSections += `\n\n=== CAPACITY NOTE ===\n${preParse.capacity_signal}`;
+        }
+
+        const habitBuilderSystemPrompt = `${HABIT_BUILDER_PROMPT}${dynamicSections}\n\n=== SESSION CONTEXT ===\n${contextString}${userProfileContext}`;
 
         const openaiMessages = [
           { role: 'system', content: habitBuilderSystemPrompt },
           ...messages.slice(-20),
         ];
 
-        const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
         const t0 = Date.now();
 
         // ── STREAMING ──
@@ -3393,7 +3575,8 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
               // ── POST-STREAM EXTRACTION ──
               const fullConversation = [...messages, { role: 'assistant', content: fullContent }];
 
-              const resolved = await extractHabitFields(fullConversation, key, today);
+              const resolved = await extractHabitFields(fullConversation, key, today, builderMode);
+              resolved.builder_mode = builderMode;
               const latency = Date.now() - t0;
               const finalData = JSON.stringify({
                 done: true,
@@ -3466,7 +3649,8 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
 
           // Extraction call with full conversation
           const fullConversation = [...messages, { role: 'assistant', content }];
-          const resolved = await extractHabitFields(fullConversation, key, today);
+          const resolved = await extractHabitFields(fullConversation, key, today, builderMode);
+          resolved.builder_mode = builderMode;
 
           console.log('[HabitBuilder] Complete', {
             latency_ms: latency,
@@ -3475,7 +3659,11 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
             next_field: resolved.next_field,
           });
 
-          return j({ content, resolved_fields: resolved, latency_ms: latency });
+          return j({
+            content,
+            resolved_fields: resolved,
+            latency_ms: latency,
+          });
         } catch (err) {
           const latency = Date.now() - t0;
           console.log('[HabitBuilder] Error', { error: String(err), latency_ms: latency });
@@ -3666,11 +3854,22 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
           timeZone: tz,
         }).format(new Date());
 
-        // Time of day for contextual suggestions
-        const clientTime = body.currentTime ? new Date(body.currentTime) : new Date();
-        const clientHour = clientTime.getHours();
+        // Time of day for contextual suggestions (timezone-aware)
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        const now = new Date();
+        const hourStr = new Intl.DateTimeFormat('en-US', {
+          hour: 'numeric',
+          hour12: false,
+          timeZone: tz,
+        }).format(now);
+        const clientHour = parseInt(hourStr, 10);
         const timeOfDay = clientHour < 12 ? 'morning' : clientHour < 17 ? 'afternoon' : 'evening';
-        const timeStr = `${clientHour}:${String(clientTime.getMinutes()).padStart(2, '0')}`;
+        const timeStr = new Intl.DateTimeFormat('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: tz,
+        }).format(now);
 
         /* [COMMENTED OUT — replaced by triage pipeline in buildEntityChatConfig]
         const entityChatSystemPrompt = `${GREMLY_CORE_PERSONA}
@@ -3732,120 +3931,7 @@ Almost never suggest creating a Space. Only if ALL true:
 - User seems to be managing something complex`;
         */
 
-        // === USER PROFILE & SESSION CONTEXT ===
-        let sessionContextStr = '';
-        let userProfile = null;
-        if (body.userId) {
-          try {
-            const [chatContext, profile] = await Promise.all([
-              buildChatContext(
-                body.userId,
-                'entity',
-                {
-                  entityTitle: entity?.title || entity?.name || null,
-                  entitySpaceId: entity?.spaceId || entity?.space_id || null,
-                },
-                env,
-              ),
-              getUserProfile(body.userId, env),
-            ]);
-            sessionContextStr = chatContext;
-            userProfile = profile;
-            if (sessionContextStr || userProfile) {
-              console.log('[EntityChat] Context loaded', {
-                userId: body.userId.slice(0, 8),
-                sessionContextLength: sessionContextStr?.length || 0,
-                hasUserProfile: !!userProfile,
-              });
-            }
-          } catch (err) {
-            console.error('[EntityChat] Context error', err);
-            // Continue without context - not critical
-          }
-        }
-
-        // URL context placeholders - populated in streaming path if URLs detected
-        let urlContext = '';
-        let fetchedUrl = null;
-
-        // === TRIAGE: Classify message before generation ===
         const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
-        const previousExchange = extractPreviousExchange(messages);
-
-        const cachedDomains = await getCachedDomainNames(body.userId, env);
-
-        const triage = await triageMessage({
-          userMessage: lastUserMsg,
-          previousExchange,
-          spaceName: body.spaceName || undefined,
-          preset: preset || undefined,
-          chatType: 'entity',
-          env,
-          domainNames: cachedDomains,
-          profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
-          messageCount: messages.length,
-        });
-
-        console.log('[EntityChat:Triage]', {
-          mode: triage.mode,
-          search: triage.search,
-          personal: triage.personal,
-          depth: triage.depth,
-          source: triage.source,
-          preset: preset || 'none',
-          messagePreview: lastUserMsg.slice(0, 80),
-        });
-
-        // === BUILD ENTITY CONTEXT ===
-        const entityContextBlock = buildEntityContextBlock({
-          entity: {
-            type: entity.type,
-            title: entity.title || 'Untitled',
-            body: entity.body || null,
-            tags: entity.tags || [],
-            due_date: entity.due_date || null,
-            frequency: entity.frequency || null,
-            time_estimate: entity.time_estimate || null,
-            subtype: entity.subtype || null,
-          },
-          sweepContext: sweepContext || null,
-          siblingContext: body.siblingContext || null,
-          timeOfDay,
-          timeStr,
-          messageCount: messages.length,
-        });
-
-        // === COMPOSE: Build generation config from triage signals ===
-        const genConfig = buildEntityChatConfig(
-          triage,
-          entityContextBlock,
-          body.accountCreatedAt,
-          sessionContextStr,
-          userProfile?.profileText,
-        );
-
-        // === BUILD MESSAGES: Replace old system prompt with triage-built one ===
-        const entityMessages = [
-          { role: 'system', content: genConfig.systemPrompt },
-          ...messages.slice(-20).filter((m) => m.role !== 'system'),
-        ];
-
-        // Check if previous messages contain search results to avoid redundant searches
-        const previousSearchContext = messages
-          .filter((m) => m.role === 'assistant' && m.metadata?.sources?.length > 0)
-          .slice(-1)[0];
-
-        if (previousSearchContext) {
-          entityMessages.push({
-            role: 'system',
-            content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.metadata.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
-          });
-        }
-
-        // === SEARCH POLICY ===
-        const searchPolicy = getSearchPolicy(triage.search);
-
-        const t0 = Date.now();
 
         // =========================
         // STREAMING ENTITY CHAT
@@ -3884,6 +3970,111 @@ Almost never suggest creating a Space. Only if ALL true:
             try {
               // Send SSE ping
               await writer.write(encoder.encode(': ping\n\n'));
+
+              // === CONTEXT LOADING (inside IIFE — non-blocking for SSE) ===
+              let sessionContextStr = '';
+              let userProfile = null;
+              let cachedDomains = [];
+              const previousExchange = extractPreviousExchange(messages);
+              if (body.userId) {
+                try {
+                  const [chatContext, profile, domains] = await Promise.all([
+                    buildChatContext(
+                      body.userId,
+                      'entity',
+                      {
+                        entityTitle: entity?.title || entity?.name || null,
+                        entitySpaceId: entity?.spaceId || entity?.space_id || null,
+                      },
+                      env,
+                    ),
+                    getUserProfile(body.userId, env),
+                    getCachedDomainNames(body.userId, env),
+                  ]);
+                  sessionContextStr = chatContext;
+                  userProfile = profile;
+                  cachedDomains = domains;
+                  if (sessionContextStr || userProfile) {
+                    console.log('[EntityChat] Context loaded', {
+                      userId: body.userId.slice(0, 8),
+                      sessionContextLength: sessionContextStr?.length || 0,
+                      hasUserProfile: !!userProfile,
+                    });
+                  }
+                } catch (err) {
+                  console.error('[EntityChat] Context error', err);
+                }
+              }
+
+              const triage = await triageMessage({
+                userMessage: lastUserMsg,
+                previousExchange,
+                spaceName: body.spaceName || undefined,
+                preset: preset || undefined,
+                chatType: 'entity',
+                env,
+                domainNames: cachedDomains,
+                profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
+                messageCount: messages.length,
+              });
+
+              console.log('[EntityChat:Triage]', {
+                mode: triage.mode,
+                search: triage.search,
+                personal: triage.personal,
+                depth: triage.depth,
+                source: triage.source,
+                preset: preset || 'none',
+                messagePreview: lastUserMsg.slice(0, 80),
+              });
+
+              const entityContextBlock = buildEntityContextBlock({
+                entity: {
+                  type: entity.type,
+                  title: entity.title || 'Untitled',
+                  body: entity.body || null,
+                  tags: entity.tags || [],
+                  due_date: entity.due_date || null,
+                  frequency: entity.frequency || null,
+                  time_estimate: entity.time_estimate || null,
+                  subtype: entity.subtype || null,
+                },
+                sweepContext: sweepContext || null,
+                siblingContext: body.siblingContext || null,
+                timeOfDay,
+                timeStr,
+                messageCount: messages.length,
+              });
+
+              const genConfig = buildEntityChatConfig(
+                triage,
+                entityContextBlock,
+                body.accountCreatedAt,
+                sessionContextStr,
+                userProfile?.profileText,
+                tz,
+              );
+
+              const entityMessages = [
+                { role: 'system', content: genConfig.systemPrompt },
+                ...messages.slice(-20).filter((m) => m.role !== 'system'),
+              ];
+
+              const previousSearchContext = messages
+                .filter((m) => m.role === 'assistant' && m.metadata?.sources?.length > 0)
+                .slice(-1)[0];
+
+              if (previousSearchContext) {
+                entityMessages.push({
+                  role: 'system',
+                  content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.metadata.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
+                });
+              }
+
+              const searchPolicy = getSearchPolicy(triage.search);
+              const t0 = Date.now();
+              let urlContext = '';
+              let fetchedUrl = null;
 
               // Detect URLs in the user's message
               const detectedUrls = extractUrlsFromText(lastUserMsg);
@@ -4463,6 +4654,7 @@ Almost never suggest creating a Space. Only if ALL true:
                           entity.space_name || null,
                           previousEntitySummary,
                           env,
+                          tz,
                         );
                       } catch (err) {
                         console.warn('[EntityChat] Chat summary failed:', err.message);
@@ -4509,6 +4701,105 @@ Almost never suggest creating a Space. Only if ALL true:
             },
           });
         }
+
+        // === CONTEXT LOADING (non-streaming) ===
+        let sessionContextStr = '';
+        let userProfile = null;
+        let cachedDomains = [];
+        const previousExchange = extractPreviousExchange(messages);
+        if (body.userId) {
+          try {
+            const [chatContext, profile, domains] = await Promise.all([
+              buildChatContext(
+                body.userId,
+                'entity',
+                {
+                  entityTitle: entity?.title || entity?.name || null,
+                  entitySpaceId: entity?.spaceId || entity?.space_id || null,
+                },
+                env,
+              ),
+              getUserProfile(body.userId, env),
+              getCachedDomainNames(body.userId, env),
+            ]);
+            sessionContextStr = chatContext;
+            userProfile = profile;
+            cachedDomains = domains;
+          } catch (err) {
+            console.error('[EntityChat:NonStreaming] Context error', err);
+          }
+        }
+
+        let urlContext = '';
+        let fetchedUrl = null;
+
+        const triage = await triageMessage({
+          userMessage: lastUserMsg,
+          previousExchange,
+          spaceName: body.spaceName || undefined,
+          preset: preset || undefined,
+          chatType: 'entity',
+          env,
+          domainNames: cachedDomains,
+          profileSnippet: userProfile?.profileText?.slice(0, 150) || '',
+          messageCount: messages.length,
+        });
+
+        console.log('[EntityChat:NonStreaming:Triage]', {
+          mode: triage.mode,
+          search: triage.search,
+          personal: triage.personal,
+          depth: triage.depth,
+          source: triage.source,
+          preset: preset || 'none',
+          messagePreview: lastUserMsg.slice(0, 80),
+        });
+
+        const entityContextBlock = buildEntityContextBlock({
+          entity: {
+            type: entity.type,
+            title: entity.title || 'Untitled',
+            body: entity.body || null,
+            tags: entity.tags || [],
+            due_date: entity.due_date || null,
+            frequency: entity.frequency || null,
+            time_estimate: entity.time_estimate || null,
+            subtype: entity.subtype || null,
+          },
+          sweepContext: sweepContext || null,
+          siblingContext: body.siblingContext || null,
+          timeOfDay,
+          timeStr,
+          messageCount: messages.length,
+        });
+
+        const genConfig = buildEntityChatConfig(
+          triage,
+          entityContextBlock,
+          body.accountCreatedAt,
+          sessionContextStr,
+          userProfile?.profileText,
+          tz,
+        );
+
+        const entityMessages = [
+          { role: 'system', content: genConfig.systemPrompt },
+          ...messages.slice(-20).filter((m) => m.role !== 'system'),
+        ];
+
+        const previousSearchContext = messages
+          .filter((m) => m.role === 'assistant' && m.metadata?.sources?.length > 0)
+          .slice(-1)[0];
+
+        if (previousSearchContext) {
+          entityMessages.push({
+            role: 'system',
+            content: `Note: You previously searched and found information about this topic. The sources were: ${previousSearchContext.metadata.sources.map((s) => s.title).join(', ')}. For follow-up questions on the same topic, use this context rather than searching again unless the user asks for new/different information.`,
+          });
+        }
+
+        const searchPolicy = getSearchPolicy(triage.search);
+        const t0 = Date.now();
 
         // =========================
         // NON-STREAMING ENTITY CHAT
@@ -4668,6 +4959,7 @@ Almost never suggest creating a Space. Only if ALL true:
                     entity.space_name || null,
                     previousEntitySummary,
                     env,
+                    tz,
                   );
                 } catch (err) {
                   console.warn('[EntityChat:NonStreaming] Chat summary failed:', err.message);
@@ -4760,55 +5052,327 @@ Almost never suggest creating a Space. Only if ALL true:
       }
 
       /**
+       * Pre-parse: classify user intent into a conversation mode before main chat.
+       * Runs gpt-4.1-nano (~100ms). Returns null on any failure.
+       */
+      async function habitPreParse(userMessage, previousExchange, context, env) {
+        const { existingHabits, currentMode, turnNumber, compressedLifeMap, habitCapacity } =
+          context;
+
+        const habitList =
+          (existingHabits || [])
+            .map((h) => {
+              const parts = [h.name];
+              parts.push(h.subtype === 'break_habit' ? 'break' : 'build');
+              if (h.frequency) parts.push(h.frequency);
+              if (h.time_window && h.time_window !== 'any') parts.push(h.time_window);
+              return parts.join(', ');
+            })
+            .join(' | ') || 'None';
+
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        const today =
+          context.currentDate ||
+          new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
+
+        const prompt = `You classify the intent of a message in a habit-building conversation.
+Today's date is ${today}.
+
+CONTEXT:
+- User's existing habits: ${habitList}
+${habitCapacity ? `- Habit capacity: ${habitCapacity.totalActive} active habits (${habitCapacity.dailyCount} daily, ${habitCapacity.weeklyCount} weekly)` : ''}
+- Life context: ${compressedLifeMap || 'None available'}
+- Current conversation mode: ${currentMode || 'none (first message)'}
+- Previous exchange: ${previousExchange ? `Assistant: "${previousExchange.assistantMsg?.slice(0, 200)}" / User: "${previousExchange.userMsg?.slice(0, 200)}"` : 'none'}
+- Turn number: ${turnNumber || 0}
+
+IF current mode is "none" (first message) OR you detect a clear mode shift signal:
+  CLASSIFY into exactly one primary mode:
+  - QUICK_LOCK: User gave a specific behavior + frequency. All key info present.
+  - SHAPE: Intent present but missing specific behavior and/or frequency.
+  - RESEARCH: User is asking a question, wants information, or expresses curiosity/uncertainty.
+  - BREAK: User wants to stop, quit, reduce, or eliminate a behavior.
+  - EVENT_ANCHORED: Habit tied to a specific deadline, event, or milestone.
+  Also check for a secondary mode if signals for two modes are present.
+
+IF the user is simply responding to a question, confirming, or continuing without new intent:
+  Return mode: "CONTINUE"
+
+MODE SHIFT SIGNALS (reclassify even mid-conversation):
+  - User asks a question → may shift to RESEARCH
+  - User mentions a deadline or event → may add EVENT_ANCHORED as secondary
+  - "I've tried this before" / "I keep failing" → set is_restart: true
+  - "Just set it up" → shift to QUICK_LOCK
+  - "What does research say?" → shift to RESEARCH
+  - User mentions wanting to stop/quit something → shift to BREAK
+
+ALSO DETECT:
+- is_restart: true if user signals they've tried this before and failed/stopped. false otherwise.
+- search_query: A concise 3-6 word web search query if RESEARCH mode or if user asks something researchable. null otherwise. Make it specific.
+- event_context: { name, date (YYYY-MM-DD), weeks_until } if EVENT_ANCHORED detected. null otherwise.
+- capacity_signal: Brief note if habit load suggests capacity concerns. null if fine.
+- nudge_toward_proposal: true if turn_number >= 8. false otherwise.
+
+EXTRACT fields present in THIS message:
+- behavior, habit_type ("build"/"break"/null), frequency, start_date (YYYY-MM-DD), time_window ("morning"/"afternoon"/"evening"/"anytime"), end_date (YYYY-MM-DD)
+All null if not present.
+
+Return ONLY valid JSON:
+{"mode":"...","secondary_mode":null,"is_restart":false,"search_query":null,"event_context":null,"capacity_signal":null,"nudge_toward_proposal":false,"extracted":{"behavior":null,"habit_type":null,"frequency":null,"start_date":null,"time_window":null,"end_date":null}}`;
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1-nano',
+              messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: userMessage },
+              ],
+              temperature: 0.1,
+              max_tokens: 300,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          if (!res.ok) {
+            console.warn('[HabitPreParse] API error:', res.status);
+            return null;
+          }
+
+          const data = await res.json();
+          const raw = data?.choices?.[0]?.message?.content ?? '{}';
+          const parsed = safeParseJson(raw);
+
+          if (!parsed || !parsed.mode) {
+            console.warn('[HabitPreParse] Invalid response:', raw?.slice(0, 100));
+            return null;
+          }
+
+          const validModes = [
+            'QUICK_LOCK',
+            'SHAPE',
+            'RESEARCH',
+            'BREAK',
+            'EVENT_ANCHORED',
+            'CONTINUE',
+          ];
+          if (!validModes.includes(parsed.mode)) {
+            console.warn('[HabitPreParse] Invalid mode:', parsed.mode);
+            return null;
+          }
+
+          console.log('[HabitPreParse] Result:', {
+            mode: parsed.mode,
+            secondary: parsed.secondary_mode,
+            isRestart: parsed.is_restart,
+            hasSearch: !!parsed.search_query,
+            nudge: parsed.nudge_toward_proposal,
+          });
+
+          return parsed;
+        } catch (err) {
+          console.error('[HabitPreParse] Error:', err.message);
+          return null;
+        }
+      }
+
+      /**
+       * Compress Life Map + Daily Focus into a short context string for habit builder.
+       * Used by pre-parse (under 500 chars) and could be used by other lightweight contexts.
+       *
+       * Pulls:
+       * 1. Life moment from daily focus (NOT from Life Map — it doesn't have current_moment)
+       * 2. Active domain names from Life Map
+       * 3. High-importance active thread summaries (first sentence only)
+       */
+      function compressLifeMapForHabits(lifeMap, dailyFocus) {
+        const parts = [];
+
+        // 1. Life moment from daily focus
+        if (dailyFocus?.lifeMoment) {
+          parts.push(dailyFocus.lifeMoment);
+        }
+
+        // 2. Active domain names
+        if (lifeMap?.domains) {
+          const activeDomains = lifeMap.domains
+            .filter((d) => d.attention !== 'background')
+            .map((d) => d.name);
+          if (activeDomains.length > 0) {
+            parts.push('Active domains: ' + activeDomains.join(', '));
+          }
+
+          // 3. High-importance active thread summaries (first sentence only)
+          const highThreads = [];
+          for (const domain of lifeMap.domains) {
+            if (domain.attention === 'background') continue;
+            for (const thread of domain.threads || []) {
+              if (
+                thread.importance === 'high' &&
+                (thread.lifecycle === 'active' || thread.lifecycle === 'dormant')
+              ) {
+                if (thread.summary) {
+                  const firstSentence = thread.summary.split(/\.\s/)[0];
+                  highThreads.push(`${domain.name}: ${firstSentence}`);
+                }
+              }
+            }
+          }
+          if (highThreads.length > 0) {
+            parts.push(highThreads.slice(0, 3).join('. '));
+          }
+        }
+
+        const result = parts.join('. ').trim();
+
+        // Enforce 500 char limit — drop thread summaries first if over
+        if (result.length > 500) {
+          const withoutThreads = parts.slice(0, 2).join('. ').trim();
+          return withoutThreads.slice(0, 500);
+        }
+
+        return result || '';
+      }
+
+      /**
        * Post-stream extraction: analyzes full conversation to extract resolved habit fields.
        * Runs after streaming completes (~300ms). User doesn't see this call.
        */
-      async function extractHabitFields(messages, apiKey, currentDate) {
-        // eslint-disable-next-line no-restricted-syntax -- server-side fallback, no dateService available
-        const fallbackDate = new Date().toISOString().split('T')[0];
-        const extractionPrompt = `You analyze a habit-building conversation and extract what has been resolved so far.
-Today's date is ${currentDate || fallbackDate}.
-Use this to resolve relative dates like "today", "tomorrow", "tonight", "next Monday", "this weekend" into actual YYYY-MM-DD format.
+      async function extractHabitFields(messages, apiKey, currentDate, builderMode) {
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        const fallbackDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(
+          new Date(),
+        );
+        const isBreakMode = builderMode === 'BREAK';
+        const isEventMode = builderMode === 'EVENT_ANCHORED';
 
-Read the FULL conversation below. For each field, determine if the user and assistant have settled on a value. Only mark a field as resolved if there is clear agreement or strong inference — do not guess.
+        const extractionPrompt = `You analyze a habit-building conversation and assess readiness.
+Today is ${new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(new Date())}, ${currentDate || fallbackDate}.
+Resolve relative day and date references into YYYY-MM-DD. Verify the day-of-week matches the calendar date before returning.
 
-FIELDS TO EXTRACT:
-1. name — clean habit name, 2-6 words (e.g., "Morning Run", "No Phone After 9pm")
-2. habit_type — "build" (starting something) or "break" (stopping something)
+Conversation mode: ${builderMode || 'SHAPE'}
+
+Read the FULL conversation. Extract resolved fields and assess readiness.
+
+=== READINESS TIERS ===
+${
+  isBreakMode
+    ? `BREAK HABITS:
+- "exploring": No specific behavior to stop identified.
+- "shaping": Behavior to stop identified, but missing trigger OR replacement/boundary.
+- "confirmable": Behavior to stop + trigger identified + replacement behavior OR boundary rule.
+- "locked": User has confirmed.`
+    : `BUILD HABITS:
+- "exploring": No specific, schedulable behavior identified. User still thinking.
+- "shaping": Specific behavior exists but missing frequency OR build/break type.
+- "confirmable": Core triad resolved — specific trackable behavior + build/break + frequency. Start date defaults to today if not discussed.
+- "locked": User has confirmed.`
+}
+
+SPECIFICITY TEST: Could this behavior be written on a calendar? If yes, at least "shaping." If too vague to schedule, "exploring."
+READINESS MUST NEVER REGRESS from a previous tier.
+
+=== CONVERSATION VALUE ===
+- "low": User provided all info upfront. Chat just confirmed.
+- "medium": Chat helped shape the behavior, frequency, or approach.
+- "high": Chat provided research, restart shaping, context integration, or fundamentally changed the approach.
+
+=== FIELDS TO EXTRACT ===
+1. name — clean habit name, 2-6 words. For break habits, use the boundary rule as the name if one has been shaped.
+   CRITICAL: name must be short, action-oriented, and usable as a standalone title. Not a sentence, not a description, not a summary of the conversation. Return null if no specific behavior has been identified.
+2. habit_type — "build" or "break"
 3. cadence — "daily", "weekly", or "monthly"
-4. target — normalized frequency: "daily", "2x/week", "3x/week", "weekly", "2x/month", etc.
-5. start_date — YYYY-MM-DD format
+4. target — normalized frequency string: "daily", "2x/week", "3x/week", "weekly", etc.
+5. start_date — YYYY-MM-DD
 6. time_window — "morning", "afternoon", "evening", or "anytime" (null if not discussed)
-7. space_name — name of the Space the user wants to assign this to (null if not discussed)
-8. notes — capture the user's motivation AND context in FIRST PERSON, synthesized from the ENTIRE conversation — not just the last message. Include: why they want this, what they're replacing or changing (if relevant), and any personal context they shared. If the user gave a shorthand response like "all of the above" or "yes", expand it using the full conversation. Example: user says "I want to start reading before bed instead of scrolling my phone", later asked about motivation and replies "All of the above" to "better sleep, less screen time, or finishing a book?" → notes should be "Want to swap phone scrolling for reading before bed — better sleep, less screen time, and actually finishing books." Keep it 1-2 sentences max. null if nothing personal was shared.
-9. end_date — YYYY-MM-DD if they want a time-boxed trial (null if not discussed)
-10. time_estimate_minutes — minutes per session: 5, 10, 15, 30, 45, 60, 90, 120 (null if not discussed, infer from activity type if obvious e.g. running=30, meditation=10)
+7. space_name — Space name if user discussed assigning to one (null if not)
+8. notes — the user's personal WHY in one short sentence, first person. This must add context that is NOT already captured by the name, frequency, start date, or time window fields. If the user's motivation is fully expressed by the habit parameters themselves, return null. Maximum 15 words. Never mention the habit name, frequency, schedule, or any field values that already appear elsewhere in this JSON.
+9. end_date — YYYY-MM-DD if a deadline or event was discussed (null if not)
+10. time_estimate_minutes — estimated minutes per session: 5, 10, 15, 30, 45, 60, 90, 120 (null if not discussed, infer from activity type if obvious)
+11. event_name — what they're working toward, if an event/deadline is involved (null if not)
+12. is_restart — true if the user indicated they've attempted this before and stopped
+13. restart_context — what went wrong last time and how this attempt differs (null if not a restart or not discussed)
+${
+  isBreakMode
+    ? `
+=== BREAK-SPECIFIC FIELDS ===
+14. trigger — what causes the unwanted behavior (null if not discussed)
+15. replacement_behavior — what they'll do instead when triggered (null if not discussed)
+16. environment_change — any physical or environmental modifications planned (null if not discussed)
+17. boundary_rule — the specific binary rule they're setting, phrased as a constraint (null if not shaped)
+18. current_frequency — how often the unwanted behavior currently happens (null if not discussed)`
+    : ''
+}
+${
+  isEventMode
+    ? `
+=== EVENT-SPECIFIC NOTES ===
+Include the event name and timeline in the notes field.`
+    : ''
+}
 
-ALSO DETERMINE:
-- is_confirmation: true if the assistant's LAST message asks the user to confirm/lock in the habit (e.g., "Want to lock this in?", "Ready to lock it in?", "want to lock this in, or tweak anything?"). This is true even if the assistant did NOT list out the habit details — the app renders a visual card separately. false if the assistant is still asking questions to shape the habit.
-- suggested_chips: 2-4 short tappable quick-reply options (each 1-4 words) that would help the user respond to what the assistant just asked. Generate these based on what the assistant is ACTUALLY asking about in its last message, not based on which fields are missing.
-  - If the assistant asked about frequency: ["Every day", "A few times a week", "Once a week"]
-  - If the assistant asked about time of day: ["Morning", "Evening", "Anytime"]
-  - If the assistant asked about start date: ["Today", "Tomorrow", "Next Monday"]
-  - If the assistant presented a confirmation card: ["Lock it in ✓", "Let me tweak something"]
-  - If the assistant asked an open-ended or exploratory question (like "what does that look like for you?" or "what's gotten in the way?"): null — these are better answered in the user's own words
-  - If the assistant offered specific options in its message (like "texts, calls, or something else?"): use THOSE specific options as chips
-  - Default to null if unsure. It's better to show no chips than wrong chips.
+=== CONFIRMATION DETECTION ===
+is_confirmation: true if the assistant's LAST message asks the user to confirm/lock in the habit. true even if the assistant did not list habit details (the app renders a visual card separately). false if still shaping.
 
-Return ONLY valid JSON, no explanation:
+=== POST-LOCK-IN EDIT DETECTION ===
+If the habit was already confirmed and the user is requesting a change:
+- edit_field: the field name being changed (frequency, start_date, end_date, time_window, name, notes, time_estimate_minutes, trigger, replacement_behavior, boundary_rule)
+- edit_value: the new value
+Keep readiness as "locked" in this case.
+
+=== CHIPS ===
+CRITICAL RULE: Chips must respond to the topic and intent of the assistant's last message, not to which habit fields are missing. For yes/no questions, return yes/no style options. For choice questions, return the choices. Never generate field-completion chips when the assistant asked an unrelated question.
+
+suggested_chips: 2-3 short tappable answer options that directly respond to the assistant's last question.
+- Match the question topic (frequency, time, start date, confirmation).
+- If the assistant presented specific options in its message, use THOSE as chips.
+- If the assistant asked an open-ended or exploratory question, return null.
+- If readiness is confirmable, include a lock-in chip.
+- Default to null if unsure.
+
+steering_chips: 0-1 conversation control chips.
+- If the conversation is 3+ turns and mode is SHAPE or RESEARCH, consider a skip-to-setup option.
+- If research might help, consider a research option.
+- If a restart signal seems possible, consider a past-attempt option.
+- After lock-in: null.
+- Default: null. Don't force steering chips.
+
+Return ONLY valid JSON:
 {
-  "name": string | null,
-  "habit_type": "build" | "break" | null,
-  "cadence": "daily" | "weekly" | "monthly" | null,
-  "target": string | null,
-  "start_date": string | null,
-  "time_window": string | null,
-  "space_name": string | null,
-  "notes": string | null,
-  "end_date": string | null,
-  "time_estimate_minutes": number | null,
-  "is_confirmation": boolean,
-  "suggested_chips": string[] | null
+  "name": "string or null",
+  "habit_type": "build or break or null",
+  "cadence": "daily or weekly or monthly or null",
+  "target": "string or null",
+  "start_date": "YYYY-MM-DD or null",
+  "time_window": "morning or afternoon or evening or anytime or null",
+  "space_name": "string or null",
+  "notes": "string or null",
+  "end_date": "YYYY-MM-DD or null",
+  "time_estimate_minutes": "number or null",
+  "event_name": "string or null",
+  "is_restart": false,
+  "restart_context": "string or null",
+  "is_confirmation": false,
+  "readiness": "exploring or shaping or confirmable or locked",
+  "conversation_value": "low or medium or high",
+  "suggested_chips": "array of strings or null",
+  "steering_chips": "array of strings or null",
+  "edit_field": "string or null",
+  "edit_value": "string or null"${
+    isBreakMode
+      ? `,
+  "trigger": "string or null",
+  "replacement_behavior": "string or null",
+  "environment_change": "string or null",
+  "boundary_rule": "string or null",
+  "current_frequency": "string or null"`
+      : ''
+  }
 }`;
 
         const defaults = {
@@ -4826,6 +5390,19 @@ Return ONLY valid JSON, no explanation:
           suggested_chips: null,
           next_field: null,
           required_count: 0,
+          readiness: 'exploring',
+          conversation_value: 'low',
+          event_name: null,
+          is_restart: false,
+          restart_context: null,
+          steering_chips: null,
+          edit_field: null,
+          edit_value: null,
+          trigger: null,
+          replacement_behavior: null,
+          environment_change: null,
+          boundary_rule: null,
+          current_frequency: null,
         };
 
         try {
@@ -4836,7 +5413,7 @@ Return ONLY valid JSON, no explanation:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1-nano',
+              model: 'gpt-4.1-mini',
               messages: [
                 { role: 'system', content: extractionPrompt },
                 {
@@ -4847,7 +5424,7 @@ Return ONLY valid JSON, no explanation:
                 },
               ],
               temperature: 0.1,
-              max_tokens: 400,
+              max_tokens: 600,
               response_format: { type: 'json_object' },
             }),
           });
@@ -4891,6 +5468,33 @@ Return ONLY valid JSON, no explanation:
                   .filter((c) => typeof c === 'string' && c.length > 0 && c.length <= 30)
                   .slice(0, 4)
               : null,
+            // V2 fields
+            readiness: ['exploring', 'shaping', 'confirmable', 'locked'].includes(parsed.readiness)
+              ? parsed.readiness
+              : 'exploring',
+            conversation_value: ['low', 'medium', 'high'].includes(parsed.conversation_value)
+              ? parsed.conversation_value
+              : 'low',
+            event_name: typeof parsed.event_name === 'string' ? parsed.event_name : null,
+            is_restart: parsed.is_restart === true,
+            restart_context:
+              typeof parsed.restart_context === 'string' ? parsed.restart_context : null,
+            steering_chips: Array.isArray(parsed.steering_chips)
+              ? parsed.steering_chips
+                  .filter((c) => typeof c === 'string' && c.length > 0 && c.length <= 30)
+                  .slice(0, 2)
+              : null,
+            edit_field: typeof parsed.edit_field === 'string' ? parsed.edit_field : null,
+            edit_value: typeof parsed.edit_value === 'string' ? parsed.edit_value : null,
+            // Break-specific
+            trigger: typeof parsed.trigger === 'string' ? parsed.trigger : null,
+            replacement_behavior:
+              typeof parsed.replacement_behavior === 'string' ? parsed.replacement_behavior : null,
+            environment_change:
+              typeof parsed.environment_change === 'string' ? parsed.environment_change : null,
+            boundary_rule: typeof parsed.boundary_rule === 'string' ? parsed.boundary_rule : null,
+            current_frequency:
+              typeof parsed.current_frequency === 'string' ? parsed.current_frequency : null,
           };
 
           // ── Server-side inference: fill obvious gaps the model might miss ──
@@ -5026,9 +5630,20 @@ Return ONLY valid JSON, no explanation:
         const tasks = Array.isArray(body.tasks) ? body.tasks : [];
         const calendarEvents = Array.isArray(body.calendarEvents) ? body.calendarEvents : [];
         const blocks = body.blocks || {};
-        const currentHour = body.currentHour ?? new Date().getHours();
-        const userId = body.userId || null;
         const timezone = body.timezone || 'America/Los_Angeles';
+        let currentHour;
+        if (body.currentHour != null) {
+          currentHour = body.currentHour;
+        } else {
+          // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+          const hourStr = new Intl.DateTimeFormat('en-US', {
+            hour: 'numeric',
+            hour12: false,
+            timeZone: timezone,
+          }).format(new Date());
+          currentHour = parseInt(hourStr, 10);
+        }
+        const userId = body.userId || null;
 
         // === Expanded context (new in v2.0) ===
         const userPatterns = body.userPatterns || null;
@@ -5312,9 +5927,18 @@ Follow these steps IN ORDER:
 Keep the tone warm and reassuring — like a helpful friend explaining the plan.`;
 
         // === Dynamic user message ===
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
         const currentIso = new Date().toISOString();
+        const localTimeStr = new Intl.DateTimeFormat('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: timezone,
+          // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        }).format(new Date());
         const userMessage = `=== TIME ===
-Current time: ${currentIso}
+Current time (UTC): ${currentIso}
+Current local time: ${localTimeStr} (${timezone})
 Current hour: ${currentHour}:00
 Timezone: ${timezone}
 Do NOT schedule any task before the current time.
@@ -5718,156 +6342,137 @@ ${assistantMessage.substring(0, 2000)}
 
         const t0 = Date.now();
 
-        try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: spaceChatSavePrompt },
-                { role: 'user', content: contextBlock },
-              ],
-              temperature: 0.3,
-              max_tokens: 250,
-              response_format: { type: 'json_object' },
-            }),
-          });
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: spaceChatSavePrompt,
+          messages: [{ role: 'user', content: contextBlock }],
+          temperature: 0.3,
+          maxOutputTokens: 250,
+          endpoint: 'space-chat-save',
+        });
 
-          const oj = await res.json();
-          const latency = Date.now() - t0;
+        const latency = Date.now() - t0;
 
-          if (!res.ok) {
-            console.log('[space-chat-save] API error', { error: oj.error, latency_ms: latency });
-            return j({ error: 'classification_failed', latency_ms: latency }, 200);
-          }
-
-          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
-          let parsed;
-          try {
-            parsed = JSON.parse(rawContent);
-          } catch {
-            console.log('[space-chat-save] Parse error', { raw: rawContent });
-            return j({ error: 'parse_failed', latency_ms: latency }, 200);
-          }
-
-          // Validate and normalize type
-          const validTypes = ['habit', 'todo', 'log'];
-          let resultType = String(parsed.type || 'log').toLowerCase();
-          if (!validTypes.includes(resultType)) resultType = 'log';
-
-          // Validate and normalize subtype
-          const validSubtypes = {
-            habit: ['start_habit', 'break_habit'],
-            todo: [],
-            log: ['general', 'idea', 'journal'],
-          };
-
-          let subtype = parsed.subtype;
-          if (resultType === 'habit') {
-            subtype = validSubtypes.habit.includes(subtype) ? subtype : 'start_habit';
-          } else if (resultType === 'log') {
-            subtype = validSubtypes.log.includes(subtype) ? subtype : 'general';
-          } else {
-            subtype = null;
-          }
-
-          // Validate confidence
-          let confidence = Number(parsed.confidence);
-          if (!Number.isFinite(confidence)) confidence = 0.8;
-          confidence = Math.max(0, Math.min(1, confidence));
-
-          // Validate and sanitize title
-          let title = String(parsed.title || '').trim();
-          if (title.length < 3 || title.length > 60) {
-            // Fallback: use first part of user's question
-            title = userMessage.split(/[.?!]/)[0].trim();
-            if (title.length > 50) title = title.substring(0, 47) + '...';
-            if (title.length < 3) title = 'Saved From Chat';
-          }
-          // Title case
-          title = title
-            .split(/\s+/)
-            .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
-            .join(' ');
-
-          // Validate tags
-          let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
-          tags = tags
-            .map((t) =>
-              String(t)
-                .toLowerCase()
-                .replace(/\s+/g, '-')
-                .replace(/[^a-z0-9-]/g, ''),
-            )
-            .filter((t) => t.length >= 2 && t.length <= 30)
-            .filter((t) => !isStopTag(t))
-            .slice(0, 5);
-
-          // Validate frequency (habits only)
-          let frequency = null;
-          if (resultType === 'habit') {
-            frequency = parsed.frequency || 'daily';
-          }
-
-          // Validate days (habits only)
-          let days = null;
-          if (resultType === 'habit' && Array.isArray(parsed.days) && parsed.days.length > 0) {
-            const validDays = parsed.days
-              .map((d) => Number(d))
-              .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
-            if (validDays.length > 0) {
-              days = [...new Set(validDays)].sort((a, b) => a - b);
-            }
-          }
-          // Fallback: parse from user message
-          if (resultType === 'habit' && !days) {
-            days = parseDaysFromText(userMessage);
-          }
-
-          // Validate time_estimate_minutes — round to nearest 5, clamp 5-240
-          let timeEstimateMinutes = null;
-          if (resultType === 'habit' || resultType === 'todo') {
-            const num = Number(parsed.timeEstimateMinutes);
-            if (Number.isFinite(num) && num > 0) {
-              timeEstimateMinutes = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
-            }
-          }
-
-          // Validate hasList
-          const hasList = Boolean(parsed.hasList);
-
-          console.log('[space-chat-save] Success', {
-            type: resultType,
-            subtype,
-            title: title.substring(0, 30),
-            tags_count: tags.length,
-            has_frequency: !!frequency,
-            has_days: !!days,
-            has_time: !!timeEstimateMinutes,
-            latency_ms: latency,
-          });
-
-          return j({
-            type: resultType,
-            subtype,
-            confidence,
-            title,
-            tags,
-            frequency,
-            days,
-            timeEstimateMinutes,
-            hasList,
-            latency_ms: latency,
-          });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[space-chat-save] Error', { error: String(err), latency_ms: latency });
-          return j({ error: 'request_failed', detail: String(err) }, 200);
+        if (!result.parsed) {
+          console.log('[space-chat-save] Both providers failed', { latency_ms: latency });
+          return j({ error: 'classification_failed', latency_ms: latency }, 200);
         }
+
+        const parsed = result.parsed;
+
+        // Validate and normalize type
+        const validTypes = ['habit', 'todo', 'log'];
+        let resultType = String(parsed.type || 'log').toLowerCase();
+        if (!validTypes.includes(resultType)) resultType = 'log';
+
+        // Validate and normalize subtype
+        const validSubtypes = {
+          habit: ['start_habit', 'break_habit'],
+          todo: [],
+          log: ['general', 'idea', 'journal'],
+        };
+
+        let subtype = parsed.subtype;
+        if (resultType === 'habit') {
+          subtype = validSubtypes.habit.includes(subtype) ? subtype : 'start_habit';
+        } else if (resultType === 'log') {
+          subtype = validSubtypes.log.includes(subtype) ? subtype : 'general';
+        } else {
+          subtype = null;
+        }
+
+        // Validate confidence
+        let confidence = Number(parsed.confidence);
+        if (!Number.isFinite(confidence)) confidence = 0.8;
+        confidence = Math.max(0, Math.min(1, confidence));
+
+        // Validate and sanitize title
+        let title = String(parsed.title || '').trim();
+        if (title.length < 3 || title.length > 60) {
+          // Fallback: use first part of user's question
+          title = userMessage.split(/[.?!]/)[0].trim();
+          if (title.length > 50) title = title.substring(0, 47) + '...';
+          if (title.length < 3) title = 'Saved From Chat';
+        }
+        // Title case
+        title = title
+          .split(/\s+/)
+          .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
+          .join(' ');
+
+        // Validate tags
+        let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+        tags = tags
+          .map((t) =>
+            String(t)
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-]/g, ''),
+          )
+          .filter((t) => t.length >= 2 && t.length <= 30)
+          .filter((t) => !isStopTag(t))
+          .slice(0, 5);
+
+        // Validate frequency (habits only)
+        let frequency = null;
+        if (resultType === 'habit') {
+          frequency = parsed.frequency || 'daily';
+        }
+
+        // Validate days (habits only)
+        let days = null;
+        if (resultType === 'habit' && Array.isArray(parsed.days) && parsed.days.length > 0) {
+          const validDays = parsed.days
+            .map((d) => Number(d))
+            .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+          if (validDays.length > 0) {
+            days = [...new Set(validDays)].sort((a, b) => a - b);
+          }
+        }
+        // Fallback: parse from user message
+        if (resultType === 'habit' && !days) {
+          days = parseDaysFromText(userMessage);
+        }
+
+        // Validate time_estimate_minutes — round to nearest 5, clamp 5-240
+        let timeEstimateMinutes = null;
+        if (resultType === 'habit' || resultType === 'todo') {
+          const num = Number(parsed.timeEstimateMinutes);
+          if (Number.isFinite(num) && num > 0) {
+            timeEstimateMinutes = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
+          }
+        }
+
+        // Validate hasList
+        const hasList = Boolean(parsed.hasList);
+
+        console.log('[space-chat-save] Success', {
+          type: resultType,
+          subtype,
+          title: title.substring(0, 30),
+          tags_count: tags.length,
+          has_frequency: !!frequency,
+          has_days: !!days,
+          has_time: !!timeEstimateMinutes,
+          wasFallback: result.wasFallback,
+          fallbackReason: result.fallbackReason,
+          latency_ms: latency,
+        });
+
+        return j({
+          type: resultType,
+          subtype,
+          confidence,
+          title,
+          tags,
+          frequency,
+          days,
+          timeEstimateMinutes,
+          hasList,
+          latency_ms: latency,
+        });
       }
 
       // =========================
@@ -5979,6 +6584,86 @@ ${assistantMessage.substring(0, 2000)}
         } catch (err) {
           const latency = Date.now() - t0;
           console.log('[weekly-summary] Error', { error: String(err), latency_ms: latency });
+          return j({ error: 'request_failed', detail: String(err) }, 500);
+        }
+      }
+
+      // =========================
+      // === CHAT FULL SUMMARY ===
+      // Generate a comprehensive summary from ALL chat messages at save time
+      // =========================
+      if (type === 'chat-full-summary') {
+        const chatId = body.chatId;
+        if (!chatId) return j({ error: 'missing_chatId' }, 400);
+
+        try {
+          const msgRes = await fetch(
+            `${env.SUPABASE_URL}/rest/v1/space_chat_messages?chat_id=eq.${encodeURIComponent(chatId)}&select=role,content&order=created_at.asc`,
+            {
+              headers: {
+                apikey: env.SUPABASE_SERVICE_KEY,
+                Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+              },
+            },
+          );
+          if (!msgRes.ok) {
+            console.warn(`[ChatFullSummary] Failed to fetch messages: ${msgRes.status}`);
+            return j({ error: 'fetch_failed' }, 500);
+          }
+
+          const allMessages = await msgRes.json();
+          const userMessages = allMessages.filter((m) => m.role !== 'system');
+
+          if (userMessages.length === 0) {
+            return j({ summary: null });
+          }
+
+          const conversationText = userMessages
+            .map(
+              (m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${(m.content || '').slice(0, 600)}`,
+            )
+            .join('\n\n');
+
+          const todayStr = new Intl.DateTimeFormat('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            timeZone: body.timezone || 'UTC',
+          }).format(new Date());
+
+          const summaryPrompt = `Today is ${todayStr}. Summarize this entire conversation in 3-6 sentences. Cover ALL major topics discussed from start to finish — not just the beginning or the end. Include specific names, dates, decisions, recommendations, and action items mentioned. Write as a factual note the user can reference later.
+
+CONVERSATION:
+${conversationText}
+
+SUMMARY:`;
+
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1-mini',
+              messages: [{ role: 'user', content: summaryPrompt }],
+              max_tokens: 400,
+              temperature: 0.3,
+            }),
+          });
+
+          if (!res.ok) {
+            console.warn(`[ChatFullSummary] OpenAI call failed: ${res.status}`);
+            return j({ error: 'openai_failed' }, 500);
+          }
+
+          const data = await res.json();
+          const summary = (data.choices?.[0]?.message?.content || '').trim();
+          console.log(`[ChatFullSummary] Generated ${summary.length} chars for chat ${chatId}`);
+          return j({ summary: summary || null });
+        } catch (err) {
+          console.warn(`[ChatFullSummary] Error: ${err.message}`);
           return j({ error: 'request_failed', detail: String(err) }, 500);
         }
       }
@@ -6454,76 +7139,43 @@ or if separately completable:
   "groupings": ["first item", "second item"]
 }`;
 
-        try {
-          // Run A, B, C in parallel
-          const [resA, resB, resC] = await Promise.all([
-            fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${key}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-4.1-nano',
-                messages: [
-                  { role: 'system', content: promptA },
-                  { role: 'user', content: text.substring(0, 1000) },
-                ],
-                temperature: 0.1,
-                max_tokens: 100,
-                response_format: { type: 'json_object' },
-              }),
+        {
+          const [resultA, resultB, resultC] = await Promise.all([
+            aiClassify({
+              mode: 'realtime',
+              ...getProviders('nano', env),
+              env,
+              systemPrompt: promptA,
+              messages: [{ role: 'user', content: text.substring(0, 1000) }],
+              temperature: 0.1,
+              maxOutputTokens: 100,
+              endpoint: 'detect-multi-A',
             }),
-            fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${key}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-4.1-nano',
-                messages: [
-                  { role: 'system', content: promptB },
-                  { role: 'user', content: text.substring(0, 1000) },
-                ],
-                temperature: 0.1,
-                max_tokens: 150,
-                response_format: { type: 'json_object' },
-              }),
+            aiClassify({
+              mode: 'realtime',
+              ...getProviders('nano', env),
+              env,
+              systemPrompt: promptB,
+              messages: [{ role: 'user', content: text.substring(0, 1000) }],
+              temperature: 0.1,
+              maxOutputTokens: 150,
+              endpoint: 'detect-multi-B',
             }),
-            fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${key}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-4.1-nano',
-                messages: [
-                  { role: 'system', content: promptC },
-                  { role: 'user', content: text.substring(0, 1000) },
-                ],
-                temperature: 0.1,
-                max_tokens: 200,
-                response_format: { type: 'json_object' },
-              }),
+            aiClassify({
+              mode: 'realtime',
+              ...getProviders('nano', env),
+              env,
+              systemPrompt: promptC,
+              messages: [{ role: 'user', content: text.substring(0, 1000) }],
+              temperature: 0.1,
+              maxOutputTokens: 200,
+              endpoint: 'detect-multi-C',
             }),
           ]);
 
-          const jsonA = await resA.json();
-          const jsonB = await resB.json();
-          const jsonC = await resC.json();
-
-          const a = JSON.parse(
-            jsonA?.choices?.[0]?.message?.content ||
-              '{"has_emotion": false, "emotion_is_primary": false}',
-          );
-          const b = JSON.parse(
-            jsonB?.choices?.[0]?.message?.content || '{"has_standalone_task": false}',
-          );
-          const c = JSON.parse(
-            jsonC?.choices?.[0]?.message?.content || '{"effort_count": 1, "groupings": []}',
-          );
+          const a = resultA.parsed || { has_emotion: false, emotion_is_primary: false };
+          const b = resultB.parsed || { has_standalone_task: false };
+          const c = resultC.parsed || { effort_count: 1, groupings: [] };
 
           console.log('[Phase0:A]', a);
           console.log('[Phase0:B]', b);
@@ -6577,26 +7229,18 @@ Return JSON only:
   ]
 }`;
 
-          const resD = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-nano',
-              messages: [
-                { role: 'system', content: promptD },
-                { role: 'user', content: text.substring(0, 1000) },
-              ],
-              temperature: 0.1,
-              max_tokens: 300,
-              response_format: { type: 'json_object' },
-            }),
+          const resultD = await aiClassify({
+            mode: 'realtime',
+            ...getProviders('nano', env),
+            env,
+            systemPrompt: promptD,
+            messages: [{ role: 'user', content: text.substring(0, 1000) }],
+            temperature: 0.1,
+            maxOutputTokens: 300,
+            endpoint: 'detect-multi-D',
           });
 
-          const jsonD = await resD.json();
-          const d = JSON.parse(jsonD?.choices?.[0]?.message?.content || '{"segments": []}');
+          const d = resultD.parsed || { segments: [] };
 
           console.log('[Phase0:D]', d);
 
@@ -6650,10 +7294,6 @@ Return JSON only:
             reason,
             latency_ms: latency,
           });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Phase0] Error', { error: String(err), latency_ms: latency });
-          return j({ is_multi: false, source: 'error-fallback', latency_ms: latency });
         }
       }
 
@@ -6744,78 +7384,64 @@ INTERPRETATIONS (return exactly ${interpretations.length} labels in the same ord
 ${interpLines}`;
 
         // --- Make AI call ---
-        try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-nano',
-              messages: [
-                { role: 'system', content: clarificationSystemPrompt },
-                { role: 'user', content: clarificationUserMessage },
-              ],
-              temperature: 0.3,
-              max_tokens: 200,
-              response_format: { type: 'json_object' },
-            }),
-          });
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('nano', env),
+          env,
+          systemPrompt: clarificationSystemPrompt,
+          messages: [{ role: 'user', content: clarificationUserMessage }],
+          temperature: 0.3,
+          maxOutputTokens: 200,
+          endpoint: 'clarify-ambiguity',
+        });
 
-          const oj = await res.json();
-          const latency = Date.now() - t0;
+        const latency = Date.now() - t0;
 
-          if (res.ok && oj?.choices?.[0]?.message?.content) {
-            const parsed = JSON.parse(oj.choices[0].message.content);
+        if (result.parsed) {
+          const parsed = result.parsed;
 
-            // --- Validate response ---
-            const question =
-              typeof parsed.question === 'string' && parsed.question.trim()
-                ? parsed.question.trim().substring(0, 100)
-                : null;
+          // --- Validate response ---
+          const question =
+            typeof parsed.question === 'string' && parsed.question.trim()
+              ? parsed.question.trim().substring(0, 100)
+              : null;
 
-            const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
+          const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
 
-            // Labels count must match interpretations count
-            if (
-              labels.length === interpretations.length &&
-              labels.every((l) => typeof l === 'string' && l.trim())
-            ) {
-              const options = interpretations.map((interp, i) => ({
-                id: `opt_${i + 1}`,
-                label: labels[i].trim().substring(0, 60),
-                bucket: interp.bucket || null,
-                subtype: interp.subtype || null,
-                habitSubtype: interp.habitSubtype || null,
-                dateField: interp.dateField || null,
-              }));
+          // Labels count must match interpretations count
+          if (
+            labels.length === interpretations.length &&
+            labels.every((l) => typeof l === 'string' && l.trim())
+          ) {
+            const options = interpretations.map((interp, i) => ({
+              id: `opt_${i + 1}`,
+              label: labels[i].trim().substring(0, 60),
+              bucket: interp.bucket || null,
+              subtype: interp.subtype || null,
+              habitSubtype: interp.habitSubtype || null,
+              dateField: interp.dateField || null,
+            }));
 
-              console.log('[Phase1.5] AI success', {
-                question,
-                options_count: options.length,
-                latency_ms: latency,
-              });
+            console.log('[Phase1.5] AI success', {
+              question,
+              options_count: options.length,
+              wasFallback: result.wasFallback,
+              fallbackReason: result.fallbackReason,
+              latency_ms: latency,
+            });
 
-              return j({
-                success: true,
-                clarification_question: question || FALLBACK_QUESTION,
-                options,
-                latency_ms: latency,
-              });
-            }
-
-            // Labels didn't match — fall through to fallback
-            console.log('[Phase1.5] AI labels mismatch, using fallback', {
-              expected: interpretations.length,
-              got: labels.length,
+            return j({
+              success: true,
+              clarification_question: question || FALLBACK_QUESTION,
+              options,
               latency_ms: latency,
             });
           }
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Phase1.5] AI error, using fallback', {
-            error: String(err),
+
+          // Labels didn't match — fall through to fallback
+          console.log('[Phase1.5] AI labels mismatch, using fallback', {
+            expected: interpretations.length,
+            got: labels.length,
             latency_ms: latency,
           });
         }
@@ -6844,8 +7470,10 @@ ${interpLines}`;
         const selectedLabel = body.selectedLabel || '';
         const selectedBucket = body.selectedBucket || null;
         const selectedSubtype = body.selectedSubtype || null;
-        // eslint-disable-next-line no-restricted-syntax -- Cloudflare Worker doesn't have dateService
-        const currentDate = body.currentDate || new Date().toISOString().split('T')[0];
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        const currentDate =
+          body.currentDate ||
+          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
         const targetBucket = body.targetBucket || null;
 
         const contextString = `=== CONTEXT ===
@@ -6940,125 +7568,21 @@ If no date in input, all date fields are null.
 
         const t0 = Date.now();
 
-        try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: reclassifyPrompt },
-                { role: 'user', content: contextString },
-              ],
-              temperature: 0.3,
-              max_tokens: 250,
-              response_format: { type: 'json_object' },
-            }),
-          });
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: reclassifyPrompt,
+          messages: [{ role: 'user', content: contextString }],
+          temperature: 0.3,
+          maxOutputTokens: 250,
+          endpoint: 'reclassify-after-clarification',
+        });
 
-          const oj = await res.json();
-          const latency = Date.now() - t0;
+        const latency = Date.now() - t0;
 
-          if (!res.ok) {
-            console.log('[Reclassify] API error', { error: oj.error });
-            return j({
-              bucket: 'log',
-              subtype: 'general',
-              habit_subtype: null,
-              smart_title: titleCase(text.substring(0, 50)),
-              confirmation_message: 'Saved for later.',
-              target_date: null,
-              scheduled_date: null,
-              latency_ms: latency,
-            });
-          }
-
-          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
-          const parsed = JSON.parse(rawContent);
-
-          // Use selected bucket/subtype if provided, otherwise fall back to AI response
-          const validBuckets = ['todo', 'habit', 'log'];
-          let bucket =
-            selectedBucket && validBuckets.includes(selectedBucket)
-              ? selectedBucket
-              : validBuckets.includes(parsed.bucket)
-                ? parsed.bucket
-                : 'log';
-
-          // Validate subtype
-          let subtype = null;
-          if (bucket === 'log') {
-            const validSubtypes = ['general', 'idea', 'journal'];
-            subtype =
-              selectedSubtype && validSubtypes.includes(selectedSubtype)
-                ? selectedSubtype
-                : validSubtypes.includes(parsed.subtype)
-                  ? parsed.subtype
-                  : 'general';
-          }
-
-          // Validate habit_subtype
-          let habitSubtype = null;
-          if (bucket === 'habit') {
-            const validHabitSubtypes = ['start_habit', 'break_habit'];
-            habitSubtype = validHabitSubtypes.includes(parsed.habit_subtype)
-              ? parsed.habit_subtype
-              : 'start_habit';
-          }
-
-          // Validate dates
-          let targetDate = null;
-          let scheduledDate = null;
-          if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
-            targetDate = parsed.target_date;
-          }
-          if (parsed.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduled_date)) {
-            scheduledDate = parsed.scheduled_date;
-          }
-
-          // Extract date_type_ambiguous flag
-          const dateTypeAmbiguous = parsed.date_type_ambiguous === true;
-
-          // Extract confirmation message (same as Phase 1)
-          let confirmationMessage = parsed.confirmation_message || null;
-          if (confirmationMessage) {
-            confirmationMessage = String(confirmationMessage).trim();
-            if (confirmationMessage.length < 3) {
-              confirmationMessage = null;
-            } else if (confirmationMessage.length > 50) {
-              confirmationMessage = confirmationMessage.substring(0, 47) + '...';
-            }
-          }
-
-          console.log('[Reclassify] Success', {
-            bucket,
-            subtype,
-            habit_subtype: habitSubtype,
-            title: parsed.smart_title?.substring(0, 30),
-            confirmation_message: confirmationMessage,
-            target_date: targetDate,
-            scheduled_date: scheduledDate,
-            date_type_ambiguous: dateTypeAmbiguous,
-            latency_ms: latency,
-          });
-
-          return j({
-            bucket,
-            subtype,
-            habit_subtype: habitSubtype,
-            smart_title: titleCase(parsed.smart_title || text.substring(0, 50)),
-            confirmation_message: confirmationMessage,
-            target_date: targetDate,
-            scheduled_date: scheduledDate,
-            date_type_ambiguous: dateTypeAmbiguous,
-            latency_ms: latency,
-          });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Reclassify] Error', { error: String(err), latency_ms: latency });
+        if (!result.parsed) {
+          console.log('[Reclassify] Both providers failed', { latency_ms: latency });
           return j({
             bucket: 'log',
             subtype: 'general',
@@ -7067,12 +7591,91 @@ If no date in input, all date fields are null.
             confirmation_message: 'Saved for later.',
             target_date: null,
             scheduled_date: null,
-            date_type_ambiguous: false,
-            time_estimate_minutes: null,
-            energy_type: null,
             latency_ms: latency,
           });
         }
+
+        const parsed = result.parsed;
+
+        // Use selected bucket/subtype if provided, otherwise fall back to AI response
+        const validBuckets = ['todo', 'habit', 'log'];
+        let bucket =
+          selectedBucket && validBuckets.includes(selectedBucket)
+            ? selectedBucket
+            : validBuckets.includes(parsed.bucket)
+              ? parsed.bucket
+              : 'log';
+
+        // Validate subtype
+        let subtype = null;
+        if (bucket === 'log') {
+          const validSubtypes = ['general', 'idea', 'journal'];
+          subtype =
+            selectedSubtype && validSubtypes.includes(selectedSubtype)
+              ? selectedSubtype
+              : validSubtypes.includes(parsed.subtype)
+                ? parsed.subtype
+                : 'general';
+        }
+
+        // Validate habit_subtype
+        let habitSubtype = null;
+        if (bucket === 'habit') {
+          const validHabitSubtypes = ['start_habit', 'break_habit'];
+          habitSubtype = validHabitSubtypes.includes(parsed.habit_subtype)
+            ? parsed.habit_subtype
+            : 'start_habit';
+        }
+
+        // Validate dates
+        let targetDate = null;
+        let scheduledDate = null;
+        if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
+          targetDate = parsed.target_date;
+        }
+        if (parsed.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduled_date)) {
+          scheduledDate = parsed.scheduled_date;
+        }
+
+        // Extract date_type_ambiguous flag
+        const dateTypeAmbiguous = parsed.date_type_ambiguous === true;
+
+        // Extract confirmation message (same as Phase 1)
+        let confirmationMessage = parsed.confirmation_message || null;
+        if (confirmationMessage) {
+          confirmationMessage = String(confirmationMessage).trim();
+          if (confirmationMessage.length < 3) {
+            confirmationMessage = null;
+          } else if (confirmationMessage.length > 50) {
+            confirmationMessage = confirmationMessage.substring(0, 47) + '...';
+          }
+        }
+
+        console.log('[Reclassify] Success', {
+          bucket,
+          subtype,
+          habit_subtype: habitSubtype,
+          title: parsed.smart_title?.substring(0, 30),
+          confirmation_message: confirmationMessage,
+          target_date: targetDate,
+          scheduled_date: scheduledDate,
+          date_type_ambiguous: dateTypeAmbiguous,
+          wasFallback: result.wasFallback,
+          fallbackReason: result.fallbackReason,
+          latency_ms: latency,
+        });
+
+        return j({
+          bucket,
+          subtype,
+          habit_subtype: habitSubtype,
+          smart_title: titleCase(parsed.smart_title || text.substring(0, 50)),
+          confirmation_message: confirmationMessage,
+          target_date: targetDate,
+          scheduled_date: scheduledDate,
+          date_type_ambiguous: dateTypeAmbiguous,
+          latency_ms: latency,
+        });
       }
 
       // =========================
@@ -7723,100 +8326,71 @@ Return ONLY valid JSON:
 
         const t0 = Date.now();
 
-        try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: phase15aSystemPrompt },
-                {
-                  role: 'user',
-                  content: (() => {
-                    let msg = `USER INPUT: "${text}"\nBUCKET: ${bucket}\nSUBTYPE: ${subtype || 'none'}`;
-                    if (recentReactions.length > 0) {
-                      msg += `\n\nRECENT REACTIONS (your last ${recentReactions.length} — do NOT reuse these sentence structures, endings, or patterns):\n${recentReactions.map((r) => `- "${r}"`).join('\n')}`;
-                    }
-                    return msg;
-                  })(),
-                },
-              ],
-              temperature: 0.7,
-              max_tokens: 150,
-              response_format: { type: 'json_object' },
-            }),
-          });
-
-          const oj = await res.json();
-          const latency = Date.now() - t0;
-
-          if (!res.ok) {
-            console.log('[Phase1.5a] API error', { error: oj.error });
-            return j({
-              smart_title: titleCase(text.substring(0, 50)),
-              confirmation_message: null,
-              latency_ms: latency,
-            });
+        const userMessage = (() => {
+          let msg = `USER INPUT: "${text}"\nBUCKET: ${bucket}\nSUBTYPE: ${subtype || 'none'}`;
+          if (recentReactions.length > 0) {
+            msg += `\n\nRECENT REACTIONS (your last ${recentReactions.length} — do NOT reuse these sentence structures, endings, or patterns):\n${recentReactions.map((r) => `- "${r}"`).join('\n')}`;
           }
+          return msg;
+        })();
 
-          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
-          let parsed;
-          try {
-            parsed = JSON.parse(rawContent);
-          } catch {
-            console.log('[Phase1.5a] Parse error', { raw: rawContent });
-            return j({
-              smart_title: titleCase(text.substring(0, 50)),
-              confirmation_message: null,
-              latency_ms: latency,
-            });
-          }
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: phase15aSystemPrompt,
+          messages: [{ role: 'user', content: userMessage }],
+          temperature: 0.7,
+          maxOutputTokens: 150,
+          endpoint: 'enrich-phase1-5a',
+        });
 
-          // Extract and validate smart_title
-          let smartTitle = parsed.smart_title || null;
-          if (smartTitle) {
-            smartTitle = String(smartTitle).trim();
-            if (smartTitle.length < 3 || smartTitle.length > 60) {
-              smartTitle = text.substring(0, 50).trim();
-            }
-            smartTitle = titleCase(smartTitle);
-          }
+        const latency = Date.now() - t0;
 
-          // Extract confirmation message
-          let confirmationMessage = parsed.confirmation_message || null;
-          if (confirmationMessage) {
-            confirmationMessage = String(confirmationMessage).trim();
-            if (confirmationMessage.length < 3) {
-              confirmationMessage = null;
-            } else if (confirmationMessage.length > 50) {
-              confirmationMessage = confirmationMessage.substring(0, 47) + '...';
-            }
-          }
-
-          console.log('[Phase1.5a] Success', {
-            title: smartTitle?.substring(0, 30),
-            has_message: !!confirmationMessage,
-            latency_ms: latency,
-          });
-
-          return j({
-            smart_title: smartTitle,
-            confirmation_message: confirmationMessage,
-            latency_ms: latency,
-          });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Phase1.5a] Error', { error: String(err), latency_ms: latency });
+        if (!result.parsed) {
           return j({
             smart_title: titleCase(text.substring(0, 50)),
             confirmation_message: null,
             latency_ms: latency,
           });
         }
+
+        const parsed = result.parsed;
+
+        // Extract and validate smart_title
+        let smartTitle = parsed.smart_title || null;
+        if (smartTitle) {
+          smartTitle = String(smartTitle).trim();
+          if (smartTitle.length < 3 || smartTitle.length > 60) {
+            smartTitle = text.substring(0, 50).trim();
+          }
+          smartTitle = titleCase(smartTitle);
+        }
+
+        // Extract confirmation message
+        let confirmationMessage = parsed.confirmation_message || null;
+        if (confirmationMessage) {
+          confirmationMessage = String(confirmationMessage).trim();
+          if (confirmationMessage.length < 3) {
+            confirmationMessage = null;
+          } else if (confirmationMessage.length > 50) {
+            confirmationMessage = confirmationMessage.substring(0, 47) + '...';
+          }
+        }
+
+        console.log('[Phase1.5a] Success', {
+          title: smartTitle?.substring(0, 30),
+          has_message: !!confirmationMessage,
+          wasFallback: result.wasFallback,
+          fallbackReason: result.fallbackReason,
+          latency_ms: latency,
+        });
+
+        return j({
+          smart_title: smartTitle,
+          confirmation_message: confirmationMessage,
+          latency_ms: latency,
+        });
       }
 
       // --- PHASE 2 ENRICHMENT (v4.1 - non-streaming, metadata only) ---
@@ -7827,7 +8401,11 @@ Return ONLY valid JSON:
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
         // Use client-provided date to avoid timezone issues
-        const currentDate = body.currentDate || body.today || '2026-01-25';
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        const currentDate =
+          body.currentDate ||
+          body.today ||
+          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
         const timezone = body.timezone || 'UTC';
         const dayOfWeek = body.dayOfWeek || 'Sunday';
 
@@ -8336,250 +8914,221 @@ For LOGS (event):
 
         const t0 = Date.now();
 
-        try {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: phase2Prompt },
-                { role: 'user', content: text.substring(0, 1500) },
-              ],
-              temperature: 0.2,
-              max_tokens: 300,
-              response_format: { type: 'json_object' },
-            }),
-          });
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: phase2Prompt,
+          messages: [{ role: 'user', content: text.substring(0, 1500) }],
+          temperature: 0.2,
+          maxOutputTokens: 300,
+          endpoint: 'enrich-phase2',
+        });
 
-          const oj = await res.json();
-          const latency = Date.now() - t0;
+        const latency = Date.now() - t0;
 
-          if (!res.ok) {
-            console.log('[Phase2] API error', { error: oj.error, latency_ms: latency });
-            return j({ error: 'enrichment_failed', latency_ms: latency }, 200);
-          }
-
-          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
-          let parsed;
-          try {
-            parsed = JSON.parse(rawContent);
-          } catch {
-            console.log('[Phase2] Parse error', { raw: rawContent });
-            return j({ error: 'parse_failed', latency_ms: latency }, 200);
-          }
-
-          // Debug: Log date extraction from LLM
-          console.log('[Phase2:DateDebug]', {
-            inputText: text.substring(0, 100),
-            currentDate,
-            dayOfWeek,
-            timezone,
-            llm_target_date: parsed.target_date,
-            llm_scheduled_date: parsed.scheduled_date,
-            llm_extracted_date: parsed.extracted_date,
-            llm_date_type_ambiguous: parsed.date_type_ambiguous,
-          });
-
-          // Validate and normalize tags
-          let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
-          tags = tags
-            .map((t) =>
-              String(t)
-                .toLowerCase()
-                .replace(/\s+/g, '-')
-                .replace(/[^a-z0-9-]/g, ''),
-            )
-            .filter((t) => t.length >= 2 && t.length <= 30)
-            .filter((t) => !isStopTag(t))
-            .slice(0, 7);
-
-          // Validate time estimate (not for break habits)
-          let timeEstimate = null;
-          const isBreakHabit = bucket === 'habit' && subtype === 'break_habit';
-          if ((bucket === 'todo' || bucket === 'habit') && !isBreakHabit) {
-            const num = Number(parsed.time_estimate_minutes);
-            if (Number.isFinite(num) && num > 0) {
-              // Round to nearest 5 minutes, clamp between 5 and 240
-              timeEstimate = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
-            }
-          }
-
-          // Validate time_window
-          let timeWindow = null;
-          if (parsed.time_window) {
-            const validWindows = ['morning', 'day', 'evening'];
-            const normalized = String(parsed.time_window).toLowerCase().trim();
-            timeWindow = validWindows.includes(normalized) ? normalized : null;
-          }
-
-          // Validate energy_type
-          let energyType = null;
-          if ((bucket === 'todo' || bucket === 'habit') && !isBreakHabit) {
-            const validEnergyTypes = [
-              'deep_focus',
-              'administrative',
-              'physical',
-              'social',
-              'quick',
-            ];
-            if (validEnergyTypes.includes(parsed.energy_type)) {
-              energyType = parsed.energy_type;
-            } else {
-              energyType = 'administrative'; // default fallback
-            }
-          }
-
-          // Validate date intelligence fields (todos only)
-          let targetDate = null;
-          let scheduledDate = null;
-          let dateTypeAmbiguous = false;
-          if (bucket === 'todo') {
-            // Target date (when something IS or is DUE)
-            if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
-              targetDate = parsed.target_date;
-            }
-
-            // Scheduled date (when user will DO the work)
-            if (parsed.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduled_date)) {
-              scheduledDate = parsed.scheduled_date;
-            }
-
-            // Ambiguity flag
-            dateTypeAmbiguous = parsed.date_type_ambiguous === true;
-
-            // Backward compatibility: if old extracted_date exists and no new fields, use it as scheduled_date
-            if (
-              !targetDate &&
-              !scheduledDate &&
-              parsed.extracted_date &&
-              /^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_date)
-            ) {
-              scheduledDate = parsed.extracted_date;
-            }
-          }
-
-          // Event dates for logs (notes that are events)
-          let noteTargetDate = null;
-          let eventTime = null;
-          let endDate = null;
-          let eventSmartTitle = null;
-          if (bucket === 'log') {
-            if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
-              noteTargetDate = parsed.target_date;
-            }
-            if (parsed.event_time && /^\d{2}:\d{2}$/.test(parsed.event_time)) {
-              eventTime = parsed.event_time;
-            }
-            if (parsed.end_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end_date)) {
-              endDate = parsed.end_date;
-            }
-            if (
-              subtype === 'event' &&
-              parsed.smart_title &&
-              typeof parsed.smart_title === 'string'
-            ) {
-              eventSmartTitle = parsed.smart_title.trim();
-            }
-          }
-
-          // Validate extracted_start_date (habits)
-          let extractedStartDate = null;
-          if (bucket === 'habit' && parsed.extracted_start_date) {
-            if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_start_date)) {
-              extractedStartDate = parsed.extracted_start_date;
-            }
-          }
-
-          // Validate extracted_frequency (habits)
-          let extractedFrequency = null;
-          if (bucket === 'habit' && parsed.extracted_frequency) {
-            extractedFrequency = String(parsed.extracted_frequency).trim();
-          }
-
-          // Validate extracted_days (habits)
-          let extractedDays = null;
-          if (bucket === 'habit') {
-            if (Array.isArray(parsed.extracted_days) && parsed.extracted_days.length > 0) {
-              const validDays = parsed.extracted_days
-                .map((d) => Number(d))
-                .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
-              if (validDays.length > 0) {
-                extractedDays = [...new Set(validDays)].sort((a, b) => a - b);
-              }
-            }
-            // Fallback: parse from text
-            if (!extractedDays) {
-              extractedDays = parseDaysFromText(text);
-            }
-          }
-
-          // Validate people
-          let people = [];
-          if (Array.isArray(parsed.people)) {
-            people = parsed.people
-              .map((p) => String(p).trim())
-              .filter((p) => p.length > 0 && p.length < 50)
-              .slice(0, 10);
-          }
-
-          // Validate mood (journals only)
-          let mood = null;
-          if (bucket === 'log' && subtype === 'journal' && Array.isArray(parsed.mood)) {
-            mood = parsed.mood
-              .map((m) => String(m).toLowerCase().trim())
-              .filter((m) => VALID_MOODS.includes(m))
-              .slice(0, 3);
-            if (mood.length === 0) mood = null;
-          }
-
-          console.log('[Phase2]', {
-            tags_count: tags.length,
-            has_time_estimate: timeEstimate !== null,
-            has_window: timeWindow !== null,
-            has_energy: energyType !== null,
-            has_target_date: targetDate !== null || noteTargetDate !== null,
-            has_scheduled_date: scheduledDate !== null,
-            date_ambiguous: dateTypeAmbiguous,
-            has_event_time: eventTime !== null,
-            has_frequency: extractedFrequency !== null,
-            has_days: extractedDays !== null,
-            has_start_date: extractedStartDate !== null,
-            has_people: people.length > 0,
-            has_mood: mood !== null,
-            latency_ms: latency,
-          });
-
-          return j({
-            tags,
-            time_estimate_minutes: timeEstimate,
-            time_window: timeWindow,
-            energy_type: energyType,
-            // New date intelligence fields for todos
-            target_date: bucket === 'todo' ? targetDate : noteTargetDate,
-            scheduled_date: scheduledDate,
-            date_type_ambiguous: dateTypeAmbiguous,
-            event_time: eventTime,
-            // Event-specific fields
-            end_date: endDate,
-            smart_title: eventSmartTitle,
-            // Keep existing habit fields
-            extracted_start_date: extractedStartDate,
-            extracted_frequency: extractedFrequency,
-            extracted_days: extractedDays,
-            // Other fields
-            people,
-            mood,
-            latency_ms: latency,
-          });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Phase2] Error', { error: String(err), latency_ms: latency });
-          return j({ error: 'enrichment_failed', detail: String(err), latency_ms: latency }, 200);
+        if (!result.parsed) {
+          console.log('[Phase2] Both providers failed', { latency_ms: latency });
+          return j({ error: 'enrichment_failed', latency_ms: latency }, 200);
         }
+
+        const parsed = result.parsed;
+
+        // Debug: Log date extraction from LLM
+        console.log('[Phase2:DateDebug]', {
+          inputText: text.substring(0, 100),
+          currentDate,
+          dayOfWeek,
+          timezone,
+          llm_target_date: parsed.target_date,
+          llm_scheduled_date: parsed.scheduled_date,
+          llm_extracted_date: parsed.extracted_date,
+          llm_date_type_ambiguous: parsed.date_type_ambiguous,
+        });
+
+        // Validate and normalize tags
+        let tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+        tags = tags
+          .map((t) =>
+            String(t)
+              .toLowerCase()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9-]/g, ''),
+          )
+          .filter((t) => t.length >= 2 && t.length <= 30)
+          .filter((t) => !isStopTag(t))
+          .slice(0, 7);
+
+        // Validate time estimate (not for break habits)
+        let timeEstimate = null;
+        const isBreakHabit = bucket === 'habit' && subtype === 'break_habit';
+        if ((bucket === 'todo' || bucket === 'habit') && !isBreakHabit) {
+          const num = Number(parsed.time_estimate_minutes);
+          if (Number.isFinite(num) && num > 0) {
+            // Round to nearest 5 minutes, clamp between 5 and 240
+            timeEstimate = Math.min(240, Math.max(5, Math.round(num / 5) * 5));
+          }
+        }
+
+        // Validate time_window
+        let timeWindow = null;
+        if (parsed.time_window) {
+          const validWindows = ['morning', 'day', 'evening'];
+          const normalized = String(parsed.time_window).toLowerCase().trim();
+          timeWindow = validWindows.includes(normalized) ? normalized : null;
+        }
+
+        // Validate energy_type
+        let energyType = null;
+        if ((bucket === 'todo' || bucket === 'habit') && !isBreakHabit) {
+          const validEnergyTypes = ['deep_focus', 'administrative', 'physical', 'social', 'quick'];
+          if (validEnergyTypes.includes(parsed.energy_type)) {
+            energyType = parsed.energy_type;
+          } else {
+            energyType = 'administrative'; // default fallback
+          }
+        }
+
+        // Validate date intelligence fields (todos only)
+        let targetDate = null;
+        let scheduledDate = null;
+        let dateTypeAmbiguous = false;
+        if (bucket === 'todo') {
+          // Target date (when something IS or is DUE)
+          if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
+            targetDate = parsed.target_date;
+          }
+
+          // Scheduled date (when user will DO the work)
+          if (parsed.scheduled_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.scheduled_date)) {
+            scheduledDate = parsed.scheduled_date;
+          }
+
+          // Ambiguity flag
+          dateTypeAmbiguous = parsed.date_type_ambiguous === true;
+
+          // Backward compatibility: if old extracted_date exists and no new fields, use it as scheduled_date
+          if (
+            !targetDate &&
+            !scheduledDate &&
+            parsed.extracted_date &&
+            /^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_date)
+          ) {
+            scheduledDate = parsed.extracted_date;
+          }
+        }
+
+        // Event dates for logs (notes that are events)
+        let noteTargetDate = null;
+        let eventTime = null;
+        let endDate = null;
+        let eventSmartTitle = null;
+        if (bucket === 'log') {
+          if (parsed.target_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.target_date)) {
+            noteTargetDate = parsed.target_date;
+          }
+          if (parsed.event_time && /^\d{2}:\d{2}$/.test(parsed.event_time)) {
+            eventTime = parsed.event_time;
+          }
+          if (parsed.end_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.end_date)) {
+            endDate = parsed.end_date;
+          }
+          if (subtype === 'event' && parsed.smart_title && typeof parsed.smart_title === 'string') {
+            eventSmartTitle = parsed.smart_title.trim();
+          }
+        }
+
+        // Validate extracted_start_date (habits)
+        let extractedStartDate = null;
+        if (bucket === 'habit' && parsed.extracted_start_date) {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(parsed.extracted_start_date)) {
+            extractedStartDate = parsed.extracted_start_date;
+          }
+        }
+
+        // Validate extracted_frequency (habits)
+        let extractedFrequency = null;
+        if (bucket === 'habit' && parsed.extracted_frequency) {
+          extractedFrequency = String(parsed.extracted_frequency).trim();
+        }
+
+        // Validate extracted_days (habits)
+        let extractedDays = null;
+        if (bucket === 'habit') {
+          if (Array.isArray(parsed.extracted_days) && parsed.extracted_days.length > 0) {
+            const validDays = parsed.extracted_days
+              .map((d) => Number(d))
+              .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+            if (validDays.length > 0) {
+              extractedDays = [...new Set(validDays)].sort((a, b) => a - b);
+            }
+          }
+          // Fallback: parse from text
+          if (!extractedDays) {
+            extractedDays = parseDaysFromText(text);
+          }
+        }
+
+        // Validate people
+        let people = [];
+        if (Array.isArray(parsed.people)) {
+          people = parsed.people
+            .map((p) => String(p).trim())
+            .filter((p) => p.length > 0 && p.length < 50)
+            .slice(0, 10);
+        }
+
+        // Validate mood (journals only)
+        let mood = null;
+        if (bucket === 'log' && subtype === 'journal' && Array.isArray(parsed.mood)) {
+          mood = parsed.mood
+            .map((m) => String(m).toLowerCase().trim())
+            .filter((m) => VALID_MOODS.includes(m))
+            .slice(0, 3);
+          if (mood.length === 0) mood = null;
+        }
+
+        console.log('[Phase2]', {
+          tags_count: tags.length,
+          has_time_estimate: timeEstimate !== null,
+          has_window: timeWindow !== null,
+          has_energy: energyType !== null,
+          has_target_date: targetDate !== null || noteTargetDate !== null,
+          has_scheduled_date: scheduledDate !== null,
+          date_ambiguous: dateTypeAmbiguous,
+          has_event_time: eventTime !== null,
+          has_frequency: extractedFrequency !== null,
+          has_days: extractedDays !== null,
+          has_start_date: extractedStartDate !== null,
+          has_people: people.length > 0,
+          has_mood: mood !== null,
+          wasFallback: result.wasFallback,
+          fallbackReason: result.fallbackReason,
+          latency_ms: latency,
+        });
+
+        return j({
+          tags,
+          time_estimate_minutes: timeEstimate,
+          time_window: timeWindow,
+          energy_type: energyType,
+          // New date intelligence fields for todos
+          target_date: bucket === 'todo' ? targetDate : noteTargetDate,
+          scheduled_date: scheduledDate,
+          date_type_ambiguous: dateTypeAmbiguous,
+          event_time: eventTime,
+          // Event-specific fields
+          end_date: endDate,
+          smart_title: eventSmartTitle,
+          // Keep existing habit fields
+          extracted_start_date: extractedStartDate,
+          extracted_frequency: extractedFrequency,
+          extracted_days: extractedDays,
+          // Other fields
+          people,
+          mood,
+          latency_ms: latency,
+        });
       }
 
       // --- PHASE 2B: AUTO-REMINDER DETECTION (standalone, lightweight) ---
@@ -8587,7 +9136,10 @@ For LOGS (event):
         const text = body.text || '';
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
-        const currentDate = body.currentDate || '2026-01-25';
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        const currentDate =
+          body.currentDate ||
+          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
         const timezone = body.timezone || 'UTC';
         const dayOfWeek = body.dayOfWeek || 'Sunday';
 
@@ -8610,8 +9162,7 @@ For LOGS (event):
         }
 
         const t0 = Date.now();
-        try {
-          const phase2bPrompt = `You decide if a user's quick thought needs a reminder, and if so, when.
+        const phase2bPrompt = `You decide if a user's quick thought needs a reminder, and if so, when.
 
 === CONTEXT ===
 Today: ${currentDate} (${dayOfWeek})
@@ -8645,91 +9196,21 @@ Return ONLY valid JSON, no explanation:
   "reminder_frequency": "once" | "daily" | null
 }`;
 
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${key}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'gpt-4.1-mini',
-              messages: [
-                { role: 'system', content: phase2bPrompt },
-                { role: 'user', content: text.substring(0, 500) },
-              ],
-              temperature: 0.1,
-              max_tokens: 100,
-              response_format: { type: 'json_object' },
-            }),
-          });
+        const result = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: phase2bPrompt,
+          messages: [{ role: 'user', content: text.substring(0, 500) }],
+          temperature: 0.1,
+          maxOutputTokens: 100,
+          endpoint: 'enrich-phase2b',
+        });
 
-          const oj = await res.json();
-          const latency = Date.now() - t0;
+        const latency = Date.now() - t0;
 
-          if (!res.ok) {
-            console.log('[Phase2b] API error', { error: oj.error, latency_ms: latency });
-            return j({
-              auto_reminder: false,
-              reminder_date: null,
-              reminder_time: null,
-              reminder_frequency: null,
-              latency_ms: latency,
-            });
-          }
-
-          const rawContent = oj?.choices?.[0]?.message?.content ?? '{}';
-          let parsed;
-          try {
-            parsed = JSON.parse(rawContent);
-          } catch {
-            console.log('[Phase2b] Parse error', { raw: rawContent });
-            return j({
-              auto_reminder: false,
-              reminder_date: null,
-              reminder_time: null,
-              reminder_frequency: null,
-              latency_ms: latency,
-            });
-          }
-
-          // Validate reminder_time format (HH:mm)
-          let reminderTime = null;
-          if (parsed.reminder_time && /^\d{2}:\d{2}$/.test(parsed.reminder_time)) {
-            reminderTime = parsed.reminder_time;
-          }
-
-          // Validate reminder_date format (YYYY-MM-DD)
-          let reminderDate = null;
-          if (parsed.reminder_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.reminder_date)) {
-            reminderDate = parsed.reminder_date;
-          }
-
-          // Validate frequency
-          const validFreqs = ['once', 'daily'];
-          const reminderFrequency = validFreqs.includes(parsed.reminder_frequency)
-            ? parsed.reminder_frequency
-            : null;
-
-          const autoReminder = parsed.auto_reminder === true;
-
-          console.log('[Phase2b]', {
-            auto_reminder: autoReminder,
-            reminder_date: reminderDate,
-            reminder_time: reminderTime,
-            reminder_frequency: reminderFrequency,
-            latency_ms: latency,
-          });
-
-          return j({
-            auto_reminder: autoReminder,
-            reminder_date: autoReminder ? reminderDate : null,
-            reminder_time: autoReminder ? reminderTime : null,
-            reminder_frequency: autoReminder ? reminderFrequency : null,
-            latency_ms: latency,
-          });
-        } catch (err) {
-          const latency = Date.now() - t0;
-          console.log('[Phase2b] Error', { error: String(err), latency_ms: latency });
+        if (!result.parsed) {
+          console.log('[Phase2b] Both providers failed', { latency_ms: latency });
           return j({
             auto_reminder: false,
             reminder_date: null,
@@ -8738,6 +9219,46 @@ Return ONLY valid JSON, no explanation:
             latency_ms: latency,
           });
         }
+
+        const parsed = result.parsed;
+
+        // Validate reminder_time format (HH:mm)
+        let reminderTime = null;
+        if (parsed.reminder_time && /^\d{2}:\d{2}$/.test(parsed.reminder_time)) {
+          reminderTime = parsed.reminder_time;
+        }
+
+        // Validate reminder_date format (YYYY-MM-DD)
+        let reminderDate = null;
+        if (parsed.reminder_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.reminder_date)) {
+          reminderDate = parsed.reminder_date;
+        }
+
+        // Validate frequency
+        const validFreqs = ['once', 'daily'];
+        const reminderFrequency = validFreqs.includes(parsed.reminder_frequency)
+          ? parsed.reminder_frequency
+          : null;
+
+        const autoReminder = parsed.auto_reminder === true;
+
+        console.log('[Phase2b]', {
+          auto_reminder: autoReminder,
+          reminder_date: reminderDate,
+          reminder_time: reminderTime,
+          reminder_frequency: reminderFrequency,
+          wasFallback: result.wasFallback,
+          fallbackReason: result.fallbackReason,
+          latency_ms: latency,
+        });
+
+        return j({
+          auto_reminder: autoReminder,
+          reminder_date: autoReminder ? reminderDate : null,
+          reminder_time: autoReminder ? reminderTime : null,
+          reminder_frequency: autoReminder ? reminderFrequency : null,
+          latency_ms: latency,
+        });
       }
 
       // ═══════════════════════════════════════════════════════════════════════════
@@ -9043,9 +9564,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             // === USER PROFILE & SESSION CONTEXT FOR SPACE CHAT ===
             let spaceSessionContextStr = '';
             let spaceUserProfile = null;
+            let cachedDomains = [];
+            let spaceEntities = null;
             if (body.userId) {
               try {
-                const [chatContext, profile] = await Promise.all([
+                const [chatContext, profile, domains, entities] = await Promise.all([
                   buildChatContext(
                     body.userId,
                     'space',
@@ -9055,14 +9578,19 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     env,
                   ),
                   getUserProfile(body.userId, env),
+                  getCachedDomainNames(body.userId, env),
+                  fetchSpaceEntities(body.userId, body.spaceId, env),
                 ]);
                 spaceSessionContextStr = chatContext;
                 spaceUserProfile = profile;
+                cachedDomains = domains;
+                spaceEntities = entities;
                 if (spaceSessionContextStr || spaceUserProfile) {
                   console.log('[SpaceChat] Context loaded', {
                     userId: body.userId.slice(0, 8),
                     sessionContextLength: spaceSessionContextStr?.length || 0,
                     hasUserProfile: !!spaceUserProfile,
+                    hasSpaceEntities: !!spaceEntities,
                   });
                 }
               } catch (err) {
@@ -9072,7 +9600,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             // === TRIAGE: Classify message before generation ===
             const previousExchange = extractPreviousExchange(messages);
-            const cachedDomains = await getCachedDomainNames(body.userId, env);
 
             const triage = await triageMessage({
               userMessage: lastUserMsgSpace,
@@ -9099,14 +9626,16 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             const streamContext = { runningSummary: body.runningSummary || '' };
 
             // === COMPOSE: Build generation config from triage signals ===
+            const spaceContext = spaceEntities ? formatSpaceEntities(spaceEntities) : null;
             const genConfig = buildSpaceChatSystemPrompt(
               triage,
               streamContext,
               body.spaceName,
-              null, // spaceContext not available server-side
+              spaceContext,
               body.accountCreatedAt,
               spaceSessionContextStr,
               spaceUserProfile?.profileText,
+              body.timezone || 'UTC',
             );
 
             // === BUILD MESSAGES ===
@@ -9589,6 +10118,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       body.spaceName || null,
                       previousSummary,
                       env,
+                      body.timezone || 'UTC',
                     );
                   } catch (err) {
                     console.warn('[SpaceChat] Running summary failed:', err.message);
@@ -9699,14 +10229,17 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             // Context loading — general lane (no spaceId)
             let sessionContextStr = '';
             let userProfile = null;
+            let cachedDomains = [];
             if (body.userId) {
               try {
-                const [chatContext, profile] = await Promise.all([
+                const [chatContext, profile, domains] = await Promise.all([
                   buildChatContext(body.userId, 'general', {}, env),
                   getUserProfile(body.userId, env),
+                  getCachedDomainNames(body.userId, env),
                 ]);
                 sessionContextStr = chatContext;
                 userProfile = profile;
+                cachedDomains = domains;
                 if (sessionContextStr || userProfile) {
                   console.log('[GeneralChat] Context loaded', {
                     userId: body.userId.slice(0, 8),
@@ -9721,7 +10254,6 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
 
             // Triage
             const previousExchange = extractPreviousExchange(messages);
-            const cachedDomains = await getCachedDomainNames(body.userId, env);
 
             const triage = await triageMessage({
               userMessage: lastUserMsg,
@@ -9751,6 +10283,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               body.accountCreatedAt,
               sessionContextStr,
               userProfile?.profileText,
+              body.timezone || 'UTC',
             );
 
             // Build messages with URL context if present
@@ -10096,6 +10629,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       null,
                       previousSummary,
                       env,
+                      body.timezone || 'UTC',
                     );
                   } catch (err) {
                     console.warn('[GeneralChat] Summary failed:', err.message);
@@ -10122,11 +10656,26 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       ...(existing.dismissed_extractions || []),
                     ];
 
+                    // Fetch the rolling summary to give extraction context about earlier conversation
+                    const summaryRes = await fetch(
+                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                      {
+                        headers: {
+                          apikey: env.SUPABASE_SERVICE_KEY,
+                          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                        },
+                      },
+                    );
+                    const summaryData = summaryRes.ok
+                      ? await summaryRes.json().catch(() => [])
+                      : [];
+                    const runningSummary = summaryData?.[0]?.running_summary || null;
+
                     const allMsgs = [
                       ...messages.filter((m) => m.role !== 'system'),
                       { role: 'assistant', content: fullContent },
                     ];
-                    const recentMsgs = allMsgs.slice(-8);
+                    const recentMsgs = allMsgs.slice(-20);
                     const conversationText = recentMsgs
                       .map((m) => `${m.role === 'user' ? 'User' : 'Gremly'}: ${m.content}`)
                       .join('\n\n');
@@ -10136,12 +10685,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric',
-                      timeZone: 'UTC',
+                      timeZone: body.timezone || 'UTC',
                     }).format(new Date());
                     const extractionPromptText = `Today is ${todayStr}.
 
 You are analyzing a conversation to identify items worth saving in a productivity app.
-
+${runningSummary ? `\nCONVERSATION CONTEXT (summary of earlier messages not shown below):\n${runningSummary}\n` : ''}
 CONVERSATION:
 ${conversationText}
 
@@ -10159,7 +10708,7 @@ WRITING STYLE for title and body fields:
 - Never write "the user" or "user" — write as if jotting a note for them: "Getting up early for a 20-min run" not "User committed to getting up early"
 - If no meaningful body beyond the title, set body to null
 
-Also generate a chat title (3-6 words) and one-sentence summary.
+Also generate a chat title (3-6 words) and a one-sentence summary that covers the ENTIRE conversation — not just the most recent messages. Use the CONVERSATION CONTEXT above to include earlier topics. The summary should capture the full arc of what was discussed.
 Return ONLY valid JSON:
 {"extractions":[{"id":"<8chars>","type":"todo|habit|note","title":"...","body":"...","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100}],"chat_summary":{"title":"...","summary":"..."}}`;
 
@@ -10265,9 +10814,11 @@ Return ONLY valid JSON:
         // --- Context loading (session + profile) ---
         let sessionContextStr = '';
         let userProfile = null;
+        let cachedDomains = [];
+        let spaceEntities = null;
         if (body.userId) {
           try {
-            const [chatContext, profile] = await Promise.all([
+            const [chatContext, profile, domains, entities] = await Promise.all([
               buildChatContext(
                 body.userId,
                 'space',
@@ -10277,14 +10828,19 @@ Return ONLY valid JSON:
                 env,
               ),
               getUserProfile(body.userId, env),
+              getCachedDomainNames(body.userId, env),
+              fetchSpaceEntities(body.userId, body.spaceId, env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
+            cachedDomains = domains;
+            spaceEntities = entities;
             if (sessionContextStr || userProfile) {
               console.log('[SpaceChat:NonStreaming] Context loaded', {
                 userId: body.userId.slice(0, 8),
                 sessionContextLength: sessionContextStr?.length || 0,
                 hasUserProfile: !!userProfile,
+                hasSpaceEntities: !!spaceEntities,
               });
             }
           } catch (err) {
@@ -10294,13 +10850,11 @@ Return ONLY valid JSON:
 
         // Minimal ChatContext for rolling summary
         const context = { runningSummary: body.runningSummary || '' };
-        const spaceContext = null; // SpaceContext built client-side; not available server-side yet
+        const spaceContext = spaceEntities ? formatSpaceEntities(spaceEntities) : null;
 
         // === TRIAGE: Classify message before generation ===
         const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
         const previousExchange = extractPreviousExchange(messages);
-
-        const cachedDomains = await getCachedDomainNames(body.userId, env);
 
         const triage = await triageMessage({
           userMessage: lastUserMsg,
@@ -10332,6 +10886,7 @@ Return ONLY valid JSON:
           body.accountCreatedAt,
           sessionContextStr,
           userProfile?.profileText,
+          body.timezone || 'UTC',
         );
 
         // === BUILD MESSAGES: Replace old system prompt with triage-built one ===
@@ -10468,6 +11023,7 @@ Return ONLY valid JSON:
                 body.spaceName || null,
                 previousSummary,
                 env,
+                body.timezone || 'UTC',
               );
             } catch (err) {
               console.warn('[SpaceChat:NonStreaming] Running summary failed:', err.message);

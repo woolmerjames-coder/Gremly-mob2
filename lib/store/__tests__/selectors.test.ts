@@ -737,16 +737,11 @@ describe('selectSweepCandidatesUnified', () => {
       expect(todoIds).toContain('t2'); // Not locked - included
     });
 
-    it('excludes habits with commitment_until from sweep candidates', () => {
+    it('never includes habits in sweep candidates', () => {
       const state = makeState({
         habits: [
-          makeHabit({
-            id: 'h1',
-            commitment_until: '2025-12-31',
-            start_date: null as any,
-            start_date_confirmed: false,
-          }), // Locked-in - excluded
-          makeHabit({ id: 'h2', start_date: null as any, start_date_confirmed: false }), // Not locked - included
+          makeHabit({ id: 'h1', start_date: null as any, start_date_confirmed: false }),
+          makeHabit({ id: 'h2', start_date: null as any, start_date_confirmed: false }),
         ],
       });
 
@@ -755,8 +750,7 @@ describe('selectSweepCandidatesUnified', () => {
         .filter((i) => i.candidate.kind === 'habit')
         .map((item) => item.candidate.id);
 
-      expect(habitIds).not.toContain('h1'); // Locked - excluded
-      expect(habitIds).toContain('h2'); // Not locked - included
+      expect(habitIds).toHaveLength(0);
     });
 
     it('includes todos with commitment=false', () => {
@@ -781,15 +775,15 @@ describe('selectSweepCandidatesUnified', () => {
       expect(todoIds).toContain('t1');
     });
 
-    it('includes habits with commitment=undefined and no start_date', () => {
+    it('excludes habits even without commitment or start_date', () => {
       const state = makeState({
-        habits: [makeHabit({ id: 'h1', start_date: null as any, start_date_confirmed: false })], // No commitment field, no start date
+        habits: [makeHabit({ id: 'h1', start_date: null as any, start_date_confirmed: false })],
       });
 
       const result = selectSweepCandidatesUnified(state as any);
-      const habitIds = result.map((item) => item.candidate.id);
+      const habitIds = result.filter((i) => i.candidate.kind === 'habit');
 
-      expect(habitIds).toContain('h1');
+      expect(habitIds).toHaveLength(0);
     });
   });
 

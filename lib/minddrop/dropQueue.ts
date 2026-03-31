@@ -31,6 +31,21 @@ export type DropStatus =
   | 'synced' // Complete, can be removed
   | 'failed'; // Failed, needs retry
 
+/**
+ * Pipeline phase — the single source of truth for where a drop is in processing.
+ * Each phase represents exactly one processing step with its own timeout and error boundary.
+ */
+export type DropPhase =
+  | 'queued' // Initial — needs detect-multi + Phase 1 classification
+  | 'classified' // Phase 1 done — needs Phase 1.5a title
+  | 'titled' // Phase 1.5a done — needs Phase 2 enrichment
+  | 'enriched' // Phase 2 done — needs Supabase sync
+  | 'syncing' // Supabase write in progress
+  | 'complete' // Done — promoted to entity, dequeued
+  | 'failed' // Max retries exceeded — shows retry button
+  | 'multi_detected' // Multi-entity detected — needs to spawn children
+  | 'multi_awaiting'; // Parent waiting for all children to complete
+
 export type DropSource = 'minddrop' | 'today' | 'space' | 'photo';
 
 export interface MultiSegment {
@@ -223,6 +238,37 @@ export interface QueuedDrop {
 
   /** Entity type after successful sync */
   entityType?: 'todo' | 'habit' | 'note';
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Pipeline state machine (v2)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** Current pipeline phase — single source of truth for processing state */
+  phase?: DropPhase;
+
+  /** Which phase the drop was in when it moved to 'failed' (for retry resume) */
+  failedAtPhase?: DropPhase;
+
+  /** If this is a child of a multi-entity split, the parent's localId */
+  parentLocalId?: string | null;
+
+  /** If this is a multi-entity parent, the localIds of spawned children */
+  childLocalIds?: string[];
+
+  /** Last error message (for debugging, max 200 chars) */
+  lastError?: string | null;
+
+  /** Energy type from Phase 2 enrichment */
+  energyType?: 'deep_focus' | 'administrative' | 'physical' | 'social' | 'quick' | null;
+
+  /** End date for events */
+  endDate?: string | null;
+
+  /** Phase 2b auto-reminder fields */
+  autoReminder?: boolean;
+  reminderDate?: string | null;
+  reminderTime?: string | null;
+  reminderFrequency?: 'once' | 'daily' | null;
 }
 
 // ============================================================================
@@ -318,6 +364,80 @@ export async function updateDrop(localId: string, updates: Partial<QueuedDrop>):
   await saveQueue(queue);
 
   console.log(`[DropQueue] Updated drop ${localId} with:`, Object.keys(updates).join(', '));
+}
+
+/**
+ * Save a drop to the queue — creates if new, updates if exists.
+ * Used by the pipeline runner for phase transitions.
+ */
+export async function saveDrop(localId: string, drop: QueuedDrop): Promise<void> {
+  const queue = await getQueue();
+  const index = queue.findIndex((d) => d.localId === localId);
+
+  if (index === -1) {
+    // New drop (e.g. child of multi-entity split)
+    queue.push(drop);
+  } else {
+    // Existing drop — full replace (not partial merge)
+    queue[index] = drop;
+  }
+
+  await saveQueue(queue);
+}
+
+/**
+ * Migrate existing drops to include the `phase` field.
+ * Called once on app start. Drops without a phase get one derived from their status.
+ * Safe to call multiple times — already-migrated drops are skipped.
+ */
+export async function migrateDropPhases(): Promise<number> {
+  const queue = await getQueue();
+  let migrated = 0;
+
+  for (const drop of queue) {
+    if (drop.phase) continue; // Already has phase — skip
+
+    // Derive phase from existing status
+    switch (drop.status) {
+      case 'queued':
+        drop.phase = 'queued';
+        break;
+      case 'classified':
+        drop.phase = 'classified';
+        break;
+      case 'enriched':
+        drop.phase = 'enriched';
+        break;
+      case 'enrichment_failed':
+        // Treat as enriched with degraded data — let sync proceed
+        drop.phase = 'enriched';
+        break;
+      case 'synced':
+        drop.phase = 'complete';
+        break;
+      case 'failed':
+        drop.phase = 'failed';
+        drop.failedAtPhase = 'queued'; // Safe default — retry from start
+        break;
+      default:
+        drop.phase = 'queued'; // Unknown status — start fresh
+    }
+
+    // Initialize new fields
+    drop.lastError = drop.lastError ?? null;
+    drop.parentLocalId = drop.parentLocalId ?? null;
+    drop.childLocalIds = drop.childLocalIds ?? undefined;
+    drop.failedAtPhase = drop.failedAtPhase ?? undefined;
+
+    migrated++;
+  }
+
+  if (migrated > 0) {
+    await saveQueue(queue);
+    console.log(`[DropQueue] Migrated ${migrated} drops to phase-based pipeline`);
+  }
+
+  return migrated;
 }
 
 /**
@@ -448,7 +568,7 @@ export async function getQueueStats(): Promise<{
   const queue = await getQueue();
   const pending = await getPendingDrops();
 
-  const byStatus: Record<DropStatus, number> = {
+  const byStatus: Record<string, number> = {
     queued: 0,
     classified: 0,
     enriched: 0,
@@ -458,7 +578,8 @@ export async function getQueueStats(): Promise<{
   };
 
   for (const drop of queue) {
-    byStatus[drop.status]++;
+    const key = drop.status || 'queued';
+    byStatus[key] = (byStatus[key] || 0) + 1;
   }
 
   console.log('[DropQueue] Stats:', {

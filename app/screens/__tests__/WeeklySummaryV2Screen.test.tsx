@@ -370,7 +370,11 @@ describe('WeeklySummaryV2Screen', () => {
 
   it('renders OpeningCard engagement stats', () => {
     const { getByText } = render(<WeeklySummaryV2Screen />);
-    expect(getByText(/15 drops/)).toBeTruthy();
+    // Stats now render as separate value + label Text nodes
+    expect(getByText('15')).toBeTruthy();
+    expect(getByText('drops')).toBeTruthy();
+    expect(getByText('3')).toBeTruthy();
+    expect(getByText('sweeps')).toBeTruthy();
   });
 
   it('renders thread movements card title', () => {

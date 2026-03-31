@@ -207,6 +207,9 @@ export interface Habit {
 
   /** Link to an event note (for items related to a key date) */
   linked_event_id?: ID | null;
+
+  /** V2: Days after lock-in to send a check-in nudge */
+  check_in_after?: number | null;
 }
 
 /**
@@ -1012,6 +1015,7 @@ export interface EntityChatRequest {
   };
   accountCreatedAt?: string | null;
   currentTime?: string; // ISO timestamp of when message was sent
+  timezone?: string; // IANA timezone e.g. 'America/New_York'
   siblingContext?: {
     sameSpace?: Array<{
       type: 'todo' | 'habit' | 'note';
@@ -1074,6 +1078,8 @@ export const genId = (prefix = 'id'): ID =>
 // HABIT BUILDER
 // ═══════════════════════════════════════════════════════════════════════════════
 
+export type HabitBuilderMode = 'QUICK_LOCK' | 'SHAPE' | 'RESEARCH' | 'BREAK' | 'EVENT_ANCHORED';
+
 export interface HabitBuilderResolvedFields {
   name: string | null;
   habit_type: 'build' | 'break' | null;
@@ -1089,6 +1095,59 @@ export interface HabitBuilderResolvedFields {
   next_field: string | null;
   required_count: number;
   suggested_chips: string[] | null;
+
+  // V2: Readiness
+  readiness: 'exploring' | 'shaping' | 'confirmable' | 'locked';
+  conversation_value: 'low' | 'medium' | 'high';
+
+  // V2: Break-specific
+  trigger: string | null;
+  replacement_behavior: string | null;
+  environment_change: string | null;
+  boundary_rule: string | null;
+  current_frequency: string | null;
+
+  // V2: Event-anchored
+  event_name: string | null;
+
+  // V2: Restart
+  is_restart: boolean;
+  restart_context: string | null;
+
+  // V2: Check-in
+  check_in_after: number | null;
+
+  // V2: Mode
+  builder_mode: HabitBuilderMode | null;
+
+  // V2: Steering chips (separate from suggested_chips)
+  steering_chips: string[] | null;
+
+  // V2: Post-lock-in edits
+  edit_field: string | null;
+  edit_value: string | null;
+}
+
+export interface HabitBuilderPreParseResult {
+  mode: HabitBuilderMode | 'CONTINUE';
+  secondary_mode: 'EVENT_ANCHORED' | 'BREAK' | null;
+  is_restart: boolean;
+  search_query: string | null;
+  event_context: {
+    name: string;
+    date: string;
+    weeks_until: number;
+  } | null;
+  capacity_signal: string | null;
+  nudge_toward_proposal: boolean;
+  extracted: {
+    behavior: string | null;
+    habit_type: 'build' | 'break' | null;
+    frequency: string | null;
+    start_date: string | null;
+    time_window: string | null;
+    end_date: string | null;
+  };
 }
 
 export interface HabitBuilderContext {
@@ -1100,6 +1159,8 @@ export interface HabitBuilderContext {
     subtype: string;
     frequency?: string;
     space_name?: string;
+    cadence?: string;
+    time_window?: string;
   }[];
   spaces: { id: string; name: string }[];
   prefill?: string;
@@ -1111,6 +1172,8 @@ export interface HabitBuilderRequest {
   messages: { role: 'user' | 'assistant'; content: string }[];
   context: HabitBuilderContext;
   userId?: string;
+  currentMode?: string | null;
+  turnNumber?: number;
 }
 
 export interface HabitBuilderStreamingResponse {
@@ -1271,11 +1334,21 @@ export interface WeeklySummary {
 // Weekly Summary V2 — Life Map powered, flexible card schema
 // ═══════════════════════════════════════════════════════════════════
 
+export interface WSV2FedStats {
+  fed_days_this_week: number;
+  gremly_age: number;
+  current_tier: string;
+  fed_days_toward_next: number;
+  fed_days_needed: number;
+  sock_count: number;
+}
+
 export interface WSV2GremlyMoodCard {
   type: 'gremly_mood';
   mood_line: string;
   hook: string;
   week_label: string;
+  fed_stats?: WSV2FedStats;
 }
 
 export interface WSV2OpeningCard {
@@ -1292,7 +1365,15 @@ export interface WSV2OpeningCard {
     drops: number;
     sweeps: number;
     journals: number;
+    drops_delta?: number | null;
+    sweeps_delta?: number | null;
+    journals_delta?: number | null;
   };
+  mood_arc?: Array<{
+    date: string;
+    day: string;
+    valence: 'positive' | 'mixed' | 'anxious' | 'neutral';
+  }>;
 }
 
 export interface WSV2Thread {
@@ -1305,6 +1386,8 @@ export interface WSV2Thread {
   badge_type: 'success' | 'warning' | 'danger' | 'neutral' | 'info';
   detail: string;
   is_highlight: boolean;
+  velocity?: number;
+  velocity_label?: string;
 }
 
 export interface WSV2ThreadMovementsCard {
@@ -1339,6 +1422,7 @@ export interface WSV2DiscoveriesCard {
     evidence_trail: string;
     takeaway: string;
     research_context: WSV2ResearchContext | null;
+    ask_gremly_prompt?: string;
   };
   trends: WSV2Trend[];
   mini_discoveries?: WSV2MiniDiscovery[];
@@ -1429,6 +1513,13 @@ export interface WSV2RecommendsCard {
   secondary: WSV2RecommendsItem[];
 }
 
+export interface WSV2LetterCard {
+  type: 'letter';
+  body: string;
+  gremly_age?: number;
+  current_tier?: string;
+}
+
 export type WSV2Card =
   | WSV2GremlyMoodCard
   | WSV2OpeningCard
@@ -1439,7 +1530,8 @@ export type WSV2Card =
   | WSV2StaleTriageCard
   | WSV2WeekAheadCard
   | WSV2MonthlyRetroCard
-  | WSV2RecommendationCard;
+  | WSV2RecommendationCard
+  | WSV2LetterCard;
 
 export interface WSV2Metadata {
   week_type: string;

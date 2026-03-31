@@ -429,6 +429,7 @@ export function callSpaceChatStreaming(
       chatId: opts.chatId,
       userId: opts.userId,
       currentTime: nowTimestamp(),
+      timezone: getDateService().getTimezone(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -538,6 +539,7 @@ export function callGeneralChatStreaming(
       chatId: opts.chatId,
       userId: opts.userId,
       currentTime: nowTimestamp(),
+      timezone: getDateService().getTimezone(),
     }),
     lineEndingCharacter: '\n',
   });
@@ -1320,6 +1322,47 @@ function getDefaultSaveResponse(): SpaceChatSaveResponse {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// CHAT FULL SUMMARY - Generate comprehensive summary from all chat messages
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export async function callChatFullSummary(chatId: string): Promise<{ summary: string | null }> {
+  const baseUrl = readCortexUrl();
+  if (!baseUrl) return { summary: null };
+  if (isAiDisabled()) return { summary: null };
+
+  const supabaseAnonKey = readSupabaseAnonKey();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (supabaseAnonKey) {
+    headers.Authorization = `Bearer ${supabaseAnonKey}`;
+    headers.apikey = supabaseAnonKey;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        type: 'chat-full-summary',
+        chatId,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return { summary: null };
+    const data = await res.json();
+    return { summary: data.summary || null };
+  } catch {
+    return { summary: null };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // ENTITY CHAT - Chat within entity overlays and sweep cards
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1613,6 +1656,8 @@ export function callHabitBuilderStreaming(
       ...request,
       type: 'habit-builder',
       stream: true,
+      currentMode: request.currentMode ?? null,
+      turnNumber: request.turnNumber ?? 0,
     }),
     lineEndingCharacter: '\n',
   });
@@ -1665,6 +1710,21 @@ export function callHabitBuilderStreaming(
             next_field: null,
             required_count: 0,
             suggested_chips: null,
+            readiness: 'exploring',
+            conversation_value: 'low',
+            trigger: null,
+            replacement_behavior: null,
+            environment_change: null,
+            boundary_rule: null,
+            current_frequency: null,
+            event_name: null,
+            is_restart: false,
+            restart_context: null,
+            check_in_after: null,
+            builder_mode: null,
+            steering_chips: null,
+            edit_field: null,
+            edit_value: null,
           },
           latency_ms,
           sources: data.sources,

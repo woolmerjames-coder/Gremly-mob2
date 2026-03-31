@@ -1227,9 +1227,6 @@ export const useGremlyStore = create<GremlyState>()(
           set({ isLoading: true, userId });
 
           try {
-            // Calculate date range: last 60 days for monthly cadence + streak calculation
-            const sinceDate = getDateService().daysAgo(60);
-
             // Fetch ALL user data in parallel
             const [
               todosRes,
@@ -1254,11 +1251,7 @@ export const useGremlyStore = create<GremlyState>()(
                 .eq('owner_id', userId),
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
-              supabase
-                .from('habit_progress')
-                .select('*')
-                .eq('owner_id', userId)
-                .gte('occurred_day', sinceDate),
+              supabase.from('habit_progress').select('*').eq('owner_id', userId),
               supabase.from('space_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
@@ -1304,7 +1297,6 @@ export const useGremlyStore = create<GremlyState>()(
             if (progressRes.error) throw progressRes.error;
 
             console.log('[GremlyStore] habit_progress query:', {
-              sinceDate,
               count: progressRes.data?.length,
               sample: progressRes.data
                 ?.slice(0, 5)
@@ -4972,8 +4964,6 @@ export const useGremlyStore = create<GremlyState>()(
           set({ isLoading: true });
 
           try {
-            const sinceDate = getDateService().daysAgo(60);
-
             const [
               todosRes,
               habitsRes,
@@ -4991,11 +4981,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase.from('notes').select('*').eq('owner_id', userId),
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
-              supabase
-                .from('habit_progress')
-                .select('*')
-                .eq('owner_id', userId)
-                .gte('occurred_day', sinceDate),
+              supabase.from('habit_progress').select('*').eq('owner_id', userId),
               supabase.from('space_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
@@ -7531,21 +7517,21 @@ export const useGremlyStore = create<GremlyState>()(
           // ─────────────────────────────────────────────────────────────────────
           // SYNCED ENTITIES: Items already in Supabase (todo, habit, or note)
           // ─────────────────────────────────────────────────────────────────────
-          const entityId = localId;
+          let entityId = localId;
 
           // Find the entity across all types
           let entity: Todo | Habit | Note | undefined;
           let entityType: 'todo' | 'habit' | 'note' | undefined;
 
-          entity = state.todos.find((t) => t.id === entityId);
+          entity = state.todos.find((t) => t.id === entityId || t.drop_id === entityId);
           if (entity) {
             entityType = 'todo';
           } else {
-            entity = state.habits.find((h) => h.id === entityId);
+            entity = state.habits.find((h) => h.id === entityId || h.drop_id === entityId);
             if (entity) {
               entityType = 'habit';
             } else {
-              entity = state.notes.find((n) => n.id === entityId);
+              entity = state.notes.find((n) => n.id === entityId || n.drop_id === entityId);
               if (entity) {
                 entityType = 'note';
               }
@@ -7558,6 +7544,10 @@ export const useGremlyStore = create<GremlyState>()(
             });
             return;
           }
+
+          // Use the actual entity ID for all subsequent operations
+          // (entityId may be a drop_id/localId that differs from entity.id)
+          entityId = entity.id;
 
           // Get views from entity for use throughout this function
           const views = entity.views as Record<string, unknown> | undefined;

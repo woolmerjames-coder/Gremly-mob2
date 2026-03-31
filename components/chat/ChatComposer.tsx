@@ -23,6 +23,7 @@ interface ChatComposerProps {
   placeholder?: string;
   disabled?: boolean;
   testID?: string;
+  initialText?: string;
 }
 
 export function ChatComposer({
@@ -30,8 +31,9 @@ export function ChatComposer({
   placeholder = 'Type a message...',
   disabled = false,
   testID,
+  initialText,
 }: ChatComposerProps) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText || '');
   const [inputHeight, setInputHeight] = useState(44);
   const inputRef = useRef<TextInput>(null);
   const shouldPreventNextChange = useRef(false);

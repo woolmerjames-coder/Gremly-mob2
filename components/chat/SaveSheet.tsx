@@ -18,6 +18,7 @@ interface SaveSheetProps {
   runningSummary: string | null;
   onDismiss: (extractionId: string) => void;
   onSave: (items: any[], includeSummary: boolean) => void;
+  saving?: boolean;
 }
 
 const ICON_CONFIG: Record<string, { icon: typeof CheckSquare; bg: string; color: string }> = {
@@ -41,6 +42,7 @@ export function SaveSheet({
   runningSummary,
   onDismiss,
   onSave,
+  saving,
 }: SaveSheetProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     new Set(extractions.map((e) => e.id)),
@@ -154,20 +156,22 @@ export function SaveSheet({
 
           {/* Save button */}
           <TouchableOpacity
-            style={[styles.saveButton, nothingSelected && { opacity: 0.4 }]}
+            style={[styles.saveButton, (nothingSelected || saving) && { opacity: 0.4 }]}
             onPress={() => {
-              if (nothingSelected) return;
+              if (nothingSelected || saving) return;
               const selectedItems = extractions.filter((e) => selectedIds.has(e.id));
               onSave(selectedItems, summarySelected);
             }}
-            activeOpacity={nothingSelected ? 1 : 0.8}
+            activeOpacity={nothingSelected || saving ? 1 : 0.8}
           >
             <Text style={styles.saveButtonText}>
-              {nothingSelected
-                ? 'Save to Gremly'
-                : totalSelected === 1
-                  ? 'Save 1 item to Gremly'
-                  : `Save ${totalSelected} to Gremly`}
+              {saving
+                ? 'Generating summary...'
+                : nothingSelected
+                  ? 'Save to Gremly'
+                  : totalSelected === 1
+                    ? 'Save 1 item to Gremly'
+                    : `Save ${totalSelected} to Gremly`}
             </Text>
           </TouchableOpacity>
         </Pressable>

@@ -18,8 +18,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  Keyboard,
 } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  withDelay,
+} from 'react-native-reanimated';
 import { ChevronLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
@@ -28,7 +37,7 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { callHabitBuilderStreaming } from '../../lib/cortex/CortexClient';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
-import { HabitBuilderProgress } from './HabitBuilderProgress';
+import { HabitSummaryCard } from './HabitSummaryCard';
 import SaveButton from '../../components/chat/SaveButton';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { Text } from '../../ui/Text';
@@ -38,6 +47,49 @@ import type { SpaceChatMessage, HabitBuilderResolvedFields, HabitSubtype } from 
 import type { SaveableType } from '../../lib/chat/saveableTypes';
 import { dateService, getDateService, nowTimestamp } from '../../lib/date/DateService';
 import { renderFormattedContent } from '../../lib/markdown/renderFormattedContent';
+
+// ─── Typing Indicator ─────────────────────────────────────────────
+function TypingDots() {
+  const dot1 = useSharedValue(0.3);
+  const dot2 = useSharedValue(0.3);
+  const dot3 = useSharedValue(0.3);
+
+  useEffect(() => {
+    const pulse = (duration: number) =>
+      withRepeat(withSequence(withTiming(1, { duration }), withTiming(0.3, { duration })), -1);
+    dot1.value = pulse(500);
+    dot2.value = withDelay(150, pulse(500));
+    dot3.value = withDelay(300, pulse(500));
+  }, []);
+
+  const style1 = useAnimatedStyle(() => ({ opacity: dot1.value }));
+  const style2 = useAnimatedStyle(() => ({ opacity: dot2.value }));
+  const style3 = useAnimatedStyle(() => ({ opacity: dot3.value }));
+
+  return (
+    <View style={typingStyles.container}>
+      <Animated.View style={[typingStyles.dot, style1]} />
+      <Animated.View style={[typingStyles.dot, style2]} />
+      <Animated.View style={[typingStyles.dot, style3]} />
+    </View>
+  );
+}
+
+const typingStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+  },
+  dot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#5C6B5A',
+  },
+});
 
 // ─── Streaming Bubble ─────────────────────────────────────────────
 // Self-updating component that reads from a content ref.
@@ -82,6 +134,17 @@ function StreamingBubble({ contentRef, visible, isSearching, searchQuery }: Stre
     );
   }
 
+  // Show typing dots before first content arrives
+  if (!displayContent && !isSearching) {
+    return (
+      <View style={styles.streamingContainer}>
+        <View style={styles.streamingBubble}>
+          <TypingDots />
+        </View>
+      </View>
+    );
+  }
+
   // Render directly — matches ChatBubble assistant style exactly.
   // Plain View only, no Animated.View, no layout animations.
   return (
@@ -90,104 +153,6 @@ function StreamingBubble({ contentRef, visible, isSearching, searchQuery }: Stre
     </View>
   );
 }
-
-// ─── Habit Confirm Card ───────────────────────────────────────────
-interface HabitConfirmCardProps {
-  resolved: HabitBuilderResolvedFields;
-}
-
-function HabitConfirmCard({ resolved }: HabitConfirmCardProps) {
-  const habitType = resolved.habit_type === 'break' ? 'Break habit' : 'Build habit';
-  const frequency = resolved.target || resolved.cadence || 'daily';
-  const timeWindow = resolved.time_window
-    ? resolved.time_window.charAt(0).toUpperCase() + resolved.time_window.slice(1)
-    : null;
-  const startDate = resolved.start_date || 'Today';
-
-  return (
-    <View style={confirmStyles.card}>
-      <Text style={confirmStyles.name}>{resolved.name}</Text>
-      <Text style={confirmStyles.type}>{habitType}</Text>
-      <View style={confirmStyles.divider} />
-      <View style={confirmStyles.row}>
-        <Text style={confirmStyles.label}>Frequency</Text>
-        <Text style={confirmStyles.value}>{frequency}</Text>
-      </View>
-      {timeWindow && (
-        <View style={confirmStyles.row}>
-          <Text style={confirmStyles.label}>Time</Text>
-          <Text style={confirmStyles.value}>{timeWindow}</Text>
-        </View>
-      )}
-      <View style={confirmStyles.row}>
-        <Text style={confirmStyles.label}>Starts</Text>
-        <Text style={confirmStyles.value}>{startDate}</Text>
-      </View>
-      {resolved.notes && (
-        <>
-          <View style={confirmStyles.divider} />
-          <Text style={confirmStyles.notes}>{resolved.notes}</Text>
-        </>
-      )}
-    </View>
-  );
-}
-
-const confirmStyles = StyleSheet.create({
-  card: {
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    borderRadius: 16,
-    padding: 20,
-    marginVertical: 8,
-    marginHorizontal: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: 'rgba(212, 164, 74, 0.25)',
-  },
-  name: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    letterSpacing: -0.3,
-    marginBottom: 2,
-  },
-  type: {
-    fontSize: 13,
-    color: '#5C6B5A',
-    fontWeight: '500',
-    marginBottom: 12,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
-    marginVertical: 10,
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  label: {
-    fontSize: 14,
-    color: '#888',
-    fontWeight: '400',
-  },
-  value: {
-    fontSize: 14,
-    color: '#1a1a1a',
-    fontWeight: '500',
-  },
-  notes: {
-    fontSize: 13,
-    color: '#666',
-    fontStyle: 'italic',
-    lineHeight: 18,
-  },
-});
 
 // ─── Props ───────────────────────────────────────────────────────────
 export interface HabitBuilderScreenProps {
@@ -213,6 +178,22 @@ const EMPTY_RESOLVED: HabitBuilderResolvedFields = {
   next_field: null,
   required_count: 0,
   suggested_chips: null,
+  // V2
+  readiness: 'exploring',
+  conversation_value: 'low',
+  trigger: null,
+  replacement_behavior: null,
+  environment_change: null,
+  boundary_rule: null,
+  current_frequency: null,
+  event_name: null,
+  is_restart: false,
+  restart_context: null,
+  check_in_after: null,
+  builder_mode: null,
+  steering_chips: null,
+  edit_field: null,
+  edit_value: null,
 };
 
 let messageIdCounter = 0;
@@ -251,6 +232,11 @@ export function HabitBuilderScreen({
   const [habitLocked, setHabitLocked] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const [currentMode, setCurrentMode] = useState<string | null>(null);
+  const [turnNumber, setTurnNumber] = useState(0);
+  const [isCardCollapsed, setIsCardCollapsed] = useState(false);
+  const [keyboardActive, setKeyboardActive] = useState(false);
+  const prevExpandedRef = useRef(true);
 
   // Track which messages have save cards
   const [lockedMessageId, setLockedMessageId] = useState<string | null>(null);
@@ -282,11 +268,20 @@ export function HabitBuilderScreen({
           subtype: h.subtype || 'start_habit',
           frequency: h.frequency || undefined,
           space_name: spaces.find((s) => s.id === h.space_id)?.name,
+          cadence: h.cadence || undefined,
+          time_window: h.time_window || undefined,
         })),
       spaces: spaces.filter((s) => !s.archived_at).map((s) => ({ id: s.id, name: s.name })),
       prefill: prefill || undefined,
+      habitCapacity: {
+        totalActive: habits.filter((h) => !h.archived_at).length,
+        dailyCount: habits.filter((h) => !h.archived_at && h.cadence === 'daily').length,
+        weeklyCount: habits.filter((h) => !h.archived_at && h.cadence === 'weekly').length,
+      },
+      currentMode,
+      turnNumber,
     };
-  }, [habits, spaces, userName, prefill]);
+  }, [habits, spaces, userName, prefill, currentMode, turnNumber]);
 
   // ─── Send message ─────────────────────────────────────────────
   const handleSendMessage = useCallback(
@@ -310,6 +305,10 @@ export function HabitBuilderScreen({
       }
 
       setIsLoading(true);
+
+      if (!isInitial) {
+        setTurnNumber((prev) => prev + 1);
+      }
 
       // Create user message (skip display for auto-start)
       const userMsg: SpaceChatMessage = {
@@ -337,7 +336,7 @@ export function HabitBuilderScreen({
       if (isInitial && prefill) {
         requestMessages.push({ role: 'user', content: prefill });
       } else if (isInitial) {
-        requestMessages.push({ role: 'user', content: 'I want to start a new habit' });
+        requestMessages.push({ role: 'user', content: text });
       } else {
         requestMessages.push({ role: 'user', content: text });
       }
@@ -382,9 +381,58 @@ export function HabitBuilderScreen({
             setMessages((prev) => [...prev, finalMsg]);
             setIsStreamActive(false);
 
-            // Update resolved fields
+            // Update resolved fields with readiness non-regression guard
             if (response.resolved_fields) {
-              setResolved(response.resolved_fields);
+              setResolved((prev) => {
+                const readinessOrder: Record<string, number> = {
+                  exploring: 0,
+                  shaping: 1,
+                  confirmable: 2,
+                  locked: 3,
+                };
+                const prevLevel = readinessOrder[prev.readiness] ?? 0;
+                const newLevel = readinessOrder[response.resolved_fields.readiness] ?? 0;
+                // Never regress readiness
+                if (newLevel < prevLevel) {
+                  return { ...response.resolved_fields, readiness: prev.readiness };
+                }
+                return response.resolved_fields;
+              });
+            }
+
+            // Update mode from server
+            if (response.resolved_fields?.builder_mode) {
+              setCurrentMode(response.resolved_fields.builder_mode);
+            }
+
+            // Handle post-lock-in field edits
+            if (
+              response.resolved_fields?.edit_field &&
+              response.resolved_fields?.edit_value &&
+              createdHabitIdRef.current
+            ) {
+              const editMap: Record<string, string> = {
+                frequency: 'frequency',
+                start_date: 'start_date',
+                end_date: 'end_date',
+                time_window: 'time_window',
+                name: 'name',
+                notes: 'notes',
+                time_estimate_minutes: 'time_estimate_minutes',
+                trigger: 'triggers_json',
+                replacement_behavior: 'replacement_text',
+                boundary_rule: 'boundary_rule',
+              };
+              const dbField = editMap[response.resolved_fields.edit_field];
+              if (dbField) {
+                const value =
+                  dbField === 'triggers_json'
+                    ? { primary: response.resolved_fields.edit_value }
+                    : response.resolved_fields.edit_value;
+                updateHabit(createdHabitIdRef.current, { [dbField]: value }).catch((err) =>
+                  console.error('[HabitBuilder] Edit failed:', err),
+                );
+              }
             }
 
             // Post-lock-in message tagging
@@ -448,6 +496,38 @@ export function HabitBuilderScreen({
     [isLoading, isConnected, messages, chatContext, prefill, lockedMessageId, tipsMessageId],
   );
 
+  // ─── Keyboard collapse ────────────────────────────────────────
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        prevExpandedRef.current = !isCardCollapsed;
+        setKeyboardActive(true);
+        setIsCardCollapsed(true);
+      },
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardActive(false);
+        if (prevExpandedRef.current) {
+          setIsCardCollapsed(false);
+        }
+      },
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [isCardCollapsed]);
+
+  // ─── Auto-collapse after 4 messages ────────────────────────────
+  useEffect(() => {
+    if (messages.length >= 4 && !isCardCollapsed) {
+      setIsCardCollapsed(true);
+    }
+  }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ─── Auto-start ───────────────────────────────────────────────
   useEffect(() => {
     if (!hasStarted.current) {
@@ -455,7 +535,19 @@ export function HabitBuilderScreen({
       // Small delay to ensure first render completes and refs are stable
       requestAnimationFrame(() => {
         if (mountedRef.current) {
-          const initialText = prefill || 'I want to start a new habit';
+          let initialText: string;
+          if (prefill) {
+            initialText = prefill;
+          } else {
+            const activeHabitCount = habits.filter((h) => !h.archived_at).length;
+            if (activeHabitCount === 0) {
+              initialText = 'I want to start a new habit';
+            } else if (activeHabitCount <= 4) {
+              initialText = 'I want to add a new habit';
+            } else {
+              initialText = 'I want to add another habit';
+            }
+          }
           handleSendMessage(initialText, true);
         }
       });
@@ -497,6 +589,41 @@ export function HabitBuilderScreen({
         owner_id: userId || undefined,
       };
 
+      // Break-specific fields
+      if (resolved.habit_type === 'break') {
+        if (resolved.boundary_rule && !resolved.name?.includes(resolved.boundary_rule)) {
+          habitData.name = resolved.boundary_rule;
+        }
+        if (resolved.trigger) {
+          (habitData as any).triggers_json = { primary: resolved.trigger };
+        }
+        if (resolved.replacement_behavior) {
+          (habitData as any).replacement_text = resolved.replacement_behavior;
+        }
+        if (resolved.environment_change) {
+          (habitData as any).environment_change = resolved.environment_change;
+        }
+        if (resolved.boundary_rule) {
+          (habitData as any).boundary_rule = resolved.boundary_rule;
+        }
+      }
+
+      // Event-anchored fields
+      if (resolved.event_name) {
+        (habitData as any).event_name = resolved.event_name;
+      }
+
+      // Restart tracking
+      if (resolved.is_restart) {
+        (habitData as any).is_restart = true;
+        if (resolved.restart_context) {
+          (habitData as any).restart_context = resolved.restart_context;
+        }
+      }
+
+      // Builder mode metadata
+      (habitData as any).builder_mode = currentMode || null;
+
       const newHabit = await createHabit(habitData);
 
       // Store ID so the send-off response can update the habit's notes
@@ -537,7 +664,7 @@ export function HabitBuilderScreen({
         },
       ]);
     }
-  }, [resolved, isCreating, spaceId, spaces, userId, createHabit, handleSendMessage]);
+  }, [resolved, isCreating, spaceId, spaces, userId, createHabit, handleSendMessage, currentMode]);
 
   // ─── Save tips to habit ──────────────────────────────────────
   const handleSaveTips = useCallback(async () => {
@@ -587,19 +714,37 @@ export function HabitBuilderScreen({
     (chip: string) => {
       if (chip.includes('Lock it in')) {
         handleCreateHabit();
+      } else if (chip.includes('Send me a nudge') && createdHabitIdRef.current) {
+        updateHabit(createdHabitIdRef.current, { check_in_after: 3 }).catch((err: any) =>
+          console.error('[HabitBuilder] Failed to set check-in:', err),
+        );
+        handleSendMessage(chip);
       } else {
         handleSendMessage(chip);
       }
     },
-    [handleCreateHabit, handleSendMessage],
+    [handleCreateHabit, handleSendMessage, updateHabit],
   );
 
   // ─── Determine chips to show ─────────────────────────────────
   const chipConfig = useMemo(() => {
     if (isLoading || isCreating) return null;
-    if (!resolved.suggested_chips || resolved.suggested_chips.length === 0) return null;
-    return { chips: resolved.suggested_chips, sendsMessage: true };
-  }, [resolved.suggested_chips, isLoading, isCreating]);
+
+    const chips: Array<{ text: string; type: 'answer' | 'steering' }> = [];
+
+    if (resolved.suggested_chips?.length) {
+      for (const c of resolved.suggested_chips) {
+        chips.push({ text: c, type: 'answer' });
+      }
+    }
+    if (resolved.steering_chips?.length) {
+      for (const c of resolved.steering_chips) {
+        chips.push({ text: c, type: 'steering' });
+      }
+    }
+
+    return chips.length > 0 ? chips : null;
+  }, [resolved.suggested_chips, resolved.steering_chips, isLoading, isCreating]);
 
   // ─── Render message ──────────────────────────────────────────
   const renderMessage = useCallback(
@@ -657,17 +802,28 @@ export function HabitBuilderScreen({
           {/* Chips — show on last assistant message, not on the locked message itself */}
           {isLastAssistant && chipConfig && !(isLockedMessage && habitLocked) && (
             <Animated.View style={styles.chipsRow} entering={FadeIn.duration(200).delay(100)}>
-              {chipConfig.chips.map((chip, idx) => {
-                const isLockIn = chip.includes('Lock it in');
+              {chipConfig.map((chip, idx) => {
+                const isLockIn = chip.text.includes('Lock it in');
+                const isSteering = chip.type === 'steering';
                 return (
                   <TouchableOpacity
                     key={idx}
-                    style={[styles.chip, isLockIn && styles.chipPrimary]}
-                    onPress={() => handleChipTap(chip)}
+                    style={[
+                      styles.chip,
+                      isLockIn && styles.chipPrimary,
+                      isSteering && styles.chipSteering,
+                    ]}
+                    onPress={() => handleChipTap(chip.text)}
                     activeOpacity={0.7}
                   >
-                    <Text style={[styles.chipText, isLockIn && styles.chipTextPrimary]}>
-                      {chip}
+                    <Text
+                      style={[
+                        styles.chipText,
+                        isLockIn && styles.chipTextPrimary,
+                        isSteering && styles.chipTextSteering,
+                      ]}
+                    >
+                      {chip.text}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -720,8 +876,15 @@ export function HabitBuilderScreen({
           <View style={{ width: 40 }} />
         </View>
 
-        {/* Progress Bar */}
-        <HabitBuilderProgress resolved={resolved} />
+        {/* Summary Card */}
+        <HabitSummaryCard
+          resolved={resolved}
+          mode={currentMode}
+          isCollapsed={isCardCollapsed}
+          onToggle={() => setIsCardCollapsed((prev) => !prev)}
+          keyboardActive={keyboardActive}
+          messageCount={messages.length}
+        />
 
         {/* Messages */}
         <View style={styles.content}>
@@ -740,11 +903,6 @@ export function HabitBuilderScreen({
                   isSearching={isSearching}
                   searchQuery={searchQuery}
                 />
-                {!isStreamActive && resolved.is_confirmation && !habitLocked && !isCreating && (
-                  <Animated.View entering={FadeIn.duration(300)}>
-                    <HabitConfirmCard resolved={resolved} />
-                  </Animated.View>
-                )}
               </>
             }
             onContentSizeChange={() => {
@@ -838,8 +996,8 @@ const styles = StyleSheet.create({
   chip: {
     backgroundColor: 'rgba(255, 255, 255, 0.85)',
     borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
@@ -850,13 +1008,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#5C6B5A',
   },
   chipText: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: lightTokens.typography.fontFamily.medium,
     color: lightTokens.colors.text,
   },
   chipTextPrimary: {
     color: '#FFFFFF',
     fontWeight: '600',
+  },
+  chipSteering: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(92, 107, 90, 0.3)',
+  },
+  chipTextSteering: {
+    color: 'rgba(92, 107, 90, 0.7)',
   },
   searchingContainer: {
     paddingVertical: 12,

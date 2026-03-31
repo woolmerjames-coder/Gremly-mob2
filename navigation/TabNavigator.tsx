@@ -17,7 +17,7 @@ import ASK_GREMLY_ICON from '../assets/hubicon1.20.png';
 export type TabParamList = {
   Today: undefined;
   MindDrop: undefined;
-  AskGremly: undefined;
+  AskGremly: { prefillPrompt?: string } | undefined;
   Spaces: undefined;
 };
 

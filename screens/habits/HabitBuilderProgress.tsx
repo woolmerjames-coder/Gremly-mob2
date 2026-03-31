@@ -1,3 +1,4 @@
+// DEPRECATED: Replaced by HabitSummaryCard in V2. Safe to delete.
 /**
  * HabitBuilderProgress — Progress dots for Habit Builder chat
  *
@@ -33,16 +34,11 @@ export function HabitBuilderProgress({ resolved }: HabitBuilderProgressProps) {
   const label = getPhaseLabel(count);
 
   return (
-    <Animated.View
-      style={styles.container}
-      entering={FadeIn.duration(400).delay(200)}
-    >
+    <Animated.View style={styles.container} entering={FadeIn.duration(400).delay(200)}>
       <View style={styles.track}>
         {Array.from({ length: TOTAL_DOTS }).map((_, i) => (
           <React.Fragment key={i}>
-            {i > 0 && (
-              <View style={[styles.line, i < count && styles.lineFilled]} />
-            )}
+            {i > 0 && <View style={[styles.line, i < count && styles.lineFilled]} />}
             <Animated.View
               layout={Layout.springify()}
               style={[styles.dot, i < count && styles.dotFilled]}
@@ -50,11 +46,7 @@ export function HabitBuilderProgress({ resolved }: HabitBuilderProgressProps) {
           </React.Fragment>
         ))}
       </View>
-      <Animated.View
-        key={label}
-        entering={FadeIn.duration(250)}
-        exiting={FadeOut.duration(150)}
-      >
+      <Animated.View key={label} entering={FadeIn.duration(250)} exiting={FadeOut.duration(150)}>
         <Text style={styles.label}>{label}</Text>
       </Animated.View>
     </Animated.View>
