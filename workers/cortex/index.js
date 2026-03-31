@@ -7347,162 +7347,305 @@ Return JSON only:
       // =========================
       if (type === 'clarify-ambiguity') {
         const text = body.text || '';
+        const ambiguityType = body.ambiguityType || 'bucket';
         const ambiguityReason = body.ambiguityReason || '';
-        const interpretations = Array.isArray(body.plausibleInterpretations)
-          ? body.plausibleInterpretations
-          : null;
-
-        // --- Static fallback (used if no valid interpretations or AI fails) ---
-        const FALLBACK_OPTIONS = [
-          { id: 'opt_1', label: 'Something I need to do', bucket: 'todo', subtype: null },
-          {
-            id: 'opt_2',
-            label: 'A habit to build',
-            bucket: 'habit',
-            subtype: null,
-            habitSubtype: 'start_habit',
-          },
-          { id: 'opt_3', label: 'Just a note', bucket: 'log', subtype: 'general' },
-          { id: 'opt_4', label: 'An idea to explore', bucket: 'log', subtype: 'idea' },
-        ];
-        const FALLBACK_QUESTION = 'Quick check — what did you have in mind?';
-
         const t0 = Date.now();
 
-        // --- If no valid interpretations, use static fallback ---
-        if (!interpretations || interpretations.length < 2) {
-          const fallbackLatency = Date.now() - t0;
-          console.log('[Phase1.5] No valid interpretations, using static fallback', {
-            interpretations_count: interpretations ? interpretations.length : 0,
-            latency_ms: fallbackLatency,
-          });
+        // --- Type configs ---
+        const TYPE_CONFIGS = {
+          bucket: {
+            question: null,
+            options: [
+              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              { id: 'opt_2', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
+              { id: 'opt_3', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+          date_type: {
+            question: 'Is this already in the diary?',
+            options: [
+              {
+                id: 'opt_1',
+                label: '',
+                bucket: 'log',
+                subtype: 'general',
+                habitSubtype: null,
+                dateField: 'scheduled_date',
+              },
+              {
+                id: 'opt_2',
+                label: '',
+                bucket: 'todo',
+                subtype: null,
+                habitSubtype: null,
+                dateField: 'target_date',
+              },
+              { id: 'opt_3', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+          vague_aspiration: {
+            question: 'What did you want to do with this?',
+            options: [
+              {
+                id: 'opt_1',
+                label: '',
+                bucket: 'habit',
+                subtype: null,
+                habitSubtype: 'start_habit',
+              },
+              { id: 'opt_2', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+          habit_or_todo: {
+            question: 'Is this a one-time thing or something you want to keep doing?',
+            options: [
+              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              {
+                id: 'opt_2',
+                label: '',
+                bucket: 'habit',
+                subtype: null,
+                habitSubtype: 'start_habit',
+              },
+            ],
+          },
+          action_or_memory: {
+            question: 'Do you need to do something for this?',
+            options: [
+              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              { id: 'opt_2', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+          commitment_level: {
+            question: 'Do you want to actually track this?',
+            options: [
+              {
+                id: 'opt_1',
+                label: '',
+                bucket: 'habit',
+                subtype: null,
+                habitSubtype: 'start_habit',
+              },
+              { id: 'opt_2', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+          emotional_or_action: {
+            question: 'Did you want to do something with this?',
+            options: [
+              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              { id: 'opt_2', label: '', bucket: 'log', subtype: 'journal', habitSubtype: null },
+            ],
+          },
+          social_plan: {
+            question: 'Is this happening or do you need to make it happen?',
+            options: [
+              { id: 'opt_1', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+              { id: 'opt_2', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              { id: 'opt_3', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+          scope: {
+            question: 'How big is this?',
+            options: [
+              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              { id: 'opt_2', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
+              { id: 'opt_3', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
+            ],
+          },
+          idea_or_commitment: {
+            question: 'How real is this for you?',
+            options: [
+              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              {
+                id: 'opt_2',
+                label: '',
+                bucket: 'habit',
+                subtype: null,
+                habitSubtype: 'start_habit',
+              },
+              { id: 'opt_3', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
+              { id: 'opt_4', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+        };
 
-          return j({
-            success: true,
-            clarification_question: FALLBACK_QUESTION,
-            options: FALLBACK_OPTIONS,
-            latency_ms: fallbackLatency,
-          });
+        const FALLBACK_CONFIG = {
+          question: 'Quick check — what did you have in mind?',
+          options: [
+            {
+              id: 'opt_1',
+              label: 'Something to do',
+              bucket: 'todo',
+              subtype: null,
+              habitSubtype: null,
+            },
+            {
+              id: 'opt_2',
+              label: 'An idea to explore',
+              bucket: 'log',
+              subtype: 'idea',
+              habitSubtype: null,
+            },
+            {
+              id: 'opt_3',
+              label: 'Just a note',
+              bucket: 'log',
+              subtype: 'general',
+              habitSubtype: null,
+            },
+          ],
+        };
+
+        const FALLBACK_LABELS = {
+          bucket: ['Need to do something', 'Thinking about it', 'Just remembering'],
+          date_type: ["Yes, it's in the diary", 'No, need to sort it', 'Just the date'],
+          vague_aspiration: ['Make it a real goal', 'Just holding the thought'],
+          habit_or_todo: ['Do it once', 'Make it regular'],
+          action_or_memory: ['Need to act on this', "Just didn't want to forget"],
+          commitment_level: ['Hold me to it', 'Just noting it'],
+          emotional_or_action: ['Want to tackle it', 'Needed to say it'],
+          social_plan: ["It's already sorted", 'Need to make it happen', 'Just noting it'],
+          scope: ['One thing to finish', 'Bigger than that', 'Just an idea'],
+          idea_or_commitment: [
+            'Doing it — one-off',
+            'Doing it — ongoing',
+            'Still thinking',
+            'Just a thought',
+          ],
+        };
+
+        function getLabelRules(aType) {
+          switch (aType) {
+            case 'bucket':
+              return `Labels must not invent a specific action. For todo option: describe that there is something to do without naming what it is. For idea option: convey exploration or consideration. For general option: convey that the user wants to remember something. Reference the specific noun or subject from the input.`;
+            case 'date_type':
+              return `Labels must directly reflect the booking/scheduling status. First option conveys it is already arranged and in the calendar. Second option conveys the user still needs to book or sort it, and references the specific thing. Third option conveys they just want to hold the date mentally.`;
+            case 'vague_aspiration':
+              return `First option should convey making this into a real ongoing goal without projecting what the habit looks like. Second option conveys holding the intention loosely with no commitment.`;
+            case 'habit_or_todo':
+              return `First option conveys doing this as a one-time thing and completing it. Second option conveys doing this on an ongoing regular basis and making it part of their routine. Both should reference the specific activity from the input.`;
+            case 'action_or_memory':
+              return `First option conveys that yes, the user needs to take action on this — something needs to happen. Second option conveys they simply did not want to forget this fact or date.`;
+            case 'commitment_level':
+              return `First option conveys wanting to hold themselves accountable and track this properly. Second option conveys noting the intention without formal commitment. Reference the specific activity.`;
+            case 'emotional_or_action':
+              return `First option conveys wanting to do something about this situation. Second option conveys having needed to express or process this feeling. Tone must be warm — never clinical.`;
+            case 'social_plan':
+              return `First option conveys it is already arranged. Second option conveys the user needs to make it happen — generic, no assumption about specifics. Third option conveys they just want to remember it happened or will happen. Reference the person or occasion if named.`;
+            case 'scope':
+              return `First option conveys this is one discrete thing to complete. Second option conveys this is a bigger multi-part effort. Third option conveys it is an early-stage idea not yet committed to. Reference the specific thing from the input.`;
+            case 'idea_or_commitment':
+              return `First option conveys fully committing to do this as a one-time action. Second option conveys committing to this as an ongoing practice. Third option conveys still thinking it through. Fourth option conveys it was a passing thought with no real intent. Reference the specific activity.`;
+            default:
+              return `Labels should describe what the user might have meant in casual, natural language. Reference the specific content from the input.`;
+          }
         }
 
-        // --- Build interpretation list for prompt ---
-        const interpLines = interpretations
-          .map((interp, i) => {
-            const parts = [];
-            if (interp.bucket) parts.push(`bucket: ${interp.bucket}`);
-            if (interp.subtype) parts.push(`subtype: ${interp.subtype}`);
-            if (interp.habitSubtype) parts.push(`habitSubtype: ${interp.habitSubtype}`);
-            if (interp.dateField) parts.push(`dateField: ${interp.dateField}`);
-            return `${i + 1}. { ${parts.join(', ')} }`;
-          })
-          .join('\n');
+        // --- Resolve config ---
+        const config = TYPE_CONFIGS[ambiguityType] || FALLBACK_CONFIG;
+        const optionCount = config.options.length;
 
-        const clarificationSystemPrompt = `You are writing short labels for an ambiguous user input. The user typed something into a quick-capture box and we need to ask what they meant.
+        // --- Build system prompt ---
+        const questionInstruction =
+          ambiguityType === 'bucket'
+            ? `\nQUESTION RULES (return a "question" field in your JSON):\n- Under 8 words\n- Must reference the specific content of the user's input — use the actual noun, name, or subject they wrote\n- Neutral — does not assume any interpretation\n- Natural spoken language\n- Never use: track, log, note, habit, task, todo, capture, save, manage\n`
+            : '';
 
-You will receive the user's input, context, and a list of possible interpretations. Return exactly the same number of labels as interpretations, in the same order.
+        const jsonShape =
+          ambiguityType === 'bucket'
+            ? `{\n  "question": "...",\n  "labels": ["label for opt_1", "label for opt_2", ...]\n}`
+            : `{\n  "labels": ["label for opt_1", "label for opt_2", ...]\n}`;
 
-RULES FOR LABELS:
-- 4 words max, 30 chars max, casual fragments, no periods
-- NEVER reference app concepts in labels. Never say "to-do", "todo", "note", "list", "habit", "log", "reminder", "record", "session", "details", "add to my"
-- For todo interpretations: describe the most likely real-world action with a verb. What would this person actually DO? "Renew passport", "Find a therapist", "Do yoga", "Book dentist"
-- For log/general interpretations: use "Just remembering" or "Just a thought" — the user is noting something, not acting on it
-- For log/idea interpretations: use "Just an idea" or "Exploring it"
-- For log/journal interpretations: use "Just venting" or "Just processing"
-- For habit interpretations: describe what they'd do regularly. "Build a water habit", "Stop staying up late"
+        const clarifySystemPrompt = `You are generating labels for a clarification popup in a productivity app. The user dropped an ambiguous input and we need to show them options.
 
-RULES FOR QUESTION:
-- Under 6 words, simple, neutral
-- Do not assume any specific interpretation
-- "What about [thing]?" or "How do you mean?" work well
-- Never use "track", "log", "manage", "build", "plan" in the question
+GENERAL LABEL RULES — apply to all types:
+- 4 words max, 35 characters max
+- Casual, natural fragments — no formal language, no periods
+- Never use app terminology: do not say todo, habit, log, note, track, capture, save, manage, record, add to, create
+- Labels must feel like something a person would say, not a UI category name
+- Do not invent specific details that are not in the user's input
 
+TYPE-SPECIFIC RULES:
+${getLabelRules(ambiguityType)}
+${questionInstruction}
 Return JSON only:
-{
-  "question": "short question",
-  "labels": ["label 1", "label 2"]
-}`;
+${jsonShape}
+Labels array must have exactly ${optionCount} items.`;
 
-        const clarificationUserMessage = `USER INPUT: "${text.substring(0, 500)}"
-${ambiguityReason ? `CONTEXT: "${ambiguityReason}"` : ''}
-
-INTERPRETATIONS (return exactly ${interpretations.length} labels in the same order):
-${interpLines}`;
+        const clarifyUserMessage = `INPUT: "${text.substring(0, 500)}"\nTYPE: ${ambiguityType}${ambiguityReason ? `\nCONTEXT: ${ambiguityReason}` : ''}`;
 
         // --- Make AI call ---
-        const result = await aiClassify({
-          mode: 'realtime',
-          ...getProviders('nano', env),
-          env,
-          systemPrompt: clarificationSystemPrompt,
-          messages: [{ role: 'user', content: clarificationUserMessage }],
-          temperature: 0.3,
-          maxOutputTokens: 200,
-          endpoint: 'clarify-ambiguity',
-        });
+        let aiSuccess = false;
+        let finalOptions = config.options;
+        let finalQuestion = config.question || "What's going on here?";
 
-        const latency = Date.now() - t0;
-
-        if (result.parsed) {
-          const parsed = result.parsed;
-
-          // --- Validate response ---
-          const question =
-            typeof parsed.question === 'string' && parsed.question.trim()
-              ? parsed.question.trim().substring(0, 100)
-              : null;
-
-          const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
-
-          // Labels count must match interpretations count
-          if (
-            labels.length === interpretations.length &&
-            labels.every((l) => typeof l === 'string' && l.trim())
-          ) {
-            const options = interpretations.map((interp, i) => ({
-              id: `opt_${i + 1}`,
-              label: labels[i].trim().substring(0, 60),
-              bucket: interp.bucket || null,
-              subtype: interp.subtype || null,
-              habitSubtype: interp.habitSubtype || null,
-              dateField: interp.dateField || null,
-            }));
-
-            console.log('[Phase1.5] AI success', {
-              question,
-              options_count: options.length,
-              wasFallback: result.wasFallback,
-              fallbackReason: result.fallbackReason,
-              latency_ms: latency,
-            });
-
-            return j({
-              success: true,
-              clarification_question: question || FALLBACK_QUESTION,
-              options,
-              latency_ms: latency,
-            });
-          }
-
-          // Labels didn't match — fall through to fallback
-          console.log('[Phase1.5] AI labels mismatch, using fallback', {
-            expected: interpretations.length,
-            got: labels.length,
-            latency_ms: latency,
+        try {
+          const result = await aiClassify({
+            mode: 'realtime',
+            ...getProviders('mini', env),
+            env,
+            systemPrompt: clarifySystemPrompt,
+            messages: [{ role: 'user', content: clarifyUserMessage }],
+            temperature: 0.3,
+            maxOutputTokens: 150,
+            endpoint: 'clarify-ambiguity',
           });
+
+          if (result.parsed) {
+            const parsed = result.parsed;
+            const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
+
+            if (
+              labels.length === optionCount &&
+              labels.every((l) => typeof l === 'string' && l.trim())
+            ) {
+              aiSuccess = true;
+              finalOptions = config.options.map((opt, i) => ({
+                ...opt,
+                label: labels[i].trim().substring(0, 60),
+              }));
+
+              if (
+                ambiguityType === 'bucket' &&
+                typeof parsed.question === 'string' &&
+                parsed.question.trim()
+              ) {
+                finalQuestion = parsed.question.trim().substring(0, 100);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[Phase1.5] AI call failed', { error: String(err) });
         }
 
-        // --- Fallback: static options ---
-        const fallbackLatency = Date.now() - t0;
-        console.log('[Phase1.5] Using static fallback', {
-          options_count: FALLBACK_OPTIONS.length,
-          latency_ms: fallbackLatency,
+        // --- Fallback labels if AI failed ---
+        if (!aiSuccess) {
+          const fallbackLabels = FALLBACK_LABELS[ambiguityType];
+          if (fallbackLabels && fallbackLabels.length === optionCount) {
+            finalOptions = config.options.map((opt, i) => ({
+              ...opt,
+              label: fallbackLabels[i],
+            }));
+          } else {
+            // Unknown type — use full fallback config
+            finalOptions = FALLBACK_CONFIG.options;
+            finalQuestion = FALLBACK_CONFIG.question;
+          }
+        }
+
+        const latency = Date.now() - t0;
+        console.log('[Phase1.5]', {
+          ambiguityType,
+          options_count: finalOptions.length,
+          ai_success: aiSuccess,
+          latency_ms: latency,
         });
 
         return j({
           success: true,
-          clarification_question: FALLBACK_QUESTION,
-          options: FALLBACK_OPTIONS,
-          latency_ms: fallbackLatency,
+          clarification_question: finalQuestion,
+          options: finalOptions,
+          latency_ms: latency,
         });
       }
 
