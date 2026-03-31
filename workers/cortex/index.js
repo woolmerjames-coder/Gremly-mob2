@@ -687,18 +687,24 @@ const PREPARSE_INTENT_PROMPT = `Extract these facts from the input. Return JSON 
 - frame_type: What is the user's commitment state? "directing" (user has decided to act — an imperative self-command IS commitment, regardless of what the action involves. A bare verb opening a sentence is the defining form of a directive), "exploring" (user is uncertain WHETHER to commit — hedging or questioning their own intent), "processing" (working through emotions or reflecting), "factual" (stating information to remember), or "uncertain" (cannot determine intent).
 - factual_statement: Is the user stating complete reference information? This requires BOTH a subject AND its value to be present — "X is Y" form. An imperative sentence has no subject — it is a command, not a statement of fact. This field is about the grammatical form, not the topic.
 - is_noun_phrase_only: Is this ONLY a noun or noun phrase with no verb, no "is", and no action implied?
-- action_target: Who or what is the subject of change or action? "self" (the user will personally do or embody this change), "external" (the user is giving instructions about how a system, product, feature, or thing should behave or be built), or "other_person" (about another person's behavior).`;
+- action_target: Who or what is the subject of change or action? "self" (the user will personally do or embody this change), "external" (the user is giving instructions about how a system, product, feature, or thing should behave or be built), or "other_person" (about another person's behavior).
+- self_reflection: Is the user examining, observing, or reflecting on their own recurring thoughts, behaviors, or patterns? This is true when the user is the subject AND object of the observation — they are looking inward at something they habitually do or think. It is distinct from emotional_content (which is about expressing feelings) and from frame_type processing (which is about working through an emotion in the moment). Self-reflection is specifically about noticing a pattern in oneself.`;
 
-// Mini-prompt B: Content Signals
+// Mini-prompt B: Emotional & Temporal Signals
 const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON only.
 
-- emotional_content: Is the user expressing feelings, mood, or emotional state?
-- self_reflection: Is the user examining their own thoughts, patterns, or behavior?
+- emotional_content: Is the user expressing feelings, mood, or emotional state as part of this input? This is about the presence of an emotional register in the language, not about whether the topic is emotional.
+- temporal_specificity: Is the action anchored to a specific or bounded point in time? True when the input constrains WHEN — a particular moment, day, or window that limits the action to a single instance. False when timing is open-ended, unspecified, or recurring.
+- reminder_intent: Does the user want to be reminded or not forget something? True ONLY when explicit reminder language is present, when urgency is paired with a specific time, or when appointment-like phrasing implies a nudge is needed. False for vague timing, past-tense remembering, journaling, or simple todos with no reminder or urgency language.`;
+
+// Mini-prompt D: Behavioral Change Signals
+const PREPARSE_BEHAVIORAL_PROMPT = `Extract these facts from the input. Return JSON only.
+
+These three signals are interdependent. The correct value of each one depends on the others. Evaluate all three in relation to each other before returning any value.
+
 - frequency_present: Does the user intend to personally repeat this behavior on an ongoing basis? Set true if frequency_type is not null. CRITICAL DISTINCTION: frequency_present must only be true when the user is expressing that a behavior WILL recur going forward — either a commitment to perform something repeatedly, or cessation of something they want to bring to zero. It must NOT be true when the user is merely describing that a behavior already recurs. The test is directional: is the user expressing forward intent about a recurring behavior, or backward observation about an existing pattern? Forward intent sets frequency_present true. Backward observation does not, even when the language contains repetition markers.
 - frequency_type: Apply this test: "Has the user specified WHEN or HOW OFTEN they will do this?" Frequency requires concrete timing — not just a desire to do more or less of something. If no timing is specified → null. If timing is specified, classify: "explicit" — the user has stated a recurring schedule or cadence; the input conveys that this behavior repeats at defined intervals or on a regular basis. This classification must not be applied when the recurring language describes an existing problematic pattern the user is observing or complaining about rather than a schedule they are committing to. Language that frames recurrence as something that already happens to the user — where the user is the observer of the pattern rather than the agent expressing a forward schedule — is not explicit frequency. The user must be expressing that a behavior will repeat going forward, not that it has been repeating. "day_names" — the user has anchored the behavior to one or more particular named days of the week; the recurrence is defined by which days it occurs on. "stop_quit" — this classification applies when the user expresses the complete cessation of a personal ongoing behavior. The decisive test is the grammatical nature of the object following the cessation verb. When the object is a gerund or gerund phrase — a verb form ending in -ing that describes an activity the user personally performs on an ongoing basis — this is stop_quit; the behavior is recurring and the user intends to bring it to zero. When the object is a noun, noun phrase, or non-activity concept such as a role, relationship, object, place, or state — this is NOT stop_quit; a one-time action to end a state is not a recurring behavior and must not trigger frequency detection. When the cessation verb itself is used with a locational or directional meaning rather than a behavioral meaning — this is NOT stop_quit. The presence of a cessation verb alone is not sufficient; the object must describe a recurring personal activity. CRITICAL DISAMBIGUATION: When the user wants a behavior to reach zero, frequency_type is "stop_quit" and direction_without_schedule MUST be false. Zero is a concrete target, not a relative direction. direction_without_schedule only applies to non-zero relative changes.
-- direction_without_schedule: Does the user's language explicitly express a desire for a NON-ZERO relative change — to increase, decrease, or improve something — without specifying a concrete amount or schedule? This is about the linguistic expression of relative/comparative intent, not whether the activity itself could vary in amount. An imperative to perform an action is false, even if that action could theoretically be done more or less. The question is what the words express, not the nature of the activity. IMPORTANT: If the user's desired end state is zero (complete cessation), that is NOT direction_without_schedule — that is frequency_type "stop_quit". direction_without_schedule is only true when the target is a non-zero relative shift (more, less, better) with no concrete amount or schedule.
-- temporal_specificity: Is the action anchored to a specific or bounded point in time? True when the input constrains WHEN — a particular moment, day, or window that limits the action to a single instance. False when timing is open-ended, unspecified, or recurring.
-- reminder_intent: Does the user want to be reminded or not forget something? True ONLY for: explicit reminder language ("remind me", "don't forget", "remember to", "remember my"), urgency paired with a specific time ("need to do this by 3pm", "must call before lunch"), or appointment-like phrasing that implies a nudge is needed ("doctor appointment tomorrow", "meeting at 2"). False for: vague timing ("soon", "eventually", "this week"), past-tense remembering ("I remembered that..."), journaling or reflection, or simple todos without any reminder/urgency language ("buy groceries").`;
+- direction_without_schedule: Does the user's language explicitly express a desire for a NON-ZERO relative change — to increase, decrease, or improve something — without specifying a concrete amount or schedule? This is about the linguistic expression of relative/comparative intent, not whether the activity itself could vary in amount. An imperative to perform an action is false, even if that action could theoretically be done more or less. The question is what the words express, not the nature of the activity. IMPORTANT: If the user's desired end state is zero (complete cessation), that is NOT direction_without_schedule — that is frequency_type "stop_quit". direction_without_schedule is only true when the target is a non-zero relative shift (more, less, better) with no concrete amount or schedule.`;
 
 // Mini-prompt C: Structure & Confidence
 const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JSON only.
@@ -724,7 +730,7 @@ async function runPreparseMini(text, env, systemPrompt) {
     systemPrompt,
     messages: [{ role: 'user', content: text.substring(0, 500) }],
     temperature: 0.1,
-    maxOutputTokens: 100,
+    maxOutputTokens: 150,
     endpoint: 'preparse-mini',
   });
 
@@ -750,11 +756,12 @@ async function runPreparse(text, env) {
   const t0 = Date.now();
 
   try {
-    // Run all three mini-parses in parallel
-    const [intentResult, contentResult, structureResult] = await Promise.all([
+    // Run all four mini-parses in parallel
+    const [intentResult, contentResult, structureResult, behavioralResult] = await Promise.all([
       runPreparseMini(text, env, PREPARSE_INTENT_PROMPT),
       runPreparseMini(text, env, PREPARSE_CONTENT_PROMPT),
       runPreparseMini(text, env, PREPARSE_STRUCTURE_PROMPT),
+      runPreparseMini(text, env, PREPARSE_BEHAVIORAL_PROMPT),
     ]);
 
     const latency = Date.now() - t0;
@@ -772,17 +779,21 @@ async function runPreparse(text, env) {
       action_target: ['self', 'external', 'other_person'].includes(intentResult.action_target)
         ? intentResult.action_target
         : 'self',
+      self_reflection: Boolean(intentResult.self_reflection),
 
       // From content
       emotional_content: Boolean(contentResult.emotional_content),
-      self_reflection: Boolean(contentResult.self_reflection),
-      frequency_present: Boolean(contentResult.frequency_present),
-      frequency_type: ['explicit', 'day_names', 'stop_quit'].includes(contentResult.frequency_type)
-        ? contentResult.frequency_type
-        : null,
-      direction_without_schedule: Boolean(contentResult.direction_without_schedule),
       temporal_specificity: Boolean(contentResult.temporal_specificity),
       reminder_intent: Boolean(contentResult.reminder_intent),
+
+      // From behavioral
+      frequency_present: Boolean(behavioralResult.frequency_present),
+      frequency_type: ['explicit', 'day_names', 'stop_quit'].includes(
+        behavioralResult.frequency_type,
+      )
+        ? behavioralResult.frequency_type
+        : null,
+      direction_without_schedule: Boolean(behavioralResult.direction_without_schedule),
 
       // From structure
       uncertainty_present: Boolean(structureResult.uncertainty_present),
