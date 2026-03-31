@@ -4906,6 +4906,55 @@ const RecentDrops: React.FC<{
               return [newItem, ...withoutOriginal];
             });
 
+            // Phase 1.5a: fetch smart_title and confirmation_message
+            try {
+              const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
+              const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+              const ctrl = new AbortController();
+              const t = setTimeout(() => ctrl.abort(), 10000);
+              const p15aRes = await fetch(cortexUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${anonKey}`,
+                },
+                body: JSON.stringify({
+                  type: 'enrich-phase1-5a',
+                  text: originalText,
+                  bucket: 'todo',
+                  subtype: null,
+                }),
+                signal: ctrl.signal,
+              });
+              clearTimeout(t);
+              if (p15aRes.ok) {
+                const p15aData = await p15aRes.json();
+                const smartTitle = p15aData?.smart_title;
+                const confirmMsg = p15aData?.confirmation_message;
+                if (
+                  (smartTitle && typeof smartTitle === 'string') ||
+                  (confirmMsg && typeof confirmMsg === 'string')
+                ) {
+                  setItems((prev) =>
+                    prev.map((item) =>
+                      item.id === newTodo.id
+                        ? {
+                            ...item,
+                            ...(smartTitle ? { title: smartTitle } : {}),
+                            views: {
+                              ...item.views,
+                              ...(confirmMsg ? { confirmation_message: confirmMsg } : {}),
+                            },
+                          }
+                        : item,
+                    ),
+                  );
+                }
+              }
+            } catch (e) {
+              console.warn('[RecentDrops:Phase1.5a] Failed for todo, continuing', e);
+            }
+
             // Run Phase 2 enrichment (non-streaming)
             runPhase2(newTodo.id, originalText, 'todo', null, repo)
               .then((result) => {
@@ -4962,6 +5011,55 @@ const RecentDrops: React.FC<{
               };
               return [newItem, ...withoutOriginal];
             });
+
+            // Phase 1.5a: fetch smart_title and confirmation_message
+            try {
+              const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
+              const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+              const ctrl = new AbortController();
+              const t = setTimeout(() => ctrl.abort(), 10000);
+              const p15aRes = await fetch(cortexUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${anonKey}`,
+                },
+                body: JSON.stringify({
+                  type: 'enrich-phase1-5a',
+                  text: originalText,
+                  bucket: 'habit',
+                  subtype: null,
+                }),
+                signal: ctrl.signal,
+              });
+              clearTimeout(t);
+              if (p15aRes.ok) {
+                const p15aData = await p15aRes.json();
+                const smartTitle = p15aData?.smart_title;
+                const confirmMsg = p15aData?.confirmation_message;
+                if (
+                  (smartTitle && typeof smartTitle === 'string') ||
+                  (confirmMsg && typeof confirmMsg === 'string')
+                ) {
+                  setItems((prev) =>
+                    prev.map((item) =>
+                      item.id === newHabit.id
+                        ? {
+                            ...item,
+                            ...(smartTitle ? { title: smartTitle } : {}),
+                            views: {
+                              ...item.views,
+                              ...(confirmMsg ? { confirmation_message: confirmMsg } : {}),
+                            },
+                          }
+                        : item,
+                    ),
+                  );
+                }
+              }
+            } catch (e) {
+              console.warn('[RecentDrops:Phase1.5a] Failed for habit, continuing', e);
+            }
 
             // Run Phase 2 enrichment (non-streaming)
             runPhase2(newHabit.id, originalText, 'habit', null, repo)
@@ -5021,6 +5119,55 @@ const RecentDrops: React.FC<{
               : item,
           ),
         );
+
+        // Phase 1.5a: fetch smart_title and confirmation_message
+        try {
+          const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
+          const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 10000);
+          const p15aRes = await fetch(cortexUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${anonKey}`,
+            },
+            body: JSON.stringify({
+              type: 'enrich-phase1-5a',
+              text: originalText,
+              bucket: 'log',
+              subtype: noteSubtype,
+            }),
+            signal: ctrl.signal,
+          });
+          clearTimeout(t);
+          if (p15aRes.ok) {
+            const p15aData = await p15aRes.json();
+            const smartTitle = p15aData?.smart_title;
+            const confirmMsg = p15aData?.confirmation_message;
+            if (
+              (smartTitle && typeof smartTitle === 'string') ||
+              (confirmMsg && typeof confirmMsg === 'string')
+            ) {
+              setItems((prev) =>
+                prev.map((item) =>
+                  item.id === noteId
+                    ? {
+                        ...item,
+                        ...(smartTitle ? { title: smartTitle } : {}),
+                        views: {
+                          ...item.views,
+                          ...(confirmMsg ? { confirmation_message: confirmMsg } : {}),
+                        },
+                      }
+                    : item,
+                ),
+              );
+            }
+          }
+        } catch (e) {
+          console.warn('[RecentDrops:Phase1.5a] Failed for log, continuing', e);
+        }
 
         // Run Phase 2 enrichment for the note (non-streaming)
         runPhase2(noteId, originalText, 'log', dominantSubtype || 'general', repo)

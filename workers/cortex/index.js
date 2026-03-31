@@ -413,6 +413,9 @@ function mapPreparseToClassification(preparse) {
       return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
     }
     if (preparse.temporal_specificity) {
+      if (preparse.is_noun_phrase_only) {
+        return { needsPhase1: true, reason: 'direction_without_schedule' };
+      }
       return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
     }
     return { needsPhase1: true, reason: 'direction_without_schedule' };
@@ -846,7 +849,7 @@ function getReasoningGuidance(reason) {
 Apply THE ACTION IMPLICATION TEST:
 Does this noun inherently imply something needs to be done, or could it equally be reference information to remember? 
 
-If only one interpretation makes sense, choose it. If both are genuinely plausible, return AMBIGUOUS with type "bucket".`;
+If only one interpretation makes sense, choose it. If both are genuinely plausible, return AMBIGUOUS with type "bucket". Additionally, before applying THE ACTION IMPLICATION TEST, first check whether the noun phrase implies project-scale or multi-step work — a system, product, feature, initiative, or named deliverable that would require coordinated effort across multiple actions. When action_target is external AND the noun implies this kind of scale, return AMBIGUOUS with ambiguity_type "scope" rather than "bucket". The distinction: bucket is for nouns where intent is entirely unknown. Scope is for nouns where working on something is implied but the scale — one task vs a larger effort — is what needs clarifying.`;
 
     case 'direction_without_schedule':
       return `This input expresses a desire for relative change without a concrete schedule. Apply these two tests IN ORDER and stop at the first that resolves:
@@ -922,7 +925,9 @@ Apply THE HABIT GATE — all three tests must pass for HABIT classification:
 3. IS THERE CONCRETE TIMING: Either explicit recurrence schedules (daily, weekly, every morning) or cessation language (stop, quit, give up) count as concrete frequency signals. Vague aspirational language without temporal anchoring does not.
 
 If all three pass → HABIT. Use subtype "start_habit" for building new behaviors, "break_habit" for stopping or quitting existing behaviors.
-If any test fails → TODO. The frequency language is incidental, not definitional.`;
+If any test fails → TODO. The frequency language is incidental, not definitional.
+
+CRITICAL: When the input is a short action phrase of two to four words containing a verb and an activity — with no explicit schedule, no day names, and no specific time anchor — the frequency signal is ambiguous as to whether the user means a one-time action or a recurring practice. In this situation, do not commit to todo or habit with high confidence. Return AMBIGUOUS with ambiguity_type "habit_or_todo" so the user can clarify. The input must be treated as genuinely unclear between a single action and an ongoing commitment.`;
 
     case 'exploring_frame':
       return `Pre-parse detected "exploring" frame, but this signal is unreliable.
@@ -1012,14 +1017,14 @@ These pre-phase facts are strong classification signals. Do not ignore them:
 
 AMBIGUITY TYPE DETECTION — when returning AMBIGUOUS, use these signals to determine the correct ambiguity_type:
 - is_noun_phrase_only: true → ambiguity_type is almost always "bucket". The input has no frame or verb to signal intent.
-- temporal_specificity: true — particularly when the input contains a specific named day AND a specific time, or a specific date AND a named occasion or appointment-type noun — this is a strong signal for "date_type". The combination of day/date + time + appointment context means the user is almost certainly referring to something scheduled or to-be-scheduled. This should take priority over "action_or_memory" when both seem plausible. Only use "date_type" when the bucket is clearly TODO — if the bucket is unclear, use "bucket" instead.
+- temporal_specificity: true — particularly when the input contains a specific named day AND a specific time, or a specific date AND a named occasion or appointment-type noun — this is a strong signal for "date_type". The combination of day/date + time + appointment context means the user is almost certainly referring to something scheduled or to-be-scheduled. This should take priority over "action_or_memory" when both seem plausible. Only use "date_type" when the bucket is clearly TODO — if the bucket is unclear, use "bucket" instead. This also applies when is_noun_phrase_only is true but the noun is an appointment, event, or occasion type AND the input contains a specific day name or date AND a specific time. In this case, the absence of a verb does not change the classification — the temporal anchor is the signal. Appointment-type nouns with specific day + time should be date_type, not bucket, even when there is no action verb present.
 - direction_without_schedule: true AND no concrete threshold stated → ambiguity_type is "vague_aspiration". The user wants relative change but has not defined what done looks like.
-- frequency_present: true AND it is unclear whether this is a one-time action or an ongoing practice → ambiguity_type is "habit_or_todo".
+- frequency_present: true AND it is unclear whether this is a one-time action or an ongoing practice → ambiguity_type is "habit_or_todo". When frequency signals are present alongside a clear action verb, this ambiguity type takes priority over obligation_framing. Obligation framing indicates the user feels they should act — it does not resolve whether the action is one-time or recurring. When both obligation_framing and frequency_present are true for a personal action, return habit_or_todo ambiguous rather than committing to todo.
 - factual_statement: true OR action_target is "other_person" AND no action verb present → ambiguity_type is "action_or_memory". A fact or reference that may or may not require action.
 - direction_without_schedule: true AND the behaviour is clearly named AND the only uncertainty is whether the user wants accountability → ambiguity_type is "commitment_level". Distinguished from vague_aspiration by having a concrete named activity.
 - emotional_content: true AND self_reflection: true AND an action or change is implied but not committed → ambiguity_type is "emotional_or_action".
 - action_target is "other_person" AND temporal_specificity is true or false AND no clear commitment to plan or just note → ambiguity_type is "social_plan".
-- is_noun_phrase_only: true AND the noun implies a potentially large effort rather than a single action → ambiguity_type is "scope". Distinguished from "bucket" by the noun implying project-scale work.
+- When is_noun_phrase_only is true AND action_target is external AND the noun phrase describes a project, system, product, or named deliverable — something that implies coordinated multi-step effort rather than a single discrete action — prefer scope over bucket. The distinction: bucket is for nouns where the user's intent is entirely unknown. Scope is for nouns where the intent to work on something is implied, but the scale is unclear. is_noun_phrase_only: true AND the noun implies a potentially large effort rather than a single action → ambiguity_type is "scope". Distinguished from "bucket" by the noun implying project-scale work.
 - frame_type is "exploring" AND uncertainty_target is "entire_proposition" AND the action is concrete → ambiguity_type is "idea_or_commitment". The user is floating something real but has not committed.
 
 Only return AMBIGUOUS if these signals conflict or are absent.
