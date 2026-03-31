@@ -5280,6 +5280,7 @@ READINESS MUST NEVER REGRESS from a previous tier.
 
 === FIELDS TO EXTRACT ===
 1. name — clean habit name, 2-6 words. For break habits, use the boundary rule as the name if one has been shaped.
+   CRITICAL: name must be a SHORT action phrase that could be a habit title (2-6 words), NOT a sentence describing the user's intent or conversation status. If no specific behavior has been identified yet, return null.
 2. habit_type — "build" or "break"
 3. cadence — "daily", "weekly", or "monthly"
 4. target — normalized frequency string: "daily", "2x/week", "3x/week", "weekly", etc.
@@ -5287,6 +5288,7 @@ READINESS MUST NEVER REGRESS from a previous tier.
 6. time_window — "morning", "afternoon", "evening", or "anytime" (null if not discussed)
 7. space_name — Space name if user discussed assigning to one (null if not)
 8. notes — synthesize the user's motivation and context in FIRST PERSON from the ENTIRE conversation. Include why they want this and any personal context shared. Expand shorthand answers ("all of the above", "yeah") using full conversation context. 1-2 sentences max. null if nothing personal shared.
+   CRITICAL: notes must be the user's OWN motivation in first person, NOT a status update about the conversation. Never write "User wants to..." or "hasn't specified yet" or any third-person description. If no personal motivation has been shared, return null.
 9. end_date — YYYY-MM-DD if a deadline or event was discussed (null if not)
 10. time_estimate_minutes — estimated minutes per session: 5, 10, 15, 30, 45, 60, 90, 120 (null if not discussed, infer from activity type if obvious)
 11. event_name — what they're working toward, if an event/deadline is involved (null if not)
