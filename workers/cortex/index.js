@@ -136,6 +136,7 @@ import {
   buildChatContext,
   fetchSpaceEntities,
   formatSpaceEntities,
+  getLifeMapForChat,
 } from './context/chatProjection.js';
 import { getUserProfile } from './context/userProfile.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
@@ -3072,14 +3073,70 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
 
         const contextString = contextParts.join('\n');
 
-        const habitBuilderSystemPrompt = `${HABIT_BUILDER_PROMPT}\n\n=== SESSION CONTEXT ===\n${contextString}${userProfileContext}`;
+        // ── V2: Pre-parse triage ──
+        const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
+        const prevExchange = extractPreviousExchange(messages);
+
+        let preParse = null;
+        try {
+          // Compress Life Map for pre-parse (server-side)
+          const lifeMap = await getLifeMapForChat(body.userId, env);
+          const dailyFocus = await getDailyFocusForChat(body.userId, env);
+          let compressedLifeMap = '';
+          if (dailyFocus?.lifeMoment) {
+            compressedLifeMap += dailyFocus.lifeMoment + '. ';
+          }
+          if (lifeMap?.domains) {
+            const activeDomains = lifeMap.domains
+              .filter((d) => d.attention !== 'background')
+              .map((d) => d.name);
+            if (activeDomains.length > 0) {
+              compressedLifeMap += 'Active domains: ' + activeDomains.join(', ') + '. ';
+            }
+          }
+
+          preParse = await habitPreParse(
+            lastUserMsg,
+            prevExchange,
+            {
+              existingHabits: context.existingHabits || [],
+              currentMode: context.currentMode || null,
+              turnNumber: context.turnNumber || 0,
+              compressedLifeMap: compressedLifeMap.trim() || null,
+              currentDate: today,
+            },
+            env,
+          );
+        } catch (err) {
+          console.warn('[HabitBuilder] Pre-parse failed, using V1 path:', err.message);
+        }
+
+        // Inject mode context into system prompt
+        const builderMode =
+          preParse?.mode !== 'CONTINUE' ? preParse?.mode : context.currentMode || 'SHAPE';
+        let modeContext = '';
+        if (preParse?.capacity_signal) {
+          modeContext += `\n=== CAPACITY NOTE ===\n${preParse.capacity_signal}\n`;
+        }
+        if (preParse?.is_restart) {
+          modeContext +=
+            '\n=== RESTART CONTEXT ===\nThis user has tried this before and stopped. Before shaping, ask ONE question: "What got in the way last time?" Use their answer to shape differently.\n';
+        }
+        if (preParse?.nudge_toward_proposal) {
+          modeContext +=
+            '\n=== NUDGE ===\nThis conversation has been going for a while. Synthesize everything and propose a specific, concrete habit.\n';
+        }
+        if (preParse?.secondary_mode === 'EVENT_ANCHORED' && preParse?.event_context) {
+          modeContext += `\n=== EVENT CONTEXT ===\nThis habit is tied to: ${preParse.event_context.name} on ${preParse.event_context.date} (${preParse.event_context.weeks_until} weeks away). Factor the timeline into your shaping.\n`;
+        }
+
+        const habitBuilderSystemPrompt = `${HABIT_BUILDER_PROMPT}\n\n=== SESSION CONTEXT ===\n${contextString}${userProfileContext}${modeContext}`;
 
         const openaiMessages = [
           { role: 'system', content: habitBuilderSystemPrompt },
           ...messages.slice(-20),
         ];
 
-        const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
         const t0 = Date.now();
 
         // ── STREAMING ──
@@ -3374,6 +3431,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
                 done: true,
                 full_content: fullContent,
                 resolved_fields: resolved,
+                builder_mode: builderMode,
                 latency_ms: latency,
                 sources: sources,
               });
@@ -3450,7 +3508,12 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
             next_field: resolved.next_field,
           });
 
-          return j({ content, resolved_fields: resolved, latency_ms: latency });
+          return j({
+            content,
+            resolved_fields: resolved,
+            builder_mode: builderMode,
+            latency_ms: latency,
+          });
         } catch (err) {
           const latency = Date.now() - t0;
           console.log('[HabitBuilder] Error', { error: String(err), latency_ms: latency });
@@ -4835,6 +4898,131 @@ Almost never suggest creating a Space. Only if ALL true:
         } catch (parseErr) {
           console.log('[SaveSuggestion] Parse error:', parseErr.message);
           return { suggestion: null, cleanContent: content };
+        }
+      }
+
+      /**
+       * Pre-parse: classify user intent into a conversation mode before main chat.
+       * Runs gpt-4.1-nano (~100ms). Returns null on any failure.
+       */
+      async function habitPreParse(userMessage, previousExchange, context, env) {
+        const { existingHabits, currentMode, turnNumber, compressedLifeMap } = context;
+
+        const habitList =
+          (existingHabits || [])
+            .map(
+              (h) =>
+                `${h.name} (${h.subtype === 'break_habit' ? 'break' : 'build'}, ${h.frequency || 'daily'}${h.time_window ? ', ' + h.time_window : ''})`,
+            )
+            .join(', ') || 'None';
+
+        // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
+        const today =
+          context.currentDate ||
+          new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(new Date());
+
+        const prompt = `You classify the intent of a message in a habit-building conversation.
+Today's date is ${today}.
+
+CONTEXT:
+- User's existing habits: ${habitList}
+- Life context: ${compressedLifeMap || 'None available'}
+- Current conversation mode: ${currentMode || 'none (first message)'}
+- Previous exchange: ${previousExchange ? `Assistant: "${previousExchange.assistantMsg?.slice(0, 200)}" / User: "${previousExchange.userMsg?.slice(0, 200)}"` : 'none'}
+- Turn number: ${turnNumber || 0}
+
+IF current mode is "none" (first message) OR you detect a clear mode shift signal:
+  CLASSIFY into exactly one primary mode:
+  - QUICK_LOCK: User gave a specific behavior + frequency. All key info present.
+  - SHAPE: Intent present but missing specific behavior and/or frequency.
+  - RESEARCH: User is asking a question, wants information, or expresses curiosity/uncertainty.
+  - BREAK: User wants to stop, quit, reduce, or eliminate a behavior.
+  - EVENT_ANCHORED: Habit tied to a specific deadline, event, or milestone.
+  Also check for a secondary mode if signals for two modes are present.
+
+IF the user is simply responding to a question, confirming, or continuing without new intent:
+  Return mode: "CONTINUE"
+
+MODE SHIFT SIGNALS (reclassify even mid-conversation):
+  - User asks a question → may shift to RESEARCH
+  - User mentions a deadline or event → may add EVENT_ANCHORED as secondary
+  - "I've tried this before" / "I keep failing" → set is_restart: true
+  - "Just set it up" → shift to QUICK_LOCK
+  - "What does research say?" → shift to RESEARCH
+  - User mentions wanting to stop/quit something → shift to BREAK
+
+ALSO DETECT:
+- is_restart: true if user signals they've tried this before and failed/stopped. false otherwise.
+- search_query: A concise 3-6 word web search query if RESEARCH mode or if user asks something researchable. null otherwise. Make it specific.
+- event_context: { name, date (YYYY-MM-DD), weeks_until } if EVENT_ANCHORED detected. null otherwise.
+- capacity_signal: Brief note if habit load suggests capacity concerns. null if fine.
+- nudge_toward_proposal: true if turn_number >= 8. false otherwise.
+
+EXTRACT fields present in THIS message:
+- behavior, habit_type ("build"/"break"/null), frequency, start_date (YYYY-MM-DD), time_window ("morning"/"afternoon"/"evening"/"anytime"), end_date (YYYY-MM-DD)
+All null if not present.
+
+Return ONLY valid JSON:
+{"mode":"...","secondary_mode":null,"is_restart":false,"search_query":null,"event_context":null,"capacity_signal":null,"nudge_toward_proposal":false,"extracted":{"behavior":null,"habit_type":null,"frequency":null,"start_date":null,"time_window":null,"end_date":null}}`;
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4.1-nano',
+              messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: userMessage },
+              ],
+              temperature: 0.1,
+              max_tokens: 300,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          if (!res.ok) {
+            console.warn('[HabitPreParse] API error:', res.status);
+            return null;
+          }
+
+          const data = await res.json();
+          const raw = data?.choices?.[0]?.message?.content ?? '{}';
+          const parsed = safeParseJson(raw);
+
+          if (!parsed || !parsed.mode) {
+            console.warn('[HabitPreParse] Invalid response:', raw?.slice(0, 100));
+            return null;
+          }
+
+          const validModes = [
+            'QUICK_LOCK',
+            'SHAPE',
+            'RESEARCH',
+            'BREAK',
+            'EVENT_ANCHORED',
+            'CONTINUE',
+          ];
+          if (!validModes.includes(parsed.mode)) {
+            console.warn('[HabitPreParse] Invalid mode:', parsed.mode);
+            return null;
+          }
+
+          console.log('[HabitPreParse] Result:', {
+            mode: parsed.mode,
+            secondary: parsed.secondary_mode,
+            isRestart: parsed.is_restart,
+            hasSearch: !!parsed.search_query,
+            nudge: parsed.nudge_toward_proposal,
+          });
+
+          return parsed;
+        } catch (err) {
+          console.error('[HabitPreParse] Error:', err.message);
+          return null;
         }
       }
 

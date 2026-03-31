@@ -1075,6 +1075,8 @@ export const genId = (prefix = 'id'): ID =>
 // HABIT BUILDER
 // ═══════════════════════════════════════════════════════════════════════════════
 
+export type HabitBuilderMode = 'QUICK_LOCK' | 'SHAPE' | 'RESEARCH' | 'BREAK' | 'EVENT_ANCHORED';
+
 export interface HabitBuilderResolvedFields {
   name: string | null;
   habit_type: 'build' | 'break' | null;
@@ -1090,6 +1092,59 @@ export interface HabitBuilderResolvedFields {
   next_field: string | null;
   required_count: number;
   suggested_chips: string[] | null;
+
+  // V2: Readiness
+  readiness: 'exploring' | 'shaping' | 'confirmable' | 'locked';
+  conversation_value: 'low' | 'medium' | 'high';
+
+  // V2: Break-specific
+  trigger: string | null;
+  replacement_behavior: string | null;
+  environment_change: string | null;
+  boundary_rule: string | null;
+  current_frequency: string | null;
+
+  // V2: Event-anchored
+  event_name: string | null;
+
+  // V2: Restart
+  is_restart: boolean;
+  restart_context: string | null;
+
+  // V2: Check-in
+  check_in_after: number | null;
+
+  // V2: Mode
+  builder_mode: HabitBuilderMode | null;
+
+  // V2: Steering chips (separate from suggested_chips)
+  steering_chips: string[] | null;
+
+  // V2: Post-lock-in edits
+  edit_field: string | null;
+  edit_value: string | null;
+}
+
+export interface HabitBuilderPreParseResult {
+  mode: HabitBuilderMode | 'CONTINUE';
+  secondary_mode: 'EVENT_ANCHORED' | 'BREAK' | null;
+  is_restart: boolean;
+  search_query: string | null;
+  event_context: {
+    name: string;
+    date: string;
+    weeks_until: number;
+  } | null;
+  capacity_signal: string | null;
+  nudge_toward_proposal: boolean;
+  extracted: {
+    behavior: string | null;
+    habit_type: 'build' | 'break' | null;
+    frequency: string | null;
+    start_date: string | null;
+    time_window: string | null;
+    end_date: string | null;
+  };
 }
 
 export interface HabitBuilderContext {
@@ -1112,6 +1167,8 @@ export interface HabitBuilderRequest {
   messages: { role: 'user' | 'assistant'; content: string }[];
   context: HabitBuilderContext;
   userId?: string;
+  currentMode?: string | null;
+  turnNumber?: number;
 }
 
 export interface HabitBuilderStreamingResponse {

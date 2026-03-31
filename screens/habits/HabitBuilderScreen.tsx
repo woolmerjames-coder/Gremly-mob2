@@ -213,6 +213,22 @@ const EMPTY_RESOLVED: HabitBuilderResolvedFields = {
   next_field: null,
   required_count: 0,
   suggested_chips: null,
+  // V2
+  readiness: 'exploring',
+  conversation_value: 'low',
+  trigger: null,
+  replacement_behavior: null,
+  environment_change: null,
+  boundary_rule: null,
+  current_frequency: null,
+  event_name: null,
+  is_restart: false,
+  restart_context: null,
+  check_in_after: null,
+  builder_mode: null,
+  steering_chips: null,
+  edit_field: null,
+  edit_value: null,
 };
 
 let messageIdCounter = 0;
@@ -251,6 +267,8 @@ export function HabitBuilderScreen({
   const [habitLocked, setHabitLocked] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const [currentMode, setCurrentMode] = useState<string | null>(null);
+  const [turnNumber, setTurnNumber] = useState(0);
 
   // Track which messages have save cards
   const [lockedMessageId, setLockedMessageId] = useState<string | null>(null);
@@ -285,8 +303,15 @@ export function HabitBuilderScreen({
         })),
       spaces: spaces.filter((s) => !s.archived_at).map((s) => ({ id: s.id, name: s.name })),
       prefill: prefill || undefined,
+      habitCapacity: {
+        totalActive: habits.filter((h) => !h.archived_at).length,
+        dailyCount: habits.filter((h) => !h.archived_at && h.cadence === 'daily').length,
+        weeklyCount: habits.filter((h) => !h.archived_at && h.cadence === 'weekly').length,
+      },
+      currentMode,
+      turnNumber,
     };
-  }, [habits, spaces, userName, prefill]);
+  }, [habits, spaces, userName, prefill, currentMode, turnNumber]);
 
   // ─── Send message ─────────────────────────────────────────────
   const handleSendMessage = useCallback(
@@ -310,6 +335,10 @@ export function HabitBuilderScreen({
       }
 
       setIsLoading(true);
+
+      if (!isInitial) {
+        setTurnNumber((prev) => prev + 1);
+      }
 
       // Create user message (skip display for auto-start)
       const userMsg: SpaceChatMessage = {
@@ -382,9 +411,58 @@ export function HabitBuilderScreen({
             setMessages((prev) => [...prev, finalMsg]);
             setIsStreamActive(false);
 
-            // Update resolved fields
+            // Update resolved fields with readiness non-regression guard
             if (response.resolved_fields) {
-              setResolved(response.resolved_fields);
+              setResolved((prev) => {
+                const readinessOrder: Record<string, number> = {
+                  exploring: 0,
+                  shaping: 1,
+                  confirmable: 2,
+                  locked: 3,
+                };
+                const prevLevel = readinessOrder[prev.readiness] ?? 0;
+                const newLevel = readinessOrder[response.resolved_fields.readiness] ?? 0;
+                // Never regress readiness
+                if (newLevel < prevLevel) {
+                  return { ...response.resolved_fields, readiness: prev.readiness };
+                }
+                return response.resolved_fields;
+              });
+            }
+
+            // Update mode from server
+            if (response.resolved_fields?.builder_mode) {
+              setCurrentMode(response.resolved_fields.builder_mode);
+            }
+
+            // Handle post-lock-in field edits
+            if (
+              response.resolved_fields?.edit_field &&
+              response.resolved_fields?.edit_value &&
+              createdHabitIdRef.current
+            ) {
+              const editMap: Record<string, string> = {
+                frequency: 'frequency',
+                start_date: 'start_date',
+                end_date: 'end_date',
+                time_window: 'time_window',
+                name: 'name',
+                notes: 'notes',
+                time_estimate_minutes: 'time_estimate_minutes',
+                trigger: 'triggers_json',
+                replacement_behavior: 'replacement_text',
+                boundary_rule: 'boundary_rule',
+              };
+              const dbField = editMap[response.resolved_fields.edit_field];
+              if (dbField) {
+                const value =
+                  dbField === 'triggers_json'
+                    ? { primary: response.resolved_fields.edit_value }
+                    : response.resolved_fields.edit_value;
+                updateHabit(createdHabitIdRef.current, { [dbField]: value }).catch((err) =>
+                  console.error('[HabitBuilder] Edit failed:', err),
+                );
+              }
             }
 
             // Post-lock-in message tagging
