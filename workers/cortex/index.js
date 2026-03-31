@@ -126,6 +126,27 @@
  * - NEW: Daily usage limit (5/day per user via KV)
  * - IMPROVED: ADHD-aware scheduling rules (quick wins, transition costs, streak protection)
  * - IMPROVED: max_tokens 1200 → 4096 for larger task sets
+ *
+ * v6.0 (Habit Builder V2 — Phase 6):
+ * - POST-CREATION: Habit stacking suggestion via prompt (existing habits context)
+ * - POST-CREATION: First-week nudge notification
+ *   Cron query for notification worker (NOT in this file — add to notification cron):
+ *
+ *   SELECT h.*
+ *   FROM habits h
+ *   WHERE h.check_in_after IS NOT NULL
+ *     AND h.check_in_after > 0
+ *     AND h.check_in_sent IS NOT TRUE
+ *     AND h.archived_at IS NULL
+ *     AND (
+ *       SELECT COUNT(*)
+ *       FROM habit_progress hp
+ *       WHERE hp.habit_id = h.id
+ *         AND hp.occurred_day >= h.start_date
+ *     ) >= h.check_in_after;
+ *
+ *   When triggered: send push notification opening entity chat for the habit.
+ *   Then UPDATE habits SET check_in_sent = true WHERE id = h.id;
  */
 
 // DEPRECATED Phase 3 — replaced by chatProjection.js
