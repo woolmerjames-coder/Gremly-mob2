@@ -8,7 +8,19 @@ import Animated, {
   withSequence,
   Easing,
 } from 'react-native-reanimated';
-import { ChevronDown, ChevronUp, Check } from 'lucide-react-native';
+import {
+  ArrowUp,
+  X,
+  Repeat,
+  Calendar,
+  Sunrise,
+  Sun,
+  Moon,
+  Clock,
+  Check,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react-native';
 import { Text } from '../../ui/Text';
 import { lightTokens } from '../../design/tokens';
 import { getFrequencyDisplayLabel } from '../../lib/habits/frequencyUtils';
@@ -40,11 +52,6 @@ interface HabitSummaryCardProps {
 function formatFrequency(resolved: HabitBuilderResolvedFields): string | null {
   if (resolved.target) return resolved.target;
   return getFrequencyDisplayLabel(resolved.cadence, null);
-}
-
-function formatTimeWindow(tw: string | null | undefined): string | null {
-  if (!tw || tw === 'anytime') return null;
-  return tw.charAt(0).toUpperCase() + tw.slice(1) + 's';
 }
 
 function formatStartDate(startDate: string | null, readiness: string): string | null {
@@ -89,19 +96,6 @@ function formatStartDate(startDate: string | null, readiness: string): string | 
   }
 }
 
-function weeksUntil(endDate: string | null | undefined): number | null {
-  if (!endDate) return null;
-  try {
-    const end = new Date(endDate);
-    const now = getDateService().now();
-    const diff = end.getTime() - now.getTime();
-    if (diff <= 0) return 0;
-    return Math.ceil(diff / (7 * 24 * 60 * 60 * 1000));
-  } catch {
-    return null;
-  }
-}
-
 function buildAccessibilityLabel(resolved: HabitBuilderResolvedFields): string {
   const parts: string[] = ['Habit summary'];
   if (resolved.habit_type)
@@ -112,6 +106,30 @@ function buildAccessibilityLabel(resolved: HabitBuilderResolvedFields): string {
   if (resolved.readiness) parts.push(`Status: ${resolved.readiness}`);
   return parts.join(', ');
 }
+
+// ─── Metadata Chip ──────────────────────────────────────────────
+function MetadataChip({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <View style={metaStyles.chip}>
+      {icon}
+      <Text style={metaStyles.label}>{label}</Text>
+    </View>
+  );
+}
+
+const metaStyles = StyleSheet.create({
+  chip: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  label: {
+    fontFamily: fontFamily.medium,
+    fontSize: 11,
+    color: CREAM_MUTED,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+});
 
 // ─── Main Card ──────────────────────────────────────────────────
 export function HabitSummaryCard({
@@ -186,24 +204,8 @@ export function HabitSummaryCard({
     );
   }
 
-  // ── Expanded — build metadata segments ────────────────────────
-  const timeWindow = formatTimeWindow(resolved.time_window);
+  // ── Expanded — build metadata ─────────────────────────────────
   const startDate = formatStartDate(resolved.start_date, resolved.readiness);
-  const weeks = weeksUntil(resolved.end_date);
-
-  const metaSegments: string[] = [];
-  if (resolved.habit_type) {
-    metaSegments.push(resolved.habit_type === 'break' ? 'BREAK' : 'BUILD');
-  }
-  const freqValue = isBreak && resolved.boundary_rule ? resolved.boundary_rule : freq;
-  if (freqValue) metaSegments.push(freqValue);
-  if (timeWindow) metaSegments.push(timeWindow);
-  if (startDate) metaSegments.push(startDate);
-  if (weeks !== null) {
-    metaSegments.push(`${weeks} week${weeks !== 1 ? 's' : ''} to go`);
-  }
-
-  const metaLine = metaSegments.length > 0 ? metaSegments.join(' · ') : null;
 
   // Break trigger/replacement line
   const breakLine =
@@ -241,12 +243,49 @@ export function HabitSummaryCard({
         )}
       </View>
 
-      {/* Row 2: Metadata line */}
-      {metaLine && (
-        <Animated.View entering={FadeIn.duration(200)} key={metaLine}>
-          <Text style={styles.metaLine}>{metaLine}</Text>
-        </Animated.View>
-      )}
+      {/* Row 2: Metadata chips */}
+      <View style={{ flexDirection: 'row', gap: 16, marginTop: 6 }}>
+        {resolved.habit_type && (
+          <MetadataChip
+            icon={
+              resolved.habit_type === 'break' ? (
+                <X size={14} color={CREAM_MUTED} strokeWidth={2} />
+              ) : (
+                <ArrowUp size={14} color={CREAM_MUTED} strokeWidth={2} />
+              )
+            }
+            label={resolved.habit_type === 'break' ? 'Break' : 'Build'}
+          />
+        )}
+        {freq && (
+          <MetadataChip
+            icon={<Repeat size={14} color={CREAM_MUTED} strokeWidth={2} />}
+            label={freq}
+          />
+        )}
+        {resolved.time_window && resolved.time_window !== 'anytime' && (
+          <MetadataChip
+            icon={
+              resolved.time_window === 'morning' ? (
+                <Sunrise size={14} color={CREAM_MUTED} strokeWidth={2} />
+              ) : resolved.time_window === 'afternoon' ? (
+                <Sun size={14} color={CREAM_MUTED} strokeWidth={2} />
+              ) : resolved.time_window === 'evening' ? (
+                <Moon size={14} color={CREAM_MUTED} strokeWidth={2} />
+              ) : (
+                <Clock size={14} color={CREAM_MUTED} strokeWidth={2} />
+              )
+            }
+            label={resolved.time_window.charAt(0).toUpperCase() + resolved.time_window.slice(1)}
+          />
+        )}
+        {startDate && (
+          <MetadataChip
+            icon={<Calendar size={14} color={CREAM_MUTED} strokeWidth={2} />}
+            label={startDate.replace('Starts ', '')}
+          />
+        )}
+      </View>
 
       {/* Row 3: Separator (only if notes exist) */}
       {hasNotes && <View style={styles.separator} />}
@@ -325,14 +364,6 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     fontSize: 16,
     color: CREAM_MUTED,
-  },
-  metaLine: {
-    fontFamily: fontFamily.medium,
-    fontSize: 12,
-    color: CREAM_MUTED,
-    fontWeight: '500',
-    letterSpacing: 0.5,
-    marginTop: 4,
   },
   separator: {
     height: 1,

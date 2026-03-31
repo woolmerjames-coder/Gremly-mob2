@@ -5291,8 +5291,7 @@ READINESS MUST NEVER REGRESS from a previous tier.
 5. start_date — YYYY-MM-DD
 6. time_window — "morning", "afternoon", "evening", or "anytime" (null if not discussed)
 7. space_name — Space name if user discussed assigning to one (null if not)
-8. notes — synthesize the user's motivation and context in FIRST PERSON from the ENTIRE conversation. Include why they want this and any personal context shared. Expand shorthand or vague answers using full conversation context. 1-2 sentences max. null if nothing personal shared.
-   CRITICAL: notes must be first-person and contain only motivation, approach context, or anchoring reminders. Never restate the habit name, frequency, start date, or type — those have their own fields. Never write third-person descriptions or conversation status updates. If the user shared no personal context beyond the basic habit parameters, return null.
+8. notes — the user's personal WHY in one short sentence, first person. This must add context that is NOT already captured by the name, frequency, start date, or time window fields. If the user's motivation is fully expressed by the habit parameters themselves, return null. Maximum 15 words. Never mention the habit name, frequency, schedule, or any field values that already appear elsewhere in this JSON.
 9. end_date — YYYY-MM-DD if a deadline or event was discussed (null if not)
 10. time_estimate_minutes — estimated minutes per session: 5, 10, 15, 30, 45, 60, 90, 120 (null if not discussed, infer from activity type if obvious)
 11. event_name — what they're working toward, if an event/deadline is involved (null if not)
