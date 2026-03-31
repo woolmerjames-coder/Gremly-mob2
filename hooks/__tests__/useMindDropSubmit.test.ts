@@ -41,9 +41,9 @@ jest.mock('../../lib/minddrop/dropQueue', () => ({
   enqueue: (...args: any[]) => mockEnqueue(...args),
 }));
 
-const mockProcessDrop = jest.fn();
-jest.mock('../../lib/minddrop/dropProcessor', () => ({
-  processDrop: (...args: any[]) => mockProcessDrop(...args),
+const mockTriggerProcessing = jest.fn();
+jest.mock('../../lib/minddrop/dropPipeline', () => ({
+  triggerProcessing: (...args: any[]) => mockTriggerProcessing(...args),
 }));
 
 const mockHeuristicClassify = jest.fn();
@@ -101,7 +101,7 @@ beforeEach(() => {
     localId: 'drop-123',
     createdAt: '2025-12-15T10:00:00Z',
   });
-  mockProcessDrop.mockResolvedValue(undefined);
+  mockTriggerProcessing.mockResolvedValue(undefined);
   mockIncrementDropCount.mockResolvedValue({ didAgeUp: false, newAge: 1 });
   mockHeuristicClassify.mockReturnValue({
     bucket: 'todo',
@@ -191,19 +191,17 @@ describe('useMindDropSubmit — current architecture', () => {
 
   // ── Online vs Offline ──────────────────────────────────────────────
 
-  it('calls processDrop in background when online', async () => {
+  it('calls triggerProcessing when online', async () => {
     const { result } = renderHook(() => useMindDropSubmit());
 
     await act(async () => {
       await result.current.submit('online drop', { source: 'minddrop' });
     });
 
-    // processDrop is called with the queued drop
-    expect(mockProcessDrop).toHaveBeenCalledTimes(1);
-    expect(mockProcessDrop.mock.calls[0][0]).toMatchObject({ localId: 'drop-123' });
+    expect(mockTriggerProcessing).toHaveBeenCalledTimes(1);
   });
 
-  it('does NOT call processDrop when offline', async () => {
+  it('calls triggerProcessing even when offline', async () => {
     mockNetworkStatus.isConnected = false;
 
     const { result } = renderHook(() => useMindDropSubmit());
@@ -212,7 +210,8 @@ describe('useMindDropSubmit — current architecture', () => {
       await result.current.submit('offline drop', { source: 'minddrop' });
     });
 
-    expect(mockProcessDrop).not.toHaveBeenCalled();
+    // Pipeline is always triggered — it handles offline internally
+    expect(mockTriggerProcessing).toHaveBeenCalledTimes(1);
   });
 
   it('sets _offlineCapture flag in pending drop when offline', async () => {

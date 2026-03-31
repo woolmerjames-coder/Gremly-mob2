@@ -1297,7 +1297,6 @@ export const useGremlyStore = create<GremlyState>()(
             if (progressRes.error) throw progressRes.error;
 
             console.log('[GremlyStore] habit_progress query:', {
-              sinceDate,
               count: progressRes.data?.length,
               sample: progressRes.data
                 ?.slice(0, 5)

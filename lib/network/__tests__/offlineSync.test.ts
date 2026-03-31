@@ -1,8 +1,8 @@
 /**
  * Tests for lib/network/offlineSync.ts
  *
- * Tests the offline queue flush system: backoff logic, abort-on-disconnect,
- * sequential drop processing, and recovery after reconnection.
+ * Tests the offline sync system: reconnection triggers pipeline processing,
+ * app resume handling, and reclassification of degraded entities.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -18,16 +18,11 @@ jest.mock('../NetworkStatus', () => ({
   networkStatus: mockNetworkStatus,
 }));
 
-const mockGetPendingDrops = jest.fn();
-jest.mock('../../minddrop/dropQueue', () => ({
-  getPendingDrops: mockGetPendingDrops,
-}));
-
-const mockProcessDrop = jest.fn();
+const mockTriggerProcessing = jest.fn().mockResolvedValue(undefined);
 const mockReclassifyDegradedEntities = jest.fn().mockResolvedValue(undefined);
-jest.mock('../../minddrop/dropProcessor', () => ({
-  processDrop: mockProcessDrop,
-  reclassifyDegradedEntities: mockReclassifyDegradedEntities,
+jest.mock('../../minddrop/dropPipeline', () => ({
+  triggerProcessing: (...args: any[]) => mockTriggerProcessing(...args),
+  reclassifyDegradedEntities: (...args: any[]) => mockReclassifyDegradedEntities(...args),
 }));
 
 const mockRefreshFromServer = jest.fn().mockResolvedValue(undefined);
@@ -43,17 +38,9 @@ jest.mock('../../store/useGremlyStore', () => ({
 // Import after mocks
 // ─────────────────────────────────────────────────────────────────────────────
 
-// We re-require in each test to reset module-level state (isFlushing, consecutiveFailures)
+// Re-require in each test to reset module-level state
 function loadModule() {
   return require('../offlineSync') as typeof import('../offlineSync');
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-function makeDrop(id: string) {
-  return { localId: id, text: `drop ${id}`, createdAt: new Date().toISOString() };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,8 +52,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.useFakeTimers();
   mockNetworkStatus.isConnected = true;
-  mockGetPendingDrops.mockResolvedValue([]);
-  mockProcessDrop.mockResolvedValue(undefined);
+  mockTriggerProcessing.mockResolvedValue(undefined);
+  mockReclassifyDegradedEntities.mockResolvedValue(undefined);
   mockGetState.mockReturnValue({
     isInitialized: true,
     refreshFromServer: mockRefreshFromServer,
@@ -86,71 +73,64 @@ describe('offlineSync', () => {
       expect(typeof mockSubscribe.mock.calls[0][0]).toBe('function');
     });
 
-    it('schedules initial flush after 5s if already connected', () => {
+    it('schedules initial flush after 5s if already connected', async () => {
       const mod = loadModule();
-      mockGetPendingDrops.mockResolvedValue([makeDrop('1')]);
-
       mod.initOfflineSync();
 
-      // Not yet — needs 5s timeout
-      expect(mockGetPendingDrops).not.toHaveBeenCalled();
+      expect(mockTriggerProcessing).not.toHaveBeenCalled();
 
       jest.advanceTimersByTime(5000);
+      await jest.runAllTimersAsync();
 
-      // Now the flush should have started
-      expect(mockGetPendingDrops).toHaveBeenCalled();
+      expect(mockTriggerProcessing).toHaveBeenCalled();
     });
 
-    it('does NOT schedule initial flush if offline', () => {
+    it('does NOT schedule initial flush if offline', async () => {
       mockNetworkStatus.isConnected = false;
       const mod = loadModule();
       mod.initOfflineSync();
 
       jest.advanceTimersByTime(10000);
-      expect(mockGetPendingDrops).not.toHaveBeenCalled();
+      await jest.runAllTimersAsync();
+
+      expect(mockTriggerProcessing).not.toHaveBeenCalled();
     });
 
-    it('triggers flush 2s after reconnection', () => {
+    it('triggers flush 2s after reconnection', async () => {
       mockNetworkStatus.isConnected = false;
       const mod = loadModule();
       mod.initOfflineSync();
 
-      // Simulate reconnection via the subscriber callback
       const subscriberCb = mockSubscribe.mock.calls[0][0];
       mockNetworkStatus.isConnected = true;
       subscriberCb(true);
 
-      // Not yet — needs 2s timeout
-      expect(mockGetPendingDrops).not.toHaveBeenCalled();
+      expect(mockTriggerProcessing).not.toHaveBeenCalled();
 
       jest.advanceTimersByTime(2000);
-      expect(mockGetPendingDrops).toHaveBeenCalled();
+      await jest.runAllTimersAsync();
+
+      expect(mockTriggerProcessing).toHaveBeenCalled();
+    });
+
+    it('calls reclassifyDegradedEntities after reconnection flush', async () => {
+      mockNetworkStatus.isConnected = false;
+      const mod = loadModule();
+      mod.initOfflineSync();
+
+      const subscriberCb = mockSubscribe.mock.calls[0][0];
+      mockNetworkStatus.isConnected = true;
+      subscriberCb(true);
+
+      jest.advanceTimersByTime(2000);
+      await jest.runAllTimersAsync();
+
+      expect(mockReclassifyDegradedEntities).toHaveBeenCalled();
     });
   });
 
-  describe('flushOfflineQueue (via initOfflineSync trigger)', () => {
-    it('processes all pending drops sequentially', async () => {
-      const drops = [makeDrop('a'), makeDrop('b'), makeDrop('c')];
-      mockGetPendingDrops.mockResolvedValue(drops);
-      mockProcessDrop.mockResolvedValue(undefined);
-
-      const mod = loadModule();
-      mod.initOfflineSync();
-      jest.advanceTimersByTime(5000);
-
-      // Let all promises resolve
-      await jest.runAllTimersAsync();
-
-      expect(mockProcessDrop).toHaveBeenCalledTimes(3);
-      expect(mockProcessDrop.mock.calls[0][0]).toBe(drops[0]);
-      expect(mockProcessDrop.mock.calls[1][0]).toBe(drops[1]);
-      expect(mockProcessDrop.mock.calls[2][0]).toBe(drops[2]);
-    });
-
-    it('calls refreshFromServer after successful flush', async () => {
-      mockGetPendingDrops.mockResolvedValue([makeDrop('x')]);
-      mockProcessDrop.mockResolvedValue(undefined);
-
+  describe('flushOfflineQueue behavior', () => {
+    it('calls refreshFromServer after triggerProcessing', async () => {
       const mod = loadModule();
       mod.initOfflineSync();
       jest.advanceTimersByTime(5000);
@@ -161,49 +141,15 @@ describe('offlineSync', () => {
 
     it('skips flush when offline', async () => {
       mockNetworkStatus.isConnected = false;
-      mockGetPendingDrops.mockResolvedValue([makeDrop('x')]);
-
       const mod = loadModule();
       mod.initOfflineSync();
       jest.advanceTimersByTime(10000);
       await jest.runAllTimersAsync();
 
-      expect(mockProcessDrop).not.toHaveBeenCalled();
-    });
-
-    it('stops processing if connectivity drops mid-flush', async () => {
-      const drops = [makeDrop('a'), makeDrop('b')];
-      mockGetPendingDrops.mockResolvedValue(drops);
-      mockProcessDrop.mockImplementation(async () => {
-        // Go offline after first drop
-        mockNetworkStatus.isConnected = false;
-      });
-
-      const mod = loadModule();
-      mod.initOfflineSync();
-      jest.advanceTimersByTime(5000);
-      await jest.runAllTimersAsync();
-
-      // Only first drop processed, second skipped due to offline
-      expect(mockProcessDrop).toHaveBeenCalledTimes(1);
-    });
-
-    it('resets consecutiveFailures on empty queue', async () => {
-      mockGetPendingDrops.mockResolvedValue([]);
-
-      const mod = loadModule();
-      mod.initOfflineSync();
-      jest.advanceTimersByTime(5000);
-      await jest.runAllTimersAsync();
-
-      // No errors, no process calls
-      expect(mockProcessDrop).not.toHaveBeenCalled();
-      expect(mockRefreshFromServer).not.toHaveBeenCalled();
+      expect(mockTriggerProcessing).not.toHaveBeenCalled();
     });
 
     it('does not call refreshFromServer if store is not initialized', async () => {
-      mockGetPendingDrops.mockResolvedValue([makeDrop('x')]);
-      mockProcessDrop.mockResolvedValue(undefined);
       mockGetState.mockReturnValue({
         isInitialized: false,
         refreshFromServer: mockRefreshFromServer,
@@ -215,25 +161,6 @@ describe('offlineSync', () => {
       await jest.runAllTimersAsync();
 
       expect(mockRefreshFromServer).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('backoff on failure', () => {
-    it('applies exponential backoff on consecutive failures', async () => {
-      mockGetPendingDrops.mockResolvedValue([makeDrop('a')]);
-      let callCount = 0;
-      mockProcessDrop.mockImplementation(async () => {
-        callCount++;
-        throw new Error(`fail ${callCount}`);
-      });
-
-      const mod = loadModule();
-      mod.initOfflineSync();
-      jest.advanceTimersByTime(5000);
-
-      // First failure triggers backoff of BASE_DELAY * 2^0 = 2000ms
-      await jest.advanceTimersByTimeAsync(100);
-      expect(mockProcessDrop).toHaveBeenCalledTimes(1);
     });
   });
 });
