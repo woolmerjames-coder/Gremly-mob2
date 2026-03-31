@@ -211,7 +211,9 @@ export function HabitSummaryCard({
       ? `When ${resolved.trigger} → ${resolved.replacement_behavior}`
       : null;
 
-  const hasNotes = !!resolved.notes || !!breakLine;
+  const hasSubstantiveFields =
+    resolved.name && (formatFrequency(resolved) || resolved.time_window || resolved.start_date);
+  const hasNotes = hasSubstantiveFields && (!!resolved.notes || !!breakLine);
 
   return (
     <Animated.View
@@ -250,14 +252,14 @@ export function HabitSummaryCard({
       {hasNotes && <View style={styles.separator} />}
 
       {/* Row 4: Break trigger/replacement */}
-      {breakLine && (
+      {hasSubstantiveFields && breakLine && (
         <Animated.View entering={FadeIn.duration(200)}>
           <Text style={styles.breakLine}>{breakLine}</Text>
         </Animated.View>
       )}
 
       {/* Row 4: Notes */}
-      {resolved.notes && (
+      {hasSubstantiveFields && resolved.notes && (
         <Animated.View entering={FadeIn.duration(200)}>
           <Text style={styles.notesText}>{resolved.notes}</Text>
         </Animated.View>
