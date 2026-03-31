@@ -1227,9 +1227,6 @@ export const useGremlyStore = create<GremlyState>()(
           set({ isLoading: true, userId });
 
           try {
-            // Calculate date range: last 60 days for monthly cadence + streak calculation
-            const sinceDate = getDateService().daysAgo(60);
-
             // Fetch ALL user data in parallel
             const [
               todosRes,
@@ -1254,11 +1251,7 @@ export const useGremlyStore = create<GremlyState>()(
                 .eq('owner_id', userId),
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
-              supabase
-                .from('habit_progress')
-                .select('*')
-                .eq('owner_id', userId)
-                .gte('occurred_day', sinceDate),
+              supabase.from('habit_progress').select('*').eq('owner_id', userId),
               supabase.from('space_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
@@ -4972,8 +4965,6 @@ export const useGremlyStore = create<GremlyState>()(
           set({ isLoading: true });
 
           try {
-            const sinceDate = getDateService().daysAgo(60);
-
             const [
               todosRes,
               habitsRes,
@@ -4991,11 +4982,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase.from('notes').select('*').eq('owner_id', userId),
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
-              supabase
-                .from('habit_progress')
-                .select('*')
-                .eq('owner_id', userId)
-                .gte('occurred_day', sinceDate),
+              supabase.from('habit_progress').select('*').eq('owner_id', userId),
               supabase.from('space_chats').select('*').eq('user_id', userId),
               supabase.from('space_milestones').select('*').eq('owner_id', userId),
               supabase
