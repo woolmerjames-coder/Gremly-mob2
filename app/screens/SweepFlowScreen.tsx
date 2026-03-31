@@ -869,6 +869,8 @@ function SweepHabitsStep({ onContinue }: StepProps) {
   const uncompleteHabit = useGremlyStore((state) => state.uncompleteHabit);
   const loading = useIsLoading();
   const [showHabitsHelp, setShowHabitsHelp] = useState(false);
+  const [datePickerHabitId, setDatePickerHabitId] = useState<string | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Session state - tracks toggles during this sweep (not committed yet)
@@ -915,6 +917,18 @@ function SweepHabitsStep({ onContinue }: StepProps) {
   const isEmpty = useMemo(() => isHabitsEmpty(groupedHabits), [groupedHabits]);
 
   // Handle toggle from SweepHabitRow - adds delay before moving to Already Done
+  const handleSetStartDate = useCallback(async (habitId: string, startDate: string) => {
+    try {
+      const updateHabit = useGremlyStore.getState().updateHabit;
+      await updateHabit(habitId, { start_date: startDate });
+    } catch (error) {
+      sweepLog.error('[SweepHabitsStep] Failed to set start date:', habitId, error);
+    } finally {
+      setShowDatePicker(false);
+      setDatePickerHabitId(null);
+    }
+  }, []);
+
   const handleToggle = useCallback((habitId: string, completed: boolean) => {
     // Clear any existing timeout for this habit
     const existingTimeout = pendingTimeoutsRef.current.get(habitId);
@@ -1212,7 +1226,8 @@ function SweepHabitsStep({ onContinue }: StepProps) {
                             styles.needsSetupHabitRowBorder,
                         ]}
                         onPress={() => {
-                          overlay.openEdit({ record: item.habit as any, spaceId: null });
+                          setDatePickerHabitId(item.habit.id);
+                          setShowDatePicker(true);
                         }}
                         activeOpacity={0.7}
                       >
@@ -1223,7 +1238,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
                           <Text style={styles.needsSetupHabitFrequency}>{item.frequencyLabel}</Text>
                         </View>
                         <View style={styles.needsSetupBadge}>
-                          <Icon name="Calendar" size="xs" color={'#9CA6E0'} strokeWidth={2} />
+                          <Icon name="Calendar" size="xs" color={'#7B87D4'} strokeWidth={2} />
                           <Text style={styles.needsSetupBadgeText}>Set date</Text>
                           <Icon
                             name="ChevronRight"
@@ -1327,6 +1342,53 @@ function SweepHabitsStep({ onContinue }: StepProps) {
           </View>
         </TouchableOpacity>
       </View>
+
+      {/* Start Date Picker for unstarted habits */}
+      <Modal
+        visible={showDatePicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDatePicker(false)}
+      >
+        <Pressable
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }}
+          onPress={() => setShowDatePicker(false)}
+        />
+        <View style={styles.startDateSheet}>
+          <View style={styles.startDateSheetHandle} />
+          <Text style={styles.startDateSheetTitle}>When do you want to start?</Text>
+          {[
+            { label: 'Start tomorrow', getValue: () => getDateService().tomorrow() },
+            {
+              label: 'Start Monday',
+              getValue: () => {
+                const ds = getDateService();
+                return ds.toLocalDate(ds.getNextWeekday(1));
+              },
+            },
+          ].map(({ label, getValue }) => (
+            <TouchableOpacity
+              key={label}
+              style={styles.startDateOption}
+              onPress={() => {
+                if (datePickerHabitId) handleSetStartDate(datePickerHabitId, getValue());
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.startDateOptionText}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            style={[styles.startDateOption, styles.startDateOptionLast]}
+            onPress={() => setShowDatePicker(false)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.startDateOptionText, { color: BRAND.colors.inkMuted }]}>
+              Not now
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -5473,17 +5535,17 @@ const styles = StyleSheet.create({
   habitsNeedsSetupSection: {
     marginTop: 0,
     marginBottom: 24,
-    backgroundColor: 'rgba(156, 166, 224, 0.12)',
+    backgroundColor: 'rgba(156, 166, 224, 0.18)',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(156, 166, 224, 0.3)',
+    borderColor: 'rgba(156, 166, 224, 0.5)',
     overflow: 'hidden',
     paddingBottom: 4,
   },
   habitsNeedsSetupTitle: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#9CA6E0',
+    color: '#7B87D4',
     textTransform: 'uppercase',
     letterSpacing: 1,
     paddingHorizontal: 16,
@@ -5506,7 +5568,7 @@ const styles = StyleSheet.create({
   },
   needsSetupHabitRowBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(156, 166, 224, 0.2)',
+    borderBottomColor: 'rgba(156, 166, 224, 0.35)',
   },
   needsSetupHabitInfo: {
     flex: 1,
@@ -5526,7 +5588,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(156, 166, 224, 0.15)',
+    backgroundColor: 'rgba(156, 166, 224, 0.25)',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 12,
@@ -5534,7 +5596,7 @@ const styles = StyleSheet.create({
   needsSetupBadgeText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#9CA6E0',
+    color: '#7B87D4',
   },
   completedHabitRow: {
     flexDirection: 'row',
@@ -5561,6 +5623,40 @@ const styles = StyleSheet.create({
   completedHabitMeta: {
     fontSize: 12,
     color: BRAND.colors.inkMuted,
+  },
+  startDateSheet: {
+    backgroundColor: BRAND.colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    paddingTop: 12,
+  },
+  startDateSheetHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: BRAND.colors.borderSubtle,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  startDateSheetTitle: {
+    fontSize: 17,
+    fontFamily: 'PlusJakartaSans-Bold',
+    color: BRAND.colors.charcoalInk,
+    marginBottom: 16,
+  },
+  startDateOption: {
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: BRAND.colors.borderSubtle,
+  },
+  startDateOptionLast: {
+    borderBottomWidth: 0,
+  },
+  startDateOptionText: {
+    fontSize: 16,
+    color: BRAND.colors.charcoalInk,
   },
 
   // Legacy styles kept for other steps
