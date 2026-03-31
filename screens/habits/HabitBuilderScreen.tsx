@@ -18,6 +18,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  Keyboard,
 } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { ChevronLeft } from 'lucide-react-native';
@@ -28,7 +29,7 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { callHabitBuilderStreaming } from '../../lib/cortex/CortexClient';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
-import { HabitBuilderProgress } from './HabitBuilderProgress';
+import { HabitSummaryCard } from './HabitSummaryCard';
 import SaveButton from '../../components/chat/SaveButton';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { Text } from '../../ui/Text';
@@ -90,104 +91,6 @@ function StreamingBubble({ contentRef, visible, isSearching, searchQuery }: Stre
     </View>
   );
 }
-
-// ─── Habit Confirm Card ───────────────────────────────────────────
-interface HabitConfirmCardProps {
-  resolved: HabitBuilderResolvedFields;
-}
-
-function HabitConfirmCard({ resolved }: HabitConfirmCardProps) {
-  const habitType = resolved.habit_type === 'break' ? 'Break habit' : 'Build habit';
-  const frequency = resolved.target || resolved.cadence || 'daily';
-  const timeWindow = resolved.time_window
-    ? resolved.time_window.charAt(0).toUpperCase() + resolved.time_window.slice(1)
-    : null;
-  const startDate = resolved.start_date || 'Today';
-
-  return (
-    <View style={confirmStyles.card}>
-      <Text style={confirmStyles.name}>{resolved.name}</Text>
-      <Text style={confirmStyles.type}>{habitType}</Text>
-      <View style={confirmStyles.divider} />
-      <View style={confirmStyles.row}>
-        <Text style={confirmStyles.label}>Frequency</Text>
-        <Text style={confirmStyles.value}>{frequency}</Text>
-      </View>
-      {timeWindow && (
-        <View style={confirmStyles.row}>
-          <Text style={confirmStyles.label}>Time</Text>
-          <Text style={confirmStyles.value}>{timeWindow}</Text>
-        </View>
-      )}
-      <View style={confirmStyles.row}>
-        <Text style={confirmStyles.label}>Starts</Text>
-        <Text style={confirmStyles.value}>{startDate}</Text>
-      </View>
-      {resolved.notes && (
-        <>
-          <View style={confirmStyles.divider} />
-          <Text style={confirmStyles.notes}>{resolved.notes}</Text>
-        </>
-      )}
-    </View>
-  );
-}
-
-const confirmStyles = StyleSheet.create({
-  card: {
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    borderRadius: 16,
-    padding: 20,
-    marginVertical: 8,
-    marginHorizontal: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: 'rgba(212, 164, 74, 0.25)',
-  },
-  name: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    letterSpacing: -0.3,
-    marginBottom: 2,
-  },
-  type: {
-    fontSize: 13,
-    color: '#5C6B5A',
-    fontWeight: '500',
-    marginBottom: 12,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
-    marginVertical: 10,
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  label: {
-    fontSize: 14,
-    color: '#888',
-    fontWeight: '400',
-  },
-  value: {
-    fontSize: 14,
-    color: '#1a1a1a',
-    fontWeight: '500',
-  },
-  notes: {
-    fontSize: 13,
-    color: '#666',
-    fontStyle: 'italic',
-    lineHeight: 18,
-  },
-});
 
 // ─── Props ───────────────────────────────────────────────────────────
 export interface HabitBuilderScreenProps {
@@ -269,6 +172,9 @@ export function HabitBuilderScreen({
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [currentMode, setCurrentMode] = useState<string | null>(null);
   const [turnNumber, setTurnNumber] = useState(0);
+  const [isCardCollapsed, setIsCardCollapsed] = useState(false);
+  const [keyboardActive, setKeyboardActive] = useState(false);
+  const prevExpandedRef = useRef(true);
 
   // Track which messages have save cards
   const [lockedMessageId, setLockedMessageId] = useState<string | null>(null);
@@ -526,6 +432,38 @@ export function HabitBuilderScreen({
     [isLoading, isConnected, messages, chatContext, prefill, lockedMessageId, tipsMessageId],
   );
 
+  // ─── Keyboard collapse ────────────────────────────────────────
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        prevExpandedRef.current = !isCardCollapsed;
+        setKeyboardActive(true);
+        setIsCardCollapsed(true);
+      },
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardActive(false);
+        if (prevExpandedRef.current) {
+          setIsCardCollapsed(false);
+        }
+      },
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [isCardCollapsed]);
+
+  // ─── Auto-collapse after 4 messages ────────────────────────────
+  useEffect(() => {
+    if (messages.length >= 4 && !isCardCollapsed) {
+      setIsCardCollapsed(true);
+    }
+  }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ─── Auto-start ───────────────────────────────────────────────
   useEffect(() => {
     if (!hasStarted.current) {
@@ -533,7 +471,19 @@ export function HabitBuilderScreen({
       // Small delay to ensure first render completes and refs are stable
       requestAnimationFrame(() => {
         if (mountedRef.current) {
-          const initialText = prefill || 'I want to start a new habit';
+          let initialText: string;
+          if (prefill) {
+            initialText = prefill;
+          } else {
+            const activeHabitCount = habits.filter((h) => !h.archived_at).length;
+            if (activeHabitCount === 0) {
+              initialText = 'I want to start a new habit';
+            } else if (activeHabitCount <= 4) {
+              initialText = 'I want to add a new habit';
+            } else {
+              initialText = 'I want to add another habit';
+            }
+          }
           handleSendMessage(initialText, true);
         }
       });
@@ -798,8 +748,15 @@ export function HabitBuilderScreen({
           <View style={{ width: 40 }} />
         </View>
 
-        {/* Progress Bar */}
-        <HabitBuilderProgress resolved={resolved} />
+        {/* Summary Card */}
+        <HabitSummaryCard
+          resolved={resolved}
+          mode={currentMode}
+          isCollapsed={isCardCollapsed}
+          onToggle={() => setIsCardCollapsed((prev) => !prev)}
+          keyboardActive={keyboardActive}
+          messageCount={messages.length}
+        />
 
         {/* Messages */}
         <View style={styles.content}>
@@ -818,11 +775,6 @@ export function HabitBuilderScreen({
                   isSearching={isSearching}
                   searchQuery={searchQuery}
                 />
-                {!isStreamActive && resolved.is_confirmation && !habitLocked && !isCreating && (
-                  <Animated.View entering={FadeIn.duration(300)}>
-                    <HabitConfirmCard resolved={resolved} />
-                  </Animated.View>
-                )}
               </>
             }
             onContentSizeChange={() => {
