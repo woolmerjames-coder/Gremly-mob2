@@ -5288,7 +5288,7 @@ READINESS MUST NEVER REGRESS from a previous tier.
 6. time_window — "morning", "afternoon", "evening", or "anytime" (null if not discussed)
 7. space_name — Space name if user discussed assigning to one (null if not)
 8. notes — synthesize the user's motivation and context in FIRST PERSON from the ENTIRE conversation. Include why they want this and any personal context shared. Expand shorthand answers ("all of the above", "yeah") using full conversation context. 1-2 sentences max. null if nothing personal shared.
-   CRITICAL: notes must be the user's OWN motivation in first person, NOT a status update about the conversation. Never write "User wants to..." or "hasn't specified yet" or any third-person description. If no personal motivation has been shared, return null.
+   CRITICAL: notes should contain ONLY the user's motivation, approach context, or helpful reminders — things like why they want this, what approach they're taking, or what to anchor the habit to. NEVER restate the habit name, frequency, start date, or type in notes — those are already captured in their own fields. NEVER write "I want to build a habit..." or summarize the conversation. If the user shared no personal context beyond the basic habit parameters, return null.
 9. end_date — YYYY-MM-DD if a deadline or event was discussed (null if not)
 10. time_estimate_minutes — estimated minutes per session: 5, 10, 15, 30, 45, 60, 90, 120 (null if not discussed, infer from activity type if obvious)
 11. event_name — what they're working toward, if an event/deadline is involved (null if not)
