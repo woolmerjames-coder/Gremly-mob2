@@ -3426,12 +3426,12 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
               const fullConversation = [...messages, { role: 'assistant', content: fullContent }];
 
               const resolved = await extractHabitFields(fullConversation, key, today);
+              resolved.builder_mode = builderMode;
               const latency = Date.now() - t0;
               const finalData = JSON.stringify({
                 done: true,
                 full_content: fullContent,
                 resolved_fields: resolved,
-                builder_mode: builderMode,
                 latency_ms: latency,
                 sources: sources,
               });
@@ -3500,6 +3500,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
           // Extraction call with full conversation
           const fullConversation = [...messages, { role: 'assistant', content }];
           const resolved = await extractHabitFields(fullConversation, key, today);
+          resolved.builder_mode = builderMode;
 
           console.log('[HabitBuilder] Complete', {
             latency_ms: latency,
@@ -3511,7 +3512,6 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
           return j({
             content,
             resolved_fields: resolved,
-            builder_mode: builderMode,
             latency_ms: latency,
           });
         } catch (err) {
