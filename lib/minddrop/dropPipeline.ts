@@ -311,6 +311,14 @@ async function processOne(drop: QueuedDrop): Promise<void> {
       if (updated.phase === 'complete') {
         await handleComplete(updated);
       }
+
+      // Immediately process next phase of same drop — no tick delay.
+      // Each phase still has its own timeout and error boundary via the
+      // recursive processOne call. The tick interval is now only a fallback
+      // sweep for retries, crash recovery, and multi_awaiting checks.
+      if (updated.phase !== 'complete' && updated.phase !== 'failed') {
+        await processOne(updated);
+      }
     } else {
       // Phase didn't change (e.g. multi_awaiting with children still processing)
       // Just persist the lastAttemptAt update
