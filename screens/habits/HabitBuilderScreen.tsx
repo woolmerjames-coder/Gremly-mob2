@@ -206,6 +206,8 @@ export function HabitBuilderScreen({
           subtype: h.subtype || 'start_habit',
           frequency: h.frequency || undefined,
           space_name: spaces.find((s) => s.id === h.space_id)?.name,
+          cadence: h.cadence || undefined,
+          time_window: h.time_window || undefined,
         })),
       spaces: spaces.filter((s) => !s.archived_at).map((s) => ({ id: s.id, name: s.name })),
       prefill: prefill || undefined,

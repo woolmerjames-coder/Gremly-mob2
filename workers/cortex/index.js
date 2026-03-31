@@ -3212,6 +3212,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
               turnNumber: context.turnNumber || 0,
               compressedLifeMap: compressedLifeMap.trim() || null,
               currentDate: today,
+              habitCapacity: context.habitCapacity || null,
             },
             env,
           );
@@ -5032,15 +5033,19 @@ Almost never suggest creating a Space. Only if ALL true:
        * Runs gpt-4.1-nano (~100ms). Returns null on any failure.
        */
       async function habitPreParse(userMessage, previousExchange, context, env) {
-        const { existingHabits, currentMode, turnNumber, compressedLifeMap } = context;
+        const { existingHabits, currentMode, turnNumber, compressedLifeMap, habitCapacity } =
+          context;
 
         const habitList =
           (existingHabits || [])
-            .map(
-              (h) =>
-                `${h.name} (${h.subtype === 'break_habit' ? 'break' : 'build'}, ${h.frequency || 'daily'}${h.time_window ? ', ' + h.time_window : ''})`,
-            )
-            .join(', ') || 'None';
+            .map((h) => {
+              const parts = [h.name];
+              parts.push(h.subtype === 'break_habit' ? 'break' : 'build');
+              if (h.frequency) parts.push(h.frequency);
+              if (h.time_window && h.time_window !== 'any') parts.push(h.time_window);
+              return parts.join(', ');
+            })
+            .join(' | ') || 'None';
 
         // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
         const today =
@@ -5052,6 +5057,7 @@ Today's date is ${today}.
 
 CONTEXT:
 - User's existing habits: ${habitList}
+${habitCapacity ? `- Habit capacity: ${habitCapacity.totalActive} active habits (${habitCapacity.dailyCount} daily, ${habitCapacity.weeklyCount} weekly)` : ''}
 - Life context: ${compressedLifeMap || 'None available'}
 - Current conversation mode: ${currentMode || 'none (first message)'}
 - Previous exchange: ${previousExchange ? `Assistant: "${previousExchange.assistantMsg?.slice(0, 200)}" / User: "${previousExchange.userMsg?.slice(0, 200)}"` : 'none'}

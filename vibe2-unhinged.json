@@ -1,0 +1,346 @@
+{
+  "vibe": "unhinged",
+  "week": "2026-03-23 to 2026-03-29",
+  "cards": [
+    {
+      "type": "gremly_mood",
+      "mood_line": "Exhausted, then electric",
+      "hook": "Seven days. One hard left turn. The app, the anxiety, and a confession that arrived Sunday night.",
+      "week_label": "2026-03-23 to 2026-03-29",
+      "fed_stats": {
+        "fed_days_this_week": 0,
+        "gremly_age": 0,
+        "current_tier": "egg",
+        "fed_days_toward_next": 0,
+        "fed_days_needed": 3,
+        "sock_count": 0
+      }
+    },
+    {
+      "type": "opening",
+      "headline": "From wall-staring to game-changing.",
+      "subheadline": "Full emotional season",
+      "body": "Tuesday you were tired and the Gremly to-do list looked like a wall. Saturday you shipped Ask Gremly chat in half a day and called it 'could be game changing.' Sunday night you wrote 'I have this anxiety that I'm not good enough for Dave.' Seven days. Four emotional time zones. No layover.",
+      "mood": "Wired and honest",
+      "quote": "Feeling tired and like there's so much to do with Gremly",
+      "quote_date": "2026-03-24",
+      "image_hint": "San Francisco morning fog clearing over rooftops",
+      "image_url": "https://images.unsplash.com/photo-1554107136-57b138ea99df?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxTYW4lMjBGcmFuY2lzY298ZW58MHwwfHx8MTc3NDg1MTE1Nnww&ixlib=rb-4.1.0&q=80&w=1080",
+      "engagement": {
+        "drops": 68,
+        "sweeps": 7,
+        "journals": 8,
+        "drops_delta": 0,
+        "sweeps_delta": 0,
+        "journals_delta": 0
+      },
+      "mood_arc": [
+        {
+          "date": "2026-03-23",
+          "day": "Mon",
+          "valence": "positive"
+        },
+        {
+          "date": "2026-03-24",
+          "day": "Tue",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-24",
+          "day": "Tue",
+          "valence": "anxious"
+        },
+        {
+          "date": "2026-03-25",
+          "day": "Wed",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-26",
+          "day": "Thu",
+          "valence": "positive"
+        },
+        {
+          "date": "2026-03-26",
+          "day": "Thu",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-28",
+          "day": "Sat",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-29",
+          "day": "Sun",
+          "valence": "positive"
+        }
+      ]
+    },
+    {
+      "type": "moments",
+      "moments": [
+        {
+          "day_label": "THU",
+          "date": "2026-03-26",
+          "title": "Dave's win cracked something open",
+          "body": "He got the Decagon job and you wrote 'So so so happy for Dave' — then, same breath, pivoted to your own career dread. You caught yourself mid-spiral ('But it's not about me today!') and redirected. The thought was already out, though. That's the moment the week stopped being about re-entry and became about something more urgent.",
+          "image_hint": "overcast SF skyline late afternoon fog",
+          "thread_tags": [
+            "Partnership with Dave",
+            "Day-to-Day Client Work",
+            "Mental Wellbeing & Negative Thought Management"
+          ],
+          "image_url": "https://images.unsplash.com/photo-1558396376-beacad07c43e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxvdmVyY2FzdCUyMFNGfGVufDB8MHx8fDE3NzQ5MDkyNTN8MA&ixlib=rb-4.1.0&q=80&w=1080"
+        },
+        {
+          "day_label": "SAT",
+          "date": "2026-03-28",
+          "title": "Anxious, grateful, tired, proud — simultaneously",
+          "body": "Housewarming. Tennis. Strength session. Chat function shipped in half a day. Californios dinner. Drinks. And somewhere in the middle: 'My anxiety came when I was in a restaurant with a lot of overwhelming sounds, with a hangover and anxiety.' You didn't have a good day or a bad day. You had a very human one.",
+          "image_hint": "restaurant warm evening light bokeh",
+          "thread_tags": [
+            "App Development & Launch",
+            "Social Life & Friendships in SF",
+            "Mental Wellbeing & Negative Thought Management",
+            "Strength Training"
+          ],
+          "image_url": "https://images.unsplash.com/photo-1768949005507-8c0f571285f4?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxyZXN0YXVyYW50JTIwd2FybSUyMGV2ZW5pbmclMjBsaWdodCUyMGJva2VofGVufDB8MHx8fDE3NzQ5MDk1OTJ8MA&ixlib=rb-4.1.0&q=80&w=1080"
+        }
+      ]
+    },
+    {
+      "type": "thread_movements",
+      "title": "Life in motion",
+      "threads": [
+        {
+          "name": "App Development & Launch",
+          "domain": "Gremly improvements",
+          "direction": "milestone",
+          "icon_hint": "creative",
+          "shift_label": "Chat breakthrough → pre-launch audit",
+          "badge_label": "Game-changing",
+          "detail": "Ask Gremly general chat shipped March 28; by March 30, a Full Audit Using Claude Code was initiated — the most deliberate quality gate in the project's history.",
+          "is_highlight": true,
+          "badge_type": "warning",
+          "velocity": 3.2,
+          "velocity_label": "3.2x your 4-week avg"
+        },
+        {
+          "name": "Mental Wellbeing & Negative Thought Management",
+          "domain": "Fitness & Health",
+          "direction": "down",
+          "icon_hint": "health",
+          "shift_label": "Third week of zero completions",
+          "badge_label": "Needs attention",
+          "detail": "Stop Negative Thoughts habit: 0/21 completions for the third consecutive week — while anxiety surfaced across career, relationship, and sensory overwhelm in the same seven days.",
+          "is_highlight": true,
+          "badge_type": "danger"
+        },
+        {
+          "name": "Partnership with Dave",
+          "domain": "Relationship & Home Life",
+          "direction": "up",
+          "icon_hint": "relationship",
+          "shift_label": "Celebration deepened into honesty",
+          "badge_label": "Thriving",
+          "detail": "Dave's Decagon job triggered both intense pride and the first-ever named relationship insecurity — 'not good enough for Dave' — processed outside in the sun rather than avoided, which is the partnership working exactly as it should.",
+          "is_highlight": true,
+          "badge_type": "success"
+        },
+        {
+          "name": "Sobriety & Alcohol-Free Streak",
+          "domain": "Fitness & Health",
+          "direction": "steady",
+          "icon_hint": "health",
+          "shift_label": "Rigid → conscious choice",
+          "badge_label": "Maturing",
+          "detail": "5/7 days abstinent; Californios and post-housewarming drinks treated as deliberate choices without shame — a different psychological posture from the February guilt spiral.",
+          "is_highlight": false,
+          "badge_type": "info"
+        },
+        {
+          "name": "Social Life & Friendships in SF",
+          "domain": "Relationship & Home Life",
+          "direction": "up",
+          "icon_hint": "personal",
+          "shift_label": "Loneliness named, action taken",
+          "badge_label": "Rebuilding",
+          "detail": "Liv catch-up on March 25 surfaced the friendship gap honestly; Live Fit Gym research was explicitly framed as a social strategy — loneliness being treated like a product backlog, which is very on-brand.",
+          "is_highlight": false,
+          "badge_type": "success"
+        },
+        {
+          "name": "Strength Training",
+          "domain": "Fitness & Health",
+          "direction": "steady",
+          "icon_hint": "fitness",
+          "shift_label": "Quality over quantity",
+          "badge_label": "Showing up",
+          "detail": "1/3 sessions completed (33%) but the one that happened was on the busiest day of the week — housewarming, tennis, Californios, and a feature launch — and she still noted it with pride in her journal.",
+          "is_highlight": false,
+          "badge_type": "info"
+        }
+      ]
+    },
+    {
+      "type": "discoveries",
+      "spotlight": {
+        "badge": "shift",
+        "title": "The anxiety has found a new address",
+        "takeaway": "It's no longer just about the app. This week it moved into your relationship, your career identity, and a restaurant in the Mission.",
+        "evidence_trail": "Three weeks ago: anxiety fuelling the app build. This week: the same engine appeared in three new rooms simultaneously. [App Dev] 'If the app doesn't work I don't know what I'll do' — March 26, the day Dave's career accelerated. [Partnership with Dave] 'I have this anxiety that I'm not good enough for Dave' — March 30, the first time this has ever been named. [Mental Wellbeing] Restaurant sensory overwhelm on March 28, possibly compounded by lorazepam reduction. The pattern across all three threads is identical: a high-achieving external moment triggers a private question about whether she belongs in her own life. The Stop Negative Thoughts habit has been dormant all three weeks. She's not managing anxiety with structure anymore — she's metabolising it through output. That works until the output slows.",
+        "research_context": {
+          "title": "Why high-output weeks don't reduce this kind of anxiety",
+          "body": "Curran & Hill (2022, Psychological Bulletin) found that perfectionism-driven high achievers redirect anxiety through productivity rather than resolving it — output becomes a temporary container, not a cure.",
+          "sources": [
+            "Curran & Hill (2022) — Perfectionism and anxiety redirection, Psychological Bulletin"
+          ]
+        },
+        "ask_gremly_prompt": "I noticed something in my weekly summary: \"The anxiety has found a new address\". It's no longer just about the app. This week it moved into your relationship, your career identity, and a restaurant in the Mission. Can we talk about this?"
+      },
+      "mini_discoveries": [
+        {
+          "title": "The friendship audit is a product sprint",
+          "detail": "She's treating SF loneliness like a backlog: gym research as social infrastructure, housewarming as networking, Liv as a retention metric."
+        },
+        {
+          "title": "Running quietly changed jobs",
+          "detail": "The March 22 half marathon passed in silence mid-flight — no grief, no guilt. Running is now a grounding ritual, not a performance goal."
+        }
+      ]
+    },
+    {
+      "type": "recommends",
+      "primary": {
+        "title": "Give the anxiety a container before Dentsu",
+        "body": "The full meeting cadence is back from March 30. The Stop Negative Thoughts habit has been dark for three weeks. Before the calendar fills up, pick one small daily anchor — even 60 seconds — so the anxiety has somewhere to go.",
+        "type": "habit_idea"
+      },
+      "secondary": [
+        {
+          "title": "Say the Dave thing out loud — again",
+          "body": "You named 'I'm not good enough for Dave' in a journal. That's step one. Step two is saying it to him directly, not just processing it alone in the sun.",
+          "type": "mindset_shift"
+        },
+        {
+          "title": "Book the Live Fit Gym induction this week",
+          "body": "You created the Gym Inductions Planning todo on March 28. It's sitting there. The social connection strategy only works if you actually walk in.",
+          "type": "experiment"
+        }
+      ]
+    },
+    {
+      "type": "stale_triage",
+      "headline": "4 items need attention",
+      "body": "Tennis Match with Dave is the one worth acting on — it's connected to your partnership and has been sitting 17 days. The rest can wait or be cleared quickly.",
+      "items": [
+        {
+          "title": "Watch Strap Adjustment",
+          "days_stale": 15,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "d8cb288f-5d5e-475f-8845-ccac66448470",
+          "is_obsolete": false,
+          "thread_connection": null,
+          "priority": "low"
+        },
+        {
+          "title": "Surrogacy Agencies Research",
+          "days_stale": 16,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "34f26cf3-4a3e-4b29-b808-710dccf382e6",
+          "is_obsolete": false,
+          "thread_connection": null,
+          "priority": "low"
+        },
+        {
+          "title": "Tennis Match with Dave",
+          "days_stale": 17,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "e788b1e5-07ac-48bd-9523-8c7a4ac766e4",
+          "is_obsolete": false,
+          "thread_connection": "Partnership with Dave",
+          "priority": "actionable"
+        },
+        {
+          "title": "Fix Notification Issues",
+          "days_stale": 18,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "ac596227-1f13-4e09-9d7a-fdb524c1d71d",
+          "is_obsolete": false,
+          "thread_connection": null,
+          "priority": "low"
+        }
+      ]
+    },
+    {
+      "type": "week_ahead",
+      "intro": "No major non-recurring events flagged. What IS coming: the full Dentsu meeting cadence colliding head-on with 22+ active app todos and a pre-launch audit you just initiated. Protect the build time early.",
+      "highlights": [],
+      "busy_day_warnings": [
+        {
+          "day": "Monday",
+          "detail": "Full Dentsu cadence resumes — SAGE huddles, MDWA check-in, EMEA sync all stacked"
+        },
+        {
+          "day": "Wednesday",
+          "detail": "Multiple Sage x Dentsu status calls across paid search, programmatic, and social"
+        }
+      ]
+    },
+    {
+      "type": "letter",
+      "body": "Monday morning, and Dentsu's calendar is already full. Before it swallows the day — protect one hour for the audit you started. You shipped something game-changing last week on a hangover with a housewarming in the way. The anxiety is real, but so is the evidence. You're good enough. For the app. For Dave. Bring it on.",
+      "gremly_age": 0,
+      "current_tier": "egg"
+    }
+  ],
+  "metadata": {
+    "week_type": "Full emotional season",
+    "mood": "Exhausted, then electric",
+    "key_themes": [
+      "App Development & Launch",
+      "Mental Wellbeing & Anxiety migration",
+      "Partnership with Dave",
+      "Social Life rebuilding",
+      "Career identity crisis"
+    ],
+    "card_count": 9,
+    "card_types_used": [
+      "gremly_mood",
+      "opening",
+      "moments",
+      "thread_movements",
+      "discoveries",
+      "recommends",
+      "stale_triage",
+      "week_ahead",
+      "letter"
+    ]
+  },
+  "perf": {
+    "latency_ms": 134534,
+    "brief_input_tokens": 28861,
+    "brief_output_tokens": 1500,
+    "story_input_tokens": 32644,
+    "story_output_tokens": 3249,
+    "model_brief": "claude-sonnet-4-6",
+    "model_storyteller": "claude-sonnet-4-6",
+    "card_count": 9,
+    "card_types": [
+      "gremly_mood",
+      "opening",
+      "moments",
+      "thread_movements",
+      "discoveries",
+      "recommends",
+      "stale_triage",
+      "week_ahead",
+      "letter"
+    ]
+  }
+}

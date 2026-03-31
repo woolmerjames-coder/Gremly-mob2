@@ -1156,6 +1156,8 @@ export interface HabitBuilderContext {
     subtype: string;
     frequency?: string;
     space_name?: string;
+    cadence?: string;
+    time_window?: string;
   }[];
   spaces: { id: string; name: string }[];
   prefill?: string;

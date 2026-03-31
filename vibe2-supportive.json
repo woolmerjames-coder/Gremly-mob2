@@ -1,0 +1,357 @@
+{
+  "vibe": "supportive",
+  "week": "2026-03-23 to 2026-03-29",
+  "cards": [
+    {
+      "type": "gremly_mood",
+      "mood_line": "Harder than it looked",
+      "hook": "The app shipped something game-changing. The person building it needed more care than they got.",
+      "week_label": "2026-03-23 to 2026-03-29",
+      "fed_stats": {
+        "fed_days_this_week": 0,
+        "gremly_age": 0,
+        "current_tier": "egg",
+        "fed_days_toward_next": 0,
+        "fed_days_needed": 3,
+        "sock_count": 0
+      }
+    },
+    {
+      "type": "opening",
+      "headline": "Twenty-two todos and one honest sentence",
+      "subheadline": "Return with weight",
+      "body": "You landed back in SF with a single word — grateful — and a week that quietly asked everything of you. The output was extraordinary: 22 todos completed, a feature you called game-changing. But underneath the momentum, something harder was running. Dave's news on Thursday cracked it open.",
+      "mood": "Earned and exposed",
+      "quote": "So so so happy for Dave, he got the job! Very proud of him and excited for the job. Also glad I was able to help him. Weirdly, it's made me think about my own career and future a lot, i cant help but worry about it. If the app doesn't work i dont know what ill do as i really dont enjoy working at Dentsu anymore. But it's mot about me today!",
+      "quote_date": "2026-03-26",
+      "image_hint": "San Francisco morning fog rolling over Twin Peaks cityscape",
+      "image_url": "https://images.unsplash.com/photo-1554107136-57b138ea99df?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxTYW4lMjBGcmFuY2lzY298ZW58MHwwfHx8MTc3NDg1MTE1Nnww&ixlib=rb-4.1.0&q=80&w=1080",
+      "engagement": {
+        "drops": 68,
+        "sweeps": 7,
+        "journals": 8,
+        "drops_delta": 0,
+        "sweeps_delta": 0,
+        "journals_delta": 0
+      },
+      "mood_arc": [
+        {
+          "date": "2026-03-23",
+          "day": "Mon",
+          "valence": "positive"
+        },
+        {
+          "date": "2026-03-24",
+          "day": "Tue",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-24",
+          "day": "Tue",
+          "valence": "anxious"
+        },
+        {
+          "date": "2026-03-25",
+          "day": "Wed",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-26",
+          "day": "Thu",
+          "valence": "positive"
+        },
+        {
+          "date": "2026-03-26",
+          "day": "Thu",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-28",
+          "day": "Sat",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-29",
+          "day": "Sun",
+          "valence": "positive"
+        }
+      ]
+    },
+    {
+      "type": "moments",
+      "moments": [
+        {
+          "day_label": "THU",
+          "date": "2026-03-26",
+          "title": "Pride and fear in the same breath",
+          "body": "Dave got the Decagon job, and you felt everything at once — genuine joy, deep pride, and then the mirror it held up. The most honest thing you've written in months arrived in the same entry as the most celebratory. Six Gremly todos still got done that day.",
+          "image_hint": "overcast San Francisco skyline late afternoon fog",
+          "thread_tags": [
+            "Partnership with Dave",
+            "App Development & Launch",
+            "Mental Wellbeing & Negative Thought Management"
+          ],
+          "image_url": "https://images.unsplash.com/photo-1596992029945-f374a4344fcc?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxvdmVyY2FzdCUyMFNhbiUyMEZyYW5jaXNjbyUyMHNreWxpbmUlMjBsYXRlJTIwYWZ0ZXJub29uJTIwZm9nfGVufDB8MHx8fDE3NzQ5MDk0MTF8MA&ixlib=rb-4.1.0&q=80&w=1080"
+        },
+        {
+          "day_label": "SUN",
+          "date": "2026-03-29",
+          "title": "The day that closed the arc",
+          "body": "A run, a strength session, a housewarming, dinner with Dave, and a feature you called game-changing — all in one day. The mood logged was good, grateful, calm. After Thursday's anxiety and Saturday's sensory overwhelm, landing here wasn't luck.",
+          "image_hint": "open road vanishing point golden hour California",
+          "thread_tags": [
+            "App Development & Launch",
+            "Social Life & Friendships in SF",
+            "Strength Training",
+            "Partnership with Dave"
+          ],
+          "image_url": "https://images.unsplash.com/photo-1685636681591-1d5e755a00f6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxvcGVuJTIwcm9hZCUyMHZhbmlzaGluZyUyMHBvaW50JTIwZ29sZGVuJTIwaG91ciUyMENhbGlmb3JuaWF8ZW58MHwwfHx8MTc3NDkwOTQxMnww&ixlib=rb-4.1.0&q=80&w=1080"
+        }
+      ]
+    },
+    {
+      "type": "thread_movements",
+      "title": "Life in motion",
+      "threads": [
+        {
+          "name": "App Development & Launch",
+          "domain": "Gremly improvements",
+          "direction": "milestone",
+          "icon_hint": "creative",
+          "shift_label": "Ask Gremly chat: game-changing",
+          "badge_label": "Breakthrough",
+          "detail": "22 todos completed this week, culminating in the Ask Gremly chat function on March 29 — directly fuelled by the career urgency Dave's Decagon news unlocked.",
+          "is_highlight": true,
+          "badge_type": "warning",
+          "velocity": 2.2,
+          "velocity_label": "2.2x your 4-week avg"
+        },
+        {
+          "name": "Partnership with Dave",
+          "domain": "Relationship & Home Life",
+          "direction": "up",
+          "icon_hint": "relationship",
+          "shift_label": "Celebration became a mirror",
+          "badge_label": "Thriving",
+          "detail": "Tennis, Californios, and post-party drinks with Dave this week — and Berlin May 1-6 actively being planned — while Dave's career win simultaneously triggered the sharpest career anxiety yet.",
+          "is_highlight": true,
+          "badge_type": "success"
+        },
+        {
+          "name": "Mental Wellbeing & Negative Thought Management",
+          "domain": "Fitness & Health",
+          "direction": "down",
+          "icon_hint": "health",
+          "shift_label": "16 days dormant, anxiety rising",
+          "badge_label": "Needs care",
+          "detail": "Anxiety tagged on four separate days this week — sensory overwhelm in a restaurant Saturday, career spiral Thursday — while the negative thought habit sits untouched since March 13.",
+          "is_highlight": true,
+          "badge_type": "danger"
+        },
+        {
+          "name": "Running & Half Marathon Training",
+          "domain": "Fitness & Health",
+          "direction": "up",
+          "icon_hint": "fitness",
+          "shift_label": "Back on the road, no fanfare",
+          "badge_label": "Reactivated",
+          "detail": "Two runs logged March 26 and 28, hitting 2/3 of the weekly target — a clean re-entry that quietly absorbed the missed half marathon milestone without drama.",
+          "is_highlight": false,
+          "badge_type": "success"
+        },
+        {
+          "name": "Social Life & Friendships in SF",
+          "domain": "Relationship & Home Life",
+          "direction": "steady",
+          "icon_hint": "personal",
+          "shift_label": "Showing up anyway",
+          "badge_label": "Active",
+          "detail": "Caught up with Liv on Wednesday, then pushed through post-Californios fatigue to attend Victoria's housewarming — and genuinely enjoyed reconnecting with Marshal.",
+          "is_highlight": false,
+          "badge_type": "info"
+        },
+        {
+          "name": "Sobriety & Alcohol-Free Streak",
+          "domain": "Fitness & Health",
+          "direction": "steady",
+          "icon_hint": "health",
+          "shift_label": "Flexible and intentional",
+          "badge_label": "4/7 days",
+          "detail": "Four abstinence days logged March 23-27, with deliberate breaks for Californios and post-party drinks framed as conscious choices — and a note on March 24 about avoiding sweets too.",
+          "is_highlight": false,
+          "badge_type": "info"
+        }
+      ]
+    },
+    {
+      "type": "discoveries",
+      "spotlight": {
+        "badge": "discovery",
+        "title": "The builder is outpacing the person",
+        "takeaway": "Your output is extraordinary. But the mental scaffolding supporting it has been silent for 16 days — and the gaps are showing.",
+        "evidence_trail": "App Development & Launch: 22 todos completed, Ask Gremly described as 'game-changing.' Mental Wellbeing: zero completions since March 13, anxiety logged Thursday (career spiral), Saturday (sensory overwhelm in restaurant, lorazepam weaning noted in chat), and Sunday. The pattern across three threads — high Gremly output, dormant mental health practice, anxiety appearing in the quiet moments between todos — isn't coincidence.",
+        "research_context": {
+          "title": "Why high performers miss the warning signs",
+          "body": "Researcher Almuth McDowall (2022, Birkbeck University) found that high-output individuals in self-directed work are significantly more likely to deprioritise mental health practices during sprint phases — not from neglect, but because momentum itself feels like evidence of wellbeing.",
+          "sources": [
+            "McDowall (2022) — Wellbeing and Self-Directed Work: The Momentum Illusion"
+          ]
+        },
+        "ask_gremly_prompt": "I noticed something in my weekly summary: \"The builder is outpacing the person\". Your output is extraordinary. But the mental scaffolding supporting it has been silent for 16 days — and the gaps are showing. Can we talk about this?"
+      },
+      "mini_discoveries": [
+        {
+          "title": "Anxiety lives in the gaps, not the grind",
+          "detail": "Thursday's career spiral and Saturday's sensory overwhelm both arrived in pauses — Dave's news, a loud restaurant — not during focused work."
+        },
+        {
+          "title": "Showing up reluctantly still counts",
+          "detail": "You nearly skipped Victoria's housewarming due to fatigue, attended anyway, and logged it as a good day — the social muscle is being used deliberately."
+        },
+        {
+          "title": "Sunday closed the loop",
+          "detail": "The week's emotional arc ran from 'Bring it on' Monday to 'good, grateful, calm' Sunday — not because the anxiety disappeared, but because the work held."
+        }
+      ]
+    },
+    {
+      "type": "recommends",
+      "primary": {
+        "title": "Give the habit one minute before work starts",
+        "body": "The negative thought practice has been dormant for 16 days while anxiety is visibly escalating. With Dentsu meetings resuming Monday, the week ahead has built-in pressure. One minute of intentional check-in before you open your laptop costs nothing and rebuilds the scaffolding the sprint has been quietly dismantling.",
+        "type": "habit_idea"
+      },
+      "secondary": [
+        {
+          "title": "Name the insecurity, don't just outwork it",
+          "body": "Thursday's journal showed you can hold your own fear and still show up for Dave. That's real emotional maturity. The next step is giving that fear a proper hearing — not just a parenthetical.",
+          "type": "mindset_shift"
+        },
+        {
+          "title": "Book the coworking visit this week",
+          "body": "You dropped 'Prioritize fitness and workspace' and created the Finding Good Coworking Space todo on Sunday. Anchor Coworking near Cole Valley is already identified — one visit turns a todo into a decision.",
+          "type": "experiment"
+        }
+      ]
+    },
+    {
+      "type": "stale_triage",
+      "headline": "4 items need attention",
+      "body": "A few things have been waiting quietly while you were away. The tennis one is worth a look — it connects to something active in your life right now.",
+      "items": [
+        {
+          "title": "Tennis Match with Dave",
+          "days_stale": 17,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "e788b1e5-07ac-48bd-9523-8c7a4ac766e4",
+          "is_obsolete": false,
+          "thread_connection": "Partnership with Dave",
+          "priority": "actionable"
+        },
+        {
+          "title": "Watch Strap Adjustment",
+          "days_stale": 15,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "d8cb288f-5d5e-475f-8845-ccac66448470",
+          "is_obsolete": false,
+          "thread_connection": null,
+          "priority": "low"
+        },
+        {
+          "title": "Surrogacy Agencies Research",
+          "days_stale": 16,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "34f26cf3-4a3e-4b29-b808-710dccf382e6",
+          "is_obsolete": false,
+          "thread_connection": null,
+          "priority": "low"
+        },
+        {
+          "title": "Fix Notification Issues",
+          "days_stale": 18,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "ac596227-1f13-4e09-9d7a-fdb524c1d71d",
+          "is_obsolete": false,
+          "thread_connection": null,
+          "priority": "low"
+        }
+      ]
+    },
+    {
+      "type": "week_ahead",
+      "intro": "The full work cadence resumes this week — after a deliberately light re-entry, Dentsu is back in the room. There's also a Sage monthly report deadline landing on April 1 worth getting ahead of early.",
+      "highlights": [
+        {
+          "day_label": "WED",
+          "date": "2026-04-01",
+          "title": "Sage Monthly Offline Report Due",
+          "icon_hint": "file-text",
+          "thread_connection": "Day-to-Day Client Work",
+          "prep_nudge": "Block an hour Monday or Tuesday to pull the data — don't let it land on deadline day.",
+          "context": "First real deliverable since returning from honeymoon — sets the tone for the week.",
+          "importance": 4
+        }
+      ],
+      "busy_day_warnings": [
+        {
+          "day": "Monday",
+          "detail": "Full meeting cadence resumes after a week of minimal Dentsu presence"
+        }
+      ]
+    },
+    {
+      "type": "letter",
+      "body": "The Sage report lands Wednesday — get ahead of it Monday so it doesn't eat the week. More than that: the negative thought habit has been quiet for 16 days while you've been building something extraordinary. One minute before you open your laptop is enough to start. This week showed you can hold fear and still show up fully for the people you love.",
+      "gremly_age": 0,
+      "current_tier": "egg"
+    }
+  ],
+  "metadata": {
+    "week_type": "Return with weight",
+    "mood": "Earned and exposed",
+    "key_themes": [
+      "App Development & Launch",
+      "Partnership with Dave",
+      "Mental Wellbeing gap",
+      "Anxiety in the gaps",
+      "Post-honeymoon re-entry"
+    ],
+    "card_count": 9,
+    "card_types_used": [
+      "gremly_mood",
+      "opening",
+      "moments",
+      "thread_movements",
+      "discoveries",
+      "recommends",
+      "stale_triage",
+      "week_ahead",
+      "letter"
+    ]
+  },
+  "perf": {
+    "latency_ms": 134480,
+    "brief_input_tokens": 33719,
+    "brief_output_tokens": 1500,
+    "story_input_tokens": 37503,
+    "story_output_tokens": 3428,
+    "model_brief": "claude-sonnet-4-6",
+    "model_storyteller": "claude-sonnet-4-6",
+    "card_count": 9,
+    "card_types": [
+      "gremly_mood",
+      "opening",
+      "moments",
+      "thread_movements",
+      "discoveries",
+      "recommends",
+      "stale_triage",
+      "week_ahead",
+      "letter"
+    ]
+  }
+}

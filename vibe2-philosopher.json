@@ -1,0 +1,339 @@
+{
+  "vibe": "philosopher",
+  "week": "2026-03-23 to 2026-03-29",
+  "cards": [
+    {
+      "type": "gremly_mood",
+      "mood_line": "Clarified, not resolved",
+      "hook": "She came home hoping for normalcy. She found something more honest instead.",
+      "week_label": "2026-03-23 to 2026-03-29",
+      "fed_stats": {
+        "fed_days_this_week": 0,
+        "gremly_age": 0,
+        "current_tier": "egg",
+        "fed_days_toward_next": 0,
+        "fed_days_needed": 3,
+        "sock_count": 0
+      }
+    },
+    {
+      "type": "opening",
+      "headline": "Home is where the hard questions are",
+      "subheadline": "Return with reckoning",
+      "body": "The honeymoon ended. SF began. And somewhere between Bella's reunion on Tuesday and a vulnerable Sunday in the sun, the week became less about getting back to normal and more about asking what normal is actually for. The app got better. The friendships got named. The insecurities got faced.",
+      "mood": "Honest and searching",
+      "quote": "Weirdly, it's made me think about my own career and future a lot, i cant help but worry about it. If the app doesn't work i dont know what ill do as i really dont enjoy working at Dentsu anymore.",
+      "quote_date": "2026-03-26",
+      "image_hint": "San Francisco morning fog over Twin Peaks",
+      "image_url": "https://images.unsplash.com/photo-1598997501691-0f7672774afc?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxTYW4lMjBGcmFuY2lzY28lMjBtb3JuaW5nJTIwZm9nJTIwb3ZlciUyMFR3aW4lMjBQZWFrc3xlbnwwfDB8fHwxNzc0OTA5NzM5fDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "engagement": {
+        "drops": 68,
+        "sweeps": 7,
+        "journals": 8,
+        "drops_delta": 0,
+        "sweeps_delta": 0,
+        "journals_delta": 0
+      },
+      "mood_arc": [
+        {
+          "date": "2026-03-23",
+          "day": "Mon",
+          "valence": "positive"
+        },
+        {
+          "date": "2026-03-24",
+          "day": "Tue",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-24",
+          "day": "Tue",
+          "valence": "anxious"
+        },
+        {
+          "date": "2026-03-25",
+          "day": "Wed",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-26",
+          "day": "Thu",
+          "valence": "positive"
+        },
+        {
+          "date": "2026-03-26",
+          "day": "Thu",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-28",
+          "day": "Sat",
+          "valence": "mixed"
+        },
+        {
+          "date": "2026-03-29",
+          "day": "Sun",
+          "valence": "positive"
+        }
+      ]
+    },
+    {
+      "type": "moments",
+      "moments": [
+        {
+          "day_label": "THU",
+          "date": "2026-03-26",
+          "title": "The celebration that cracked something open",
+          "body": "Dave got the job at Decagon and she was so so so happy — and then the floor shifted. His momentum lit up her own uncertainty in a way a quiet Tuesday never could. She caught herself, wrote 'it's not about me today,' and turned the feeling into seven completed todos. The anxiety moved through her and came out as output.",
+          "image_hint": "overcast SF skyline late afternoon",
+          "thread_tags": [
+            "Partnership with Dave",
+            "App Development & Launch",
+            "Day-to-Day Client Work",
+            "Mental Wellbeing & Negative Thought Management"
+          ],
+          "image_url": "https://images.unsplash.com/photo-1558396376-beacad07c43e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHxvdmVyY2FzdCUyMFNGfGVufDB8MHx8fDE3NzQ5MDkyNTN8MA&ixlib=rb-4.1.0&q=80&w=1080"
+        },
+        {
+          "day_label": "SUN",
+          "date": "2026-03-29",
+          "title": "The insecurity that got faced, not buried",
+          "body": "The night before had gone somewhere heavy. Instead of wallowing, she chose sun over hangover, outside over bed. 'I have this anxiety that I'm not good enough for Dave' — written down, named, faced. The structured habit for negative thoughts has been dormant three weeks. The coping hasn't.",
+          "image_hint": "warm sunlight on park grass open field",
+          "thread_tags": [
+            "Partnership with Dave",
+            "Mental Wellbeing & Negative Thought Management",
+            "Sobriety & Alcohol-Free Streak"
+          ],
+          "image_url": "https://images.unsplash.com/photo-1709717486477-ef9d183d12cc?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4OTY4MzJ8MHwxfHNlYXJjaHwxfHx3YXJtJTIwc3VubGlnaHQlMjBvbiUyMHBhcmslMjBncmFzcyUyMG9wZW4lMjBmaWVsZHxlbnwwfDB8fHwxNzc0OTA5NzM5fDA&ixlib=rb-4.1.0&q=80&w=1080"
+        }
+      ]
+    },
+    {
+      "type": "thread_movements",
+      "title": "Life in motion",
+      "threads": [
+        {
+          "name": "App Development & Launch",
+          "domain": "Gremly improvements",
+          "direction": "milestone",
+          "icon_hint": "creative",
+          "shift_label": "Exit strategy takes shape",
+          "badge_label": "Pre-launch",
+          "detail": "General chat shipped in half a day on March 28; a Full Audit Using Claude Code initiated March 30 signals the most deliberate quality gate in the project's history — and Dave's career move made the stakes explicit.",
+          "is_highlight": true,
+          "badge_type": "warning",
+          "velocity": 3.2,
+          "velocity_label": "3.2x your 4-week avg"
+        },
+        {
+          "name": "Partnership with Dave",
+          "domain": "Relationship & Home Life",
+          "direction": "up",
+          "icon_hint": "relationship",
+          "shift_label": "Deeper through honesty",
+          "badge_label": "Thriving",
+          "detail": "Californios dinner, housewarming drinks, and a vulnerable Sunday conversation about not feeling 'good enough' — the relationship isn't struggling, it's becoming more honest, and that's a different thing entirely.",
+          "is_highlight": true,
+          "badge_type": "success"
+        },
+        {
+          "name": "Mental Wellbeing & Negative Thought Management",
+          "domain": "Fitness & Health",
+          "direction": "down",
+          "icon_hint": "health",
+          "shift_label": "Habit dormant, coping intact",
+          "badge_label": "Watch",
+          "detail": "For the third consecutive week, 'Stop Negative Thoughts' logged zero completions — yet anxiety about career, relationship, and sensory overwhelm at Californios was named directly in journals rather than avoided.",
+          "is_highlight": false,
+          "badge_type": "danger"
+        },
+        {
+          "name": "Sobriety & Alcohol-Free Streak",
+          "domain": "Fitness & Health",
+          "direction": "up",
+          "icon_hint": "health",
+          "shift_label": "Rigid streak → conscious choice",
+          "badge_label": "Maturing",
+          "detail": "5 of 7 days abstinent; social drinking at Californios and post-housewarming drinks with Dave were named as deliberate choices — and the health project is quietly expanding to include a no-sweets goal and lorazepam reduction.",
+          "is_highlight": false,
+          "badge_type": "success"
+        },
+        {
+          "name": "Social Life & Friendships in SF",
+          "domain": "Relationship & Home Life",
+          "direction": "up",
+          "icon_hint": "personal",
+          "shift_label": "Auditing, not complaining",
+          "badge_label": "Building",
+          "detail": "Lunch with Liv on March 25 surfaced 'I miss having friends here in SF'; Victoria's housewarming brought warm reconnection with Marshal alongside honest distance from Emily and Nick — and gym research at Live Fit Gym was explicitly framed as a social strategy, not just fitness.",
+          "is_highlight": false,
+          "badge_type": "success"
+        },
+        {
+          "name": "Running & Half Marathon Training",
+          "domain": "Fitness & Health",
+          "direction": "steady",
+          "icon_hint": "fitness",
+          "shift_label": "Performance → grounding ritual",
+          "badge_label": "Consistent",
+          "detail": "Two runs logged on March 26 and 28, hitting 2/3 of the weekly target; the missed half marathon on March 22 passed without a single word of mourning — running has quietly reoriented from race prep to mental health anchor.",
+          "is_highlight": false,
+          "badge_type": "info"
+        }
+      ]
+    },
+    {
+      "type": "discoveries",
+      "spotlight": {
+        "badge": "shift",
+        "title": "The abandoned habit is working in disguise",
+        "takeaway": "She isn't failing to manage her mental health — she's doing it through every channel except the one she named for it.",
+        "evidence_trail": "Three consecutive weeks of zero completions on 'Stop Negative Thoughts.' Yet this week: career anxiety on March 26 named directly in journals; sensory overwhelm at Californios on March 28 written down rather than suppressed; relationship insecurity on March 29 spoken aloud and then met with outdoor time rather than avoidance. The structured habit is dormant. The underlying work — naming, moving, facing — is happening across all three threads simultaneously.",
+        "research_context": {
+          "title": "Why this happens",
+          "body": "Psychologist Todd Kashdan's work on psychological flexibility (2020) suggests that rigid habit structures can actually impede direct emotional processing. When someone is already journaling anxiety and seeking sunlight over wallowing, a checkbox habit may feel redundant — because it is."
+        },
+        "ask_gremly_prompt": "I noticed something in my weekly summary: \"The abandoned habit is working in disguise\". She isn't failing to manage her mental health — she's doing it through every channel except the one she named for it. Can we talk about this?"
+      },
+      "mini_discoveries": [
+        {
+          "title": "Broody is a data point",
+          "detail": "Feeling 'more broody' holding babies at Victoria's housewarming on March 28 — a quiet life-stage signal worth tracking."
+        },
+        {
+          "title": "The gym is a social plan",
+          "detail": "Live Fit Gym research on March 28 was explicitly framed as a connection strategy — fitness and loneliness solving the same problem."
+        },
+        {
+          "title": "Anxiety as engine, named again",
+          "detail": "For the second week running, the app sprint accelerated on the same day career fear was written down — March 26, seven todos completed."
+        }
+      ]
+    },
+    {
+      "type": "recommends",
+      "primary": {
+        "title": "Give the insecurity a second conversation",
+        "body": "Sunday's journal named something new: 'I'm not good enough for Dave.' You faced it with sunlight and honesty — that was the right move. Now it needs one more: a calm, daylight conversation with Dave before the week gets busy again.",
+        "type": "experiment"
+      },
+      "secondary": [
+        {
+          "title": "Book one thing at Live Fit Gym",
+          "body": "The gym research happened. The Gym Inductions Planning todo exists. One booked session turns a social strategy into a social fact — and this week showed you show up even on busy days.",
+          "type": "habit_idea"
+        },
+        {
+          "title": "Let the habit go — but name what replaced it",
+          "body": "'Stop Negative Thoughts' is dormant. That's fine. But write down your actual coping moves — journaling, outside time, direct conversation — so you can see them working.",
+          "type": "mindset_shift"
+        }
+      ]
+    },
+    {
+      "type": "stale_triage",
+      "headline": "4 items need attention",
+      "body": "A few things have been sitting quietly since before the honeymoon. The tennis match with Dave is the most actionable — worth a reschedule now that you're both back.",
+      "items": [
+        {
+          "title": "Tennis Match with Dave",
+          "days_stale": 17,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "e788b1e5-07ac-48bd-9523-8c7a4ac766e4",
+          "is_obsolete": false,
+          "thread_connection": "Partnership with Dave",
+          "priority": "actionable"
+        },
+        {
+          "title": "Watch Strap Adjustment",
+          "days_stale": 15,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "d8cb288f-5d5e-475f-8845-ccac66448470",
+          "is_obsolete": false,
+          "thread_connection": null,
+          "priority": "low"
+        },
+        {
+          "title": "Surrogacy Agencies Research",
+          "days_stale": 16,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "34f26cf3-4a3e-4b29-b808-710dccf382e6",
+          "is_obsolete": false,
+          "thread_connection": null,
+          "priority": "low"
+        },
+        {
+          "title": "Fix Notification Issues",
+          "days_stale": 18,
+          "domain": "Uncategorized",
+          "severity": "low",
+          "item_id": "ac596227-1f13-4e09-9d7a-fdb524c1d71d",
+          "is_obsolete": false,
+          "thread_connection": null,
+          "priority": "low"
+        }
+      ]
+    },
+    {
+      "type": "week_ahead",
+      "intro": "No major unmissable events on the horizon — which makes this a week to build deliberately rather than react. The Full Audit is open, the gym todo exists, and the conversation from Sunday deserves daylight.",
+      "highlights": [],
+      "busy_day_warnings": []
+    },
+    {
+      "type": "letter",
+      "body": "The audit is open, the chat shipped, and the door you're building is starting to look like a real exit. Protect the morning run this week — it's doing more than fitness. And whatever came up on Sunday night: you faced it in the sun, which was brave. Don't let it go quiet again.",
+      "week_label": "2026-03-23 to 2026-03-29",
+      "gremly_age": 0,
+      "current_tier": "egg"
+    }
+  ],
+  "metadata": {
+    "week_type": "Return with reckoning",
+    "mood": "Clarified, not resolved",
+    "key_themes": [
+      "App as exit strategy",
+      "Vulnerability finding its footing",
+      "Sobriety maturing",
+      "Friendship inventory",
+      "Mental wellbeing in disguise"
+    ],
+    "card_count": 9,
+    "card_types_used": [
+      "gremly_mood",
+      "opening",
+      "moments",
+      "thread_movements",
+      "discoveries",
+      "recommends",
+      "stale_triage",
+      "week_ahead",
+      "letter"
+    ]
+  },
+  "perf": {
+    "latency_ms": 134331,
+    "brief_input_tokens": 28839,
+    "brief_output_tokens": 1500,
+    "story_input_tokens": 32638,
+    "story_output_tokens": 3241,
+    "model_brief": "claude-sonnet-4-6",
+    "model_storyteller": "claude-sonnet-4-6",
+    "card_count": 9,
+    "card_types": [
+      "gremly_mood",
+      "opening",
+      "moments",
+      "thread_movements",
+      "discoveries",
+      "recommends",
+      "stale_triage",
+      "week_ahead",
+      "letter"
+    ]
+  }
+}
