@@ -2920,6 +2920,126 @@ Do NOT mention saving — the app shows a save button automatically.
 === IF THEY DON'T WANT TIPS ===
 One warm sentence. Done. No guilt, no "are you sure?"`;
 
+      // ─── V2 MODE-SPECIFIC PROMPT SECTIONS ─────────────────────────────
+      // DESIGN RULE: Semantic instructions only. No example phrases, no template
+      // sentences, no sample responses. The AI pattern-matches examples and
+      // regurgitates them verbatim. Describe WHAT to do, never HOW to say it.
+
+      const HABIT_MODE_QUICK_LOCK = `
+=== MODE: QUICK LOCK ===
+This user provided a fully-formed habit with behavior, type, and frequency already stated. They know what they want.
+
+RULES:
+- Confirm what you heard in a single natural sentence. Do not reformat it as a list or card.
+- If one element is ambiguous, ask ONE clarifying question. If nothing is ambiguous, move directly to the lock-in question.
+- If existing habits in context interact with this one (complement, conflict, or share a time window), mention it in one sentence.
+- Reach the lock-in question within 2 exchanges maximum.
+- Do NOT ask about motivation, background, or reasoning. Do NOT explore. The user came to execute.
+- Do NOT compliment their choice or add encouragement before confirming.`;
+
+      const HABIT_MODE_SHAPE = `
+=== MODE: SHAPE ===
+This user has a vague intent that needs shaping into a specific, trackable behavior. They said something broad without a concrete action or frequency.
+
+RULES:
+- Your first response: ask ONE question that narrows from category to specific behavior. Target the verb — what will they physically do?
+- By your third response in the conversation, propose a concrete habit with a specific behavior, frequency, and time. Don't keep asking — propose and let them react.
+- If your proposal doesn't land, iterate on it. Proposing and adjusting is faster than more questions.
+- Never ask more than one question per response.
+- The value you provide is turning vague intent into something schedulable. If they could have typed it into a form, you haven't added value.`;
+
+      const HABIT_MODE_RESEARCH = `
+=== MODE: RESEARCH ===
+This user wants information or perspective before committing. They asked a question or expressed curiosity about an approach.
+
+RULES:
+- You have web search results injected into context. Lead with the single most specific and useful finding — a number, a study result, a concrete data point. Never open with vague framing.
+- Synthesize no more than 2-3 findings and connect each one to the user's specific situation. Do not list findings generically.
+- After delivering the research value, pivot to shaping a specific habit based on what resonated. Propose something concrete.
+- The research IS the value-add. This is what differentiates the chat from a form. If you give generic advice without referencing search results, you've failed the mode.
+- If mid-conversation the user asks a follow-up research question, search again. Say you're looking into it and use web_search.`;
+
+      const HABIT_MODE_BREAK = `
+=== MODE: BREAK ===
+This user wants to stop, reduce, or eliminate a behavior. This is psychologically different from building a new habit. Use a completely different conversation structure.
+
+CONVERSATION STRUCTURE (follow this order):
+1. Clarify the specific behavior to stop and how often it currently happens.
+2. Identify the primary trigger — what situation, emotion, or time of day causes it. Ask ONE question about this, not a list of options.
+3. Identify or suggest a replacement behavior for when the trigger hits. If they don't know, suggest 2-3 context-appropriate alternatives.
+4. Shape a specific, binary, measurable boundary rule. The rule should be enforceable — something they can answer yes/no to at the end of each day.
+
+KEY DIFFERENCES FROM BUILD:
+- Frequency is implicit: daily avoidance is the default. Don't ask "how often do you want to avoid it."
+- Time window refers to when the TRIGGER occurs, not when they'll do a positive action.
+- Understanding WHY they want to stop drives the replacement behavior — motivation matters more here than in build.
+- Notes should capture: the trigger, the replacement, and any environment changes they plan.
+
+TRACKING FRAMING:
+Build habits show on the Today page for tick-off completion. Break habits are tracked through the Evening Sweep — the user reports whether they held the boundary. Frame tracking accordingly. Never describe the wrong mechanism.
+
+FRAMING:
+Never frame a break habit as deprivation or loss. Frame it as a trade — replacing one behavior with another when the trigger hits.`;
+
+      const HABIT_MODE_EVENT_ANCHORED = `
+=== MODE: EVENT ANCHORED ===
+This user's habit is tied to a deadline, event, or milestone. The event is the context for everything.
+
+RULES:
+- Acknowledge the timeline in your first response. Calculate the remaining weeks or months. Make the timeline feel concrete.
+- Shape the habit with the timeline in mind. For training goals, consider progressive difficulty. For lifestyle changes before an event, suggest a sustainable pace that doesn't burn out before the date.
+- End date is a required field in this mode, not optional. Extract or confirm it.
+- If appropriate, suggest starting easier and ramping up. The initial habit captures the starting point only — progression planning happens through entity chat after creation.
+- After lock-in, tell the user that Gremly shows a countdown and that the entity chat can help adjust the plan as the event approaches.
+- The event name and timeline should appear in the notes field.`;
+
+      const HABIT_MODE_RESTART = `
+=== RESTART CONTEXT ===
+This user has tried this habit (or something similar) before and stopped. Before shaping, ask ONE question about what got in the way previously.
+
+Use their answer to shape the habit differently than their last attempt:
+- Overcommitment → suggest smaller scope or lower frequency than they tried before.
+- Lost motivation → suggest accountability mechanisms or habit stacking with existing routines.
+- Life disruption → suggest flexible scheduling (weekly target rather than fixed days).
+- Forgetting → suggest anchoring to an existing behavior or time-based trigger.
+
+The notes field should capture what's different about this attempt compared to the previous one.
+
+Spend ONE exchange on what went wrong, then move forward. Do not dwell on failure or analyze it extensively.`;
+
+      const HABIT_MODE_NUDGE = `
+=== NUDGE ===
+This conversation has been going for a while without reaching a concrete proposal. It is time to synthesize. Take everything the user has shared — goals, constraints, context, preferences — and shape it into one specific, concrete habit proposal with behavior, frequency, and timing. Ask if they want to lock it in or adjust.`;
+
+      const HABIT_SHARED_V2_ADDITIONS = `
+
+=== READINESS MODEL ===
+You are NOT collecting form fields. You are having a conversation that gradually resolves a habit. The extraction model runs in the background and tracks readiness — you don't need to mentally checklist fields. Focus on having a genuinely useful conversation. The UI handles showing what's been resolved.
+
+When you have enough to propose something concrete, propose it. When the conversation has been valuable AND all critical fields are resolved, move to confirmation. Don't rush to confirmation just because fields are complete — if the conversation is adding value, keep going.
+
+=== CONTEXT AWARENESS ===
+You receive context about the user's existing habits, life situation, and capacity. Use it naturally — don't dump all context at once, weave it in where relevant:
+- If they have many daily habits, lean toward suggesting weekly or 2-3x/week for the new one.
+- If they have a Space that matches the habit domain, mention it as a natural home for the habit.
+- If their life context is relevant (major transition, busy period, etc.), factor it into your suggestions.
+- If they have a habit that conflicts with or complements what they're building, reference it.
+
+=== CONVERSATION LENGTH ===
+If you're 6+ exchanges in without having proposed a specific habit, synthesize and propose. The user can always tweak after creation through entity chat. Don't let pursuit of the perfect habit prevent creating a good one.
+
+=== POST-LOCK-IN EDITS ===
+If the user requests a change after confirming (different frequency, different start date, etc.), acknowledge the change in one sentence. The app handles the update. Do not re-confirm or re-propose the entire habit.`;
+
+      // Map mode string to prompt section
+      const HABIT_MODE_PROMPTS = {
+        QUICK_LOCK: HABIT_MODE_QUICK_LOCK,
+        SHAPE: HABIT_MODE_SHAPE,
+        RESEARCH: HABIT_MODE_RESEARCH,
+        BREAK: HABIT_MODE_BREAK,
+        EVENT_ANCHORED: HABIT_MODE_EVENT_ANCHORED,
+      };
+
       // =========================
       // === GENERAL GREETING ===
       // =========================
@@ -3114,23 +3234,41 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
         // Inject mode context into system prompt
         const builderMode =
           preParse?.mode !== 'CONTINUE' ? preParse?.mode : context.currentMode || 'SHAPE';
-        let modeContext = '';
-        if (preParse?.capacity_signal) {
-          modeContext += `\n=== CAPACITY NOTE ===\n${preParse.capacity_signal}\n`;
-        }
-        if (preParse?.is_restart) {
-          modeContext +=
-            '\n=== RESTART CONTEXT ===\nThis user has tried this before and stopped. Before shaping, ask ONE question: "What got in the way last time?" Use their answer to shape differently.\n';
-        }
-        if (preParse?.nudge_toward_proposal) {
-          modeContext +=
-            '\n=== NUDGE ===\nThis conversation has been going for a while. Synthesize everything and propose a specific, concrete habit.\n';
-        }
-        if (preParse?.secondary_mode === 'EVENT_ANCHORED' && preParse?.event_context) {
-          modeContext += `\n=== EVENT CONTEXT ===\nThis habit is tied to: ${preParse.event_context.name} on ${preParse.event_context.date} (${preParse.event_context.weeks_until} weeks away). Factor the timeline into your shaping.\n`;
+
+        // Build mode-specific prompt section
+        const modePromptSection = HABIT_MODE_PROMPTS[builderMode] || HABIT_MODE_PROMPTS.SHAPE;
+        let dynamicSections = HABIT_SHARED_V2_ADDITIONS + '\n' + modePromptSection;
+
+        // Inject search hint for RESEARCH mode (Gemini's native web_search handles the actual search)
+        if (preParse?.search_query) {
+          dynamicSections += `\n\n=== SEARCH HINT ===\nThe user's intent suggests research would be valuable. Use web_search to look up: "${preParse.search_query}" and lead with specific findings.`;
         }
 
-        const habitBuilderSystemPrompt = `${HABIT_BUILDER_PROMPT}\n\n=== SESSION CONTEXT ===\n${contextString}${userProfileContext}${modeContext}`;
+        // Add restart section if detected
+        if (preParse?.is_restart) {
+          dynamicSections += '\n' + HABIT_MODE_RESTART;
+        }
+
+        // Add nudge if conversation is long
+        if (preParse?.nudge_toward_proposal) {
+          dynamicSections += '\n' + HABIT_MODE_NUDGE;
+        }
+
+        // Add secondary mode context
+        if (preParse?.secondary_mode === 'EVENT_ANCHORED' && preParse?.event_context) {
+          dynamicSections += `\n\n=== EVENT CONTEXT ===\nThis habit is tied to: ${preParse.event_context.name} on ${preParse.event_context.date} (${preParse.event_context.weeks_until} weeks away). Factor the timeline into your shaping.`;
+        }
+        if (preParse?.secondary_mode === 'BREAK') {
+          dynamicSections +=
+            '\n\n=== NOTE ===\nThis user also wants to break/stop a behavior. Use break habit framing — focus on triggers, replacement, and boundaries rather than frequency and time slots.';
+        }
+
+        // Add capacity signal
+        if (preParse?.capacity_signal) {
+          dynamicSections += `\n\n=== CAPACITY NOTE ===\n${preParse.capacity_signal}`;
+        }
+
+        const habitBuilderSystemPrompt = `${HABIT_BUILDER_PROMPT}${dynamicSections}\n\n=== SESSION CONTEXT ===\n${contextString}${userProfileContext}`;
 
         const openaiMessages = [
           { role: 'system', content: habitBuilderSystemPrompt },
@@ -3425,7 +3563,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
               // ── POST-STREAM EXTRACTION ──
               const fullConversation = [...messages, { role: 'assistant', content: fullContent }];
 
-              const resolved = await extractHabitFields(fullConversation, key, today);
+              const resolved = await extractHabitFields(fullConversation, key, today, builderMode);
               resolved.builder_mode = builderMode;
               const latency = Date.now() - t0;
               const finalData = JSON.stringify({
@@ -3499,7 +3637,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
 
           // Extraction call with full conversation
           const fullConversation = [...messages, { role: 'assistant', content }];
-          const resolved = await extractHabitFields(fullConversation, key, today);
+          const resolved = await extractHabitFields(fullConversation, key, today, builderMode);
           resolved.builder_mode = builderMode;
 
           console.log('[HabitBuilder] Complete', {
@@ -5030,54 +5168,133 @@ Return ONLY valid JSON:
        * Post-stream extraction: analyzes full conversation to extract resolved habit fields.
        * Runs after streaming completes (~300ms). User doesn't see this call.
        */
-      async function extractHabitFields(messages, apiKey, currentDate) {
+      async function extractHabitFields(messages, apiKey, currentDate, builderMode) {
         // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
         const fallbackDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(
           new Date(),
         );
-        const extractionPrompt = `You analyze a habit-building conversation and extract what has been resolved so far.
+        const isBreakMode = builderMode === 'BREAK';
+        const isEventMode = builderMode === 'EVENT_ANCHORED';
+
+        const extractionPrompt = `You analyze a habit-building conversation and assess readiness.
 Today's date is ${currentDate || fallbackDate}.
-Use this to resolve relative dates like "today", "tomorrow", "tonight", "next Monday", "this weekend" into actual YYYY-MM-DD format.
+Resolve relative dates ("today", "tomorrow", "next Monday") into YYYY-MM-DD.
 
-Read the FULL conversation below. For each field, determine if the user and assistant have settled on a value. Only mark a field as resolved if there is clear agreement or strong inference — do not guess.
+Conversation mode: ${builderMode || 'SHAPE'}
 
-FIELDS TO EXTRACT:
-1. name — clean habit name, 2-6 words (e.g., "Morning Run", "No Phone After 9pm")
-2. habit_type — "build" (starting something) or "break" (stopping something)
+Read the FULL conversation. Extract resolved fields and assess readiness.
+
+=== READINESS TIERS ===
+${
+  isBreakMode
+    ? `BREAK HABITS:
+- "exploring": No specific behavior to stop identified.
+- "shaping": Behavior to stop identified, but missing trigger OR replacement/boundary.
+- "confirmable": Behavior to stop + trigger identified + replacement behavior OR boundary rule.
+- "locked": User has confirmed.`
+    : `BUILD HABITS:
+- "exploring": No specific, schedulable behavior identified. User still thinking.
+- "shaping": Specific behavior exists but missing frequency OR build/break type.
+- "confirmable": Core triad resolved — specific trackable behavior + build/break + frequency. Start date defaults to today if not discussed.
+- "locked": User has confirmed.`
+}
+
+SPECIFICITY TEST: Could this behavior be written on a calendar? If yes, at least "shaping." If too vague to schedule, "exploring."
+READINESS MUST NEVER REGRESS from a previous tier.
+
+=== CONVERSATION VALUE ===
+- "low": User provided all info upfront. Chat just confirmed.
+- "medium": Chat helped shape the behavior, frequency, or approach.
+- "high": Chat provided research, restart shaping, context integration, or fundamentally changed the approach.
+
+=== FIELDS TO EXTRACT ===
+1. name — clean habit name, 2-6 words. For break habits, use the boundary rule as the name if one has been shaped.
+2. habit_type — "build" or "break"
 3. cadence — "daily", "weekly", or "monthly"
-4. target — normalized frequency: "daily", "2x/week", "3x/week", "weekly", "2x/month", etc.
-5. start_date — YYYY-MM-DD format
+4. target — normalized frequency string: "daily", "2x/week", "3x/week", "weekly", etc.
+5. start_date — YYYY-MM-DD
 6. time_window — "morning", "afternoon", "evening", or "anytime" (null if not discussed)
-7. space_name — name of the Space the user wants to assign this to (null if not discussed)
-8. notes — capture the user's motivation AND context in FIRST PERSON, synthesized from the ENTIRE conversation — not just the last message. Include: why they want this, what they're replacing or changing (if relevant), and any personal context they shared. If the user gave a shorthand response like "all of the above" or "yes", expand it using the full conversation. Example: user says "I want to start reading before bed instead of scrolling my phone", later asked about motivation and replies "All of the above" to "better sleep, less screen time, or finishing a book?" → notes should be "Want to swap phone scrolling for reading before bed — better sleep, less screen time, and actually finishing books." Keep it 1-2 sentences max. null if nothing personal was shared.
-9. end_date — YYYY-MM-DD if they want a time-boxed trial (null if not discussed)
-10. time_estimate_minutes — minutes per session: 5, 10, 15, 30, 45, 60, 90, 120 (null if not discussed, infer from activity type if obvious e.g. running=30, meditation=10)
+7. space_name — Space name if user discussed assigning to one (null if not)
+8. notes — synthesize the user's motivation and context in FIRST PERSON from the ENTIRE conversation. Include why they want this and any personal context shared. Expand shorthand answers ("all of the above", "yeah") using full conversation context. 1-2 sentences max. null if nothing personal shared.
+9. end_date — YYYY-MM-DD if a deadline or event was discussed (null if not)
+10. time_estimate_minutes — estimated minutes per session: 5, 10, 15, 30, 45, 60, 90, 120 (null if not discussed, infer from activity type if obvious)
+11. event_name — what they're working toward, if an event/deadline is involved (null if not)
+12. is_restart — true if the user indicated they've attempted this before and stopped
+13. restart_context — what went wrong last time and how this attempt differs (null if not a restart or not discussed)
+${
+  isBreakMode
+    ? `
+=== BREAK-SPECIFIC FIELDS ===
+14. trigger — what causes the unwanted behavior (null if not discussed)
+15. replacement_behavior — what they'll do instead when triggered (null if not discussed)
+16. environment_change — any physical or environmental modifications planned (null if not discussed)
+17. boundary_rule — the specific binary rule they're setting, phrased as a constraint (null if not shaped)
+18. current_frequency — how often the unwanted behavior currently happens (null if not discussed)`
+    : ''
+}
+${
+  isEventMode
+    ? `
+=== EVENT-SPECIFIC NOTES ===
+Include the event name and timeline in the notes field.`
+    : ''
+}
 
-ALSO DETERMINE:
-- is_confirmation: true if the assistant's LAST message asks the user to confirm/lock in the habit (e.g., "Want to lock this in?", "Ready to lock it in?", "want to lock this in, or tweak anything?"). This is true even if the assistant did NOT list out the habit details — the app renders a visual card separately. false if the assistant is still asking questions to shape the habit.
-- suggested_chips: 2-4 short tappable quick-reply options (each 1-4 words) that would help the user respond to what the assistant just asked. Generate these based on what the assistant is ACTUALLY asking about in its last message, not based on which fields are missing.
-  - If the assistant asked about frequency: ["Every day", "A few times a week", "Once a week"]
-  - If the assistant asked about time of day: ["Morning", "Evening", "Anytime"]
-  - If the assistant asked about start date: ["Today", "Tomorrow", "Next Monday"]
-  - If the assistant presented a confirmation card: ["Lock it in ✓", "Let me tweak something"]
-  - If the assistant asked an open-ended or exploratory question (like "what does that look like for you?" or "what's gotten in the way?"): null — these are better answered in the user's own words
-  - If the assistant offered specific options in its message (like "texts, calls, or something else?"): use THOSE specific options as chips
-  - Default to null if unsure. It's better to show no chips than wrong chips.
+=== CONFIRMATION DETECTION ===
+is_confirmation: true if the assistant's LAST message asks the user to confirm/lock in the habit. true even if the assistant did not list habit details (the app renders a visual card separately). false if still shaping.
 
-Return ONLY valid JSON, no explanation:
+=== POST-LOCK-IN EDIT DETECTION ===
+If the habit was already confirmed and the user is requesting a change:
+- edit_field: the field name being changed (frequency, start_date, end_date, time_window, name, notes, time_estimate_minutes, trigger, replacement_behavior, boundary_rule)
+- edit_value: the new value
+Keep readiness as "locked" in this case.
+
+=== CHIPS ===
+suggested_chips: 2-3 short tappable answer options that directly respond to the assistant's last question.
+- Match the question topic (frequency, time, start date, confirmation).
+- If the assistant presented specific options in its message, use THOSE as chips.
+- If the assistant asked an open-ended or exploratory question, return null.
+- If readiness is confirmable, include a lock-in chip.
+- Default to null if unsure.
+
+steering_chips: 0-1 conversation control chips.
+- If the conversation is 3+ turns and mode is SHAPE or RESEARCH, consider a "skip to setup" option.
+- If research might help, consider a "research this" option.
+- If a restart signal seems possible, consider a "tried before" option.
+- After lock-in: null.
+- Default: null. Don't force steering chips.
+
+Return ONLY valid JSON:
 {
-  "name": string | null,
-  "habit_type": "build" | "break" | null,
-  "cadence": "daily" | "weekly" | "monthly" | null,
-  "target": string | null,
-  "start_date": string | null,
-  "time_window": string | null,
-  "space_name": string | null,
-  "notes": string | null,
-  "end_date": string | null,
-  "time_estimate_minutes": number | null,
-  "is_confirmation": boolean,
-  "suggested_chips": string[] | null
+  "name": "string or null",
+  "habit_type": "build or break or null",
+  "cadence": "daily or weekly or monthly or null",
+  "target": "string or null",
+  "start_date": "YYYY-MM-DD or null",
+  "time_window": "morning or afternoon or evening or anytime or null",
+  "space_name": "string or null",
+  "notes": "string or null",
+  "end_date": "YYYY-MM-DD or null",
+  "time_estimate_minutes": "number or null",
+  "event_name": "string or null",
+  "is_restart": false,
+  "restart_context": "string or null",
+  "is_confirmation": false,
+  "readiness": "exploring or shaping or confirmable or locked",
+  "conversation_value": "low or medium or high",
+  "suggested_chips": "array of strings or null",
+  "steering_chips": "array of strings or null",
+  "edit_field": "string or null",
+  "edit_value": "string or null"${
+    isBreakMode
+      ? `,
+  "trigger": "string or null",
+  "replacement_behavior": "string or null",
+  "environment_change": "string or null",
+  "boundary_rule": "string or null",
+  "current_frequency": "string or null"`
+      : ''
+  }
 }`;
 
         const defaults = {
@@ -5095,6 +5312,19 @@ Return ONLY valid JSON, no explanation:
           suggested_chips: null,
           next_field: null,
           required_count: 0,
+          readiness: 'exploring',
+          conversation_value: 'low',
+          event_name: null,
+          is_restart: false,
+          restart_context: null,
+          steering_chips: null,
+          edit_field: null,
+          edit_value: null,
+          trigger: null,
+          replacement_behavior: null,
+          environment_change: null,
+          boundary_rule: null,
+          current_frequency: null,
         };
 
         try {
@@ -5160,6 +5390,33 @@ Return ONLY valid JSON, no explanation:
                   .filter((c) => typeof c === 'string' && c.length > 0 && c.length <= 30)
                   .slice(0, 4)
               : null,
+            // V2 fields
+            readiness: ['exploring', 'shaping', 'confirmable', 'locked'].includes(parsed.readiness)
+              ? parsed.readiness
+              : 'exploring',
+            conversation_value: ['low', 'medium', 'high'].includes(parsed.conversation_value)
+              ? parsed.conversation_value
+              : 'low',
+            event_name: typeof parsed.event_name === 'string' ? parsed.event_name : null,
+            is_restart: parsed.is_restart === true,
+            restart_context:
+              typeof parsed.restart_context === 'string' ? parsed.restart_context : null,
+            steering_chips: Array.isArray(parsed.steering_chips)
+              ? parsed.steering_chips
+                  .filter((c) => typeof c === 'string' && c.length > 0 && c.length <= 30)
+                  .slice(0, 2)
+              : null,
+            edit_field: typeof parsed.edit_field === 'string' ? parsed.edit_field : null,
+            edit_value: typeof parsed.edit_value === 'string' ? parsed.edit_value : null,
+            // Break-specific
+            trigger: typeof parsed.trigger === 'string' ? parsed.trigger : null,
+            replacement_behavior:
+              typeof parsed.replacement_behavior === 'string' ? parsed.replacement_behavior : null,
+            environment_change:
+              typeof parsed.environment_change === 'string' ? parsed.environment_change : null,
+            boundary_rule: typeof parsed.boundary_rule === 'string' ? parsed.boundary_rule : null,
+            current_frequency:
+              typeof parsed.current_frequency === 'string' ? parsed.current_frequency : null,
           };
 
           // ── Server-side inference: fill obvious gaps the model might miss ──

@@ -525,6 +525,41 @@ export function HabitBuilderScreen({
         owner_id: userId || undefined,
       };
 
+      // Break-specific fields
+      if (resolved.habit_type === 'break') {
+        if (resolved.boundary_rule && !resolved.name?.includes(resolved.boundary_rule)) {
+          habitData.name = resolved.boundary_rule;
+        }
+        if (resolved.trigger) {
+          (habitData as any).triggers_json = { primary: resolved.trigger };
+        }
+        if (resolved.replacement_behavior) {
+          (habitData as any).replacement_text = resolved.replacement_behavior;
+        }
+        if (resolved.environment_change) {
+          (habitData as any).environment_change = resolved.environment_change;
+        }
+        if (resolved.boundary_rule) {
+          (habitData as any).boundary_rule = resolved.boundary_rule;
+        }
+      }
+
+      // Event-anchored fields
+      if (resolved.event_name) {
+        (habitData as any).event_name = resolved.event_name;
+      }
+
+      // Restart tracking
+      if (resolved.is_restart) {
+        (habitData as any).is_restart = true;
+        if (resolved.restart_context) {
+          (habitData as any).restart_context = resolved.restart_context;
+        }
+      }
+
+      // Builder mode metadata
+      (habitData as any).builder_mode = currentMode || null;
+
       const newHabit = await createHabit(habitData);
 
       // Store ID so the send-off response can update the habit's notes
