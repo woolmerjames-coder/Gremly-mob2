@@ -600,7 +600,7 @@ export function HabitBuilderScreen({
         },
       ]);
     }
-  }, [resolved, isCreating, spaceId, spaces, userId, createHabit, handleSendMessage]);
+  }, [resolved, isCreating, spaceId, spaces, userId, createHabit, handleSendMessage, currentMode]);
 
   // ─── Save tips to habit ──────────────────────────────────────
   const handleSaveTips = useCallback(async () => {

@@ -5335,7 +5335,7 @@ Return ONLY valid JSON:
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'gpt-4.1-nano',
+              model: 'gpt-4.1-mini',
               messages: [
                 { role: 'system', content: extractionPrompt },
                 {
@@ -5346,7 +5346,7 @@ Return ONLY valid JSON:
                 },
               ],
               temperature: 0.1,
-              max_tokens: 400,
+              max_tokens: 600,
               response_format: { type: 'json_object' },
             }),
           });
