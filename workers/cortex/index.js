@@ -1012,7 +1012,7 @@ These pre-phase facts are strong classification signals. Do not ignore them:
 
 AMBIGUITY TYPE DETECTION — when returning AMBIGUOUS, use these signals to determine the correct ambiguity_type:
 - is_noun_phrase_only: true → ambiguity_type is almost always "bucket". The input has no frame or verb to signal intent.
-- temporal_specificity: true AND bucket is unclear between todo and log → ambiguity_type is "date_type". The date could be when something happens or when the user needs to act.
+- temporal_specificity: true — particularly when the input contains a specific named day AND a specific time, or a specific date AND a named occasion or appointment-type noun — this is a strong signal for "date_type". The combination of day/date + time + appointment context means the user is almost certainly referring to something scheduled or to-be-scheduled. This should take priority over "action_or_memory" when both seem plausible. Only use "date_type" when the bucket is clearly TODO — if the bucket is unclear, use "bucket" instead.
 - direction_without_schedule: true AND no concrete threshold stated → ambiguity_type is "vague_aspiration". The user wants relative change but has not defined what done looks like.
 - frequency_present: true AND it is unclear whether this is a one-time action or an ongoing practice → ambiguity_type is "habit_or_todo".
 - factual_statement: true OR action_target is "other_person" AND no action verb present → ambiguity_type is "action_or_memory". A fact or reference that may or may not require action.
