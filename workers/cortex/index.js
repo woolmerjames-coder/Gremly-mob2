@@ -3199,21 +3199,9 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
 
         let preParse = null;
         try {
-          // Compress Life Map for pre-parse (server-side)
           const lifeMap = await getLifeMapForChat(body.userId, env);
           const dailyFocus = await getDailyFocusForChat(body.userId, env);
-          let compressedLifeMap = '';
-          if (dailyFocus?.lifeMoment) {
-            compressedLifeMap += dailyFocus.lifeMoment + '. ';
-          }
-          if (lifeMap?.domains) {
-            const activeDomains = lifeMap.domains
-              .filter((d) => d.attention !== 'background')
-              .map((d) => d.name);
-            if (activeDomains.length > 0) {
-              compressedLifeMap += 'Active domains: ' + activeDomains.join(', ') + '. ';
-            }
-          }
+          const compressedLifeMap = compressLifeMapForHabits(lifeMap, dailyFocus);
 
           preParse = await habitPreParse(
             lastUserMsg,
@@ -5162,6 +5150,64 @@ Return ONLY valid JSON:
           console.error('[HabitPreParse] Error:', err.message);
           return null;
         }
+      }
+
+      /**
+       * Compress Life Map + Daily Focus into a short context string for habit builder.
+       * Used by pre-parse (under 500 chars) and could be used by other lightweight contexts.
+       *
+       * Pulls:
+       * 1. Life moment from daily focus (NOT from Life Map — it doesn't have current_moment)
+       * 2. Active domain names from Life Map
+       * 3. High-importance active thread summaries (first sentence only)
+       */
+      function compressLifeMapForHabits(lifeMap, dailyFocus) {
+        const parts = [];
+
+        // 1. Life moment from daily focus
+        if (dailyFocus?.lifeMoment) {
+          parts.push(dailyFocus.lifeMoment);
+        }
+
+        // 2. Active domain names
+        if (lifeMap?.domains) {
+          const activeDomains = lifeMap.domains
+            .filter((d) => d.attention !== 'background')
+            .map((d) => d.name);
+          if (activeDomains.length > 0) {
+            parts.push('Active domains: ' + activeDomains.join(', '));
+          }
+
+          // 3. High-importance active thread summaries (first sentence only)
+          const highThreads = [];
+          for (const domain of lifeMap.domains) {
+            if (domain.attention === 'background') continue;
+            for (const thread of domain.threads || []) {
+              if (
+                thread.importance === 'high' &&
+                (thread.lifecycle === 'active' || thread.lifecycle === 'dormant')
+              ) {
+                if (thread.summary) {
+                  const firstSentence = thread.summary.split(/\.\s/)[0];
+                  highThreads.push(`${domain.name}: ${firstSentence}`);
+                }
+              }
+            }
+          }
+          if (highThreads.length > 0) {
+            parts.push(highThreads.slice(0, 3).join('. '));
+          }
+        }
+
+        const result = parts.join('. ').trim();
+
+        // Enforce 500 char limit — drop thread summaries first if over
+        if (result.length > 500) {
+          const withoutThreads = parts.slice(0, 2).join('. ').trim();
+          return withoutThreads.slice(0, 500);
+        }
+
+        return result || '';
       }
 
       /**
