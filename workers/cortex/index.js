@@ -392,7 +392,11 @@ function mapPreparseToClassification(preparse) {
   }
 
   // --- FAST PATH: Emotional self-reflection is journal ---
+  // Only fires when no cessation or directional signals compete.
   if (preparse.emotional_content && preparse.self_reflection) {
+    if (preparse.frequency_type || preparse.direction_without_schedule) {
+      return { needsPhase1: true, reason: 'frequency_detected_needs_habit_verification' };
+    }
     return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
   }
 
