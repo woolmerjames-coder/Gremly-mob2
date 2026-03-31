@@ -1010,6 +1010,18 @@ These pre-phase facts are strong classification signals. Do not ignore them:
 - Cessation of cognitive or automatic behavioral patterns → When the target of a cessation verb is a cognitive process, automatic response, or habitual behavioral pattern — meaning a behavior that occurs repeatedly without deliberate initiation rather than a discrete one-time action — classify as HABIT/break_habit. The defining characteristic is whether the behavior recurs automatically as part of the user's established patterns. A behavior that happens on an ongoing basis and that the user wants to reduce or eliminate is trackable as a break habit even when no explicit schedule is stated, because the recurrence is inherent to the nature of the behavior itself. Contrast this with one-time actions that happen to use cessation language — those remain TODO.
 - direction_without_schedule: true with no concrete behavioral threshold stated → NEVER classify directly as habit. Wanting more or less of something, or wanting to embody an abstract quality more fully, is an aspiration not a trackable behavior. Return AMBIGUOUS with type "bucket" so the user can clarify what the concrete behavior actually is. A habit requires a behavior specific enough that the user can answer "did I do this today?" with certainty. If that answer requires inferring a threshold the user did not provide, the input is AMBIGUOUS.
 
+AMBIGUITY TYPE DETECTION — when returning AMBIGUOUS, use these signals to determine the correct ambiguity_type:
+- is_noun_phrase_only: true → ambiguity_type is almost always "bucket". The input has no frame or verb to signal intent.
+- temporal_specificity: true AND bucket is unclear between todo and log → ambiguity_type is "date_type". The date could be when something happens or when the user needs to act.
+- direction_without_schedule: true AND no concrete threshold stated → ambiguity_type is "vague_aspiration". The user wants relative change but has not defined what done looks like.
+- frequency_present: true AND it is unclear whether this is a one-time action or an ongoing practice → ambiguity_type is "habit_or_todo".
+- factual_statement: true OR action_target is "other_person" AND no action verb present → ambiguity_type is "action_or_memory". A fact or reference that may or may not require action.
+- direction_without_schedule: true AND the behaviour is clearly named AND the only uncertainty is whether the user wants accountability → ambiguity_type is "commitment_level". Distinguished from vague_aspiration by having a concrete named activity.
+- emotional_content: true AND self_reflection: true AND an action or change is implied but not committed → ambiguity_type is "emotional_or_action".
+- action_target is "other_person" AND temporal_specificity is true or false AND no clear commitment to plan or just note → ambiguity_type is "social_plan".
+- is_noun_phrase_only: true AND the noun implies a potentially large effort rather than a single action → ambiguity_type is "scope". Distinguished from "bucket" by the noun implying project-scale work.
+- frame_type is "exploring" AND uncertainty_target is "entire_proposition" AND the action is concrete → ambiguity_type is "idea_or_commitment". The user is floating something real but has not committed.
+
 Only return AMBIGUOUS if these signals conflict or are absent.
 
 === WHY THIS NEEDS YOUR JUDGMENT ===
