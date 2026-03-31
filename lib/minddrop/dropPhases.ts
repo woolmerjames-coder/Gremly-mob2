@@ -292,7 +292,18 @@ async function callPhase2b(
 function fireClarificationInBackground(
   localId: string,
   text: string,
-  ambiguityType: string,
+  ambiguityType:
+    | 'bucket'
+    | 'date_type'
+    | 'vague_aspiration'
+    | 'habit_or_todo'
+    | 'action_or_memory'
+    | 'commitment_level'
+    | 'emotional_or_action'
+    | 'social_plan'
+    | 'scope'
+    | 'idea_or_commitment'
+    | string,
   bucket: MindDropBucket,
   ambiguityReason?: string | null,
   plausibleInterpretations?: Array<{
