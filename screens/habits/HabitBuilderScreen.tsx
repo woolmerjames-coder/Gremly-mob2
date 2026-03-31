@@ -996,8 +996,8 @@ const styles = StyleSheet.create({
   chip: {
     backgroundColor: 'rgba(255, 255, 255, 0.85)',
     borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
@@ -1008,7 +1008,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#5C6B5A',
   },
   chipText: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: lightTokens.typography.fontFamily.medium,
     color: lightTokens.colors.text,
   },

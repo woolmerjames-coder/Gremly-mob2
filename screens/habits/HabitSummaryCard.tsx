@@ -49,9 +49,18 @@ function formatTimeWindow(tw: string | null | undefined): string | null {
 
 function formatStartDate(startDate: string | null, readiness: string): string | null {
   if (readiness === 'exploring') return null;
-  if (!startDate) return readiness === 'confirmable' || readiness === 'locked' ? 'Today' : null;
+  if (!startDate)
+    return readiness === 'confirmable' || readiness === 'locked' ? 'Starts today' : null;
   try {
-    const d = new Date(startDate);
+    const ds = getDateService();
+    const d = new Date(startDate + 'T00:00:00');
+    const todayStr = ds.today();
+    const tomorrowStr = ds.tomorrow();
+
+    if (startDate === todayStr) return 'Starts today';
+    if (startDate === tomorrowStr) return 'Starts tomorrow';
+
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const months = [
       'Jan',
       'Feb',
@@ -66,15 +75,17 @@ function formatStartDate(startDate: string | null, readiness: string): string | 
       'Nov',
       'Dec',
     ];
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const now = getDateService().now();
-    const diffDays = Math.round((d.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
-    if (diffDays <= 7 && diffDays >= 0) {
-      return diffDays === 0 ? 'Today' : days[d.getDay()];
+    const today = ds.now();
+    const diffDays = Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    // Within the next 7 days: show day name
+    if (diffDays > 0 && diffDays <= 7) {
+      return `Starts ${days[d.getDay()]}`;
     }
-    return `${months[d.getMonth()]} ${d.getDate()}`;
+    // Further out: show month + day
+    return `Starts ${months[d.getMonth()]} ${d.getDate()}`;
   } catch {
-    return startDate;
+    return `Starts ${startDate}`;
   }
 }
 
@@ -187,7 +198,7 @@ export function HabitSummaryCard({
   const freqValue = isBreak && resolved.boundary_rule ? resolved.boundary_rule : freq;
   if (freqValue) metaSegments.push(freqValue);
   if (timeWindow) metaSegments.push(timeWindow);
-  if (startDate) metaSegments.push(`Starts ${startDate}`);
+  if (startDate) metaSegments.push(startDate);
   if (weeks !== null) {
     metaSegments.push(`${weeks} week${weeks !== 1 ? 's' : ''} to go`);
   }

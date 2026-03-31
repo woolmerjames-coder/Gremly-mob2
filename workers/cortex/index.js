@@ -2928,6 +2928,7 @@ Rules:
 - Pick the 2-3 most relevant from: habit stacking, first-day plan, ADHD-friendly friction reduction, realistic obstacle handling, or something specific to THEIR situation
 - Use **web_search** if real research would help — but tailor the search query to their specific context, not generic terms
 - Format with **bold** label + short sentence. Total under 100 words.
+- Each tip must cover a DIFFERENT strategy. Never repeat the same concept with different wording. If you can only think of two genuinely distinct tips, give two — never pad with a rephrased duplicate.
 
 Do NOT mention saving — the app shows a save button automatically.
 
@@ -5323,6 +5324,8 @@ If the habit was already confirmed and the user is requesting a change:
 Keep readiness as "locked" in this case.
 
 === CHIPS ===
+CRITICAL RULE: Chips must respond to what the assistant ACTUALLY ASKED in its last message. Read the assistant's last message carefully. If it asked a yes/no question (like "want me to send you a nudge?"), the chips should be yes/no options. If it asked about frequency, the chips should be frequency options. NEVER generate chips based on which habit fields are missing — always base them on the assistant's actual question.
+
 suggested_chips: 2-3 short tappable answer options that directly respond to the assistant's last question.
 - Match the question topic (frequency, time, start date, confirmation).
 - If the assistant presented specific options in its message, use THOSE as chips.
