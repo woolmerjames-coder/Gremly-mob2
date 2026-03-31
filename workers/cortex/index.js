@@ -1078,9 +1078,16 @@ Test: Would a thoughtful human be confused about which bucket? If a human would 
 === AMBIGUITY TYPES ===
 
 When returning AMBIGUOUS, always specify the type:
-- bucket: Cannot determine if this is something to DO, TRACK, or KNOW
-- action: Has noun + time reference but no verb - unclear if this is something that exists or something that needs to be scheduled
-- date_type: Bucket is clearly TODO, but unclear if the date means when something IS/HAPPENS or when to DO the action
+- bucket: The input is a bare noun phrase or contains no verb, frame, or actionable signal — cannot determine if this is something to DO, TRACK, or KNOW. Only use this when a thoughtful human would also be genuinely unsure.
+- date_type: Bucket is clearly TODO but it is unclear whether the date means when something IS happening (the user will attend) or when the user needs to ACT (a deadline to do something).
+- vague_aspiration: The user wants to change a behaviour but has expressed it in relative or directional language without a concrete measurable threshold. Applies when "more", "less", "better", or similar relative language is present and no specific target has been stated that would make the behaviour trackable.
+- habit_or_todo: The user has expressed clear intent to perform an action but it is genuinely unclear whether this is a one-time completion they will mark done, or an ongoing recurring practice they want to track over time.
+- action_or_memory: The input contains a fact, date, name, or reference that could be purely informational OR could imply an action the user needs to take. The action is not stated but may be implied by context.
+- commitment_level: The behaviour is concrete and named, but it is unclear whether the user wants to formally commit to tracking it as an ongoing practice or simply note an intention without accountability.
+- emotional_or_action: The input contains emotional language or self-reflection alongside language that could imply an actionable intent. It is unclear whether the user is processing a feeling or committing to do something about it.
+- social_plan: The input describes an occasion or interaction involving another person, but it is unclear whether this is already arranged, needs to be arranged, or is simply being noted.
+- scope: The input describes something that could be a single completable action OR a larger multi-part effort or project. The scale of what the user intends is genuinely unclear.
+- idea_or_commitment: The input is framed hypothetically or exploratorily but it is unclear whether the user is seriously committing to something or floating a possibility they have not yet decided on.
 
 === OUTPUT ===
 
@@ -1092,7 +1099,7 @@ Return ONLY valid JSON:
   "subtype": "journal" | "idea" | "general" | null,
   "habitSubtype": "start_habit" | "break_habit" | null,
   "is_ambiguous": boolean,
-  "ambiguity_type": "bucket" | "action" | "date_type" | null,
+  "ambiguity_type": "bucket" | "date_type" | "vague_aspiration" | "habit_or_todo" | "action_or_memory" | "commitment_level" | "emotional_or_action" | "social_plan" | "scope" | "idea_or_commitment" | null,
   "ambiguity_reason": "Brief explanation of why intent cannot be determined" | null
 }
 
@@ -1162,7 +1169,19 @@ Rules:
 
   const isAmbiguous = parsed.bucket === 'ambiguous' || confidence < 0.7;
   const ambiguityType =
-    isAmbiguous && ['bucket', 'action', 'date_type'].includes(parsed.ambiguity_type)
+    isAmbiguous &&
+    [
+      'bucket',
+      'date_type',
+      'vague_aspiration',
+      'habit_or_todo',
+      'action_or_memory',
+      'commitment_level',
+      'emotional_or_action',
+      'social_plan',
+      'scope',
+      'idea_or_commitment',
+    ].includes(parsed.ambiguity_type)
       ? parsed.ambiguity_type
       : null;
   const ambiguityReason =
@@ -8072,7 +8091,7 @@ Return ONLY valid JSON:
   "confidence": 0.0-1.0,
   "subtype": "journal" | "idea" | "general" | null,
   "habitSubtype": "start_habit" | "break_habit" | null,
-  "ambiguity_type": "bucket" | "action" | "date_type" | null,
+  "ambiguity_type": "bucket" | "date_type" | "vague_aspiration" | "habit_or_todo" | "action_or_memory" | "commitment_level" | "emotional_or_action" | "social_plan" | "scope" | "idea_or_commitment" | null,
   "ambiguity_reason": "Short reason why it's ambiguous" | null
 }
 
@@ -8210,7 +8229,18 @@ Rules:
         const ambiguityType =
           isAmbiguous &&
           typeof parsed.ambiguity_type === 'string' &&
-          ['bucket', 'action', 'date_type'].includes(parsed.ambiguity_type)
+          [
+            'bucket',
+            'date_type',
+            'vague_aspiration',
+            'habit_or_todo',
+            'action_or_memory',
+            'commitment_level',
+            'emotional_or_action',
+            'social_plan',
+            'scope',
+            'idea_or_commitment',
+          ].includes(parsed.ambiguity_type)
             ? parsed.ambiguity_type
             : null;
 
