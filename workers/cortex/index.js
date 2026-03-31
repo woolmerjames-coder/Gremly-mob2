@@ -5250,7 +5250,7 @@ Return ONLY valid JSON:
 
         const extractionPrompt = `You analyze a habit-building conversation and assess readiness.
 Today is ${new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(new Date())}, ${currentDate || fallbackDate}.
-Resolve relative dates into YYYY-MM-DD. "Monday" or "next Monday" means the NEXT upcoming Monday from today. "this weekend" means the coming Saturday. Double-check that the day-of-week matches the date you return.
+Resolve relative day and date references into YYYY-MM-DD. Verify the day-of-week matches the calendar date before returning.
 
 Conversation mode: ${builderMode || 'SHAPE'}
 
@@ -5281,15 +5281,15 @@ READINESS MUST NEVER REGRESS from a previous tier.
 
 === FIELDS TO EXTRACT ===
 1. name — clean habit name, 2-6 words. For break habits, use the boundary rule as the name if one has been shaped.
-   CRITICAL: name must be a SHORT action phrase that could be a habit title (2-6 words), NOT a sentence describing the user's intent or conversation status. If no specific behavior has been identified yet, return null.
+   CRITICAL: name must be short, action-oriented, and usable as a standalone title. Not a sentence, not a description, not a summary of the conversation. Return null if no specific behavior has been identified.
 2. habit_type — "build" or "break"
 3. cadence — "daily", "weekly", or "monthly"
 4. target — normalized frequency string: "daily", "2x/week", "3x/week", "weekly", etc.
 5. start_date — YYYY-MM-DD
 6. time_window — "morning", "afternoon", "evening", or "anytime" (null if not discussed)
 7. space_name — Space name if user discussed assigning to one (null if not)
-8. notes — synthesize the user's motivation and context in FIRST PERSON from the ENTIRE conversation. Include why they want this and any personal context shared. Expand shorthand answers ("all of the above", "yeah") using full conversation context. 1-2 sentences max. null if nothing personal shared.
-   CRITICAL: notes should contain ONLY the user's motivation, approach context, or helpful reminders — things like why they want this, what approach they're taking, or what to anchor the habit to. NEVER restate the habit name, frequency, start date, or type in notes — those are already captured in their own fields. NEVER write "I want to build a habit..." or summarize the conversation. If the user shared no personal context beyond the basic habit parameters, return null.
+8. notes — synthesize the user's motivation and context in FIRST PERSON from the ENTIRE conversation. Include why they want this and any personal context shared. Expand shorthand or vague answers using full conversation context. 1-2 sentences max. null if nothing personal shared.
+   CRITICAL: notes must be first-person and contain only motivation, approach context, or anchoring reminders. Never restate the habit name, frequency, start date, or type — those have their own fields. Never write third-person descriptions or conversation status updates. If the user shared no personal context beyond the basic habit parameters, return null.
 9. end_date — YYYY-MM-DD if a deadline or event was discussed (null if not)
 10. time_estimate_minutes — estimated minutes per session: 5, 10, 15, 30, 45, 60, 90, 120 (null if not discussed, infer from activity type if obvious)
 11. event_name — what they're working toward, if an event/deadline is involved (null if not)
@@ -5324,7 +5324,7 @@ If the habit was already confirmed and the user is requesting a change:
 Keep readiness as "locked" in this case.
 
 === CHIPS ===
-CRITICAL RULE: Chips must respond to what the assistant ACTUALLY ASKED in its last message. Read the assistant's last message carefully. If it asked a yes/no question (like "want me to send you a nudge?"), the chips should be yes/no options. If it asked about frequency, the chips should be frequency options. NEVER generate chips based on which habit fields are missing — always base them on the assistant's actual question.
+CRITICAL RULE: Chips must respond to the topic and intent of the assistant's last message, not to which habit fields are missing. For yes/no questions, return yes/no style options. For choice questions, return the choices. Never generate field-completion chips when the assistant asked an unrelated question.
 
 suggested_chips: 2-3 short tappable answer options that directly respond to the assistant's last question.
 - Match the question topic (frequency, time, start date, confirmation).
@@ -5334,9 +5334,9 @@ suggested_chips: 2-3 short tappable answer options that directly respond to the 
 - Default to null if unsure.
 
 steering_chips: 0-1 conversation control chips.
-- If the conversation is 3+ turns and mode is SHAPE or RESEARCH, consider a "skip to setup" option.
-- If research might help, consider a "research this" option.
-- If a restart signal seems possible, consider a "tried before" option.
+- If the conversation is 3+ turns and mode is SHAPE or RESEARCH, consider a skip-to-setup option.
+- If research might help, consider a research option.
+- If a restart signal seems possible, consider a past-attempt option.
 - After lock-in: null.
 - Default: null. Don't force steering chips.
 
