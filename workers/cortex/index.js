@@ -5248,8 +5248,8 @@ Return ONLY valid JSON:
         const isEventMode = builderMode === 'EVENT_ANCHORED';
 
         const extractionPrompt = `You analyze a habit-building conversation and assess readiness.
-Today's date is ${currentDate || fallbackDate}.
-Resolve relative dates ("today", "tomorrow", "next Monday") into YYYY-MM-DD.
+Today is ${new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(new Date())}, ${currentDate || fallbackDate}.
+Resolve relative dates into YYYY-MM-DD. "Monday" or "next Monday" means the NEXT upcoming Monday from today. "this weekend" means the coming Saturday. Double-check that the day-of-week matches the date you return.
 
 Conversation mode: ${builderMode || 'SHAPE'}
 
