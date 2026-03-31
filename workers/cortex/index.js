@@ -849,19 +849,15 @@ Does this noun inherently imply something needs to be done, or could it equally 
 If only one interpretation makes sense, choose it. If both are genuinely plausible, return AMBIGUOUS with type "bucket".`;
 
     case 'direction_without_schedule':
-      return `This expresses wanting to change a behavior without specifying a concrete schedule.
+      return `This input expresses a desire for relative change without a concrete schedule. Apply these two tests IN ORDER and stop at the first that resolves:
 
-Apply these two tests IN ORDER:
+FIRST — THE ZERO-TARGET TEST:
+Is the user's desired end state for this behavior unambiguously zero? This means the user has clearly expressed that the behavior should stop entirely, not merely reduce. Relative language — wanting less, fewer, more, better — does NOT satisfy this test. Only explicit cessation intent satisfies this test. If the desired end state is zero with certainty → HABIT with subtype break_habit.
 
-FIRST — THE CESSATION TEST:
-Is the user's desired end state for this behavior ZERO? Can the user answer "did I do this today?" with a yes or no, where the goal answer is "no"?
-If YES: the target is zero, which is concrete and binary. This is trackable. Classify as HABIT with subtype break_habit. Do NOT return AMBIGUOUS.
+SECOND — THE CONCRETE DAILY BINARY TEST:
+Can the user answer "did I do this today?" with an unambiguous yes or no based solely on what was stated in the input? The test is strict: the behavior must be specific enough that two different people reading the input would agree on whether it happened on a given day. Vague qualities — being more present, spending less time, being better at something, being less reactive — do not pass this test because they have no defined threshold. Aspirational language about abstract qualities or relative improvements without a stated threshold always fails this test. If the test fails → return AMBIGUOUS with type "bucket". Do not attempt to infer a threshold that the user did not state.
 
-SECOND — THE TRACKABILITY TEST (only if cessation test fails):
-The user wants more or less of something, but is there any concrete measure of success? Can you draw a line between "done" and "not done" on any given day?
-If NO: there is no threshold to track. Return AMBIGUOUS with type "bucket" and let the user clarify whether they want a trackable habit or are noting an intention.
-
-Key distinction: wanting zero is a concrete, trackable target. Wanting "more" or "less" without a threshold is vague and not trackable. Check for cessation first.`;
+If both tests fail → AMBIGUOUS. The clarify flow exists precisely for these inputs. Do not classify as habit when the user has not provided enough information to make the habit trackable.`;
 
     case 'hedged_action':
       return `This has an action verb, but uncertainty is on the verb itself.
@@ -1012,6 +1008,7 @@ These pre-phase facts are strong classification signals. Do not ignore them:
 - verb_position: "start" with core_verb present → Strong TODO signal regardless of frame_type. Imperative grammatical form expresses commitment to act. Only exception: uncertainty_target is "verb" (user unsure WHETHER to act). CRITICAL EXCEPTION: When frequency_present is true OR frequency_type is "stop_quit", the verb signal does NOT override — apply the HABIT GATE instead. Frequency and cessation signals take precedence over verb position for classification.
 - frequency_type: "stop_quit" is a strong signal toward HABIT/break_habit, but it does not automatically override all other signals. Apply this decision: If stop_quit is present AND the framing is direct or obligatory with no significant emotional processing content, classify as HABIT/break_habit with high confidence. If stop_quit is present AND the framing is exploratory, tentative, or emotionally weighted — meaning the user appears to be processing feelings about a pattern as much as committing to change it — return AMBIGUOUS with type "bucket" so the user can clarify whether they want to track this as a break habit or just needed to express it. The distinguishing question is: has the user committed to changing this behavior, or are they expressing that they feel they should? Commitment warrants break_habit. Expression of should-ness without clear commitment warrants AMBIGUOUS.
 - Cessation of cognitive or automatic behavioral patterns → When the target of a cessation verb is a cognitive process, automatic response, or habitual behavioral pattern — meaning a behavior that occurs repeatedly without deliberate initiation rather than a discrete one-time action — classify as HABIT/break_habit. The defining characteristic is whether the behavior recurs automatically as part of the user's established patterns. A behavior that happens on an ongoing basis and that the user wants to reduce or eliminate is trackable as a break habit even when no explicit schedule is stated, because the recurrence is inherent to the nature of the behavior itself. Contrast this with one-time actions that happen to use cessation language — those remain TODO.
+- direction_without_schedule: true with no concrete behavioral threshold stated → NEVER classify directly as habit. Wanting more or less of something, or wanting to embody an abstract quality more fully, is an aspiration not a trackable behavior. Return AMBIGUOUS with type "bucket" so the user can clarify what the concrete behavior actually is. A habit requires a behavior specific enough that the user can answer "did I do this today?" with certainty. If that answer requires inferring a threshold the user did not provide, the input is AMBIGUOUS.
 
 Only return AMBIGUOUS if these signals conflict or are absent.
 
