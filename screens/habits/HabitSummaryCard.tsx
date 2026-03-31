@@ -4,25 +4,11 @@ import Animated, {
   FadeIn,
   useSharedValue,
   useAnimatedStyle,
-  withSpring,
   withTiming,
   withSequence,
-  withDelay,
   Easing,
 } from 'react-native-reanimated';
-import {
-  ChevronDown,
-  ChevronUp,
-  Check,
-  ArrowUp,
-  X,
-  Calendar,
-  Clock,
-  Repeat,
-  Zap,
-  Shield,
-  Flag,
-} from 'lucide-react-native';
+import { ChevronDown, ChevronUp, Check } from 'lucide-react-native';
 import { Text } from '../../ui/Text';
 import { lightTokens } from '../../design/tokens';
 import { getFrequencyDisplayLabel } from '../../lib/habits/frequencyUtils';
@@ -30,16 +16,13 @@ import { getDateService } from '../../lib/date/DateService';
 import type { HabitBuilderResolvedFields, HabitBuilderMode } from '../../lib/types';
 
 // ─── Design tokens ──────────────────────────────────────────────
-const SAGE = '#5C6B5A';
-const SAGE_LIGHT = 'rgba(92, 107, 90, 0.10)';
-const SAGE_MUTED = 'rgba(92, 107, 90, 0.45)';
-const AMBER = '#C4922A';
-const AMBER_LIGHT = 'rgba(196, 146, 42, 0.10)';
-const AMBER_MUTED = 'rgba(196, 146, 42, 0.45)';
-const GOLD_BORDER = 'rgba(212, 164, 74, 0.5)';
-const DEFAULT_BORDER = 'rgba(0, 0, 0, 0.05)';
-const CARD_BG = 'rgba(255, 255, 255, 0.94)';
-const LOCKED_BG = 'rgba(92, 107, 90, 0.03)';
+const CARD_BG = '#2D3B2D';
+const CREAM = '#F9F6F1';
+const CREAM_MUTED = 'rgba(249, 246, 241, 0.55)';
+const CREAM_SEPARATOR = 'rgba(249, 246, 241, 0.12)';
+const AMBER = '#E0C47A';
+const SAGE_CHECK = '#8FA88D';
+const CONFIRMABLE_BORDER = 'rgba(224, 196, 122, 0.4)';
 
 const { fontFamily } = lightTokens.typography;
 
@@ -83,6 +66,12 @@ function formatStartDate(startDate: string | null, readiness: string): string | 
       'Nov',
       'Dec',
     ];
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const now = getDateService().now();
+    const diffDays = Math.round((d.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+    if (diffDays <= 7 && diffDays >= 0) {
+      return diffDays === 0 ? 'Today' : days[d.getDay()];
+    }
     return `${months[d.getMonth()]} ${d.getDate()}`;
   } catch {
     return startDate;
@@ -113,50 +102,6 @@ function buildAccessibilityLabel(resolved: HabitBuilderResolvedFields): string {
   return parts.join(', ');
 }
 
-// ─── AnimatedCheck ──────────────────────────────────────────────
-function AnimatedCheck() {
-  const scale = useSharedValue(0);
-
-  useEffect(() => {
-    scale.value = withDelay(150, withSpring(1, { damping: 12, stiffness: 200 }));
-  }, []);
-
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  return (
-    <Animated.View style={[styles.checkCircle, animStyle]}>
-      <Check size={9} color="#FFFFFF" strokeWidth={3} />
-    </Animated.View>
-  );
-}
-
-// ─── PropertyRow ────────────────────────────────────────────────
-interface PropertyRowProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  delay: number;
-}
-
-function PropertyRow({ icon, label, value, delay }: PropertyRowProps) {
-  return (
-    <Animated.View entering={FadeIn.duration(250).delay(delay)} style={styles.propertyRow}>
-      {icon}
-      <View style={styles.propertyContent}>
-        <Text style={styles.propertyLabel}>{label}</Text>
-        <Text style={styles.propertyValue}>{value}</Text>
-      </View>
-      <AnimatedCheck />
-    </Animated.View>
-  );
-}
-
-function RowSeparator() {
-  return <View style={styles.rowSeparator} />;
-}
-
 // ─── Main Card ──────────────────────────────────────────────────
 export function HabitSummaryCard({
   resolved,
@@ -173,7 +118,7 @@ export function HabitSummaryCard({
     if (resolved.readiness === 'confirmable' && prevReadiness.current !== 'confirmable') {
       borderProgress.value = withSequence(
         withTiming(0, { duration: 0 }),
-        withTiming(1, { duration: 800, easing: Easing.out(Easing.ease) }),
+        withTiming(1, { duration: 600, easing: Easing.out(Easing.ease) }),
       );
     }
     prevReadiness.current = resolved.readiness;
@@ -181,40 +126,32 @@ export function HabitSummaryCard({
 
   const animatedBorderStyle = useAnimatedStyle(() => {
     if (resolved.readiness === 'locked') {
-      return {
-        borderColor: SAGE,
-        borderWidth: 1.5,
-        backgroundColor: LOCKED_BG,
-      };
+      return { borderColor: SAGE_CHECK, borderWidth: 1 };
     }
     if (resolved.readiness === 'confirmable') {
-      const p = borderProgress.value;
       return {
-        borderColor: GOLD_BORDER,
-        borderWidth: 1.5,
-        shadowColor: '#D4A44A',
-        shadowOpacity: p * 0.12,
-        shadowRadius: p * 10,
-        shadowOffset: { width: 0, height: 0 },
+        borderColor: CONFIRMABLE_BORDER,
+        borderWidth: borderProgress.value,
       };
     }
-    return { borderColor: DEFAULT_BORDER, borderWidth: 1 };
+    return { borderColor: 'transparent', borderWidth: 0 };
   });
 
   // Hide entirely when exploring + keyboard active
   if (resolved.readiness === 'exploring' && keyboardActive) return null;
 
   const isBreak = resolved.habit_type === 'break';
-  const dotColor = isBreak ? AMBER : SAGE;
   const freq = formatFrequency(resolved);
 
   // ── Collapsed ─────────────────────────────────────────────────
   if (isCollapsed) {
+    const dotColor = isBreak ? AMBER : SAGE_CHECK;
+
     return (
       <Animated.View
         accessibilityRole="summary"
         accessibilityLabel={buildAccessibilityLabel(resolved)}
-        style={[styles.card, styles.cardCollapsed, animatedBorderStyle]}
+        style={[styles.card, animatedBorderStyle]}
       >
         <TouchableOpacity onPress={onToggle} style={styles.collapsedRow} activeOpacity={0.7}>
           <View style={[styles.dot, { backgroundColor: dotColor }]} />
@@ -229,80 +166,41 @@ export function HabitSummaryCard({
             )}
           </View>
           {resolved.readiness === 'locked' ? (
-            <Check size={13} color={SAGE} />
+            <Check size={14} color={CREAM} />
           ) : (
-            <ChevronDown size={15} color="rgba(0, 0, 0, 0.2)" />
+            <ChevronDown size={14} color={CREAM_MUTED} />
           )}
         </TouchableOpacity>
       </Animated.View>
     );
   }
 
-  // ── Expanded — Build property rows ────────────────────────────
+  // ── Expanded — build metadata segments ────────────────────────
   const timeWindow = formatTimeWindow(resolved.time_window);
   const startDate = formatStartDate(resolved.start_date, resolved.readiness);
   const weeks = weeksUntil(resolved.end_date);
 
-  const rows: Array<{ icon: React.ReactNode; label: string; value: string }> = [];
-
-  // Frequency / boundary rule
+  const metaSegments: string[] = [];
+  if (resolved.habit_type) {
+    metaSegments.push(resolved.habit_type === 'break' ? 'BREAK' : 'BUILD');
+  }
   const freqValue = isBreak && resolved.boundary_rule ? resolved.boundary_rule : freq;
-  if (freqValue) {
-    rows.push({
-      icon: <Repeat size={13} color={SAGE_MUTED} />,
-      label: 'Frequency',
-      value: freqValue,
-    });
+  if (freqValue) metaSegments.push(freqValue);
+  if (timeWindow) metaSegments.push(timeWindow);
+  if (startDate) metaSegments.push(`Starts ${startDate}`);
+  if (weeks !== null) {
+    metaSegments.push(`${weeks} week${weeks !== 1 ? 's' : ''} to go`);
   }
 
-  // Time window
-  if (timeWindow) {
-    rows.push({
-      icon: <Clock size={13} color={SAGE_MUTED} />,
-      label: 'Time',
-      value: timeWindow,
-    });
-  }
+  const metaLine = metaSegments.length > 0 ? metaSegments.join(' · ') : null;
 
-  // Start date
-  if (startDate) {
-    rows.push({
-      icon: <Calendar size={13} color={SAGE_MUTED} />,
-      label: 'Starts',
-      value: startDate,
-    });
-  }
+  // Break trigger/replacement line
+  const breakLine =
+    isBreak && resolved.trigger && resolved.replacement_behavior
+      ? `When ${resolved.trigger} → ${resolved.replacement_behavior}`
+      : null;
 
-  // Break-specific: Trigger
-  if (isBreak && resolved.trigger) {
-    rows.push({
-      icon: <Zap size={13} color={AMBER_MUTED} />,
-      label: 'Trigger',
-      value: resolved.trigger,
-    });
-  }
-
-  // Break-specific: Replacement
-  if (isBreak && resolved.replacement_behavior) {
-    rows.push({
-      icon: <Shield size={13} color={AMBER_MUTED} />,
-      label: 'Instead',
-      value: resolved.replacement_behavior,
-    });
-  }
-
-  // Event-specific: Goal
-  if (resolved.event_name) {
-    const goalValue =
-      weeks !== null
-        ? `${resolved.event_name} · ${weeks} week${weeks !== 1 ? 's' : ''} to go`
-        : resolved.event_name;
-    rows.push({
-      icon: <Flag size={13} color={SAGE_MUTED} />,
-      label: 'Goal',
-      value: goalValue,
-    });
-  }
+  const hasNotes = !!resolved.notes || !!breakLine;
 
   return (
     <Animated.View
@@ -310,55 +208,46 @@ export function HabitSummaryCard({
       accessibilityLabel={buildAccessibilityLabel(resolved)}
       style={[styles.card, animatedBorderStyle]}
     >
-      {/* Header: type badge + collapse/locked */}
+      {/* Row 1: Name + chevron */}
       <View style={styles.expandedHeader}>
-        {resolved.habit_type ? (
-          <View style={[styles.typeBadge, { backgroundColor: isBreak ? AMBER_LIGHT : SAGE_LIGHT }]}>
-            {isBreak ? (
-              <X size={11} color={AMBER} strokeWidth={2.5} />
-            ) : (
-              <ArrowUp size={11} color={SAGE} strokeWidth={2.5} />
-            )}
-            <Text style={[styles.typeBadgeText, { color: isBreak ? AMBER : SAGE }]}>
-              {isBreak ? 'BREAK' : 'BUILD'}
+        <View style={styles.nameContainer}>
+          {resolved.name ? (
+            <Text style={styles.habitName} numberOfLines={2}>
+              {resolved.name}
             </Text>
-          </View>
-        ) : (
-          <View />
-        )}
+          ) : (
+            <Text style={styles.namePlaceholder}>Shaping your habit...</Text>
+          )}
+        </View>
         {resolved.readiness === 'locked' ? (
-          <View style={styles.lockedCircle}>
-            <Check size={12} color="#FFFFFF" />
-          </View>
+          <Check size={14} color={CREAM} />
         ) : (
           <TouchableOpacity onPress={onToggle} hitSlop={12}>
-            <ChevronUp size={15} color="rgba(0, 0, 0, 0.2)" />
+            <ChevronUp size={14} color={CREAM_MUTED} />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Habit name */}
-      {resolved.name && (
-        <Animated.View entering={FadeIn.duration(250)}>
-          <Text style={styles.habitName}>{resolved.name}</Text>
+      {/* Row 2: Metadata line */}
+      {metaLine && (
+        <Animated.View entering={FadeIn.duration(200)} key={metaLine}>
+          <Text style={styles.metaLine}>{metaLine}</Text>
         </Animated.View>
       )}
 
-      {/* Property rows */}
-      {rows.length > 0 && (
-        <View style={styles.propertiesSection}>
-          {rows.map((row, i) => (
-            <React.Fragment key={row.label}>
-              {i > 0 && <RowSeparator />}
-              <PropertyRow icon={row.icon} label={row.label} value={row.value} delay={i * 60} />
-            </React.Fragment>
-          ))}
-        </View>
+      {/* Row 3: Separator (only if notes exist) */}
+      {hasNotes && <View style={styles.separator} />}
+
+      {/* Row 4: Break trigger/replacement */}
+      {breakLine && (
+        <Animated.View entering={FadeIn.duration(200)}>
+          <Text style={styles.breakLine}>{breakLine}</Text>
+        </Animated.View>
       )}
 
-      {/* Notes */}
+      {/* Row 4: Notes */}
       {resolved.notes && (
-        <Animated.View entering={FadeIn.duration(250)}>
+        <Animated.View entering={FadeIn.duration(200)}>
           <Text style={styles.notesText}>{resolved.notes}</Text>
         </Animated.View>
       )}
@@ -370,28 +259,20 @@ export function HabitSummaryCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: CARD_BG,
-    borderRadius: 16,
-    padding: 16,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  cardCollapsed: {
+    borderRadius: 14,
     paddingVertical: 12,
     paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginBottom: 8,
   },
   collapsedRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   collapsedCenter: {
     flex: 1,
@@ -400,93 +281,60 @@ const styles = StyleSheet.create({
   collapsedName: {
     fontFamily: fontFamily.medium,
     fontSize: 14,
-    color: lightTokens.colors.charcoal,
+    color: CREAM,
   },
   collapsedFreq: {
     fontFamily: fontFamily.medium,
     fontSize: 14,
-    color: 'rgba(0, 0, 0, 0.4)',
+    color: CREAM_MUTED,
   },
   collapsedPlaceholder: {
     fontFamily: fontFamily.regular,
     fontSize: 14,
-    color: 'rgba(0, 0, 0, 0.4)',
+    color: CREAM_MUTED,
   },
   expandedHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
   },
-  typeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  typeBadgeText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  lockedCircle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: SAGE,
-    alignItems: 'center',
-    justifyContent: 'center',
+  nameContainer: {
+    flex: 1,
+    marginRight: 12,
   },
   habitName: {
     fontFamily: fontFamily.medium,
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '600',
-    color: lightTokens.colors.charcoal,
-    marginTop: 10,
-    marginBottom: 2,
+    color: CREAM,
   },
-  propertiesSection: {
-    marginTop: 8,
+  namePlaceholder: {
+    fontFamily: fontFamily.regular,
+    fontSize: 16,
+    color: CREAM_MUTED,
   },
-  propertyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-  propertyContent: {
-    flex: 1,
-    marginLeft: 10,
-  },
-  propertyLabel: {
+  metaLine: {
     fontFamily: fontFamily.medium,
     fontSize: 12,
-    color: 'rgba(0, 0, 0, 0.4)',
+    color: CREAM_MUTED,
+    fontWeight: '500',
+    letterSpacing: 0.5,
+    marginTop: 4,
   },
-  propertyValue: {
-    fontFamily: fontFamily.medium,
-    fontSize: 14,
-    color: lightTokens.colors.charcoal,
-  },
-  checkCircle: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: SAGE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowSeparator: {
+  separator: {
     height: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.04)',
-    marginLeft: 33,
+    backgroundColor: CREAM_SEPARATOR,
+    marginVertical: 8,
+  },
+  breakLine: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    color: AMBER,
+    marginBottom: 2,
   },
   notesText: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
-    fontStyle: 'italic',
-    color: 'rgba(0, 0, 0, 0.4)',
-    marginTop: 8,
+    color: CREAM_MUTED,
   },
 });
