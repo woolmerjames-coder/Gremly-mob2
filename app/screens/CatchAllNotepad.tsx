@@ -4949,6 +4949,20 @@ const RecentDrops: React.FC<{
                         : item,
                     ),
                   );
+                  // Persist smart_title to DB so Phase 2's hasPhase1SmartTitle check sees it
+                  if (smartTitle && typeof smartTitle === 'string') {
+                    try {
+                      await repo.update({
+                        id: newTodo.id,
+                        patch: { name: smartTitle, title: smartTitle },
+                      });
+                    } catch (dbErr) {
+                      console.warn(
+                        '[RecentDrops:Phase1.5a] DB write failed for todo, continuing',
+                        dbErr,
+                      );
+                    }
+                  }
                 }
               }
             } catch (e) {
@@ -5055,6 +5069,20 @@ const RecentDrops: React.FC<{
                         : item,
                     ),
                   );
+                  // Persist smart_title to DB so Phase 2's hasPhase1SmartTitle check sees it
+                  if (smartTitle && typeof smartTitle === 'string') {
+                    try {
+                      await repo.update({
+                        id: newHabit.id,
+                        patch: { name: smartTitle, title: smartTitle },
+                      });
+                    } catch (dbErr) {
+                      console.warn(
+                        '[RecentDrops:Phase1.5a] DB write failed for habit, continuing',
+                        dbErr,
+                      );
+                    }
+                  }
                 }
               }
             } catch (e) {
@@ -5163,6 +5191,17 @@ const RecentDrops: React.FC<{
                     : item,
                 ),
               );
+              // Persist smart_title to DB so Phase 2's hasPhase1SmartTitle check sees it
+              if (smartTitle && typeof smartTitle === 'string') {
+                try {
+                  await repo.update({ id: noteId, patch: { title: smartTitle } });
+                } catch (dbErr) {
+                  console.warn(
+                    '[RecentDrops:Phase1.5a] DB write failed for log, continuing',
+                    dbErr,
+                  );
+                }
+              }
             }
           }
         } catch (e) {
