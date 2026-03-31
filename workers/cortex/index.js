@@ -7517,7 +7517,7 @@ Return JSON only:
         function getLabelRules(aType) {
           switch (aType) {
             case 'bucket':
-              return `Labels must not invent a specific action. For todo option: describe that there is something to do without naming what it is. For idea option: convey exploration or consideration. For general option: convey that the user wants to remember something. Reference the specific noun or subject from the input.`;
+              return `Labels must feel like something a real person would naturally say. The noun from the user's input may only be referenced in a label if it flows completely naturally as part of spoken language — as if someone were actually saying it out loud. If adding the noun makes the label sound mechanical, repetitive, or grammatically forced, omit it entirely. The question already references the noun — the labels do not need to repeat it. For the todo option: convey that there is something to do, without naming what it is and without inventing a specific action. For the idea option: convey that the user is thinking something through or considering a possibility. For the general option: convey that the user wants to hold onto or remember something. All three labels must be short casual fragments that a person might actually say. They must not sound like UI category names.`;
             case 'date_type':
               return `Labels must directly reflect the booking/scheduling status. First option conveys it is already arranged and in the calendar. Second option conveys the user still needs to book or sort it, and references the specific thing. Third option conveys they just want to hold the date mentally.`;
             case 'vague_aspiration':
