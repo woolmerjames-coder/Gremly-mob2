@@ -752,13 +752,8 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
  * 5. Everything else by createdAt ascending
  */
 export const selectSweepCandidatesUnified = createSelector(
-  [selectTodos, selectNotes, selectUnconfirmedHabits, selectSpaces],
-  (
-    todos,
-    notes,
-    unconfirmedHabits,
-    spaces,
-  ): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
+  [selectTodos, selectNotes, selectSpaces],
+  (todos, notes, spaces): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
     console.log('[SweepSelector] Running selectSweepCandidatesUnified');
     const today = getTodayDayString();
     const sevenDaysAgo = getDaysAgoDayString(7);
@@ -899,38 +894,13 @@ export const selectSweepCandidatesUnified = createSelector(
       }
     }
 
-    // Process unconfirmed habits
-    for (const habit of unconfirmedHabits) {
-      // Skip locked-in habits - handled in Lock-In Checkpoint
-      if (isHabitLockedIn(habit)) {
-        console.log('[SweepSelector] Filtered out locked-in habit:', {
-          id: habit.id.slice(0, 8),
-          name: habit.name?.slice(0, 20),
-        });
-        continue;
-      }
-
-      const isCreatedToday = ds().isTimestampToday(habit.created_at);
-      candidates.push({
-        id: habit.id,
-        kind: 'habit',
-        createdAt: habit.created_at ?? '',
-        dropId: null,
-        skippedInSweepAt: null,
-        isOverdue: false,
-        isDueToday: false,
-        isCreatedToday,
-        raw: habit as any,
-      } satisfies SweepCandidateHabit);
-    }
-
     // Compute meta for each candidate
     const withMeta = candidates.map((candidate) => ({
       candidate,
       meta: computeSweepCardMeta(candidate, spaces),
     }));
 
-    // Sort: overdue → due today → other todos → habits → notes
+    // Sort: overdue → due today → other todos → notes
     // Within each group, sort by createdAt ascending (oldest first)
     withMeta.sort((a, b) => {
       const aKind = a.candidate.kind;
@@ -948,8 +918,8 @@ export const selectSweepCandidatesUnified = createSelector(
       if (a.candidate.isDueToday && !b.candidate.isDueToday) return -1;
       if (!a.candidate.isDueToday && b.candidate.isDueToday) return 1;
 
-      // 4. Group by kind: todos → habits → notes
-      const kindOrder = { todo: 0, habit: 1, note: 2 };
+      // 4. Group by kind: todos → notes
+      const kindOrder = { todo: 0, note: 1 };
       const aOrder = kindOrder[aKind] ?? 2;
       const bOrder = kindOrder[bKind] ?? 2;
       if (aOrder !== bOrder) return aOrder - bOrder;
