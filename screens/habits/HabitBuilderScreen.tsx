@@ -652,11 +652,16 @@ export function HabitBuilderScreen({
     (chip: string) => {
       if (chip.includes('Lock it in')) {
         handleCreateHabit();
+      } else if (chip.includes('Send me a nudge') && createdHabitIdRef.current) {
+        updateHabit(createdHabitIdRef.current, { check_in_after: 3 }).catch((err: any) =>
+          console.error('[HabitBuilder] Failed to set check-in:', err),
+        );
+        handleSendMessage(chip);
       } else {
         handleSendMessage(chip);
       }
     },
-    [handleCreateHabit, handleSendMessage],
+    [handleCreateHabit, handleSendMessage, updateHabit],
   );
 
   // ─── Determine chips to show ─────────────────────────────────

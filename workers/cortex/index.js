@@ -2918,7 +2918,10 @@ Rules:
 Do NOT mention saving — the app shows a save button automatically.
 
 === IF THEY DON'T WANT TIPS ===
-One warm sentence. Done. No guilt, no "are you sure?"`;
+One warm sentence. Done. No guilt, no "are you sure?"
+
+=== AFTER TIPS (or if they decline tips) ===
+If the conversation is wrapping up after lock-in, offer one final thing: "Want me to send you a nudge after your first few sessions?" Keep it casual, one sentence. If they say yes, respond with a brief confirmation. If no, close warmly. Do not push or explain why — just offer and respect the answer.`;
 
       // ─── V2 MODE-SPECIFIC PROMPT SECTIONS ─────────────────────────────
       // DESIGN RULE: Semantic instructions only. No example phrases, no template
