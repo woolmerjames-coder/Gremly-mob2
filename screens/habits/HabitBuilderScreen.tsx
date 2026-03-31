@@ -272,7 +272,7 @@ export function HabitBuilderScreen({
       if (isInitial && prefill) {
         requestMessages.push({ role: 'user', content: prefill });
       } else if (isInitial) {
-        requestMessages.push({ role: 'user', content: 'I want to start a new habit' });
+        requestMessages.push({ role: 'user', content: text });
       } else {
         requestMessages.push({ role: 'user', content: text });
       }
