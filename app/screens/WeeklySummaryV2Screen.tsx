@@ -513,7 +513,7 @@ function OpeningCard({
                 key={stat.label}
                 style={{
                   flex: 1,
-                  backgroundColor: WS.cream,
+                  backgroundColor: WS.bg,
                   borderRadius: 10,
                   padding: 10,
                   alignItems: 'center',
@@ -544,7 +544,7 @@ function OpeningCard({
 
       {card.mood_arc && card.mood_arc.length > 0 ? (
         <Animated.View entering={FadeInUp.delay(750).duration(350)}>
-          <View style={{ backgroundColor: WS.cream, borderRadius: 12, padding: 12, marginTop: 12 }}>
+          <View style={{ backgroundColor: WS.bg, borderRadius: 12, padding: 12, marginTop: 12 }}>
             <Text
               style={{
                 fontSize: 10,

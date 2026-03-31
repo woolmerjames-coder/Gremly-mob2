@@ -919,7 +919,7 @@ export const selectSweepCandidatesUnified = createSelector(
       if (!a.candidate.isDueToday && b.candidate.isDueToday) return 1;
 
       // 4. Group by kind: todos → notes
-      const kindOrder = { todo: 0, note: 1 };
+      const kindOrder: Record<string, number> = { todo: 0, note: 1 };
       const aOrder = kindOrder[aKind] ?? 2;
       const bOrder = kindOrder[bKind] ?? 2;
       if (aOrder !== bOrder) return aOrder - bOrder;

@@ -514,7 +514,8 @@ export async function handleMultiDetected(drop: QueuedDrop): Promise<QueuedDrop>
           subtype: seg.likely_subtype || seg.subtype || null,
           habitSubtype: null,
           confidence: 0.5,
-          source: 'phase0-fallback',
+          source: 'phase1-fallback',
+          is_multi: false,
         });
 
         phase15a = await withTimeout(

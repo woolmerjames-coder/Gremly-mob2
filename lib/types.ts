@@ -207,6 +207,9 @@ export interface Habit {
 
   /** Link to an event note (for items related to a key date) */
   linked_event_id?: ID | null;
+
+  /** V2: Days after lock-in to send a check-in nudge */
+  check_in_after?: number | null;
 }
 
 /**

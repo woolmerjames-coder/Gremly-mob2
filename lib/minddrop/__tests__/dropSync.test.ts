@@ -168,7 +168,7 @@ describe('syncDropToSupabase', () => {
 
   it('inserts into notes table for bucket=log', async () => {
     const result = await syncDropToSupabase(
-      makeDrop({ bucket: 'log', subtype: 'catchall' }),
+      makeDrop({ bucket: 'log', subtype: 'general' }),
       makeEnrichment(),
     );
 
@@ -276,7 +276,7 @@ describe('syncDropToSupabase', () => {
     // Insert fails with duplicate key
     mockInsertResult = { data: null, error: { code: '23505', message: 'Duplicate key' } };
     // Fallback select query returns existing row
-    mockSelectResult = { data: { id: 'existing-id' } };
+    mockSelectResult = { data: { id: 'existing-id' }, error: null };
 
     const result = await syncDropToSupabase(makeDrop(), makeEnrichment());
     expect(result.success).toBe(true);
@@ -300,10 +300,10 @@ describe('syncMultiDropToSupabase', () => {
       multiSummary: 'Shopping and mood check',
       multiSegments: [
         { text: 'Buy milk', bucket: 'todo', subtype: null },
-        { text: 'Feeling great', bucket: 'log', subtype: 'catchall' },
+        { text: 'Feeling great', bucket: 'log', subtype: 'general' },
       ],
       dominantBucket: 'log',
-      dominantSubtype: 'catchall',
+      dominantSubtype: 'general' as any,
     });
 
     const result = await syncMultiDropToSupabase(drop);
