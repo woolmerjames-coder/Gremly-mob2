@@ -662,9 +662,22 @@ export function HabitBuilderScreen({
   // ─── Determine chips to show ─────────────────────────────────
   const chipConfig = useMemo(() => {
     if (isLoading || isCreating) return null;
-    if (!resolved.suggested_chips || resolved.suggested_chips.length === 0) return null;
-    return { chips: resolved.suggested_chips, sendsMessage: true };
-  }, [resolved.suggested_chips, isLoading, isCreating]);
+
+    const chips: Array<{ text: string; type: 'answer' | 'steering' }> = [];
+
+    if (resolved.suggested_chips?.length) {
+      for (const c of resolved.suggested_chips) {
+        chips.push({ text: c, type: 'answer' });
+      }
+    }
+    if (resolved.steering_chips?.length) {
+      for (const c of resolved.steering_chips) {
+        chips.push({ text: c, type: 'steering' });
+      }
+    }
+
+    return chips.length > 0 ? chips : null;
+  }, [resolved.suggested_chips, resolved.steering_chips, isLoading, isCreating]);
 
   // ─── Render message ──────────────────────────────────────────
   const renderMessage = useCallback(
@@ -722,17 +735,28 @@ export function HabitBuilderScreen({
           {/* Chips — show on last assistant message, not on the locked message itself */}
           {isLastAssistant && chipConfig && !(isLockedMessage && habitLocked) && (
             <Animated.View style={styles.chipsRow} entering={FadeIn.duration(200).delay(100)}>
-              {chipConfig.chips.map((chip, idx) => {
-                const isLockIn = chip.includes('Lock it in');
+              {chipConfig.map((chip, idx) => {
+                const isLockIn = chip.text.includes('Lock it in');
+                const isSteering = chip.type === 'steering';
                 return (
                   <TouchableOpacity
                     key={idx}
-                    style={[styles.chip, isLockIn && styles.chipPrimary]}
-                    onPress={() => handleChipTap(chip)}
+                    style={[
+                      styles.chip,
+                      isLockIn && styles.chipPrimary,
+                      isSteering && styles.chipSteering,
+                    ]}
+                    onPress={() => handleChipTap(chip.text)}
                     activeOpacity={0.7}
                   >
-                    <Text style={[styles.chipText, isLockIn && styles.chipTextPrimary]}>
-                      {chip}
+                    <Text
+                      style={[
+                        styles.chipText,
+                        isLockIn && styles.chipTextPrimary,
+                        isSteering && styles.chipTextSteering,
+                      ]}
+                    >
+                      {chip.text}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -924,6 +948,14 @@ const styles = StyleSheet.create({
   chipTextPrimary: {
     color: '#FFFFFF',
     fontWeight: '600',
+  },
+  chipSteering: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(92, 107, 90, 0.3)',
+  },
+  chipTextSteering: {
+    color: 'rgba(92, 107, 90, 0.7)',
   },
   searchingContainer: {
     paddingVertical: 12,
