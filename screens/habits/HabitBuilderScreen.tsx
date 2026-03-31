@@ -20,7 +20,15 @@ import {
   SafeAreaView,
   Keyboard,
 } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  withDelay,
+} from 'react-native-reanimated';
 import { ChevronLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
@@ -39,6 +47,49 @@ import type { SpaceChatMessage, HabitBuilderResolvedFields, HabitSubtype } from 
 import type { SaveableType } from '../../lib/chat/saveableTypes';
 import { dateService, getDateService, nowTimestamp } from '../../lib/date/DateService';
 import { renderFormattedContent } from '../../lib/markdown/renderFormattedContent';
+
+// ─── Typing Indicator ─────────────────────────────────────────────
+function TypingDots() {
+  const dot1 = useSharedValue(0.3);
+  const dot2 = useSharedValue(0.3);
+  const dot3 = useSharedValue(0.3);
+
+  useEffect(() => {
+    const pulse = (duration: number) =>
+      withRepeat(withSequence(withTiming(1, { duration }), withTiming(0.3, { duration })), -1);
+    dot1.value = pulse(500);
+    dot2.value = withDelay(150, pulse(500));
+    dot3.value = withDelay(300, pulse(500));
+  }, []);
+
+  const style1 = useAnimatedStyle(() => ({ opacity: dot1.value }));
+  const style2 = useAnimatedStyle(() => ({ opacity: dot2.value }));
+  const style3 = useAnimatedStyle(() => ({ opacity: dot3.value }));
+
+  return (
+    <View style={typingStyles.container}>
+      <Animated.View style={[typingStyles.dot, style1]} />
+      <Animated.View style={[typingStyles.dot, style2]} />
+      <Animated.View style={[typingStyles.dot, style3]} />
+    </View>
+  );
+}
+
+const typingStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+  },
+  dot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#5C6B5A',
+  },
+});
 
 // ─── Streaming Bubble ─────────────────────────────────────────────
 // Self-updating component that reads from a content ref.
@@ -79,6 +130,17 @@ function StreamingBubble({ contentRef, visible, isSearching, searchQuery }: Stre
     return (
       <View style={styles.searchingContainer}>
         <Text style={styles.searchingText}>Searching: {searchQuery}</Text>
+      </View>
+    );
+  }
+
+  // Show typing dots before first content arrives
+  if (!displayContent && !isSearching) {
+    return (
+      <View style={styles.streamingContainer}>
+        <View style={styles.streamingBubble}>
+          <TypingDots />
+        </View>
       </View>
     );
   }
