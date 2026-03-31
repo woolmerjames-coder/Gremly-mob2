@@ -861,6 +861,7 @@ const HABIT_ANIM_DURATION = 450;
 const HABIT_ANIM_EASING = ReanimatedEasing.bezier(0.4, 0, 0.2, 1); // Material Design standard
 
 function SweepHabitsStep({ onContinue }: StepProps) {
+  const overlay = useGlobalOverlay();
   // Get raw data from Zustand store
   const habits = useGremlyStore((state) => state.habits);
   const habitProgress = useGremlyStore((state) => state.habitProgress);
@@ -1188,6 +1189,56 @@ function SweepHabitsStep({ onContinue }: StepProps) {
           </View>
         ) : (
           <View style={styles.habitsContainer}>
+            {/* Needs Setup Section — FIRST */}
+            {displaySections.needsSetup.length > 0 && (
+              <View style={styles.habitsNeedsSetupSection}>
+                <View style={styles.habitsSectionHeader}>
+                  <View style={styles.habitsSectionLine} />
+                  <Text style={styles.habitsNeedsSetupTitle}>Needs a start date</Text>
+                  <View style={styles.habitsSectionLine} />
+                </View>
+                <Text style={styles.needsSetupSubtext}>Tap to set a date and start tracking</Text>
+                <View>
+                  {displaySections.needsSetup.map((item, index) => (
+                    <Reanimated.View
+                      key={item.habit.id}
+                      entering={FadeIn.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
+                      layout={Layout.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
+                    >
+                      <TouchableOpacity
+                        style={[
+                          styles.needsSetupHabitRow,
+                          index < displaySections.needsSetup.length - 1 &&
+                            styles.needsSetupHabitRowBorder,
+                        ]}
+                        onPress={() => {
+                          overlay.openEdit({ record: item.habit as any, spaceId: null });
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.needsSetupHabitInfo}>
+                          <Text style={styles.needsSetupHabitName} numberOfLines={1}>
+                            {item.habit.name}
+                          </Text>
+                          <Text style={styles.needsSetupHabitFrequency}>{item.frequencyLabel}</Text>
+                        </View>
+                        <View style={styles.needsSetupBadge}>
+                          <Icon name="Calendar" size="xs" color={'#9CA6E0'} strokeWidth={2} />
+                          <Text style={styles.needsSetupBadgeText}>Set date</Text>
+                          <Icon
+                            name="ChevronRight"
+                            size="xs"
+                            color={BRAND.colors.inkMuted}
+                            strokeWidth={2}
+                          />
+                        </View>
+                      </TouchableOpacity>
+                    </Reanimated.View>
+                  ))}
+                </View>
+              </View>
+            )}
+
             {/* Daily Habits */}
             {renderSection('Daily', displaySections.daily)}
 
@@ -1249,61 +1300,7 @@ function SweepHabitsStep({ onContinue }: StepProps) {
               </View>
             )}
 
-            {/* Needs Setup Section */}
-            {displaySections.needsSetup.length > 0 && (
-              <View style={styles.habitsNeedsSetupSection}>
-                <View style={styles.habitsSectionHeader}>
-                  <View style={styles.habitsSectionLine} />
-                  <Text style={styles.habitsNeedsSetupTitle}>Needs a start date</Text>
-                  <View style={styles.habitsSectionLine} />
-                </View>
-                <Text style={styles.needsSetupSubtext}>
-                  Once you set a start date, these move to your Habits screen for tracking
-                </Text>
-                {displaySections.needsSetup.map((item, index) => (
-                  <Reanimated.View
-                    key={item.habit.id}
-                    entering={FadeIn.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
-                    layout={Layout.duration(HABIT_ANIM_DURATION).easing(HABIT_ANIM_EASING)}
-                  >
-                    <TouchableOpacity
-                      style={[
-                        styles.needsSetupHabitRow,
-                        index < displaySections.needsSetup.length - 1 &&
-                          styles.needsSetupHabitRowBorder,
-                      ]}
-                      onPress={() => {
-                        // TODO: Open habit overlay for editing
-                        // e.g., openOverlay({ type: 'habit', id: item.habit.id, mode: 'edit' })
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.needsSetupHabitInfo}>
-                        <Text style={styles.needsSetupHabitName} numberOfLines={1}>
-                          {item.habit.name}
-                        </Text>
-                        <Text style={styles.needsSetupHabitFrequency}>{item.frequencyLabel}</Text>
-                      </View>
-                      <View style={styles.needsSetupBadge}>
-                        <Icon
-                          name="Calendar"
-                          size="xs"
-                          color={BRAND.colors.goldenPear}
-                          strokeWidth={2}
-                        />
-                        <Text style={styles.needsSetupBadgeText}>Set date</Text>
-                        <Icon
-                          name="ChevronRight"
-                          size="xs"
-                          color={BRAND.colors.inkMuted}
-                          strokeWidth={2}
-                        />
-                      </View>
-                    </TouchableOpacity>
-                  </Reanimated.View>
-                ))}
-              </View>
-            )}
+            {/* Needs Setup Section — moved to top */}
           </View>
         )}
       </ScrollView>
@@ -5474,34 +5471,42 @@ const styles = StyleSheet.create({
   },
   // Needs Setup Section styles
   habitsNeedsSetupSection: {
-    marginTop: 24,
-    opacity: 0.8,
+    marginTop: 0,
+    marginBottom: 24,
+    backgroundColor: 'rgba(156, 166, 224, 0.12)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(156, 166, 224, 0.3)',
+    overflow: 'hidden',
+    paddingBottom: 4,
   },
   habitsNeedsSetupTitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
-    color: BRAND.colors.goldenPear,
+    color: '#9CA6E0',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginHorizontal: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
   },
   needsSetupSubtext: {
     fontSize: 13,
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
-    marginBottom: 12,
-    marginTop: 4,
+    marginBottom: 8,
+    marginTop: 2,
+    paddingHorizontal: 16,
   },
   needsSetupHabitRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingHorizontal: 16,
   },
   needsSetupHabitRowBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: BRAND.colors.borderSubtle,
+    borderBottomColor: 'rgba(156, 166, 224, 0.2)',
   },
   needsSetupHabitInfo: {
     flex: 1,
@@ -5521,7 +5526,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    backgroundColor: 'rgba(156, 166, 224, 0.15)',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 12,
@@ -5529,7 +5534,7 @@ const styles = StyleSheet.create({
   needsSetupBadgeText: {
     fontSize: 12,
     fontWeight: '600',
-    color: BRAND.colors.goldenPear,
+    color: '#9CA6E0',
   },
   completedHabitRow: {
     flexDirection: 'row',
