@@ -1617,10 +1617,13 @@ const Row3Chips: React.FC<{
     item.kind === 'note' && (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
   const isIdea =
     item.kind === 'note' && (item.noteSubtype === 'idea' || item.canonical_type === 'idea');
+  const isEvent =
+    item.kind === 'note' && (item.noteSubtype === 'event' || item.views?.subtype === 'event');
   const isGeneralNote =
     item.kind === 'note' &&
     !isJournal &&
     !isIdea &&
+    !isEvent &&
     (item.noteSubtype === 'catchall' ||
       item.noteSubtype === 'general' ||
       item.canonical_type === 'log' ||
@@ -1680,7 +1683,9 @@ const Row3Chips: React.FC<{
               ? 'Journal'
               : mi.subtype === 'idea'
                 ? 'Idea'
-                : 'Note';
+                : mi.subtype === 'event'
+                  ? 'Event'
+                  : 'Note';
       bucketCounts[label] = (bucketCounts[label] || 0) + 1;
     }
     const labels = Object.entries(bucketCounts).map(([label, count]) =>
@@ -1729,6 +1734,15 @@ const Row3Chips: React.FC<{
 
     // Idea: show type chip
     if (isIdea && contextMeta) {
+      return (
+        <View style={styles.moodChip}>
+          <Text style={styles.moodChipText}>{contextMeta}</Text>
+        </View>
+      );
+    }
+
+    // Event: show type chip
+    if (isEvent && contextMeta) {
       return (
         <View style={styles.moodChip}>
           <Text style={styles.moodChipText}>{contextMeta}</Text>
@@ -2643,6 +2657,7 @@ function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): 
   if (subtype === 'idea') return 'Idea';
   if (subtype === 'list') return 'List';
   if (subtype === 'reference') return 'Reference';
+  if (subtype === 'event') return 'Event';
   return 'General Note';
 }
 
