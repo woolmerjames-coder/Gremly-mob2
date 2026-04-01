@@ -20,6 +20,28 @@ const MAX_QUEUE_SIZE = 50;
 const MAX_RETRY_COUNT = 3;
 
 // ============================================================================
+// Async Mutex — prevents concurrent read-modify-write races on AsyncStorage
+// ============================================================================
+// Without this, concurrent saveDrop() calls can overwrite each other's changes:
+// D1 reads → D2 reads (stale) → D1 writes → D2 writes (clobbers D1's update)
+
+let queueLock: Promise<void> = Promise.resolve();
+
+async function withQueueLock<T>(fn: () => Promise<T>): Promise<T> {
+  let release: () => void;
+  const prevLock = queueLock;
+  queueLock = new Promise<void>((r) => {
+    release = r;
+  });
+  await prevLock;
+  try {
+    return await fn();
+  } finally {
+    release!();
+  }
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -315,43 +337,43 @@ async function saveQueue(queue: QueuedDrop[]): Promise<void> {
 export async function enqueue(
   drop: Omit<QueuedDrop, 'localId' | 'status' | 'retryCount' | 'createdAt'>,
 ): Promise<QueuedDrop> {
-  const queue = await getQueue();
+  return withQueueLock(async () => {
+    const queue = await getQueue();
 
-  // Enforce max queue size - remove oldest synced first
-  while (queue.length >= MAX_QUEUE_SIZE) {
-    const syncedIndex = queue.findIndex((d) => d.status === 'synced');
-    if (syncedIndex !== -1) {
-      const removed = queue.splice(syncedIndex, 1)[0];
-      console.log(`[DropQueue] Removed synced drop ${removed.localId} to make room`);
-    } else {
-      // No synced items to remove, remove oldest item
-      const removed = queue.shift();
-      console.log(`[DropQueue] Removed oldest drop ${removed?.localId} to make room`);
+    while (queue.length >= MAX_QUEUE_SIZE) {
+      const syncedIndex = queue.findIndex((d) => d.status === 'synced');
+      if (syncedIndex !== -1) {
+        const removed = queue.splice(syncedIndex, 1)[0];
+        console.log(`[DropQueue] Removed synced drop ${removed.localId} to make room`);
+      } else {
+        const removed = queue.shift();
+        console.log(`[DropQueue] Removed oldest drop ${removed?.localId} to make room`);
+      }
     }
-  }
 
-  const queuedDrop: QueuedDrop = {
-    ...drop,
-    localId: generateDropId(),
-    status: 'queued',
-    retryCount: 0,
-    createdAt: nowTimestamp(),
-  };
+    const queuedDrop: QueuedDrop = {
+      ...drop,
+      localId: generateDropId(),
+      status: 'queued',
+      retryCount: 0,
+      createdAt: nowTimestamp(),
+    };
 
-  queue.push(queuedDrop);
-  await saveQueue(queue);
+    queue.push(queuedDrop);
+    await saveQueue(queue);
 
-  console.log(
-    `[DropQueue] Enqueued drop ${queuedDrop.localId} (source: ${queuedDrop.source}, text: "${queuedDrop.text.slice(0, 50)}...")`,
-  );
+    console.log(
+      `[DropQueue] Enqueued drop ${queuedDrop.localId} (source: ${queuedDrop.source}, text: "${queuedDrop.text.slice(0, 50)}...")`,
+    );
 
-  return queuedDrop;
+    return queuedDrop;
+  });
 }
 
 /**
- * Update a drop in the queue by localId.
+ * Internal update — caller must hold the queue lock.
  */
-export async function updateDrop(localId: string, updates: Partial<QueuedDrop>): Promise<void> {
+async function _updateDropUnsafe(localId: string, updates: Partial<QueuedDrop>): Promise<void> {
   const queue = await getQueue();
   const index = queue.findIndex((d) => d.localId === localId);
 
@@ -367,22 +389,29 @@ export async function updateDrop(localId: string, updates: Partial<QueuedDrop>):
 }
 
 /**
+ * Update a drop in the queue by localId.
+ */
+export async function updateDrop(localId: string, updates: Partial<QueuedDrop>): Promise<void> {
+  return withQueueLock(() => _updateDropUnsafe(localId, updates));
+}
+
+/**
  * Save a drop to the queue — creates if new, updates if exists.
  * Used by the pipeline runner for phase transitions.
  */
 export async function saveDrop(localId: string, drop: QueuedDrop): Promise<void> {
-  const queue = await getQueue();
-  const index = queue.findIndex((d) => d.localId === localId);
+  return withQueueLock(async () => {
+    const queue = await getQueue();
+    const index = queue.findIndex((d) => d.localId === localId);
 
-  if (index === -1) {
-    // New drop (e.g. child of multi-entity split)
-    queue.push(drop);
-  } else {
-    // Existing drop — full replace (not partial merge)
-    queue[index] = drop;
-  }
+    if (index === -1) {
+      queue.push(drop);
+    } else {
+      queue[index] = drop;
+    }
 
-  await saveQueue(queue);
+    await saveQueue(queue);
+  });
 }
 
 /**
@@ -391,53 +420,55 @@ export async function saveDrop(localId: string, drop: QueuedDrop): Promise<void>
  * Safe to call multiple times — already-migrated drops are skipped.
  */
 export async function migrateDropPhases(): Promise<number> {
-  const queue = await getQueue();
-  let migrated = 0;
+  return withQueueLock(async () => {
+    const queue = await getQueue();
+    let migrated = 0;
 
-  for (const drop of queue) {
-    if (drop.phase) continue; // Already has phase — skip
+    for (const drop of queue) {
+      if (drop.phase) continue; // Already has phase — skip
 
-    // Derive phase from existing status
-    switch (drop.status) {
-      case 'queued':
-        drop.phase = 'queued';
-        break;
-      case 'classified':
-        drop.phase = 'classified';
-        break;
-      case 'enriched':
-        drop.phase = 'enriched';
-        break;
-      case 'enrichment_failed':
-        // Treat as enriched with degraded data — let sync proceed
-        drop.phase = 'enriched';
-        break;
-      case 'synced':
-        drop.phase = 'complete';
-        break;
-      case 'failed':
-        drop.phase = 'failed';
-        drop.failedAtPhase = 'queued'; // Safe default — retry from start
-        break;
-      default:
-        drop.phase = 'queued'; // Unknown status — start fresh
+      // Derive phase from existing status
+      switch (drop.status) {
+        case 'queued':
+          drop.phase = 'queued';
+          break;
+        case 'classified':
+          drop.phase = 'classified';
+          break;
+        case 'enriched':
+          drop.phase = 'enriched';
+          break;
+        case 'enrichment_failed':
+          // Treat as enriched with degraded data — let sync proceed
+          drop.phase = 'enriched';
+          break;
+        case 'synced':
+          drop.phase = 'complete';
+          break;
+        case 'failed':
+          drop.phase = 'failed';
+          drop.failedAtPhase = 'queued'; // Safe default — retry from start
+          break;
+        default:
+          drop.phase = 'queued'; // Unknown status — start fresh
+      }
+
+      // Initialize new fields
+      drop.lastError = drop.lastError ?? null;
+      drop.parentLocalId = drop.parentLocalId ?? null;
+      drop.childLocalIds = drop.childLocalIds ?? undefined;
+      drop.failedAtPhase = drop.failedAtPhase ?? undefined;
+
+      migrated++;
     }
 
-    // Initialize new fields
-    drop.lastError = drop.lastError ?? null;
-    drop.parentLocalId = drop.parentLocalId ?? null;
-    drop.childLocalIds = drop.childLocalIds ?? undefined;
-    drop.failedAtPhase = drop.failedAtPhase ?? undefined;
+    if (migrated > 0) {
+      await saveQueue(queue);
+      console.log(`[DropQueue] Migrated ${migrated} drops to phase-based pipeline`);
+    }
 
-    migrated++;
-  }
-
-  if (migrated > 0) {
-    await saveQueue(queue);
-    console.log(`[DropQueue] Migrated ${migrated} drops to phase-based pipeline`);
-  }
-
-  return migrated;
+    return migrated;
+  });
 }
 
 /**
@@ -448,54 +479,62 @@ export async function markSynced(
   supabaseId: string,
   entityType: 'todo' | 'habit' | 'note',
 ): Promise<void> {
-  await updateDrop(localId, {
-    status: 'synced',
-    supabaseId,
-    entityType,
-  });
+  return withQueueLock(async () => {
+    await _updateDropUnsafe(localId, {
+      status: 'synced',
+      supabaseId,
+      entityType,
+    });
 
-  console.log(
-    `[DropQueue] Marked drop ${localId} as synced (supabaseId: ${supabaseId}, entityType: ${entityType})`,
-  );
+    console.log(
+      `[DropQueue] Marked drop ${localId} as synced (supabaseId: ${supabaseId}, entityType: ${entityType})`,
+    );
+  });
 }
 
 /**
  * Mark a drop as failed and increment retry count.
  */
 export async function markFailed(localId: string): Promise<void> {
-  const queue = await getQueue();
-  const drop = queue.find((d) => d.localId === localId);
+  return withQueueLock(async () => {
+    const queue = await getQueue();
+    const drop = queue.find((d) => d.localId === localId);
 
-  if (!drop) {
-    console.log(`[DropQueue] Drop ${localId} not found for markFailed`);
-    return;
-  }
+    if (!drop) {
+      console.log(`[DropQueue] Drop ${localId} not found for markFailed`);
+      return;
+    }
 
-  await updateDrop(localId, {
-    status: 'failed',
-    retryCount: drop.retryCount + 1,
-    lastAttemptAt: nowTimestamp(),
+    await _updateDropUnsafe(localId, {
+      status: 'failed',
+      retryCount: drop.retryCount + 1,
+      lastAttemptAt: nowTimestamp(),
+    });
+
+    console.log(
+      `[DropQueue] Marked drop ${localId} as failed (retryCount: ${drop.retryCount + 1})`,
+    );
   });
-
-  console.log(`[DropQueue] Marked drop ${localId} as failed (retryCount: ${drop.retryCount + 1})`);
 }
 
 /**
  * Remove a drop from the queue.
  */
 export async function dequeue(localId: string): Promise<void> {
-  const queue = await getQueue();
-  const index = queue.findIndex((d) => d.localId === localId);
+  return withQueueLock(async () => {
+    const queue = await getQueue();
+    const index = queue.findIndex((d) => d.localId === localId);
 
-  if (index === -1) {
-    console.log(`[DropQueue] Drop ${localId} not found for dequeue`);
-    return;
-  }
+    if (index === -1) {
+      console.log(`[DropQueue] Drop ${localId} not found for dequeue`);
+      return;
+    }
 
-  queue.splice(index, 1);
-  await saveQueue(queue);
+    queue.splice(index, 1);
+    await saveQueue(queue);
 
-  console.log(`[DropQueue] Dequeued drop ${localId}`);
+    console.log(`[DropQueue] Dequeued drop ${localId}`);
+  });
 }
 
 /**
@@ -503,20 +542,22 @@ export async function dequeue(localId: string): Promise<void> {
  * @returns Number of drops removed
  */
 export async function cleanupSynced(): Promise<number> {
-  const queue = await getQueue();
-  const initialLength = queue.length;
+  return withQueueLock(async () => {
+    const queue = await getQueue();
+    const initialLength = queue.length;
 
-  const filtered = queue.filter((d) => d.status !== 'synced');
-  const removedCount = initialLength - filtered.length;
+    const filtered = queue.filter((d) => d.status !== 'synced');
+    const removedCount = initialLength - filtered.length;
 
-  if (removedCount > 0) {
-    await saveQueue(filtered);
-    console.log(`[DropQueue] Cleaned up ${removedCount} synced drops`);
-  } else {
-    console.log('[DropQueue] No synced drops to clean up');
-  }
+    if (removedCount > 0) {
+      await saveQueue(filtered);
+      console.log(`[DropQueue] Cleaned up ${removedCount} synced drops`);
+    } else {
+      console.log('[DropQueue] No synced drops to clean up');
+    }
 
-  return removedCount;
+    return removedCount;
+  });
 }
 
 /**

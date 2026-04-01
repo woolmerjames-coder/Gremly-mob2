@@ -409,6 +409,14 @@ function mapPreparseToClassification(preparse) {
 
   // Vague desire for more/less without concrete measure - needs clarification
   if (preparse.direction_without_schedule && !preparse.frequency_type) {
+    // Emotional processing frame overrides action signals.
+    // "Grateful for Dave today. He tested the onboarding flow" is a journal entry,
+    // not a todo — the action verb is narrative context, not user intent.
+    // frame_type: processing = past-tense/reflective, so genuine commands
+    // ("need to return shoes") use directing/exploring and are unaffected.
+    if (preparse.emotional_content && preparse.frame_type === 'processing') {
+      return { needsPhase1: true, reason: 'emotional_processing_override' };
+    }
     if (preparse.action_target === 'external') {
       return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
     }
