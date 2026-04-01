@@ -7377,9 +7377,9 @@ Return JSON only:
                 id: 'opt_1',
                 label: '',
                 bucket: 'log',
-                subtype: 'general',
+                subtype: 'event',
                 habitSubtype: null,
-                dateField: 'scheduled_date',
+                dateField: 'target_date',
               },
               {
                 id: 'opt_2',
@@ -7389,7 +7389,7 @@ Return JSON only:
                 habitSubtype: null,
                 dateField: 'target_date',
               },
-              { id: 'opt_3', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+              { id: 'opt_3', label: '', bucket: 'log', subtype: 'event', habitSubtype: null },
             ],
           },
           vague_aspiration: {
@@ -7448,7 +7448,7 @@ Return JSON only:
           social_plan: {
             question: 'Is this happening or do you need to make it happen?',
             options: [
-              { id: 'opt_1', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+              { id: 'opt_1', label: '', bucket: 'log', subtype: 'event', habitSubtype: null },
               { id: 'opt_2', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
               { id: 'opt_3', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
             ],
@@ -7755,7 +7755,7 @@ If no date in input, all date fields are null.
 
 {
   "bucket": "todo" | "habit" | "log",
-  "subtype": "journal" | "idea" | "general" | null,
+  "subtype": "journal" | "idea" | "general" | "event" | null,
   "smart_title": "Title From Their Words",
   "confirmation_message": "4-8 words max 50 chars",
   "target_date": "YYYY-MM-DD" | null,
