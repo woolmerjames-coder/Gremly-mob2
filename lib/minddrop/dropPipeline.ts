@@ -117,6 +117,13 @@ function syncDropToZustand(drop: QueuedDrop): void {
   const exists = useGremlyStore.getState().pendingDrops.has(drop.localId);
   if (!exists) {
     // Drop was already promoted or removed — skip Zustand update
+    console.warn(
+      '[Pipeline] syncDropToZustand: pending drop missing from store — card may appear stuck',
+      {
+        localId: drop.localId,
+        phase: drop.phase || 'unknown',
+      },
+    );
     return;
   }
 
