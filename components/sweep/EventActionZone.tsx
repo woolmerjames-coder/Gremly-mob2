@@ -1,6 +1,6 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
-import { Bell, Calendar, Clock, PenLine } from 'lucide-react-native';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Bell, Calendar, CheckSquare, Clock, PenLine } from 'lucide-react-native';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { ActionPill } from './ActionPill';
@@ -18,6 +18,10 @@ type EventActionZoneProps = {
   onRequestEditEventDate: () => void;
   eventDateOverride?: string;
   daysUntilEventOverride?: number;
+  prepTodoText: string;
+  onPrepTodoTextChange: (text: string) => void;
+  showPrepTodoInput: boolean;
+  onTogglePrepTodo: () => void;
   selectedSpaceId: string | null;
   selectedSpaceName: string | null;
   onRequestSpacePicker: () => void;
@@ -34,6 +38,10 @@ export function EventActionZone({
   onRequestEditEventDate,
   eventDateOverride,
   daysUntilEventOverride,
+  prepTodoText,
+  onPrepTodoTextChange,
+  showPrepTodoInput,
+  onTogglePrepTodo,
   selectedSpaceId,
   selectedSpaceName,
   onRequestSpacePicker,
@@ -100,6 +108,31 @@ export function EventActionZone({
         />
       </View>
 
+      <ContextHeader
+        status="new"
+        label="NEED TO PREP?"
+        icon={<CheckSquare size={12} strokeWidth={2.5} color={BRAND.colors.mossGreen} />}
+      />
+
+      <View style={styles.pillGroup}>
+        <ActionPill
+          icon={<CheckSquare size={16} strokeWidth={2} />}
+          label="Add a prep todo"
+          active={showPrepTodoInput}
+          onPress={onTogglePrepTodo}
+        />
+        {showPrepTodoInput && (
+          <TextInput
+            style={styles.prepInput}
+            placeholder="e.g., Confirm appointment, buy tickets..."
+            placeholderTextColor="rgba(34,34,34,0.35)"
+            value={prepTodoText}
+            onChangeText={onPrepTodoTextChange}
+            autoFocus
+          />
+        )}
+      </View>
+
       <SpaceButton
         active={selectedSpaceId !== null}
         spaceName={selectedSpaceName}
@@ -146,5 +179,13 @@ const styles = StyleSheet.create({
   },
   pillGroup: {
     gap: 6,
+  },
+  prepInput: {
+    backgroundColor: 'rgba(245,240,228,0.6)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#222',
   },
 });

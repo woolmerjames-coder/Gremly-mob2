@@ -56,6 +56,7 @@ import {
   Lightbulb,
   Repeat,
   ArrowRight,
+  Calendar,
 } from 'lucide-react-native';
 import { useAuth } from '../../providers/AuthProvider';
 import { BRAND } from '../../design/brand';
@@ -197,6 +198,9 @@ type SweepDecision = {
 
   // Event reminder
   eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
+
+  // Event prep todo
+  prepTodoText?: string;
 };
 
 // Journal prompts for inspiration
@@ -236,8 +240,13 @@ function SweepIntroStep({
   // Count items by type
   const todoCount = candidates.filter((c) => c.candidate.kind === 'todo').length;
   const habitCount = candidates.filter((c) => c.candidate.kind === 'habit').length;
-  const noteCount = candidates.filter((c) => c.candidate.kind === 'note').length;
-  const totalCount = todoCount + habitCount + noteCount;
+  const eventCount = candidates.filter(
+    (c) => c.candidate.kind === 'note' && (c.candidate.raw as any)?.target_date,
+  ).length;
+  const noteCount = candidates.filter(
+    (c) => c.candidate.kind === 'note' && !(c.candidate.raw as any)?.target_date,
+  ).length;
+  const totalCount = todoCount + habitCount + eventCount + noteCount;
 
   // Time estimate
   const getTimeEstimate = () => {
@@ -252,6 +261,7 @@ function SweepIntroStep({
   const buildBreakdown = () => {
     const parts: string[] = [];
     if (todoCount > 0) parts.push(`${todoCount} ${todoCount === 1 ? 'todo' : 'todos'}`);
+    if (eventCount > 0) parts.push(`${eventCount} ${eventCount === 1 ? 'event' : 'events'}`);
     if (noteCount > 0) parts.push(`${noteCount} ${noteCount === 1 ? 'idea' : 'ideas'}`);
     if (habitCount > 0) parts.push(`${habitCount} ${habitCount === 1 ? 'habit' : 'habits'}`);
     return parts.join(' · ');
@@ -324,6 +334,13 @@ function SweepIntroStep({
               <Check size={22} color={BRAND.colors.mossGreen} strokeWidth={2} />
               <Text style={styles.breakdownNumber}>{todoCount}</Text>
               <Text style={styles.breakdownLabel}>{todoCount === 1 ? 'todo' : 'todos'}</Text>
+            </View>
+          )}
+          {eventCount > 0 && (
+            <View style={styles.breakdownColumn}>
+              <Calendar size={22} color={BRAND.colors.mossGreen} strokeWidth={2} />
+              <Text style={styles.breakdownNumber}>{eventCount}</Text>
+              <Text style={styles.breakdownLabel}>{eventCount === 1 ? 'event' : 'events'}</Text>
             </View>
           )}
           {noteCount > 0 && (
@@ -1448,7 +1465,22 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const storeIsLoading = useIsLoading();
 
   // Snapshot candidates at session start (prevents items disappearing mid-sweep)
-  const { candidatesWithMeta, isLoading } = useSweepSnapshot(allCandidates, storeIsLoading);
+  const { candidatesWithMeta: unsortedCandidatesWithMeta, isLoading } = useSweepSnapshot(
+    allCandidates,
+    storeIsLoading,
+  );
+
+  // Sort candidates: todos first, then events, then notes
+  const candidatesWithMeta = useMemo(() => {
+    const todos = unsortedCandidatesWithMeta.filter((c) => c.candidate.kind === 'todo');
+    const events = unsortedCandidatesWithMeta.filter(
+      (c) => c.candidate.kind === 'note' && c.meta.noteCardType === 'event',
+    );
+    const notes = unsortedCandidatesWithMeta.filter(
+      (c) => c.candidate.kind === 'note' && c.meta.noteCardType !== 'event',
+    );
+    return [...todos, ...events, ...notes];
+  }, [unsortedCandidatesWithMeta]);
 
   // Store mutations for sweep actions
   const updateTodo = useGremlyStore((state) => state.updateTodo);
@@ -1509,9 +1541,9 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
 
   // Track which section transitions have been shown
-  const [shownTransitions, setShownTransitions] = useState<Set<'todo' | 'habit' | 'note'>>(
-    new Set(),
-  );
+  const [shownTransitions, setShownTransitions] = useState<
+    Set<'todo' | 'habit' | 'note' | 'event'>
+  >(new Set());
 
   // Clarification state for items that need it
   const [showClarification, setShowClarification] = useState(false);
@@ -1566,18 +1598,29 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
 
   // Compute section boundaries for transition cards
   const sectionBoundaries = useMemo(() => {
-    const boundaries: { type: 'todo' | 'habit' | 'note'; startIndex: number; count: number }[] = [];
+    const boundaries: {
+      type: 'todo' | 'habit' | 'note' | 'event';
+      startIndex: number;
+      count: number;
+    }[] = [];
     let lastKind: string | null = null;
     let currentCount = 0;
 
     candidatesWithMeta.forEach((item, index) => {
-      const kind = item.candidate.kind;
-      if (kind !== lastKind) {
+      const effectiveType =
+        item.candidate.kind === 'note' && item.meta.noteCardType === 'event'
+          ? 'event'
+          : item.candidate.kind;
+      if (effectiveType !== lastKind) {
         if (lastKind !== null && boundaries.length > 0) {
           boundaries[boundaries.length - 1].count = currentCount;
         }
-        boundaries.push({ type: kind as 'todo' | 'habit' | 'note', startIndex: index, count: 0 });
-        lastKind = kind;
+        boundaries.push({
+          type: effectiveType as 'todo' | 'habit' | 'note' | 'event',
+          startIndex: index,
+          count: 0,
+        });
+        lastKind = effectiveType;
         currentCount = 1;
       } else {
         currentCount++;
@@ -1763,7 +1806,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
             );
           } else if (
             decision.noteAction === 'fine' ||
-            (!decision.resurfaceDateStr && !decision.reminderDateStr)
+            (!decision.resurfaceDateStr && !decision.reminderDateStr && !decision.prepTodoText)
           ) {
             // "Fine as is" or no special action — mark as swept
             sweepLog.debug('[SweepFlowScreen] Marking note as swept:', decision.candidateId);
@@ -1775,37 +1818,88 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
                 ...(decision.spaceId ? { space_id: decision.spaceId } : {}),
               } as any),
             );
-          } else if (decision.reminderDateStr) {
-            // Event reminder — this IS a push notification
-            sweepLog.debug('[SweepFlowScreen] Setting event reminder:', decision.reminderDateStr);
-
+          } else if (decision.reminderDateStr || decision.prepTodoText) {
+            // Event reminder and/or prep todo
             const originalNote = notes.find((n) => n.id === decision.candidateId);
-            const entityTitle =
-              originalNote?.title || originalNote?.body?.slice(0, 40) || 'Event reminder';
 
-            const reminder: ItemReminder = {
-              id: `sweep-remind-${getDateService().now().getTime()}-${decision.candidateId.slice(0, 8)}`,
-              time: '09:00',
-              frequency: 'once',
-              date: decision.reminderDateStr,
-            };
+            // Create prep todo if requested
+            if (decision.prepTodoText) {
+              const userId = useGremlyStore.getState().userId;
+              if (userId) {
+                updates.push(
+                  (async () => {
+                    const { data: newTodo } = await supabase
+                      .from('todos')
+                      .insert({
+                        owner_id: userId,
+                        name: decision.prepTodoText,
+                        title: decision.prepTodoText,
+                        body: `Prep for: ${originalNote?.title || ''}`,
+                        status: 'active',
+                        origin: 'sweep',
+                        target_date: originalNote?.target_date || null,
+                        due_day: originalNote?.target_date || null,
+                        linked_event_id: decision.candidateId,
+                        energy_type: 'administrative',
+                        created_at: getDateService().nowTimestamp(),
+                        updated_at: getDateService().nowTimestamp(),
+                      })
+                      .select()
+                      .single();
 
-            updates.push(
-              (async () => {
-                const notificationId = await scheduleItemReminder(
-                  decision.candidateId,
-                  entityTitle,
-                  'todo',
-                  reminder,
+                    if (newTodo) {
+                      useGremlyStore.setState((state) => ({
+                        todos: [
+                          ...state.todos,
+                          { ...newTodo, type: 'todo' as const, reminders: [] },
+                        ],
+                      }));
+                    }
+                  })(),
                 );
-                await updateNote(decision.candidateId, {
+              }
+            }
+
+            if (decision.reminderDateStr) {
+              // Event reminder — this IS a push notification
+              sweepLog.debug('[SweepFlowScreen] Setting event reminder:', decision.reminderDateStr);
+
+              const entityTitle =
+                originalNote?.title || originalNote?.body?.slice(0, 40) || 'Event reminder';
+
+              const reminder: ItemReminder = {
+                id: `sweep-remind-${getDateService().now().getTime()}-${decision.candidateId.slice(0, 8)}`,
+                time: '09:00',
+                frequency: 'once',
+                date: decision.reminderDateStr,
+              };
+
+              updates.push(
+                (async () => {
+                  const notificationId = await scheduleItemReminder(
+                    decision.candidateId,
+                    entityTitle,
+                    'todo',
+                    reminder,
+                  );
+                  await updateNote(decision.candidateId, {
+                    swept_at: getDateService().nowTimestamp(),
+                    skipped_in_sweep_at: null,
+                    reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
+                    ...(decision.spaceId ? { space_id: decision.spaceId } : {}),
+                  } as any);
+                })(),
+              );
+            } else {
+              // Prep todo only, no reminder — still mark as swept
+              updates.push(
+                updateNote(decision.candidateId, {
                   swept_at: getDateService().nowTimestamp(),
                   skipped_in_sweep_at: null,
-                  reminders: [{ ...reminder, notificationId: notificationId ?? undefined }],
                   ...(decision.spaceId ? { space_id: decision.spaceId } : {}),
-                } as any);
-              })(),
-            );
+                } as any),
+              );
+            }
           }
         }
       } else if (decision.action === 'skip') {
@@ -2634,6 +2728,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       reminderTime?: string;
       spaceId?: string;
       eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
+      prepTodoText?: string;
     }) => {
       useGremlyStore
         .getState()
@@ -2657,6 +2752,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         reminderTime: action.reminderTime || '09:00',
         spaceId: action.spaceId,
         eventReminder: action.eventReminder,
+        prepTodoText: action.prepTodoText,
       });
 
       const newStats = { ...stats, kept: stats.kept + 1 };
