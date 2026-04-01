@@ -440,6 +440,9 @@ function mapPreparseToClassification(preparse) {
     if (preparse.verb_position === 'start') {
       return { needsPhase1: true, reason: 'factual_with_leading_verb' };
     }
+    if (preparse.temporal_specificity || preparse.reminder_intent) {
+      return { needsPhase1: true, reason: 'noun_phrase_ambiguous' };
+    }
     return { needsPhase1: false, bucket: 'log', subtype: 'general', habitSubtype: null };
   }
 
@@ -1072,7 +1075,7 @@ LOG — Capture for reflection, not action:
 - journal: Expressing or processing feelings. The value is in the expression itself.
 - idea: A floating possibility with no commitment. The whole thought is pre-action.
 - general: Recording facts about what IS or WAS. Requires existence framing, not just a noun.
-- event: Something that happens or will happen at a specific point in time that the user wants to note or remember. The defining signals are a concrete temporal anchor (specific date, day, or time) combined with an occasion, appointment, meeting, or occurrence — and crucially, no personal action required beyond noting it. The user is recording that something exists in time, not committing to do anything about it. Distinguish from todo: a todo requires the user to act. An event is something that happens, that the user attends or is aware of. Distinguish from general: a general note records information without a specific temporal anchor. An event is anchored to a specific time. Auto-classify as event when: the input is a factual statement frame AND contains a specific date or time AND describes an occasion or occurrence rather than an action. No clarify needed when intent is unambiguous. Route to clarify (date_type) when: a temporal anchor is present but it is unclear whether the user is noting an existing event or needs to take action to create it.
+- event: Something that happens or will happen at a specific point in time that the user wants to note or remember. The defining signals are a concrete temporal anchor (specific date, day, or time) combined with an occasion, appointment, meeting, or occurrence — and crucially, no personal action required beyond noting it. The user is recording that something exists in time, not committing to do anything about it. Distinguish from todo: a todo requires the user to act. An event is something that happens, that the user attends or is aware of. Distinguish from general: a general note records information without a specific temporal anchor. An event is anchored to a specific time. Auto-classify as event when: the input is a factual statement frame AND contains a specific date or time AND describes an occasion or occurrence rather than an action. No clarify needed when intent is unambiguous. Route to clarify (date_type) when: a temporal anchor is present but it is unclear whether the user is noting an existing event or needs to take action to create it. CRITICAL: When the input is a noun phrase containing an appointment, meeting, or occasion type noun alongside a specific day AND a specific time, and it is unclear whether this is already arranged or needs to be arranged — return AMBIGUOUS with ambiguity_type "date_type", not a direct event classification. Only auto-classify as event when the factual nature of the input makes it clear the thing already exists — such as a declarative statement form ("X is on Y") or when no action to create it is plausible. When the arrangement status is uncertain, always prefer date_type ambiguity so the user can clarify.
 
 AMBIGUOUS — Cannot determine intent. LAST RESORT.
 
