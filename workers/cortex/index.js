@@ -287,6 +287,15 @@ function extractPreviousExchange(messages) {
  * Examples: "drink more water", "be more present", "reduce screen time", "eat healthier"
  * Note: This is a fuzzy aspiration, not a trackable habit.
  *
+ * @property {boolean} has_occasion_noun
+ * Does the text reference a specific occasion, appointment, event, or scheduled occurrence?
+ *
+ * @property {boolean} has_cessation_language
+ * Does the text express intent to completely stop or eliminate an ongoing behavioral pattern?
+ *
+ * @property {boolean} has_implied_recurrence
+ * Does the text describe a behavior anchored to a recurring life context without explicit frequency words?
+ *
  * @property {boolean} emotional_content
  * Contains emotional expression, venting, or processing feelings.
  * Examples: "feeling overwhelmed", "so frustrated with work", "grateful for today"
@@ -363,150 +372,202 @@ function isCommittedAction(preparse) {
  * @property {string} reason - Why fast path couldn't be used
  */
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Independent scorers — each scores how well PreParse signals match one type.
+// Scorers are isolated: changing event logic cannot affect habit scoring.
+// ALL signals come from PreParse — zero regex, zero word lists.
+// ──────────────────────────────────────────────────────────────────────────────
+
+function scoreTodo(p) {
+  let s = 0.0;
+  if (p.verb_position === 'start' && p.frame_type !== 'exploring') s += 0.4;
+  if (p.frame_type === 'directing') s += 0.3;
+  if (p.action_target === 'external') s += 0.2;
+  // Negative signals — competing types
+  if (p.frequency_type) s -= 0.5;
+  if (p.has_implied_recurrence) s -= 0.3;
+  if (p.has_cessation_language) s -= 0.4;
+  if (p.has_occasion_noun && p.is_noun_phrase_only) s -= 0.4;
+  if (p.emotional_content) s -= 0.3;
+  if (p.frame_type === 'processing') s -= 0.4;
+  if (p.frame_type === 'exploring') s -= 0.3;
+  if (p.is_noun_phrase_only) s -= 0.3;
+  return Math.max(0, Math.min(1, s));
+}
+
+function scoreHabitBuild(p) {
+  // Cessation language = break territory, not build
+  if (p.has_cessation_language) return 0.0;
+
+  let s = 0.0;
+  if (p.frequency_type === 'explicit') s += 0.6;
+  else if (p.frequency_type && p.frequency_type !== 'stop_quit') s += 0.3;
+  if (p.action_target === 'self') s += 0.1;
+  if (p.verb_position === 'start' && p.frequency_type) s += 0.2;
+  if (p.frame_type === 'directing' && p.frequency_type) s += 0.1;
+  // Backup: direction + frequency signals even when PreParse missed frequency_type
+  if (!p.frequency_type && p.frequency_present && p.frame_type === 'directing') s += 0.5;
+  // Implied recurrence without explicit frequency — routine-anchored behavior
+  if (!p.frequency_type && p.has_implied_recurrence && p.frame_type === 'directing') {
+    s += 0.5;
+  }
+  return Math.max(0, Math.min(1, s));
+}
+
+function scoreHabitBreak(p) {
+  let s = 0.0;
+  if (p.frequency_type === 'stop_quit') s += 0.6;
+  if (p.has_cessation_language) s += 0.4;
+  if (p.frequency_present) s += 0.2;
+  if (p.has_implied_recurrence) s += 0.2;
+  if (p.action_target === 'self') s += 0.1;
+  return Math.max(0, Math.min(1, s));
+}
+
+function scoreEvent(p) {
+  let s = 0.0;
+  if (p.is_noun_phrase_only) s += 0.3;
+  if (p.frame_type === 'factual') s += 0.2;
+  if (p.factual_statement) s += 0.1;
+  if (p.has_occasion_noun) s += 0.4;
+  // Negative signals
+  if (p.verb_position === 'start') s -= 0.5;
+  if (p.emotional_content) s -= 0.5;
+  return Math.max(0, Math.min(1, s));
+}
+
+function scoreJournal(p) {
+  let s = 0.0;
+  if (p.emotional_content) s += 0.4;
+  if (p.self_reflection) s += 0.3;
+  if (p.frame_type === 'processing') s += 0.3;
+  // Negative signals
+  if (p.frame_type === 'directing') s -= 0.3;
+  if (p.verb_position === 'start' && !p.emotional_content) s -= 0.2;
+  return Math.max(0, Math.min(1, s));
+}
+
+function scoreIdea(p) {
+  let s = 0.0;
+  if (p.frame_type === 'exploring') s += 0.6;
+  if (p.verb_position === 'inside_hypothetical') s += 0.2;
+  if (p.verb_position === 'after_hedge') s += 0.2;
+  // Negative signals
+  if (p.frame_type === 'directing') s -= 0.4;
+  if (p.emotional_content) s -= 0.3;
+  return Math.max(0, Math.min(1, s));
+}
+
+function scoreGeneral(p) {
+  let s = 0.0;
+  if (p.factual_statement) s += 0.4;
+  if (p.frame_type === 'factual') s += 0.3;
+  if (!p.emotional_content && !p.frequency_type) s += 0.1;
+  // Negative signals
+  if (p.has_occasion_noun) s -= 0.5;
+  if (p.verb_position === 'start') s -= 0.3;
+  return Math.max(0, Math.min(1, s));
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Score-to-classification mapper
+// ──────────────────────────────────────────────────────────────────────────────
+
+function mapWinnerToClassification(winnerType) {
+  switch (winnerType) {
+    case 'todo':
+      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+    case 'habit_build':
+      return { needsPhase1: false, bucket: 'habit', subtype: null, habitSubtype: 'start_habit' };
+    case 'habit_break':
+      return { needsPhase1: false, bucket: 'habit', subtype: null, habitSubtype: 'break_habit' };
+    case 'event':
+      return { needsPhase1: false, bucket: 'log', subtype: 'event', habitSubtype: null };
+    case 'journal':
+      return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
+    case 'idea':
+      return { needsPhase1: false, bucket: 'log', subtype: 'idea', habitSubtype: null };
+    case 'general':
+      return { needsPhase1: false, bucket: 'log', subtype: 'general', habitSubtype: null };
+    default:
+      return { needsPhase1: true, reason: 'unknown_scorer_type' };
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Decision function — replaces the waterfall if/else chain
+// ──────────────────────────────────────────────────────────────────────────────
+
 /**
- * Map preparse result to a classification decision.
+ * Classify a pre-parsed drop using independent scorers per type.
+ * Each scorer evaluates the same PreParse signals but only looks at
+ * signals relevant to its type. Adding or changing one scorer cannot
+ * affect another scorer's output.
  *
- * This function implements deterministic heuristic mapping from linguistic facts
- * to bucket classification. It either returns a fast-path classification or
- * indicates that Phase 1 AI is needed.
- *
- * The mapping prioritizes:
- * 1. Bail to Phase 1 for low-confidence or ambiguous parses
- * 2. Recognize emotional/reflective content → journal
- * 3. Recognize hypothetical exploration → idea
- * 4. Recognize factual statements → general
- * 5. Recognize frequency + commitment → habit
- * 6. Recognize committed actions → todo
- * 7. Recognize exploration → idea
- * 8. Fallback to Phase 1 if no clear mapping
- *
- * @param {PrePhaseParseResult} preparse - The preparse result object
- * @returns {FastPathClassification|NeedsPhase1Classification} Classification decision
+ * Decision thresholds:
+ * - Clear winner (top >= 0.6, gap to second >= 0.2): fast-path
+ * - Otherwise: bail to Phase 1 AI with competing types as context
  */
 function mapPreparseToClassification(preparse) {
-  // --- COMMITTED ACTION OVERRIDE (check FIRST) ---
-  // If uncertainty_target is "object_details", the ACTION is committed but details are fuzzy.
-  // This overrides exploring frame and hypothetical_framing - treat as todo.
-  if (preparse.uncertainty_target === 'object_details') {
-    return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-  }
-
-  // --- FAST PATH: Emotional self-reflection is journal ---
-  // Only fires when no cessation or directional signals compete.
-  if (preparse.emotional_content && preparse.self_reflection) {
-    if (preparse.frequency_type || preparse.direction_without_schedule) {
-      return { needsPhase1: true, reason: 'frequency_detected_needs_habit_verification' };
-    }
-    return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
-  }
-
-  // --- BAIL: Exploring frame needs Phase 1 verification ---
-  if (preparse.frame_type === 'exploring') {
-    return { needsPhase1: true, reason: 'exploring_frame' };
-  }
-
-  // --- BAIL EARLY: Check ambiguous cases ---
-
-  // Vague desire for more/less without concrete measure - needs clarification
-  if (preparse.direction_without_schedule && !preparse.frequency_type) {
-    // Emotional processing frame overrides action signals.
-    // "Grateful for Dave today. He tested the onboarding flow" is a journal entry,
-    // not a todo — the action verb is narrative context, not user intent.
-    // frame_type: processing = past-tense/reflective, so genuine commands
-    // ("need to return shoes") use directing/exploring and are unaffected.
-    if (preparse.emotional_content && preparse.frame_type === 'processing') {
-      return { needsPhase1: true, reason: 'emotional_processing_override' };
-    }
-    if (preparse.action_target === 'external') {
-      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-    }
-    if (preparse.temporal_specificity) {
-      if (preparse.is_noun_phrase_only) {
-        return { needsPhase1: true, reason: 'direction_without_schedule' };
-      }
-      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-    }
-    return { needsPhase1: true, reason: 'direction_without_schedule' };
-  }
-
-  // Noun phrase with no clear factual framing
-  if (preparse.is_noun_phrase_only && !preparse.factual_statement) {
-    return { needsPhase1: true, reason: 'noun_phrase_ambiguous' };
-  }
-
-  // Low confidence parse
+  // Low confidence parse — always bail to Phase 1
   if (preparse.parse_confidence === 'low') {
     return { needsPhase1: true, reason: 'low_parse_confidence' };
   }
 
-  // --- FAST PATH: Strong classification signals ---
-
-  // 1. Factual statement or factual frame → general (strong signal)
-  if (preparse.factual_statement || preparse.frame_type === 'factual') {
-    // Cross-check: if there's a leading verb, this might be a misclassified command.
-    // Escalate to Phase 1 instead of fast-pathing to log.
-    if (preparse.verb_position === 'start') {
-      return { needsPhase1: true, reason: 'factual_with_leading_verb' };
-    }
-    if (preparse.temporal_specificity || preparse.reminder_intent) {
-      return { needsPhase1: true, reason: 'noun_phrase_ambiguous' };
-    }
-    return { needsPhase1: false, bucket: 'log', subtype: 'general', habitSubtype: null };
-  }
-
-  // Leading imperative verb is a strong todo signal even if frame_type disagrees.
-  // BUT: if frequency signals are present, skip this fast-path so the frequency
-  // check below can route to Phase 1 for habit verification.
-  if (preparse.verb_position === 'start' && preparse.action_target !== 'other_person') {
-    if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
-      if (!preparse.frequency_present && !preparse.frequency_type) {
-        return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-      }
+  // Ultra-short inputs with no strong signal — bail to Phase 1
+  const textLen = (preparse.text_preview || '').trim().length;
+  if (textLen > 0 && textLen <= 5) {
+    const maxScore = Math.max(
+      scoreTodo(preparse),
+      scoreHabitBuild(preparse),
+      scoreHabitBreak(preparse),
+      scoreEvent(preparse),
+      scoreJournal(preparse),
+      scoreIdea(preparse),
+      scoreGeneral(preparse),
+    );
+    if (maxScore < 0.7) {
+      return { needsPhase1: true, reason: 'ultra_short_input' };
     }
   }
 
-  // 2. Emotional content + processing frame → journal
-  if (preparse.emotional_content && preparse.frame_type === 'processing') {
-    return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
+  // Run all scorers — each uses only PreParse fields
+  const scores = {
+    todo: scoreTodo(preparse),
+    habit_build: scoreHabitBuild(preparse),
+    habit_break: scoreHabitBreak(preparse),
+    event: scoreEvent(preparse),
+    journal: scoreJournal(preparse),
+    idea: scoreIdea(preparse),
+    general: scoreGeneral(preparse),
+  };
+
+  // Rank by score
+  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  const [topType, topScore] = ranked[0];
+  const [secondType, secondScore] = ranked[1];
+  const gap = topScore - secondScore;
+
+  // Log scores for debugging
+  console.log('[Scorer] Results', {
+    text: preparse.text_preview || '',
+    scores: Object.fromEntries(ranked.map(([k, v]) => [k, Math.round(v * 100) / 100])),
+    winner: topType,
+    topScore: Math.round(topScore * 100) / 100,
+    gap: Math.round(gap * 100) / 100,
+    decision: topScore >= 0.6 && gap >= 0.2 ? 'fast_path' : 'phase1',
+  });
+
+  // Clear winner — fast path
+  if (topScore >= 0.6 && gap >= 0.2) {
+    return mapWinnerToClassification(topType);
   }
 
-  // 3. Self-reflection + processing frame → journal
-  if (preparse.self_reflection && preparse.frame_type === 'processing') {
-    return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
-  }
-
-  // 4. Frequency detected → ALWAYS verify with Phase 1
-  // Habits are too consequential to fast-path. Wrong habits pollute the user's list.
-  // Phase 1 can distinguish "discussing habits" from "creating habits" and apply
-  // semantic tests that PreParse keyword-matching cannot.
-  if (preparse.frequency_type) {
-    if (preparse.action_target === 'external') {
-      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-    }
-    return { needsPhase1: true, reason: 'frequency_detected_needs_habit_verification' };
-  }
-
-  // 5. Directing frame or obligation framing → todo (if no hedging on verb)
-  if (preparse.frame_type === 'directing' || preparse.obligation_framing) {
-    if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
-      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-    }
-  }
-
-  // --- BAIL TO PHASE 1: Remaining ambiguous cases ---
-
-  // Uncertain frame with no other signals
-  if (preparse.frame_type === 'uncertain') {
-    return { needsPhase1: true, reason: 'uncertain_frame' };
-  }
-
-  // Hedged action (uncertainty on the verb itself)
-  if (preparse.uncertainty_present && preparse.uncertainty_target === 'verb') {
-    return { needsPhase1: true, reason: 'hedged_action' };
-  }
-
-  // Fallback
-  return { needsPhase1: true, reason: 'no_clear_mapping' };
+  // No clear winner — bail to Phase 1 with competing types as context
+  return {
+    needsPhase1: true,
+    reason: `scorer_${topType}_vs_${secondType}`,
+  };
 }
 
 /**
@@ -687,6 +748,9 @@ Return JSON with these fields:
 - factual_statement: boolean
 - self_reflection: boolean
 - is_noun_phrase_only: boolean
+- has_occasion_noun: Does the text reference a specific occasion, appointment, event, or scheduled occurrence that exists independently of the user's action?
+- has_cessation_language: Does the text express intent to completely stop or eliminate an ongoing behavioral pattern that the user currently repeats? TRUE when total cessation or absolute prohibition of a recurring personal behavior is expressed. FALSE for one-time actions that use removal or deletion language targeting objects rather than behaviors. FALSE for relative reduction without total cessation intent.
+- has_implied_recurrence: Does the text describe a behavior anchored to a recurring life context without using explicit frequency words? TRUE when the behavior is tied to a routine moment that inherently repeats, implying the user means to do this each time that moment occurs. FALSE when explicit frequency words are already present (those are captured by frequency_present). FALSE when the context could equally mean a single occasion.
 - parse_confidence: "high", "medium", or "low"
 
 CRITICAL PRINCIPLE: Uncertainty about WHAT/WHERE/WHEN/WHICH within a committed action is NOT the same as uncertainty about WHETHER to act. An action verb at the start with uncertain details is "directing" with uncertainty_target "object_details" and hypothetical_framing FALSE.
@@ -709,7 +773,8 @@ const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON
 
 - emotional_content: Is the user expressing feelings, mood, or emotional state as part of this input? This is about the presence of an emotional register in the language, not about whether the topic is emotional.
 - temporal_specificity: Is the action anchored to a specific or bounded point in time? True when the input constrains WHEN — a particular moment, day, or window that limits the action to a single instance. False when timing is open-ended, unspecified, or recurring.
-- reminder_intent: Does the user want to be reminded or not forget something? True ONLY when explicit reminder language is present, when urgency is paired with a specific time, or when appointment-like phrasing implies a nudge is needed. False for vague timing, past-tense remembering, journaling, or simple todos with no reminder or urgency language.`;
+- reminder_intent: Does the user want to be reminded or not forget something? True ONLY when explicit reminder language is present, when urgency is paired with a specific time, or when appointment-like phrasing implies a nudge is needed. False for vague timing, past-tense remembering, journaling, or simple todos with no reminder or urgency language.
+- has_occasion_noun: Does the text reference a specific occasion, appointment, event, or scheduled occurrence that exists independently of the user's action?`;
 
 // Mini-prompt D: Behavioral Change Signals
 const PREPARSE_BEHAVIORAL_PROMPT = `Extract these facts from the input. Return JSON only.
@@ -718,7 +783,9 @@ These three signals are interdependent. The correct value of each one depends on
 
 - frequency_present: Does the user intend to personally repeat this behavior on an ongoing basis? Set true if frequency_type is not null. CRITICAL DISTINCTION: frequency_present must only be true when the user is expressing that a behavior WILL recur going forward — either a commitment to perform something repeatedly, or cessation of something they want to bring to zero. It must NOT be true when the user is merely describing that a behavior already recurs. The test is directional: is the user expressing forward intent about a recurring behavior, or backward observation about an existing pattern? Forward intent sets frequency_present true. Backward observation does not, even when the language contains repetition markers.
 - frequency_type: Apply this test: "Has the user specified WHEN or HOW OFTEN they will do this?" Frequency requires concrete timing — not just a desire to do more or less of something. If no timing is specified → null. If timing is specified, classify: "explicit" — the user has stated a recurring schedule or cadence; the input conveys that this behavior repeats at defined intervals or on a regular basis. This classification must not be applied when the recurring language describes an existing problematic pattern the user is observing or complaining about rather than a schedule they are committing to. Language that frames recurrence as something that already happens to the user — where the user is the observer of the pattern rather than the agent expressing a forward schedule — is not explicit frequency. The user must be expressing that a behavior will repeat going forward, not that it has been repeating. "day_names" — the user has anchored the behavior to one or more particular named days of the week; the recurrence is defined by which days it occurs on. "stop_quit" — this classification applies when the user expresses the complete cessation of a personal ongoing behavior. The decisive test is the grammatical nature of the object following the cessation verb. When the object is a gerund or gerund phrase — a verb form ending in -ing that describes an activity the user personally performs on an ongoing basis — this is stop_quit; the behavior is recurring and the user intends to bring it to zero. When the object is a noun, noun phrase, or non-activity concept such as a role, relationship, object, place, or state — this is NOT stop_quit; a one-time action to end a state is not a recurring behavior and must not trigger frequency detection. When the cessation verb itself is used with a locational or directional meaning rather than a behavioral meaning — this is NOT stop_quit. The presence of a cessation verb alone is not sufficient; the object must describe a recurring personal activity. CRITICAL DISAMBIGUATION: When the user wants a behavior to reach zero, frequency_type is "stop_quit" and direction_without_schedule MUST be false. Zero is a concrete target, not a relative direction. direction_without_schedule only applies to non-zero relative changes.
-- direction_without_schedule: Does the user's language explicitly express a desire for a NON-ZERO relative change — to increase, decrease, or improve something — without specifying a concrete amount or schedule? This is about the linguistic expression of relative/comparative intent, not whether the activity itself could vary in amount. An imperative to perform an action is false, even if that action could theoretically be done more or less. The question is what the words express, not the nature of the activity. IMPORTANT: If the user's desired end state is zero (complete cessation), that is NOT direction_without_schedule — that is frequency_type "stop_quit". direction_without_schedule is only true when the target is a non-zero relative shift (more, less, better) with no concrete amount or schedule.`;
+- direction_without_schedule: Does the user's language explicitly express a desire for a NON-ZERO relative change — to increase, decrease, or improve something — without specifying a concrete amount or schedule? This is about the linguistic expression of relative/comparative intent, not whether the activity itself could vary in amount. An imperative to perform an action is false, even if that action could theoretically be done more or less. The question is what the words express, not the nature of the activity. IMPORTANT: If the user's desired end state is zero (complete cessation), that is NOT direction_without_schedule — that is frequency_type "stop_quit". direction_without_schedule is only true when the target is a non-zero relative shift (more, less, better) with no concrete amount or schedule.
+- has_cessation_language: Does the text express intent to completely stop or eliminate an ongoing behavioral pattern that the user currently repeats? TRUE when total cessation or absolute prohibition of a recurring personal behavior is expressed. FALSE for one-time actions that use removal or deletion language targeting objects rather than behaviors. FALSE for relative reduction without total cessation intent.
+- has_implied_recurrence: Does the text describe a behavior anchored to a recurring life context without using explicit frequency words? TRUE when the behavior is tied to a routine moment that inherently repeats, implying the user means to do this each time that moment occurs. FALSE when explicit frequency words are already present (those are captured by frequency_present). FALSE when the context could equally mean a single occasion.`;
 
 // Mini-prompt C: Structure & Confidence
 const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JSON only.
@@ -799,6 +866,7 @@ async function runPreparse(text, env) {
       emotional_content: Boolean(contentResult.emotional_content),
       temporal_specificity: Boolean(contentResult.temporal_specificity),
       reminder_intent: Boolean(contentResult.reminder_intent),
+      has_occasion_noun: Boolean(contentResult.has_occasion_noun),
 
       // From behavioral
       frequency_present: Boolean(behavioralResult.frequency_present),
@@ -808,6 +876,8 @@ async function runPreparse(text, env) {
         ? behavioralResult.frequency_type
         : null,
       direction_without_schedule: Boolean(behavioralResult.direction_without_schedule),
+      has_cessation_language: Boolean(behavioralResult.has_cessation_language),
+      has_implied_recurrence: Boolean(behavioralResult.has_implied_recurrence),
 
       // From structure
       uncertainty_present: Boolean(structureResult.uncertainty_present),
@@ -1000,7 +1070,28 @@ Noun phrase only: ${preparseContext.is_noun_phrase_only}`
     : 'No pre-parse context available.';
 
   // Get specific guidance for this routing reason
-  const reasoningGuidance = getReasoningGuidance(routingReason);
+  let reasoningGuidance = getReasoningGuidance(routingReason);
+
+  // When scorer bails, tell Phase 1 which types are competing
+  let scorerGuidance = '';
+  if (routingReason && routingReason.startsWith('scorer_')) {
+    const parts = routingReason.replace('scorer_', '').split('_vs_');
+    if (parts.length === 2) {
+      const typeLabels = {
+        todo: 'a discrete completable action (TODO)',
+        habit_build: 'a recurring behavior to build (HABIT/start_habit)',
+        habit_break: 'a recurring behavior to stop (HABIT/break_habit)',
+        event: 'a scheduled occasion to remember (LOG/event)',
+        journal: 'emotional processing or reflection (LOG/journal)',
+        idea: 'a hypothetical or possibility (LOG/idea)',
+        general: 'factual information to record (LOG/general)',
+      };
+      const a = typeLabels[parts[0]] || parts[0];
+      const b = typeLabels[parts[1]] || parts[1];
+      scorerGuidance = `\nThe heuristic analysis found this is most likely either ${a} or ${b}. Use semantic analysis to determine which is the better fit.`;
+    }
+  }
+  reasoningGuidance += scorerGuidance;
 
   // Build the Phase 1 prompt for nuanced interpretation
   const phase1Prompt = `You resolve ambiguous mind drops for Gremly. This input could not be automatically classified because it requires nuanced interpretation beyond structural facts.
@@ -1028,7 +1119,7 @@ These pre-phase facts are strong classification signals. Do not ignore them:
 
 AMBIGUITY TYPE DETECTION — when returning AMBIGUOUS, use these signals to determine the correct ambiguity_type:
 - is_noun_phrase_only: true → ambiguity_type is almost always "bucket". The input has no frame or verb to signal intent.
-- temporal_specificity: true with an occasion-type noun AND a specific day or date → auto-classify as LOG/event, NOT ambiguous. The combination of an occasion noun and a temporal anchor is sufficient to classify as event without clarification. Only use date_type when there is a temporal anchor but NO occasion noun and the meaning is genuinely unclear.
+- temporal_specificity: true — particularly when the input contains a specific named day AND a specific time, or a specific date AND a named occasion or appointment-type noun — this is a strong signal for "date_type". The combination of day/date + time + appointment context means the user is almost certainly referring to something scheduled or to-be-scheduled. This should take priority over "action_or_memory" when both seem plausible. Only use "date_type" when the bucket is clearly TODO — if the bucket is unclear, use "bucket" instead. This also applies when is_noun_phrase_only is true but the noun is an appointment, event, or occasion type AND the input contains a specific day name or date AND a specific time. In this case, the absence of a verb does not change the classification — the temporal anchor is the signal. Appointment-type nouns with specific day + time should be date_type, not bucket, even when there is no action verb present.
 - direction_without_schedule: true AND no concrete threshold stated → ambiguity_type is "vague_aspiration". The user wants relative change but has not defined what done looks like.
 - frequency_present: true AND it is unclear whether this is a one-time action or an ongoing practice → ambiguity_type is "habit_or_todo". When frequency signals are present alongside a clear action verb, this ambiguity type takes priority over obligation_framing. Obligation framing indicates the user feels they should act — it does not resolve whether the action is one-time or recurring. When both obligation_framing and frequency_present are true for a personal action, return habit_or_todo ambiguous rather than committing to todo.
 - factual_statement: true OR action_target is "other_person" AND no action verb present → ambiguity_type is "action_or_memory". A fact or reference that may or may not require action.
@@ -1083,7 +1174,7 @@ LOG — Capture for reflection, not action:
 - journal: Expressing or processing feelings. The value is in the expression itself.
 - idea: A floating possibility with no commitment. The whole thought is pre-action.
 - general: Recording facts about what IS or WAS. Requires existence framing, not just a noun.
-- event: Something that happens or will happen at a specific point in time that the user wants to note or remember. The defining signals are a concrete temporal anchor (specific date, day, or time) combined with an occasion, appointment, meeting, or occurrence. The user is recording that something exists in time. Default to event classification when the input contains an occasion-type noun (appointment, meeting, birthday, concert, flight, trip, review, dinner, or similar) alongside a date, day name, or time — even if it is unclear whether the event is already arranged or still needs to be arranged. The app's Sweep feature will prompt the user before the event date to add preparation tasks if needed, so erring toward event classification is safe and preferred over clarification. Only route to clarify when the input has NO occasion-type noun and the temporal anchor alone is genuinely ambiguous. Distinguish from todo: the presence of a user-directed action verb makes it a todo. The absence of an action verb with an occasion noun and temporal anchor makes it an event. Distinguish from general: a general note has no specific temporal anchor.
+- event: Something that happens or will happen at a specific point in time that the user wants to note or remember. The defining signals are a concrete temporal anchor (specific date, day, or time) combined with an occasion, appointment, meeting, or occurrence — and crucially, no personal action required beyond noting it. The user is recording that something exists in time, not committing to do anything about it. Distinguish from todo: a todo requires the user to act. An event is something that happens, that the user attends or is aware of. Distinguish from general: a general note records information without a specific temporal anchor. An event is anchored to a specific time. Auto-classify as event when: the input is a factual statement frame AND contains a specific date or time AND describes an occasion or occurrence rather than an action. No clarify needed when intent is unambiguous. Route to clarify (date_type) when: a temporal anchor is present but it is unclear whether the user is noting an existing event or needs to take action to create it. CRITICAL: When the input is a noun phrase containing an appointment, meeting, or occasion type noun alongside a specific day AND a specific time, and it is unclear whether this is already arranged or needs to be arranged — return AMBIGUOUS with ambiguity_type "date_type", not a direct event classification. Only auto-classify as event when the factual nature of the input makes it clear the thing already exists — such as a declarative statement form ("X is on Y") or when no action to create it is plausible. When the arrangement status is uncertain, always prefer date_type ambiguity so the user can clarify.
 
 AMBIGUOUS — Cannot determine intent. LAST RESORT.
 
@@ -1108,7 +1199,7 @@ Test: Would a thoughtful human be confused about which bucket? If a human would 
 
 When returning AMBIGUOUS, always specify the type:
 - bucket: The input is a bare noun phrase or contains no verb, frame, or actionable signal — cannot determine if this is something to DO, TRACK, or KNOW. Only use this when a thoughtful human would also be genuinely unsure.
-- date_type: The input contains a temporal anchor (date, day name, time) but NO occasion or event-type noun, making it genuinely unclear whether this is a deadline, an event, or just a date reference. Use sparingly — most inputs with a date and an occasion noun should be auto-classified as LOG/event, not flagged as date_type ambiguous.
+- date_type: Bucket is clearly TODO but it is unclear whether the date means when something IS happening (the user will attend) or when the user needs to ACT (a deadline to do something).
 - vague_aspiration: The user wants to change a behaviour but has expressed it in relative or directional language without a concrete measurable threshold. Applies when "more", "less", "better", or similar relative language is present and no specific target has been stated that would make the behaviour trackable.
 - habit_or_todo: The user has expressed clear intent to perform an action but it is genuinely unclear whether this is a one-time completion they will mark done, or an ongoing recurring practice they want to track over time.
 - action_or_memory: The input contains a fact, date, name, or reference that could be purely informational OR could imply an action the user needs to take. The action is not stated but may be implied by context.
@@ -7014,10 +7105,14 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
           parse_confidence: preparseResult.result.parse_confidence,
           action_target: preparseResult.result.action_target,
           reminder_intent: preparseResult.result.reminder_intent,
+          has_occasion_noun: preparseResult.result.has_occasion_noun,
+          has_cessation_language: preparseResult.result.has_cessation_language,
+          has_implied_recurrence: preparseResult.result.has_implied_recurrence,
           latency_ms: preparseResult.latency_ms,
         });
 
         // Step 2: Apply heuristic mapping
+        preparseResult.result.text_preview = (text || '').substring(0, 60);
         const heuristicDecision = mapPreparseToClassification(preparseResult.result);
         const plausibleInterpretations = computePlausibleInterpretations(preparseResult.result);
 
