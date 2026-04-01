@@ -1072,6 +1072,7 @@ LOG — Capture for reflection, not action:
 - journal: Expressing or processing feelings. The value is in the expression itself.
 - idea: A floating possibility with no commitment. The whole thought is pre-action.
 - general: Recording facts about what IS or WAS. Requires existence framing, not just a noun.
+- event: Something that happens or will happen at a specific point in time that the user wants to note or remember. The defining signals are a concrete temporal anchor (specific date, day, or time) combined with an occasion, appointment, meeting, or occurrence — and crucially, no personal action required beyond noting it. The user is recording that something exists in time, not committing to do anything about it. Distinguish from todo: a todo requires the user to act. An event is something that happens, that the user attends or is aware of. Distinguish from general: a general note records information without a specific temporal anchor. An event is anchored to a specific time. Auto-classify as event when: the input is a factual statement frame AND contains a specific date or time AND describes an occasion or occurrence rather than an action. No clarify needed when intent is unambiguous. Route to clarify (date_type) when: a temporal anchor is present but it is unclear whether the user is noting an existing event or needs to take action to create it.
 
 AMBIGUOUS — Cannot determine intent. LAST RESORT.
 
@@ -1113,7 +1114,7 @@ Return ONLY valid JSON:
 {
   "bucket": "todo" | "habit" | "log" | "ambiguous",
   "confidence": 0.0-1.0,
-  "subtype": "journal" | "idea" | "general" | null,
+  "subtype": "journal" | "idea" | "general" | "event" | null,
   "habitSubtype": "start_habit" | "break_habit" | null,
   "is_ambiguous": boolean,
   "ambiguity_type": "bucket" | "date_type" | "vague_aspiration" | "habit_or_todo" | "action_or_memory" | "commitment_level" | "emotional_or_action" | "social_plan" | "scope" | "idea_or_commitment" | null,
@@ -1168,7 +1169,7 @@ Rules:
 
   let subtype = null;
   if (bucket === 'log') {
-    const validSubtypes = ['journal', 'idea', 'general'];
+    const validSubtypes = ['journal', 'idea', 'general', 'event'];
     subtype = validSubtypes.includes(parsed.subtype) ? parsed.subtype : 'general';
   }
 
@@ -2655,7 +2656,7 @@ export default {
 
         let st = null;
         if (b === 'log') {
-          const validSubtypes = ['journal', 'idea', 'general'];
+          const validSubtypes = ['journal', 'idea', 'general', 'event'];
           st = validSubtypes.includes(subtype) ? subtype : 'general';
           if (st === 'general' && isSenseMakingJournal(text)) st = 'journal';
         }
@@ -6421,7 +6422,7 @@ ${assistantMessage.substring(0, 2000)}
         const validSubtypes = {
           habit: ['start_habit', 'break_habit'],
           todo: [],
-          log: ['general', 'idea', 'journal'],
+          log: ['general', 'idea', 'journal', 'event'],
         };
 
         let subtype = parsed.subtype;
@@ -7802,7 +7803,7 @@ If no date in input, all date fields are null.
         // Validate subtype
         let subtype = null;
         if (bucket === 'log') {
-          const validSubtypes = ['general', 'idea', 'journal'];
+          const validSubtypes = ['general', 'idea', 'journal', 'event'];
           subtype =
             selectedSubtype && validSubtypes.includes(selectedSubtype)
               ? selectedSubtype

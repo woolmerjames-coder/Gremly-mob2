@@ -644,7 +644,9 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
         ? 'Todo'
         : item.kind === 'habit'
           ? 'Habit'
-          : 'Note';
+          : item.kind === 'note' && item.noteSubtype === 'event'
+            ? 'Event'
+            : 'Note';
 
     // Handle card press - open multi-split modal for multi-entity drops
     const handleCardPress = () => {
