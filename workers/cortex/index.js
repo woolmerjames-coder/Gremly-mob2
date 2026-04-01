@@ -8623,7 +8623,16 @@ Return ONLY valid JSON:
           body.today ||
           new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
         const timezone = body.timezone || 'UTC';
-        const dayOfWeek = body.dayOfWeek || 'Sunday';
+        // Compute day of week from the date string — never hardcode a fallback day.
+        // currentDate is already timezone-correct from the client's dateService.today().
+        const dayOfWeek =
+          body.dayOfWeek ||
+          (() => {
+            const [_y, _m, _d] = currentDate.split('-').map(Number);
+            return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
+              new Date(_y, _m - 1, _d).getDay()
+            ];
+          })();
 
         // Helper: Generate dynamic date examples based on actual current date
         function generateDateExamples(dateStr, todayDayName) {
@@ -9357,7 +9366,14 @@ For LOGS (event):
           body.currentDate ||
           new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
         const timezone = body.timezone || 'UTC';
-        const dayOfWeek = body.dayOfWeek || 'Sunday';
+        const dayOfWeek =
+          body.dayOfWeek ||
+          (() => {
+            const [_y, _m, _d] = currentDate.split('-').map(Number);
+            return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
+              new Date(_y, _m - 1, _d).getDay()
+            ];
+          })();
 
         // Skip buckets that should never get reminders
         if (bucket === 'log' && subtype !== 'event') {
