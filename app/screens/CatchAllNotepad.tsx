@@ -4579,6 +4579,11 @@ const RecentDrops: React.FC<{
               views: views,
               due_date: (entity as any).due_date ?? (entity as any).due_at ?? item.due_date,
               due_day: (entity as any).due_day ?? item.due_day,
+              // Note subtype - CRITICAL for correct chip after clarification resolution
+              noteSubtype:
+                entityType === 'note'
+                  ? ((entity as any).subtype ?? item.noteSubtype ?? 'catchall')
+                  : item.noteSubtype,
               // Habit-specific fields - CRITICAL for frequency chip updates from Phase 2
               frequency: (entity as any).frequency ?? item.frequency,
               cadence: (entity as any).cadence ?? item.cadence,
