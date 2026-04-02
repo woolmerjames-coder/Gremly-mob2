@@ -160,6 +160,7 @@ import {
   getLifeMapForChat,
 } from './context/chatProjection.js';
 import { getUserProfile } from './context/userProfile.js';
+import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
 import {
@@ -3464,16 +3465,21 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
 
         // Load user profile and session context (same as entity chat)
         let userProfileContext = '';
+        let habitTodayActivity = null;
         if (body.userId) {
           try {
-            const [chatContext, profile] = await Promise.all([
+            const [chatContext, profile, todayAct] = await Promise.all([
               buildChatContext(body.userId, 'habit_builder', {}, env),
               getUserProfile(body.userId, env),
+              buildTodayActivity(body.userId, body.timezone || 'UTC', env),
             ]);
             const ageInfo = getAgeGuidance(profile?.relationshipStartedAt, profile?.signals);
 
             if (profile?.profileText) {
               userProfileContext += `\n=== ABOUT THIS USER ===\nRead the IDENTITY line first. Use it for this person's name, gender, and pronouns throughout your response. Never assume or guess gender or pronouns — always refer to what's stated. If no IDENTITY line is present, use "they/them" as default.\n\n${profile.profileText}\n`;
+            }
+            if (todayAct) {
+              userProfileContext += `\n${todayAct}\n`;
             }
             if (chatContext) {
               userProfileContext += `\n${chatContext}`;
@@ -4289,10 +4295,11 @@ Almost never suggest creating a Space. Only if ALL true:
               let sessionContextStr = '';
               let userProfile = null;
               let cachedDomains = [];
+              let entityTodayActivity = null;
               const previousExchange = extractPreviousExchange(messages);
               if (body.userId) {
                 try {
-                  const [chatContext, profile, domains] = await Promise.all([
+                  const [chatContext, profile, domains, todayAct] = await Promise.all([
                     buildChatContext(
                       body.userId,
                       'entity',
@@ -4304,10 +4311,12 @@ Almost never suggest creating a Space. Only if ALL true:
                     ),
                     getUserProfile(body.userId, env),
                     getCachedDomainNames(body.userId, env),
+                    buildTodayActivity(body.userId, body.timezone || 'UTC', env),
                   ]);
                   sessionContextStr = chatContext;
                   userProfile = profile;
                   cachedDomains = domains;
+                  entityTodayActivity = todayAct;
                   if (sessionContextStr || userProfile) {
                     console.log('[EntityChat] Context loaded', {
                       userId: body.userId.slice(0, 8),
@@ -4367,6 +4376,7 @@ Almost never suggest creating a Space. Only if ALL true:
                 sessionContextStr,
                 userProfile?.profileText,
                 tz,
+                entityTodayActivity,
               );
 
               const entityMessages = [
@@ -5020,10 +5030,11 @@ Almost never suggest creating a Space. Only if ALL true:
         let sessionContextStr = '';
         let userProfile = null;
         let cachedDomains = [];
+        let entityTodayActivity = null;
         const previousExchange = extractPreviousExchange(messages);
         if (body.userId) {
           try {
-            const [chatContext, profile, domains] = await Promise.all([
+            const [chatContext, profile, domains, todayAct] = await Promise.all([
               buildChatContext(
                 body.userId,
                 'entity',
@@ -5035,10 +5046,12 @@ Almost never suggest creating a Space. Only if ALL true:
               ),
               getUserProfile(body.userId, env),
               getCachedDomainNames(body.userId, env),
+              buildTodayActivity(body.userId, body.timezone || 'UTC', env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
             cachedDomains = domains;
+            entityTodayActivity = todayAct;
           } catch (err) {
             console.error('[EntityChat:NonStreaming] Context error', err);
           }
@@ -5094,6 +5107,7 @@ Almost never suggest creating a Space. Only if ALL true:
           sessionContextStr,
           userProfile?.profileText,
           tz,
+          entityTodayActivity,
         );
 
         const entityMessages = [
@@ -10091,9 +10105,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             let spaceUserProfile = null;
             let cachedDomains = [];
             let spaceEntities = null;
+            let spaceTodayActivity = null;
             if (body.userId) {
               try {
-                const [chatContext, profile, domains, entities] = await Promise.all([
+                const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
                   buildChatContext(
                     body.userId,
                     'space',
@@ -10105,11 +10120,13 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   getUserProfile(body.userId, env),
                   getCachedDomainNames(body.userId, env),
                   fetchSpaceEntities(body.userId, body.spaceId, env),
+                  buildTodayActivity(body.userId, body.timezone || 'UTC', env),
                 ]);
                 spaceSessionContextStr = chatContext;
                 spaceUserProfile = profile;
                 cachedDomains = domains;
                 spaceEntities = entities;
+                spaceTodayActivity = todayAct;
                 if (spaceSessionContextStr || spaceUserProfile) {
                   console.log('[SpaceChat] Context loaded', {
                     userId: body.userId.slice(0, 8),
@@ -10161,6 +10178,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               spaceSessionContextStr,
               spaceUserProfile?.profileText,
               body.timezone || 'UTC',
+              spaceTodayActivity,
             );
 
             // === BUILD MESSAGES ===
@@ -10755,16 +10773,19 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             let sessionContextStr = '';
             let userProfile = null;
             let cachedDomains = [];
+            let generalTodayActivity = null;
             if (body.userId) {
               try {
-                const [chatContext, profile, domains] = await Promise.all([
+                const [chatContext, profile, domains, todayAct] = await Promise.all([
                   buildChatContext(body.userId, 'general', {}, env),
                   getUserProfile(body.userId, env),
                   getCachedDomainNames(body.userId, env),
+                  buildTodayActivity(body.userId, body.timezone || 'UTC', env),
                 ]);
                 sessionContextStr = chatContext;
                 userProfile = profile;
                 cachedDomains = domains;
+                generalTodayActivity = todayAct;
                 if (sessionContextStr || userProfile) {
                   console.log('[GeneralChat] Context loaded', {
                     userId: body.userId.slice(0, 8),
@@ -10809,6 +10830,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               sessionContextStr,
               userProfile?.profileText,
               body.timezone || 'UTC',
+              generalTodayActivity,
             );
 
             // Build messages with URL context if present
@@ -11341,9 +11363,10 @@ Return ONLY valid JSON:
         let userProfile = null;
         let cachedDomains = [];
         let spaceEntities = null;
+        let spaceTodayActivity = null;
         if (body.userId) {
           try {
-            const [chatContext, profile, domains, entities] = await Promise.all([
+            const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
               buildChatContext(
                 body.userId,
                 'space',
@@ -11355,11 +11378,13 @@ Return ONLY valid JSON:
               getUserProfile(body.userId, env),
               getCachedDomainNames(body.userId, env),
               fetchSpaceEntities(body.userId, body.spaceId, env),
+              buildTodayActivity(body.userId, body.timezone || 'UTC', env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
             cachedDomains = domains;
             spaceEntities = entities;
+            spaceTodayActivity = todayAct;
             if (sessionContextStr || userProfile) {
               console.log('[SpaceChat:NonStreaming] Context loaded', {
                 userId: body.userId.slice(0, 8),
@@ -11412,6 +11437,7 @@ Return ONLY valid JSON:
           sessionContextStr,
           userProfile?.profileText,
           body.timezone || 'UTC',
+          spaceTodayActivity,
         );
 
         // === BUILD MESSAGES: Replace old system prompt with triage-built one ===

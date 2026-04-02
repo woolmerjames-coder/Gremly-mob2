@@ -396,6 +396,11 @@ Read the IDENTITY line first. Use it for this person's name, gender, and pronoun
 ${opts.userProfileText}`);
   }
 
+  // 7b. Today's live activity
+  if (opts.todayActivity) {
+    parts.push(opts.todayActivity);
+  }
+
   // 8. Conversation context
   if (opts.conversationContext) {
     parts.push(`=== CONVERSATION CONTEXT ===\n${opts.conversationContext}`);
@@ -527,6 +532,7 @@ export function buildSpaceChatSystemPrompt(
   sessionContextStr,
   userProfileText,
   timezone = 'UTC',
+  todayActivity = null,
 ) {
   // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
   const currentDate = new Intl.DateTimeFormat('en-US', {
@@ -548,6 +554,7 @@ export function buildSpaceChatSystemPrompt(
     userProfileText,
     accountCreatedAt,
     timezone,
+    todayActivity,
   });
 }
 
@@ -561,6 +568,7 @@ export function buildEntityChatConfig(
   sessionContextStr,
   userProfileText,
   timezone = 'UTC',
+  todayActivity = null,
 ) {
   // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
   const currentDate = new Intl.DateTimeFormat('en-US', {
@@ -580,6 +588,7 @@ export function buildEntityChatConfig(
     userProfileText,
     accountCreatedAt,
     timezone,
+    todayActivity,
   });
 }
 
@@ -593,6 +602,7 @@ export function buildGeneralChatConfig(
   sessionContextStr,
   userProfileText,
   timezone = 'UTC',
+  todayActivity = null,
 ) {
   // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
   const currentDate = new Intl.DateTimeFormat('en-US', {
@@ -612,5 +622,6 @@ export function buildGeneralChatConfig(
     userProfileText,
     accountCreatedAt,
     timezone,
+    todayActivity,
   });
 }
