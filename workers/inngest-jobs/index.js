@@ -1428,8 +1428,59 @@ Rules:
 
       console.log(`[Weekly V2:Facts] Found ${userMessages.length} messages for fact extraction`);
 
-      // Call extractFacts (GPT-4.1-mini)
+      // Call extractFacts (GPT-4.1-mini) — situational facts only
       let extractedFacts = await extractFacts(userMessages, env.OPENAI_API_KEY);
+
+      // ── Identity extraction (runs when identity is empty or sparse) ──
+      const existingProfileForIdentity = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=identity,signals`,
+        { headers },
+      ).then((r) => r.json());
+
+      const existingIdentity = existingProfileForIdentity?.[0]?.identity || {};
+      const identityFieldCount = Object.keys(existingIdentity).filter(
+        (k) => k !== 'extracted_at' && k !== 'source' && existingIdentity[k] !== null,
+      ).length;
+
+      let updatedIdentity = existingIdentity;
+
+      // Run identity extraction if we have fewer than 2 populated identity fields
+      // or if identity has never been extracted
+      if (identityFieldCount < 2 || !existingIdentity.extracted_at) {
+        console.log(
+          `[Weekly V2:Identity] Running identity extraction (${identityFieldCount} existing fields)`,
+        );
+        // Use ALL available messages, not just this week — identity needs full history
+        const allChatMsgs = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/space_chat_messages?user_id=eq.${userId}&role=eq.user&select=content&order=created_at.desc&limit=200`,
+          { headers },
+        ).then((r) => r.json());
+
+        const allMessages = [];
+        for (const msg of Array.isArray(allChatMsgs) ? allChatMsgs : []) {
+          if (msg.content) allMessages.push(msg.content);
+        }
+        // Also include this week's entity chat messages already collected
+        allMessages.push(...userMessages);
+
+        if (allMessages.length > 0) {
+          const newIdentity = await extractIdentity(
+            allMessages,
+            existingIdentity,
+            env.OPENAI_API_KEY,
+          );
+          // Merge: existing values preserved unless new value is non-null
+          updatedIdentity = { ...existingIdentity };
+          for (const [key, value] of Object.entries(newIdentity)) {
+            if (value !== null && value !== undefined && value !== '') {
+              updatedIdentity[key] = value;
+            }
+          }
+          updatedIdentity.extracted_at = new Date().toISOString();
+          updatedIdentity.source = 'weekly_extraction';
+          console.log(`[Weekly V2:Identity] Extracted identity:`, JSON.stringify(updatedIdentity));
+        }
+      }
 
       // Apply user overrides
       const overrides = Array.isArray(existingOverrides) ? existingOverrides : [];
@@ -1448,8 +1499,61 @@ Rules:
         extractedFacts = [...extractedFacts, ...addedFacts];
       }
 
-      // Render profile_text from Life Map domains + extracted facts
+      // ── Merge situational facts (don't replace) ──
+      const existingFacts = existingProfileForIdentity?.[0]?.signals?.facts || [];
+
+      // Deduplicate: keep new facts + existing facts not covered by new ones
+      const normalizedNew = extractedFacts.map((f) => f.toLowerCase().trim());
+      const mergedFacts = [...extractedFacts];
+
+      for (const existingFact of existingFacts) {
+        const normalized = existingFact.toLowerCase().trim();
+        // Keep existing fact if no new fact covers the same topic
+        const isDuplicate = normalizedNew.some(
+          (newFact) => newFact.includes(normalized) || normalized.includes(newFact),
+        );
+        if (!isDuplicate) {
+          mergedFacts.push(existingFact);
+        }
+      }
+
+      // Remove identity-level facts from situational facts (they belong in identity column now)
+      const identityPatterns = [
+        /^\d{2,3}\s*(year|yr)/i, // "34 year old..."
+        /\b(male|female|non-?binary)\b/i, // gender mentions
+        /\b(he|she|they)\/(him|her|them)\b/i, // pronouns
+        /\blives?\s+in\b/i, // location (now in identity)
+        /\bhas\s+(ADHD|ADD|anxiety|depression|OCD|autism|ASD)\b/i, // conditions (now in identity)
+      ];
+
+      extractedFacts = mergedFacts.filter(
+        (fact) => !identityPatterns.some((pattern) => pattern.test(fact)),
+      );
+
+      // Render profile_text from identity + Life Map domains + extracted facts
       const lifeMap = rebuildResult.mergedLifeMap;
+
+      // Identity section — always first, always present if we have identity
+      let identitySection = '';
+      if (
+        updatedIdentity &&
+        Object.keys(updatedIdentity).filter((k) => k !== 'extracted_at' && k !== 'source').length >
+          0
+      ) {
+        const identityParts = [];
+        if (updatedIdentity.name) identityParts.push(`Name: ${updatedIdentity.name}`);
+        if (updatedIdentity.pronouns) identityParts.push(`Pronouns: ${updatedIdentity.pronouns}`);
+        else if (updatedIdentity.gender === 'male') identityParts.push('Pronouns: he/him');
+        else if (updatedIdentity.gender === 'female') identityParts.push('Pronouns: she/her');
+        else if (updatedIdentity.gender) identityParts.push(`Gender: ${updatedIdentity.gender}`);
+        if (updatedIdentity.age) identityParts.push(`Age: ${updatedIdentity.age}`);
+        if (updatedIdentity.location) identityParts.push(`Location: ${updatedIdentity.location}`);
+        if (updatedIdentity.partner) identityParts.push(`Partner: ${updatedIdentity.partner}`);
+        if (updatedIdentity.conditions?.length > 0)
+          identityParts.push(`Conditions: ${updatedIdentity.conditions.join(', ')}`);
+        identitySection = `IDENTITY: ${identityParts.join('. ')}.\n\n`;
+      }
+
       const domainSummaries = (lifeMap?.domains || [])
         .filter((d) => d.attention !== 'background')
         .map((d) => {
@@ -1466,7 +1570,7 @@ Rules:
       const factsSection =
         extractedFacts.length > 0 ? `\n\nPersonal context: ${extractedFacts.join('. ')}.` : '';
 
-      const profileText = domainSummaries + factsSection;
+      const profileText = identitySection + domainSummaries + factsSection;
 
       // Update user_profiles with new profile_text and facts
       const existingProfile = await fetch(
@@ -1477,6 +1581,7 @@ Rules:
       const profileData = {
         user_id: userId,
         profile_text: profileText,
+        identity: updatedIdentity,
         signals: {
           facts: extractedFacts,
           message_count: userMessages.length,
@@ -1624,6 +1729,109 @@ function fourteenDaysAgoStr() {
   return formatDateOnly(d);
 }
 
+// ============================================================================
+// One-time backfill: extract identity from existing signals.facts
+// Trigger via Inngest dashboard with event: app/backfill.identity
+// ============================================================================
+
+const backfillIdentity = inngest.createFunction(
+  { id: 'backfill-identity', name: 'Backfill Identity Column' },
+  { event: 'app/backfill.identity' },
+  async ({ step, env }) => {
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+    };
+
+    // Get all users with no identity (empty object or null)
+    const users = await step.run('get-users', async () => {
+      // Fetch users where identity is null
+      const nullRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_profiles?identity=is.null&select=user_id,signals`,
+        { headers },
+      ).then((r) => r.json());
+
+      // Fetch users where identity is empty object
+      const emptyRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_profiles?identity=eq.%7B%7D&select=user_id,signals`,
+        { headers },
+      ).then((r) => r.json());
+
+      const all = [
+        ...(Array.isArray(nullRes) ? nullRes : []),
+        ...(Array.isArray(emptyRes) ? emptyRes : []),
+      ];
+      // Dedupe by user_id
+      const seen = new Set();
+      return all.filter((u) => {
+        if (seen.has(u.user_id)) return false;
+        seen.add(u.user_id);
+        return true;
+      });
+    });
+
+    console.log(`[Backfill] Found ${users.length} users without identity`);
+
+    let backfilledCount = 0;
+
+    for (const user of users) {
+      await step.run(`backfill-${user.user_id.slice(0, 8)}`, async () => {
+        const facts = user.signals?.facts || [];
+
+        // Fetch user's chat history for identity extraction
+        const chatMsgs = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/space_chat_messages?user_id=eq.${user.user_id}&role=eq.user&select=content&order=created_at.desc&limit=200`,
+          { headers },
+        ).then((r) => r.json());
+
+        const messages = [];
+        for (const msg of Array.isArray(chatMsgs) ? chatMsgs : []) {
+          if (msg.content) messages.push(msg.content);
+        }
+        // Also include existing facts as "messages" so the model can parse them
+        messages.push(...facts);
+
+        if (messages.length === 0) return;
+
+        const identity = await extractIdentity(messages, {}, env.OPENAI_API_KEY);
+
+        if (
+          Object.keys(identity).filter((k) => k !== 'extracted_at' && k !== 'source').length > 0
+        ) {
+          identity.extracted_at = new Date().toISOString();
+          identity.source = 'backfill';
+
+          // Remove identity facts from signals.facts
+          const identityPatterns = [
+            /^\d{2,3}\s*(year|yr)/i,
+            /\b(male|female|non-?binary)\b/i,
+            /\b(he|she|they)\/(him|her|them)\b/i,
+            /\blives?\s+in\b/i,
+            /\bhas\s+(ADHD|ADD|anxiety|depression|OCD|autism|ASD)\b/i,
+          ];
+          const cleanedFacts = facts.filter((f) => !identityPatterns.some((p) => p.test(f)));
+
+          // Update profile
+          await fetch(`${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${user.user_id}`, {
+            method: 'PATCH',
+            headers: { ...headers, Prefer: 'return=minimal' },
+            body: JSON.stringify({
+              identity,
+              signals: { ...user.signals, facts: cleanedFacts },
+            }),
+          });
+
+          backfilledCount++;
+          console.log(`[Backfill] ${user.user_id.slice(0, 8)}: ${JSON.stringify(identity)}`);
+        }
+      });
+    }
+
+    return { total: users.length, backfilled: backfilledCount };
+  },
+);
+
 function fourteenDaysFromNow() {
   const d = new Date();
   d.setDate(d.getDate() + 14);
@@ -1658,7 +1866,7 @@ async function synthesizeUserProfile(userId, env) {
         headers,
       }).then((r) => r.json()),
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=user_id,signals,relationship_started_at`,
+        `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=user_id,signals,identity,relationship_started_at`,
         { headers },
       ).then((r) => r.json()),
       fetch(
@@ -1692,8 +1900,28 @@ async function synthesizeUserProfile(userId, env) {
       facts = [...facts, ...addedFacts];
     }
 
-    // Render profile text from Life Map + facts
+    // Render profile text from identity + Life Map + facts
     let profileText = '';
+
+    // Identity section — always first
+    const identity = existingProfile?.identity || {};
+    const identityKeys = Object.keys(identity).filter(
+      (k) => k !== 'extracted_at' && k !== 'source',
+    );
+    if (identityKeys.length > 0) {
+      const identityParts = [];
+      if (identity.name) identityParts.push(`Name: ${identity.name}`);
+      if (identity.pronouns) identityParts.push(`Pronouns: ${identity.pronouns}`);
+      else if (identity.gender === 'male') identityParts.push('Pronouns: he/him');
+      else if (identity.gender === 'female') identityParts.push('Pronouns: she/her');
+      else if (identity.gender) identityParts.push(`Gender: ${identity.gender}`);
+      if (identity.age) identityParts.push(`Age: ${identity.age}`);
+      if (identity.location) identityParts.push(`Location: ${identity.location}`);
+      if (identity.partner) identityParts.push(`Partner: ${identity.partner}`);
+      if (identity.conditions?.length > 0)
+        identityParts.push(`Conditions: ${identity.conditions.join(', ')}`);
+      profileText = `IDENTITY: ${identityParts.join('. ')}.\n\n`;
+    }
 
     if (lifeMap?.domains) {
       const domainSummaries = lifeMap.domains
@@ -1708,7 +1936,7 @@ async function synthesizeUserProfile(userId, env) {
           return `${d.name}: ${threadSummary}`;
         })
         .join('\n');
-      profileText = domainSummaries;
+      profileText += domainSummaries;
     }
 
     if (facts.length > 0) {
@@ -1779,6 +2007,103 @@ function getExpectedCompletionsForDays(frequency, days) {
       return days >= 30 ? 1 : 0;
     default:
       return days;
+  }
+}
+
+// ============================================================================
+// LLM: Identity extraction (durable, one-time)
+// ============================================================================
+
+/**
+ * Extract durable identity-level facts from user messages.
+ * Runs ONCE (when identity column is empty) or when manually triggered.
+ * Identity facts are pinned and only updated when explicitly contradicted.
+ */
+async function extractIdentity(messages, existingIdentity, apiKey) {
+  const combinedText = messages.slice(0, 100).join('\n---\n');
+
+  const existingContext =
+    existingIdentity && Object.keys(existingIdentity).length > 0
+      ? `\nEXISTING IDENTITY (keep unless explicitly contradicted):\n${JSON.stringify(existingIdentity)}`
+      : '';
+
+  const prompt = `Extract IDENTITY-LEVEL facts about this user from their messages. These are durable, stable attributes that rarely change.
+${existingContext}
+
+USER MESSAGES:
+${combinedText}
+
+Extract ONLY these categories (leave null if not mentioned):
+- name: Their first name
+- gender: male, female, or non-binary (only if clearly stated or strongly implied)
+- pronouns: he/him, she/her, they/them (infer from gender if not explicitly stated)
+- age: Their age or age range
+- partner: Partner/spouse name and relationship type (partner, husband, wife, etc.)
+- location: City/neighborhood they live in
+- conditions: Array of health conditions, neurodivergence, or similar (e.g., ["ADHD", "anxiety"])
+
+RULES:
+- Only include facts they EXPLICITLY stated or VERY strongly implied
+- If gender is stated (e.g., "as a man", "my boyfriend and I", "34 year old male"), always set pronouns to match
+- If they mention a partner by name, include the name AND relationship word they used
+- For conditions, only include diagnosed or self-identified conditions, not temporary states
+- If a field has an existing value and nothing in the messages contradicts it, KEEP the existing value
+- Output as a JSON object with the fields above. Use null for unknown fields.
+- Do NOT include situational facts like current projects, jobs, or weekly activities
+
+Output ONLY the JSON object, no explanation.`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 300,
+        temperature: 0.2,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      throw new Error(`OpenAI error (identity): ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices[0].message.content.trim();
+
+    try {
+      const parsed = JSON.parse(
+        content
+          .replace(/```json\n?/g, '')
+          .replace(/```\n?/g, '')
+          .trim(),
+      );
+      // Clean: remove null fields, keep only populated ones
+      const cleaned = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        if (value !== null && value !== undefined && value !== '') {
+          cleaned[key] = value;
+        }
+      }
+      return cleaned;
+    } catch {
+      console.warn('[extractIdentity] Failed to parse JSON:', content);
+      return {};
+    }
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      console.error('[extractIdentity] OpenAI request timed out after 90s');
+    }
+    throw err;
   }
 }
 
@@ -1929,7 +2254,7 @@ async function fetchFullHistoricalSnapshot(userId, env) {
       { headers },
     ).then((r) => r.json()),
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=profile_text,signals`,
+      `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=profile_text,signals,identity`,
       { headers },
     ).then((r) => r.json()),
     fetch(
@@ -3430,6 +3755,8 @@ Your job: write a short editorial brief (250-350 words, plain English, no JSON) 
 
 8. WEEK BOUNDARY: Your discoveries and moments MUST be about events that happened between ${weekStart} and ${weekEnd}. Do NOT feature events from prior weeks (like a half marathon on March 22 when this week starts March 23) as discoveries or moments. Prior week events may only be referenced as CONTEXT for this week's story — never as the story itself. If the analyst flagged a prior-week event, use it only to explain this week's behavior, not as a standalone discovery.
 
+IDENTITY & PRONOUNS: The analyst data includes a user_profile field. If it starts with "IDENTITY:", use those facts for the person's name, gender, and pronouns throughout the brief. Never assume or guess — always match what's stated. If no identity line exists, use "they/them".
+
 ${activeVibe.editorial}`;
 
   const editorialUser = `Write the editorial brief for ${weekStart} to ${weekEnd}.
@@ -3601,6 +3928,8 @@ If you cannot find resources with real URLs, return fewer sources rather than fa
 1. An EDITORIAL BRIEF from a senior editor telling you which stories to focus on, which moments to highlight, and which quotes to use where. FOLLOW THE BRIEF. It has already made the editorial decisions — your job is to write beautifully within that direction.
 
 2. ANALYST DATA containing the structured evidence — themes, habit stats, journal quotes, events, behavioral fingerprints. Every claim you make must trace to this data. Never invent facts.
+
+IDENTITY & PRONOUNS: The analyst data includes a user_profile field. If it starts with "IDENTITY:", use those facts for the person's name and pronouns throughout every card. Never assume gender. If no identity line exists, default to "they/them". This is a hard rule — misgendering is unacceptable.
 
 FACTUAL CONTEXT (from code — these are ground truth):
 ${factualContext}
@@ -5034,6 +5363,8 @@ Your job: Deeply analyze the week of ${weekStart} to ${weekEnd}. Organize EVERYT
 
 CRITICAL: Preserve specifics. Include journal quotes, todo titles, event names, habit day-by-day data. Your output is the PRIMARY source both downstream AIs read. If you summarize away a detail, it's lost. When in doubt, include it.
 
+IDENTITY & PRONOUNS: If a USER PROFILE is provided in the data, note the person's stated gender and pronouns in your theme labels and narrative descriptions. Never assume.
+
 ANALYSIS WINDOW: ${weekStart} to ${weekEnd}
 Data outside this range is CONTEXT (prior weeks for trends). Do not conflate past and future.
 
@@ -5962,6 +6293,7 @@ function buildWorldPicture(snapshot) {
   // ── Section 12: User profile ──
   if (raw.userProfile?.profile_text) {
     parts.push('\n=== USER PROFILE ===');
+    parts.push("Use the IDENTITY line for this person's name, gender, and pronouns. Never assume.");
     parts.push(`  ${raw.userProfile.profile_text}`);
   }
 
@@ -6486,6 +6818,7 @@ const inngestHandler = serve({
     testWeeklySummaryV2,
     weeklySummaryV2Dispatcher,
     weeklySummaryV2Worker,
+    backfillIdentity,
   ],
   servePath: '/',
 });

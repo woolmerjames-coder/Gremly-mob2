@@ -388,9 +388,12 @@ function buildSystemPrompt(opts) {
     }
   }
 
-  // 7. User profile
+  // 7. User profile (with identity instructions)
   if (opts.userProfileText) {
-    parts.push(`=== ABOUT THIS USER ===\n${opts.userProfileText}`);
+    parts.push(`=== ABOUT THIS USER ===
+Read the IDENTITY line first. Use it for this person's name, gender, and pronouns throughout your response. Never assume or guess gender or pronouns — always refer to what's stated. If no IDENTITY line is present, use "they/them" as default.
+
+${opts.userProfileText}`);
   }
 
   // 8. Conversation context

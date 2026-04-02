@@ -2,7 +2,7 @@
  * WhatGremlyKnowsScreen - View and edit what Gremly has learned
  */
 
-import React, { useEffect, useState, useMemo, useLayoutEffect } from 'react';
+import React, { useEffect, useState, useMemo, useLayoutEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { ChevronLeft, XCircle, PlusCircle, Trash2 } from 'lucide-react-native';
+import { ChevronLeft, XCircle, PlusCircle, Trash2, Pencil } from 'lucide-react-native';
 import { useUserProfileStore } from '../../stores/userProfileStore';
 import { colors, spacing, borderRadius } from '../../design/tokens';
 import { BRAND } from '../../design/brand';
@@ -25,6 +25,8 @@ import { formatDistanceToNow } from 'date-fns';
 export default function WhatGremlyKnowsScreen() {
   const navigation = useNavigation();
   const [newFact, setNewFact] = useState('');
+  const [editingIdentityField, setEditingIdentityField] = useState<string | null>(null);
+  const [editingIdentityValue, setEditingIdentityValue] = useState('');
 
   // Hide default header
   useLayoutEffect(() => {
@@ -39,6 +41,7 @@ export default function WhatGremlyKnowsScreen() {
     fetchProfile,
     addFact,
     removeFact,
+    editIdentityFact,
     forgetEverything,
     clearError,
   } = useUserProfileStore();
@@ -101,6 +104,102 @@ export default function WhatGremlyKnowsScreen() {
     );
   };
 
+  // Identity helpers
+  const identity = profile?.identity || {};
+  const identityFields = useMemo(() => {
+    const fields: { key: string; label: string; value: string }[] = [];
+    if (identity.name || identity.pronouns || identity.gender) {
+      const namePart = identity.name || '';
+      const pronounPart = identity.pronouns
+        ? `(${identity.pronouns})`
+        : identity.gender === 'male'
+          ? '(he/him)'
+          : identity.gender === 'female'
+            ? '(she/her)'
+            : '';
+      const display = [namePart, pronounPart].filter(Boolean).join(' ');
+      if (display) fields.push({ key: 'name', label: 'Name & pronouns', value: display });
+    }
+    if (identity.age) fields.push({ key: 'age', label: 'Age', value: `${identity.age} years old` });
+    if (identity.location)
+      fields.push({ key: 'location', label: 'Location', value: `Lives in ${identity.location}` });
+    if (identity.partner)
+      fields.push({ key: 'partner', label: 'Partner', value: `Partner: ${identity.partner}` });
+    if (identity.conditions?.length) {
+      fields.push({
+        key: 'conditions',
+        label: 'Conditions',
+        value: identity.conditions.join(', '),
+      });
+    }
+    return fields;
+  }, [identity]);
+
+  const handleEditIdentity = useCallback(
+    (field: string) => {
+      const currentValue =
+        field === 'conditions'
+          ? (identity.conditions || []).join(', ')
+          : (identity[field as keyof typeof identity] as string) || '';
+      setEditingIdentityField(field);
+      setEditingIdentityValue(currentValue);
+    },
+    [identity],
+  );
+
+  const handleSaveIdentity = useCallback(async () => {
+    if (!editingIdentityField) return;
+    const value = editingIdentityValue.trim();
+    if (editingIdentityField === 'conditions') {
+      await editIdentityFact(
+        'conditions',
+        value
+          ? value
+              .split(',')
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+          : null,
+      );
+    } else {
+      await editIdentityFact(editingIdentityField, value || null);
+    }
+    setEditingIdentityField(null);
+    setEditingIdentityValue('');
+  }, [editingIdentityField, editingIdentityValue, editIdentityFact]);
+
+  const handleRemoveIdentity = useCallback(
+    (field: string, label: string) => {
+      Alert.alert(
+        'Remove this?',
+        `Are you sure? This helps Gremly use your correct name and pronouns.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: () => editIdentityFact(field, null),
+          },
+        ],
+      );
+    },
+    [editIdentityFact],
+  );
+
+  const IDENTITY_CATEGORIES = [
+    { key: 'name', label: 'Name' },
+    { key: 'pronouns', label: 'Pronouns' },
+    { key: 'age', label: 'Age' },
+    { key: 'location', label: 'Location' },
+    { key: 'partner', label: 'Partner' },
+    { key: 'conditions', label: 'Health condition' },
+  ];
+
+  const [showAddIdentityPicker, setShowAddIdentityPicker] = useState(false);
+
+  const availableCategories = IDENTITY_CATEGORIES.filter(
+    (cat) => !identity[cat.key as keyof typeof identity],
+  );
+
   const lastUpdated = profile?.generatedAt
     ? formatDistanceToNow(new Date(profile.generatedAt), { addSuffix: true })
     : null;
@@ -142,9 +241,92 @@ export default function WhatGremlyKnowsScreen() {
           </View>
         )}
 
+        {/* Identity Section */}
+        {(identityFields.length > 0 || profile) && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Who You Are</Text>
+            <Text style={styles.sectionSubtitle}>
+              These are core facts Gremly uses for your name and pronouns.
+            </Text>
+
+            {identityFields.map((field) => (
+              <View key={field.key} style={styles.identityItem}>
+                {editingIdentityField === field.key ? (
+                  <View style={styles.identityEditRow}>
+                    <TextInput
+                      style={styles.identityEditInput}
+                      value={editingIdentityValue}
+                      onChangeText={setEditingIdentityValue}
+                      onSubmitEditing={handleSaveIdentity}
+                      autoFocus
+                      returnKeyType="done"
+                      placeholder={field.label}
+                      placeholderTextColor={colors.text.tertiary}
+                    />
+                    <TouchableOpacity
+                      onPress={handleSaveIdentity}
+                      style={styles.identityEditButton}
+                    >
+                      <Text style={styles.identityEditButtonText}>Save</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setEditingIdentityField(null)}
+                      style={styles.identityEditButton}
+                    >
+                      <Text style={styles.identityCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.factText}>{field.value}</Text>
+                    <TouchableOpacity
+                      onPress={() => handleEditIdentity(field.key)}
+                      style={styles.editButton}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Pencil size={16} color={colors.text.tertiary} />
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            ))}
+
+            {/* Add identity fact */}
+            {availableCategories.length > 0 && (
+              <>
+                <TouchableOpacity
+                  style={styles.addIdentityButton}
+                  onPress={() => setShowAddIdentityPicker(!showAddIdentityPicker)}
+                >
+                  <PlusCircle size={18} color={BRAND.colors.mossGreen} />
+                  <Text style={styles.addIdentityText}>Add identity fact</Text>
+                </TouchableOpacity>
+
+                {showAddIdentityPicker && (
+                  <View style={styles.identityPicker}>
+                    {availableCategories.map((cat) => (
+                      <TouchableOpacity
+                        key={cat.key}
+                        style={styles.identityPickerItem}
+                        onPress={() => {
+                          setShowAddIdentityPicker(false);
+                          handleEditIdentity(cat.key);
+                        }}
+                      >
+                        <Text style={styles.identityPickerText}>{cat.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        )}
+
         {/* Facts Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Things You've Shared</Text>
+          <Text style={styles.sectionSubtitle}>These change as Gremly learns more.</Text>
 
           {displayedFacts.length === 0 && !isLoading && (
             <Text style={styles.emptyText}>
@@ -279,7 +461,86 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+    marginBottom: spacing.xs,
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: colors.text.tertiary,
     marginBottom: spacing.md,
+    lineHeight: 18,
+  },
+  identityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.md,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.sm,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border.DEFAULT,
+  },
+  identityEditRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  identityEditInput: {
+    flex: 1,
+    fontSize: 15,
+    fontFamily: 'Inter-Regular',
+    color: BRAND.colors.charcoalInk,
+    paddingVertical: 0,
+  },
+  identityEditButton: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  identityEditButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: BRAND.colors.mossGreen,
+  },
+  identityCancelText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: colors.text.tertiary,
+  },
+  editButton: {
+    padding: spacing.xs,
+  },
+  addIdentityButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  addIdentityText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: BRAND.colors.mossGreen,
+    marginLeft: spacing.sm,
+  },
+  identityPicker: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border.DEFAULT,
+    marginBottom: spacing.sm,
+    overflow: 'hidden',
+  },
+  identityPickerItem: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border.DEFAULT,
+  },
+  identityPickerText: {
+    fontSize: 15,
+    fontFamily: 'Inter-Regular',
+    color: BRAND.colors.charcoalInk,
   },
   patternBox: {
     backgroundColor: colors.white,

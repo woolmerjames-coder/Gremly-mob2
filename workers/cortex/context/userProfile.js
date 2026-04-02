@@ -25,7 +25,7 @@ export async function getUserProfile(userId, env) {
 
     // Cache miss - fetch from Supabase
     const response = await fetch(
-      `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=profile_text,generated_at,relationship_started_at,signals`,
+      `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=profile_text,generated_at,relationship_started_at,signals,identity`,
       {
         headers: {
           apikey: env.SUPABASE_SERVICE_KEY,
@@ -51,6 +51,7 @@ export async function getUserProfile(userId, env) {
       relationshipStartedAt: data[0].relationship_started_at,
       generatedAt: data[0].generated_at,
       signals: data[0].signals,
+      identity: data[0].identity || {},
     };
     console.log('[UserProfile] Profile loaded, generated:', profileData.generatedAt);
 
