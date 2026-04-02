@@ -71,7 +71,7 @@ export async function buildTodayActivity(userId, timezone, env) {
 
       // Todos archived/deleted today
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${encodeURIComponent(userId)}&archived=eq.true&updated_at=gte.${encodeURIComponent(todayStart)}&select=title,updated_at&order=updated_at.desc&limit=10`,
+        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${encodeURIComponent(userId)}&archived=eq.true&archived_at=gte.${encodeURIComponent(todayStart)}&select=title,archived_at&order=archived_at.desc&limit=10`,
         { headers },
       )
         .then((r) => r.json())

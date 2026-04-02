@@ -6801,6 +6801,52 @@ async function sendExpoPush(token, title, body, notificationType) {
 }
 
 // ============================================================================
+// Nightly: auto-archive events older than 7 days
+// ============================================================================
+
+const archiveStaleEvents = inngest.createFunction(
+  {
+    id: 'archive-stale-events',
+    name: 'Archive Stale Events',
+  },
+  { cron: '0 3 * * *' }, // 3 AM UTC daily
+  async ({ step, env }) => {
+    const result = await step.run('archive-old-events', async () => {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - 7);
+      const cutoffString = cutoffDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+      // Archive non-goal event notes whose target_date (or end_date for multi-day)
+      // is more than 7 days ago. Skip dateless events and goals.
+      const response = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/notes?subtype=eq.event&archived=eq.false&is_goal=neq.true&target_date=not.is.null&or=(and(end_date.is.null,target_date.lt.${encodeURIComponent(cutoffString)}),and(end_date.not.is.null,end_date.lt.${encodeURIComponent(cutoffString)}))&select=id`,
+        {
+          method: 'PATCH',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify({ archived: true }),
+        },
+      );
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to archive stale events: ${response.status} ${errText}`);
+      }
+
+      const archived = await response.json();
+      return { archivedCount: Array.isArray(archived) ? archived.length : 0 };
+    });
+
+    console.log(`[ArchiveStaleEvents] Archived ${result.archivedCount} events older than 7 days`);
+    return result;
+  },
+);
+
+// ============================================================================
 // Worker entry point
 // ============================================================================
 
@@ -6819,6 +6865,7 @@ const inngestHandler = serve({
     weeklySummaryV2Dispatcher,
     weeklySummaryV2Worker,
     backfillIdentity,
+    archiveStaleEvents,
   ],
   servePath: '/',
 });

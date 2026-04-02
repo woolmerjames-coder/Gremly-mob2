@@ -347,7 +347,7 @@ export default function HubScreen() {
   const [hubV1Types, setHubV1Types] = useState<Set<HubV1TypeFilter>>(
     new Set(['todo', 'habit', 'note', 'space']),
   );
-  const [hubV1TimeRange, setHubV1TimeRange] = useState<HubV1TimeRange>('month');
+  const [hubV1TimeRange, setHubV1TimeRange] = useState<HubV1TimeRange>('all');
   const [hubV1Status, setHubV1Status] = useState<HubV1StatusFilter>('active');
   const [hubView, setHubView] = useState<HubV1View>('timeline');
   // Save previous type selections when switching to Journal View
