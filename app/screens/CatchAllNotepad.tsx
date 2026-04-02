@@ -3513,6 +3513,7 @@ const RecentDrops: React.FC<{
   const [todayCount, setTodayCount] = React.useState(0); // Track today's drop count for toggle label
   const [olderCount, setOlderCount] = React.useState(0); // Track older drops count
   const [filter, setFilter] = React.useState<'today' | 'older'>('today'); // Filter selection
+  const prevRefreshSignalRef = React.useRef(refreshSignal);
   const canonicalTypesOn = env.feature.canonicalTypes;
 
   // Animated chevron rotation
@@ -4177,8 +4178,13 @@ const RecentDrops: React.FC<{
   useEffect(() => {
     // Reset to 'today' view when refresh signal changes (new drop added)
     // This ensures users see their newly added drop
-    if (typeof refreshSignal === 'number' && refreshSignal > 0) {
+    if (
+      typeof refreshSignal === 'number' &&
+      refreshSignal > 0 &&
+      refreshSignal !== prevRefreshSignalRef.current
+    ) {
       setFilter('today');
+      prevRefreshSignalRef.current = refreshSignal;
     }
     void load();
   }, [load, refreshSignal]);
