@@ -16,6 +16,7 @@ import {
   type LayoutChangeEvent,
 } from 'react-native';
 import { Text } from '../../ui/Text';
+import { ArrowLeft } from 'lucide-react-native';
 import { getDateService } from '../../lib/date';
 import type { CalendarItem } from '../../lib/calendar/CalendarService';
 import TimelineHourLabel from './TimelineHourLabel';
@@ -313,7 +314,10 @@ export default function DayTimeline({
       {!isToday && (
         <Animated.View style={[styles.todayPill, { opacity: pillOpacity }]} pointerEvents="auto">
           <Pressable onPress={handleGoToToday} style={styles.todayPillPressable}>
-            <Text style={styles.todayPillText}>↩ Go to today</Text>
+            <View style={styles.todayPillInner}>
+              <ArrowLeft size={14} color="#fff" />
+              <Text style={styles.todayPillText}>Go to today</Text>
+            </View>
           </Pressable>
         </Animated.View>
       )}
@@ -370,6 +374,11 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingVertical: 8,
     paddingHorizontal: 16,
+  },
+  todayPillInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   todayPillText: {
     color: '#fff',

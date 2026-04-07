@@ -1,5 +1,6 @@
 import React from 'react';
-import { Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { Repeat } from 'lucide-react-native';
 import type { CalendarItem } from '../../lib/calendar/CalendarService';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -52,9 +53,12 @@ export default function TimelineHabitBlock({
         },
       ]}
     >
-      <Text style={styles.title} numberOfLines={1}>
-        ↻ {event.title}
-      </Text>
+      <View style={styles.titleRow}>
+        <Repeat size={11} color={PERIWINKLE} />
+        <Text style={styles.title} numberOfLines={1}>
+          {event.title}
+        </Text>
+      </View>
       {!isCompact && event.startTime && <Text style={styles.time}>{event.startTime}</Text>}
     </Pressable>
   );
@@ -80,6 +84,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: PERIWINKLE,
+    flexShrink: 1,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   time: {
     fontSize: 11,

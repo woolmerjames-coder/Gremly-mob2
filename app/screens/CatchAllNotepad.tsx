@@ -130,6 +130,7 @@ import {
   ChevronDown,
   Calendar,
   Bell,
+  X,
 } from 'lucide-react-native';
 // ClarificationIndicatorChip moved to badge position - import removed
 import { formatDue } from '../../lib/date/formatDue';
@@ -358,7 +359,7 @@ const PREFILL_MONTH_NAMES = [
 
 function formatPrefillChip(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
-  return `📅 ${PREFILL_MONTH_NAMES[m - 1]} ${d}`;
+  return `${PREFILL_MONTH_NAMES[m - 1]} ${d}`;
 }
 
 // Legacy UISuggestion stub - suggestion chips removed but code references remain
@@ -9361,6 +9362,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             <Reanimated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(100)}>
               <View style={styles.prefillChipRow}>
                 <View style={styles.prefillChip}>
+                  <Calendar size={14} color="#2D4A33" />
                   <Text style={styles.prefillChipText}>{formatPrefillChip(prefillDate)}</Text>
                   <Pressable
                     onPress={handleClearPrefillDate}
@@ -9368,7 +9370,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                     accessibilityLabel="Clear date"
                     accessibilityRole="button"
                   >
-                    <Text style={styles.prefillChipX}>✕</Text>
+                    <X size={14} color="#6B7280" />
                   </Pressable>
                 </View>
               </View>

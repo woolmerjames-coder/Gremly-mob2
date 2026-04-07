@@ -1,5 +1,6 @@
 import React from 'react';
 import { Text, Pressable, View, StyleSheet } from 'react-native';
+import { MapPin } from 'lucide-react-native';
 import type { CalendarItem } from '../../lib/calendar/CalendarService';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -84,9 +85,12 @@ export default function TimelineEventBlock({
 
       {/* Location — shown if not compact */}
       {!isCompact && event.location && (
-        <Text style={[styles.detail, styles.location, { color: theme.text }]} numberOfLines={1}>
-          📍 {event.location}
-        </Text>
+        <View style={styles.locationRow}>
+          <MapPin size={11} color={theme.text} />
+          <Text style={[styles.detail, styles.location, { color: theme.text }]} numberOfLines={1}>
+            {event.location}
+          </Text>
+        </View>
       )}
     </Pressable>
   );
@@ -127,5 +131,11 @@ const styles = StyleSheet.create({
   },
   location: {
     fontStyle: 'italic',
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 1,
   },
 });
