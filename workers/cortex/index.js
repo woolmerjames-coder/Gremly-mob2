@@ -9696,7 +9696,8 @@ Extract the event date in YYYY-MM-DD format.
 - "next tuesday" → resolve to actual date using date calculation rules above
 - "march 10th" → "2026-03-10"
 - "on the 15th" → current or next month's 15th
-- If no date mentioned → null
+- If no date mentioned but a USER-SELECTED DATE was provided in the date context above → use that date
+- If no date mentioned and no user-selected date → null
 
 3. end_date (for multi-day events)
 Extract end date in YYYY-MM-DD format for multi-day events.
@@ -9753,6 +9754,8 @@ focused, calm
 8. target_date (ALL LOG SUBTYPES)
 Extract ANY date mentioned, in YYYY-MM-DD format.
 This is when an event IS or HAPPENS — reference information.
+If no date mentioned but a USER-SELECTED DATE was provided in the date context above → use that date.
+If no date mentioned and no user-selected date → null.
 
 9. event_time (ALL LOG SUBTYPES)
 Extract time if mentioned, in HH:mm format (24-hour).
@@ -9846,6 +9849,12 @@ For LOGS (event):
   "event_time": "HH:mm" | null,
   "people": ["name1", "name2"] | []
 }`;
+
+        console.log('[Phase2:PromptCheck]', {
+          hasUserSelectedDateBlock: phase2Prompt.includes('USER-SELECTED DATE'),
+          userSelectedDate: userSelectedDate,
+          promptLength: phase2Prompt.length,
+        });
 
         const t0 = Date.now();
 
