@@ -14,6 +14,7 @@
 import { useGremlyStore } from '../store/useGremlyStore';
 import { getDateService } from '../date/DateService';
 import type { CalendarEvent as SyncedCalendarEvent } from './CalendarClient';
+import type { Habit } from '../types';
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -131,6 +132,56 @@ function computeDuration(startIso: string, endIso: string): number {
   return Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
 }
 
+/** Time-window → soft start-time map for habits without scheduled_start_iso */
+const TIME_WINDOW_START: Record<string, string> = {
+  morning: '08:00',
+  afternoon: '13:00',
+  evening: '18:00',
+};
+
+/**
+ * Check whether a habit should appear on the given date.
+ * Inlined from calendarSelectors to avoid cross-module coupling.
+ */
+function habitOccursOnDate(habit: Habit, dateStr: string): boolean {
+  if (habit.archived) return false;
+  if (habit.start_date && habit.start_date > dateStr) return false;
+  if (habit.end_date && habit.end_date < dateStr) return false;
+
+  const ds = getDateService();
+  const targetDate = ds.fromLocalDate(dateStr);
+  if (!targetDate) return false;
+
+  const dayOfWeek = targetDate.getDay(); // 0=Sun … 6=Sat
+
+  // Explicit days_active takes priority
+  if (habit.days_active && habit.days_active.length > 0) {
+    return habit.days_active.includes(dayOfWeek);
+  }
+
+  const cadence = habit.cadence || 'daily';
+  switch (cadence) {
+    case 'daily':
+      return true;
+    case 'weekly': {
+      if (habit.start_date) {
+        const startDate = ds.fromLocalDate(habit.start_date);
+        if (startDate) return startDate.getDay() === dayOfWeek;
+      }
+      return dayOfWeek === 1; // Monday
+    }
+    case 'monthly': {
+      if (habit.start_date) {
+        const startDate = ds.fromLocalDate(habit.start_date);
+        if (startDate) return startDate.getDate() === targetDate.getDate();
+      }
+      return targetDate.getDate() === 1;
+    }
+    default:
+      return true;
+  }
+}
+
 /** Sort comparator for CalendarItems: all-day first, then startTime asc, then title */
 function compareItems(a: CalendarItem, b: CalendarItem): number {
   // All-day events first
@@ -155,7 +206,7 @@ function compareItems(a: CalendarItem, b: CalendarItem): number {
 
 function collectItemsForDate(
   dateStr: string,
-  options?: { includeTodos?: boolean },
+  options?: { includeTodos?: boolean; includeHabits?: boolean },
 ): CalendarItem[] {
   const state = useGremlyStore.getState();
   const items: CalendarItem[] = [];
@@ -302,6 +353,53 @@ function collectItemsForDate(
     }
   }
 
+  // ── 5. Habits (opt-in) ──
+  if (options?.includeHabits) {
+    for (const habit of state.habits) {
+      if (!habitOccursOnDate(habit, dateStr)) continue;
+
+      // Skip habits that have no calendar placement
+      const tw = habit.time_window;
+      if ((!tw || tw === 'any') && !habit.scheduled_start_iso) continue;
+
+      const durationMin = habit.time_estimate_minutes ?? 30;
+      let habitStartAt: string | undefined;
+      let habitEndAt: string | undefined;
+      let habitStartTime: string | undefined;
+      let habitEndTime: string | undefined;
+
+      if (habit.scheduled_start_iso) {
+        // Precise slot — use the ISO directly
+        habitStartAt = habit.scheduled_start_iso;
+        habitEndAt = new Date(new Date(habitStartAt).getTime() + durationMin * 60000).toISOString();
+        habitStartTime = isoToLocalTime(habitStartAt);
+        habitEndTime = isoToLocalTime(habitEndAt);
+      } else if (tw && tw !== 'any') {
+        // Soft position from time_window
+        habitStartTime = TIME_WINDOW_START[tw] ?? '08:00';
+        habitStartAt = localToIso(dateStr, habitStartTime);
+        habitEndAt = new Date(new Date(habitStartAt).getTime() + durationMin * 60000).toISOString();
+        habitEndTime = minutesToTime(timeToMinutes(habitStartTime) + durationMin);
+      }
+
+      items.push({
+        id: habit.id,
+        source: 'habit',
+        title: habit.name || 'Untitled Habit',
+        date: dateStr,
+        startTime: habitStartTime,
+        endTime: habitEndTime,
+        isAllDay: false,
+        provider: 'gremly',
+        originalId: habit.id,
+        startAt: habitStartAt,
+        endAt: habitEndAt,
+        durationMinutes: durationMin,
+        sourceData: { type: 'habit', record: habit },
+      });
+    }
+  }
+
   return items;
 }
 
@@ -315,7 +413,7 @@ function collectItemsForDate(
  */
 export function getEventsForDate(
   date: string,
-  options?: { includeTodos?: boolean },
+  options?: { includeTodos?: boolean; includeHabits?: boolean },
 ): CalendarItem[] {
   return collectItemsForDate(date, options).sort(compareItems);
 }
@@ -326,7 +424,7 @@ export function getEventsForDate(
 export function getEventsForRange(
   start: string,
   end: string,
-  options?: { includeTodos?: boolean },
+  options?: { includeTodos?: boolean; includeHabits?: boolean },
 ): CalendarItem[] {
   const ds = getDateService();
   const items: CalendarItem[] = [];
@@ -343,11 +441,14 @@ export function getEventsForRange(
 /**
  * Get all events for the next N days (starting today).
  */
-export function getUpcomingEvents(days: number): CalendarItem[] {
+export function getUpcomingEvents(
+  days: number,
+  options?: { includeTodos?: boolean; includeHabits?: boolean },
+): CalendarItem[] {
   const ds = getDateService();
   const start = ds.today();
   const end = ds.addDays(start, days - 1);
-  return getEventsForRange(start, end);
+  return getEventsForRange(start, end, options);
 }
 
 /**
