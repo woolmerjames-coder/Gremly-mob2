@@ -9309,12 +9309,12 @@ Return ONLY valid JSON:
             return '';
           }
 
-          // Parse date string
+          // Parse date string — use noon to avoid DST/timezone boundary shifts
           const [year, month, day] = dateStr.split('-').map(Number);
-          const baseDate = new Date(year, month - 1, day);
+          const baseMs = new Date(year, month - 1, day, 12, 0, 0).getTime();
 
           // Verify the parsed date matches the day of week
-          const parsedDayOfWeek = baseDate.getDay();
+          const parsedDayOfWeek = new Date(year, month - 1, day, 12, 0, 0).getDay();
           if (parsedDayOfWeek !== todayIndex) {
             console.log('[DateExamples:Mismatch]', {
               dateStr,
@@ -9327,16 +9327,15 @@ Return ONLY valid JSON:
 
           // Generate examples for each day of the week, ordered Sunday-Saturday
           const examples = [];
+          const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: timezone });
           for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
             const dayName = dayNames[dayIndex];
             // Calculate days until this day from today
             let daysUntil = dayIndex - todayIndex;
             if (daysUntil <= 0) daysUntil += 7; // Same day or past = next week
 
-            const targetDate = new Date(baseDate);
-            targetDate.setDate(baseDate.getDate() + daysUntil);
-            const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: timezone });
-            const targetDateStr = fmt.format(targetDate);
+            const targetMs = baseMs + daysUntil * 86400000;
+            const targetDateStr = fmt.format(new Date(targetMs));
 
             if (dayIndex === todayIndex) {
               examples.push(
@@ -9354,6 +9353,19 @@ Return ONLY valid JSON:
             inputDayName: todayDayName,
             todayIndex,
             examples: examples.join(' | '),
+          });
+
+          // Verification log: check Friday is correct
+          const fridayIndex = 5;
+          let daysToFri = fridayIndex - todayIndex;
+          if (daysToFri <= 0) daysToFri += 7;
+          const fridayMs = baseMs + daysToFri * 86400000;
+          const computedFriday = fmt.format(new Date(fridayMs));
+          console.log('[DateExamples:Verify]', {
+            todayDate: dateStr,
+            computedFriday,
+            daysToFri,
+            timezone,
           });
 
           return examples.join('\n');
