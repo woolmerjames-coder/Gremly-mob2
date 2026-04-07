@@ -7,7 +7,15 @@
  */
 
 import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
-import { View, ScrollView, StyleSheet, type LayoutChangeEvent } from 'react-native';
+import {
+  View,
+  ScrollView,
+  StyleSheet,
+  Pressable,
+  Animated,
+  type LayoutChangeEvent,
+} from 'react-native';
+import { Text } from '../../ui/Text';
 import { getDateService } from '../../lib/date';
 import type { CalendarItem } from '../../lib/calendar/CalendarService';
 import TimelineHourLabel from './TimelineHourLabel';
@@ -36,6 +44,7 @@ interface DayTimelineProps {
   selectedDate: string;
   events: CalendarItem[];
   onEventPress?: (event: CalendarItem) => void;
+  onDateSelect?: (date: string) => void;
 }
 
 interface PositionedEvent {
@@ -167,11 +176,30 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 
-export default function DayTimeline({ selectedDate, events, onEventPress }: DayTimelineProps) {
+export default function DayTimeline({
+  selectedDate,
+  events,
+  onEventPress,
+  onDateSelect,
+}: DayTimelineProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [layerWidth, setLayerWidth] = useState(0);
   const ds = getDateService();
   const isToday = selectedDate === ds.today();
+
+  // Fade animation for "Go to today" pill
+  const pillOpacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(pillOpacity, {
+      toValue: isToday ? 0 : 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [isToday, pillOpacity]);
+
+  const handleGoToToday = useCallback(() => {
+    onDateSelect?.(getDateService().today());
+  }, [onDateSelect]);
 
   // Measure the event layer so we can compute pixel positions
   const onEventLayerLayout = useCallback((e: LayoutChangeEvent) => {
@@ -280,6 +308,15 @@ export default function DayTimeline({ selectedDate, events, onEventPress }: DayT
         {/* Current time indicator */}
         {isToday && <TimelineCurrentTimeIndicator hourHeight={HOUR_HEIGHT} />}
       </ScrollView>
+
+      {/* Floating "Go to today" pill */}
+      {!isToday && (
+        <Animated.View style={[styles.todayPill, { opacity: pillOpacity }]} pointerEvents="auto">
+          <Pressable onPress={handleGoToToday} style={styles.todayPillPressable}>
+            <Text style={styles.todayPillText}>↩ Go to today</Text>
+          </Pressable>
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -317,5 +354,26 @@ const styles = StyleSheet.create({
     left: LABEL_WIDTH,
     right: 0,
     height: TOTAL_HEIGHT,
+  },
+  todayPill: {
+    position: 'absolute',
+    bottom: 16,
+    alignSelf: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  todayPillPressable: {
+    backgroundColor: '#6B8F71',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  todayPillText: {
+    color: '#fff',
+    fontSize: 13,
+    fontFamily: 'Inter-SemiBold',
   },
 });

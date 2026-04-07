@@ -45,7 +45,12 @@ export default function CalendarScreen() {
       <CalendarHeader />
       <WeekStrip selectedDate={selectedDate} onDateSelect={handleDateSelect} />
       <View style={styles.timeline}>
-        <DayTimeline selectedDate={selectedDate} events={items} onEventPress={handleEventPress} />
+        <DayTimeline
+          selectedDate={selectedDate}
+          events={items}
+          onEventPress={handleEventPress}
+          onDateSelect={handleDateSelect}
+        />
       </View>
       <CalendarInputBar selectedDate={selectedDate} />
     </SafeAreaView>
