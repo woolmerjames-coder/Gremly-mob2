@@ -604,6 +604,9 @@ interface GremlyState {
   pendingGraduation: boolean;
   /** Whether the post-graduation speech has already fired */
   postGraduationMessageShown: boolean;
+  /** Active Lottie color palette id */
+  gremlyColor: string;
+  setGremlyColor: (colorId: string) => Promise<void>;
   /** Day 1 drop sequence: 0=not started, 1-5=in progress, 6=done */
   trainingDropStep: number;
   /** Data readiness score 0-100, drives graduation */
@@ -1133,6 +1136,7 @@ const initialState = {
   graduatedAt: null as string | null,
   pendingGraduation: false,
   postGraduationMessageShown: false,
+  gremlyColor: 'forest',
   trainingDropStep: 0,
   trainingReadiness: 0,
   hasSeenGaugeExplanation: false,
@@ -1271,7 +1275,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1449,6 +1453,7 @@ export const useGremlyStore = create<GremlyState>()(
                 (cortexPrefs?.has_seen_entity_chat_highlight as boolean) ?? false,
               hasSeenTrainingMeterAutoOpen:
                 (cortexPrefs?.has_seen_training_meter_auto_open as boolean) ?? false,
+              gremlyColor: (cortexPrefs?.gremly_color as string) ?? 'forest',
               userTimezone: timezone,
               isLoading: false,
               isInitialized: true,
@@ -1619,6 +1624,7 @@ export const useGremlyStore = create<GremlyState>()(
             graduatedAt: null,
             pendingGraduation: false,
             postGraduationMessageShown: false,
+            gremlyColor: 'forest',
             trainingDropStep: 0,
             trainingReadiness: 0,
             hasSeenGaugeExplanation: false,
@@ -1874,6 +1880,24 @@ export const useGremlyStore = create<GremlyState>()(
 
         markAgeCelebrationShown: () => {
           set({ todayAgeCelebrationShownAt: nowTimestamp() });
+        },
+
+        setGremlyColor: async (colorId: string) => {
+          const userId = get().userId;
+          if (!userId) return;
+
+          set({ gremlyColor: colorId });
+
+          const { error } = await supabase
+            .from('cortex_preferences')
+            .upsert(
+              { owner_id: userId, gremly_color: colorId, updated_at: nowTimestamp() },
+              { onConflict: 'owner_id' },
+            );
+
+          if (error) {
+            console.error('[GremlyStore] setGremlyColor failed:', error);
+          }
         },
 
         setDayBoundaryHour: async (hour: number) => {
@@ -4999,7 +5023,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open',
+                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -5071,6 +5095,7 @@ export const useGremlyStore = create<GremlyState>()(
                 hasSeenTrainingMeterAutoOpen:
                   (cp.has_seen_training_meter_auto_open as boolean) ??
                   get().hasSeenTrainingMeterAutoOpen,
+                gremlyColor: (cp.gremly_color as string) ?? get().gremlyColor,
               });
 
               if (__DEV__) {
@@ -9775,6 +9800,7 @@ export const useGremlyStore = create<GremlyState>()(
           hasSeenSweepUnlockModal: state.hasSeenSweepUnlockModal,
           hasSeenEntityChatHighlight: state.hasSeenEntityChatHighlight,
           hasSeenTrainingMeterAutoOpen: state.hasSeenTrainingMeterAutoOpen,
+          gremlyColor: state.gremlyColor,
         }),
 
         // Merge persisted state with fresh initial state

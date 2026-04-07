@@ -11,12 +11,21 @@ import React, { useLayoutEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { ChevronLeft, ChevronRight, Bell, Clock, CalendarDays, Brain } from 'lucide-react-native';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Bell,
+  Clock,
+  CalendarDays,
+  Brain,
+  Palette,
+} from 'lucide-react-native';
 import { colors, spacing, borderRadius } from '../../design/tokens';
 import { BRAND } from '../../design/brand';
 import { generateWeeklySummary } from '../../lib/weeklySummary';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useCurrentWeekSummary } from '../../lib/store/selectors';
+import { GREMLY_PALETTES, getPaletteById } from '../../lib/constants/gremlyPalettes';
 
 type SettingsRow = {
   key: string;
@@ -32,6 +41,9 @@ export default function SettingsScreen() {
   const navigation = useNavigation();
   const [weeklyLoading, setWeeklyLoading] = useState(false);
   const currentSummary = useCurrentWeekSummary();
+  const gremlyColor = useGremlyStore((s) => s.gremlyColor);
+  const setGremlyColor = useGremlyStore((s) => s.setGremlyColor);
+  const currentPalette = getPaletteById(gremlyColor) ?? GREMLY_PALETTES[0];
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -96,6 +108,13 @@ export default function SettingsScreen() {
       subtitle: 'View and edit what Gremly has learned about you',
       route: 'WhatGremlyKnows',
     },
+    {
+      key: 'gremly-color',
+      icon: <Palette size={ICON_SIZE} color={BRAND.colors.mossGreen} />,
+      title: 'Gremly color',
+      subtitle: currentPalette.name,
+      route: '',
+    },
   ];
 
   return (
@@ -119,7 +138,19 @@ export default function SettingsScreen() {
               index === rows.length - 1 && styles.rowLast,
               pressed && styles.rowPressed,
             ]}
-            onPress={() => navigation.navigate(row.route as never)}
+            onPress={() => {
+              if (row.key === 'gremly-color') {
+                Alert.alert('Choose a color', '', [
+                  ...GREMLY_PALETTES.map((p) => ({
+                    text: p.name,
+                    onPress: () => setGremlyColor(p.id),
+                  })),
+                  { text: 'Cancel', style: 'cancel' as const },
+                ]);
+              } else {
+                navigation.navigate(row.route as never);
+              }
+            }}
           >
             <View style={styles.rowIcon}>{row.icon}</View>
             <View style={styles.rowContent}>

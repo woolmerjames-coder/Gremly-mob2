@@ -22,6 +22,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { GREMLY_PALETTES } from '../../lib/constants/gremlyPalettes';
+import MascotLottie from '../components/MascotLottie';
 
 // Mascot images
 import GREMLY_MASCOT from '../../assets/mascot/gremly-mascot.png';
@@ -34,7 +36,7 @@ interface OnboardingStep {
   title: string;
   body: string;
   subtext: string;
-  type: 'mascot' | 'icon';
+  type: 'mascot' | 'icon' | 'color-picker';
   mascot?: any;
 }
 
@@ -48,9 +50,16 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
     mascot: GREMLY_MASCOT,
   },
   {
+    id: 'color',
+    title: 'Make me yours',
+    body: '',
+    subtext: 'You can always change this in settings.',
+    type: 'color-picker',
+  },
+  {
     id: 'start',
     title: 'Where do we start?',
-    body: "Just drop whatever's on your mind. Tasks, thoughts, feelings. I'll figure out the rest.",
+    body: "Every drop feeds your gremlin. Tasks, thoughts, feelings — I'll sort it all out.",
     subtext: 'Tap any card to chat with me along the way.',
     type: 'mascot',
     mascot: GREMLY_FISTBUMP,
@@ -61,6 +70,11 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
  * Renders a single onboarding step
  */
 function OnboardingStepView({ step }: { step: OnboardingStep }) {
+  const gremlyColor = useGremlyStore((s) => s.gremlyColor);
+  const setGremlyColor = useGremlyStore((s) => s.setGremlyColor);
+
+  const selectedPalette = GREMLY_PALETTES.find((p) => p.id === gremlyColor) ?? GREMLY_PALETTES[0];
+
   return (
     <View style={styles.stepContainer}>
       {/* Visual element */}
@@ -73,10 +87,38 @@ function OnboardingStepView({ step }: { step: OnboardingStep }) {
             accessibilityLabel="Gremly mascot"
           />
         )}
+        {step.type === 'color-picker' && <MascotLottie />}
       </View>
 
       {/* Title */}
       <Text style={styles.title}>{step.title}</Text>
+
+      {/* Color picker */}
+      {step.type === 'color-picker' && (
+        <>
+          <View style={styles.colorRow}>
+            {GREMLY_PALETTES.map((palette) => {
+              const isSelected = palette.id === gremlyColor;
+              return (
+                <Pressable
+                  key={palette.id}
+                  onPress={() => setGremlyColor(palette.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${palette.name} color`}
+                  accessibilityState={{ selected: isSelected }}
+                  style={[
+                    styles.colorButton,
+                    isSelected && { borderColor: palette.hex.dark, borderWidth: 3 },
+                  ]}
+                >
+                  <View style={[styles.colorButtonInner, { backgroundColor: palette.hex.dark }]} />
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.colorName}>{selectedPalette.name}</Text>
+        </>
+      )}
 
       {/* Body text */}
       {step.body ? <Text style={styles.body}>{step.body}</Text> : null}
@@ -269,6 +311,33 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  colorRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+    marginBottom: 12,
+  },
+  colorButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: 'transparent',
+  },
+  colorButtonInner: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  colorName: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: BRAND.colors.inkMuted,
+    textAlign: 'center',
+    marginBottom: 12,
   },
   // Bottom controls
   bottomContainer: {

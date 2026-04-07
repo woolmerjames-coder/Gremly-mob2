@@ -6,6 +6,7 @@ import React, {
   forwardRef,
   memo,
   useEffect,
+  useMemo,
 } from 'react';
 import { View, ViewStyle, StyleSheet, Platform } from 'react-native';
 import LottieView from 'lottie-react-native';
@@ -17,6 +18,7 @@ import Animated, {
   useReducedMotion,
 } from 'react-native-reanimated';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { recolorLottieJson } from '../../lib/constants/gremlyPalettes';
 
 // Lottie sources: 3 animations × 2 colorways (source props NEVER change at runtime)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -88,6 +90,12 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
   // Store subscriptions
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
   const isFedToday = useGremlyStore((s) => s.isFedToday);
+  const gremlyColor = useGremlyStore((s) => s.gremlyColor);
+
+  // Recolor green Lottie sources for the active palette
+  const idleColored = useMemo(() => recolorLottieJson(IDLE_GREEN, gremlyColor), [gremlyColor]);
+  const dropColored = useMemo(() => recolorLottieJson(DROP_GREEN, gremlyColor), [gremlyColor]);
+  const fedColored = useMemo(() => recolorLottieJson(FED_GREEN, gremlyColor), [gremlyColor]);
 
   // Fill height
   const initialClamp = Math.min(Math.max(feedingGaugeValue, 0), 1);
@@ -171,6 +179,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
 
   return (
     <View
+      key={gremlyColor}
       style={[styles.wrapper, style]}
       accessible={false}
       importantForAccessibility="no-hide-descendants"
@@ -213,7 +222,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
       <Animated.View style={[styles.clipContainer, clipAnimatedStyle]}>
         <LottieView
           ref={greenIdleRef}
-          source={IDLE_GREEN}
+          source={idleColored}
           autoPlay={!reduceMotion}
           loop={!reduceMotion}
           renderMode="HARDWARE"
@@ -222,7 +231,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
         />
         <LottieView
           ref={greenDropRef}
-          source={DROP_GREEN}
+          source={dropColored}
           autoPlay={false}
           loop={false}
           onAnimationFinish={handleDropFinish}
@@ -232,7 +241,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
         />
         <LottieView
           ref={greenFedRef}
-          source={FED_GREEN}
+          source={fedColored}
           autoPlay={false}
           loop={false}
           onAnimationFinish={handleFedFinish}
