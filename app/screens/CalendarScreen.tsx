@@ -13,6 +13,7 @@ import { useCalendarEvents } from '../../lib/calendar/useCalendarService';
 import CalendarHeader from '../../components/calendar/CalendarHeader';
 import WeekStrip from '../../components/calendar/WeekStrip';
 import DayTimeline from '../../components/calendar/DayTimeline';
+import CalendarInputBar from '../../components/calendar/CalendarInputBar';
 
 const LINEN_CREAM = '#F9F6F1';
 
@@ -35,6 +36,7 @@ export default function CalendarScreen() {
       <View style={styles.timeline}>
         <DayTimeline selectedDate={selectedDate} events={items} />
       </View>
+      <CalendarInputBar selectedDate={selectedDate} />
     </SafeAreaView>
   );
 }
