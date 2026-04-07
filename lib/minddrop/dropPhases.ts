@@ -154,6 +154,7 @@ async function callPhase2(
   text: string,
   bucket: MindDropBucket,
   subtype: LogSubtype | null,
+  prefillDate: string | null,
 ): Promise<Phase2MetadataResult | null> {
   const cortexUrl = readCortexUrl();
   const anonKey = readSupabaseAnonKey();
@@ -181,6 +182,7 @@ async function callPhase2(
         currentDate,
         dayOfWeek,
         timezone,
+        userSelectedDate: prefillDate || null,
       }),
     });
 
@@ -610,7 +612,7 @@ export async function handleTitled(drop: QueuedDrop): Promise<QueuedDrop> {
 
   const [enrichment, phase2b] = await Promise.all([
     withTimeout(
-      callPhase2(drop.text, drop.bucket!, drop.subtype || null),
+      callPhase2(drop.text, drop.bucket!, drop.subtype || null, drop.prefillDate || null),
       12000,
       null, // timeout → no metadata (soft failure, still advances)
     ),

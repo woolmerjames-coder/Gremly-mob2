@@ -201,6 +201,9 @@ export interface QueuedDrop {
   /** Caller-supplied due_day override (e.g. tomorrow mode) */
   dueDayOverride?: string | null;
 
+  /** Caller-supplied date from calendar (ISO, e.g. "2025-04-10") */
+  prefillDate?: string | null;
+
   /** Scheduled work date (ISO) */
   scheduledDate?: string | null;
 

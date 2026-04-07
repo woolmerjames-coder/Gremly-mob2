@@ -9287,6 +9287,9 @@ Return ONLY valid JSON:
             ];
           })();
 
+        // User-selected date from calendar prefill (may be null)
+        const userSelectedDate = body.userSelectedDate || null;
+
         // Helper: Generate dynamic date examples based on actual current date
         function generateDateExamples(dateStr, todayDayName, timezone) {
           const dayNames = [
@@ -9365,7 +9368,17 @@ Do NOT include planning or scheduling logic.
 === DATE CONTEXT ===
 Today is ${currentDate} (${dayOfWeek}).
 User timezone: ${timezone}.
-
+${
+  userSelectedDate
+    ? `
+=== USER-SELECTED DATE ===
+The user has explicitly chosen ${userSelectedDate} as the date for this item.
+Use ${userSelectedDate} as the target_date/scheduled_date UNLESS the input text explicitly mentions a DIFFERENT specific date.
+If the input contains NO date or time references, use ${userSelectedDate}.
+If the input says "today", still use ${currentDate}, not the selected date.
+`
+    : ''
+}
 === DATE CALCULATION RULES ===
 You MUST calculate dates correctly. Do the math.
 
