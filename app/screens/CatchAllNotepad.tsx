@@ -6961,6 +6961,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     // OPTIMISTIC UI: The new submit flow already adds pending item via addPendingDrop
     // in useMindDropSubmit hook, so no manual call needed here
 
+    console.log('[PrefillDate:1-CatchAll] Submitting with prefillDate:', prefillDate ?? null);
     const result = await mindDropSubmit(effectiveText, {
       spaceId: null, // CatchAllNotepad is global, no space
       photoUris: pendingPhotoUris,

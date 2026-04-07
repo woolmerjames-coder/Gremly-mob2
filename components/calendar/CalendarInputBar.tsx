@@ -37,6 +37,7 @@ export default function CalendarInputBar({ selectedDate }: CalendarInputBarProps
     setText('');
     Keyboard.dismiss();
 
+    console.log('[PrefillDate:1-CalInput] Submitting with prefillDate:', selectedDate);
     await submit(trimmed, {
       source: 'minddrop',
       prefillDate: selectedDate,

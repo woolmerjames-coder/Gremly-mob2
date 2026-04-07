@@ -9289,6 +9289,7 @@ Return ONLY valid JSON:
 
         // User-selected date from calendar prefill (may be null)
         const userSelectedDate = body.userSelectedDate || null;
+        console.log('[PrefillDate:5-Worker] Received userSelectedDate:', userSelectedDate);
 
         // Helper: Generate dynamic date examples based on actual current date
         function generateDateExamples(dateStr, todayDayName, timezone) {

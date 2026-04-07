@@ -197,6 +197,10 @@ export function useMindDropSubmit(): {
         // ============================================
 
         // 1a. Write to AsyncStorage queue (crash safety)
+        console.log(
+          '[PrefillDate:2-Submit] Enqueueing with prefillDate:',
+          context.prefillDate ?? null,
+        );
         const queuedDrop = await enqueue({
           text: entityText,
           attachments: photoUris.length > 0 ? photoUris : undefined,

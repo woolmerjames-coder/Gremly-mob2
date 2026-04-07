@@ -168,6 +168,7 @@ async function callPhase2(
     }).format(getDateService().now());
     const timezone = getDateService().getTimezone();
 
+    console.log('[PrefillDate:4-Phase2] Sending userSelectedDate:', prefillDate || null);
     const res = await fetch(cortexUrl, {
       method: 'POST',
       headers: {
@@ -610,6 +611,7 @@ export async function handleTitled(drop: QueuedDrop): Promise<QueuedDrop> {
   // Phase 2 + Phase 2b in parallel (2b only if reminder intent detected)
   const reminderIntent = (drop as any).reminderIntent === true;
 
+  console.log('[PrefillDate:3-Phases] Calling Phase 2 with prefillDate:', drop.prefillDate || null);
   const [enrichment, phase2b] = await Promise.all([
     withTimeout(
       callPhase2(drop.text, drop.bucket!, drop.subtype || null, drop.prefillDate || null),
