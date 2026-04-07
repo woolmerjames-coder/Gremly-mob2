@@ -1,15 +1,29 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
-export default function TimelineHourLabel() {
+const LABEL_WIDTH = 50;
+
+interface TimelineHourLabelProps {
+  hour: number; // 0–23
+}
+
+export default function TimelineHourLabel({ hour }: TimelineHourLabelProps) {
+  const label = `${String(hour).padStart(2, '0')}:00`;
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>TimelineHourLabel</Text>
+      <Text style={styles.text}>{label}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { paddingVertical: 4 },
-  text: { fontSize: 12, color: '#999' },
+  container: {
+    width: LABEL_WIDTH,
+    paddingTop: 2,
+    paddingLeft: 8,
+  },
+  text: {
+    fontSize: 11,
+    color: '#9E9E9E',
+  },
 });

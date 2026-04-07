@@ -33,7 +33,7 @@ export default function CalendarScreen() {
       <CalendarHeader />
       <WeekStrip selectedDate={selectedDate} onDateSelect={handleDateSelect} />
       <View style={styles.timeline}>
-        <DayTimeline date={selectedDate} items={items} />
+        <DayTimeline selectedDate={selectedDate} events={items} />
       </View>
     </SafeAreaView>
   );
