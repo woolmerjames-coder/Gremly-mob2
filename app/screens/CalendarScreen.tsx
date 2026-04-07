@@ -31,7 +31,7 @@ export default function CalendarScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <CalendarHeader />
-      <WeekStrip selectedDate={selectedDate} onSelectDate={handleDateSelect} />
+      <WeekStrip selectedDate={selectedDate} onDateSelect={handleDateSelect} />
       <View style={styles.timeline}>
         <DayTimeline date={selectedDate} items={items} />
       </View>
