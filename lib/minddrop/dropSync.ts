@@ -33,6 +33,7 @@ export interface Phase2MetadataResult {
   date_type_ambiguous: boolean;
   end_date: string | null;
   smart_title: string | null;
+  dateConfidence: 'verified' | 'llm_only' | 'chrono_override' | null;
 }
 
 export interface SyncResult {
@@ -75,6 +76,14 @@ export async function syncDropToSupabase(
   // instead of today's date for source === 'today' items.
   const effectiveDueDay = drop.dueDayOverride || today;
 
+  const hasAIDates = !!(
+    enrichment?.target_date ||
+    enrichment?.scheduled_date ||
+    enrichment?.extracted_date ||
+    enrichment?.extracted_start_date ||
+    enrichment?.end_date
+  );
+
   try {
     let table: string;
     let payload: Record<string, unknown>;
@@ -116,6 +125,9 @@ export async function syncDropToSupabase(
         // Date Intelligence — top-level columns (not just views)
         target_date: enrichment?.target_date || null,
         scheduled_date: enrichment?.scheduled_date || null,
+        // Date verification metadata
+        captured_at: hasAIDates ? nowTimestamp() : null,
+        date_confidence: hasAIDates ? enrichment?.dateConfidence || null : null,
         // Phase 2: Clarification fields (direct columns)
         needs_clarification: drop.needsClarification || false,
         clarification_type: drop.clarificationType || null,
@@ -180,6 +192,9 @@ export async function syncDropToSupabase(
         prep_buffer_minutes: buffers.prep_buffer_minutes,
         cooldown_buffer_minutes: buffers.cooldown_buffer_minutes,
         tags: enrichment?.tags || [],
+        // Date verification metadata
+        captured_at: hasAIDates ? nowTimestamp() : null,
+        date_confidence: hasAIDates ? enrichment?.dateConfidence || null : null,
         // Phase 2: Clarification fields (direct columns)
         needs_clarification: drop.needsClarification || false,
         clarification_type: drop.clarificationType || null,
@@ -235,6 +250,9 @@ export async function syncDropToSupabase(
         end_date: enrichment?.end_date || null,
         event_time: enrichment?.event_time || null,
         is_goal: false,
+        // Date verification metadata
+        captured_at: hasAIDates ? nowTimestamp() : null,
+        date_confidence: hasAIDates ? enrichment?.dateConfidence || null : null,
         // Phase 2: Clarification fields (direct columns)
         needs_clarification: drop.needsClarification || false,
         clarification_type: drop.clarificationType || null,

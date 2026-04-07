@@ -8524,7 +8524,17 @@ If no date in input, all date fields are null.
         const hasAttachments = body.hasAttachments || false;
         const heuristicHint = body.heuristicHint || null;
 
+        const currentDate = new Intl.DateTimeFormat('en-CA', {
+          timeZone: body.timezone || 'UTC',
+        }).format(new Date());
+        const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+          weekday: 'long',
+          timeZone: body.timezone || 'UTC',
+        }).format(new Date());
+
         const phase1Prompt = `You classify "mind drops" for Gremly, a productivity app. Your job is to understand the user's TRUE INTENT through semantic reasoning, not pattern matching.
+
+Today is ${currentDate} (${dayOfWeek}).
 
 === THE FOUR BUCKETS ===
 
@@ -9107,7 +9117,17 @@ Rules:
               .slice(-5)
           : [];
 
+        const currentDate = new Intl.DateTimeFormat('en-CA', {
+          timeZone: body.timezone || 'UTC',
+        }).format(new Date());
+        const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+          weekday: 'long',
+          timeZone: body.timezone || 'UTC',
+        }).format(new Date());
+
         const phase15aSystemPrompt = `You generate a title and reaction for a productivity item that has already been classified.
+
+Today is ${currentDate} (${dayOfWeek}).
 
 === SMART TITLE (3-7 words) ===
 

@@ -252,7 +252,15 @@ Return ONLY JSON: { "bucket": "todo"|"habit"|"log", "confidence": 0.0-1.0, "subt
   }
 
   // --- PHASE 2 ENRICHMENT (smart titles, tags, time estimates) ---
+  // DEPRECATED: This Phase 2 path lacks timezone-aware date handling.
+  // All Phase 2 enrichment should route through the Cloudflare Worker
+  // which has proper timezone context, weekday-to-date mapping, and
+  // dynamic date examples. See workers/cortex/index.js enrich-phase2.
+  // TODO: Remove this path once all traffic is confirmed on Cloudflare Worker.
   if (type === 'enrich-phase2') {
+    console.warn(
+      'DEPRECATED: Phase 2 enrichment running on legacy Supabase Edge Function — missing timezone context',
+    );
     const key = OPENAI_API_KEY;
     const j = (data: unknown, status = 200) =>
       new Response(JSON.stringify({ ok: true, ...data }), {

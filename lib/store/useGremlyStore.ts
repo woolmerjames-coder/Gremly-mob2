@@ -312,6 +312,13 @@ function sanitizeForSupabase(
     }
   }
 
+  // Mark user-set dates with date_confidence: 'user_set' (unless already set by AI/dropSync)
+  const dateFields = ['due_day', 'due_date', 'target_date', 'scheduled_date', 'start_date', 'date'];
+  const hasDateField = dateFields.some((f) => f in sanitized && sanitized[f] != null);
+  if (hasDateField && !('date_confidence' in sanitized)) {
+    sanitized.date_confidence = 'user_set';
+  }
+
   return sanitized;
 }
 
@@ -5907,7 +5914,10 @@ export const useGremlyStore = create<GremlyState>()(
             // 4. Creates — insert into Supabase, get real IDs, then add to store
             if (creates.length > 0) {
               const sanitizedCreates = creates.map((c) =>
-                sanitizeForSupabase({ ...c, owner_id: userId } as Record<string, unknown>, 'note'),
+                sanitizeForSupabase(
+                  { ...c, owner_id: userId, date_confidence: 'synced' } as Record<string, unknown>,
+                  'note',
+                ),
               );
               const { data: inserted, error: insertError } = await supabase
                 .from('notes')
@@ -5927,7 +5937,10 @@ export const useGremlyStore = create<GremlyState>()(
             if (updates.length > 0) {
               const updatePromises = updates.map(({ id, patch }) => {
                 const sanitized = sanitizeForSupabase(
-                  { ...patch, updated_at: nowTimestamp() } as Record<string, unknown>,
+                  { ...patch, updated_at: nowTimestamp(), date_confidence: 'synced' } as Record<
+                    string,
+                    unknown
+                  >,
                   'note',
                 );
                 return supabase.from('notes').update(sanitized).eq('id', id);

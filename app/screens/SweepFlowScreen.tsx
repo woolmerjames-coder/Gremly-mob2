@@ -1839,6 +1839,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
                         origin: 'sweep',
                         target_date: originalNote?.target_date || null,
                         due_day: originalNote?.target_date || null,
+                        date_confidence: originalNote?.target_date ? 'user_set' : null,
                         linked_event_id: decision.candidateId,
                         energy_type: 'administrative',
                         created_at: getDateService().nowTimestamp(),
