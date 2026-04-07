@@ -388,7 +388,7 @@ function mapScore(confirming) {
   return 0.15;
 }
 
-function scoreTodo(p) {
+function scoreTodo(p, hasUserSelectedDate = false) {
   // ── REQUIRED GATE (Tier 1 — reliable) ──
   if (!p.core_verb) return 0.0;
 
@@ -433,7 +433,7 @@ function scoreTodo(p) {
   return mapScore(c);
 }
 
-function scoreHabitBuild(p) {
+function scoreHabitBuild(p, hasUserSelectedDate = false) {
   // REQUIRED: must have recurrence signal
   if (!p.is_ongoing_practice && !p.has_routine_anchor) return 0.0;
   // DISQUALIFIERS
@@ -456,7 +456,7 @@ function scoreHabitBuild(p) {
   return mapScore(c);
 }
 
-function scoreHabitBreak(p) {
+function scoreHabitBreak(p, hasUserSelectedDate = false) {
   // REQUIRED: must have cessation, prohibition, or relative change signal
   if (
     !p.has_discontinuation &&
@@ -484,11 +484,12 @@ function scoreHabitBreak(p) {
   return mapScore(c);
 }
 
-function scoreEvent(p) {
+function scoreEvent(p, hasUserSelectedDate = false) {
   // REQUIRED: must be about something scheduled/occurring
-  if (!p.is_scheduled_occurrence) return 0.0;
+  // BUT: if user explicitly selected a date, that IS the scheduling signal
+  if (!p.is_scheduled_occurrence && !hasUserSelectedDate) return 0.0;
   // DISQUALIFIERS
-  if (p.is_command && !p.is_scheduled_occurrence) return 0.0;
+  if (p.is_command && !p.is_scheduled_occurrence && !hasUserSelectedDate) return 0.0;
   // CONFIRMING SIGNALS
   let c = 0;
   if (p.has_date_or_time) c++;
@@ -498,10 +499,12 @@ function scoreEvent(p) {
   if (p.is_storing_information) c++;
   if (p.time_role === 'when') c++;
   if (p.is_single_instance) c++;
+  // User selected a date — strong signal this is an event
+  if (hasUserSelectedDate) c++;
   return mapScore(c);
 }
 
-function scoreJournal(p) {
+function scoreJournal(p, hasUserSelectedDate = false) {
   // REQUIRED: must have at least one emotional or reflective signal
   if (
     !p.has_emotion_language &&
@@ -525,11 +528,13 @@ function scoreJournal(p) {
   return mapScore(c);
 }
 
-function scoreIdea(p) {
+function scoreIdea(p, hasUserSelectedDate = false) {
   // REQUIRED: must have speculation
   if (!p.has_speculation && p.struct_novelty !== 'novel') return 0.0;
   // DISQUALIFIERS
   if (p.is_command && p.user_intent_mode === 'directing') return 0.0;
+  // User selected a date — penalize idea, they have temporal intent
+  if (hasUserSelectedDate) return 0.0;
   // CONFIRMING SIGNALS
   let c = 0;
   if (p.has_speculation) c++;
@@ -541,13 +546,15 @@ function scoreIdea(p) {
   return mapScore(c);
 }
 
-function scoreGeneral(p) {
+function scoreGeneral(p, hasUserSelectedDate = false) {
   // REQUIRED: must have factual/reference signal
   if (!p.is_declarative && !p.is_storing_information && !p.factual_statement) return 0.0;
   // DISQUALIFIERS
   if (p.is_scheduled_occurrence && p.has_date_or_time) return 0.0;
   if (p.has_emotion_language) return 0.0;
   if (p.has_speculation) return 0.0;
+  // User selected a date — penalize general, they have temporal intent
+  if (hasUserSelectedDate) return 0.0;
   // CONFIRMING SIGNALS
   let c = 0;
   if (p.is_declarative) c++;
@@ -599,7 +606,8 @@ function mapWinnerToClassification(winnerType) {
  * - Clear winner (top >= 0.6, gap to second >= 0.2): fast-path
  * - Otherwise: bail to Phase 1 AI with competing types as context
  */
-function mapPreparseToClassification(preparse) {
+function mapPreparseToClassification(preparse, options = {}) {
+  const { hasUserSelectedDate = false } = options;
   // Low confidence parse — always bail to Phase 1
   if (preparse.parse_confidence === 'low') {
     return { needsPhase1: true, reason: 'low_parse_confidence' };
@@ -609,13 +617,13 @@ function mapPreparseToClassification(preparse) {
   const textLen = (preparse.text_preview || '').trim().length;
   if (textLen > 0 && textLen <= 5) {
     const maxScore = Math.max(
-      scoreTodo(preparse),
-      scoreHabitBuild(preparse),
-      scoreHabitBreak(preparse),
-      scoreEvent(preparse),
-      scoreJournal(preparse),
-      scoreIdea(preparse),
-      scoreGeneral(preparse),
+      scoreTodo(preparse, hasUserSelectedDate),
+      scoreHabitBuild(preparse, hasUserSelectedDate),
+      scoreHabitBreak(preparse, hasUserSelectedDate),
+      scoreEvent(preparse, hasUserSelectedDate),
+      scoreJournal(preparse, hasUserSelectedDate),
+      scoreIdea(preparse, hasUserSelectedDate),
+      scoreGeneral(preparse, hasUserSelectedDate),
     );
     if (maxScore < 0.7) {
       return { needsPhase1: true, reason: 'ultra_short_input' };
@@ -624,13 +632,13 @@ function mapPreparseToClassification(preparse) {
 
   // Run all scorers — each uses only PreParse fields
   const scores = {
-    todo: scoreTodo(preparse),
-    habit_build: scoreHabitBuild(preparse),
-    habit_break: scoreHabitBreak(preparse),
-    event: scoreEvent(preparse),
-    journal: scoreJournal(preparse),
-    idea: scoreIdea(preparse),
-    general: scoreGeneral(preparse),
+    todo: scoreTodo(preparse, hasUserSelectedDate),
+    habit_build: scoreHabitBuild(preparse, hasUserSelectedDate),
+    habit_break: scoreHabitBreak(preparse, hasUserSelectedDate),
+    event: scoreEvent(preparse, hasUserSelectedDate),
+    journal: scoreJournal(preparse, hasUserSelectedDate),
+    idea: scoreIdea(preparse, hasUserSelectedDate),
+    general: scoreGeneral(preparse, hasUserSelectedDate),
   };
 
   // Rank by score
@@ -1485,6 +1493,7 @@ async function runPhase1Classification(
   preparseContext = null,
   routingReason = null,
   scorerScores = null,
+  hasUserSelectedDate = false,
 ) {
   const t0 = Date.now();
 
@@ -1585,6 +1594,15 @@ ${reasoningGuidance}
 
 === CORE REASONING PRINCIPLES ===
 
+${
+  hasUserSelectedDate
+    ? `DATE SELECTION CONTEXT: The user has explicitly selected a specific date for this item. This signals temporal intent:
+- Activities, appointments, outings, plans, meetings, concerts, or experiences → classify as subtype "event"
+- Tasks or actions → classify as bucket "todo"
+- Do NOT classify as general note, idea, or journal when a date has been selected, unless the text is clearly reflective/emotional with no actionable or temporal content
+`
+    : ''
+}
 THE UNCERTAINTY LOCATION PRINCIPLE:
 When hedging or tentative language appears, ask: Is uncertainty about THE WORLD or about THE USER'S OWN INTENT?
 - World uncertainty (timing, availability, external factors): User has committed but faces external unknowns. Intent is clear. → TODO
@@ -7650,7 +7668,12 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
 
         // Step 2: Apply heuristic mapping
         preparseResult.result.text_preview = (text || '').substring(0, 60);
-        const heuristicDecision = mapPreparseToClassification(preparseResult.result);
+        console.log('[Scorer:DateIntent]', {
+          hasUserSelectedDate: body.hasUserSelectedDate || false,
+        });
+        const heuristicDecision = mapPreparseToClassification(preparseResult.result, {
+          hasUserSelectedDate: body.hasUserSelectedDate || false,
+        });
         const plausibleInterpretations = computePlausibleInterpretations(preparseResult.result);
 
         // Log heuristic decision
@@ -7695,6 +7718,9 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
           reason: heuristicDecision.reason,
           preparse_latency_ms: preparseLatency,
         });
+        console.log('[Phase1:DateIntent]', {
+          hasUserSelectedDate: body.hasUserSelectedDate || false,
+        });
 
         const phase1Result = await runPhase1Classification(
           text,
@@ -7702,6 +7728,7 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
           preparseResult.result,
           heuristicDecision.reason,
           heuristicDecision.scores || null,
+          body.hasUserSelectedDate || false,
         );
 
         const phase1Latency = phase1Result.latency_ms;
@@ -9290,6 +9317,10 @@ Return ONLY valid JSON:
         // User-selected date from calendar prefill (may be null)
         const userSelectedDate = body.userSelectedDate || null;
         console.log('[PrefillDate:5-Worker] Received userSelectedDate:', userSelectedDate);
+        console.log('[Phase2:DateIntent]', {
+          hasUserSelectedDate: body.hasUserSelectedDate || false,
+          userSelectedDate: body.userSelectedDate || null,
+        });
 
         // Helper: Generate dynamic date examples based on actual current date
         function generateDateExamples(dateStr, todayDayName, timezone) {

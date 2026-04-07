@@ -183,6 +183,7 @@ async function callPhase2(
         currentDate,
         dayOfWeek,
         timezone,
+        hasUserSelectedDate: !!prefillDate,
         userSelectedDate: prefillDate || null,
       }),
     });
@@ -420,7 +421,11 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
     shouldCheckMulti
       ? withTimeout(detectMulti(drop.text), 6000, { is_multi: false })
       : Promise.resolve({ is_multi: false }),
-    withTimeout(runPhase1(drop.text, { hasAttachments: false }), 8000, DEGRADED_FALLBACK),
+    withTimeout(
+      runPhase1(drop.text, { hasAttachments: false, hasUserSelectedDate: !!drop.prefillDate }),
+      8000,
+      DEGRADED_FALLBACK,
+    ),
   ]);
 
   console.log('[DropPhases] handleQueued complete', {
