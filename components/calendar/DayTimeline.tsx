@@ -248,19 +248,15 @@ export default function DayTimeline({ selectedDate, events, onEventPress }: DayT
               const eventWidth = colWidth - EVENT_PADDING;
 
               return pe.item.source === 'habit' ? (
-                <View
+                <TimelineHabitBlock
                   key={pe.item.id}
-                  style={{
-                    position: 'absolute',
-                    top: pe.top,
-                    left: eventLeft,
-                    width: eventWidth,
-                    height: pe.height,
-                  }}
-                  pointerEvents="box-none"
-                >
-                  <TimelineHabitBlock item={pe.item} style={{ flex: 1 }} />
-                </View>
+                  event={pe.item}
+                  top={pe.top}
+                  height={pe.height}
+                  left={eventLeft}
+                  width={eventWidth}
+                  onPress={handleEventPress}
+                />
               ) : (
                 <TimelineEventBlock
                   key={pe.item.id}
