@@ -9,9 +9,10 @@ import { useGremlyStore } from './useGremlyStore';
 import { getDateService } from '../date';
 import type { Todo, Habit, Note, Space } from '../types';
 import type { CalendarEvent } from '../calendar/CalendarClient';
-
-// Stable empty array to avoid creating new references on each render
-const EMPTY_CALENDAR_EVENTS: CalendarEvent[] = [];
+import {
+  getEventsForDate,
+  type CalendarItem as ServiceCalendarItem,
+} from '../calendar/CalendarService';
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -129,7 +130,11 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
   const habits = useGremlyStore((s) => s.habits);
   const notes = useGremlyStore((s) => s.notes);
   const spaces = useGremlyStore((s) => s.spaces);
-  const calendarEvents = useGremlyStore((s) => s.calendarEvents[dateStr] ?? EMPTY_CALENDAR_EVENTS);
+  // Subscribe to calendarEvents and userCalendarEvents for reactivity —
+  // CalendarService reads imperatively, but these subscriptions ensure the
+  // hook re-runs when the underlying data changes.
+  useGremlyStore((s) => s.calendarEvents[dateStr]);
+  useGremlyStore((s) => s.userCalendarEvents);
 
   const items: CalendarItem[] = [];
 
@@ -219,100 +224,47 @@ export function useCalendarItemsForDate(dateStr: string): CalendarItem[] {
   });
 
   // ─────────────────────────────────────────────────────────────────
-  // EVENT NOTES: unified event entities (synced + native)
+  // EVENTS: merged via CalendarService (synced calendar, event notes,
+  // user calendar events — deduplicated and sorted)
   // ─────────────────────────────────────────────────────────────────
-  // Track which external IDs are covered by Note entities so we can
-  // fall back to raw calendarEvents only for events not yet synced.
-  const coveredExternalIds = new Set<string>();
+  const serviceEvents = getEventsForDate(dateStr);
+  serviceEvents.forEach((svcItem) => {
+    // Map CalendarService's CalendarItem to this selector's CalendarItem shape
+    const isExternal =
+      svcItem.source === 'synced' ||
+      (svcItem.source === 'gremly_event' && svcItem.provider !== 'gremly');
 
-  notes.forEach((note) => {
-    if (note.archived) return;
-    if ((note.subtype as string) !== 'event') return;
-    // Support multi-day events: include if dateStr falls within target_date..end_date
-    const matchesDate =
-      note.target_date === dateStr ||
-      (note.target_date != null &&
-        note.end_date != null &&
-        dateStr >= note.target_date &&
-        dateStr <= note.end_date);
-    if (!matchesDate) return;
-
-    // Map external_source provider back to CalendarProvider format
-    const providerMap: Record<string, 'google' | 'outlook' | 'ics'> = {
-      google_calendar: 'google',
-      outlook: 'outlook',
-      ics: 'ics',
-    };
-
-    const isExternal = !!note.external_source;
-    if (note.external_source?.externalId) {
-      coveredExternalIds.add(note.external_source.externalId);
+    // Try to find the original Note/CalendarEvent for the raw field
+    let raw: Todo | Habit | Note | CalendarEvent;
+    if (svcItem.source === 'gremly_event') {
+      raw = notes.find((n) => n.id === svcItem.originalId) as Note;
+    } else if (svcItem.source === 'synced') {
+      const syncedEvents = useGremlyStore.getState().calendarEvents[dateStr] ?? [];
+      raw = syncedEvents.find((e) => e.providerEventId === svcItem.originalId) as CalendarEvent;
+    } else if (svcItem.source === 'user_calendar') {
+      raw = useGremlyStore
+        .getState()
+        .userCalendarEvents.find((e) => e.id === svcItem.originalId) as any;
+    } else {
+      raw = {} as any;
     }
 
     items.push({
-      id: note.id,
+      id: svcItem.id,
       type: 'calendar_event',
-      title: note.title || 'Untitled Event',
-      time: note.event_time || null,
+      title: svcItem.title,
+      time: svcItem.startTime || null,
+      endTime: svcItem.endTime || null,
       isCompleted: false,
       isOverdue: false,
       isExternal,
-      provider: note.external_source?.provider
-        ? providerMap[note.external_source.provider]
-        : undefined,
-      location: note.location,
-      space: getSpaceInfo(note.space_id, spaces),
+      provider: svcItem.provider as 'outlook' | 'google' | 'ics' | undefined,
+      location: svcItem.location || null,
+      space:
+        svcItem.source === 'gremly_event' ? getSpaceInfo((raw as Note)?.space_id, spaces) : null,
       milestone: null,
-      tags: note.tags || [],
-      raw: note,
-    });
-  });
-
-  // ─────────────────────────────────────────────────────────────────
-  // RAW CALENDAR EVENTS: fallback for events not yet synced to Notes
-  // ─────────────────────────────────────────────────────────────────
-  calendarEvents.forEach((event) => {
-    // Skip if already covered by a synced Note entity
-    if (coveredExternalIds.has(event.providerEventId)) return;
-
-    const startTime = event.isAllDay
-      ? null
-      : (() => {
-          const d = new Date(event.startAt);
-          return new Intl.DateTimeFormat('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-            timeZone: getDateService().getTimezone(),
-          }).format(d);
-        })();
-    const endTime = event.isAllDay
-      ? null
-      : (() => {
-          const d = new Date(event.endAt);
-          return new Intl.DateTimeFormat('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-            timeZone: getDateService().getTimezone(),
-          }).format(d);
-        })();
-
-    items.push({
-      id: `cal-${event.provider}-${event.providerEventId}`,
-      type: 'calendar_event',
-      title: event.title,
-      time: startTime,
-      endTime,
-      isCompleted: false,
-      isOverdue: false,
-      isExternal: true,
-      provider: event.provider,
-      location: event.location,
-      space: null,
-      milestone: null,
-      tags: [],
-      raw: event,
+      tags: svcItem.source === 'gremly_event' ? (raw as Note)?.tags || [] : [],
+      raw,
     });
   });
 

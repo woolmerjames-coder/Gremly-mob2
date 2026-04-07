@@ -49,6 +49,7 @@ import {
   type CalendarProvider,
 } from '../calendar/CalendarClient';
 import { reconcileCalendarEvents } from '../calendar/calendarSync';
+import { getEventsForDate } from '../calendar/CalendarService';
 import { DEFAULT_TIME_BLOCK_PREFERENCES, getTimeBlockBoundaries } from '../capacity';
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
 import { cancelAllItemReminders } from '../notifications/itemReminderService';
@@ -2606,7 +2607,6 @@ export const useGremlyStore = create<GremlyState>()(
           const payload = {
             ...sanitized,
             owner_id: userId,
-            created_at: now,
             updated_at: now,
           };
 
@@ -2877,7 +2877,6 @@ export const useGremlyStore = create<GremlyState>()(
             ai_placed: sanitized.ai_placed ?? false,
             // Always set these
             owner_id: userId,
-            created_at: now,
             updated_at: now,
           };
 
@@ -3430,7 +3429,6 @@ export const useGremlyStore = create<GremlyState>()(
           const payload = {
             ...sanitized,
             owner_id: userId,
-            created_at: now,
             updated_at: now,
           };
 
@@ -3653,7 +3651,6 @@ export const useGremlyStore = create<GremlyState>()(
           const payload = {
             ...space,
             owner_id: userId,
-            created_at: now,
             updated_at: now,
           };
 
@@ -3931,9 +3928,10 @@ export const useGremlyStore = create<GremlyState>()(
             activeGeneralChatId: tempId,
           }));
           try {
+            const { created_at: _ca, ...insertPayload } = newChat;
             const { data, error } = await supabase
               .from('space_chats')
-              .insert(newChat)
+              .insert(insertPayload)
               .select()
               .single();
             if (error) throw error;
@@ -4046,9 +4044,10 @@ export const useGremlyStore = create<GremlyState>()(
           set((state) => ({ spaceChats: [optimisticChat, ...state.spaceChats] }));
 
           try {
+            const { created_at: _ca, ...insertPayload } = newChat;
             const { data, error } = await supabase
               .from('space_chats')
-              .insert(newChat)
+              .insert(insertPayload)
               .select()
               .single();
 
@@ -4261,9 +4260,10 @@ export const useGremlyStore = create<GremlyState>()(
           }));
 
           try {
+            const { created_at: _ca, ...insertPayload } = newMilestone;
             const { data: result, error } = await supabase
               .from('space_milestones')
-              .insert(newMilestone)
+              .insert(insertPayload)
               .select()
               .single();
 
@@ -5371,6 +5371,14 @@ export const useGremlyStore = create<GremlyState>()(
 
           const now = nowTimestamp();
 
+          const momentDates =
+            summary.content?.cards
+              ?.filter((c: { type: string }) => c.type === 'moments')
+              ?.flatMap(
+                (c: { moments?: { date?: string }[] }) =>
+                  c.moments?.map((m) => m.date).filter(Boolean) || [],
+              ) || [];
+
           try {
             const { data, error } = await supabase
               .from('weekly_summaries')
@@ -5378,6 +5386,7 @@ export const useGremlyStore = create<GremlyState>()(
                 {
                   ...summary,
                   user_id: userId,
+                  moment_dates: momentDates,
                   created_at: now,
                   updated_at: now,
                 },
@@ -7185,7 +7194,6 @@ export const useGremlyStore = create<GremlyState>()(
                     ai_placed: newNote.ai_placed,
                     origin: newNote.origin,
                     views: newNote.views,
-                    created_at: newNote.created_at,
                     updated_at: newNote.updated_at,
                   });
                 }
@@ -9850,28 +9858,16 @@ export const selectMorningBriefItems = (date: string) => (state: GremlyState) =>
     (n) => !n.archived && n.target_date === date && n.subtype !== 'event',
   );
   const reminderNotes = state.notes.filter((n) => !n.archived && n.reminder_date === date);
-  const calendarEvents = state.calendarEvents[date] ?? [];
-  const userCalendarEvents = state.userCalendarEvents.filter((e) => e.event_date === date);
 
-  // Key Date events (subtype='event') - includes single-day and multi-day events spanning this date
-  const keyDateEvents = state.notes.filter((n) => {
-    if (n.subtype !== 'event' || n.archived) return false;
-    // Single day event: target_date matches
-    if (n.target_date === date) return true;
-    // Multi-day event: date falls within range
-    if (n.target_date && n.end_date) {
-      return date >= n.target_date && date <= n.end_date;
-    }
-    return false;
-  });
+  // Unified events from CalendarService (merges synced calendar events,
+  // event notes, and user calendar events with deduplication)
+  const events = getEventsForDate(date);
 
   return {
     todos,
     habits,
     eventNotes,
     reminderNotes,
-    calendarEvents,
-    userCalendarEvents,
-    keyDateEvents,
+    events,
   };
 };

@@ -153,7 +153,6 @@ export async function syncDropToSupabase(
           ai_degraded: drop.classificationDegraded || false,
           classification_source: drop.classificationSource || 'unknown',
         },
-        created_at: now,
         updated_at: now,
       };
     } else if (bucket === 'habit') {
@@ -215,7 +214,6 @@ export async function syncDropToSupabase(
           ai_degraded: drop.classificationDegraded || false,
           classification_source: drop.classificationSource || 'unknown',
         },
-        created_at: now,
         updated_at: now,
       };
     } else {
@@ -278,7 +276,6 @@ export async function syncDropToSupabase(
           ai_degraded: drop.classificationDegraded || false,
           classification_source: drop.classificationSource || 'unknown',
         },
-        created_at: now,
         updated_at: now,
       };
     }
@@ -393,7 +390,6 @@ export async function syncMultiDropToSupabase(drop: QueuedDrop): Promise<SyncRes
         dominant_bucket: dominantBucket,
         dominant_subtype: dominantSubtype,
       },
-      created_at: now,
       updated_at: now,
     };
 

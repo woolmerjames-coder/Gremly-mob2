@@ -1,5 +1,6 @@
 import { useGremlyStore } from '../store/useGremlyStore';
 import { getDateService } from '../date';
+import { getEventsForRange } from '../calendar/CalendarService';
 import type { Todo, Habit, Note } from '../types';
 import type { HabitProgressRow } from '../store/useGremlyStore';
 
@@ -185,8 +186,6 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
   const habitProgress: HabitProgressRow[] = state.habitProgress ?? [];
   const notes: Note[] = state.notes ?? [];
   const spaces = state.spaces ?? [];
-  const calendarEvents = state.calendarEvents ?? {};
-  const userCalendarEvents = state.userCalendarEvents ?? [];
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 1. Todos completed this week
@@ -519,112 +518,63 @@ export async function buildWeeklySummaryPayload(): Promise<WeeklySummaryPayload 
     // Non-blocking — continue with whatever's in the store
   }
 
-  // Re-read state after calendar fetch since calendarEvents record may have been updated
-  const freshState = useGremlyStore.getState();
+  // Unified event query via CalendarService (merges synced, user, entity events)
+  const calendarItems = getEventsForRange(nextWeekStart, nextWeekEnd);
 
-  // External synced events (from calendar provider, now in memory)
-  const externalEventsNextWeek: WeeklySummaryPayload['upcomingEvents'] = [];
-
-  for (let d = 0; d < 7; d++) {
-    const dateStr = ds().addDays(nextWeekStart, d);
-    const dayEvents = (freshState.calendarEvents ?? {})[dateStr] ?? [];
-    for (const ev of dayEvents) {
-      externalEventsNextWeek.push({
-        title: ev.title ?? 'Untitled',
-        date: dateStr,
-        startTime: ev.isAllDay
-          ? undefined
-          : (() => {
-              if (!ev.startAt) return undefined;
-              try {
-                const userTz =
-                  state.userTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-                return new Date(ev.startAt).toLocaleTimeString('en-US', {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                  hour12: true,
-                  timeZone: userTz,
-                });
-              } catch {
-                return ev.startAt?.slice(11, 16); // Fallback to UTC
-              }
-            })(),
-        isAllDay: ev.isAllDay ?? !ev.startAt,
-        isRecurring: false,
-        isUserCreated: false,
-        hasGremlyInteraction: false,
-        spaceId: undefined,
-        linkedTodoCount: 0,
-        source: 'calendar',
-      });
-    }
-  }
-
-  // User-created events (from calendar_events Supabase table)
-  const userEventsNextWeek = (freshState.userCalendarEvents ?? [])
-    .filter((e) => {
-      const eventDate = e.event_date;
-      return eventDate >= nextWeekStart && eventDate <= nextWeekEnd;
-    })
-    .map((e) => ({
-      title: e.title ?? 'Untitled',
-      date: e.event_date,
-      startTime: e.event_time ?? undefined,
-      isAllDay: !e.event_time,
-      isRecurring: false,
-      isUserCreated: true,
-      hasGremlyInteraction: !!e.space_id,
-      spaceId: e.space_id ?? undefined,
-      linkedTodoCount: 0,
-      source: 'user_calendar' as const,
-    }));
-
-  // Entity events (Notes with subtype='event' — user-created events inside Spaces)
-  const spaceMap = new Map(spaces.map((s) => [s.id, s.name]));
-  const entityEventsNextWeek: WeeklySummaryPayload['upcomingEvents'] = [];
-
-  for (const n of notes) {
-    if (n.archived) continue;
-    if (n.subtype !== 'event') continue;
-    if (!n.target_date) continue;
-
-    // Check if the event falls within next week (including multi-day events)
-    const eventStart = n.target_date;
-    const eventEnd = n.end_date ?? n.target_date;
-
-    // Include if ANY part of the event overlaps next week
-    if (eventEnd < nextWeekStart || eventStart > nextWeekEnd) continue;
-
-    // Count linked todos for this event
-    const linkedTodoCount = todos.filter(
-      (t) => !t.archived && !t.completed_at && t.linked_event_id === n.id,
-    ).length;
-
-    entityEventsNextWeek.push({
-      title: n.title ?? n.body?.slice(0, 60) ?? 'Untitled Event',
-      date: eventStart < nextWeekStart ? nextWeekStart : eventStart,
-      startTime: n.event_time ?? undefined,
-      isAllDay: n.is_all_day ?? !n.event_time,
-      isRecurring: false,
-      isUserCreated: true,
-      hasGremlyInteraction: true,
-      spaceId: n.space_id ?? undefined,
-      linkedTodoCount,
-      source: 'gremly_entity',
-      spaceName: n.space_id ? (spaceMap.get(n.space_id) ?? undefined) : undefined,
-      location: n.location ?? undefined,
-      endDate: n.end_date ?? undefined,
-    });
-  }
-
-  const upcomingEvents = [
-    ...externalEventsNextWeek,
-    ...userEventsNextWeek,
-    ...entityEventsNextWeek,
-  ].sort((a, b) => {
-    if (a.date !== b.date) return a.date.localeCompare(b.date);
-    return (a.startTime ?? '').localeCompare(b.startTime ?? '');
+  // Deduplicate multi-day events: keep earliest occurrence per source+originalId
+  const seenKeys = new Set<string>();
+  const dedupedItems = calendarItems.filter((item) => {
+    const key = `${item.source}-${item.originalId}`;
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    return true;
   });
+
+  // Build lookups for enrichment (spaceId, linkedTodoCount, etc.)
+  const spaceMap = new Map(spaces.map((s) => [s.id, s.name]));
+  const notesById = new Map(notes.filter((n) => n.subtype === 'event').map((n) => [n.id, n]));
+  const freshUce = useGremlyStore.getState().userCalendarEvents ?? [];
+  const uceById = new Map(freshUce.map((e) => [e.id, e]));
+
+  const sourceMap: Record<string, 'calendar' | 'gremly_entity' | 'user_calendar'> = {
+    synced: 'calendar',
+    gremly_event: 'gremly_entity',
+    user_calendar: 'user_calendar',
+  };
+
+  const upcomingEvents: WeeklySummaryPayload['upcomingEvents'] = dedupedItems
+    .map((item) => {
+      const note = item.source === 'gremly_event' ? notesById.get(item.originalId) : undefined;
+      const uce = item.source === 'user_calendar' ? uceById.get(item.originalId) : undefined;
+
+      const linkedTodoCount = note
+        ? todos.filter((t) => !t.archived && !t.completed_at && t.linked_event_id === note.id)
+            .length
+        : 0;
+
+      return {
+        title: item.title,
+        date: item.date,
+        startTime: item.startTime,
+        isAllDay: item.isAllDay,
+        isRecurring: false,
+        isUserCreated: item.source !== 'synced',
+        hasGremlyInteraction: item.source === 'gremly_event' || !!uce?.space_id,
+        spaceId: note?.space_id ?? uce?.space_id ?? undefined,
+        linkedTodoCount,
+        source: sourceMap[item.source] ?? 'calendar',
+        spaceName:
+          (note?.space_id ?? uce?.space_id)
+            ? (spaceMap.get(note?.space_id ?? uce?.space_id ?? '') ?? undefined)
+            : undefined,
+        location: item.location,
+        endDate: note?.end_date ?? undefined,
+      };
+    })
+    .sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return (a.startTime ?? '').localeCompare(b.startTime ?? '');
+    });
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 15. Upcoming todos (due next week)

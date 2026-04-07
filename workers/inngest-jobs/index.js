@@ -306,6 +306,7 @@ const generateSingleUserDco = inngest.createFunction(
               life_map: updatedLifeMap,
               version: snapshot.raw.currentLifeMap.version || 1,
               updated_at: now.toISOString(),
+              last_evidence_date: extractLastEvidenceDate(updatedLifeMap),
             }),
           },
         );
@@ -327,6 +328,7 @@ const generateSingleUserDco = inngest.createFunction(
                 thread_updates_count: flashResult.thread_updates?.length || 0,
                 lead_story: flashResult.daily_focus?.lead_story || null,
               },
+              upcoming_dates: extractUpcomingDates(dco),
               created_at: now.toISOString(),
               updated_at: now.toISOString(),
               expires_at: expiresAt.toISOString(),
@@ -1036,6 +1038,7 @@ const weeklySummaryV2Worker = inngest.createFunction(
           version: snapshot.raw.currentLifeMap?.version || 1,
           rebuilt_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          last_evidence_date: extractLastEvidenceDate(rebuildResult.mergedLifeMap),
         }),
       });
       if (!res.ok) {
@@ -1077,6 +1080,12 @@ const weeklySummaryV2Worker = inngest.createFunction(
       );
 
       // Insert new summary
+      const summaryContent = summaryResult.summary;
+      const momentDates =
+        summaryContent?.cards
+          ?.filter((c) => c.type === 'moments')
+          ?.flatMap((c) => c.moments?.map((m) => m.date).filter(Boolean) || []) || [];
+
       const insertRes = await fetch(`${env.SUPABASE_URL}/rest/v1/weekly_summaries`, {
         method: 'POST',
         headers: { ...headers, Prefer: 'return=minimal' },
@@ -1084,7 +1093,8 @@ const weeklySummaryV2Worker = inngest.createFunction(
           user_id: userId,
           week_start_date: weekDates.weekStart,
           week_end_date: weekDates.weekEnd,
-          content: summaryResult.summary,
+          content: summaryContent,
+          moment_dates: momentDates,
           stats_snapshot: {
             card_count: summaryResult.summary?.cards?.length || 0,
             card_types: summaryResult.summary?.cards?.map((c) => c.type) || [],
@@ -1718,6 +1728,7 @@ const bootstrapSingleUserLifeMap = inngest.createFunction(
             version: 1,
             rebuilt_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
+            last_evidence_date: extractLastEvidenceDate(lifeMap),
           }),
         });
 
@@ -2322,6 +2333,38 @@ async function fetchFullHistoricalSnapshot(userId, env) {
     dcoHistory: safeArr(dcoHistory),
     overrides: safeArr(overrides),
   };
+}
+
+// ============================================================================
+// Life Map: Extract last evidence date from Life Map JSONB
+// ============================================================================
+
+function extractLastEvidenceDate(lifeMap) {
+  let maxDate = null;
+  for (const domain of lifeMap.domains || []) {
+    for (const thread of domain.threads || []) {
+      for (const ev of thread.evidence || []) {
+        if (ev.date && (!maxDate || ev.date > maxDate)) {
+          maxDate = ev.date;
+        }
+      }
+    }
+  }
+  return maxDate; // YYYY-MM-DD or null
+}
+
+// ============================================================================
+// DCO: Extract upcoming date strings from DCO for indexed column
+// ============================================================================
+
+function extractUpcomingDates(dco) {
+  return (
+    dco?.active_today?.upcoming_in_7d
+      ?.map((item) =>
+        typeof item === 'object' && item.date ? item.date : String(item).split(':')[0]?.trim(),
+      )
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) || []
+  );
 }
 
 // ============================================================================
@@ -6670,7 +6713,9 @@ function assembleDcoFromFocus(dailyFocus, headline, snapshot) {
       calendar_events: calendar.todaysEvents.map((e) => e.title),
       overdue_todos: computed.todoStats.overdue,
       habit_streak_risk: habitStreakRisk,
-      upcoming_in_7d: calendar.upcomingEvents.slice(0, 5).map((e) => `${e.date}: ${e.title}`),
+      upcoming_in_7d: calendar.upcomingEvents
+        .slice(0, 5)
+        .map((e) => ({ date: e.date, title: e.title })),
     },
     deltas: {
       drop_velocity: computed.dropVelocity.velocity,
@@ -7015,6 +7060,7 @@ export default {
                 life_map: updatedMap,
                 version: snapshot.raw.currentLifeMap.version || 1,
                 updated_at: now.toISOString(),
+                last_evidence_date: extractLastEvidenceDate(updatedMap),
               }),
             });
 
@@ -7029,6 +7075,7 @@ export default {
                   world_picture_length: worldPicture.text.length,
                   lead_story: flashResult.daily_focus?.lead_story || null,
                 },
+                upcoming_dates: extractUpcomingDates(dco),
                 created_at: now.toISOString(),
                 updated_at: now.toISOString(),
                 expires_at: expiresAt.toISOString(),

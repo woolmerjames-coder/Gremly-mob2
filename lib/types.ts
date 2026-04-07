@@ -1556,10 +1556,15 @@ export interface DcoNamedAnchor {
   source: 'drop' | 'space';
 }
 
+export interface UpcomingEvent {
+  date: string; // YYYY-MM-DD
+  title: string;
+}
+
 export interface DcoActiveToday {
   overdue_todos: number;
   habit_streak_risk: string[];
-  upcoming_in_7d: string[];
+  upcoming_in_7d: (UpcomingEvent | string)[];
 }
 
 export interface DcoDeltas {
