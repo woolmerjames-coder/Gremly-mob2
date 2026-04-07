@@ -6,8 +6,8 @@
  * All-day events are passed to AllDaySection above the scroll.
  */
 
-import React, { useRef, useEffect, useMemo } from 'react';
-import { View, ScrollView, StyleSheet } from 'react-native';
+import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
+import { View, ScrollView, StyleSheet, type LayoutChangeEvent } from 'react-native';
 import { getDateService } from '../../lib/date';
 import type { CalendarItem } from '../../lib/calendar/CalendarService';
 import TimelineHourLabel from './TimelineHourLabel';
@@ -34,6 +34,7 @@ const HOUR_LINE_COLOR = '#E8E6E1';
 interface DayTimelineProps {
   selectedDate: string;
   events: CalendarItem[];
+  onEventPress?: (event: CalendarItem) => void;
 }
 
 interface PositionedEvent {
@@ -165,10 +166,16 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════
 
-export default function DayTimeline({ selectedDate, events }: DayTimelineProps) {
+export default function DayTimeline({ selectedDate, events, onEventPress }: DayTimelineProps) {
   const scrollRef = useRef<ScrollView>(null);
+  const [layerWidth, setLayerWidth] = useState(0);
   const ds = getDateService();
   const isToday = selectedDate === ds.today();
+
+  // Measure the event layer so we can compute pixel positions
+  const onEventLayerLayout = useCallback((e: LayoutChangeEvent) => {
+    setLayerWidth(e.nativeEvent.layout.width);
+  }, []);
 
   // Separate all-day vs timed events
   const { allDayEvents, timedEvents } = useMemo(() => {
@@ -209,6 +216,9 @@ export default function DayTimeline({ selectedDate, events }: DayTimelineProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
+  // Noop handler when parent doesn't pass one
+  const handleEventPress = onEventPress ?? (() => {});
+
   return (
     <View style={styles.outerContainer}>
       {/* All-day events above the scroll area */}
@@ -230,27 +240,39 @@ export default function DayTimeline({ selectedDate, events }: DayTimelineProps) 
         ))}
 
         {/* Event rendering area (absolutely positioned) */}
-        <View style={styles.eventLayer} pointerEvents="box-none">
-          {positioned.map((pe) => {
-            const availableWidth = `100%`; // flex takes care of it
-            const widthPct = `${100 / pe.totalColumns}%`;
-            const leftPct = `${(pe.columnIndex / pe.totalColumns) * 100}%`;
+        <View style={styles.eventLayer} pointerEvents="box-none" onLayout={onEventLayerLayout}>
+          {layerWidth > 0 &&
+            positioned.map((pe) => {
+              const colWidth = (layerWidth - EVENT_PADDING * 2) / pe.totalColumns;
+              const eventLeft = pe.columnIndex * colWidth + EVENT_PADDING;
+              const eventWidth = colWidth - EVENT_PADDING;
 
-            const blockStyle = {
-              position: 'absolute' as const,
-              top: pe.top,
-              height: pe.height,
-              left: leftPct,
-              width: widthPct,
-              paddingHorizontal: EVENT_PADDING,
-            };
-
-            return pe.item.source === 'habit' ? (
-              <TimelineHabitBlock key={pe.item.id} item={pe.item} style={blockStyle} />
-            ) : (
-              <TimelineEventBlock key={pe.item.id} item={pe.item} style={blockStyle} />
-            );
-          })}
+              return pe.item.source === 'habit' ? (
+                <View
+                  key={pe.item.id}
+                  style={{
+                    position: 'absolute',
+                    top: pe.top,
+                    left: eventLeft,
+                    width: eventWidth,
+                    height: pe.height,
+                  }}
+                  pointerEvents="box-none"
+                >
+                  <TimelineHabitBlock item={pe.item} style={{ flex: 1 }} />
+                </View>
+              ) : (
+                <TimelineEventBlock
+                  key={pe.item.id}
+                  event={pe.item}
+                  top={pe.top}
+                  height={pe.height}
+                  left={eventLeft}
+                  width={eventWidth}
+                  onPress={handleEventPress}
+                />
+              );
+            })}
         </View>
 
         {/* Current time indicator */}
