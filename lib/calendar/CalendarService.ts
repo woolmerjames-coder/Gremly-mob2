@@ -331,9 +331,18 @@ function collectItemsForDate(
 
       const todoDurationMin = todo.duration_minutes ?? todo.time_estimate_minutes ?? 30;
 
-      // Compute full timestamps if both due_day and due_time exist
-      const todoStartAt =
-        todo.due_time && todo.due_day ? localToIso(todo.due_day, todo.due_time) : undefined;
+      // Determine start time: prefer scheduled_start_iso (from Morning Brief time-blocking),
+      // fall back to due_time
+      const todoStartTime = todo.scheduled_start_iso
+        ? isoToLocalTime(todo.scheduled_start_iso)
+        : todo.due_time || undefined;
+
+      const todoStartAt = todo.scheduled_start_iso
+        ? todo.scheduled_start_iso
+        : todo.due_time && todo.due_day
+          ? localToIso(todo.due_day, todo.due_time)
+          : undefined;
+
       const todoEndAt = todoStartAt
         ? new Date(new Date(todoStartAt).getTime() + todoDurationMin * 60000).toISOString()
         : undefined;
@@ -343,9 +352,9 @@ function collectItemsForDate(
         source: 'todo',
         title: todo.name || todo.title || 'Untitled Todo',
         date: dateStr,
-        startTime: todo.due_time || undefined,
+        startTime: todoStartTime,
         endTime: todoStartAt && todoEndAt ? isoToLocalTime(todoEndAt) : undefined,
-        isAllDay: !todo.due_time,
+        isAllDay: !todoStartTime,
         provider: 'gremly',
         originalId: todo.id,
         startAt: todoStartAt,
