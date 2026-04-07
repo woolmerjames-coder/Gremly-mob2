@@ -227,6 +227,7 @@ export interface Todo {
   due_day?: string | null; // YYYY-MM-DD format - canonical field for day-based logic
   due_time?: string | null; // HH:mm format or null
   time_estimate_minutes?: number | null; // Estimated minutes to complete
+  duration_minutes?: number | null; // Explicit duration for calendar blocking
   reminders?: ItemReminder[] | null; // Per-item reminders JSON
   undefined_due?: boolean; // true if user wants "Might be today?" treatment (legacy)
   notes?: string | null; // Additional notes

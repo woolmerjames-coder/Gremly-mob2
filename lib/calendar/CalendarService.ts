@@ -21,7 +21,7 @@ import type { CalendarEvent as SyncedCalendarEvent } from './CalendarClient';
 
 export interface CalendarItem {
   id: string;
-  source: 'synced' | 'gremly_event' | 'user_calendar' | 'todo';
+  source: 'synced' | 'gremly_event' | 'user_calendar' | 'todo' | 'habit';
   title: string;
   date: string; // YYYY-MM-DD
   startTime?: string; // HH:mm
@@ -30,6 +30,15 @@ export interface CalendarItem {
   provider?: string; // 'google' | 'outlook' | 'ics' | 'gremly'
   originalId: string; // Reference back to source record
   location?: string;
+  // Full-timestamp fields (additive — existing fields preserved)
+  startAt?: string; // Full ISO timestamp (UTC)
+  endAt?: string; // Full ISO timestamp (UTC)
+  durationMinutes?: number; // Computed or stored
+  color?: string; // For visual differentiation
+  sourceData?: {
+    type: 'note' | 'synced_event' | 'user_calendar_event' | 'todo' | 'habit';
+    record: any;
+  };
 }
 
 export interface TimeSlot {
@@ -69,6 +78,57 @@ function isoToLocalTime(iso: string): string {
     hour12: false,
     timeZone: getDateService().getTimezone(),
   }).format(d);
+}
+
+/**
+ * Convert a local date string (YYYY-MM-DD) + time string (HH:mm) to a UTC ISO timestamp.
+ * Uses Intl.DateTimeFormat to resolve the correct UTC offset for the user's timezone.
+ */
+function localToIso(dateStr: string, timeStr: string): string {
+  const tz = getDateService().getTimezone();
+  // Parse components explicitly to avoid browser Date parsing quirks
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const [h, mi] = timeStr.split(':').map(Number);
+
+  // Build a Date in the device's default timezone first
+  const local = new Date(y, mo - 1, d, h, mi, 0, 0);
+
+  // Use Intl to find the actual UTC offset at this local wall-clock time in `tz`.
+  // We format the date parts in the target timezone and compare to get the offset.
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+    .formatToParts(local)
+    .reduce(
+      (acc, p) => {
+        acc[p.type] = p.value;
+        return acc;
+      },
+      {} as Record<string, string>,
+    );
+
+  // Reconstruct what the formatter thinks local is in the target timezone
+  const tzLocal = new Date(
+    `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`,
+  );
+
+  // The difference between the device Date and the tz-interpreted Date gives us the offset
+  const offsetMs = local.getTime() - tzLocal.getTime();
+  // Apply the offset: we want the UTC instant that corresponds to dateStr+timeStr in `tz`
+  const utcMs = local.getTime() + offsetMs;
+  return new Date(utcMs).toISOString();
+}
+
+/** Compute duration in minutes between two ISO timestamps */
+function computeDuration(startIso: string, endIso: string): number {
+  return Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
 }
 
 /** Sort comparator for CalendarItems: all-day first, then startTime asc, then title */
@@ -119,6 +179,16 @@ function collectItemsForDate(
       coveredExternalIds.add(note.external_source.externalId);
     }
 
+    // Compute full timestamps for event notes
+    const noteStartAt =
+      note.event_time && note.target_date
+        ? localToIso(note.target_date, note.event_time)
+        : undefined;
+    const noteEndAt =
+      note.end_time && note.target_date ? localToIso(note.target_date, note.end_time) : undefined;
+    const noteDuration =
+      noteStartAt && noteEndAt ? computeDuration(noteStartAt, noteEndAt) : undefined;
+
     items.push({
       id: note.id,
       source: 'gremly_event',
@@ -132,6 +202,10 @@ function collectItemsForDate(
         : 'gremly',
       originalId: note.id,
       location: note.location || undefined,
+      startAt: noteStartAt,
+      endAt: noteEndAt,
+      durationMinutes: noteDuration,
+      sourceData: { type: 'note', record: note },
     });
   }
 
@@ -139,6 +213,10 @@ function collectItemsForDate(
   const syncedEvents: SyncedCalendarEvent[] = state.calendarEvents[dateStr] || [];
   for (const event of syncedEvents) {
     if (coveredExternalIds.has(event.providerEventId)) continue;
+
+    const syncedDuration = !event.isAllDay
+      ? computeDuration(event.startAt, event.endAt)
+      : undefined;
 
     items.push({
       id: `cal-${event.provider}-${event.providerEventId}`,
@@ -151,6 +229,10 @@ function collectItemsForDate(
       provider: event.provider,
       originalId: event.providerEventId,
       location: event.location || undefined,
+      startAt: event.isAllDay ? undefined : event.startAt,
+      endAt: event.isAllDay ? undefined : event.endAt,
+      durationMinutes: syncedDuration,
+      sourceData: { type: 'synced_event', record: event },
     });
   }
 
@@ -163,6 +245,13 @@ function collectItemsForDate(
         ? minutesToTime(timeToMinutes(uce.event_time) + uce.duration_minutes)
         : undefined;
 
+    // Compute full timestamps
+    const uceStartAt = uce.event_time ? localToIso(uce.event_date, uce.event_time) : undefined;
+    const uceEndAt =
+      uceStartAt && uce.duration_minutes
+        ? new Date(new Date(uceStartAt).getTime() + uce.duration_minutes * 60000).toISOString()
+        : undefined;
+
     items.push({
       id: uce.id,
       source: 'user_calendar',
@@ -173,6 +262,10 @@ function collectItemsForDate(
       isAllDay: !uce.event_time,
       provider: 'gremly',
       originalId: uce.id,
+      startAt: uceStartAt,
+      endAt: uceEndAt,
+      durationMinutes: uce.duration_minutes ?? undefined,
+      sourceData: { type: 'user_calendar_event', record: uce },
     });
   }
 
@@ -182,15 +275,29 @@ function collectItemsForDate(
       if (todo.archived || todo.completed_at) continue;
       if (todo.due_day !== dateStr) continue;
 
+      const todoDurationMin = todo.duration_minutes ?? todo.time_estimate_minutes ?? 30;
+
+      // Compute full timestamps if both due_day and due_time exist
+      const todoStartAt =
+        todo.due_time && todo.due_day ? localToIso(todo.due_day, todo.due_time) : undefined;
+      const todoEndAt = todoStartAt
+        ? new Date(new Date(todoStartAt).getTime() + todoDurationMin * 60000).toISOString()
+        : undefined;
+
       items.push({
         id: todo.id,
         source: 'todo',
         title: todo.name || todo.title || 'Untitled Todo',
         date: dateStr,
         startTime: todo.due_time || undefined,
+        endTime: todoStartAt && todoEndAt ? isoToLocalTime(todoEndAt) : undefined,
         isAllDay: !todo.due_time,
         provider: 'gremly',
         originalId: todo.id,
+        startAt: todoStartAt,
+        endAt: todoEndAt,
+        durationMinutes: todoDurationMin,
+        sourceData: { type: 'todo', record: todo },
       });
     }
   }
