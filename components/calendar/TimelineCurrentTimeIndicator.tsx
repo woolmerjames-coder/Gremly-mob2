@@ -2,18 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { getDateService } from '../../lib/date';
 
-const HOUR_HEIGHT = 70;
 const LABEL_WIDTH = 50;
-const DOT_SIZE = 10;
+const DOT_SIZE = 8;
+const MOSS_GREEN = '#6B8F71';
 
-export default function TimelineCurrentTimeIndicator() {
-  const [top, setTop] = useState(() => computeTop());
+interface TimelineCurrentTimeIndicatorProps {
+  hourHeight: number;
+}
+
+export default function TimelineCurrentTimeIndicator({
+  hourHeight,
+}: TimelineCurrentTimeIndicatorProps) {
+  const [top, setTop] = useState(() => computeTop(hourHeight));
 
   useEffect(() => {
-    // Update every 60 seconds
-    const id = setInterval(() => setTop(computeTop()), 60_000);
+    const id = setInterval(() => setTop(computeTop(hourHeight)), 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, [hourHeight]);
 
   return (
     <View style={[styles.container, { top }]} pointerEvents="none">
@@ -23,9 +28,9 @@ export default function TimelineCurrentTimeIndicator() {
   );
 }
 
-function computeTop(): number {
+function computeTop(hourHeight: number): number {
   const now = getDateService().now();
-  return (now.getHours() + now.getMinutes() / 60) * HOUR_HEIGHT;
+  return (now.getHours() + now.getMinutes() / 60) * hourHeight;
 }
 
 const styles = StyleSheet.create({
@@ -41,11 +46,11 @@ const styles = StyleSheet.create({
     width: DOT_SIZE,
     height: DOT_SIZE,
     borderRadius: DOT_SIZE / 2,
-    backgroundColor: '#E53935',
+    backgroundColor: MOSS_GREEN,
   },
   line: {
     flex: 1,
-    height: 2,
-    backgroundColor: '#E53935',
+    height: 1.5,
+    backgroundColor: MOSS_GREEN,
   },
 });

@@ -1,28 +1,33 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import type { CalendarItem } from '../../lib/calendar/CalendarService';
+
+const SAGE_BG = '#E8F0EB';
+const SAGE_TEXT = '#2D4A33';
 
 interface AllDaySectionProps {
   events: CalendarItem[];
+  onEventPress: (event: CalendarItem) => void;
 }
 
-export default function AllDaySection({ events }: AllDaySectionProps) {
+export default function AllDaySection({ events, onEventPress }: AllDaySectionProps) {
   if (events.length === 0) return null;
   return (
     <View style={styles.container}>
       <Text style={styles.label}>All day</Text>
-      <View style={styles.chips}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.chips}
+      >
         {events.map((e) => (
-          <View
-            key={e.id}
-            style={[styles.chip, e.color ? { backgroundColor: e.color } : undefined]}
-          >
+          <Pressable key={e.id} onPress={() => onEventPress(e)} style={styles.chip}>
             <Text style={styles.chipText} numberOfLines={1}>
               {e.title}
             </Text>
-          </View>
+          </Pressable>
         ))}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -41,18 +46,17 @@ const styles = StyleSheet.create({
   },
   chips: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 6,
   },
   chip: {
-    backgroundColor: '#4A90D9',
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    backgroundColor: SAGE_BG,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   chipText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#FFFFFF',
+    color: SAGE_TEXT,
   },
 });

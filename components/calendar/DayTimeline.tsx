@@ -15,6 +15,7 @@ import TimelineEventBlock from './TimelineEventBlock';
 import TimelineHabitBlock from './TimelineHabitBlock';
 import TimelineCurrentTimeIndicator from './TimelineCurrentTimeIndicator';
 import AllDaySection from './AllDaySection';
+import EmptyDayState from './EmptyDayState';
 
 // ═══════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -222,7 +223,12 @@ export default function DayTimeline({ selectedDate, events, onEventPress }: DayT
   return (
     <View style={styles.outerContainer}>
       {/* All-day events above the scroll area */}
-      {allDayEvents.length > 0 && <AllDaySection events={allDayEvents} />}
+      {allDayEvents.length > 0 && (
+        <AllDaySection events={allDayEvents} onEventPress={handleEventPress} />
+      )}
+
+      {/* Empty state when no events at all */}
+      {events.length === 0 && <EmptyDayState />}
 
       {/* Scrollable hour grid */}
       <ScrollView
@@ -272,7 +278,7 @@ export default function DayTimeline({ selectedDate, events, onEventPress }: DayT
         </View>
 
         {/* Current time indicator */}
-        {isToday && <TimelineCurrentTimeIndicator />}
+        {isToday && <TimelineCurrentTimeIndicator hourHeight={HOUR_HEIGHT} />}
       </ScrollView>
     </View>
   );
