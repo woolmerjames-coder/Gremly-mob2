@@ -191,6 +191,7 @@ import { hashString } from '../../lib/telemetry/catchallLogger';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import { useVoiceCapture, VoiceCaptureState } from '../../hooks/useVoiceCapture';
 import { VoicePulse } from '../../components/VoicePulse';
+import WeekStrip from '../../components/calendar/WeekStrip';
 import { FEATURE_FLAGS } from '../../lib/config/featureFlags';
 import { MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 
@@ -340,6 +341,26 @@ const isNetworkError = (err: any) =>
 const UNSORTED_LABEL = 'needs_review'; // used as “Unsorted Tray” tag
 const CATCHALL_LABEL = 'catchall'; // to mark Mind Drop items
 
+const PREFILL_MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+function formatPrefillChip(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return `📅 ${PREFILL_MONTH_NAMES[m - 1]} ${d}`;
+}
+
 // Legacy UISuggestion stub - suggestion chips removed but code references remain
 type UISuggestion = {
   type: string;
@@ -376,6 +397,7 @@ type MindDropInputProps = {
   heightWrapperStyle?: any;
   inputDynHeight: number;
   onCameraPress?: () => void;
+  onCalendarPress?: () => void;
   photoHintText?: string;
   // Voice capture
   onMicPress?: () => void;
@@ -410,6 +432,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
     heightWrapperStyle,
     inputDynHeight,
     onCameraPress,
+    onCalendarPress,
     photoHintText,
     onMicPress,
     voiceState = 'idle',
@@ -495,6 +518,18 @@ const MindDropInput = React.memo<MindDropInputProps>(
         </View>
         <View style={iconContainerStyle} pointerEvents="box-none">
           {/* Mic button hidden for now - voice capture code kept in place */}
+          {onCalendarPress && (
+            <Pressable
+              style={[iconButtonStyle, iconCameraStyle]}
+              accessibilityRole="button"
+              accessibilityLabel="Pick a date"
+              onPress={onCalendarPress}
+            >
+              <View style={iconWrapperStyle}>
+                <Icon name="Calendar" size="sm" color={iconColor} strokeWidth={1.4} />
+              </View>
+            </Pressable>
+          )}
           <Pressable
             disabled={!onCameraPress}
             style={[iconButtonStyle, iconCameraStyle]}
@@ -6094,6 +6129,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showHelp, setShowHelp] = useState(false);
   const [helpInitialPage, setHelpInitialPage] = useState<'help' | 'gauge' | undefined>(undefined);
 
+  // Calendar date pre-fill
+  const [prefillDate, setPrefillDate] = useState<string | null>(null);
+  const [showDateStrip, setShowDateStrip] = useState(false);
+
   // Open Gremly modal to gauge page when fed toast is tapped
   useEffect(() => {
     const unsub = eventBus.on('openGremlyModal', () => {
@@ -6927,11 +6966,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       userId: userId, // Pass userId for photo uploads
       source: 'minddrop',
       dropId, // Pass the dropId to ensure pending item correlation
+      prefillDate: prefillDate ?? null,
     });
 
     if (result.success) {
       setNote('');
       setPendingPhotoUris([]);
+      // Clear calendar prefill after successful drop
+      setPrefillDate(null);
+      setShowDateStrip(false);
       // CRITICAL: Clear drop_id ref so next submission generates a new one
       // Without this, subsequent submissions would reuse the same drop_id,
       // causing the database constraint to return the existing entity instead of creating a new one
@@ -6971,7 +7014,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       submissionIdRef.current = null;
       return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
     }
-  }, [note, pendingPhotoUris, mindDropSubmit, resetState, ensureSubmissionAndDropIds]);
+  }, [note, pendingPhotoUris, mindDropSubmit, resetState, ensureSubmissionAndDropIds, prefillDate]);
 
   const performSave = useCallback(async (): Promise<SaveResult> => {
     // Feature flag check for new Mind Drop pipeline
@@ -9137,6 +9180,28 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     setPendingPhotoUris((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  const handleCalendarToggle = useCallback(() => {
+    setShowDateStrip((prev) => {
+      if (prev) {
+        // Closing strip — also clear date
+        setPrefillDate(null);
+      } else {
+        // Opening strip — default to today
+        setPrefillDate(getDateService().today());
+      }
+      return !prev;
+    });
+  }, []);
+
+  const handleDateStripSelect = useCallback((date: string) => {
+    setPrefillDate(date);
+  }, []);
+
+  const handleClearPrefillDate = useCallback(() => {
+    setPrefillDate(null);
+    setShowDateStrip(false);
+  }, []);
+
   const handleSubmit = useCallback(() => {
     if (isSubmitting || isThinking || (!note.trim() && pendingPhotoUris.length === 0)) {
       return;
@@ -9284,11 +9349,39 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               heightWrapperStyle={styles.inputHeightWrapper}
               inputDynHeight={inputDynHeight}
               onCameraPress={handleMindDropPhotoAction}
+              onCalendarPress={handleCalendarToggle}
               photoHintText={photoHintText}
               onMicPress={handleMicPress}
               voiceState={voiceState}
             />
           </View>
+
+          {/* Calendar date pre-fill: chip + week strip */}
+          {prefillDate && (
+            <Reanimated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(100)}>
+              <View style={styles.prefillChipRow}>
+                <View style={styles.prefillChip}>
+                  <Text style={styles.prefillChipText}>{formatPrefillChip(prefillDate)}</Text>
+                  <Pressable
+                    onPress={handleClearPrefillDate}
+                    hitSlop={8}
+                    accessibilityLabel="Clear date"
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.prefillChipX}>✕</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </Reanimated.View>
+          )}
+          {showDateStrip && (
+            <Reanimated.View entering={SlideInDown.duration(200)} exiting={FadeOut.duration(100)}>
+              <WeekStrip
+                selectedDate={prefillDate || getDateService().today()}
+                onDateSelect={handleDateStripSelect}
+              />
+            </Reanimated.View>
+          )}
 
           {pendingPhotoUris.length > 0 && (
             <ScrollView
@@ -10541,6 +10634,32 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       marginTop: 12,
       marginBottom: 8,
       paddingHorizontal: space,
+    },
+    // Calendar prefill chip styles
+    prefillChipRow: {
+      flexDirection: 'row',
+      paddingHorizontal: space,
+      paddingTop: 8,
+      paddingBottom: 4,
+    },
+    prefillChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#EEF3EE',
+      borderRadius: 16,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      gap: 8,
+    },
+    prefillChipText: {
+      fontSize: 13,
+      color: '#2D4A33',
+      fontFamily: 'Inter-Medium',
+    },
+    prefillChipX: {
+      fontSize: 14,
+      color: '#6B7280',
+      lineHeight: 16,
     },
     photoStripContent: {
       flexDirection: 'row',
