@@ -71,7 +71,11 @@ function mightBeMulti(text: string): boolean {
     lower.includes(' but ') ||
     lower.includes('+') ||
     lower.includes(' & ') ||
-    lower.includes('\n')
+    lower.includes('\n') ||
+    lower.includes(' / ') ||
+    lower.includes(' — ') ||
+    lower.includes(' – ') ||
+    lower.includes(' - ')
   );
 }
 

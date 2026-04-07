@@ -7788,235 +7788,141 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
       }
 
       // =========================
-      // === PHASE 0: MULTI-ENTITY DETECTION (v5 - FACT EXTRACTION) ===
-      // Three parallel fact-extraction prompts, deterministic decision logic
+      // === PHASE 0: MULTI-ENTITY DETECTION (v6 - SINGLE MINI CALL) ===
+      // One mini call handles both detection and extraction
       // =========================
       if (type === 'detect-multi') {
         const text = body.text || '';
         const t0 = Date.now();
 
-        // Prompt A - Emotional presence
-        const promptA = `Is this primarily emotional expression?
+        const gatePrompt = `You are determining whether a text drop contains ONE trackable item or MULTIPLE independently trackable items.
 
-Emotional expression: communicating how someone feels - their mood, internal state, or reflection on experiences.
+Default to SINGLE. Only return "multiple" when items are genuinely independent.
 
-"Primarily emotional" means the PURPOSE of this drop is to express or process feelings. Multiple feelings expressed together is still primarily emotional - the count doesn't matter, the purpose does.
+SINGLE means the items share a causal, explanatory, contextual, or goal relationship. One item explains, motivates, responds to, or is a sub-step of the other. They belong together as one tracked thing.
 
-Ask: "Is this drop ABOUT how someone feels, or ABOUT something they need to do?"
-
-Return JSON only:
-{
-  "has_emotion": true/false,
-  "emotion_is_primary": true/false
-}`;
-
-        // Prompt B - Standalone task check
-        const promptB = `Is there a task here that has NOTHING TO DO with the emotion?
-
-Default to NO standalone task. Only return true for CLEARLY UNRELATED tasks.
-
-A "standalone task" means:
-- Would exist even if the emotion wasn't there
-- Has a completely different PURPOSE than the emotion
-- Is NOT a response to, caused by, or coping with the emotion
-
-Ask: "Does the emotion EXPLAIN why this task exists?" If yes → not standalone.
-Ask: "Would removing the emotion change whether the user does this task?" If no → standalone.
-
-Return JSON only:
-{
-  "has_standalone_task": true/false,
-  "reason": "brief explanation"
-}`;
-
-        // Prompt C - Effort count
-        const promptC = `Count how many SEPARATELY COMPLETABLE items are in this text.
-
-The test: "Would the user finish and check off each item at a DIFFERENT time and place?"
-
-Count as ONE:
-- Sub-steps or prerequisites of a single task
-- A task paired with its context, reason, or cause
+Specific single-item patterns:
+- A task accompanied by its reason, cause, or context
+- An emotion paired with a coping response or reaction to that emotion
 - Alternatives or options for the same underlying need
+- A list of related items that form one errand, purchase, or activity
+- Multiple emotions or feelings expressed together
+- A habit or goal with planning details, schedule notes, or elaboration
+- Sub-steps or prerequisites that serve a single outcome
+- A reflection followed by further elaboration on the same thought
 
-The ONE rules take precedence. Only count as SEPARATE if NONE of the ONE rules apply.
+MULTIPLE means the items have no causal or contextual dependency. They happen to be mentioned together but would be tracked, completed, or resolved independently in different contexts at different times.
 
-Count as SEPARATE when ANY of these are true:
-- Different verbs acting on different objects
-- One is a one-time action, the other is ongoing or recurring
-- User would realistically check them off on different occasions
+Specific multi-item patterns:
+- Unrelated tasks with no shared cause or goal
+- An emotion plus a task that has nothing to do with that emotion
+- A one-time completable action alongside an ongoing recurring commitment
+- Actions spanning completely different life domains with no bridging relationship
 
-IMPORTANT: If you identify 2+ groupings, effort_count MUST match the number of groupings. Do not list separate groupings and then return effort_count: 1.
+THE CORE TEST: Does one item explain, cause, depend on, or serve the same goal as the other? If yes → SINGLE. If they are merely co-located in the same message → MULTIPLE.
 
 Return JSON only:
 {
-  "effort_count": 1,
-  "groupings": ["description"]
+  "result": "single" | "multiple",
+  "reasoning": "one sentence why"
 }
 
-or if separately completable:
-
+If "multiple", also include segments:
 {
-  "effort_count": 2,
-  "groupings": ["first item", "second item"]
-}`;
-
-        {
-          const [resultA, resultB, resultC] = await Promise.all([
-            aiClassify({
-              mode: 'realtime',
-              ...getProviders('nano', env),
-              env,
-              systemPrompt: promptA,
-              messages: [{ role: 'user', content: text.substring(0, 1000) }],
-              temperature: 0.1,
-              maxOutputTokens: 100,
-              endpoint: 'detect-multi-A',
-            }),
-            aiClassify({
-              mode: 'realtime',
-              ...getProviders('nano', env),
-              env,
-              systemPrompt: promptB,
-              messages: [{ role: 'user', content: text.substring(0, 1000) }],
-              temperature: 0.1,
-              maxOutputTokens: 150,
-              endpoint: 'detect-multi-B',
-            }),
-            aiClassify({
-              mode: 'realtime',
-              ...getProviders('nano', env),
-              env,
-              systemPrompt: promptC,
-              messages: [{ role: 'user', content: text.substring(0, 1000) }],
-              temperature: 0.1,
-              maxOutputTokens: 200,
-              endpoint: 'detect-multi-C',
-            }),
-          ]);
-
-          const a = resultA.parsed || { has_emotion: false, emotion_is_primary: false };
-          const b = resultB.parsed || { has_standalone_task: false };
-          const c = resultC.parsed || { effort_count: 1, groupings: [] };
-
-          console.log('[Phase0:A]', a);
-          console.log('[Phase0:B]', b);
-          console.log('[Phase0:C]', c);
-
-          // Decision logic
-          let isMulti = false;
-          let reason = '';
-
-          if (a.has_emotion && a.emotion_is_primary && !b.has_standalone_task) {
-            isMulti = false;
-            reason = 'emotional_primary';
-          } else if (a.has_emotion && b.has_standalone_task) {
-            isMulti = true;
-            reason = 'emotion_plus_task';
-          } else if (!a.has_emotion && c.effort_count === 1) {
-            isMulti = false;
-            reason = 'single_effort';
-          } else if (c.effort_count > 1) {
-            isMulti = true;
-            reason = 'multiple_efforts';
-          } else {
-            isMulti = false;
-            reason = 'default_single';
-          }
-
-          // If SINGLE, return immediately
-          if (!isMulti) {
-            const latency = Date.now() - t0;
-            console.log('[Phase0] SINGLE', { reason, latency_ms: latency });
-            return j({ is_multi: false, source: 'api', reason, latency_ms: latency });
-          }
-
-          // If MULTI, run Prompt D for extraction
-          const groupings = Array.isArray(c.groupings) ? c.groupings : [];
-          const promptD = `Extract segments from this text.
-
-These groupings were identified: ${JSON.stringify(groupings)}
-
-Extract the EXACT words from the user's input for each grouping.
-- Do NOT add words
-- Do NOT rephrase
-- Do NOT embellish
-- Use only what the user wrote
-
-Return JSON only:
-{
+  "result": "multiple",
+  "reasoning": "one sentence why",
   "segments": [
-    {"text": "exact user words for grouping 1", "likely_bucket": "todo"|"habit"|"log"},
-    {"text": "exact user words for grouping 2", "likely_bucket": "todo"|"habit"|"log"}
+    {"text": "exact user words for item 1", "context_from_rest": "brief note about what the other segments said"},
+    {"text": "exact user words for item 2", "context_from_rest": "brief note about what the other segments said"}
   ]
-}`;
+}
 
-          const resultD = await aiClassify({
-            mode: 'realtime',
-            ...getProviders('nano', env),
-            env,
-            systemPrompt: promptD,
-            messages: [{ role: 'user', content: text.substring(0, 1000) }],
-            temperature: 0.1,
-            maxOutputTokens: 300,
-            endpoint: 'detect-multi-D',
-          });
+Segment rules:
+- Use the user's EXACT words — do not rephrase, add, or embellish
+- Each segment must be understandable on its own — if a pronoun would dangle without its referent, include enough of the original wording to resolve it
+- context_from_rest summarizes what the OTHER segments contain, so downstream processing has awareness of the full drop`;
 
-          const d = resultD.parsed || { segments: [] };
+        const gateResult = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: gatePrompt,
+          messages: [{ role: 'user', content: text.substring(0, 1000) }],
+          temperature: 0.1,
+          maxOutputTokens: 400,
+          endpoint: 'detect-multi-gate',
+        });
 
-          console.log('[Phase0:D]', d);
+        const gate = gateResult.parsed || { result: 'single', segments: [] };
 
-          const segments = Array.isArray(d.segments) ? d.segments : [];
+        console.log('[Phase0:Gate]', {
+          result: gate.result,
+          reasoning: gate.reasoning,
+          segment_count: gate.segments?.length || 0,
+        });
 
-          // Validate segments
-          const validatedSegments = segments
-            .map((seg) => ({
-              text: String(seg.text || '').trim(),
-              likely_bucket: ['todo', 'habit', 'log'].includes(seg.likely_bucket)
-                ? seg.likely_bucket
-                : 'todo',
-            }))
-            .filter((seg) => seg.text.length > 0);
-
-          if (validatedSegments.length < 2) {
-            const latency = Date.now() - t0;
-            console.log('[Phase0] Extraction gave <2 segments, falling back to SINGLE', {
-              latency_ms: latency,
-            });
-            return j({ is_multi: false, source: 'extraction-fallback', latency_ms: latency });
-          }
-
-          // Build summary from groupings
-          let summary = groupings.slice(0, 3).join(' + ') || 'Multiple items';
-          if (summary.length > 60) summary = summary.substring(0, 57) + '...';
-
-          // Determine dominant bucket
-          const bucketCounts = { todo: 0, habit: 0, log: 0 };
-          validatedSegments.forEach((s) => bucketCounts[s.likely_bucket]++);
-          const dominantBucket = Object.entries(bucketCounts).sort((a, b) => b[1] - a[1])[0][0];
-
+        if (gate.result !== 'multiple') {
           const latency = Date.now() - t0;
-          console.log('[Phase0:Multi]', {
-            reason,
-            item_count: validatedSegments.length,
-            summary,
-            dominant_bucket: dominantBucket,
-            latency_ms: latency,
-          });
-
+          console.log('[Phase0] SINGLE', { reason: gate.reasoning, latency_ms: latency });
           return j({
-            is_multi: true,
-            confidence: 0.85,
-            item_count: validatedSegments.length,
-            segments: validatedSegments,
-            summary,
-            dominant_bucket: dominantBucket,
-            dominant_subtype: dominantBucket === 'log' ? 'general' : null,
+            is_multi: false,
             source: 'api',
-            reason,
+            reason: gate.reasoning || 'single',
             latency_ms: latency,
           });
         }
+
+        const segments = Array.isArray(gate.segments) ? gate.segments : [];
+
+        const validatedSegments = segments
+          .map((seg) => ({
+            text: String(seg.text || '').trim(),
+            context_from_rest: String(seg.context_from_rest || '').trim(),
+            likely_bucket: ['todo', 'habit', 'log'].includes(seg.likely_bucket)
+              ? seg.likely_bucket
+              : 'todo',
+          }))
+          .filter((seg) => seg.text.length > 0);
+
+        if (validatedSegments.length < 2) {
+          const latency = Date.now() - t0;
+          console.log('[Phase0] Extraction gave <2 segments, falling back to SINGLE', {
+            latency_ms: latency,
+          });
+          return j({ is_multi: false, source: 'extraction-fallback', latency_ms: latency });
+        }
+
+        let summary = validatedSegments
+          .map((s) => s.text.substring(0, 30))
+          .slice(0, 3)
+          .join(' + ');
+        if (summary.length > 60) summary = summary.substring(0, 57) + '...';
+
+        const bucketCounts = { todo: 0, habit: 0, log: 0 };
+        validatedSegments.forEach((s) => bucketCounts[s.likely_bucket]++);
+        const dominantBucket = Object.entries(bucketCounts).sort((a, b) => b[1] - a[1])[0][0];
+
+        const latency = Date.now() - t0;
+        console.log('[Phase0:Multi]', {
+          reason: gate.reasoning,
+          item_count: validatedSegments.length,
+          summary,
+          dominant_bucket: dominantBucket,
+          latency_ms: latency,
+        });
+
+        return j({
+          is_multi: true,
+          confidence: 0.85,
+          item_count: validatedSegments.length,
+          segments: validatedSegments,
+          summary,
+          dominant_bucket: dominantBucket,
+          dominant_subtype: dominantBucket === 'log' ? 'general' : null,
+          source: 'api',
+          reason: gate.reasoning,
+          latency_ms: latency,
+        });
       }
 
       // =========================
