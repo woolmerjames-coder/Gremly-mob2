@@ -49,7 +49,6 @@ import {
   type CalendarProvider,
 } from '../calendar/CalendarClient';
 import { reconcileCalendarEvents } from '../calendar/calendarSync';
-import { getEventsForDate } from '../calendar/CalendarService';
 import { DEFAULT_TIME_BLOCK_PREFERENCES, getTimeBlockBoundaries } from '../capacity';
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
 import { cancelAllItemReminders } from '../notifications/itemReminderService';
@@ -9859,15 +9858,28 @@ export const selectMorningBriefItems = (date: string) => (state: GremlyState) =>
   );
   const reminderNotes = state.notes.filter((n) => !n.archived && n.reminder_date === date);
 
-  // Unified events from CalendarService (merges synced calendar events,
-  // event notes, and user calendar events with deduplication)
-  const events = getEventsForDate(date);
+  const calendarEvents = state.calendarEvents[date] ?? [];
+  const userCalendarEvents = state.userCalendarEvents.filter((e) => e.event_date === date);
+
+  // Key Date events (subtype='event') - includes single-day and multi-day events spanning this date
+  const keyDateEvents = state.notes.filter((n) => {
+    if (n.subtype !== 'event' || n.archived) return false;
+    // Single day event: target_date matches
+    if (n.target_date === date) return true;
+    // Multi-day event: date falls within range
+    if (n.target_date && n.end_date) {
+      return date >= n.target_date && date <= n.end_date;
+    }
+    return false;
+  });
 
   return {
     todos,
     habits,
     eventNotes,
     reminderNotes,
-    events,
+    calendarEvents,
+    userCalendarEvents,
+    keyDateEvents,
   };
 };
