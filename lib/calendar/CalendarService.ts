@@ -92,6 +92,9 @@ function localToIso(dateStr: string, timeStr: string): string {
   const [h, mi] = timeStr.split(':').map(Number);
 
   // Build a Date in the device's default timezone first
+  // NOTE: This creates a Date in the device's local timezone. If the device timezone
+  // differs from the DateService timezone, the offset calculation could be slightly off.
+  // In practice these are always the same on mobile.
   const local = new Date(y, mo - 1, d, h, mi, 0, 0);
 
   // Use Intl to find the actual UTC offset at this local wall-clock time in `tz`.
