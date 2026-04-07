@@ -94,6 +94,7 @@ type SweepCardNewProps = {
     resurfaceTiming?: 'nextweek' | '2weeks' | 'pick';
     eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
   }) => void;
+  hideGremlyMenu?: boolean;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,6 +123,7 @@ export function SweepCardNew({
   onConfirmTodoAction,
   onConfirmEventAction,
   onConfirmNoteAction,
+  hideGremlyMenu,
 }: SweepCardNewProps) {
   const spaces = useActiveSpaces();
   // ── Action zone state ──
@@ -465,6 +467,7 @@ export function SweepCardNew({
           isConverted={isConverted}
           isClarified={isClarified}
           onRequestPhotoPreview={onRequestPhotoPreview}
+          hideGremlyMenu={hideGremlyMenu}
         >
           {candidate.kind === 'todo' && (
             <TodoActionZone

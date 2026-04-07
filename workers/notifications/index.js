@@ -117,6 +117,18 @@ export default {
       const sk = env.SUPABASE_SERVICE_KEY;
       const headers = { apikey: sk, Authorization: `Bearer ${sk}` };
 
+      const now = new Date();
+      const dayOfWeek = now.getUTCDay(); // 0=Sun
+      const thisWeekStart = new Date(now);
+      thisWeekStart.setUTCDate(now.getUTCDate() - dayOfWeek);
+      const thisWeekEnd = new Date(thisWeekStart);
+      thisWeekEnd.setUTCDate(thisWeekStart.getUTCDate() + 6);
+      const nextWeekStart = new Date(thisWeekEnd);
+      nextWeekStart.setUTCDate(thisWeekEnd.getUTCDate() + 1);
+      const nextWeekEnd = new Date(nextWeekStart);
+      nextWeekEnd.setUTCDate(nextWeekStart.getUTCDate() + 6);
+      const fmt = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(d);
+
       const [noteEventsRes, calEventsRes, externalEventsRes, noteEventsThisWeekRes] =
         await Promise.all([
           fetch(
@@ -132,7 +144,7 @@ export default {
             { headers },
           ),
           fetch(
-            `${sb}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&or=(and(target_date.gte.2026-02-16,target_date.lte.2026-02-22),and(target_date.gte.2026-02-23,target_date.lte.2026-03-01))&select=id,title,target_date,end_date,date,event_time,location,is_all_day,space_id,created_at&order=target_date.asc`,
+            `${sb}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&or=(and(target_date.gte.${fmt(thisWeekStart)},target_date.lte.${fmt(thisWeekEnd)}),and(target_date.gte.${fmt(nextWeekStart)},target_date.lte.${fmt(nextWeekEnd)}))&select=id,title,target_date,end_date,date,event_time,location,is_all_day,space_id,created_at&order=target_date.asc`,
             { headers },
           ),
         ]);
@@ -190,7 +202,7 @@ export default {
       const tokenData = tokenRes.ok ? await tokenRes.json() : [];
       const hasToken = tokenData.length > 0;
 
-      const timezone = pref.timezone || 'America/Los_Angeles';
+      const timezone = pref.timezone || 'UTC';
       const userTime = getTimeInTimezone(now, timezone);
       const todayInUserTz = getDateInTimezone(now, timezone);
 
@@ -373,7 +385,7 @@ async function sendScheduledNotifications(env) {
     const token = tokenMap[pref.user_id];
     if (!token) continue;
 
-    const timezone = pref.timezone || 'America/Los_Angeles';
+    const timezone = pref.timezone || 'UTC';
     const isTraining = trainingMap[pref.user_id] || false;
     const userTime = getTimeInTimezone(now, timezone);
 
@@ -488,8 +500,7 @@ async function sendScheduledNotifications(env) {
   // --- Process immediate (morning/evening/midday) notifications sequentially ---
   for (const user of immediateUsers) {
     try {
-      const userTimezone =
-        prefs.find((p) => p.user_id === user.user_id)?.timezone || 'America/Los_Angeles';
+      const userTimezone = prefs.find((p) => p.user_id === user.user_id)?.timezone || 'UTC';
       const todayInUserTz = getDateInTimezone(now, userTimezone);
 
       // Midday: check if user has dropped today, skip if they have
@@ -577,7 +588,7 @@ async function sendScheduledNotifications(env) {
 
     for (const user of afternoonUsers) {
       try {
-        const userTimezone = user.timezone || 'America/Los_Angeles';
+        const userTimezone = user.timezone || 'UTC';
         const todayInUserTz = getDateInTimezone(now, userTimezone);
 
         // Atomic claim

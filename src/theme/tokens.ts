@@ -7,7 +7,7 @@ export const colors = {
     sageTint: '#F0F4F3', // Input background
     pear: '#E0C47A', // Highlight
     periwinkle: '#9CA6E0', // Accent (sparingly)
-    mutedText: '#6A7D76',
+    mutedText: '#5E706A',
     danger: '#9E3B3B',
     cardShadow: 'rgba(0,0,0,0.05)',
     // Phase 1: Mind Drop refresh tokens
@@ -17,7 +17,7 @@ export const colors = {
     goldenPear: '#E0C47A',
     goldenPearStrong: '#C4A85C', // Darkened ~12% for text contrast
     charcoalInk: '#222222',
-    mutedSageText: '#768879',
+    mutedSageText: '#657565',
   },
   dark: {
     bg: '#1A3328', // Deep Forest

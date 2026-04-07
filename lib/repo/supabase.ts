@@ -1958,6 +1958,7 @@ export class SupabaseRepo implements IRepo {
     try {
       const userId = this.ensureUserId();
       const today = getDateService().today(); // YYYY-MM-DD (local timezone)
+      const ds = getDateService();
 
       // Count todos completed today (completed_at = today)
       const { count: todoCount, error: todoError } = await supabase
@@ -1965,8 +1966,8 @@ export class SupabaseRepo implements IRepo {
         .select('*', { count: 'exact', head: true })
         .eq('owner_id', userId)
         .not('completed_at', 'is', null)
-        .gte('completed_at', `${today}T00:00:00`)
-        .lt('completed_at', `${today}T23:59:59`);
+        .gte('completed_at', ds.startOfDayUtc(today))
+        .lt('completed_at', ds.endOfDayUtc(today));
 
       if (todoError) {
         // Throttled logging: only warn once per minute
@@ -2062,13 +2063,14 @@ export class SupabaseRepo implements IRepo {
     }
 
     let completedTodos: any[] = [];
+    const ds = getDateService();
     const completedResp = await supabase
       .from('todos')
       .select(todoFields)
       .eq('owner_id', userId)
       .eq('status', 'completed')
-      .gte('completed_at', `${day}T00:00:00`)
-      .lt('completed_at', `${day}T23:59:59.999`);
+      .gte('completed_at', ds.startOfDayUtc(day))
+      .lt('completed_at', ds.endOfDayUtc(day));
 
     if (completedResp.error) {
       console.error('[listTodayMerged] todos completed query failed:', completedResp.error);
@@ -2415,6 +2417,7 @@ export class SupabaseRepo implements IRepo {
   async getTodaySummary(): Promise<{ completed: number; remaining: number }> {
     const ownerId = this.ensureUserId();
     const day = ensureDay(nowTimestamp());
+    const ds = getDateService();
 
     let completedCount = 0;
     if (this.todoCompletedAtSupported !== false) {
@@ -2422,8 +2425,8 @@ export class SupabaseRepo implements IRepo {
         .from('todos')
         .select('*', { count: 'exact', head: true })
         .eq('owner_id', ownerId)
-        .gte('completed_at', `${day}T00:00:00Z`)
-        .lt('completed_at', `${day}T23:59:59Z`);
+        .gte('completed_at', ds.startOfDayUtc(day))
+        .lt('completed_at', ds.endOfDayUtc(day));
 
       if (completedError) {
         this.todoCompletedAtSupported = false;
@@ -2468,7 +2471,11 @@ export class SupabaseRepo implements IRepo {
       if (action === 'archive') {
         const { error } = await supabase
           .from('todos')
-          .update({ status: 'archived', archived_reason: details?.archived_reason ?? 'swept' })
+          .update({
+            status: 'archived',
+            archived_at: nowTimestamp(),
+            archived_reason: details?.archived_reason ?? 'swept',
+          })
           .eq('id', id)
           .eq('owner_id', ownerId);
 

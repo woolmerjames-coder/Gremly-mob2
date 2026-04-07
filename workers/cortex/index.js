@@ -374,100 +374,190 @@ function isCommittedAction(preparse) {
  */
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Independent scorers using atomic observations.
-// Each scorer reads surface-level observations from PreParse.
-// Classification JUDGMENT happens here in code, not in the LLM.
+// Convergence scorers using gate → disqualifier → confirming signal count.
+// Each scorer reads PreParse observations. No single field can fast-path alone.
+// A score of 0.7+ requires 3+ independent signals to converge.
 // ──────────────────────────────────────────────────────────────────────────────
 
+function mapScore(confirming) {
+  if (confirming >= 5) return 0.9;
+  if (confirming >= 4) return 0.85;
+  if (confirming >= 3) return 0.7;
+  if (confirming >= 2) return 0.5;
+  if (confirming >= 1) return 0.3;
+  return 0.15;
+}
+
 function scoreTodo(p) {
-  let s = 0.0;
-  if (p.is_command) s += 0.4;
-  if (p.core_verb) s += 0.2;
-  if (p.action_target === 'user' || p.action_target === 'external') s += 0.1;
-  if (p.action_direction === 'external') s += 0.1;
-  if (p.is_ongoing_practice) s -= 0.5;
-  if (p.has_discontinuation && p.references_existing_pattern) s -= 0.4;
-  if (p.has_prohibition) s -= 0.3;
-  if (p.has_emotion_language) s -= 0.3;
-  if (p.has_speculation) s -= 0.3;
-  if (p.is_about_personal_patterns) s -= 0.2;
-  if (p.boundary_type === 'ongoing_boundary') s -= 0.2;
-  return Math.max(0, Math.min(1, s));
+  // ── REQUIRED GATE (Tier 1 — reliable) ──
+  if (!p.core_verb) return 0.0;
+
+  // ── DISQUALIFIERS (Tier 1 — reliable fields only) ──
+
+  // Past reflection — user is processing, not directing action
+  if (p.temporal_orientation === 'past' && p.is_narrative_reflection) return 0.0;
+
+  // Emotional expression without imperative — journal territory
+  if (p.has_emotion_language && !p.is_command) return 0.0;
+
+  // State verb — can't be marked done
+  if (p.is_state_verb) return 0.0;
+
+  // Direction without destination — vague aspiration, not a finishable action
+  if (
+    p.references_current_state &&
+    p.change_is_open_ended &&
+    (p.struct_modifier_target === 'action' || p.degree_shift_target === 'own_action')
+  )
+    return 0.0;
+
+  // Full cessation of own behaviour — habit_break territory
+  if (p.has_discontinuation && !p.is_command) return 0.0;
+
+  // ── CONFIRMING SIGNALS (Tier 1 — strong) ──
+  let c = 0;
+  if (p.is_command) c++;
+  if (!p.has_emotion_language) c++;
+  if (p.temporal_orientation === 'future') c++;
+  if (!p.has_discontinuation && !p.has_prohibition) c++;
+
+  // ── CONFIRMING SIGNALS (Tier 2 — interpretive, can be wrong) ──
+  if (p.user_intent_mode === 'directing') c++;
+  if (p.action_direction === 'external') c++;
+  if (p.boundary_type === 'one_time') c++;
+  if (!p.is_ongoing_practice) c++;
+
+  if (p.is_ongoing_practice || p.struct_completion === 'recurring') {
+    return Math.min(mapScore(c), 0.5);
+  }
+  return mapScore(c);
 }
 
 function scoreHabitBuild(p) {
-  if (p.has_prohibition) return 0.0;
-  if (p.has_discontinuation) return 0.0;
-  let s = 0.0;
-  if (p.is_ongoing_practice) s += 0.6;
-  if (p.is_command && p.is_ongoing_practice) s += 0.2;
-  if (p.action_target === 'user') s += 0.1;
-  if (p.is_about_personal_patterns) s += 0.2;
-  if (p.action_direction === 'own_behavior') s += 0.1;
-  if (p.is_single_instance) s -= 0.5;
-  return Math.max(0, Math.min(1, s));
+  // REQUIRED: must have recurrence signal
+  if (!p.is_ongoing_practice && !p.has_routine_anchor) return 0.0;
+  // DISQUALIFIERS
+  if (p.temporal_orientation === 'past') return 0.0;
+  if (p.has_prohibition || p.has_discontinuation) return 0.0;
+  if (p.is_single_instance && p.has_date_or_time) return 0.0;
+  // CONFIRMING SIGNALS
+  let c = 0;
+  if (p.is_ongoing_practice) c++;
+  if (p.has_routine_anchor) c++;
+  if (p.time_role === 'characteristic') c++;
+  if (p.action_direction === 'own_behavior') c++;
+  if (p.is_about_personal_patterns) c++;
+  if (p.user_mode_record_or_change === 'requesting_change') c++;
+  if (p.is_command && p.core_verb) c++;
+  // ASPIRATION DAMPENER: hedging or exploring caps score to force Phase 1
+  if (p.has_hedging || p.user_intent_mode === 'exploring') {
+    return Math.min(mapScore(c), 0.5);
+  }
+  return mapScore(c);
 }
 
 function scoreHabitBreak(p) {
-  let s = 0.0;
-  if (p.has_discontinuation && p.references_existing_pattern) s += 0.6;
-  if (p.has_prohibition && p.references_existing_pattern) s += 0.4;
-  if (p.has_relative_change && p.references_existing_pattern) s += 0.3;
-  if (p.action_target === 'user') s += 0.1;
-  if (p.is_about_personal_patterns) s += 0.2;
-  if (p.action_direction === 'own_behavior') s += 0.1;
-  if (p.boundary_type === 'ongoing_boundary') s += 0.2;
-  if (p.is_single_instance) s -= 0.5;
-  return Math.max(0, Math.min(1, s));
+  // REQUIRED: must have cessation, prohibition, or relative change signal
+  if (
+    !p.has_discontinuation &&
+    !p.has_prohibition &&
+    !p.has_relative_change &&
+    !p.has_restriction_boundary
+  )
+    return 0.0;
+  // DISQUALIFIERS
+  if (p.temporal_orientation === 'past' && p.is_narrative_reflection) return 0.0;
+  // CONFIRMING SIGNALS
+  let c = 0;
+  if (p.has_discontinuation) c++;
+  if (p.has_prohibition) c++;
+  if (p.action_direction === 'own_behavior') c++;
+  if (p.boundary_type === 'ongoing_boundary') c++;
+  if (p.is_about_personal_patterns) c++;
+  if (p.user_mode_record_or_change === 'requesting_change') c++;
+  if (p.references_existing_pattern) c++;
+  if (p.has_restriction_boundary) c++;
+  // VAGUENESS CAP: relative change without concrete cessation/prohibition forces Phase 1
+  if (!p.has_discontinuation && !p.has_prohibition) {
+    return Math.min(mapScore(c), 0.4);
+  }
+  return mapScore(c);
 }
 
 function scoreEvent(p) {
-  let s = 0.0;
-  if (p.is_scheduled_occurrence) s += 0.4;
-  if (p.has_date_or_time) s += 0.2;
-  if (p.is_declarative) s += 0.2;
-  if (!p.core_verb) s += 0.1;
-  if (p.time_role === 'when') s += 0.1;
-  if (p.user_mode_record_or_change === 'recording' && p.temporal_orientation === 'future') s += 0.1;
-  if (p.is_command) s -= 0.5;
-  if (p.has_emotion_language) s -= 0.5;
-  return Math.max(0, Math.min(1, s));
+  // REQUIRED: must be about something scheduled/occurring
+  if (!p.is_scheduled_occurrence) return 0.0;
+  // DISQUALIFIERS
+  if (p.is_command && !p.is_scheduled_occurrence) return 0.0;
+  // CONFIRMING SIGNALS
+  let c = 0;
+  if (p.has_date_or_time) c++;
+  if (p.has_occasion_noun) c++;
+  if (p.user_mode_record_or_change === 'recording') c++;
+  if (p.user_intent_mode === 'capturing') c++;
+  if (p.is_storing_information) c++;
+  if (p.time_role === 'when') c++;
+  if (p.is_single_instance) c++;
+  return mapScore(c);
 }
 
 function scoreJournal(p) {
-  let s = 0.0;
-  if (p.has_emotion_language) s += 0.4;
-  if (p.is_about_feelings_not_actions) s += 0.3;
-  if (p.is_narrative_reflection) s += 0.3;
-  if (p.is_past_or_present) s += 0.2;
-  if (p.is_about_emotion) s += 0.2;
-  if (p.user_intent_mode === 'processing') s += 0.2;
-  if (p.temporal_orientation === 'past') s += 0.2;
-  if (p.is_command) s -= 0.3;
-  if (p.has_speculation) s -= 0.2;
-  return Math.max(0, Math.min(1, s));
+  // REQUIRED: must have at least one emotional or reflective signal
+  if (
+    !p.has_emotion_language &&
+    !p.is_about_emotion &&
+    !p.is_about_feelings_not_actions &&
+    !p.is_narrative_reflection
+  )
+    return 0.0;
+  // DISQUALIFIERS
+  if (p.is_command && !p.is_about_emotion && !p.has_emotion_language) return 0.0;
+  // CONFIRMING SIGNALS
+  let c = 0;
+  if (p.has_emotion_language) c++;
+  if (p.is_about_emotion) c++;
+  if (p.is_about_feelings_not_actions) c++;
+  if (p.is_narrative_reflection) c++;
+  if (p.temporal_orientation === 'past') c++;
+  if (p.user_intent_mode === 'processing') c++;
+  if (p.self_reflection) c++;
+  if (p.is_past_or_present) c++;
+  return mapScore(c);
 }
 
 function scoreIdea(p) {
-  let s = 0.0;
-  if (p.has_speculation) s += 0.6;
-  if (p.has_hedging) s += 0.2;
-  if (p.user_intent_mode === 'exploring') s += 0.2;
-  if (p.is_command) s -= 0.4;
-  if (p.has_emotion_language) s -= 0.3;
-  return Math.max(0, Math.min(1, s));
+  // REQUIRED: must have speculation
+  if (!p.has_speculation && p.struct_novelty !== 'novel') return 0.0;
+  // DISQUALIFIERS
+  if (p.is_command && p.user_intent_mode === 'directing') return 0.0;
+  // CONFIRMING SIGNALS
+  let c = 0;
+  if (p.has_speculation) c++;
+  if (p.has_hedging) c++;
+  if (p.user_intent_mode === 'exploring') c++;
+  if (!p.is_command) c++;
+  if (!p.has_verb || p.core_verb === 'want') c++;
+  if (p.temporal_orientation !== 'past') c++;
+  return mapScore(c);
 }
 
 function scoreGeneral(p) {
-  let s = 0.0;
-  if (p.is_declarative) s += 0.4;
-  if (p.is_reference_detail) s += 0.3;
-  if (!p.has_emotion_language) s += 0.1;
-  if (p.is_storing_information) s += 0.2;
-  if (p.user_intent_mode === 'capturing') s += 0.2;
-  if (p.time_role === 'characteristic') s += 0.2;
-  if (p.is_command) s -= 0.3;
-  return Math.max(0, Math.min(1, s));
+  // REQUIRED: must have factual/reference signal
+  if (!p.is_declarative && !p.is_storing_information && !p.factual_statement) return 0.0;
+  // DISQUALIFIERS
+  if (p.is_scheduled_occurrence && p.has_date_or_time) return 0.0;
+  if (p.has_emotion_language) return 0.0;
+  if (p.has_speculation) return 0.0;
+  // CONFIRMING SIGNALS
+  let c = 0;
+  if (p.is_declarative) c++;
+  if (p.is_storing_information) c++;
+  if (p.factual_statement) c++;
+  if (p.user_intent_mode === 'capturing') c++;
+  if (p.user_mode_record_or_change === 'recording') c++;
+  if (!p.is_command) c++;
+  if (p.time_role === 'characteristic' || p.time_role === 'no_time') c++;
+  return mapScore(c);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -568,6 +658,7 @@ function mapPreparseToClassification(preparse) {
   return {
     needsPhase1: true,
     reason: `scorer_${topType}_vs_${secondType}`,
+    scores: Object.fromEntries(ranked.map(([k, v]) => [k, Math.round(v * 100) / 100])),
   };
 }
 
@@ -728,11 +819,10 @@ function computePlausibleInterpretations(preparse) {
 
 const PREPARSE_INTENT_PROMPT = `Extract these facts from the input. Return JSON only.
 
-- g1: Is the sentence structured as a command — a verb at the start telling someone to do something, with no explicit subject? This includes multi-word verbs at the start. (boolean)
-- g2: Does the text state a fact about something — providing information about a subject rather than instructing someone to act? The text must describe a property, attribute, or characteristic of something. (boolean)
-- g3: Is the user WONDERING or ASKING about a possibility — framing it as a question or hypothetical about something that DOESN'T EXIST YET? Investigating or researching whether something already exists is NOT speculation. Emotional uncertainty is NOT speculation. The user must be imagining a NEW POSSIBILITY, not processing what already happened or finding out what already exists. (boolean)
+- g1: Is this sentence a bare imperative — a direct instruction that contains NO stated subject? A bare imperative has the verb as the grammatical starting point of the clause, with the actor entirely implied rather than named. The moment a subject appears — particularly a first-person subject — the sentence is no longer an imperative. It becomes a statement about the speaker's internal state: their felt obligation, desire, or aspiration. The distinction matters: imperatives direct action. Statements with a stated subject describe the speaker's relationship to the action — what they feel they should do, want to do, or need to do. These are fundamentally different speech acts even when they reference the same underlying activity. Only return true when there is genuinely no stated subject and the sentence functions as a direct instruction. (boolean)
+- g2: Does the text state a fact about something — providing information about a subject rather than instructing someone to act? A declarative statement asserts that something IS the case. It assigns a property, attribute, date, status, or characteristic to a subject. The subject and its predicate may appear in any order and the copula may be implicit rather than explicitly written. Noun phrases that name a subject alongside a property — where the relationship between them is one of attribution or identity — are declarative even when the verb is omitted. The core test: is the text TELLING you something about the world, or TELLING you to do something? Assertions about the world are declarative. Instructions to act are not. (boolean)
+- g3: Is the user floating a hypothetical or wondering about a possibility? Speculation means the user is IMAGINING something that does not currently exist — the content lives entirely in the realm of "could be" rather than "is" or "was." The key distinction is between three orientations: the user can be directed toward WHAT IS (investigating, researching, checking — not speculation), toward WHAT THEY FEEL (processing, reflecting — not speculation), or toward WHAT COULD BE (imagining, proposing, wondering — this IS speculation). The test: does the substance of the thought exist only in the user's imagination at this moment? If the user is describing something that has no reality yet and they are entertaining whether it should, that is speculation regardless of how tentatively or confidently they express it. (boolean)
 - g4: Is the text describing something that already happened or is currently happening — past or present tense? (boolean)
-- g5: What is the main action verb — what someone would DO? Return the verb or null.
 - g6: Is the user narrating or reflecting on something that happened to them — recounting an experience, describing a moment, or processing something they went through? (boolean)`;
 
 const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON only.
@@ -748,20 +838,27 @@ const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON
 const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JSON only.
 
 - t1: Does the text contain a specific date, named day of the week, or clock time? (boolean)
-- t2: Is the user expressing that they want to do this EACH TIME a certain situation arises or on a regular basis — not just once? The recurrence can be tied to a schedule OR to a repeating context. (boolean)
-- t2r: "one sentence explaining your choice for t2"
-- t3: Does the text anchor a behavior to a moment in daily routine that inherently repeats — implying the user means to do this each time that moment occurs? (boolean)
-- t4: Does the text contain a specific TIME WORD or TIME PHRASE that limits this to a single occasion? This is strictly about the presence of temporal language — a word or phrase about WHEN — that scopes the action to one moment. The nature of the action itself is irrelevant. A verb that implies finality or completion is NOT a time word. Only actual references to a specific point in time qualify. If the text expresses recurrence, t4 is FALSE — recurrence and single instance are mutually exclusive. (boolean)
-- t4r: "one sentence identifying the specific time word or phrase, or explaining why no time word is present"`;
+- t2a1: Does the text state a specific COUNT of how many times the action will occur? The text must make a numerical claim about repetition — how many instances of the action are intended within a given period. If no numerical count of occurrences is stated, return false. (boolean)
+- t2a3a: Does the text specify a measurable amount of the action — a defined quantity, duration, or count that states how much of the action is intended? (boolean)
+- t2a3b: Is that amount bounded by a time period that it must fit WITHIN — does the text pair the amount with a period that acts as its container or allowance? The time period is not telling you WHEN to do the action — it is telling you the window that the amount is measured against. Only relevant when t2a3a is true — return false if t2a3a is false. (boolean)
+- t2a3c: Does that containing time period naturally recur — does it exist again and again as part of the rhythm of life without anyone scheduling it? If the period is a single specific upcoming occasion that will pass and not return, return false. If the period is a type of time that keeps occurring, return true. Only relevant when t2a3b is true — return false if t2a3b is false. (boolean)
+- t2b1: Is the USER the one who will personally perform this action each time it occurs? The user must be the agent — the person who carries out the activity. If the action is performed by an external system, another person, or something that happens TO the user without their active participation, return false. (boolean)
+- t2b2: Is the action directed at the FUTURE — something the user intends to do going forward? Return false if the text is reporting what has already been happening, describing a past pattern, or explaining how something external currently operates. Return true only when the action represents forward-looking intended behaviour. (boolean)
+- t3: Does the text anchor a behavior to a moment in the user's day that recurs by its very nature — not because anyone scheduled it, but because the structure of a human day inherently contains it? A routine anchor is a reference to a point in the daily cycle that exists universally and repeats every day without deliberate planning. The distinction from other time references: a routine anchor recurs because human days have a predictable rhythm. A calendar date, a named weekday, or a clock time recurs because of a scheduling system. If the referenced moment would still exist even if the user owned no calendar and no clock, it is a routine anchor. If it requires a calendar or clock to identify, it is not. (boolean)
+- t4: Does the text contain a temporal reference that SCOPES the action to a SINGLE OCCASION? Temporal scoping means the time reference creates a boundary around the action — placing it within a specific, finite time window rather than leaving it open-ended. Named days, named dates, relative time references pointing to a specific upcoming window, and calendar-specific anchors all create temporal scope. The test: does the time reference answer "WHEN specifically?" in a way that limits this to one occurrence? If the time reference describes a PATTERN or CHARACTERISTIC rather than scoping to one occasion, it does not qualify — recurrence and single instance are mutually exclusive. When both a specific time window and a recurrence signal are present in the same text, recurrence takes precedence and t4 is false. (boolean)
+- t4r: "one sentence identifying the specific temporal scoping reference, or explaining why no temporal scope is present"`;
 
 const PREPARSE_BEHAVIORAL_PROMPT = `Extract these facts from the input. Return JSON only.
 
 - b1: Does the text use NEGATIVE framing to set a boundary — expressing that something should NOT happen, is NOT allowed, or WILL NOT be done? Positive recommendations or obligations about what SHOULD happen are not prohibition. (boolean)
-- b2a: Is the user expressing that something should END or NO LONGER BE PART OF THEIR LIFE? (boolean)
-- b2ar: "one sentence explaining your choice for b2a"
-- b2b: Is the text about something the user CURRENTLY DOES on a regular basis — an existing habit or pattern that is already part of their life? (boolean)
-- b2br: "one sentence explaining your choice for b2b"
-- b3: Does the text express a desire for relative change — wanting a different amount or quality of something — without specifying a concrete target or schedule? (boolean)`;
+- b2a: Is the user expressing that a behavior should FULLY CEASE — reaching a target state of ZERO? The user must be communicating that something should stop entirely, be eliminated, or no longer occur at all. Wanting LESS of something, wanting to REDUCE something, or wanting a DIFFERENT AMOUNT of something does NOT qualify — those express a desire for relative change, not full cessation. The test: is the user's intended end state for this behavior unambiguously zero occurrences? If the desired state is "less than now" rather than "none at all", return false. Relative or directional language without a zero-target is not discontinuation. (boolean)
+- b2ar: "one sentence explaining whether the target state is zero or merely reduced"
+- b2b: Is the text about a behavior or pattern that ALREADY EXISTS in the user's life? This can be established in two ways: (1) The user explicitly describes a current or past pattern. (2) The user's language LOGICALLY ENTAILS an existing pattern. Cessation, prohibition, and reduction language inherently imply that the behavior already exists — it is impossible to stop, quit, reduce, limit, or cut back on something that is not already happening. When the user expresses wanting to end, reduce, or restrict a behavior, the existence of that behavior as a current pattern is a logical certainty, not an inference. Return true whenever the behavior's current existence is either stated or logically entailed. (boolean)
+- b2br: "one sentence explaining whether the existing pattern is explicitly stated or logically entailed by cessation/reduction language"
+- b3: Does the text express a desire for relative change — wanting a different amount or quality of something — without specifying a concrete target or schedule? (boolean)
+- b4a1: Does the text reference the user's CURRENT STATE or CURRENT LEVEL and express that it should be DIFFERENT? The language must contain an implicit claim about how things are NOW and a desire to move away from that. The test: does the language require you to know the user's current situation to understand what they want? If what the user is describing is fully defined without any reference to how things currently are, return false. If the meaning depends on a comparison to an unstated present baseline, return true. (boolean)
+- b4a2: Is the desired change OPEN-ENDED — expressed as a direction of movement without defining where to stop? The user wants to move along a spectrum but has not stated a point where the change would be complete. The test: if someone asked "how much change is enough?" does the text provide a definite answer? If the text names a specific boundary where the change is achieved, return false. If the text only indicates a direction to move with no stated boundary, return true. Only relevant when b4a1 is true — return false if b4a1 is false. (boolean)
+- b6: Is the user setting an UPPER BOUNDARY on their own consumption or behaviour — expressing that a certain amount, frequency, or duration should not be exceeded? The user is defining a ceiling — a maximum allowable level that they intend to stay within. The behaviour is not being eliminated, it is being capped. (boolean)`;
 
 const PREPARSE_META_PROMPT = `Extract these facts from the input. Return JSON only.
 
@@ -786,8 +883,7 @@ const PREPARSE_HOLISTIC_PROMPT = `Look at this text as a whole and answer these 
 - m5: Is the user RECORDING something (capturing information or noting what exists) or REQUESTING A CHANGE (directing themselves or others to act or behave differently)? "recording" / "requesting_change" / "neither"
 - m6a: Is this drop primarily about the user's OWN PATTERNS, HABITS, or LIFESTYLE — something about how they live or behave? (boolean)
 - m6b: Is this drop primarily about STORING A FACT or PIECE OF INFORMATION for later? (boolean)
-- m6c: Is this drop primarily about a FEELING or EMOTIONAL EXPERIENCE? (boolean)
-- m7: What is the user DOING by writing this? Telling themselves or someone to act = "directing". Storing information for later = "capturing". Working through a feeling or experience = "processing". Thinking out loud or wondering = "exploring".`;
+- m6c: Is this drop primarily about a FEELING or EMOTIONAL EXPERIENCE? (boolean)`;
 
 /**
  * Run a single mini-parse via OpenAI.
@@ -797,6 +893,78 @@ const PREPARSE_HOLISTIC_PROMPT = `Look at this text as a whole and answer these 
  * @param {string} systemPrompt - The system prompt for this mini-parse
  * @returns {Promise<Object>} Parsed JSON result
  */
+
+const STRUCTURAL_PARSE_PROMPT = `Parse the structural components of this text. Return JSON only.
+
+- verb: What is the main action verb — the thing someone would DO? 
+  Return the verb as a string. If no action verb is present, return null.
+
+- has_verb: Is there a word in this text that describes an activity 
+  a person PERFORMS — something that occupies their time and effort 
+  while they do it? If no such word is present, return false. (boolean)
+
+- object: What is the THING being acted upon — the noun that receives 
+  the action of the verb? This is the direct object. If the verb has 
+  no external object (the action is self-contained), return null. 
+  Return the noun phrase as a string, or null.
+
+- modifier: Is there comparative or qualitative language that expresses 
+  a desired shift in degree, amount, or quality? Return the modifier 
+  word or phrase as a string. If no comparative or qualitative modifier 
+  is present, return null.
+
+- modifier_target: Does the modifier describe a property of the OBJECT 
+  (the thing being sought, obtained, or selected) or does it describe 
+  the ACTION itself (how the user performs, consumes, or engages)? 
+  Only relevant when both modifier and object are present. When the 
+  modifier and object form a unit that specifies WHICH KIND of thing 
+  the user wants, return "object". When the modifier describes the 
+  manner, degree, or extent of the user's own activity, return "action". 
+  When there is no object and the modifier stands alone with the verb, 
+  return "action". Return null when modifier is null. 
+  ("object" / "action" / null)
+
+- time_reference: Is there a temporal phrase that indicates WHEN or 
+  HOW OFTEN? Return the temporal phrase as a string. If no temporal 
+  language is present, return null.
+
+- time_binding: Can the time reference be placed on ONE SPECIFIC DATE 
+  on a calendar? If it points to a single datable occasion, return 
+  "bound". If it describes a recurring slot or pattern that cannot be 
+  pinpointed to one calendar date, return "unbound". If it could 
+  reasonably mean either, return "ambiguous". Only relevant when 
+  time_reference is not null — return null when time_reference is null. 
+  ("bound" / "unbound" / "ambiguous" / null)
+
+- verb_type: Does the verb describe an ACTION the user performs — an 
+  activity that occupies time and effort — or a STATE the user 
+  inhabits — a condition or quality of being? Return null when has_verb 
+  is false. ("action" / "state" / null)
+
+- intent_mode: What is the user DOING by writing this? Telling 
+  themselves or someone to act = "directing". Storing information 
+  for later = "capturing". Working through a feeling or experience 
+  = "processing". Thinking out loud or wondering = "exploring". 
+  ("directing" / "capturing" / "processing" / "exploring")
+
+- completion: If the user follows through on this text, will they be 
+  DONE — finished, nothing more to do, the action is complete — or 
+  will they need to do it again on a future occasion? Return "done" 
+  when the action has a natural endpoint after which it does not need 
+  repeating. Return "recurring" when the action is meant to happen 
+  again. Return "unclear" when the text genuinely could mean either. 
+  ("done" / "recurring" / "unclear")
+
+- novelty: Is the PRIMARY SUBJECT of this text something that 
+  does not currently exist? Not the actions or feelings mentioned, 
+  but the THING the text is fundamentally about. If the text is 
+  fundamentally about a real action the user will take, a real 
+  experience they had, or a real thing in their life, return 
+  "existing" — even if the action has not happened yet. If the 
+  text is fundamentally about an imagined system, tool, method, 
+  or concept that has no concrete form yet, return "novel". 
+  Return "unclear" when genuinely ambiguous. 
+  ("novel" / "existing" / "unclear")`;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // PreParse field code → readable name mapping
@@ -810,7 +978,6 @@ const PREPARSE_FIELD_MAP = {
   g2: 'is_declarative',
   g3: 'has_speculation',
   g4: 'is_past_or_present',
-  g5: 'core_verb',
   g6: 'is_narrative_reflection',
   // Prompt B: Content
   c1: 'is_scheduled_occurrence',
@@ -822,8 +989,12 @@ const PREPARSE_FIELD_MAP = {
   s1: 'action_target',
   // Prompt C: Temporal
   t1: 'has_date_or_time',
-  t2: 'is_ongoing_practice',
-  t2r: 'ongoing_reasoning',
+  t2a1: 'has_occurrence_count',
+  t2a3a: 'has_measurable_amount',
+  t2a3b: 'amount_bounded_by_period',
+  t2a3c: 'bounding_period_recurs',
+  t2b1: 'user_is_agent',
+  t2b2: 'action_is_future',
   t3: 'has_routine_anchor',
   t4: 'is_single_instance',
   t4r: 'single_instance_reasoning',
@@ -834,6 +1005,9 @@ const PREPARSE_FIELD_MAP = {
   b2b: 'references_existing_pattern',
   b2br: 'pattern_reasoning',
   b3: 'has_relative_change',
+  b4a1: 'references_current_state',
+  b4a2: 'change_is_open_ended',
+  b6: 'has_restriction_boundary',
   // Prompt E: Meta
   m1: 'has_hedging',
   m2: 'has_obligation',
@@ -853,7 +1027,6 @@ const PREPARSE_FIELD_MAP = {
   m6a: 'is_about_personal_patterns',
   m6b: 'is_storing_information',
   m6c: 'is_about_emotion',
-  m7: 'user_intent_mode',
 };
 
 function mapCodedPreparse(coded) {
@@ -888,6 +1061,25 @@ async function runPreparseMini(text, env, systemPrompt) {
   return result.parsed;
 }
 
+async function runStructuralParse(text, env) {
+  const result = await aiClassify({
+    mode: 'realtime',
+    ...getProviders('mini', env),
+    env,
+    systemPrompt: STRUCTURAL_PARSE_PROMPT,
+    messages: [{ role: 'user', content: text.substring(0, 500) }],
+    temperature: 0.1,
+    maxOutputTokens: 200,
+    endpoint: 'structural-parse',
+  });
+
+  if (!result.parsed) {
+    throw new Error('structural parse failed: both providers returned unusable output');
+  }
+
+  return result.parsed;
+}
+
 /**
  * Run semantic preparse via OpenAI.
  *
@@ -903,8 +1095,9 @@ async function runPreparse(text, env) {
   const t0 = Date.now();
 
   try {
-    // Run all five mini-parses in parallel
+    // Run all parses in parallel — structural (mini) and seven nano parses
     const [
+      structuralResult,
       intentResult,
       contentResult,
       structureResult,
@@ -913,6 +1106,10 @@ async function runPreparse(text, env) {
       relationalResult,
       holisticResult,
     ] = await Promise.all([
+      runStructuralParse(text, env).catch((err) => {
+        console.error('[StructuralParse] Failed, using nano fallback', { error: String(err) });
+        return {};
+      }),
       runPreparseMini(text, env, PREPARSE_INTENT_PROMPT),
       runPreparseMini(text, env, PREPARSE_CONTENT_PROMPT),
       runPreparseMini(text, env, PREPARSE_STRUCTURE_PROMPT),
@@ -938,8 +1135,27 @@ async function runPreparse(text, env) {
       is_declarative: Boolean(grammar.is_declarative),
       has_speculation: Boolean(grammar.has_speculation),
       is_past_or_present: Boolean(grammar.is_past_or_present),
-      core_verb: grammar.core_verb || null,
+      core_verb: structuralResult.verb || grammar.core_verb || null,
+      struct_object: structuralResult.object || null,
+      struct_modifier: structuralResult.modifier || null,
+      struct_modifier_target: ['object', 'action'].includes(structuralResult.modifier_target)
+        ? structuralResult.modifier_target
+        : null,
+      struct_time_reference: structuralResult.time_reference || null,
+      struct_time_binding: ['bound', 'unbound', 'ambiguous'].includes(structuralResult.time_binding)
+        ? structuralResult.time_binding
+        : null,
+      struct_completion: ['done', 'recurring', 'unclear'].includes(structuralResult.completion)
+        ? structuralResult.completion
+        : 'unclear',
+      struct_novelty: ['novel', 'existing', 'unclear'].includes(structuralResult.novelty)
+        ? structuralResult.novelty
+        : 'unclear',
       is_narrative_reflection: Boolean(grammar.is_narrative_reflection),
+      is_state_verb: structuralResult.verb_type === 'state',
+      has_concrete_result: false,
+      verb_has_completion: structuralResult.verb_type === 'action',
+      has_verb: structuralResult.has_verb !== false,
 
       is_scheduled_occurrence: Boolean(content.is_scheduled_occurrence),
       scheduled_reasoning: content.scheduled_reasoning || '',
@@ -952,8 +1168,40 @@ async function runPreparse(text, env) {
         : 'user',
 
       has_date_or_time: Boolean(temporal.has_date_or_time),
-      is_ongoing_practice: Boolean(temporal.is_ongoing_practice),
-      ongoing_reasoning: temporal.ongoing_reasoning || '',
+      has_occurrence_count: Boolean(temporal.has_occurrence_count),
+      has_time_reference: Boolean(temporal.has_time_reference),
+      time_reference_binding: ['bound', 'unbound', 'ambiguous'].includes(
+        temporal.time_reference_binding,
+      )
+        ? temporal.time_reference_binding
+        : null,
+      claims_all_instances:
+        temporal.time_reference_binding === 'unbound' ||
+        structuralResult.time_binding === 'unbound',
+      has_measurable_amount: Boolean(temporal.has_measurable_amount),
+      amount_bounded_by_period: Boolean(temporal.amount_bounded_by_period),
+      bounding_period_recurs: Boolean(temporal.bounding_period_recurs),
+      has_explicit_multiplicity:
+        Boolean(temporal.has_occurrence_count) ||
+        temporal.time_reference_binding === 'unbound' ||
+        structuralResult.time_binding === 'unbound' ||
+        (Boolean(temporal.has_measurable_amount) &&
+          Boolean(temporal.amount_bounded_by_period) &&
+          Boolean(temporal.bounding_period_recurs)),
+      user_is_agent: Boolean(temporal.user_is_agent),
+      action_is_future: Boolean(temporal.action_is_future),
+      multiplicity_is_future_self:
+        Boolean(temporal.user_is_agent) && Boolean(temporal.action_is_future),
+      is_ongoing_practice:
+        (Boolean(temporal.has_occurrence_count) ||
+          temporal.time_reference_binding === 'unbound' ||
+          structuralResult.time_binding === 'unbound' ||
+          (Boolean(temporal.has_measurable_amount) &&
+            Boolean(temporal.amount_bounded_by_period) &&
+            Boolean(temporal.bounding_period_recurs))) &&
+        Boolean(temporal.user_is_agent) &&
+        Boolean(temporal.action_is_future),
+      ongoing_reasoning: '',
       has_routine_anchor: Boolean(temporal.has_routine_anchor),
       is_single_instance: Boolean(temporal.is_single_instance),
       single_instance_reasoning: temporal.single_instance_reasoning || '',
@@ -964,6 +1212,17 @@ async function runPreparse(text, env) {
       references_existing_pattern: Boolean(behavioral.references_existing_pattern),
       pattern_reasoning: behavioral.pattern_reasoning || '',
       has_relative_change: Boolean(behavioral.has_relative_change),
+      references_current_state: Boolean(behavioral.references_current_state),
+      change_is_open_ended: Boolean(behavioral.change_is_open_ended),
+      has_restriction_boundary: Boolean(behavioral.has_restriction_boundary),
+      degree_shift_target:
+        structuralResult.modifier_target === 'object'
+          ? 'thing_sought'
+          : structuralResult.modifier_target === 'action'
+            ? 'own_action'
+            : ['own_action', 'thing_sought'].includes(behavioral.degree_shift_target)
+              ? behavioral.degree_shift_target
+              : null,
 
       has_hedging: Boolean(meta.has_hedging),
       has_obligation: Boolean(meta.has_obligation),
@@ -1005,10 +1264,12 @@ async function runPreparse(text, env) {
       is_storing_information: Boolean(holistic.is_storing_information),
       is_about_emotion: Boolean(holistic.is_about_emotion),
       user_intent_mode: ['directing', 'capturing', 'processing', 'exploring'].includes(
-        holistic.user_intent_mode,
+        structuralResult.intent_mode,
       )
-        ? holistic.user_intent_mode
-        : 'directing',
+        ? structuralResult.intent_mode
+        : ['directing', 'capturing', 'processing', 'exploring'].includes(holistic.user_intent_mode)
+          ? holistic.user_intent_mode
+          : 'directing',
 
       // Derived fields for backward compatibility
       frame_type: 'uncertain',
@@ -1031,6 +1292,14 @@ async function runPreparse(text, env) {
       reminder_intent: false,
     };
 
+    if (result.has_verb === false) {
+      result.is_command = false;
+      result.is_state_verb = false;
+      if (result.user_intent_mode === 'directing') {
+        result.user_intent_mode = 'capturing';
+      }
+    }
+
     // Derive backward-compatible fields
     result.frame_type =
       result.has_emotion_language && result.is_about_feelings_not_actions
@@ -1045,7 +1314,7 @@ async function runPreparse(text, env) {
                 ? 'processing'
                 : 'uncertain';
     result.factual_statement = result.is_declarative;
-    result.is_noun_phrase_only = !result.core_verb;
+    result.is_noun_phrase_only = !result.has_verb;
     result.self_reflection = result.is_about_feelings_not_actions;
     result.emotional_content = result.has_emotion_language;
     result.has_occasion_noun = result.is_scheduled_occurrence;
@@ -1210,7 +1479,13 @@ IGNORE the preparse frame_type for this decision. Evaluate fresh.`;
  * @param {string|null} routingReason - Why heuristic needed Phase 1
  * @returns {Promise<{success: true, result: Object, latency_ms: number} | {success: false, error: string, latency_ms: number}>}
  */
-async function runPhase1Classification(text, env, preparseContext = null, routingReason = null) {
+async function runPhase1Classification(
+  text,
+  env,
+  preparseContext = null,
+  routingReason = null,
+  scorerScores = null,
+) {
   const t0 = Date.now();
 
   // Build structural facts section
@@ -1254,6 +1529,15 @@ Noun phrase only: ${preparseContext.is_noun_phrase_only}`
     }
   }
   reasoningGuidance += scorerGuidance;
+
+  if (scorerScores) {
+    const scoreContext = Object.entries(scorerScores)
+      .filter(([_, v]) => v > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(', ');
+    reasoningGuidance += `\nScorer confidence levels: ${scoreContext}`;
+  }
 
   // Build the Phase 1 prompt for nuanced interpretation
   const phase1Prompt = `You resolve ambiguous mind drops for Gremly. This input could not be automatically classified because it requires nuanced interpretation beyond structural facts.
@@ -1332,13 +1616,19 @@ HABIT GATE — Before classifying as HABIT, apply these semantic tests:
 
 The test: "Has the user specified WHEN or HOW OFTEN?" If NO → not a habit, even if PreParse detected frequency.
 
+PAST-TENSE PATTERN DESCRIPTION IS NEVER A HABIT.
+When the user describes a behavior in the past tense — what they have been doing, what they did, how a period of their life went — they are REFLECTING, not REQUESTING TRACKING. The value of the input is the reflection itself. Past-tense descriptions of ongoing behaviors are JOURNAL entries about the user's experience, not requests to set up forward-looking habit tracking. The temporal orientation determines classification: past-oriented pattern description is journal. Future-oriented behavioral commitment is habit.
+
 LOG — Capture for reflection, not action:
 - journal: Expressing or processing feelings. The value is in the expression itself.
 - idea: A floating possibility with no commitment. The whole thought is pre-action.
 - general: Recording facts about what IS or WAS. Requires existence framing, not just a noun.
 - event: Something that happens or will happen at a specific point in time that the user wants to note or remember. The defining signals are a concrete temporal anchor (specific date, day, or time) combined with an occasion, appointment, meeting, or occurrence — and crucially, no personal action required beyond noting it. The user is recording that something exists in time, not committing to do anything about it. Distinguish from todo: a todo requires the user to act. An event is something that happens, that the user attends or is aware of. Distinguish from general: a general note records information without a specific temporal anchor. An event is anchored to a specific time. Auto-classify as event when: the input is a factual statement frame AND contains a specific date or time AND describes an occasion or occurrence rather than an action. No clarify needed when intent is unambiguous. Route to clarify (date_type) when: a temporal anchor is present but it is unclear whether the user is noting an existing event or needs to take action to create it. CRITICAL: When the input is a noun phrase containing an appointment, meeting, or occasion type noun alongside a specific day AND a specific time, and it is unclear whether this is already arranged or needs to be arranged — return AMBIGUOUS with ambiguity_type "date_type", not a direct event classification. Only auto-classify as event when the factual nature of the input makes it clear the thing already exists — such as a declarative statement form ("X is on Y") or when no action to create it is plausible. When the arrangement status is uncertain, always prefer date_type ambiguity so the user can clarify.
 
-AMBIGUOUS — Cannot determine intent. LAST RESORT.
+GENERAL IS THE NARROWEST LOG SUBTYPE — NEVER A FALLBACK.
+Before classifying as log/general, apply this verification: is the input PURELY FACTUAL REFERENCE — asserting something about the state of the world with no emotional, aspirational, or behavioral content? If the input expresses any of the following, it is NOT general: aspiration, desire, or wanting (even without action commitment) should be AMBIGUOUS. Emotional state, self-reflection, or processing should be JOURNAL. Hypothetical or speculative framing should be IDEA. Behavioral change intent of any kind should be AMBIGUOUS or HABIT. General is ONLY for pure data points: facts about people, dates of existing events, reference information, status updates stated in existence language. When in doubt between general and another subtype, choose the other subtype. When in doubt between general and ambiguous, choose ambiguous.
+
+AMBIGUOUS — When confidence for any specific bucket is below 0.7.
 
 CRITICAL DISTINCTION: Uncertainty expressed IN the input is not uncertainty about CLASSIFICATION.
 
@@ -1355,7 +1645,7 @@ The input's content may be uncertain. Your classification should not be.
 
 Use AMBIGUOUS only when you genuinely cannot determine if this is something to DO, TRACK, or KNOW - not because the input contains soft language.
 
-Test: Would a thoughtful human be confused about which bucket? If a human would immediately know, so should you.
+The clarification flow handles ambiguous inputs well. It is better to ask the user than to guess wrong. A wrong classification that the user has to manually fix is a worse experience than a brief clarification question that gets it right. Use AMBIGUOUS when you cannot point to specific words in the input that reveal the user's intent with certainty.
 
 === AMBIGUITY TYPES ===
 
@@ -2387,11 +2677,12 @@ function getChatConfig(userMessage, opts = {}) {
     : { maxTokens: 2048, thinkingLevel: 'low' };
 }
 
-const WEB_SEARCH_TOOL = {
-  type: 'function',
-  function: {
-    name: 'web_search',
-    description: `Search the web for current, factual information. The current date is ${new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date())}.
+function makeWebSearchTool(timezone) {
+  return {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description: `Search the web for current, factual information. The current date is ${new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: timezone || 'UTC' }).format(new Date())}.
 
 DEFAULT TO SEARCHING. If there is ANY chance that current, specific information would improve your answer, search first. The cost of an unnecessary search is near zero. The cost of giving generic advice when specific information exists is high.
 
@@ -2414,18 +2705,19 @@ DO NOT search for:
 - Simple factual questions you can confidently answer (math, definitions, historical facts)
 - When the user is venting or processing feelings
 - Conversational responses like greetings`,
-    parameters: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Concise search query, 2-8 words. Be specific and include key terms.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Concise search query, 2-8 words. Be specific and include key terms.',
+          },
         },
+        required: ['query'],
       },
-      required: ['query'],
     },
-  },
-};
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DYNAMIC MODEL & TOKEN ROUTING
@@ -3383,7 +3675,7 @@ After the user confirms and locks in a habit, check the existing habits listed i
       // =========================
       if (type === 'general-greeting') {
         try {
-          const userTimezone = body.timezone || 'America/Los_Angeles';
+          const userTimezone = body.timezone || 'UTC';
           const dailyFocus = await getDailyFocusForChat(body.userId, env, userTimezone);
           const now = new Date();
           const timeStr = new Intl.DateTimeFormat('en-US', {
@@ -3621,7 +3913,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
               temperature: 0.7,
               maxOutputTokens: chatCfg.maxTokens,
               thinkingLevel: chatCfg.thinkingLevel,
-              tools: [WEB_SEARCH_TOOL],
+              tools: [makeWebSearchTool(body.timezone)],
             },
             env.GOOGLE_API_KEY,
           );
@@ -4468,7 +4760,7 @@ Almost never suggest creating a Space. Only if ALL true:
               };
 
               if (searchPolicy.attachTool) {
-                streamConfig.tools = [WEB_SEARCH_TOOL];
+                streamConfig.tools = [makeWebSearchTool(body.timezone)];
               }
 
               console.log('[EntityChat:Streaming:Payload]', {
@@ -5140,7 +5432,7 @@ Almost never suggest creating a Space. Only if ALL true:
           };
 
           if (searchPolicy.attachTool) {
-            nonStreamConfig.tools = [WEB_SEARCH_TOOL];
+            nonStreamConfig.tools = [makeWebSearchTool(body.timezone)];
             nonStreamConfig.toolChoice =
               searchPolicy.toolChoice === 'required' ? 'web_search' : 'auto';
           }
@@ -5573,14 +5865,14 @@ Return ONLY valid JSON:
        */
       async function extractHabitFields(messages, apiKey, currentDate, builderMode) {
         // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
-        const fallbackDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(
-          new Date(),
-        );
+        const fallbackDate = new Intl.DateTimeFormat('en-CA', {
+          timeZone: body.timezone || 'UTC',
+        }).format(new Date());
         const isBreakMode = builderMode === 'BREAK';
         const isEventMode = builderMode === 'EVENT_ANCHORED';
 
         const extractionPrompt = `You analyze a habit-building conversation and assess readiness.
-Today is ${new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(new Date())}, ${currentDate || fallbackDate}.
+Today is ${new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: body.timezone || 'UTC' }).format(new Date())}, ${currentDate || fallbackDate}.
 Resolve relative day and date references into YYYY-MM-DD. Verify the day-of-week matches the calendar date before returning.
 
 Conversation mode: ${builderMode || 'SHAPE'}
@@ -5958,7 +6250,7 @@ Return ONLY valid JSON:
         const tasks = Array.isArray(body.tasks) ? body.tasks : [];
         const calendarEvents = Array.isArray(body.calendarEvents) ? body.calendarEvents : [];
         const blocks = body.blocks || {};
-        const timezone = body.timezone || 'America/Los_Angeles';
+        const timezone = body.timezone || 'UTC';
         let currentHour;
         if (body.currentHour != null) {
           currentHour = body.currentHour;
@@ -7295,8 +7587,18 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
           is_about_feelings_not_actions: preparseResult.result.is_about_feelings_not_actions,
           feelings_reasoning: preparseResult.result.feelings_reasoning,
           has_date_or_time: preparseResult.result.has_date_or_time,
+          has_occurrence_count: preparseResult.result.has_occurrence_count,
+          has_time_reference: preparseResult.result.has_time_reference,
+          time_reference_binding: preparseResult.result.time_reference_binding,
+          claims_all_instances: preparseResult.result.claims_all_instances,
+          has_measurable_amount: preparseResult.result.has_measurable_amount,
+          amount_bounded_by_period: preparseResult.result.amount_bounded_by_period,
+          bounding_period_recurs: preparseResult.result.bounding_period_recurs,
+          has_explicit_multiplicity: preparseResult.result.has_explicit_multiplicity,
+          user_is_agent: preparseResult.result.user_is_agent,
+          action_is_future: preparseResult.result.action_is_future,
+          multiplicity_is_future_self: preparseResult.result.multiplicity_is_future_self,
           is_ongoing_practice: preparseResult.result.is_ongoing_practice,
-          ongoing_reasoning: preparseResult.result.ongoing_reasoning,
           has_routine_anchor: preparseResult.result.has_routine_anchor,
           is_single_instance: preparseResult.result.is_single_instance,
           single_instance_reasoning: preparseResult.result.single_instance_reasoning,
@@ -7320,6 +7622,29 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
           is_storing_information: preparseResult.result.is_storing_information,
           is_about_emotion: preparseResult.result.is_about_emotion,
           user_intent_mode: preparseResult.result.user_intent_mode,
+          is_state_verb: preparseResult.result.is_state_verb,
+          has_concrete_result: preparseResult.result.has_concrete_result,
+          verb_has_completion: preparseResult.result.verb_has_completion,
+          references_current_state: preparseResult.result.references_current_state,
+          change_is_open_ended: preparseResult.result.change_is_open_ended,
+          has_restriction_boundary: preparseResult.result.has_restriction_boundary,
+          degree_shift_target: preparseResult.result.degree_shift_target,
+          // Structural parse (mini)
+          struct_verb: preparseResult.result.core_verb,
+          struct_has_verb: preparseResult.result.has_verb,
+          struct_object: preparseResult.result.struct_object,
+          struct_modifier: preparseResult.result.struct_modifier,
+          struct_modifier_target: preparseResult.result.struct_modifier_target,
+          struct_time_reference: preparseResult.result.struct_time_reference,
+          struct_time_binding: preparseResult.result.struct_time_binding,
+          struct_verb_type: preparseResult.result.is_state_verb
+            ? 'state'
+            : preparseResult.result.has_verb
+              ? 'action'
+              : 'none',
+          struct_intent_mode: preparseResult.result.user_intent_mode,
+          struct_completion: preparseResult.result.struct_completion,
+          struct_novelty: preparseResult.result.struct_novelty,
           latency_ms: preparseResult.latency_ms,
         });
 
@@ -7376,6 +7701,7 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
           env,
           preparseResult.result,
           heuristicDecision.reason,
+          heuristicDecision.scores || null,
         );
 
         const phase1Latency = phase1Result.latency_ms;
@@ -8942,7 +9268,7 @@ Return ONLY valid JSON:
           })();
 
         // Helper: Generate dynamic date examples based on actual current date
-        function generateDateExamples(dateStr, todayDayName) {
+        function generateDateExamples(dateStr, todayDayName, timezone) {
           const dayNames = [
             'Sunday',
             'Monday',
@@ -8986,8 +9312,8 @@ Return ONLY valid JSON:
 
             const targetDate = new Date(baseDate);
             targetDate.setDate(baseDate.getDate() + daysUntil);
-            // eslint-disable-next-line no-restricted-syntax -- Cloudflare Worker doesn't have dateService
-            const targetDateStr = targetDate.toISOString().split('T')[0];
+            const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: timezone });
+            const targetDateStr = fmt.format(targetDate);
 
             if (dayIndex === todayIndex) {
               examples.push(
@@ -9010,7 +9336,7 @@ Return ONLY valid JSON:
           return examples.join('\n');
         }
 
-        const dateExamples = generateDateExamples(currentDate, dayOfWeek);
+        const dateExamples = generateDateExamples(currentDate, dayOfWeek, timezone);
 
         const phase2Prompt = `You extract core, durable metadata for Gremly, a calm productivity app.
 Your goal is to capture only information that is intrinsic to the item.
@@ -10212,7 +10538,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             };
 
             if (searchPolicy.attachTool) {
-              streamConfig.tools = [WEB_SEARCH_TOOL];
+              streamConfig.tools = [makeWebSearchTool(body.timezone)];
             }
 
             const t0 = Date.now();
@@ -10854,7 +11180,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               thinkingLevel: genConfig.thinkingLevel,
             };
             if (searchPolicy.attachTool) {
-              streamConfig.tools = [WEB_SEARCH_TOOL];
+              streamConfig.tools = [makeWebSearchTool(body.timezone)];
             }
 
             const t0 = Date.now();
@@ -11455,7 +11781,7 @@ Return ONLY valid JSON:
         };
 
         if (searchPolicy.attachTool) {
-          nonStreamConfig.tools = [WEB_SEARCH_TOOL];
+          nonStreamConfig.tools = [makeWebSearchTool(body.timezone)];
         }
 
         const geminiResult = await geminiGenerate(

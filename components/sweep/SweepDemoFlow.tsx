@@ -57,8 +57,8 @@ function makeDemoTodo1(): SweepCandidateTodo {
     raw: {
       id: 'demo-todo-1',
       owner_id: DEMO_USER_ID,
-      name: 'Pick up prescription',
-      title: 'Pick up prescription',
+      name: 'Book the weekend trip',
+      title: 'Book the weekend trip',
       status: 'active',
       archived: false,
       ai_placed: false,
@@ -282,7 +282,12 @@ function makeDemoIdea(): SweepCandidateNote {
   };
 }
 
-const DEMO_CANDIDATES: SweepCandidate[] = [makeDemoTodo1(), makeDemoTodo2(), makeDemoEvent(), makeDemoIdea()];
+const DEMO_CANDIDATES: SweepCandidate[] = [
+  makeDemoTodo1(),
+  makeDemoTodo2(),
+  makeDemoEvent(),
+  makeDemoIdea(),
+];
 
 function demoMeta(candidate: SweepCandidate): SweepCardMeta {
   const shared = {
@@ -340,10 +345,10 @@ function demoMeta(candidate: SweepCandidate): SweepCardMeta {
 }
 
 const DEMO_TIPS: string[] = [
-  'Swipe right to keep it, left to let go. Pick when to do it below.',
-  'Same thing — schedule it or let it go. You can add a reminder with the bell too.',
-  'Events get a reminder by default. Add a prep todo if you need to get ready.',
-  'Ideas can resurface later or become a todo. Up to you.',
+  'Pick when you want to do it, add a reminder if you like, then swipe right to keep it.',
+  'Same deal — pick a date or swipe left to let it go.',
+  'Events come with reminders. You can add a prep todo too, then swipe right.',
+  'Ideas can resurface later or become a todo. Swipe right to keep, left to let go.',
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -452,7 +457,9 @@ export function SweepDemoFlow({ onComplete, returnsToMindDrop = false }: SweepDe
         {/* Header / progress */}
         <View style={styles.cardHeader}>
           <Text style={styles.progressText}>
-            Demo · {cardIndex + 1} of {DEMO_CANDIDATES.length}
+            {cardIndex === 0
+              ? 'Your first demo card'
+              : `Demo · ${cardIndex + 1} of ${DEMO_CANDIDATES.length}`}
           </Text>
           <TouchableOpacity
             onPress={async () => {
@@ -498,6 +505,7 @@ export function SweepDemoFlow({ onComplete, returnsToMindDrop = false }: SweepDe
             onConfirmTodoAction={onConfirmTodoAction}
             onConfirmEventAction={onConfirmEventAction}
             onConfirmNoteAction={onConfirmNoteAction}
+            hideGremlyMenu
           />
         </Reanimated.View>
       </View>
@@ -597,13 +605,14 @@ const styles = StyleSheet.create({
   // Tip row
   tipRow: {
     flexDirection: 'row' as const,
-    paddingHorizontal: 16,
-    gap: 8,
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    gap: 10,
     alignItems: 'flex-start',
   },
   tipMascot: {
-    width: 36,
-    height: 36,
+    width: 48,
+    height: 48,
   },
   tipBubble: {
     flex: 1,
@@ -611,11 +620,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(191,216,192,0.35)',
     borderRadius: 14,
-    padding: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
   tipText: {
-    fontSize: 13.5,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 22,
     fontWeight: '500' as const,
     color: BRAND.colors.charcoalInk,
   },

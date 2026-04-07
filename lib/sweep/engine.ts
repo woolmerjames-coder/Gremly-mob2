@@ -367,7 +367,7 @@ export async function fetchSweepCandidatesForUser(
     // EVENT NOTES - Notes with target_date that need reminder prompts
     // Include notes where target_date is within the next 7 days
     // ─────────────────────────────────────────────────────────────────────
-    const sevenDaysFromNow = getDateService().now();
+    const sevenDaysFromNow = new Date(getDateService().now().getTime());
     sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
     const sevenDaysFromNowStr = getDateService().toLocalDate(sevenDaysFromNow);
 

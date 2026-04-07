@@ -7,13 +7,14 @@ import React, {
   memo,
   useEffect,
 } from 'react';
-import { View, ViewStyle, StyleSheet } from 'react-native';
+import { View, ViewStyle, StyleSheet, Platform } from 'react-native';
 import LottieView from 'lottie-react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
   Easing,
+  useReducedMotion,
 } from 'react-native-reanimated';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
@@ -72,6 +73,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
   const [mode, setMode] = useState<AnimationMode>('idle');
   const isCelebratingRef = useRef(false);
   const fedPlayCountRef = useRef(0);
+  const reduceMotion = useReducedMotion();
 
   // Refs for green LottieViews
   const greenIdleRef = useRef<LottieView>(null);
@@ -101,10 +103,13 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
   useEffect(() => {
     const clampedValue = Math.min(Math.max(feedingGaugeValue, 0), 1);
     const fillPercent = gaugeToFill(clampedValue);
-    fillHeight.value = withTiming(FILL_OFFSET_BOTTOM + fillPercent * FILL_RANGE, {
-      duration: FILL_ANIMATION_DURATION,
-      easing: Easing.out(Easing.cubic),
-    });
+    const target = FILL_OFFSET_BOTTOM + fillPercent * FILL_RANGE;
+    fillHeight.value = reduceMotion
+      ? target
+      : withTiming(target, {
+          duration: FILL_ANIMATION_DURATION,
+          easing: Easing.out(Easing.cubic),
+        });
   }, [feedingGaugeValue]);
 
   const clipAnimatedStyle = useAnimatedStyle(() => ({
@@ -165,15 +170,20 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
   const isActive = (m: AnimationMode) => mode === m;
 
   return (
-    <View style={[styles.wrapper, style]}>
+    <View
+      style={[styles.wrapper, style]}
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+      accessibilityElementsHidden={true}
+    >
       {/* ─── GREY LAYER (bottom, hidden when fed) ─── */}
       {!isFedToday && (
         <View style={styles.greyContainer}>
           <LottieView
             ref={greyIdleRef}
             source={IDLE_GREY}
-            autoPlay
-            loop
+            autoPlay={!reduceMotion}
+            loop={!reduceMotion}
             renderMode="HARDWARE"
             cacheComposition
             style={[styles.lottie, { opacity: isActive('idle') ? 1 : 0 }]}
@@ -204,8 +214,8 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref)
         <LottieView
           ref={greenIdleRef}
           source={IDLE_GREEN}
-          autoPlay
-          loop
+          autoPlay={!reduceMotion}
+          loop={!reduceMotion}
           renderMode="HARDWARE"
           cacheComposition
           style={[styles.lottieGreen, { opacity: isActive('idle') ? 1 : 0 }]}

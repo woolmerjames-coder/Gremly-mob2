@@ -365,7 +365,7 @@ const testUnifiedAnalyst = inngest.createFunction(
   { event: 'app/test.analyst' },
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
-    const timezone = event.data.timezone || 'Pacific/Tahiti';
+    const timezone = event.data.timezone || 'UTC';
     const windowDays = event.data.window_days || 21;
 
     const snapshot = await step.run('fetch-snapshot', async () => {
@@ -422,7 +422,7 @@ const testLifeMapRebuild = inngest.createFunction(
   { event: 'app/test.rebuild' },
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
-    const timezone = event.data.timezone || 'Pacific/Tahiti';
+    const timezone = event.data.timezone || 'UTC';
 
     const snapshot = await step.run('fetch-snapshot', async () => {
       return fetchUserSnapshot(userId, timezone, 21, env);
@@ -526,7 +526,7 @@ const testWeeklySummaryV2 = inngest.createFunction(
   { event: 'app/test.summary-v2' },
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
-    const timezone = event.data.timezone || 'Pacific/Tahiti';
+    const timezone = event.data.timezone || 'UTC';
 
     const snapshot = await step.run('fetch-snapshot', async () => {
       return fetchUserSnapshot(userId, timezone, 21, env);
@@ -759,7 +759,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
         .filter((p) => tokenMap[p.user_id])
         .map((p) => ({
           user_id: p.user_id,
-          timezone: p.timezone || 'America/Los_Angeles',
+          timezone: p.timezone || 'UTC',
           weekly_time: p.weekly_time,
           weekly_day: p.weekly_day ?? 0, // 0 = Sunday
           push_token: tokenMap[p.user_id],
@@ -809,6 +809,22 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
 
     // Step 3: Fan out per-user events
     if (readyUsers.length > 0) {
+      const weekKeys = {};
+      for (const u of readyUsers) {
+        try {
+          const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: u.timezone }).format(
+            new Date(),
+          );
+          const today = new Date(todayStr + 'T00:00:00Z');
+          const dayOfWeek = today.getUTCDay();
+          const monday = new Date(today);
+          monday.setUTCDate(today.getUTCDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+          weekKeys[u.user_id] = formatDateOnly(monday);
+        } catch {
+          weekKeys[u.user_id] = 'unknown';
+        }
+      }
+
       await step.sendEvent(
         'dispatch-weekly-users',
         readyUsers.map((u) => ({
@@ -817,6 +833,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
             user_id: u.user_id,
             timezone: u.timezone,
             push_token: u.push_token,
+            week_key: weekKeys[u.user_id],
           },
         })),
       );
@@ -832,16 +849,16 @@ const weeklySummaryV2Worker = inngest.createFunction(
     name: 'Weekly Summary V2 Worker',
     concurrency: { limit: 3 },
     retries: 2,
+    idempotency: 'event.data.user_id + "-" + event.data.week_key',
   },
   { event: 'app/weekly-summary-v2.run' },
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
-    const timezone = event.data.timezone || 'Pacific/Tahiti';
+    const timezone = event.data.timezone || 'UTC';
     const pushToken = event.data.push_token || null;
 
-    // Step 0: Claim notification slot — if already claimed, exit early (idempotency for retries)
-    const claimed = await step.run('claim-slot', async () => {
-      // Compute week start for the slot key
+    // Step 0: Read-only idempotency check — if summary already exists, skip
+    const weekStartForCheck = await step.run('check-existing-summary', async () => {
       const now = new Date();
       const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(now);
       const today = new Date(todayStr + 'T00:00:00Z');
@@ -850,30 +867,27 @@ const weeklySummaryV2Worker = inngest.createFunction(
       monday.setUTCDate(today.getUTCDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
       const weekStartKey = formatDateOnly(monday);
 
-      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/claim_notification_slot`, {
-        method: 'POST',
-        headers: {
-          apikey: env.SUPABASE_SERVICE_KEY,
-          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-          'Content-Type': 'application/json',
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/weekly_summaries?user_id=eq.${userId}&week_start_date=eq.${weekStartKey}&select=id&limit=1`,
+        {
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
         },
-        body: JSON.stringify({
-          p_user_id: userId,
-          p_type: 'weekly',
-          p_date_key: weekStartKey,
-        }),
-      });
+      );
 
       if (!res.ok) {
-        console.warn(`[Weekly V2] Slot claim RPC error for ${userId}: ${res.statusText}`);
-        return false;
+        console.warn(`[Weekly V2] Idempotency check failed for ${userId}: ${res.statusText}`);
+        return { alreadyExists: false, weekStartKey };
       }
-      return await res.json();
+      const rows = await res.json();
+      return { alreadyExists: Array.isArray(rows) && rows.length > 0, weekStartKey };
     });
 
-    if (claimed !== true) {
-      console.log(`[Weekly V2] Slot already claimed for ${userId}, skipping`);
-      return { success: true, skipped: true, reason: 'slot_already_claimed' };
+    if (weekStartForCheck.alreadyExists) {
+      console.log(`[Weekly V2] Summary already exists for ${userId}, skipping`);
+      return { success: true, skipped: true, reason: 'summary_already_exists' };
     }
 
     // Steps 1-6: identical to testWeeklySummaryV2
@@ -1029,13 +1043,32 @@ const weeklySummaryV2Worker = inngest.createFunction(
       }
     });
 
-    // Step 8: Save weekly summary (delete existing first, then insert)
+    // Step 8: Save weekly summary (claim slot, delete existing, then insert)
     await step.run('save-weekly-summary', async () => {
       const headers = {
         apikey: env.SUPABASE_SERVICE_KEY,
         Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
         'Content-Type': 'application/json',
       };
+
+      // Claim the notification slot NOW — only when we have a summary ready to save
+      const claimRes = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/claim_notification_slot`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          p_user_id: userId,
+          p_type: 'weekly',
+          p_date_key: weekDates.weekStart,
+        }),
+      });
+      if (claimRes.ok) {
+        const claimed = await claimRes.json();
+        if (claimed !== true) {
+          console.log(
+            `[Weekly V2] Slot claimed by another run for ${userId}, but saving anyway (we have the summary)`,
+          );
+        }
+      }
 
       // Delete any existing summary for this week
       await fetch(
@@ -3854,7 +3887,7 @@ YOUR TASK:
 
 2. Search and find 2-3 resources that meet ALL of these criteria:
    - MUST have a real, working URL (no books, no academic papers without URLs)
-   - MUST be from the last 3 years (2023-2026)
+   - MUST be from the last 3 years (${new Date().getFullYear() - 3}-${new Date().getFullYear()})
    - MUST be practical and actionable — blog posts, specific podcast episodes, newsletter issues, tools, community discussions
    - PREFER sources from: Indie Hackers, First Round Review, HBR online, specific named podcast episodes with timestamps, Substack posts, well-sourced Reddit threads
    - REJECT: Amazon book pages, academic journal abstracts, generic self-help listicles, anything without a verifiable URL
@@ -6814,7 +6847,7 @@ const archiveStaleEvents = inngest.createFunction(
     const result = await step.run('archive-old-events', async () => {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - 7);
-      const cutoffString = cutoffDate.toISOString().split('T')[0]; // YYYY-MM-DD
+      const cutoffString = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(cutoffDate); // YYYY-MM-DD
 
       // Archive non-goal event notes whose target_date (or end_date for multi-day)
       // is more than 7 days ago. Skip dateless events and goals.
@@ -7233,7 +7266,7 @@ export default {
       try {
         const body = await request.json();
         const userId = body.user_id;
-        const timezone = body.timezone || 'Pacific/Tahiti';
+        const timezone = body.timezone || 'UTC';
 
         if (!userId) {
           return new Response(JSON.stringify({ error: 'user_id required' }), {
@@ -7314,7 +7347,7 @@ export default {
       try {
         const body = await request.json();
         const userId = body.user_id;
-        const timezone = body.timezone || 'Pacific/Tahiti';
+        const timezone = body.timezone || 'UTC';
 
         if (!userId) {
           return new Response(JSON.stringify({ error: 'user_id required' }), {
@@ -7439,7 +7472,7 @@ export default {
 
         // We need the snapshot to get priorSummaries and weeklySnapshot
         // Re-fetch snapshot for this user (needed for priorSummaries and weeklySnapshot)
-        const timezone = body.timezone || 'Pacific/Tahiti';
+        const timezone = body.timezone || 'UTC';
         const snapshot = await fetchUserSnapshot(userId, timezone, 21, env);
         const weeklySnapshot = buildWeeklySnapshot(snapshot);
         const priorSummaries = snapshot.raw.weeklySummaries || [];
@@ -7557,7 +7590,7 @@ export default {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: 'app/test.summary-v2',
-            data: { user_id: userId, timezone: body.timezone || 'Pacific/Tahiti' },
+            data: { user_id: userId, timezone: body.timezone || 'UTC' },
           }),
         });
 

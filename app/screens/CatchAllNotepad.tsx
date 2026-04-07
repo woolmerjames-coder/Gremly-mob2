@@ -1825,7 +1825,7 @@ const Row3Chips: React.FC<{
             {/* Target date chip (event/deadline context) - inline with other chips */}
             {hasTargetDate && targetDateValue && (
               <View style={styles.targetDateChip}>
-                <Calendar size={10} color="#7A9A7A" strokeWidth={2} />
+                <Calendar size={10} color="#5d7a5d" strokeWidth={2} />
                 <Text style={styles.targetDateText}>{formatDateForChip(targetDateValue)}</Text>
               </View>
             )}
@@ -1843,7 +1843,7 @@ const Row3Chips: React.FC<{
                       : formatTime12h(r.time);
                 return (
                   <View style={styles.reminderChip}>
-                    <Bell size={10} color="#8B7332" strokeWidth={2} />
+                    <Bell size={10} color="#877030" strokeWidth={2} />
                     <Text style={styles.reminderText}>{label}</Text>
                   </View>
                 );
@@ -1852,8 +1852,8 @@ const Row3Chips: React.FC<{
             {/* People chip */}
             {hasPeople && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                <User size={10} color="#6B8E6B" strokeWidth={2.5} />
-                <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
+                <User size={10} color="#5c7a5c" strokeWidth={2.5} />
+                <Text style={{ fontSize: 10, color: '#5c7a5c', fontFamily: 'Inter-Medium' }}>
                   {item.views!.people![0]}
                 </Text>
               </View>
@@ -2080,7 +2080,7 @@ const PendingSkeleton: React.FC<{
           entering={FadeIn.duration(300)}
           style={{
             fontSize: 11,
-            color: '#9CA3AF',
+            color: '#6a7484',
             fontFamily: 'Inter-Regular',
             marginTop: 4,
             fontStyle: 'italic',
@@ -3181,7 +3181,7 @@ const AnimatedMindDropCard = React.memo<{
                   borderRadius: 13,
                 }}
               />
-              <Text style={{ fontSize: 13, color: '#B8860B', fontWeight: '600' }}>
+              <Text style={{ fontSize: 13, color: '#916908', fontWeight: '600' }}>
                 Couldn't finish loading. Tap to retry.
               </Text>
             </Pressable>
@@ -3240,7 +3240,7 @@ const AnimatedMindDropCard = React.memo<{
             )}
             {/* Left side helper text when clarification or multi */}
             {(needsClarification || isMulti) && (
-              <Text style={{ flex: 1, fontSize: 12, color: '#8E9C8E', marginLeft: 34 }}>
+              <Text style={{ flex: 1, fontSize: 12, color: '#657865', marginLeft: 34 }}>
                 no pressure, can sweep it later
               </Text>
             )}
@@ -5500,7 +5500,7 @@ const RecentDrops: React.FC<{
           <Pressable
             testID="minddrop-recent-chevron"
             onPress={handleChevronPress}
-            hitSlop={12}
+            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
             accessibilityRole="button"
             accessibilityLabel="Toggle recent drops"
             accessibilityState={{ expanded: open }}
@@ -9266,7 +9266,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               value={note}
               onChangeText={handleChangeText}
               placeholder={dynamicPlaceholder}
-              placeholderTextColor="#66706A"
+              placeholderTextColor="#757575"
               containerStyle={styles.inputContainer}
               focusedStyle={styles.inputContainerFocused}
               inputStyle={styles.input}
@@ -9918,12 +9918,19 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       opacity: 0.35,
     },
     inputIconButton: {
-      padding: 4,
+      padding: 10,
+      minWidth: 44,
+      minHeight: 44,
       justifyContent: 'center',
       alignItems: 'center',
     },
     inputIconMicButton: {},
-    inputIconCameraButton: {},
+    inputIconCameraButton: {
+      minWidth: 44,
+      minHeight: 44,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
     inputIconWrapper: {
       width: 24,
       height: 24,
@@ -9949,12 +9956,12 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flexShrink: 1,
     },
     helperText: {
-      color: '#22222280',
+      color: '#757575',
       fontFamily: 'Inter-Medium',
       fontSize: 13,
     },
     helperCounter: {
-      color: '#22222280',
+      color: '#757575',
       fontFamily: 'Inter-Medium',
       fontSize: 13,
       textAlign: 'right',
@@ -10073,7 +10080,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     submitButton: {
       width: '100%',
-      height: 48,
+      minHeight: 48,
       borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
@@ -10188,7 +10195,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     recentCard: {
       backgroundColor: '#FDFCFA',
       borderRadius: 12,
-      height: 88,
+      minHeight: 88,
       paddingTop: 8,
       paddingBottom: 8,
       paddingHorizontal: 16,
@@ -10266,12 +10273,15 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     // Phase 5b: Removed old recentTopRow, recentText, recentBadgeRow, recentBadge styles
     badge_note: {
       backgroundColor: c.sageTint,
+      color: '#556B63',
     },
     badge_todo: {
       backgroundColor: '#E6F0FF',
+      color: '#2E5540',
     },
     badge_habit: {
       backgroundColor: '#EAF7ED',
+      color: '#2E5540',
     },
     badge_unsorted: {
       backgroundColor: c.goldenPear,
@@ -10349,7 +10359,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     targetDateText: {
       fontSize: 10,
-      color: '#7A9A7A',
+      color: '#5d7a5d',
       fontFamily: 'Inter-Medium',
     },
     // Reminder bell chip (golden pear)
@@ -10364,7 +10374,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     reminderText: {
       fontSize: 10,
-      color: '#8B7332',
+      color: '#877030',
       fontFamily: 'Inter-Medium',
     },
     // Journal subtype display - plain text label with separator and mood chips
@@ -10414,8 +10424,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     // Time ago in metadata row - same as recentMetaDue for consistency
     recentMetaTime: {
-      color: c.mutedText,
-      fontSize: 10,
+      color: '#6B7280',
+      fontSize: 11,
       fontFamily: 'Inter-Regular',
       flexShrink: 0,
     },
