@@ -530,3 +530,121 @@ export function findGaps(date: string, minMinutes: number): TimeSlot[] {
 
   return gaps;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// WRITE OPERATIONS
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Create a new user calendar event and return its ID.
+ */
+export async function createCalendarEvent(params: {
+  title: string;
+  date: string;
+  startTime?: string;
+  endTime?: string;
+  durationMinutes?: number;
+  isAllDay?: boolean;
+  location?: string;
+  spaceId?: string;
+  notes?: string;
+}): Promise<string> {
+  const store = useGremlyStore.getState();
+
+  // Compute duration from start/end if not explicitly provided
+  let duration = params.durationMinutes;
+  if (!duration && params.startTime && params.endTime) {
+    duration = timeToMinutes(params.endTime) - timeToMinutes(params.startTime);
+  }
+
+  const created = await store.createUserCalendarEvent({
+    title: params.title,
+    event_date: params.date,
+    event_time: params.startTime ?? null,
+    duration_minutes: duration ?? null,
+    space_id: params.spaceId ?? null,
+    notes: params.notes ?? null,
+    source: 'user',
+  });
+
+  return created.id;
+}
+
+/**
+ * Reschedule any calendar item to a new date/time.
+ * Synced events are read-only and will throw.
+ */
+export async function rescheduleCalendarItem(params: {
+  id: string;
+  source: CalendarItem['source'];
+  newDate: string;
+  newStartTime?: string;
+  newEndTime?: string;
+}): Promise<void> {
+  const store = useGremlyStore.getState();
+
+  switch (params.source) {
+    case 'todo':
+      await store.updateTodo(params.id, {
+        due_day: params.newDate,
+        due_time: params.newStartTime ?? null,
+      });
+      break;
+
+    case 'gremly_event':
+      await store.updateNote(params.id, {
+        target_date: params.newDate,
+        event_time: params.newStartTime ?? null,
+        end_time: params.newEndTime ?? null,
+      });
+      break;
+
+    case 'user_calendar':
+      await store.updateUserCalendarEvent(params.id, {
+        event_date: params.newDate,
+        event_time: params.newStartTime ?? null,
+      });
+      break;
+
+    case 'habit':
+      await store.updateHabit(params.id, {
+        scheduled_start_iso: params.newStartTime
+          ? localToIso(params.newDate, params.newStartTime)
+          : null,
+      });
+      break;
+
+    case 'synced':
+      throw new Error('Synced calendar events are read-only and cannot be rescheduled in Gremly');
+  }
+}
+
+/**
+ * Remove / archive a calendar item.
+ * Habits and synced events are no-ops (managed elsewhere).
+ */
+export async function removeCalendarItem(params: {
+  id: string;
+  source: CalendarItem['source'];
+}): Promise<void> {
+  const store = useGremlyStore.getState();
+
+  switch (params.source) {
+    case 'todo':
+      await store.archiveTodo(params.id);
+      break;
+
+    case 'gremly_event':
+      await store.archiveNote(params.id);
+      break;
+
+    case 'user_calendar':
+      await store.deleteUserCalendarEvent(params.id);
+      break;
+
+    case 'habit':
+    case 'synced':
+      // No-op: habits are managed in habits settings, synced events are read-only
+      break;
+  }
+}
