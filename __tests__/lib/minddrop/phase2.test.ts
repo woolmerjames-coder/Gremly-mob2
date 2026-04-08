@@ -31,12 +31,13 @@ jest.mock('../../../lib/config/featureFlags', () => ({
 // Mock verifyAIDate to pass through AI dates (avoids chrono-node overriding dates in tests).
 // Use spyOn approach to keep validateEnrichmentResult as the real implementation.
 const phase2Validation = require('../../../lib/minddrop/phase2Validation');
-jest
-  .spyOn(phase2Validation, 'verifyAIDate')
-  .mockImplementation((_text: string, aiDate: string) => ({
-    resolvedDate: aiDate,
-    confidence: 'verified' as const,
-  }));
+jest.spyOn(phase2Validation, 'verifyAIDate').mockImplementation(((
+  _text: string,
+  aiDate: string,
+) => ({
+  resolvedDate: aiDate,
+  confidence: 'verified' as const,
+})) as any);
 
 // Mock DateService for phase2 and phase2Validation
 jest.mock('../../../lib/date/DateService', () => ({

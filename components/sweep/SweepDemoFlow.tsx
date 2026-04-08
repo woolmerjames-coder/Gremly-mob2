@@ -298,7 +298,7 @@ function demoMeta(candidate: SweepCandidate): SweepCardMeta {
     spaceName: null,
     spaceId: null,
     isLockedIn: false,
-    gremlyResponse: null,
+    gremlyResponse: '',
     rescheduleCount: 0,
   };
 
@@ -321,9 +321,9 @@ function demoMeta(candidate: SweepCandidate): SweepCardMeta {
     const eventDate = getFutureEventDate();
     return {
       ...shared,
-      typeChip: 'Event',
+      typeChip: 'Note',
       todoStatus: null,
-      logSubtype: 'event',
+      logSubtype: null,
       noteCardType: 'event',
       eventDate,
       eventDateFormatted: format(new Date(eventDate + 'T12:00:00'), 'EEE, MMM d'),
@@ -334,7 +334,7 @@ function demoMeta(candidate: SweepCandidate): SweepCardMeta {
   // idea
   return {
     ...shared,
-    typeChip: 'Idea',
+    typeChip: 'Note',
     todoStatus: null,
     logSubtype: 'idea',
     noteCardType: 'idea',

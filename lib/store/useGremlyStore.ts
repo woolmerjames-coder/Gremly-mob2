@@ -5445,7 +5445,7 @@ export const useGremlyStore = create<GremlyState>()(
           const now = nowTimestamp();
 
           const momentDates =
-            summary.content?.cards
+            (summary.content as any)?.cards
               ?.filter((c: { type: string }) => c.type === 'moments')
               ?.flatMap(
                 (c: { moments?: { date?: string }[] }) =>

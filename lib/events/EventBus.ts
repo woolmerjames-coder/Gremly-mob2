@@ -68,6 +68,7 @@ export type EventMap = {
     targetDate?: string | null; // When something IS or is DUE (deadline/event date)
     scheduledDate?: string | null; // When user will DO the work
     dateTypeAmbiguous?: boolean; // True if unclear which type of date
+    dateConfidence?: 'verified' | 'llm_only' | 'chrono_override' | null;
   };
   // Phase 2 streaming field update event
   'entity:field_updated': {

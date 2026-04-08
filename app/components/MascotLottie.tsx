@@ -41,7 +41,7 @@ const FILL_ANIMATION_DURATION = 1000;
 
 // Module-level cache for recolored Lottie JSON (preserves object identity across renders)
 const recolorCache = new Map<string, object>();
-function getCachedRecolor(source: object, key: string, paletteId: string): object {
+function getCachedRecolor(source: object, key: string, paletteId: string): any {
   const cacheKey = `${key}:${paletteId}`;
   let cached = recolorCache.get(cacheKey);
   if (!cached) {
@@ -113,7 +113,11 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
 
     // Pre-compute all palette variants of idle animation once (stable sources, no remount)
     const allIdleVariants = useMemo(
-      () => GREMLY_PALETTES.map((p) => ({ id: p.id, source: recolorLottieJson(IDLE_GREEN, p.id) })),
+      () =>
+        GREMLY_PALETTES.map((p) => ({
+          id: p.id,
+          source: recolorLottieJson(IDLE_GREEN, p.id) as any,
+        })),
       [],
     );
 

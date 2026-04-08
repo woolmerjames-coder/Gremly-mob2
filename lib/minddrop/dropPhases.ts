@@ -230,6 +230,7 @@ async function callPhase2(
       date_type_ambiguous: json.date_type_ambiguous ?? false,
       end_date: json.end_date ?? null,
       smart_title: json.smart_title ?? null,
+      dateConfidence: json.dateConfidence ?? null,
     };
   } catch (err) {
     console.log('[DropPhases] Phase 2 error', { error: String(err) });
@@ -685,6 +686,7 @@ export async function handleEnriched(drop: QueuedDrop): Promise<QueuedDrop> {
         date_type_ambiguous: drop.dateTypeAmbiguous || false,
         end_date: drop.endDate || null,
         smart_title: null,
+        dateConfidence: null,
       }
     : null;
 

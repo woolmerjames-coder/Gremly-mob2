@@ -74,6 +74,7 @@ export interface AnimatedDropCardItem {
   is_multi?: boolean; // True if this drop contains multiple items
   multi_items?: MultiDropItem[]; // Array of parsed items from multi-entity drop
   multi_summary_title?: string; // Combined title like "Groceries + Running Habit"
+  noteSubtype?: 'event' | 'idea' | 'general' | 'journal' | null;
   views?: {
     is_multi?: boolean;
     multi_items?: MultiDropItem[];

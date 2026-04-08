@@ -5016,7 +5016,7 @@ const RecentDrops: React.FC<{
                     try {
                       await repo.update({
                         id: newTodo.id,
-                        patch: { name: smartTitle, title: smartTitle },
+                        patch: { name: smartTitle, title: smartTitle } as any,
                       });
                     } catch (dbErr) {
                       console.warn(
@@ -5136,7 +5136,7 @@ const RecentDrops: React.FC<{
                     try {
                       await repo.update({
                         id: newHabit.id,
-                        patch: { name: smartTitle, title: smartTitle },
+                        patch: { name: smartTitle, title: smartTitle } as any,
                       });
                     } catch (dbErr) {
                       console.warn(
@@ -5256,7 +5256,7 @@ const RecentDrops: React.FC<{
               // Persist smart_title to DB so Phase 2's hasPhase1SmartTitle check sees it
               if (smartTitle && typeof smartTitle === 'string') {
                 try {
-                  await repo.update({ id: noteId, patch: { title: smartTitle } });
+                  await repo.update({ id: noteId, patch: { title: smartTitle } as any });
                 } catch (dbErr) {
                   console.warn(
                     '[RecentDrops:Phase1.5a] DB write failed for log, continuing',

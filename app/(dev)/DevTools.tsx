@@ -122,7 +122,7 @@ export default function DevTools() {
 
           <Button
             label="Show Paywall"
-            onPress={() => navigation.navigate('TrialEndPaywall' as any)}
+            onPress={() => (navigation as any).navigate('TrialEndPaywall')}
             testID="show-paywall-button"
             style={styles.button}
           />
