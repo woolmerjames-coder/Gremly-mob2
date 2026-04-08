@@ -28,7 +28,6 @@ import MascotLottie from '../components/MascotLottie';
 
 // Mascot images
 import GREMLY_MASCOT from '../../assets/mascot/gremly-mascot.png';
-import GREMLY_FISTBUMP from '../../assets/mascot/fistbumpgremly.png';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -52,7 +51,7 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
   },
   {
     id: 'color',
-    title: 'Make me yours',
+    title: 'Choose your Gremly',
     body: '',
     subtext: 'You can always change this in settings.',
     type: 'color-picker',
@@ -66,7 +65,7 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
   },
 ];
 
-const PRONOUN_OPTIONS = ['he/him', 'she/her', 'they/them', 'other'];
+const PRONOUN_OPTIONS = ['he/him', 'she/her', 'they/them', 'custom'];
 
 /**
  * Renders a single onboarding step
@@ -78,6 +77,8 @@ function OnboardingStepView({
   setNameInput,
   pronounsInput,
   setPronounsInput,
+  customPronouns,
+  setCustomPronouns,
 }: {
   step: OnboardingStep;
   drainVisible: boolean;
@@ -85,12 +86,12 @@ function OnboardingStepView({
   setNameInput: (v: string) => void;
   pronounsInput: string | null;
   setPronounsInput: (v: string | null) => void;
+  customPronouns: string;
+  setCustomPronouns: (v: string) => void;
 }) {
   const gremlyColor = useGremlyStore((s) => s.gremlyColor);
   const setGremlyColor = useGremlyStore((s) => s.setGremlyColor);
   const [nameFocused, setNameFocused] = useState(false);
-
-  const selectedPalette = GREMLY_PALETTES.find((p) => p.id === gremlyColor) ?? GREMLY_PALETTES[0];
 
   return (
     <View style={styles.stepContainer}>
@@ -107,7 +108,7 @@ function OnboardingStepView({
         {step.type === 'color-picker' && (
           <View
             style={{
-              height: 240,
+              minHeight: 240,
               alignItems: 'center',
               justifyContent: 'center',
               overflow: 'visible',
@@ -121,7 +122,7 @@ function OnboardingStepView({
         {step.type === 'drain' && (
           <View
             style={{
-              height: 240,
+              minHeight: 240,
               alignItems: 'center',
               justifyContent: 'center',
               overflow: 'visible',
@@ -135,33 +136,36 @@ function OnboardingStepView({
       </View>
 
       {/* Title */}
-      <Text style={styles.title}>{step.title}</Text>
+      <Text style={styles.title} maxFontSizeMultiplier={1.3}>
+        {step.title}
+      </Text>
 
       {/* Color picker */}
       {step.type === 'color-picker' && (
-        <>
-          <View style={styles.colorRow}>
-            {GREMLY_PALETTES.map((palette) => {
-              const isSelected = palette.id === gremlyColor;
-              return (
-                <Pressable
-                  key={palette.id}
-                  onPress={() => setGremlyColor(palette.id)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${palette.name} color`}
-                  accessibilityState={{ selected: isSelected }}
-                  style={[
-                    styles.colorButton,
-                    isSelected && { borderColor: palette.hex.dark, borderWidth: 3 },
-                  ]}
-                >
-                  <View style={[styles.colorButtonInner, { backgroundColor: palette.hex.dark }]} />
-                </Pressable>
-              );
-            })}
-          </View>
-          <Text style={styles.colorName}>{selectedPalette.name}</Text>
-        </>
+        <View
+          style={styles.colorRow}
+          accessibilityRole="radiogroup"
+          accessibilityLabel="Gremly color"
+        >
+          {GREMLY_PALETTES.map((palette) => {
+            const isSelected = palette.id === gremlyColor;
+            return (
+              <Pressable
+                key={palette.id}
+                onPress={() => setGremlyColor(palette.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`${palette.name} color`}
+                accessibilityState={{ selected: isSelected }}
+                style={[
+                  styles.colorButton,
+                  isSelected && { borderColor: palette.hex.dark, borderWidth: 3 },
+                ]}
+              >
+                <View style={[styles.colorButtonInner, { backgroundColor: palette.hex.dark }]} />
+              </Pressable>
+            );
+          })}
+        </View>
       )}
 
       {/* Body text */}
@@ -176,12 +180,12 @@ function OnboardingStepView({
       {/* Subtext */}
       {step.subtext ? <Text style={styles.subtext}>{step.subtext}</Text> : null}
 
-      {/* Name + pronouns (color picker step only) */}
-      {step.type === 'color-picker' && (
-        <View style={styles.profileSection}>
+      {/* Name + pronouns (welcome step only) */}
+      {step.type === 'mascot' && (
+        <View style={styles.profileCard}>
           <TextInput
-            style={[styles.nameInput, nameFocused && { borderBottomColor: BRAND.colors.mossGreen }]}
-            placeholder="What should I call you?"
+            style={[styles.nameInput, nameFocused && styles.nameInputFocused]}
+            placeholder="Your name"
             placeholderTextColor={BRAND.colors.inkMuted}
             autoCapitalize="words"
             returnKeyType="done"
@@ -189,8 +193,15 @@ function OnboardingStepView({
             onChangeText={setNameInput}
             onFocus={() => setNameFocused(true)}
             onBlur={() => setNameFocused(false)}
+            allowFontScaling={true}
+            accessibilityLabel="Your name"
+            accessibilityHint="Enter what Gremly should call you"
           />
-          <View style={styles.pronounRow}>
+          <View
+            style={[styles.pronounRow, { marginTop: 10 }]}
+            accessibilityRole="radiogroup"
+            accessibilityLabel="Pronouns"
+          >
             {PRONOUN_OPTIONS.map((option) => {
               const isSelected = pronounsInput === option;
               return (
@@ -198,6 +209,8 @@ function OnboardingStepView({
                   key={option}
                   onPress={() => setPronounsInput(isSelected ? null : option)}
                   style={[styles.pronounPill, isSelected && styles.pronounPillSelected]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: isSelected }}
                 >
                   <Text
                     style={[styles.pronounPillText, isSelected && styles.pronounPillTextSelected]}
@@ -208,6 +221,20 @@ function OnboardingStepView({
               );
             })}
           </View>
+          {pronounsInput === 'custom' && (
+            <TextInput
+              style={[
+                styles.customPronounInput,
+                nameFocused && { borderBottomColor: BRAND.colors.mossGreen },
+              ]}
+              placeholder="Type your pronouns"
+              placeholderTextColor={BRAND.colors.inkMuted}
+              autoCapitalize="none"
+              returnKeyType="done"
+              value={customPronouns}
+              onChangeText={setCustomPronouns}
+            />
+          )}
         </View>
       )}
     </View>
@@ -222,6 +249,7 @@ export default function OnboardingScreen() {
   const [drainTriggered, setDrainTriggered] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [pronounsInput, setPronounsInput] = useState<string | null>(null);
+  const [customPronouns, setCustomPronouns] = useState('');
 
   // Store action to mark onboarding complete
   const markOnboardingComplete = useGremlyStore((s) => s.markOnboardingComplete);
@@ -248,12 +276,14 @@ export default function OnboardingScreen() {
 
   const handleNext = useCallback(async () => {
     if (currentStep < ONBOARDING_STEPS.length - 1) {
-      if (currentStep === 1) {
-        setUserProfile(nameInput.trim() || null, pronounsInput);
+      if (currentStep === 0) {
+        const finalPronouns =
+          pronounsInput === 'custom' ? customPronouns.trim() || null : pronounsInput;
+        setUserProfile(nameInput.trim() || null, finalPronouns);
       }
       goToStep(currentStep + 1);
     }
-  }, [currentStep, goToStep, nameInput, pronounsInput, setUserProfile]);
+  }, [currentStep, goToStep, nameInput, pronounsInput, customPronouns, setUserProfile]);
 
   const handleComplete = useCallback(async () => {
     await markOnboardingComplete();
@@ -280,10 +310,12 @@ export default function OnboardingScreen() {
           setNameInput={setNameInput}
           pronounsInput={pronounsInput}
           setPronounsInput={setPronounsInput}
+          customPronouns={customPronouns}
+          setCustomPronouns={setCustomPronouns}
         />
       </View>
     ),
-    [drainTriggered, nameInput, pronounsInput],
+    [drainTriggered, nameInput, pronounsInput, customPronouns],
   );
 
   const isLastStep = currentStep === ONBOARDING_STEPS.length - 1;
@@ -295,6 +327,8 @@ export default function OnboardingScreen() {
         style={styles.skipButton}
         onPress={handleSkip}
         hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        accessibilityRole="button"
+        accessibilityLabel="Skip onboarding"
       >
         <Text style={styles.skipText}>Skip</Text>
       </Pressable>
@@ -313,6 +347,8 @@ export default function OnboardingScreen() {
         bounces={false}
         style={styles.flatList}
         contentContainerStyle={{ flexGrow: 1 }}
+        accessibilityLabel="Onboarding steps"
+        accessibilityRole="tablist"
       />
 
       {/* Bottom controls */}
@@ -324,6 +360,9 @@ export default function OnboardingScreen() {
               key={index}
               onPress={() => goToStep(index)}
               hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+              accessibilityRole="tab"
+              accessibilityLabel={`Page ${index + 1} of ${ONBOARDING_STEPS.length}`}
+              accessibilityState={{ selected: index === currentStep }}
             >
               <View
                 style={[
@@ -337,11 +376,15 @@ export default function OnboardingScreen() {
 
         {/* Action button */}
         {isLastStep ? (
-          <Pressable style={styles.primaryButton} onPress={handleComplete}>
+          <Pressable
+            style={styles.primaryButton}
+            onPress={handleComplete}
+            accessibilityRole="button"
+          >
             <Text style={styles.primaryButtonText}>Let's go</Text>
           </Pressable>
         ) : (
-          <Pressable style={styles.secondaryButton} onPress={handleNext}>
+          <Pressable style={styles.secondaryButton} onPress={handleNext} accessibilityRole="button">
             <Text style={styles.secondaryButtonText}>Next</Text>
           </Pressable>
         )}
@@ -404,7 +447,7 @@ const styles = StyleSheet.create({
     color: BRAND.colors.charcoalInk,
     textAlign: 'center',
     lineHeight: 26,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   subtext: {
     fontFamily: 'Inter-Regular',
@@ -433,40 +476,41 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
   },
-  colorName: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 14,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  profileSection: {
+  profileCard: {
     marginTop: 16,
-    alignItems: 'center',
     width: '100%',
+    backgroundColor: 'rgba(255,255,255,0.45)',
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    alignItems: 'center',
   },
   nameInput: {
     fontFamily: 'Inter-Regular',
     fontSize: 17,
     color: BRAND.colors.charcoalInk,
     textAlign: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: BRAND.colors.borderSubtle,
-    paddingVertical: 8,
-    maxWidth: 220,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1.5,
+    borderColor: BRAND.colors.borderSubtle,
     width: '100%',
-    alignSelf: 'center',
+  },
+  nameInputFocused: {
+    borderColor: BRAND.colors.mossGreen,
+    backgroundColor: 'rgba(255,255,255,0.8)',
   },
   pronounRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
     gap: 8,
-    marginTop: 12,
   },
   pronounPill: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
     borderRadius: 999,
     borderWidth: 1.5,
     borderColor: BRAND.colors.borderSubtle,
@@ -477,11 +521,24 @@ const styles = StyleSheet.create({
   },
   pronounPillText: {
     fontFamily: 'Inter-Medium',
-    fontSize: 14,
+    fontSize: 13,
     color: BRAND.colors.charcoalInk,
   },
   pronounPillTextSelected: {
     color: BRAND.colors.mossGreen,
+  },
+  customPronounInput: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 15,
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: BRAND.colors.borderSubtle,
+    paddingVertical: 6,
+    maxWidth: 180,
+    width: '100%',
+    alignSelf: 'center',
+    marginTop: 8,
   },
   // Bottom controls
   bottomContainer: {

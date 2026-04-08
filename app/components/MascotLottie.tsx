@@ -1,6 +1,5 @@
 import React, {
   useRef,
-  useCallback,
   useState,
   useImperativeHandle,
   forwardRef,
@@ -8,7 +7,7 @@ import React, {
   useEffect,
   useMemo,
 } from 'react';
-import { View, ViewStyle, StyleSheet, Platform } from 'react-native';
+import { View, ViewStyle, StyleSheet } from 'react-native';
 import LottieView from 'lottie-react-native';
 import Animated, {
   useSharedValue,
@@ -38,6 +37,18 @@ const FED_GREEN = require('../../assets/lottie/character3_B.json');
 const MASCOT_WIDTH = 95;
 const MASCOT_HEIGHT = 111;
 const FILL_ANIMATION_DURATION = 1000;
+
+// Module-level cache for recolored Lottie JSON (preserves object identity across renders)
+const recolorCache = new Map<string, object>();
+function getCachedRecolor(source: object, key: string, paletteId: string): object {
+  const cacheKey = `${key}:${paletteId}`;
+  let cached = recolorCache.get(cacheKey);
+  if (!cached) {
+    cached = recolorLottieJson(source, paletteId);
+    recolorCache.set(cacheKey, cached);
+  }
+  return cached;
+}
 
 // Character bounds (pixel-measured from rendered frames)
 const FILL_OFFSET_BOTTOM = 14;
@@ -99,10 +110,19 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
     const isFedToday = useGremlyStore((s) => s.isFedToday);
     const gremlyColor = useGremlyStore((s) => s.gremlyColor);
 
-    // Recolor green Lottie sources for the active palette
-    const idleColored = useMemo(() => recolorLottieJson(IDLE_GREEN, gremlyColor), [gremlyColor]);
-    const dropColored = useMemo(() => recolorLottieJson(DROP_GREEN, gremlyColor), [gremlyColor]);
-    const fedColored = useMemo(() => recolorLottieJson(FED_GREEN, gremlyColor), [gremlyColor]);
+    // Recolor green Lottie sources for the active palette (stable refs on repeat selections)
+    const idleColored = useMemo(
+      () => getCachedRecolor(IDLE_GREEN, 'idle', gremlyColor),
+      [gremlyColor],
+    );
+    const dropColored = useMemo(
+      () => getCachedRecolor(DROP_GREEN, 'drop', gremlyColor),
+      [gremlyColor],
+    );
+    const fedColored = useMemo(
+      () => getCachedRecolor(FED_GREEN, 'fed', gremlyColor),
+      [gremlyColor],
+    );
 
     // Brief fade to mask animation restart on color change (showFullColor only)
     const prevColorRef = useRef(gremlyColor);
