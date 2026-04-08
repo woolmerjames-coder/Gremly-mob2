@@ -18,7 +18,7 @@ import {
   TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, CommonActions } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
@@ -58,7 +58,7 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
   },
   {
     id: 'start',
-    title: 'Feed me every day',
+    title: 'Feed me your thoughts every day',
     body: "Every drop fills your gremlin back up. Tasks, thoughts, feelings — I'll sort it all out.",
     subtext: 'Tap any card to chat with me along the way.',
     type: 'drain',
@@ -251,9 +251,7 @@ export default function OnboardingScreen() {
   const [pronounsInput, setPronounsInput] = useState<string | null>(null);
   const [customPronouns, setCustomPronouns] = useState('');
 
-  // Store action to mark onboarding complete
-  const markOnboardingComplete = useGremlyStore((s) => s.markOnboardingComplete);
-  const startTraining = useGremlyStore((s) => s.startTraining);
+  // Store actions
   const setUserProfile = useGremlyStore((s) => s.setUserProfile);
 
   const handleScroll = useCallback(
@@ -286,15 +284,8 @@ export default function OnboardingScreen() {
   }, [currentStep, goToStep, nameInput, pronounsInput, customPronouns, setUserProfile]);
 
   const handleComplete = useCallback(async () => {
-    await markOnboardingComplete();
-    await startTraining();
-    navigation.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [{ name: 'Tabs' }],
-      }),
-    );
-  }, [navigation, markOnboardingComplete, startTraining]);
+    navigation.navigate('TrialIntro' as never);
+  }, [navigation]);
 
   const handleSkip = useCallback(async () => {
     await handleComplete();
@@ -377,11 +368,11 @@ export default function OnboardingScreen() {
         {/* Action button */}
         {isLastStep ? (
           <Pressable
-            style={styles.primaryButton}
+            style={styles.secondaryButton}
             onPress={handleComplete}
             accessibilityRole="button"
           >
-            <Text style={styles.primaryButtonText}>Let's go</Text>
+            <Text style={styles.secondaryButtonText}>Next</Text>
           </Pressable>
         ) : (
           <Pressable style={styles.secondaryButton} onPress={handleNext} accessibilityRole="button">

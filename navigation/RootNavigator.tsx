@@ -16,6 +16,8 @@ import SpaceDetailScreen from '../app/screens/SpaceDetailScreen';
 import CatchAllNotepad from '../app/screens/CatchAllNotepad';
 import SweepFlowScreen from '../app/screens/SweepFlowScreen';
 import OnboardingScreen from '../app/screens/OnboardingScreen';
+import TrialIntroScreen from '../app/screens/TrialIntroScreen';
+import TrialEndPaywallScreen from '../app/screens/TrialEndPaywallScreen';
 import PersonDetailScreen from '../app/people/PersonDetailScreen';
 import SpaceHomeScreen from '../app/spaces/SpaceHomeScreen';
 import ChatThreadScreen from '../app/spaces/ChatThreadScreen';
@@ -67,6 +69,8 @@ const GraduationFlowPlaceholder = () => (
 export type RootStackParamList = {
   Login: undefined;
   Onboarding: undefined;
+  TrialIntro: undefined;
+  TrialEndPaywall: undefined;
   TrainingIntro: undefined; // kept for type compat, screen removed
   Tabs: undefined;
   DSPreview: undefined;
@@ -157,6 +161,24 @@ export default function RootNavigator() {
           <Stack.Screen
             name="Onboarding"
             component={OnboardingScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: false,
+              animation: 'fade',
+            }}
+          />
+          <Stack.Screen
+            name="TrialIntro"
+            component={TrialIntroScreen}
+            options={{
+              headerShown: false,
+              gestureEnabled: false,
+              animation: 'fade',
+            }}
+          />
+          <Stack.Screen
+            name="TrialEndPaywall"
+            component={TrialEndPaywallScreen}
             options={{
               headerShown: false,
               gestureEnabled: false,
