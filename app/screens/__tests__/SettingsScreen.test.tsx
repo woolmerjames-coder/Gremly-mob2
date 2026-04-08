@@ -39,8 +39,35 @@ jest.mock('lucide-react-native', () => {
     Clock: (props: any) => <View testID="icon-clock" {...props} />,
     CalendarDays: (props: any) => <View testID="icon-calendar" {...props} />,
     Brain: (props: any) => <View testID="icon-brain" {...props} />,
+    Palette: (props: any) => <View testID="icon-palette" {...props} />,
   };
 });
+
+// Mock gremlyPalettes
+jest.mock('../../../lib/constants/gremlyPalettes', () => ({
+  GREMLY_PALETTES: [
+    { id: 'forest', name: 'Forest', hex: { dark: '#285441', mid: '#5f966e', cream: '#f0e9bd' } },
+  ],
+  getPaletteById: jest.fn(() => ({ id: 'forest', name: 'Forest' })),
+}));
+
+// Mock useGremlyStore
+jest.mock('../../../lib/store/useGremlyStore', () => {
+  const mockStore = (selector: (state: any) => any) => {
+    const state = {
+      gremlyColor: 'forest',
+      setGremlyColor: jest.fn(),
+      weeklySummaries: [],
+    };
+    return selector(state);
+  };
+  mockStore.getState = () => ({ weeklySummaries: [] });
+  return { useGremlyStore: mockStore };
+});
+
+// Mock weekly summary + selectors
+jest.mock('../../../lib/weeklySummary', () => ({ generateWeeklySummary: jest.fn() }));
+jest.mock('../../../lib/store/selectors', () => ({ useCurrentWeekSummary: () => null }));
 
 import SettingsScreen from '../SettingsScreen';
 
@@ -59,12 +86,13 @@ describe('SettingsScreen', () => {
       expect(getByText('Settings')).toBeTruthy();
     });
 
-    it('renders all 4 menu rows', () => {
+    it('renders all 5 menu rows', () => {
       const { getByText } = render(<SettingsScreen />);
       expect(getByText('Rituals')).toBeTruthy();
       expect(getByText('Time Blocks')).toBeTruthy();
       expect(getByText('Calendar Connections')).toBeTruthy();
       expect(getByText('What Gremly Knows')).toBeTruthy();
+      expect(getByText('Gremly color')).toBeTruthy();
     });
 
     it('renders subtitles for each row', () => {

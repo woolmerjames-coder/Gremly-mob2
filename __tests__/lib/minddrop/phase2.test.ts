@@ -28,6 +28,34 @@ jest.mock('../../../lib/config/featureFlags', () => ({
   },
 }));
 
+// Mock verifyAIDate to pass through AI dates (avoids chrono-node overriding dates in tests).
+// Use spyOn approach to keep validateEnrichmentResult as the real implementation.
+const phase2Validation = require('../../../lib/minddrop/phase2Validation');
+jest
+  .spyOn(phase2Validation, 'verifyAIDate')
+  .mockImplementation((_text: string, aiDate: string) => ({
+    resolvedDate: aiDate,
+    confidence: 'verified' as const,
+  }));
+
+// Mock DateService for phase2 and phase2Validation
+jest.mock('../../../lib/date/DateService', () => ({
+  getDateService: () => ({
+    today: () => '2025-12-15',
+    now: () => new Date('2025-12-15T12:00:00Z'),
+    getTimezone: () => 'America/New_York',
+    getDayOfWeek: () => 'Monday',
+    parseAIDate: (dateStr: string) => dateStr, // pass through
+    parseNaturalDate: () => null, // no chrono-node
+    fromLocalDate: (str: string) => (str ? new Date(str + 'T00:00:00') : null),
+    addDays: (dateStr: string, days: number) => {
+      const d = new Date(dateStr + 'T00:00:00');
+      d.setDate(d.getDate() + days);
+      return d.toISOString().slice(0, 10);
+    },
+  }),
+}));
+
 // Mock global fetch
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
