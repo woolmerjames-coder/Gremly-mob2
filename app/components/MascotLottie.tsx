@@ -14,6 +14,7 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
+  withDelay,
   Easing,
   useReducedMotion,
 } from 'react-native-reanimated';
@@ -69,190 +70,284 @@ export type MascotLottieHandle = {
   celebrateFed: () => void;
 };
 
-type Props = { style?: ViewStyle };
+type Props = {
+  style?: ViewStyle;
+  showFullColor?: boolean;
+  drainAnimation?: boolean;
+  drainVisible?: boolean;
+};
 
-const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(({ style }, ref) => {
-  const [mode, setMode] = useState<AnimationMode>('idle');
-  const isCelebratingRef = useRef(false);
-  const fedPlayCountRef = useRef(0);
-  const reduceMotion = useReducedMotion();
+const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
+  ({ style, showFullColor = false, drainAnimation = false, drainVisible = false }, ref) => {
+    const [mode, setMode] = useState<AnimationMode>('idle');
+    const isCelebratingRef = useRef(false);
+    const fedPlayCountRef = useRef(0);
+    const reduceMotion = useReducedMotion();
 
-  // Refs for green LottieViews
-  const greenIdleRef = useRef<LottieView>(null);
-  const greenDropRef = useRef<LottieView>(null);
-  const greenFedRef = useRef<LottieView>(null);
+    // Refs for green LottieViews
+    const greenIdleRef = useRef<LottieView>(null);
+    const greenDropRef = useRef<LottieView>(null);
+    const greenFedRef = useRef<LottieView>(null);
 
-  // Refs for grey LottieViews
-  const greyIdleRef = useRef<LottieView>(null);
-  const greyDropRef = useRef<LottieView>(null);
-  const greyFedRef = useRef<LottieView>(null);
+    // Refs for grey LottieViews
+    const greyIdleRef = useRef<LottieView>(null);
+    const greyDropRef = useRef<LottieView>(null);
+    const greyFedRef = useRef<LottieView>(null);
 
-  // Store subscriptions
-  const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
-  const isFedToday = useGremlyStore((s) => s.isFedToday);
-  const gremlyColor = useGremlyStore((s) => s.gremlyColor);
+    // Store subscriptions
+    const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
+    const isFedToday = useGremlyStore((s) => s.isFedToday);
+    const gremlyColor = useGremlyStore((s) => s.gremlyColor);
 
-  // Recolor green Lottie sources for the active palette
-  const idleColored = useMemo(() => recolorLottieJson(IDLE_GREEN, gremlyColor), [gremlyColor]);
-  const dropColored = useMemo(() => recolorLottieJson(DROP_GREEN, gremlyColor), [gremlyColor]);
-  const fedColored = useMemo(() => recolorLottieJson(FED_GREEN, gremlyColor), [gremlyColor]);
+    // Recolor green Lottie sources for the active palette
+    const idleColored = useMemo(() => recolorLottieJson(IDLE_GREEN, gremlyColor), [gremlyColor]);
+    const dropColored = useMemo(() => recolorLottieJson(DROP_GREEN, gremlyColor), [gremlyColor]);
+    const fedColored = useMemo(() => recolorLottieJson(FED_GREEN, gremlyColor), [gremlyColor]);
 
-  // Fill height
-  const initialClamp = Math.min(Math.max(feedingGaugeValue, 0), 1);
-  const initialFill = gaugeToFill(initialClamp);
-  const fillHeight = useSharedValue(FILL_OFFSET_BOTTOM + initialFill * FILL_RANGE);
+    // Brief fade to mask animation restart on color change (showFullColor only)
+    const prevColorRef = useRef(gremlyColor);
+    const fadeOpacity = useSharedValue(1);
+    useEffect(() => {
+      if (showFullColor && prevColorRef.current !== gremlyColor) {
+        prevColorRef.current = gremlyColor;
+        fadeOpacity.value = 0.85;
+        fadeOpacity.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
+      }
+    }, [gremlyColor, showFullColor]);
+    const fadeStyle = useAnimatedStyle(() => ({ opacity: fadeOpacity.value }));
 
-  const isFedShared = useSharedValue(isFedToday ? 1 : 0);
+    // Drain animation (onboarding step 3): starts full, drains to empty on visibility
+    const drainHeight = useSharedValue(MASCOT_HEIGHT);
+    const hasDrainedRef = useRef(false);
+    useEffect(() => {
+      if (drainAnimation && drainVisible && !hasDrainedRef.current) {
+        hasDrainedRef.current = true;
+        drainHeight.value = MASCOT_HEIGHT;
+        drainHeight.value = withDelay(
+          800,
+          withTiming(FILL_OFFSET_BOTTOM, {
+            duration: 2000,
+            easing: Easing.inOut(Easing.cubic),
+          }),
+        );
+      }
+    }, [drainAnimation, drainVisible]);
+    const drainClipStyle = useAnimatedStyle(() => ({ height: drainHeight.value }));
 
-  useEffect(() => {
-    isFedShared.value = isFedToday ? 1 : 0;
-  }, [isFedToday]);
+    // Fill height
+    const initialClamp = Math.min(Math.max(feedingGaugeValue, 0), 1);
+    const initialFill = gaugeToFill(initialClamp);
+    const fillHeight = useSharedValue(FILL_OFFSET_BOTTOM + initialFill * FILL_RANGE);
 
-  useEffect(() => {
-    const clampedValue = Math.min(Math.max(feedingGaugeValue, 0), 1);
-    const fillPercent = gaugeToFill(clampedValue);
-    const target = FILL_OFFSET_BOTTOM + fillPercent * FILL_RANGE;
-    fillHeight.value = reduceMotion
-      ? target
-      : withTiming(target, {
-          duration: FILL_ANIMATION_DURATION,
-          easing: Easing.out(Easing.cubic),
-        });
-  }, [feedingGaugeValue]);
+    const isFedShared = useSharedValue(isFedToday ? 1 : 0);
 
-  const clipAnimatedStyle = useAnimatedStyle(() => ({
-    height: isFedShared.value === 1 ? MASCOT_HEIGHT : fillHeight.value,
-  }));
+    useEffect(() => {
+      isFedShared.value = isFedToday ? 1 : 0;
+    }, [isFedToday]);
 
-  // Play one-shot animations when mode changes
-  useEffect(() => {
-    if (mode === 'drop') {
-      greenDropRef.current?.reset();
-      greenDropRef.current?.play();
-      greyDropRef.current?.reset();
-      greyDropRef.current?.play();
-    } else if (mode === 'fed') {
-      greenFedRef.current?.reset();
-      greenFedRef.current?.play();
-      greyFedRef.current?.reset();
-      greyFedRef.current?.play();
-    }
-  }, [mode]);
+    useEffect(() => {
+      const clampedValue = Math.min(Math.max(feedingGaugeValue, 0), 1);
+      const fillPercent = gaugeToFill(clampedValue);
+      const target = FILL_OFFSET_BOTTOM + fillPercent * FILL_RANGE;
+      fillHeight.value = reduceMotion
+        ? target
+        : withTiming(target, {
+            duration: FILL_ANIMATION_DURATION,
+            easing: Easing.out(Easing.cubic),
+          });
+    }, [feedingGaugeValue]);
 
-  const celebrate = useCallback(() => {
-    if (isCelebratingRef.current) return;
-    isCelebratingRef.current = true;
-    setMode('drop');
-  }, []);
+    const clipAnimatedStyle = useAnimatedStyle(() => ({
+      height: showFullColor
+        ? MASCOT_HEIGHT
+        : isFedShared.value === 1
+          ? MASCOT_HEIGHT
+          : fillHeight.value,
+    }));
 
-  const celebrateFed = useCallback(() => {
-    if (isCelebratingRef.current) return;
-    isCelebratingRef.current = true;
-    fedPlayCountRef.current = 0;
-    setMode('fed');
-  }, []);
+    // Play one-shot animations when mode changes
+    useEffect(() => {
+      if (mode === 'drop') {
+        greenDropRef.current?.reset();
+        greenDropRef.current?.play();
+        greyDropRef.current?.reset();
+        greyDropRef.current?.play();
+      } else if (mode === 'fed') {
+        greenFedRef.current?.reset();
+        greenFedRef.current?.play();
+        greyFedRef.current?.reset();
+        greyFedRef.current?.play();
+      }
+    }, [mode]);
 
-  const handleDropFinish = useCallback(() => {
-    if (mode !== 'drop') return;
-    isCelebratingRef.current = false;
-    setMode('idle');
-  }, [mode]);
+    const celebrate = useCallback(() => {
+      if (isCelebratingRef.current) return;
+      isCelebratingRef.current = true;
+      setMode('drop');
+    }, []);
 
-  const handleFedFinish = useCallback(() => {
-    if (mode !== 'fed') return;
-    fedPlayCountRef.current += 1;
-    if (fedPlayCountRef.current < 2) {
-      // Replay: reset and play without changing mode or source
-      greenFedRef.current?.reset();
-      greenFedRef.current?.play();
-      greyFedRef.current?.reset();
-      greyFedRef.current?.play();
-    } else {
+    const celebrateFed = useCallback(() => {
+      if (isCelebratingRef.current) return;
+      isCelebratingRef.current = true;
+      fedPlayCountRef.current = 0;
+      setMode('fed');
+    }, []);
+
+    const handleDropFinish = useCallback(() => {
+      if (mode !== 'drop') return;
       isCelebratingRef.current = false;
       setMode('idle');
-    }
-  }, [mode]);
+    }, [mode]);
 
-  useImperativeHandle(ref, () => ({ celebrate, celebrateFed }), [celebrate, celebrateFed]);
+    const handleFedFinish = useCallback(() => {
+      if (mode !== 'fed') return;
+      fedPlayCountRef.current += 1;
+      if (fedPlayCountRef.current < 2) {
+        // Replay: reset and play without changing mode or source
+        greenFedRef.current?.reset();
+        greenFedRef.current?.play();
+        greyFedRef.current?.reset();
+        greyFedRef.current?.play();
+      } else {
+        isCelebratingRef.current = false;
+        setMode('idle');
+      }
+    }, [mode]);
 
-  const isActive = (m: AnimationMode) => mode === m;
+    useImperativeHandle(ref, () => ({ celebrate, celebrateFed }), [celebrate, celebrateFed]);
 
-  return (
-    <View
-      key={gremlyColor}
-      style={[styles.wrapper, style]}
-      accessible={false}
-      importantForAccessibility="no-hide-descendants"
-      accessibilityElementsHidden={true}
-    >
-      {/* ─── GREY LAYER (bottom, hidden when fed) ─── */}
-      {!isFedToday && (
-        <View style={styles.greyContainer}>
+    const isActive = (m: AnimationMode) => mode === m;
+
+    // ─── Simplified render for onboarding (showFullColor) ───
+    if (showFullColor && !drainAnimation) {
+      return (
+        <Animated.View
+          style={[styles.wrapper, style, fadeStyle]}
+          accessible={false}
+          importantForAccessibility="no-hide-descendants"
+          accessibilityElementsHidden={true}
+        >
           <LottieView
-            ref={greyIdleRef}
+            source={idleColored}
+            autoPlay={!reduceMotion}
+            loop={!reduceMotion}
+            speed={0.5}
+            renderMode="HARDWARE"
+            style={styles.lottie}
+          />
+        </Animated.View>
+      );
+    }
+
+    // ─── Drain render for onboarding step 3 ───
+    if (drainAnimation) {
+      return (
+        <View
+          style={[styles.wrapper, style]}
+          accessible={false}
+          importantForAccessibility="no-hide-descendants"
+          accessibilityElementsHidden={true}
+        >
+          {/* Grey layer underneath */}
+          <LottieView
             source={IDLE_GREY}
+            autoPlay={!reduceMotion}
+            loop={!reduceMotion}
+            speed={0.5}
+            renderMode="HARDWARE"
+            style={styles.lottie}
+          />
+          {/* Colored layer clipped by drain */}
+          <Animated.View style={[styles.clipContainer, drainClipStyle]}>
+            <LottieView
+              source={idleColored}
+              autoPlay={!reduceMotion}
+              loop={!reduceMotion}
+              speed={0.5}
+              renderMode="HARDWARE"
+              style={styles.lottieGreen}
+            />
+          </Animated.View>
+        </View>
+      );
+    }
+
+    return (
+      <View
+        style={[styles.wrapper, style]}
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
+        accessibilityElementsHidden={true}
+      >
+        {/* ─── GREY LAYER (bottom, hidden when fed or showFullColor) ─── */}
+        {!isFedToday && !showFullColor && (
+          <View style={styles.greyContainer}>
+            <LottieView
+              ref={greyIdleRef}
+              source={IDLE_GREY}
+              autoPlay={!reduceMotion}
+              loop={!reduceMotion}
+              renderMode="HARDWARE"
+              cacheComposition
+              style={[styles.lottie, { opacity: isActive('idle') ? 1 : 0 }]}
+            />
+            <LottieView
+              ref={greyDropRef}
+              source={DROP_GREY}
+              autoPlay={false}
+              loop={false}
+              renderMode="HARDWARE"
+              cacheComposition
+              style={[styles.lottie, { opacity: isActive('drop') ? 1 : 0 }]}
+            />
+            <LottieView
+              ref={greyFedRef}
+              source={FED_GREY}
+              autoPlay={false}
+              loop={false}
+              renderMode="HARDWARE"
+              cacheComposition
+              style={[styles.lottie, { opacity: isActive('fed') ? 1 : 0 }]}
+            />
+          </View>
+        )}
+
+        {/* ─── GREEN LAYER (top, clipped from bottom up) ─── */}
+        <Animated.View style={[styles.clipContainer, clipAnimatedStyle]}>
+          <LottieView
+            ref={greenIdleRef}
+            source={idleColored}
             autoPlay={!reduceMotion}
             loop={!reduceMotion}
             renderMode="HARDWARE"
             cacheComposition
-            style={[styles.lottie, { opacity: isActive('idle') ? 1 : 0 }]}
+            style={[styles.lottieGreen, { opacity: isActive('idle') ? 1 : 0 }]}
           />
           <LottieView
-            ref={greyDropRef}
-            source={DROP_GREY}
+            ref={greenDropRef}
+            source={dropColored}
             autoPlay={false}
             loop={false}
+            onAnimationFinish={handleDropFinish}
             renderMode="HARDWARE"
             cacheComposition
-            style={[styles.lottie, { opacity: isActive('drop') ? 1 : 0 }]}
+            style={[styles.lottieGreen, { opacity: isActive('drop') ? 1 : 0 }]}
           />
           <LottieView
-            ref={greyFedRef}
-            source={FED_GREY}
+            ref={greenFedRef}
+            source={fedColored}
             autoPlay={false}
             loop={false}
+            onAnimationFinish={handleFedFinish}
             renderMode="HARDWARE"
             cacheComposition
-            style={[styles.lottie, { opacity: isActive('fed') ? 1 : 0 }]}
+            style={[styles.lottieGreen, { opacity: isActive('fed') ? 1 : 0 }]}
           />
-        </View>
-      )}
-
-      {/* ─── GREEN LAYER (top, clipped from bottom up) ─── */}
-      <Animated.View style={[styles.clipContainer, clipAnimatedStyle]}>
-        <LottieView
-          ref={greenIdleRef}
-          source={idleColored}
-          autoPlay={!reduceMotion}
-          loop={!reduceMotion}
-          renderMode="HARDWARE"
-          cacheComposition
-          style={[styles.lottieGreen, { opacity: isActive('idle') ? 1 : 0 }]}
-        />
-        <LottieView
-          ref={greenDropRef}
-          source={dropColored}
-          autoPlay={false}
-          loop={false}
-          onAnimationFinish={handleDropFinish}
-          renderMode="HARDWARE"
-          cacheComposition
-          style={[styles.lottieGreen, { opacity: isActive('drop') ? 1 : 0 }]}
-        />
-        <LottieView
-          ref={greenFedRef}
-          source={fedColored}
-          autoPlay={false}
-          loop={false}
-          onAnimationFinish={handleFedFinish}
-          renderMode="HARDWARE"
-          cacheComposition
-          style={[styles.lottieGreen, { opacity: isActive('fed') ? 1 : 0 }]}
-        />
-      </Animated.View>
-    </View>
-  );
-});
+        </Animated.View>
+      </View>
+    );
+  },
+);
 
 const styles = StyleSheet.create({
   wrapper: {

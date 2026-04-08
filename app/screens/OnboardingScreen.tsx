@@ -15,6 +15,7 @@ import {
   FlatList,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, CommonActions } from '@react-navigation/native';
@@ -36,7 +37,7 @@ interface OnboardingStep {
   title: string;
   body: string;
   subtext: string;
-  type: 'mascot' | 'icon' | 'color-picker';
+  type: 'mascot' | 'icon' | 'color-picker' | 'drain';
   mascot?: any;
 }
 
@@ -58,20 +59,36 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
   },
   {
     id: 'start',
-    title: 'Where do we start?',
-    body: "Every drop feeds your gremlin. Tasks, thoughts, feelings — I'll sort it all out.",
+    title: 'Feed me every day',
+    body: "Every drop fills your gremlin back up. Tasks, thoughts, feelings — I'll sort it all out.",
     subtext: 'Tap any card to chat with me along the way.',
-    type: 'mascot',
-    mascot: GREMLY_FISTBUMP,
+    type: 'drain',
   },
 ];
+
+const PRONOUN_OPTIONS = ['he/him', 'she/her', 'they/them', 'other'];
 
 /**
  * Renders a single onboarding step
  */
-function OnboardingStepView({ step }: { step: OnboardingStep }) {
+function OnboardingStepView({
+  step,
+  drainVisible,
+  nameInput,
+  setNameInput,
+  pronounsInput,
+  setPronounsInput,
+}: {
+  step: OnboardingStep;
+  drainVisible: boolean;
+  nameInput: string;
+  setNameInput: (v: string) => void;
+  pronounsInput: string | null;
+  setPronounsInput: (v: string | null) => void;
+}) {
   const gremlyColor = useGremlyStore((s) => s.gremlyColor);
   const setGremlyColor = useGremlyStore((s) => s.setGremlyColor);
+  const [nameFocused, setNameFocused] = useState(false);
 
   const selectedPalette = GREMLY_PALETTES.find((p) => p.id === gremlyColor) ?? GREMLY_PALETTES[0];
 
@@ -87,7 +104,34 @@ function OnboardingStepView({ step }: { step: OnboardingStep }) {
             accessibilityLabel="Gremly mascot"
           />
         )}
-        {step.type === 'color-picker' && <MascotLottie />}
+        {step.type === 'color-picker' && (
+          <View
+            style={{
+              height: 240,
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'visible',
+            }}
+          >
+            <View style={{ transform: [{ scale: 2 }] }}>
+              <MascotLottie showFullColor />
+            </View>
+          </View>
+        )}
+        {step.type === 'drain' && (
+          <View
+            style={{
+              height: 240,
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'visible',
+            }}
+          >
+            <View style={{ transform: [{ scale: 2 }] }}>
+              <MascotLottie drainAnimation showFullColor drainVisible={drainVisible} />
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Title */}
@@ -121,10 +165,51 @@ function OnboardingStepView({ step }: { step: OnboardingStep }) {
       )}
 
       {/* Body text */}
-      {step.body ? <Text style={styles.body}>{step.body}</Text> : null}
+      {step.body ? (
+        <Text style={styles.body}>
+          {step.id === 'start' && nameInput.trim()
+            ? `Every drop fills me back up, ${nameInput.trim()}. Tasks, thoughts, feelings — I'll sort it all out.`
+            : step.body}
+        </Text>
+      ) : null}
 
       {/* Subtext */}
       {step.subtext ? <Text style={styles.subtext}>{step.subtext}</Text> : null}
+
+      {/* Name + pronouns (color picker step only) */}
+      {step.type === 'color-picker' && (
+        <View style={styles.profileSection}>
+          <TextInput
+            style={[styles.nameInput, nameFocused && { borderBottomColor: BRAND.colors.mossGreen }]}
+            placeholder="What should I call you?"
+            placeholderTextColor={BRAND.colors.inkMuted}
+            autoCapitalize="words"
+            returnKeyType="done"
+            value={nameInput}
+            onChangeText={setNameInput}
+            onFocus={() => setNameFocused(true)}
+            onBlur={() => setNameFocused(false)}
+          />
+          <View style={styles.pronounRow}>
+            {PRONOUN_OPTIONS.map((option) => {
+              const isSelected = pronounsInput === option;
+              return (
+                <Pressable
+                  key={option}
+                  onPress={() => setPronounsInput(isSelected ? null : option)}
+                  style={[styles.pronounPill, isSelected && styles.pronounPillSelected]}
+                >
+                  <Text
+                    style={[styles.pronounPillText, isSelected && styles.pronounPillTextSelected]}
+                  >
+                    {option}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -134,10 +219,14 @@ export default function OnboardingScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const flatListRef = useRef<FlatList>(null);
   const [currentStep, setCurrentStep] = useState(0);
+  const [drainTriggered, setDrainTriggered] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [pronounsInput, setPronounsInput] = useState<string | null>(null);
 
   // Store action to mark onboarding complete
   const markOnboardingComplete = useGremlyStore((s) => s.markOnboardingComplete);
   const startTraining = useGremlyStore((s) => s.startTraining);
+  const setUserProfile = useGremlyStore((s) => s.setUserProfile);
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -145,6 +234,7 @@ export default function OnboardingScreen() {
       const step = Math.round(offsetX / SCREEN_WIDTH);
       if (step !== currentStep && step >= 0 && step < ONBOARDING_STEPS.length) {
         setCurrentStep(step);
+        if (step === 2 && !drainTriggered) setDrainTriggered(true);
       }
     },
     [currentStep],
@@ -153,13 +243,17 @@ export default function OnboardingScreen() {
   const goToStep = useCallback((step: number) => {
     flatListRef.current?.scrollToIndex({ index: step, animated: true });
     setCurrentStep(step);
+    if (step === 2) setDrainTriggered(true);
   }, []);
 
   const handleNext = useCallback(async () => {
     if (currentStep < ONBOARDING_STEPS.length - 1) {
+      if (currentStep === 1) {
+        setUserProfile(nameInput.trim() || null, pronounsInput);
+      }
       goToStep(currentStep + 1);
     }
-  }, [currentStep, goToStep]);
+  }, [currentStep, goToStep, nameInput, pronounsInput, setUserProfile]);
 
   const handleComplete = useCallback(async () => {
     await markOnboardingComplete();
@@ -179,10 +273,17 @@ export default function OnboardingScreen() {
   const renderStep = useCallback(
     ({ item }: { item: OnboardingStep }) => (
       <View style={styles.stepWrapper}>
-        <OnboardingStepView step={item} />
+        <OnboardingStepView
+          step={item}
+          drainVisible={drainTriggered}
+          nameInput={nameInput}
+          setNameInput={setNameInput}
+          pronounsInput={pronounsInput}
+          setPronounsInput={setPronounsInput}
+        />
       </View>
     ),
-    [],
+    [drainTriggered, nameInput, pronounsInput],
   );
 
   const isLastStep = currentStep === ONBOARDING_STEPS.length - 1;
@@ -338,6 +439,49 @@ const styles = StyleSheet.create({
     color: BRAND.colors.inkMuted,
     textAlign: 'center',
     marginBottom: 12,
+  },
+  profileSection: {
+    marginTop: 16,
+    alignItems: 'center',
+    width: '100%',
+  },
+  nameInput: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 17,
+    color: BRAND.colors.charcoalInk,
+    textAlign: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: BRAND.colors.borderSubtle,
+    paddingVertical: 8,
+    maxWidth: 220,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  pronounRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  pronounPill: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: BRAND.colors.borderSubtle,
+  },
+  pronounPillSelected: {
+    backgroundColor: BRAND.colors.mossGreen + '15',
+    borderColor: BRAND.colors.mossGreen,
+  },
+  pronounPillText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: BRAND.colors.charcoalInk,
+  },
+  pronounPillTextSelected: {
+    color: BRAND.colors.mossGreen,
   },
   // Bottom controls
   bottomContainer: {
