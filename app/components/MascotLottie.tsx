@@ -1,5 +1,6 @@
 import React, {
   useRef,
+  useCallback,
   useState,
   useImperativeHandle,
   forwardRef,
@@ -18,7 +19,7 @@ import Animated, {
   useReducedMotion,
 } from 'react-native-reanimated';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { recolorLottieJson } from '../../lib/constants/gremlyPalettes';
+import { recolorLottieJson, GREMLY_PALETTES } from '../../lib/constants/gremlyPalettes';
 
 // Lottie sources: 3 animations × 2 colorways (source props NEVER change at runtime)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -110,6 +111,12 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
     const isFedToday = useGremlyStore((s) => s.isFedToday);
     const gremlyColor = useGremlyStore((s) => s.gremlyColor);
 
+    // Pre-compute all palette variants of idle animation once (stable sources, no remount)
+    const allIdleVariants = useMemo(
+      () => GREMLY_PALETTES.map((p) => ({ id: p.id, source: recolorLottieJson(IDLE_GREEN, p.id) })),
+      [],
+    );
+
     // Recolor green Lottie sources for the active palette (stable refs on repeat selections)
     const idleColored = useMemo(
       () => getCachedRecolor(IDLE_GREEN, 'idle', gremlyColor),
@@ -123,18 +130,6 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
       () => getCachedRecolor(FED_GREEN, 'fed', gremlyColor),
       [gremlyColor],
     );
-
-    // Brief fade to mask animation restart on color change (showFullColor only)
-    const prevColorRef = useRef(gremlyColor);
-    const fadeOpacity = useSharedValue(1);
-    useEffect(() => {
-      if (showFullColor && prevColorRef.current !== gremlyColor) {
-        prevColorRef.current = gremlyColor;
-        fadeOpacity.value = 0.85;
-        fadeOpacity.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
-      }
-    }, [gremlyColor, showFullColor]);
-    const fadeStyle = useAnimatedStyle(() => ({ opacity: fadeOpacity.value }));
 
     // Drain animation (onboarding step 3): starts full, drains to empty on visibility
     const drainHeight = useSharedValue(MASCOT_HEIGHT);
@@ -241,21 +236,27 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
     // ─── Simplified render for onboarding (showFullColor) ───
     if (showFullColor && !drainAnimation) {
       return (
-        <Animated.View
-          style={[styles.wrapper, style, fadeStyle]}
+        <View
+          style={[styles.wrapper, style]}
           accessible={false}
           importantForAccessibility="no-hide-descendants"
           accessibilityElementsHidden={true}
         >
-          <LottieView
-            source={idleColored}
-            autoPlay={!reduceMotion}
-            loop={!reduceMotion}
-            speed={0.5}
-            renderMode="HARDWARE"
-            style={styles.lottie}
-          />
-        </Animated.View>
+          {allIdleVariants.map((variant) => (
+            <LottieView
+              key={variant.id}
+              source={variant.source}
+              autoPlay={!reduceMotion}
+              loop={!reduceMotion}
+              speed={0.5}
+              renderMode="HARDWARE"
+              style={[
+                styles.lottie,
+                { position: 'absolute', opacity: gremlyColor === variant.id ? 1 : 0 },
+              ]}
+            />
+          ))}
+        </View>
       );
     }
 
