@@ -150,6 +150,53 @@ const dcoDispatcher = inngest.createFunction(
       return deleted;
     });
 
+    // Step 1b: Clean up passed temporal anchors
+    await step.run('cleanup-passed-anchors', async () => {
+      const utcDate = (d) =>
+        new Intl.DateTimeFormat('en-CA', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          timeZone: 'UTC',
+        }).format(d);
+      const today = utcDate(new Date());
+      const headers = {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+      };
+      const patchBody = JSON.stringify({ status: 'passed', updated_at: new Date().toISOString() });
+
+      // Exact-confidence anchors: mark passed if resolved_date < today
+      const exactRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.exact&resolved_date=lt.${today}`,
+        { method: 'PATCH', headers, body: patchBody },
+      );
+      const exactCount = exactRes.ok ? (await exactRes.json()).length : 0;
+
+      // Approximate-confidence anchors: mark passed with 3-day buffer
+      const bufferDate = utcDate(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+      const approxRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.approximate&date_range_end=lt.${bufferDate}`,
+        { method: 'PATCH', headers, body: patchBody },
+      );
+      const approxCount = approxRes.ok ? (await approxRes.json()).length : 0;
+
+      // Unknown-confidence anchors: mark passed if older than 30 days
+      const staleDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const unknownRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.unknown&created_at=lt.${staleDate}`,
+        { method: 'PATCH', headers, body: patchBody },
+      );
+      const unknownCount = unknownRes.ok ? (await unknownRes.json()).length : 0;
+
+      console.log(
+        `[DCO Dispatcher] Temporal anchors cleanup: ${exactCount} exact, ${approxCount} approximate, ${unknownCount} unknown marked passed`,
+      );
+      return exactCount + approxCount + unknownCount;
+    });
+
     // Step 2: Get all users who need a DCO today
     const allUsers = await step.run('get-users-needing-dco', async () => {
       const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/get_users_needing_dco`, {
@@ -4729,6 +4776,16 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
       .catch(() => []),
   );
 
+  // 13: Temporal anchors — active events/deadlines from conversations
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?user_id=eq.${userId}&status=eq.active&select=*&order=resolved_date.asc.nullslast&limit=20`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
   const results = await Promise.all(queries);
   const safeArr = (v) => (Array.isArray(v) ? v : []);
 
@@ -4771,6 +4828,8 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
   const spaceChatSummariesData = results[idx] || [];
   idx++;
   const entityChatSummariesData = results[idx] || [];
+  idx++;
+  const temporalAnchorsData = safeArr(results[idx]);
   idx++;
 
   // --- Filter: only data on or before target date ---
@@ -4894,6 +4953,7 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
       userProfile,
       spaceChatSummaries: Array.isArray(spaceChatSummariesData) ? spaceChatSummariesData : [],
       entityChatSummaries: Array.isArray(entityChatSummariesData) ? entityChatSummariesData : [],
+      temporalAnchors: temporalAnchorsData,
     },
 
     // Computed metrics
@@ -6296,6 +6356,32 @@ function buildWorldPicture(snapshot) {
     }
   } else {
     parts.push('  No milestones.');
+  }
+
+  // ── Section 5b: Temporal anchors (events/deadlines from conversations) ──
+  parts.push('\n=== TEMPORAL ANCHORS (events/deadlines mentioned in conversations) ===');
+  if (raw.temporalAnchors && raw.temporalAnchors.length > 0) {
+    for (const a of raw.temporalAnchors) {
+      const cat = a.category ? ` [${a.category}]` : '';
+      let dateInfo = '';
+      if (a.date_confidence === 'exact' && a.resolved_date) {
+        const daysAway = Math.ceil((new Date(a.resolved_date + 'T00:00:00Z') - target) / 86400000);
+        if (daysAway === 0) dateInfo = `${a.resolved_date} — TODAY`;
+        else if (daysAway > 0) dateInfo = `${a.resolved_date} — ${daysAway} days away`;
+        else dateInfo = `${a.resolved_date} — ${Math.abs(daysAway)} days ago`;
+      } else if (a.date_confidence === 'approximate') {
+        dateInfo = a.resolved_date ? `~${a.resolved_date} (~approximate)` : '~approximate';
+        if (a.date_range_start && a.date_range_end) {
+          dateInfo += ` [range: ${a.date_range_start} to ${a.date_range_end}]`;
+        }
+      } else {
+        dateInfo = 'date unknown';
+        if (a.date_text) dateInfo += ` ("${a.date_text}")`;
+      }
+      parts.push(`  ${a.title}: ${dateInfo}${cat}`);
+    }
+  } else {
+    parts.push('  No temporal anchors.');
   }
 
   // ── Section 6: Recent drops (last 2 days) ──

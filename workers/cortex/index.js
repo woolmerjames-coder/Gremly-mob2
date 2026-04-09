@@ -3779,7 +3779,12 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
         if (body.userId) {
           try {
             const [chatContext, profile, todayAct] = await Promise.all([
-              buildChatContext(body.userId, 'habit_builder', {}, env),
+              buildChatContext(
+                body.userId,
+                'habit_builder',
+                { timezone: body.timezone || 'UTC', currentChatId: body.chatId || null },
+                env,
+              ),
               getUserProfile(body.userId, env),
               buildTodayActivity(body.userId, body.timezone || 'UTC', env),
             ]);
@@ -4616,6 +4621,8 @@ Almost never suggest creating a Space. Only if ALL true:
                       {
                         entityTitle: entity?.title || entity?.name || null,
                         entitySpaceId: entity?.spaceId || entity?.space_id || null,
+                        timezone: body.timezone || 'UTC',
+                        currentChatId: body.chatId || null,
                       },
                       env,
                     ),
@@ -5351,6 +5358,8 @@ Almost never suggest creating a Space. Only if ALL true:
                 {
                   entityTitle: entity?.title || entity?.name || null,
                   entitySpaceId: entity?.spaceId || entity?.space_id || null,
+                  timezone: body.timezone || 'UTC',
+                  currentChatId: body.chatId || null,
                 },
                 env,
               ),
@@ -10432,6 +10441,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     'space',
                     {
                       spaceId: body.spaceId,
+                      timezone: body.timezone || 'UTC',
+                      currentChatId: body.chatId || null,
                     },
                     env,
                   ),
@@ -11095,7 +11106,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             if (body.userId) {
               try {
                 const [chatContext, profile, domains, todayAct] = await Promise.all([
-                  buildChatContext(body.userId, 'general', {}, env),
+                  buildChatContext(
+                    body.userId,
+                    'general',
+                    { timezone: body.timezone || 'UTC', currentChatId: body.chatId || null },
+                    env,
+                  ),
                   getUserProfile(body.userId, env),
                   getCachedDomainNames(body.userId, env),
                   buildTodayActivity(body.userId, body.timezone || 'UTC', env),
@@ -11565,7 +11581,15 @@ Extract ONLY items where the user showed clear commitment or intent:
 TODO: Actions the user committed to (concrete verb + object). NOT AI suggestions the user didn't affirm.
 HABIT: Only with explicit frequency or stop/quit intent + trackable behavior.
 NOTE: Ideas the user was excited about, decisions reached, recommendations they engaged with.
+EVENT: Upcoming dates, deadlines, exams, appointments, trips, or time-bound milestones the user mentioned. Extract these even without exact dates. Capturing that something is coming up is valuable context for other conversations.
 DO NOT EXTRACT: explorations, emotional processing, unaffirmed AI suggestions, small talk.
+
+TEMPORAL METADATA (EVENT items only — set all to null for todo/habit/note):
+- date_text: The user's exact words about timing, preserved verbatim (e.g. "next Thursday", "sometime in June", "before the end of the semester")
+- resolved_date: Best estimate as YYYY-MM-DD. Today is ${todayStr}. For vague references, pick the midpoint of the likely range.
+- date_confidence: "exact" if user gave a specific date, "approximate" if they gave a rough timeframe, "unknown" if mentioned without any timing
+- date_range_start: Earliest plausible YYYY-MM-DD
+- date_range_end: Latest plausible YYYY-MM-DD
 
 WRITING STYLE for title and body fields:
 - Title should be a short action phrase: "Book restaurant for Saturday" not "Restaurant Booking Task"
@@ -11575,7 +11599,7 @@ WRITING STYLE for title and body fields:
 
 Also generate a chat title (3-6 words) and a one-sentence summary that covers the ENTIRE conversation — not just the most recent messages. Use the CONVERSATION CONTEXT above to include earlier topics. The summary should capture the full arc of what was discussed.
 Return ONLY valid JSON:
-{"extractions":[{"id":"<8chars>","type":"todo|habit|note","title":"...","body":"...","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100}],"chat_summary":{"title":"...","summary":"..."}}`;
+{"extractions":[{"id":"<8chars>","type":"todo|habit|note|event","title":"...","body":"...","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100,"date_text":"string or null","resolved_date":"YYYY-MM-DD or null","date_confidence":"exact|approximate|unknown or null","date_range_start":"YYYY-MM-DD or null","date_range_end":"YYYY-MM-DD or null"}],"chat_summary":{"title":"...","summary":"..."}}`;
 
                     let extractResult = null;
                     try {
@@ -11621,6 +11645,105 @@ Return ONLY valid JSON:
                         items: (extractResult.extractions || []).length,
                         title: extractResult.chat_summary?.title,
                       });
+
+                      // ── Persist event extractions to user_temporal_anchors (fire-and-forget) ──
+                      try {
+                        const eventExtractions = (extractResult.extractions || []).filter(
+                          (e) => e.type === 'event' && e.title,
+                        );
+                        if (eventExtractions.length > 0 && body.userId) {
+                          const confidenceRank = { exact: 3, approximate: 2, unknown: 1 };
+                          const supaHeaders = {
+                            apikey: env.SUPABASE_SERVICE_KEY,
+                            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                            'Content-Type': 'application/json',
+                            Prefer: 'return=minimal',
+                          };
+
+                          // Fetch existing active anchors for dedup
+                          const existingRes = await fetch(
+                            `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?user_id=eq.${body.userId}&status=eq.active&select=id,title,date_confidence`,
+                            { headers: supaHeaders },
+                          );
+                          const existingAnchors = existingRes.ok ? await existingRes.json() : [];
+
+                          let savedCount = 0;
+                          for (const evt of eventExtractions) {
+                            const evtTitleLower = evt.title.toLowerCase();
+
+                            // Find duplicate: either title contains the other (case-insensitive)
+                            const match = existingAnchors.find((a) => {
+                              const aTitleLower = a.title.toLowerCase();
+                              return (
+                                aTitleLower.includes(evtTitleLower) ||
+                                evtTitleLower.includes(aTitleLower)
+                              );
+                            });
+
+                            if (match) {
+                              // Only update if new extraction has higher confidence
+                              const existingRank = confidenceRank[match.date_confidence] || 0;
+                              const newRank = confidenceRank[evt.date_confidence] || 0;
+                              if (newRank > existingRank) {
+                                const patchBody = {
+                                  resolved_date: evt.resolved_date || null,
+                                  date_confidence: evt.date_confidence || 'unknown',
+                                  date_range_start: evt.date_range_start || null,
+                                  date_range_end: evt.date_range_end || null,
+                                  date_text: evt.date_text || null,
+                                  updated_at: new Date().toISOString(),
+                                };
+                                if (evt.date_confidence === 'exact') {
+                                  patchBody.resolved_at = new Date().toISOString();
+                                }
+                                await fetch(
+                                  `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?id=eq.${match.id}`,
+                                  {
+                                    method: 'PATCH',
+                                    headers: supaHeaders,
+                                    body: JSON.stringify(patchBody),
+                                  },
+                                );
+                                savedCount++;
+                              }
+                            } else {
+                              // Insert new anchor
+                              const nowIso = new Date().toISOString();
+                              await fetch(`${env.SUPABASE_URL}/rest/v1/user_temporal_anchors`, {
+                                method: 'POST',
+                                headers: supaHeaders,
+                                body: JSON.stringify({
+                                  user_id: body.userId,
+                                  title: evt.title,
+                                  description: evt.body || null,
+                                  category: 'event',
+                                  date_text: evt.date_text || null,
+                                  resolved_date: evt.resolved_date || null,
+                                  date_confidence: evt.date_confidence || 'unknown',
+                                  date_range_start: evt.date_range_start || null,
+                                  date_range_end: evt.date_range_end || null,
+                                  source_chat_id: body.chatId || null,
+                                  source_message: lastUserMsg ? lastUserMsg.slice(0, 500) : null,
+                                  space_id: body.spaceId || null,
+                                  created_at: nowIso,
+                                  updated_at: nowIso,
+                                }),
+                              });
+                              savedCount++;
+                            }
+                          }
+                          if (savedCount > 0) {
+                            console.log('[GeneralChat] Temporal anchors saved', {
+                              count: savedCount,
+                            });
+                          }
+                        }
+                      } catch (anchorErr) {
+                        console.warn(
+                          '[GeneralChat] Temporal anchor persistence failed:',
+                          anchorErr.message,
+                        );
+                      }
                     }
                   } catch (err) {
                     console.warn('[GeneralChat] Extraction failed:', err.message);
@@ -11690,6 +11813,8 @@ Return ONLY valid JSON:
                 'space',
                 {
                   spaceId: body.spaceId,
+                  timezone: body.timezone || 'UTC',
+                  currentChatId: body.chatId || null,
                 },
                 env,
               ),
