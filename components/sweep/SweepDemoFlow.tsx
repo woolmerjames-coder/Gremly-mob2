@@ -2,7 +2,7 @@
  * SweepDemoFlow — Self-contained demo of the Sweep experience
  *
  * Shown after a user's first drop when they tap "Show me".
- * Uses 3 hardcoded demo candidates (1 todo + 2 notes) with real SweepCard
+ * Uses 4 hardcoded demo candidates (2 todos + 1 event + 1 idea) with real SweepCardNew
  * rendering so the user gets a true feel for the interaction without
  * any real data mutations.
  *
@@ -10,15 +10,15 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, Image, TouchableOpacity, SafeAreaView, Dimensions } from 'react-native';
+import { View, StyleSheet, Image, TouchableOpacity, SafeAreaView } from 'react-native';
 import Reanimated, { FadeIn, FadeInUp, FadeOut } from 'react-native-reanimated';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore — OLD file kept for reference; demo needs rewrite to SweepCardNew
-import { SweepCard } from './SweepCard.OLD';
+import { SweepCardNew } from './SweepCardNew';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
 import { nowTimestamp } from '../../lib/date/DateService';
+import { format, addDays } from 'date-fns';
+import { getDateService } from '../../lib/date';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import type {
   SweepCandidate,
@@ -34,15 +34,17 @@ const GREMLY_MASCOT = require('../../assets/mascot/gremly-mascot.png');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_CELEBRATE = require('../../assets/mascot/sweepcomplete.png');
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Demo data
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEMO_USER_ID = 'demo-user';
 
-function makeDemoTodo(): SweepCandidateTodo {
+function getFutureEventDate(): string {
+  return getDateService().toLocalDate(addDays(getDateService().now(), 10));
+}
+
+function makeDemoTodo1(): SweepCandidateTodo {
   return {
     id: 'demo-todo-1',
     kind: 'todo',
@@ -55,8 +57,8 @@ function makeDemoTodo(): SweepCandidateTodo {
     raw: {
       id: 'demo-todo-1',
       owner_id: DEMO_USER_ID,
-      name: 'Book dentist appointment',
-      title: 'Book dentist appointment',
+      name: 'Book the weekend trip',
+      title: 'Book the weekend trip',
       status: 'active',
       archived: false,
       ai_placed: false,
@@ -105,9 +107,128 @@ function makeDemoTodo(): SweepCandidateTodo {
   };
 }
 
-function makeDemoNote1(): SweepCandidateNote {
+function makeDemoTodo2(): SweepCandidateTodo {
   return {
-    id: 'demo-note-1',
+    id: 'demo-todo-2',
+    kind: 'todo',
+    createdAt: nowTimestamp(),
+    dropId: null,
+    skippedInSweepAt: null,
+    isOverdue: false,
+    isDueToday: false,
+    isCreatedToday: true,
+    raw: {
+      id: 'demo-todo-2',
+      owner_id: DEMO_USER_ID,
+      name: 'Reply to Mia about Saturday',
+      title: 'Reply to Mia about Saturday',
+      status: 'active',
+      archived: false,
+      ai_placed: false,
+      carry_forward: false,
+      has_list: false,
+      locked_in: false,
+      sweep_reschedule_count: 0,
+      body: null,
+      body_legacy: null,
+      canonical_type: null,
+      commitment: null,
+      commitment_archived_at: null,
+      commitment_note: null,
+      commitment_started_at: null,
+      completed_at: null,
+      created_at: nowTimestamp(),
+      drop_id: null,
+      due_date: null,
+      due_day: null,
+      due_time: null,
+      is_pinned: null,
+      labels: null,
+      list_items: null,
+      locked_in_at: null,
+      notes: null,
+      origin: 'demo',
+      reminders_json: null,
+      skipped_in_sweep_at: null,
+      source_message_id: null,
+      source_note_id: null,
+      space_id: null,
+      subtype: null,
+      tags: null,
+      tags_meta: null,
+      time_estimate_minutes: null,
+      undefined_due: null,
+      updated_at: null,
+      views: null,
+      why_string: null,
+      archived_at: null,
+      archived_reason: null,
+      resurface_at: null,
+      scheduled_date: null,
+      target_date: null,
+    } as unknown as SweepTodoRow,
+  };
+}
+
+function makeDemoEvent(): SweepCandidateNote {
+  return {
+    id: 'demo-event-1',
+    kind: 'note',
+    createdAt: nowTimestamp(),
+    dropId: null,
+    skippedInSweepAt: null,
+    isOverdue: false,
+    isDueToday: false,
+    isCreatedToday: true,
+    isEventToday: false,
+    isEventPassed: false,
+    daysUntilEvent: 10,
+    raw: {
+      id: 'demo-event-1',
+      owner_id: DEMO_USER_ID,
+      title: 'Dinner with Jordan',
+      body: null,
+      archived: false,
+      ai_placed: false,
+      has_list: false,
+      body_legacy: null,
+      canonical_type: null,
+      created_at: nowTimestamp(),
+      date: getFutureEventDate(),
+      drop_id: null,
+      fmt: null,
+      is_favorite: false,
+      is_pinned: null,
+      journal_subtype: null,
+      labels: null,
+      list_items: null,
+      mood: null,
+      origin: 'demo',
+      reminders_json: null,
+      skipped_in_sweep_at: null,
+      source_message_id: null,
+      space_id: null,
+      subtype: 'event',
+      tags: null,
+      tags_meta: null,
+      updated_at: null,
+      views: null,
+      why_string: null,
+      archived_at: null,
+      archived_reason: null,
+      event_time: null,
+      needs_clarification: false,
+      reminder_date: null,
+      resurface_at: null,
+      swept_at: null,
+      target_date: null,
+    } as unknown as SweepNoteRow,
+  };
+}
+
+function makeDemoIdea(): SweepCandidateNote {
+  return {
+    id: 'demo-idea-1',
     kind: 'note',
     createdAt: nowTimestamp(),
     dropId: null,
@@ -119,10 +240,10 @@ function makeDemoNote1(): SweepCandidateNote {
     isEventPassed: false,
     daysUntilEvent: null,
     raw: {
-      id: 'demo-note-1',
+      id: 'demo-idea-1',
       owner_id: DEMO_USER_ID,
-      title: "Gift ideas for Mum's birthday",
-      body: 'Scarf, cookbook, spa voucher',
+      title: 'Start a weekend hiking group',
+      body: null,
       archived: false,
       ai_placed: false,
       has_list: false,
@@ -161,89 +282,74 @@ function makeDemoNote1(): SweepCandidateNote {
   };
 }
 
-function makeDemoNote2(): SweepCandidateNote {
-  return {
-    id: 'demo-note-2',
-    kind: 'note',
-    createdAt: nowTimestamp(),
-    dropId: null,
-    skippedInSweepAt: null,
-    isOverdue: false,
-    isDueToday: false,
-    isCreatedToday: true,
-    isEventToday: false,
-    isEventPassed: false,
-    daysUntilEvent: null,
-    raw: {
-      id: 'demo-note-2',
-      owner_id: DEMO_USER_ID,
-      title: 'Try that Thai place on King St',
-      body: null,
-      archived: false,
-      ai_placed: false,
-      has_list: false,
-      body_legacy: null,
-      canonical_type: null,
-      created_at: nowTimestamp(),
-      date: null,
-      drop_id: null,
-      fmt: null,
-      is_favorite: false,
-      is_pinned: null,
-      journal_subtype: null,
-      labels: null,
-      list_items: null,
-      mood: null,
-      origin: 'demo',
-      reminders_json: null,
-      skipped_in_sweep_at: null,
-      source_message_id: null,
-      space_id: null,
-      subtype: null,
-      tags: null,
-      tags_meta: null,
-      updated_at: null,
-      views: null,
-      why_string: null,
-      archived_at: null,
-      archived_reason: null,
-      event_time: null,
-      needs_clarification: false,
-      reminder_date: null,
-      resurface_at: null,
-      swept_at: null,
-      target_date: null,
-    } as unknown as SweepNoteRow,
-  };
-}
-
-const DEMO_CANDIDATES: SweepCandidate[] = [makeDemoTodo(), makeDemoNote1(), makeDemoNote2()];
+const DEMO_CANDIDATES: SweepCandidate[] = [
+  makeDemoTodo1(),
+  makeDemoTodo2(),
+  makeDemoEvent(),
+  makeDemoIdea(),
+];
 
 function demoMeta(candidate: SweepCandidate): SweepCardMeta {
-  return {
-    typeChip: candidate.kind === 'todo' ? 'Todo' : 'Note',
-    todoStatus: candidate.kind === 'todo' ? 'unscheduled' : null,
-    logSubtype:
-      candidate.kind === 'note'
-        ? (candidate.raw as SweepNoteRow).subtype === 'idea'
-          ? 'idea'
-          : 'general'
-        : null,
+  const shared = {
     habitStatus: null,
     isNew: true,
     resurfacingDate: null,
+    resurfacedFromDate: null,
     spaceName: null,
     spaceId: null,
     isLockedIn: false,
-    gremlyResponse:
-      candidate.kind === 'todo'
-        ? 'When do you want to do this?'
-        : (candidate.raw as SweepNoteRow).subtype === 'idea'
-          ? 'Nice idea — want to keep it or clear it?'
-          : 'Keep it or let it go?',
+    gremlyResponse: '',
     rescheduleCount: 0,
   };
+
+  if (candidate.kind === 'todo') {
+    return {
+      ...shared,
+      typeChip: 'Todo',
+      todoStatus: 'unscheduled',
+      logSubtype: null,
+      noteCardType: null,
+      eventDate: null,
+      eventDateFormatted: null,
+      daysUntilEvent: null,
+    };
+  }
+
+  const subtype = (candidate.raw as SweepNoteRow).subtype;
+
+  if (subtype === 'event') {
+    const eventDate = getFutureEventDate();
+    return {
+      ...shared,
+      typeChip: 'Note',
+      todoStatus: null,
+      logSubtype: null,
+      noteCardType: 'event',
+      eventDate,
+      eventDateFormatted: format(new Date(eventDate + 'T12:00:00'), 'EEE, MMM d'),
+      daysUntilEvent: 10,
+    };
+  }
+
+  // idea
+  return {
+    ...shared,
+    typeChip: 'Note',
+    todoStatus: null,
+    logSubtype: 'idea',
+    noteCardType: 'idea',
+    eventDate: null,
+    eventDateFormatted: null,
+    daysUntilEvent: null,
+  };
 }
+
+const DEMO_TIPS: string[] = [
+  'Pick when you want to do it, add a reminder if you like, then swipe right to keep it.',
+  'Same deal — pick a date or swipe left to let it go.',
+  'Events come with reminders. You can add a prep todo too, then swipe right.',
+  'Ideas can resurface later or become a todo. Swipe right to keep, left to let go.',
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
@@ -260,37 +366,31 @@ interface SweepDemoFlowProps {
 export function SweepDemoFlow({ onComplete, returnsToMindDrop = false }: SweepDemoFlowProps) {
   const [step, setStep] = useState<DemoStep>('intro');
   const [cardIndex, setCardIndex] = useState(0);
-  const [showCoachMark, setShowCoachMark] = useState(true);
   const markDemoSweepComplete = useGremlyStore((s) => s.markDemoSweepComplete);
 
   const candidate = DEMO_CANDIDATES[cardIndex];
   const meta = candidate ? demoMeta(candidate) : null;
+  const tip = DEMO_TIPS[cardIndex] ?? null;
 
   // ── Advance to next card or finish ──
-  const advance = useCallback(
-    (action: 'keep' | 'clear' | 'skip') => {
-      triggerLight();
+  const advance = useCallback(() => {
+    triggerLight();
 
-      if (cardIndex + 1 < DEMO_CANDIDATES.length) {
-        setCardIndex((i) => i + 1);
-      } else {
-        triggerSuccess();
-        setStep('done');
-      }
-    },
-    [cardIndex],
-  );
+    if (cardIndex + 1 < DEMO_CANDIDATES.length) {
+      setCardIndex((i) => i + 1);
+    } else {
+      triggerSuccess();
+      setStep('done');
+    }
+  }, [cardIndex]);
 
-  // ── Handlers wired to SweepCard ──
-  const onSkip = useCallback(() => advance('skip'), [advance]);
-  const onClear = useCallback(() => advance('clear'), [advance]);
-  const onConfirmQuickDate = useCallback(() => advance('keep'), [advance]);
-  const onConfirmRemindLater = useCallback(() => advance('keep'), [advance]);
-  const onConfirmCustomDate = useCallback(() => advance('keep'), [advance]);
-  const onOpenEdit = useCallback(() => {
-    // No-op in demo — just advance
-    advance('keep');
-  }, [advance]);
+  // ── Handlers wired to SweepCardNew ──
+  const onSkip = useCallback(() => advance(), [advance]);
+  const onClear = useCallback(() => advance(), [advance]);
+  const onOpenEdit = useCallback(() => advance(), [advance]);
+  const onConfirmTodoAction = useCallback(() => advance(), [advance]);
+  const onConfirmEventAction = useCallback(() => advance(), [advance]);
+  const onConfirmNoteAction = useCallback(() => advance(), [advance]);
 
   // ── Intro screen ──
   if (step === 'intro') {
@@ -327,7 +427,7 @@ export function SweepDemoFlow({ onComplete, returnsToMindDrop = false }: SweepDe
           <Image source={GREMLY_CELEBRATE} style={styles.mascot} resizeMode="contain" />
           <Text style={styles.heading}>That's the Sweep!</Text>
           <Text style={styles.subtext}>
-            Every evening, I'll gather your tasks, ideas, and thoughts and help you decide what's
+            Every evening, I'll gather your tasks, ideas, and events and help you decide what's
             next.{'\n\n'}The more you drop during the day, the better I get.
           </Text>
           <TouchableOpacity
@@ -357,7 +457,9 @@ export function SweepDemoFlow({ onComplete, returnsToMindDrop = false }: SweepDe
         {/* Header / progress */}
         <View style={styles.cardHeader}>
           <Text style={styles.progressText}>
-            Demo · {cardIndex + 1} of {DEMO_CANDIDATES.length}
+            {cardIndex === 0
+              ? 'Your first demo card'
+              : `Demo · ${cardIndex + 1} of ${DEMO_CANDIDATES.length}`}
           </Text>
           <TouchableOpacity
             onPress={async () => {
@@ -370,7 +472,20 @@ export function SweepDemoFlow({ onComplete, returnsToMindDrop = false }: SweepDe
           </TouchableOpacity>
         </View>
 
-        {/* Gremly header removed — was SweepGremlyHeader, now built into SweepCardShell */}
+        {/* Mascot tip row */}
+        {tip && (
+          <Reanimated.View
+            key={`tip-${cardIndex}`}
+            entering={FadeIn.duration(250).delay(200)}
+            exiting={FadeOut.duration(150)}
+            style={styles.tipRow}
+          >
+            <Image source={GREMLY_MASCOT} style={styles.tipMascot} resizeMode="contain" />
+            <View style={styles.tipBubble}>
+              <Text style={styles.tipText}>{tip}</Text>
+            </View>
+          </Reanimated.View>
+        )}
 
         {/* Card */}
         <Reanimated.View
@@ -379,7 +494,7 @@ export function SweepDemoFlow({ onComplete, returnsToMindDrop = false }: SweepDe
           exiting={FadeOut.duration(200)}
           style={styles.cardContainer}
         >
-          <SweepCard
+          <SweepCardNew
             candidate={candidate}
             meta={meta}
             index={cardIndex}
@@ -387,36 +502,13 @@ export function SweepDemoFlow({ onComplete, returnsToMindDrop = false }: SweepDe
             onSkip={onSkip}
             onClear={onClear}
             onOpenEdit={onOpenEdit}
-            onConvertToTodo={undefined}
-            onConfirmQuickDate={onConfirmQuickDate}
-            onConfirmRemindLater={onConfirmRemindLater}
-            onConfirmCustomDate={onConfirmCustomDate}
-            onAddToSpace={undefined}
-            onConfirmHabitStart={undefined}
-            hideBottomSaveExit
+            onConfirmTodoAction={onConfirmTodoAction}
+            onConfirmEventAction={onConfirmEventAction}
+            onConfirmNoteAction={onConfirmNoteAction}
+            hideGremlyMenu
           />
         </Reanimated.View>
       </View>
-
-      {/* Coach mark overlay — first card only, covers full screen */}
-      {showCoachMark && cardIndex === 0 && (
-        <View style={styles.coachOverlay}>
-          <View style={styles.coachCard}>
-            <Text style={styles.coachTitle}>How the Sweep works</Text>
-            <Text style={styles.coachBody}>
-              Pick an option on the right, then swipe right to schedule or keep it.{'\n\n'}Or swipe
-              left to let it go.
-            </Text>
-            <TouchableOpacity
-              style={styles.coachButton}
-              onPress={() => setShowCoachMark(false)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.coachButtonText}>Got it</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
     </SafeAreaView>
   );
 }
@@ -492,7 +584,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 8,
+    paddingBottom: 4,
   },
   progressText: {
     fontSize: 14,
@@ -510,56 +602,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
 
-  // Coach mark overlay
-  coachOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 100,
-    paddingHorizontal: 32,
+  // Tip row
+  tipRow: {
+    flexDirection: 'row' as const,
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    gap: 10,
+    alignItems: 'flex-start',
   },
-  coachCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 28,
-    alignItems: 'center',
-    width: '100%',
-    maxWidth: 320,
+  tipMascot: {
+    width: 48,
+    height: 48,
+  },
+  tipBubble: {
+    flex: 1,
+    backgroundColor: 'rgba(191,216,192,0.18)',
     borderWidth: 1,
-    borderColor: BRAND.colors.sageMist,
-  },
-  coachTitle: {
-    fontFamily: 'Inter-Bold',
-    fontSize: 20,
-    color: BRAND.colors.charcoalInk,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  coachBody: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 16,
-    color: BRAND.colors.inkMuted,
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 24,
-  },
-  coachButton: {
-    backgroundColor: BRAND.colors.mossGreen,
-    paddingVertical: 14,
-    paddingHorizontal: 32,
+    borderColor: 'rgba(191,216,192,0.35)',
     borderRadius: 14,
-    width: '100%',
-    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
-  coachButtonText: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 16,
-    color: '#FFFFFF',
+  tipText: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '500' as const,
+    color: BRAND.colors.charcoalInk,
   },
 });
 

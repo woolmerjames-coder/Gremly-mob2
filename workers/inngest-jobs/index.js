@@ -150,6 +150,53 @@ const dcoDispatcher = inngest.createFunction(
       return deleted;
     });
 
+    // Step 1b: Clean up passed temporal anchors
+    await step.run('cleanup-passed-anchors', async () => {
+      const utcDate = (d) =>
+        new Intl.DateTimeFormat('en-CA', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          timeZone: 'UTC',
+        }).format(d);
+      const today = utcDate(new Date());
+      const headers = {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+      };
+      const patchBody = JSON.stringify({ status: 'passed', updated_at: new Date().toISOString() });
+
+      // Exact-confidence anchors: mark passed if resolved_date < today
+      const exactRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.exact&resolved_date=lt.${today}`,
+        { method: 'PATCH', headers, body: patchBody },
+      );
+      const exactCount = exactRes.ok ? (await exactRes.json()).length : 0;
+
+      // Approximate-confidence anchors: mark passed with 3-day buffer
+      const bufferDate = utcDate(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+      const approxRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.approximate&date_range_end=lt.${bufferDate}`,
+        { method: 'PATCH', headers, body: patchBody },
+      );
+      const approxCount = approxRes.ok ? (await approxRes.json()).length : 0;
+
+      // Unknown-confidence anchors: mark passed if older than 30 days
+      const staleDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const unknownRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.unknown&created_at=lt.${staleDate}`,
+        { method: 'PATCH', headers, body: patchBody },
+      );
+      const unknownCount = unknownRes.ok ? (await unknownRes.json()).length : 0;
+
+      console.log(
+        `[DCO Dispatcher] Temporal anchors cleanup: ${exactCount} exact, ${approxCount} approximate, ${unknownCount} unknown marked passed`,
+      );
+      return exactCount + approxCount + unknownCount;
+    });
+
     // Step 2: Get all users who need a DCO today
     const allUsers = await step.run('get-users-needing-dco', async () => {
       const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/get_users_needing_dco`, {
@@ -306,6 +353,7 @@ const generateSingleUserDco = inngest.createFunction(
               life_map: updatedLifeMap,
               version: snapshot.raw.currentLifeMap.version || 1,
               updated_at: now.toISOString(),
+              last_evidence_date: extractLastEvidenceDate(updatedLifeMap),
             }),
           },
         );
@@ -327,6 +375,7 @@ const generateSingleUserDco = inngest.createFunction(
                 thread_updates_count: flashResult.thread_updates?.length || 0,
                 lead_story: flashResult.daily_focus?.lead_story || null,
               },
+              upcoming_dates: extractUpcomingDates(dco),
               created_at: now.toISOString(),
               updated_at: now.toISOString(),
               expires_at: expiresAt.toISOString(),
@@ -365,7 +414,7 @@ const testUnifiedAnalyst = inngest.createFunction(
   { event: 'app/test.analyst' },
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
-    const timezone = event.data.timezone || 'Pacific/Tahiti';
+    const timezone = event.data.timezone || 'UTC';
     const windowDays = event.data.window_days || 21;
 
     const snapshot = await step.run('fetch-snapshot', async () => {
@@ -422,7 +471,7 @@ const testLifeMapRebuild = inngest.createFunction(
   { event: 'app/test.rebuild' },
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
-    const timezone = event.data.timezone || 'Pacific/Tahiti';
+    const timezone = event.data.timezone || 'UTC';
 
     const snapshot = await step.run('fetch-snapshot', async () => {
       return fetchUserSnapshot(userId, timezone, 21, env);
@@ -526,7 +575,7 @@ const testWeeklySummaryV2 = inngest.createFunction(
   { event: 'app/test.summary-v2' },
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
-    const timezone = event.data.timezone || 'Pacific/Tahiti';
+    const timezone = event.data.timezone || 'UTC';
 
     const snapshot = await step.run('fetch-snapshot', async () => {
       return fetchUserSnapshot(userId, timezone, 21, env);
@@ -759,7 +808,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
         .filter((p) => tokenMap[p.user_id])
         .map((p) => ({
           user_id: p.user_id,
-          timezone: p.timezone || 'America/Los_Angeles',
+          timezone: p.timezone || 'UTC',
           weekly_time: p.weekly_time,
           weekly_day: p.weekly_day ?? 0, // 0 = Sunday
           push_token: tokenMap[p.user_id],
@@ -809,6 +858,22 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
 
     // Step 3: Fan out per-user events
     if (readyUsers.length > 0) {
+      const weekKeys = {};
+      for (const u of readyUsers) {
+        try {
+          const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: u.timezone }).format(
+            new Date(),
+          );
+          const today = new Date(todayStr + 'T00:00:00Z');
+          const dayOfWeek = today.getUTCDay();
+          const monday = new Date(today);
+          monday.setUTCDate(today.getUTCDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+          weekKeys[u.user_id] = formatDateOnly(monday);
+        } catch {
+          weekKeys[u.user_id] = 'unknown';
+        }
+      }
+
       await step.sendEvent(
         'dispatch-weekly-users',
         readyUsers.map((u) => ({
@@ -817,6 +882,7 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
             user_id: u.user_id,
             timezone: u.timezone,
             push_token: u.push_token,
+            week_key: weekKeys[u.user_id],
           },
         })),
       );
@@ -832,16 +898,16 @@ const weeklySummaryV2Worker = inngest.createFunction(
     name: 'Weekly Summary V2 Worker',
     concurrency: { limit: 3 },
     retries: 2,
+    idempotency: 'event.data.user_id + "-" + event.data.week_key',
   },
   { event: 'app/weekly-summary-v2.run' },
   async ({ event, step, env }) => {
     const userId = event.data.user_id;
-    const timezone = event.data.timezone || 'Pacific/Tahiti';
+    const timezone = event.data.timezone || 'UTC';
     const pushToken = event.data.push_token || null;
 
-    // Step 0: Claim notification slot — if already claimed, exit early (idempotency for retries)
-    const claimed = await step.run('claim-slot', async () => {
-      // Compute week start for the slot key
+    // Step 0: Read-only idempotency check — if summary already exists, skip
+    const weekStartForCheck = await step.run('check-existing-summary', async () => {
       const now = new Date();
       const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(now);
       const today = new Date(todayStr + 'T00:00:00Z');
@@ -850,30 +916,27 @@ const weeklySummaryV2Worker = inngest.createFunction(
       monday.setUTCDate(today.getUTCDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
       const weekStartKey = formatDateOnly(monday);
 
-      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/claim_notification_slot`, {
-        method: 'POST',
-        headers: {
-          apikey: env.SUPABASE_SERVICE_KEY,
-          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-          'Content-Type': 'application/json',
+      const res = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/weekly_summaries?user_id=eq.${userId}&week_start_date=eq.${weekStartKey}&select=id&limit=1`,
+        {
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
         },
-        body: JSON.stringify({
-          p_user_id: userId,
-          p_type: 'weekly',
-          p_date_key: weekStartKey,
-        }),
-      });
+      );
 
       if (!res.ok) {
-        console.warn(`[Weekly V2] Slot claim RPC error for ${userId}: ${res.statusText}`);
-        return false;
+        console.warn(`[Weekly V2] Idempotency check failed for ${userId}: ${res.statusText}`);
+        return { alreadyExists: false, weekStartKey };
       }
-      return await res.json();
+      const rows = await res.json();
+      return { alreadyExists: Array.isArray(rows) && rows.length > 0, weekStartKey };
     });
 
-    if (claimed !== true) {
-      console.log(`[Weekly V2] Slot already claimed for ${userId}, skipping`);
-      return { success: true, skipped: true, reason: 'slot_already_claimed' };
+    if (weekStartForCheck.alreadyExists) {
+      console.log(`[Weekly V2] Summary already exists for ${userId}, skipping`);
+      return { success: true, skipped: true, reason: 'summary_already_exists' };
     }
 
     // Steps 1-6: identical to testWeeklySummaryV2
@@ -1022,6 +1085,7 @@ const weeklySummaryV2Worker = inngest.createFunction(
           version: snapshot.raw.currentLifeMap?.version || 1,
           rebuilt_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          last_evidence_date: extractLastEvidenceDate(rebuildResult.mergedLifeMap),
         }),
       });
       if (!res.ok) {
@@ -1029,13 +1093,32 @@ const weeklySummaryV2Worker = inngest.createFunction(
       }
     });
 
-    // Step 8: Save weekly summary (delete existing first, then insert)
+    // Step 8: Save weekly summary (claim slot, delete existing, then insert)
     await step.run('save-weekly-summary', async () => {
       const headers = {
         apikey: env.SUPABASE_SERVICE_KEY,
         Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
         'Content-Type': 'application/json',
       };
+
+      // Claim the notification slot NOW — only when we have a summary ready to save
+      const claimRes = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/claim_notification_slot`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          p_user_id: userId,
+          p_type: 'weekly',
+          p_date_key: weekDates.weekStart,
+        }),
+      });
+      if (claimRes.ok) {
+        const claimed = await claimRes.json();
+        if (claimed !== true) {
+          console.log(
+            `[Weekly V2] Slot claimed by another run for ${userId}, but saving anyway (we have the summary)`,
+          );
+        }
+      }
 
       // Delete any existing summary for this week
       await fetch(
@@ -1044,6 +1127,12 @@ const weeklySummaryV2Worker = inngest.createFunction(
       );
 
       // Insert new summary
+      const summaryContent = summaryResult.summary;
+      const momentDates =
+        summaryContent?.cards
+          ?.filter((c) => c.type === 'moments')
+          ?.flatMap((c) => c.moments?.map((m) => m.date).filter(Boolean) || []) || [];
+
       const insertRes = await fetch(`${env.SUPABASE_URL}/rest/v1/weekly_summaries`, {
         method: 'POST',
         headers: { ...headers, Prefer: 'return=minimal' },
@@ -1051,7 +1140,8 @@ const weeklySummaryV2Worker = inngest.createFunction(
           user_id: userId,
           week_start_date: weekDates.weekStart,
           week_end_date: weekDates.weekEnd,
-          content: summaryResult.summary,
+          content: summaryContent,
+          moment_dates: momentDates,
           stats_snapshot: {
             card_count: summaryResult.summary?.cards?.length || 0,
             card_types: summaryResult.summary?.cards?.map((c) => c.type) || [],
@@ -1428,8 +1518,59 @@ Rules:
 
       console.log(`[Weekly V2:Facts] Found ${userMessages.length} messages for fact extraction`);
 
-      // Call extractFacts (GPT-4.1-mini)
+      // Call extractFacts (GPT-4.1-mini) — situational facts only
       let extractedFacts = await extractFacts(userMessages, env.OPENAI_API_KEY);
+
+      // ── Identity extraction (runs when identity is empty or sparse) ──
+      const existingProfileForIdentity = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=identity,signals`,
+        { headers },
+      ).then((r) => r.json());
+
+      const existingIdentity = existingProfileForIdentity?.[0]?.identity || {};
+      const identityFieldCount = Object.keys(existingIdentity).filter(
+        (k) => k !== 'extracted_at' && k !== 'source' && existingIdentity[k] !== null,
+      ).length;
+
+      let updatedIdentity = existingIdentity;
+
+      // Run identity extraction if we have fewer than 2 populated identity fields
+      // or if identity has never been extracted
+      if (identityFieldCount < 2 || !existingIdentity.extracted_at) {
+        console.log(
+          `[Weekly V2:Identity] Running identity extraction (${identityFieldCount} existing fields)`,
+        );
+        // Use ALL available messages, not just this week — identity needs full history
+        const allChatMsgs = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/space_chat_messages?user_id=eq.${userId}&role=eq.user&select=content&order=created_at.desc&limit=200`,
+          { headers },
+        ).then((r) => r.json());
+
+        const allMessages = [];
+        for (const msg of Array.isArray(allChatMsgs) ? allChatMsgs : []) {
+          if (msg.content) allMessages.push(msg.content);
+        }
+        // Also include this week's entity chat messages already collected
+        allMessages.push(...userMessages);
+
+        if (allMessages.length > 0) {
+          const newIdentity = await extractIdentity(
+            allMessages,
+            existingIdentity,
+            env.OPENAI_API_KEY,
+          );
+          // Merge: existing values preserved unless new value is non-null
+          updatedIdentity = { ...existingIdentity };
+          for (const [key, value] of Object.entries(newIdentity)) {
+            if (value !== null && value !== undefined && value !== '') {
+              updatedIdentity[key] = value;
+            }
+          }
+          updatedIdentity.extracted_at = new Date().toISOString();
+          updatedIdentity.source = 'weekly_extraction';
+          console.log(`[Weekly V2:Identity] Extracted identity:`, JSON.stringify(updatedIdentity));
+        }
+      }
 
       // Apply user overrides
       const overrides = Array.isArray(existingOverrides) ? existingOverrides : [];
@@ -1448,8 +1589,61 @@ Rules:
         extractedFacts = [...extractedFacts, ...addedFacts];
       }
 
-      // Render profile_text from Life Map domains + extracted facts
+      // ── Merge situational facts (don't replace) ──
+      const existingFacts = existingProfileForIdentity?.[0]?.signals?.facts || [];
+
+      // Deduplicate: keep new facts + existing facts not covered by new ones
+      const normalizedNew = extractedFacts.map((f) => f.toLowerCase().trim());
+      const mergedFacts = [...extractedFacts];
+
+      for (const existingFact of existingFacts) {
+        const normalized = existingFact.toLowerCase().trim();
+        // Keep existing fact if no new fact covers the same topic
+        const isDuplicate = normalizedNew.some(
+          (newFact) => newFact.includes(normalized) || normalized.includes(newFact),
+        );
+        if (!isDuplicate) {
+          mergedFacts.push(existingFact);
+        }
+      }
+
+      // Remove identity-level facts from situational facts (they belong in identity column now)
+      const identityPatterns = [
+        /^\d{2,3}\s*(year|yr)/i, // "34 year old..."
+        /\b(male|female|non-?binary)\b/i, // gender mentions
+        /\b(he|she|they)\/(him|her|them)\b/i, // pronouns
+        /\blives?\s+in\b/i, // location (now in identity)
+        /\bhas\s+(ADHD|ADD|anxiety|depression|OCD|autism|ASD)\b/i, // conditions (now in identity)
+      ];
+
+      extractedFacts = mergedFacts.filter(
+        (fact) => !identityPatterns.some((pattern) => pattern.test(fact)),
+      );
+
+      // Render profile_text from identity + Life Map domains + extracted facts
       const lifeMap = rebuildResult.mergedLifeMap;
+
+      // Identity section — always first, always present if we have identity
+      let identitySection = '';
+      if (
+        updatedIdentity &&
+        Object.keys(updatedIdentity).filter((k) => k !== 'extracted_at' && k !== 'source').length >
+          0
+      ) {
+        const identityParts = [];
+        if (updatedIdentity.name) identityParts.push(`Name: ${updatedIdentity.name}`);
+        if (updatedIdentity.pronouns) identityParts.push(`Pronouns: ${updatedIdentity.pronouns}`);
+        else if (updatedIdentity.gender === 'male') identityParts.push('Pronouns: he/him');
+        else if (updatedIdentity.gender === 'female') identityParts.push('Pronouns: she/her');
+        else if (updatedIdentity.gender) identityParts.push(`Gender: ${updatedIdentity.gender}`);
+        if (updatedIdentity.age) identityParts.push(`Age: ${updatedIdentity.age}`);
+        if (updatedIdentity.location) identityParts.push(`Location: ${updatedIdentity.location}`);
+        if (updatedIdentity.partner) identityParts.push(`Partner: ${updatedIdentity.partner}`);
+        if (updatedIdentity.conditions?.length > 0)
+          identityParts.push(`Conditions: ${updatedIdentity.conditions.join(', ')}`);
+        identitySection = `IDENTITY: ${identityParts.join('. ')}.\n\n`;
+      }
+
       const domainSummaries = (lifeMap?.domains || [])
         .filter((d) => d.attention !== 'background')
         .map((d) => {
@@ -1466,7 +1660,7 @@ Rules:
       const factsSection =
         extractedFacts.length > 0 ? `\n\nPersonal context: ${extractedFacts.join('. ')}.` : '';
 
-      const profileText = domainSummaries + factsSection;
+      const profileText = identitySection + domainSummaries + factsSection;
 
       // Update user_profiles with new profile_text and facts
       const existingProfile = await fetch(
@@ -1477,6 +1671,7 @@ Rules:
       const profileData = {
         user_id: userId,
         profile_text: profileText,
+        identity: updatedIdentity,
         signals: {
           facts: extractedFacts,
           message_count: userMessages.length,
@@ -1580,6 +1775,7 @@ const bootstrapSingleUserLifeMap = inngest.createFunction(
             version: 1,
             rebuilt_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
+            last_evidence_date: extractLastEvidenceDate(lifeMap),
           }),
         });
 
@@ -1624,6 +1820,109 @@ function fourteenDaysAgoStr() {
   return formatDateOnly(d);
 }
 
+// ============================================================================
+// One-time backfill: extract identity from existing signals.facts
+// Trigger via Inngest dashboard with event: app/backfill.identity
+// ============================================================================
+
+const backfillIdentity = inngest.createFunction(
+  { id: 'backfill-identity', name: 'Backfill Identity Column' },
+  { event: 'app/backfill.identity' },
+  async ({ step, env }) => {
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+    };
+
+    // Get all users with no identity (empty object or null)
+    const users = await step.run('get-users', async () => {
+      // Fetch users where identity is null
+      const nullRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_profiles?identity=is.null&select=user_id,signals`,
+        { headers },
+      ).then((r) => r.json());
+
+      // Fetch users where identity is empty object
+      const emptyRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_profiles?identity=eq.%7B%7D&select=user_id,signals`,
+        { headers },
+      ).then((r) => r.json());
+
+      const all = [
+        ...(Array.isArray(nullRes) ? nullRes : []),
+        ...(Array.isArray(emptyRes) ? emptyRes : []),
+      ];
+      // Dedupe by user_id
+      const seen = new Set();
+      return all.filter((u) => {
+        if (seen.has(u.user_id)) return false;
+        seen.add(u.user_id);
+        return true;
+      });
+    });
+
+    console.log(`[Backfill] Found ${users.length} users without identity`);
+
+    let backfilledCount = 0;
+
+    for (const user of users) {
+      await step.run(`backfill-${user.user_id.slice(0, 8)}`, async () => {
+        const facts = user.signals?.facts || [];
+
+        // Fetch user's chat history for identity extraction
+        const chatMsgs = await fetch(
+          `${env.SUPABASE_URL}/rest/v1/space_chat_messages?user_id=eq.${user.user_id}&role=eq.user&select=content&order=created_at.desc&limit=200`,
+          { headers },
+        ).then((r) => r.json());
+
+        const messages = [];
+        for (const msg of Array.isArray(chatMsgs) ? chatMsgs : []) {
+          if (msg.content) messages.push(msg.content);
+        }
+        // Also include existing facts as "messages" so the model can parse them
+        messages.push(...facts);
+
+        if (messages.length === 0) return;
+
+        const identity = await extractIdentity(messages, {}, env.OPENAI_API_KEY);
+
+        if (
+          Object.keys(identity).filter((k) => k !== 'extracted_at' && k !== 'source').length > 0
+        ) {
+          identity.extracted_at = new Date().toISOString();
+          identity.source = 'backfill';
+
+          // Remove identity facts from signals.facts
+          const identityPatterns = [
+            /^\d{2,3}\s*(year|yr)/i,
+            /\b(male|female|non-?binary)\b/i,
+            /\b(he|she|they)\/(him|her|them)\b/i,
+            /\blives?\s+in\b/i,
+            /\bhas\s+(ADHD|ADD|anxiety|depression|OCD|autism|ASD)\b/i,
+          ];
+          const cleanedFacts = facts.filter((f) => !identityPatterns.some((p) => p.test(f)));
+
+          // Update profile
+          await fetch(`${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${user.user_id}`, {
+            method: 'PATCH',
+            headers: { ...headers, Prefer: 'return=minimal' },
+            body: JSON.stringify({
+              identity,
+              signals: { ...user.signals, facts: cleanedFacts },
+            }),
+          });
+
+          backfilledCount++;
+          console.log(`[Backfill] ${user.user_id.slice(0, 8)}: ${JSON.stringify(identity)}`);
+        }
+      });
+    }
+
+    return { total: users.length, backfilled: backfilledCount };
+  },
+);
+
 function fourteenDaysFromNow() {
   const d = new Date();
   d.setDate(d.getDate() + 14);
@@ -1658,7 +1957,7 @@ async function synthesizeUserProfile(userId, env) {
         headers,
       }).then((r) => r.json()),
       fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=user_id,signals,relationship_started_at`,
+        `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=user_id,signals,identity,relationship_started_at`,
         { headers },
       ).then((r) => r.json()),
       fetch(
@@ -1692,8 +1991,28 @@ async function synthesizeUserProfile(userId, env) {
       facts = [...facts, ...addedFacts];
     }
 
-    // Render profile text from Life Map + facts
+    // Render profile text from identity + Life Map + facts
     let profileText = '';
+
+    // Identity section — always first
+    const identity = existingProfile?.identity || {};
+    const identityKeys = Object.keys(identity).filter(
+      (k) => k !== 'extracted_at' && k !== 'source',
+    );
+    if (identityKeys.length > 0) {
+      const identityParts = [];
+      if (identity.name) identityParts.push(`Name: ${identity.name}`);
+      if (identity.pronouns) identityParts.push(`Pronouns: ${identity.pronouns}`);
+      else if (identity.gender === 'male') identityParts.push('Pronouns: he/him');
+      else if (identity.gender === 'female') identityParts.push('Pronouns: she/her');
+      else if (identity.gender) identityParts.push(`Gender: ${identity.gender}`);
+      if (identity.age) identityParts.push(`Age: ${identity.age}`);
+      if (identity.location) identityParts.push(`Location: ${identity.location}`);
+      if (identity.partner) identityParts.push(`Partner: ${identity.partner}`);
+      if (identity.conditions?.length > 0)
+        identityParts.push(`Conditions: ${identity.conditions.join(', ')}`);
+      profileText = `IDENTITY: ${identityParts.join('. ')}.\n\n`;
+    }
 
     if (lifeMap?.domains) {
       const domainSummaries = lifeMap.domains
@@ -1708,7 +2027,7 @@ async function synthesizeUserProfile(userId, env) {
           return `${d.name}: ${threadSummary}`;
         })
         .join('\n');
-      profileText = domainSummaries;
+      profileText += domainSummaries;
     }
 
     if (facts.length > 0) {
@@ -1779,6 +2098,103 @@ function getExpectedCompletionsForDays(frequency, days) {
       return days >= 30 ? 1 : 0;
     default:
       return days;
+  }
+}
+
+// ============================================================================
+// LLM: Identity extraction (durable, one-time)
+// ============================================================================
+
+/**
+ * Extract durable identity-level facts from user messages.
+ * Runs ONCE (when identity column is empty) or when manually triggered.
+ * Identity facts are pinned and only updated when explicitly contradicted.
+ */
+async function extractIdentity(messages, existingIdentity, apiKey) {
+  const combinedText = messages.slice(0, 100).join('\n---\n');
+
+  const existingContext =
+    existingIdentity && Object.keys(existingIdentity).length > 0
+      ? `\nEXISTING IDENTITY (keep unless explicitly contradicted):\n${JSON.stringify(existingIdentity)}`
+      : '';
+
+  const prompt = `Extract IDENTITY-LEVEL facts about this user from their messages. These are durable, stable attributes that rarely change.
+${existingContext}
+
+USER MESSAGES:
+${combinedText}
+
+Extract ONLY these categories (leave null if not mentioned):
+- name: Their first name
+- gender: male, female, or non-binary (only if clearly stated or strongly implied)
+- pronouns: he/him, she/her, they/them (infer from gender if not explicitly stated)
+- age: Their age or age range
+- partner: Partner/spouse name and relationship type (partner, husband, wife, etc.)
+- location: City/neighborhood they live in
+- conditions: Array of health conditions, neurodivergence, or similar (e.g., ["ADHD", "anxiety"])
+
+RULES:
+- Only include facts they EXPLICITLY stated or VERY strongly implied
+- If gender is stated (e.g., "as a man", "my boyfriend and I", "34 year old male"), always set pronouns to match
+- If they mention a partner by name, include the name AND relationship word they used
+- For conditions, only include diagnosed or self-identified conditions, not temporary states
+- If a field has an existing value and nothing in the messages contradicts it, KEEP the existing value
+- Output as a JSON object with the fields above. Use null for unknown fields.
+- Do NOT include situational facts like current projects, jobs, or weekly activities
+
+Output ONLY the JSON object, no explanation.`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 300,
+        temperature: 0.2,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      throw new Error(`OpenAI error (identity): ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices[0].message.content.trim();
+
+    try {
+      const parsed = JSON.parse(
+        content
+          .replace(/```json\n?/g, '')
+          .replace(/```\n?/g, '')
+          .trim(),
+      );
+      // Clean: remove null fields, keep only populated ones
+      const cleaned = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        if (value !== null && value !== undefined && value !== '') {
+          cleaned[key] = value;
+        }
+      }
+      return cleaned;
+    } catch {
+      console.warn('[extractIdentity] Failed to parse JSON:', content);
+      return {};
+    }
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err.name === 'AbortError') {
+      console.error('[extractIdentity] OpenAI request timed out after 90s');
+    }
+    throw err;
   }
 }
 
@@ -1929,7 +2345,7 @@ async function fetchFullHistoricalSnapshot(userId, env) {
       { headers },
     ).then((r) => r.json()),
     fetch(
-      `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=profile_text,signals`,
+      `${env.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${userId}&select=profile_text,signals,identity`,
       { headers },
     ).then((r) => r.json()),
     fetch(
@@ -1964,6 +2380,38 @@ async function fetchFullHistoricalSnapshot(userId, env) {
     dcoHistory: safeArr(dcoHistory),
     overrides: safeArr(overrides),
   };
+}
+
+// ============================================================================
+// Life Map: Extract last evidence date from Life Map JSONB
+// ============================================================================
+
+function extractLastEvidenceDate(lifeMap) {
+  let maxDate = null;
+  for (const domain of lifeMap.domains || []) {
+    for (const thread of domain.threads || []) {
+      for (const ev of thread.evidence || []) {
+        if (ev.date && (!maxDate || ev.date > maxDate)) {
+          maxDate = ev.date;
+        }
+      }
+    }
+  }
+  return maxDate; // YYYY-MM-DD or null
+}
+
+// ============================================================================
+// DCO: Extract upcoming date strings from DCO for indexed column
+// ============================================================================
+
+function extractUpcomingDates(dco) {
+  return (
+    dco?.active_today?.upcoming_in_7d
+      ?.map((item) =>
+        typeof item === 'object' && item.date ? item.date : String(item).split(':')[0]?.trim(),
+      )
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) || []
+  );
 }
 
 // ============================================================================
@@ -3430,6 +3878,8 @@ Your job: write a short editorial brief (250-350 words, plain English, no JSON) 
 
 8. WEEK BOUNDARY: Your discoveries and moments MUST be about events that happened between ${weekStart} and ${weekEnd}. Do NOT feature events from prior weeks (like a half marathon on March 22 when this week starts March 23) as discoveries or moments. Prior week events may only be referenced as CONTEXT for this week's story — never as the story itself. If the analyst flagged a prior-week event, use it only to explain this week's behavior, not as a standalone discovery.
 
+IDENTITY & PRONOUNS: The analyst data includes a user_profile field. If it starts with "IDENTITY:", use those facts for the person's name, gender, and pronouns throughout the brief. Never assume or guess — always match what's stated. If no identity line exists, use "they/them".
+
 ${activeVibe.editorial}`;
 
   const editorialUser = `Write the editorial brief for ${weekStart} to ${weekEnd}.
@@ -3527,7 +3977,7 @@ YOUR TASK:
 
 2. Search and find 2-3 resources that meet ALL of these criteria:
    - MUST have a real, working URL (no books, no academic papers without URLs)
-   - MUST be from the last 3 years (2023-2026)
+   - MUST be from the last 3 years (${new Date().getFullYear() - 3}-${new Date().getFullYear()})
    - MUST be practical and actionable — blog posts, specific podcast episodes, newsletter issues, tools, community discussions
    - PREFER sources from: Indie Hackers, First Round Review, HBR online, specific named podcast episodes with timestamps, Substack posts, well-sourced Reddit threads
    - REJECT: Amazon book pages, academic journal abstracts, generic self-help listicles, anything without a verifiable URL
@@ -3601,6 +4051,8 @@ If you cannot find resources with real URLs, return fewer sources rather than fa
 1. An EDITORIAL BRIEF from a senior editor telling you which stories to focus on, which moments to highlight, and which quotes to use where. FOLLOW THE BRIEF. It has already made the editorial decisions — your job is to write beautifully within that direction.
 
 2. ANALYST DATA containing the structured evidence — themes, habit stats, journal quotes, events, behavioral fingerprints. Every claim you make must trace to this data. Never invent facts.
+
+IDENTITY & PRONOUNS: The analyst data includes a user_profile field. If it starts with "IDENTITY:", use those facts for the person's name and pronouns throughout every card. Never assume gender. If no identity line exists, default to "they/them". This is a hard rule — misgendering is unacceptable.
 
 FACTUAL CONTEXT (from code — these are ground truth):
 ${factualContext}
@@ -4324,6 +4776,16 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
       .catch(() => []),
   );
 
+  // 13: Temporal anchors — active events/deadlines from conversations
+  queries.push(
+    fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?user_id=eq.${userId}&status=eq.active&select=*&order=resolved_date.asc.nullslast&limit=20`,
+      { headers },
+    )
+      .then((r) => r.json())
+      .catch(() => []),
+  );
+
   const results = await Promise.all(queries);
   const safeArr = (v) => (Array.isArray(v) ? v : []);
 
@@ -4366,6 +4828,8 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
   const spaceChatSummariesData = results[idx] || [];
   idx++;
   const entityChatSummariesData = results[idx] || [];
+  idx++;
+  const temporalAnchorsData = safeArr(results[idx]);
   idx++;
 
   // --- Filter: only data on or before target date ---
@@ -4489,6 +4953,7 @@ async function fetchUserSnapshot(userId, timezone, windowDays, env, opts = {}) {
       userProfile,
       spaceChatSummaries: Array.isArray(spaceChatSummariesData) ? spaceChatSummariesData : [],
       entityChatSummaries: Array.isArray(entityChatSummariesData) ? entityChatSummariesData : [],
+      temporalAnchors: temporalAnchorsData,
     },
 
     // Computed metrics
@@ -5033,6 +5498,8 @@ async function runUnifiedAnalyst(weeklySnapshot, lifeMap, weekStart, weekEnd, en
 Your job: Deeply analyze the week of ${weekStart} to ${weekEnd}. Organize EVERYTHING into a structured extraction that serves two downstream consumers — a Life Map rebuild AI and a weekly summary storyteller AI. Both need maximum detail organized clearly.
 
 CRITICAL: Preserve specifics. Include journal quotes, todo titles, event names, habit day-by-day data. Your output is the PRIMARY source both downstream AIs read. If you summarize away a detail, it's lost. When in doubt, include it.
+
+IDENTITY & PRONOUNS: If a USER PROFILE is provided in the data, note the person's stated gender and pronouns in your theme labels and narrative descriptions. Never assume.
 
 ANALYSIS WINDOW: ${weekStart} to ${weekEnd}
 Data outside this range is CONTEXT (prior weeks for trends). Do not conflate past and future.
@@ -5891,6 +6358,32 @@ function buildWorldPicture(snapshot) {
     parts.push('  No milestones.');
   }
 
+  // ── Section 5b: Temporal anchors (events/deadlines from conversations) ──
+  parts.push('\n=== TEMPORAL ANCHORS (events/deadlines mentioned in conversations) ===');
+  if (raw.temporalAnchors && raw.temporalAnchors.length > 0) {
+    for (const a of raw.temporalAnchors) {
+      const cat = a.category ? ` [${a.category}]` : '';
+      let dateInfo = '';
+      if (a.date_confidence === 'exact' && a.resolved_date) {
+        const daysAway = Math.ceil((new Date(a.resolved_date + 'T00:00:00Z') - target) / 86400000);
+        if (daysAway === 0) dateInfo = `${a.resolved_date} — TODAY`;
+        else if (daysAway > 0) dateInfo = `${a.resolved_date} — ${daysAway} days away`;
+        else dateInfo = `${a.resolved_date} — ${Math.abs(daysAway)} days ago`;
+      } else if (a.date_confidence === 'approximate') {
+        dateInfo = a.resolved_date ? `~${a.resolved_date} (~approximate)` : '~approximate';
+        if (a.date_range_start && a.date_range_end) {
+          dateInfo += ` [range: ${a.date_range_start} to ${a.date_range_end}]`;
+        }
+      } else {
+        dateInfo = 'date unknown';
+        if (a.date_text) dateInfo += ` ("${a.date_text}")`;
+      }
+      parts.push(`  ${a.title}: ${dateInfo}${cat}`);
+    }
+  } else {
+    parts.push('  No temporal anchors.');
+  }
+
   // ── Section 6: Recent drops (last 2 days) ──
   const twoDaysAgo = formatDateOnly(new Date(target.getTime() - 2 * 86400000));
   const recentDrops = raw.drops
@@ -5962,6 +6455,7 @@ function buildWorldPicture(snapshot) {
   // ── Section 12: User profile ──
   if (raw.userProfile?.profile_text) {
     parts.push('\n=== USER PROFILE ===');
+    parts.push("Use the IDENTITY line for this person's name, gender, and pronouns. Never assume.");
     parts.push(`  ${raw.userProfile.profile_text}`);
   }
 
@@ -6305,7 +6799,9 @@ function assembleDcoFromFocus(dailyFocus, headline, snapshot) {
       calendar_events: calendar.todaysEvents.map((e) => e.title),
       overdue_todos: computed.todoStats.overdue,
       habit_streak_risk: habitStreakRisk,
-      upcoming_in_7d: calendar.upcomingEvents.slice(0, 5).map((e) => `${e.date}: ${e.title}`),
+      upcoming_in_7d: calendar.upcomingEvents
+        .slice(0, 5)
+        .map((e) => ({ date: e.date, title: e.title })),
     },
     deltas: {
       drop_velocity: computed.dropVelocity.velocity,
@@ -6469,6 +6965,52 @@ async function sendExpoPush(token, title, body, notificationType) {
 }
 
 // ============================================================================
+// Nightly: auto-archive events older than 7 days
+// ============================================================================
+
+const archiveStaleEvents = inngest.createFunction(
+  {
+    id: 'archive-stale-events',
+    name: 'Archive Stale Events',
+  },
+  { cron: '0 3 * * *' }, // 3 AM UTC daily
+  async ({ step, env }) => {
+    const result = await step.run('archive-old-events', async () => {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - 7);
+      const cutoffString = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(cutoffDate); // YYYY-MM-DD
+
+      // Archive non-goal event notes whose target_date (or end_date for multi-day)
+      // is more than 7 days ago. Skip dateless events and goals.
+      const response = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/notes?subtype=eq.event&archived=eq.false&is_goal=neq.true&target_date=not.is.null&or=(and(end_date.is.null,target_date.lt.${encodeURIComponent(cutoffString)}),and(end_date.not.is.null,end_date.lt.${encodeURIComponent(cutoffString)}))&select=id`,
+        {
+          method: 'PATCH',
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify({ archived: true }),
+        },
+      );
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Failed to archive stale events: ${response.status} ${errText}`);
+      }
+
+      const archived = await response.json();
+      return { archivedCount: Array.isArray(archived) ? archived.length : 0 };
+    });
+
+    console.log(`[ArchiveStaleEvents] Archived ${result.archivedCount} events older than 7 days`);
+    return result;
+  },
+);
+
+// ============================================================================
 // Worker entry point
 // ============================================================================
 
@@ -6486,6 +7028,8 @@ const inngestHandler = serve({
     testWeeklySummaryV2,
     weeklySummaryV2Dispatcher,
     weeklySummaryV2Worker,
+    backfillIdentity,
+    archiveStaleEvents,
   ],
   servePath: '/',
 });
@@ -6602,6 +7146,7 @@ export default {
                 life_map: updatedMap,
                 version: snapshot.raw.currentLifeMap.version || 1,
                 updated_at: now.toISOString(),
+                last_evidence_date: extractLastEvidenceDate(updatedMap),
               }),
             });
 
@@ -6616,6 +7161,7 @@ export default {
                   world_picture_length: worldPicture.text.length,
                   lead_story: flashResult.daily_focus?.lead_story || null,
                 },
+                upcoming_dates: extractUpcomingDates(dco),
                 created_at: now.toISOString(),
                 updated_at: now.toISOString(),
                 expires_at: expiresAt.toISOString(),
@@ -6853,7 +7399,7 @@ export default {
       try {
         const body = await request.json();
         const userId = body.user_id;
-        const timezone = body.timezone || 'Pacific/Tahiti';
+        const timezone = body.timezone || 'UTC';
 
         if (!userId) {
           return new Response(JSON.stringify({ error: 'user_id required' }), {
@@ -6934,7 +7480,7 @@ export default {
       try {
         const body = await request.json();
         const userId = body.user_id;
-        const timezone = body.timezone || 'Pacific/Tahiti';
+        const timezone = body.timezone || 'UTC';
 
         if (!userId) {
           return new Response(JSON.stringify({ error: 'user_id required' }), {
@@ -7059,7 +7605,7 @@ export default {
 
         // We need the snapshot to get priorSummaries and weeklySnapshot
         // Re-fetch snapshot for this user (needed for priorSummaries and weeklySnapshot)
-        const timezone = body.timezone || 'Pacific/Tahiti';
+        const timezone = body.timezone || 'UTC';
         const snapshot = await fetchUserSnapshot(userId, timezone, 21, env);
         const weeklySnapshot = buildWeeklySnapshot(snapshot);
         const priorSummaries = snapshot.raw.weeklySummaries || [];
@@ -7177,7 +7723,7 @@ export default {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: 'app/test.summary-v2',
-            data: { user_id: userId, timezone: body.timezone || 'Pacific/Tahiti' },
+            data: { user_id: userId, timezone: body.timezone || 'UTC' },
           }),
         });
 

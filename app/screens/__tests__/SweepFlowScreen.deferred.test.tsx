@@ -306,6 +306,28 @@ const mockNoteCandidate: SweepCandidate = {
   } as any,
 };
 
+const mockNoteCandidate2: SweepCandidate = {
+  id: 'note-2',
+  kind: 'note',
+  createdAt: new Date().toISOString(),
+  dropId: null,
+  skippedInSweepAt: null,
+  isOverdue: false,
+  isDueToday: false,
+  isCreatedToday: true,
+  isEventToday: false,
+  isEventPassed: false,
+  daysUntilEvent: null,
+  raw: {
+    id: 'note-2',
+    title: 'Another note',
+    body: 'Another note body',
+    owner_id: 'test-user-id',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  } as any,
+};
+
 /**
  * Helper to render and navigate to decision step (step 1)
  */
@@ -374,7 +396,7 @@ describe('SweepFlowScreen - Deferred Commit Pattern', () => {
     });
 
     it('does NOT call archiveNote when Clear is pressed on note', async () => {
-      mockCandidates = [mockNoteCandidate, mockTodoCandidate1];
+      mockCandidates = [mockNoteCandidate, mockNoteCandidate2];
 
       const result = await renderAtDecisionStep();
 
@@ -387,7 +409,7 @@ describe('SweepFlowScreen - Deferred Commit Pattern', () => {
 
       // Wait for card to advance
       await waitFor(() => {
-        result.getByText('Task one');
+        result.getByText('Another note');
       });
 
       // archiveNote should NOT have been called yet

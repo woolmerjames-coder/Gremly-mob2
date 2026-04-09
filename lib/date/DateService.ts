@@ -246,6 +246,67 @@ export class DateService {
   }
 
   /**
+   * Get the UTC ISO timestamp for midnight (00:00:00.000) of a local YYYY-MM-DD date.
+   * Useful for querying timestamptz columns that store UTC values.
+   *
+   * @param localDay - YYYY-MM-DD string in user's timezone
+   * @returns UTC ISO string, e.g. "2025-01-15T08:00:00.000Z" for America/Los_Angeles
+   */
+  startOfDayUtc(localDay: string): string {
+    const parts = localDay.split('-').map(Number);
+    const localMidnight = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+    // Compute UTC offset for this timezone at this moment
+    const utcMs = localMidnight.getTime();
+    const localStr = new Intl.DateTimeFormat('en-US', {
+      timeZone: this.timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(new Date(utcMs));
+    // Parse formatted local time to get the offset
+    const m = localStr.match(/(\d+)\/(\d+)\/(\d+),?\s+(\d+):(\d+):(\d+)/);
+    if (!m) return new Date(`${localDay}T00:00:00Z`).toISOString();
+    const formatted = new Date(+m[3], +m[1] - 1, +m[2], +m[4] === 24 ? 0 : +m[4], +m[5], +m[6]);
+    const offsetMs = formatted.getTime() - utcMs;
+    // midnight local = midnight - offset in UTC
+    const midnightUtc = new Date(localMidnight.getTime() - offsetMs);
+    return midnightUtc.toISOString();
+  }
+
+  /**
+   * Get the UTC ISO timestamp for the last moment (23:59:59.999) of a local YYYY-MM-DD date.
+   * Useful for querying timestamptz columns that store UTC values.
+   *
+   * @param localDay - YYYY-MM-DD string in user's timezone
+   * @returns UTC ISO string, e.g. "2025-01-16T07:59:59.999Z" for America/Los_Angeles
+   */
+  endOfDayUtc(localDay: string): string {
+    const parts = localDay.split('-').map(Number);
+    const localEnd = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999);
+    const utcMs = localEnd.getTime();
+    const localStr = new Intl.DateTimeFormat('en-US', {
+      timeZone: this.timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(new Date(utcMs));
+    const m = localStr.match(/(\d+)\/(\d+)\/(\d+),?\s+(\d+):(\d+):(\d+)/);
+    if (!m) return new Date(`${localDay}T23:59:59.999Z`).toISOString();
+    const formatted = new Date(+m[3], +m[1] - 1, +m[2], +m[4] === 24 ? 0 : +m[4], +m[5], +m[6]);
+    const offsetMs = formatted.getTime() - utcMs;
+    const endUtc = new Date(localEnd.getTime() - offsetMs);
+    return endUtc.toISOString();
+  }
+
+  /**
    * Get the date N days ago as YYYY-MM-DD.
    *
    * @param n - Number of days ago

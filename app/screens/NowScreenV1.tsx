@@ -919,7 +919,7 @@ export default function NowScreenV1() {
     setJournalVisible(true);
   }, []);
 
-  if (loading || !isInitialized) {
+  if (!isInitialized) {
     return (
       <Screen style={styles.screen} edges={['top', 'bottom']} padded={false}>
         <View />

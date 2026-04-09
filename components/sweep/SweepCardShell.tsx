@@ -131,6 +131,7 @@ type SweepCardShellProps = {
   isConverted?: boolean;
   isClarified?: boolean;
   onRequestPhotoPreview?: (url: string) => void;
+  hideGremlyMenu?: boolean;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,6 +151,7 @@ export function SweepCardShell({
   isConverted,
   isClarified,
   onRequestPhotoPreview,
+  hideGremlyMenu,
 }: SweepCardShellProps) {
   // ── Local state ──
   const [menuVisible, setMenuVisible] = useState(false);
@@ -444,9 +446,11 @@ export function SweepCardShell({
             {/* Card content */}
             <View style={styles.contentContainer}>
               {/* Gremly menu button */}
-              <View style={styles.gremlyButtonPosition}>
-                <GremlyMenuButton onPress={() => setMenuVisible(true)} />
-              </View>
+              {!hideGremlyMenu && (
+                <View style={styles.gremlyButtonPosition}>
+                  <GremlyMenuButton onPress={() => setMenuVisible(true)} />
+                </View>
+              )}
               <View style={styles.menuPosition}>
                 <GremlyPopupMenu
                   visible={menuVisible}

@@ -130,6 +130,7 @@ import {
   ChevronDown,
   Calendar,
   Bell,
+  X,
 } from 'lucide-react-native';
 // ClarificationIndicatorChip moved to badge position - import removed
 import { formatDue } from '../../lib/date/formatDue';
@@ -191,6 +192,7 @@ import { hashString } from '../../lib/telemetry/catchallLogger';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
 import { useVoiceCapture, VoiceCaptureState } from '../../hooks/useVoiceCapture';
 import { VoicePulse } from '../../components/VoicePulse';
+import WeekStrip from '../../components/calendar/WeekStrip';
 import { FEATURE_FLAGS } from '../../lib/config/featureFlags';
 import { MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 
@@ -340,6 +342,26 @@ const isNetworkError = (err: any) =>
 const UNSORTED_LABEL = 'needs_review'; // used as “Unsorted Tray” tag
 const CATCHALL_LABEL = 'catchall'; // to mark Mind Drop items
 
+const PREFILL_MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+function formatPrefillChip(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return `${PREFILL_MONTH_NAMES[m - 1]} ${d}`;
+}
+
 // Legacy UISuggestion stub - suggestion chips removed but code references remain
 type UISuggestion = {
   type: string;
@@ -376,6 +398,7 @@ type MindDropInputProps = {
   heightWrapperStyle?: any;
   inputDynHeight: number;
   onCameraPress?: () => void;
+  onCalendarPress?: () => void;
   photoHintText?: string;
   // Voice capture
   onMicPress?: () => void;
@@ -410,6 +433,7 @@ const MindDropInput = React.memo<MindDropInputProps>(
     heightWrapperStyle,
     inputDynHeight,
     onCameraPress,
+    onCalendarPress,
     photoHintText,
     onMicPress,
     voiceState = 'idle',
@@ -495,6 +519,18 @@ const MindDropInput = React.memo<MindDropInputProps>(
         </View>
         <View style={iconContainerStyle} pointerEvents="box-none">
           {/* Mic button hidden for now - voice capture code kept in place */}
+          {onCalendarPress && (
+            <Pressable
+              style={[iconButtonStyle, iconCameraStyle]}
+              accessibilityRole="button"
+              accessibilityLabel="Pick a date"
+              onPress={onCalendarPress}
+            >
+              <View style={iconWrapperStyle}>
+                <Icon name="Calendar" size="sm" color={iconColor} strokeWidth={1.4} />
+              </View>
+            </Pressable>
+          )}
           <Pressable
             disabled={!onCameraPress}
             style={[iconButtonStyle, iconCameraStyle]}
@@ -1617,10 +1653,13 @@ const Row3Chips: React.FC<{
     item.kind === 'note' && (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
   const isIdea =
     item.kind === 'note' && (item.noteSubtype === 'idea' || item.canonical_type === 'idea');
+  const isEvent =
+    item.kind === 'note' && (item.noteSubtype === 'event' || item.views?.subtype === 'event');
   const isGeneralNote =
     item.kind === 'note' &&
     !isJournal &&
     !isIdea &&
+    !isEvent &&
     (item.noteSubtype === 'catchall' ||
       item.noteSubtype === 'general' ||
       item.canonical_type === 'log' ||
@@ -1680,7 +1719,9 @@ const Row3Chips: React.FC<{
               ? 'Journal'
               : mi.subtype === 'idea'
                 ? 'Idea'
-                : 'Note';
+                : mi.subtype === 'event'
+                  ? 'Event'
+                  : 'Note';
       bucketCounts[label] = (bucketCounts[label] || 0) + 1;
     }
     const labels = Object.entries(bucketCounts).map(([label, count]) =>
@@ -1729,6 +1770,15 @@ const Row3Chips: React.FC<{
 
     // Idea: show type chip
     if (isIdea && contextMeta) {
+      return (
+        <View style={styles.moodChip}>
+          <Text style={styles.moodChipText}>{contextMeta}</Text>
+        </View>
+      );
+    }
+
+    // Event: show type chip
+    if (isEvent && contextMeta) {
       return (
         <View style={styles.moodChip}>
           <Text style={styles.moodChipText}>{contextMeta}</Text>
@@ -1811,7 +1861,7 @@ const Row3Chips: React.FC<{
             {/* Target date chip (event/deadline context) - inline with other chips */}
             {hasTargetDate && targetDateValue && (
               <View style={styles.targetDateChip}>
-                <Calendar size={10} color="#7A9A7A" strokeWidth={2} />
+                <Calendar size={10} color="#5d7a5d" strokeWidth={2} />
                 <Text style={styles.targetDateText}>{formatDateForChip(targetDateValue)}</Text>
               </View>
             )}
@@ -1829,7 +1879,7 @@ const Row3Chips: React.FC<{
                       : formatTime12h(r.time);
                 return (
                   <View style={styles.reminderChip}>
-                    <Bell size={10} color="#8B7332" strokeWidth={2} />
+                    <Bell size={10} color="#877030" strokeWidth={2} />
                     <Text style={styles.reminderText}>{label}</Text>
                   </View>
                 );
@@ -1838,8 +1888,8 @@ const Row3Chips: React.FC<{
             {/* People chip */}
             {hasPeople && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                <User size={10} color="#6B8E6B" strokeWidth={2.5} />
-                <Text style={{ fontSize: 10, color: '#6B8E6B', fontFamily: 'Inter-Medium' }}>
+                <User size={10} color="#5c7a5c" strokeWidth={2.5} />
+                <Text style={{ fontSize: 10, color: '#5c7a5c', fontFamily: 'Inter-Medium' }}>
                   {item.views!.people![0]}
                 </Text>
               </View>
@@ -2066,7 +2116,7 @@ const PendingSkeleton: React.FC<{
           entering={FadeIn.duration(300)}
           style={{
             fontSize: 11,
-            color: '#9CA3AF',
+            color: '#6a7484',
             fontFamily: 'Inter-Regular',
             marginTop: 4,
             fontStyle: 'italic',
@@ -2643,6 +2693,7 @@ function getContextualMeta(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): 
   if (subtype === 'idea') return 'Idea';
   if (subtype === 'list') return 'List';
   if (subtype === 'reference') return 'Reference';
+  if (subtype === 'event') return 'Event';
   return 'General Note';
 }
 
@@ -3166,7 +3217,7 @@ const AnimatedMindDropCard = React.memo<{
                   borderRadius: 13,
                 }}
               />
-              <Text style={{ fontSize: 13, color: '#B8860B', fontWeight: '600' }}>
+              <Text style={{ fontSize: 13, color: '#916908', fontWeight: '600' }}>
                 Couldn't finish loading. Tap to retry.
               </Text>
             </Pressable>
@@ -3225,7 +3276,7 @@ const AnimatedMindDropCard = React.memo<{
             )}
             {/* Left side helper text when clarification or multi */}
             {(needsClarification || isMulti) && (
-              <Text style={{ flex: 1, fontSize: 12, color: '#8E9C8E', marginLeft: 34 }}>
+              <Text style={{ flex: 1, fontSize: 12, color: '#657865', marginLeft: 34 }}>
                 no pressure, can sweep it later
               </Text>
             )}
@@ -3498,6 +3549,7 @@ const RecentDrops: React.FC<{
   const [todayCount, setTodayCount] = React.useState(0); // Track today's drop count for toggle label
   const [olderCount, setOlderCount] = React.useState(0); // Track older drops count
   const [filter, setFilter] = React.useState<'today' | 'older'>('today'); // Filter selection
+  const prevRefreshSignalRef = React.useRef(refreshSignal);
   const canonicalTypesOn = env.feature.canonicalTypes;
 
   // Animated chevron rotation
@@ -4162,8 +4214,13 @@ const RecentDrops: React.FC<{
   useEffect(() => {
     // Reset to 'today' view when refresh signal changes (new drop added)
     // This ensures users see their newly added drop
-    if (typeof refreshSignal === 'number' && refreshSignal > 0) {
+    if (
+      typeof refreshSignal === 'number' &&
+      refreshSignal > 0 &&
+      refreshSignal !== prevRefreshSignalRef.current
+    ) {
       setFilter('today');
+      prevRefreshSignalRef.current = refreshSignal;
     }
     void load();
   }, [load, refreshSignal]);
@@ -4564,6 +4621,11 @@ const RecentDrops: React.FC<{
               views: views,
               due_date: (entity as any).due_date ?? (entity as any).due_at ?? item.due_date,
               due_day: (entity as any).due_day ?? item.due_day,
+              // Note subtype - CRITICAL for correct chip after clarification resolution
+              noteSubtype:
+                entityType === 'note'
+                  ? ((entity as any).subtype ?? item.noteSubtype ?? 'catchall')
+                  : item.noteSubtype,
               // Habit-specific fields - CRITICAL for frequency chip updates from Phase 2
               frequency: (entity as any).frequency ?? item.frequency,
               cadence: (entity as any).cadence ?? item.cadence,
@@ -4906,6 +4968,69 @@ const RecentDrops: React.FC<{
               return [newItem, ...withoutOriginal];
             });
 
+            // Phase 1.5a: fetch smart_title and confirmation_message
+            try {
+              const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
+              const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+              const ctrl = new AbortController();
+              const t = setTimeout(() => ctrl.abort(), 10000);
+              const p15aRes = await fetch(cortexUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${anonKey}`,
+                },
+                body: JSON.stringify({
+                  type: 'enrich-phase1-5a',
+                  text: originalText,
+                  bucket: 'todo',
+                  subtype: null,
+                }),
+                signal: ctrl.signal,
+              });
+              clearTimeout(t);
+              if (p15aRes.ok) {
+                const p15aData = await p15aRes.json();
+                const smartTitle = p15aData?.smart_title;
+                const confirmMsg = p15aData?.confirmation_message;
+                if (
+                  (smartTitle && typeof smartTitle === 'string') ||
+                  (confirmMsg && typeof confirmMsg === 'string')
+                ) {
+                  setItems((prev) =>
+                    prev.map((item) =>
+                      item.id === newTodo.id
+                        ? {
+                            ...item,
+                            ...(smartTitle ? { title: smartTitle } : {}),
+                            views: {
+                              ...item.views,
+                              ...(confirmMsg ? { confirmation_message: confirmMsg } : {}),
+                            },
+                          }
+                        : item,
+                    ),
+                  );
+                  // Persist smart_title to DB so Phase 2's hasPhase1SmartTitle check sees it
+                  if (smartTitle && typeof smartTitle === 'string') {
+                    try {
+                      await repo.update({
+                        id: newTodo.id,
+                        patch: { name: smartTitle, title: smartTitle } as any,
+                      });
+                    } catch (dbErr) {
+                      console.warn(
+                        '[RecentDrops:Phase1.5a] DB write failed for todo, continuing',
+                        dbErr,
+                      );
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn('[RecentDrops:Phase1.5a] Failed for todo, continuing', e);
+            }
+
             // Run Phase 2 enrichment (non-streaming)
             runPhase2(newTodo.id, originalText, 'todo', null, repo)
               .then((result) => {
@@ -4962,6 +5087,69 @@ const RecentDrops: React.FC<{
               };
               return [newItem, ...withoutOriginal];
             });
+
+            // Phase 1.5a: fetch smart_title and confirmation_message
+            try {
+              const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
+              const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+              const ctrl = new AbortController();
+              const t = setTimeout(() => ctrl.abort(), 10000);
+              const p15aRes = await fetch(cortexUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${anonKey}`,
+                },
+                body: JSON.stringify({
+                  type: 'enrich-phase1-5a',
+                  text: originalText,
+                  bucket: 'habit',
+                  subtype: null,
+                }),
+                signal: ctrl.signal,
+              });
+              clearTimeout(t);
+              if (p15aRes.ok) {
+                const p15aData = await p15aRes.json();
+                const smartTitle = p15aData?.smart_title;
+                const confirmMsg = p15aData?.confirmation_message;
+                if (
+                  (smartTitle && typeof smartTitle === 'string') ||
+                  (confirmMsg && typeof confirmMsg === 'string')
+                ) {
+                  setItems((prev) =>
+                    prev.map((item) =>
+                      item.id === newHabit.id
+                        ? {
+                            ...item,
+                            ...(smartTitle ? { title: smartTitle } : {}),
+                            views: {
+                              ...item.views,
+                              ...(confirmMsg ? { confirmation_message: confirmMsg } : {}),
+                            },
+                          }
+                        : item,
+                    ),
+                  );
+                  // Persist smart_title to DB so Phase 2's hasPhase1SmartTitle check sees it
+                  if (smartTitle && typeof smartTitle === 'string') {
+                    try {
+                      await repo.update({
+                        id: newHabit.id,
+                        patch: { name: smartTitle, title: smartTitle } as any,
+                      });
+                    } catch (dbErr) {
+                      console.warn(
+                        '[RecentDrops:Phase1.5a] DB write failed for habit, continuing',
+                        dbErr,
+                      );
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn('[RecentDrops:Phase1.5a] Failed for habit, continuing', e);
+            }
 
             // Run Phase 2 enrichment (non-streaming)
             runPhase2(newHabit.id, originalText, 'habit', null, repo)
@@ -5021,6 +5209,66 @@ const RecentDrops: React.FC<{
               : item,
           ),
         );
+
+        // Phase 1.5a: fetch smart_title and confirmation_message
+        try {
+          const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
+          const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 10000);
+          const p15aRes = await fetch(cortexUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${anonKey}`,
+            },
+            body: JSON.stringify({
+              type: 'enrich-phase1-5a',
+              text: originalText,
+              bucket: 'log',
+              subtype: noteSubtype,
+            }),
+            signal: ctrl.signal,
+          });
+          clearTimeout(t);
+          if (p15aRes.ok) {
+            const p15aData = await p15aRes.json();
+            const smartTitle = p15aData?.smart_title;
+            const confirmMsg = p15aData?.confirmation_message;
+            if (
+              (smartTitle && typeof smartTitle === 'string') ||
+              (confirmMsg && typeof confirmMsg === 'string')
+            ) {
+              setItems((prev) =>
+                prev.map((item) =>
+                  item.id === noteId
+                    ? {
+                        ...item,
+                        ...(smartTitle ? { title: smartTitle } : {}),
+                        views: {
+                          ...item.views,
+                          ...(confirmMsg ? { confirmation_message: confirmMsg } : {}),
+                        },
+                      }
+                    : item,
+                ),
+              );
+              // Persist smart_title to DB so Phase 2's hasPhase1SmartTitle check sees it
+              if (smartTitle && typeof smartTitle === 'string') {
+                try {
+                  await repo.update({ id: noteId, patch: { title: smartTitle } as any });
+                } catch (dbErr) {
+                  console.warn(
+                    '[RecentDrops:Phase1.5a] DB write failed for log, continuing',
+                    dbErr,
+                  );
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[RecentDrops:Phase1.5a] Failed for log, continuing', e);
+        }
 
         // Run Phase 2 enrichment for the note (non-streaming)
         runPhase2(noteId, originalText, 'log', dominantSubtype || 'general', repo)
@@ -5288,7 +5536,7 @@ const RecentDrops: React.FC<{
           <Pressable
             testID="minddrop-recent-chevron"
             onPress={handleChevronPress}
-            hitSlop={12}
+            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
             accessibilityRole="button"
             accessibilityLabel="Toggle recent drops"
             accessibilityState={{ expanded: open }}
@@ -5881,6 +6129,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showRitualProgress, setShowRitualProgress] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [helpInitialPage, setHelpInitialPage] = useState<'help' | 'gauge' | undefined>(undefined);
+
+  // Calendar date pre-fill
+  const [prefillDate, setPrefillDate] = useState<string | null>(null);
+  const [showDateStrip, setShowDateStrip] = useState(false);
 
   // Open Gremly modal to gauge page when fed toast is tapped
   useEffect(() => {
@@ -6709,17 +6961,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     // OPTIMISTIC UI: The new submit flow already adds pending item via addPendingDrop
     // in useMindDropSubmit hook, so no manual call needed here
 
+    console.log('[PrefillDate:1-CatchAll] Submitting with prefillDate:', prefillDate ?? null);
     const result = await mindDropSubmit(effectiveText, {
       spaceId: null, // CatchAllNotepad is global, no space
       photoUris: pendingPhotoUris,
       userId: userId, // Pass userId for photo uploads
       source: 'minddrop',
       dropId, // Pass the dropId to ensure pending item correlation
+      prefillDate: prefillDate ?? null,
     });
 
     if (result.success) {
       setNote('');
       setPendingPhotoUris([]);
+      // Clear calendar prefill after successful drop
+      setPrefillDate(null);
+      setShowDateStrip(false);
       // CRITICAL: Clear drop_id ref so next submission generates a new one
       // Without this, subsequent submissions would reuse the same drop_id,
       // causing the database constraint to return the existing entity instead of creating a new one
@@ -6759,7 +7016,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       submissionIdRef.current = null;
       return { created: { todos: [], notes: [], habits: [] }, createdDetails: [] };
     }
-  }, [note, pendingPhotoUris, mindDropSubmit, resetState, ensureSubmissionAndDropIds]);
+  }, [note, pendingPhotoUris, mindDropSubmit, resetState, ensureSubmissionAndDropIds, prefillDate]);
 
   const performSave = useCallback(async (): Promise<SaveResult> => {
     // Feature flag check for new Mind Drop pipeline
@@ -8925,6 +9182,28 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     setPendingPhotoUris((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  const handleCalendarToggle = useCallback(() => {
+    setShowDateStrip((prev) => {
+      if (prev) {
+        // Closing strip — also clear date
+        setPrefillDate(null);
+      } else {
+        // Opening strip — default to today
+        setPrefillDate(getDateService().today());
+      }
+      return !prev;
+    });
+  }, []);
+
+  const handleDateStripSelect = useCallback((date: string) => {
+    setPrefillDate(date);
+  }, []);
+
+  const handleClearPrefillDate = useCallback(() => {
+    setPrefillDate(null);
+    setShowDateStrip(false);
+  }, []);
+
   const handleSubmit = useCallback(() => {
     if (isSubmitting || isThinking || (!note.trim() && pendingPhotoUris.length === 0)) {
       return;
@@ -9054,7 +9333,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               value={note}
               onChangeText={handleChangeText}
               placeholder={dynamicPlaceholder}
-              placeholderTextColor="#66706A"
+              placeholderTextColor="#757575"
               containerStyle={styles.inputContainer}
               focusedStyle={styles.inputContainerFocused}
               inputStyle={styles.input}
@@ -9072,11 +9351,40 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               heightWrapperStyle={styles.inputHeightWrapper}
               inputDynHeight={inputDynHeight}
               onCameraPress={handleMindDropPhotoAction}
+              onCalendarPress={handleCalendarToggle}
               photoHintText={photoHintText}
               onMicPress={handleMicPress}
               voiceState={voiceState}
             />
           </View>
+
+          {/* Calendar date pre-fill: chip + week strip */}
+          {prefillDate && (
+            <Reanimated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(100)}>
+              <View style={styles.prefillChipRow}>
+                <View style={styles.prefillChip}>
+                  <Calendar size={14} color="#2D4A33" />
+                  <Text style={styles.prefillChipText}>{formatPrefillChip(prefillDate)}</Text>
+                  <Pressable
+                    onPress={handleClearPrefillDate}
+                    hitSlop={8}
+                    accessibilityLabel="Clear date"
+                    accessibilityRole="button"
+                  >
+                    <X size={14} color="#6B7280" />
+                  </Pressable>
+                </View>
+              </View>
+            </Reanimated.View>
+          )}
+          {showDateStrip && (
+            <Reanimated.View entering={SlideInDown.duration(200)} exiting={FadeOut.duration(100)}>
+              <WeekStrip
+                selectedDate={prefillDate || getDateService().today()}
+                onDateSelect={handleDateStripSelect}
+              />
+            </Reanimated.View>
+          )}
 
           {pendingPhotoUris.length > 0 && (
             <ScrollView
@@ -9706,12 +10014,19 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       opacity: 0.35,
     },
     inputIconButton: {
-      padding: 4,
+      padding: 10,
+      minWidth: 44,
+      minHeight: 44,
       justifyContent: 'center',
       alignItems: 'center',
     },
     inputIconMicButton: {},
-    inputIconCameraButton: {},
+    inputIconCameraButton: {
+      minWidth: 44,
+      minHeight: 44,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
     inputIconWrapper: {
       width: 24,
       height: 24,
@@ -9737,12 +10052,12 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flexShrink: 1,
     },
     helperText: {
-      color: '#22222280',
+      color: '#757575',
       fontFamily: 'Inter-Medium',
       fontSize: 13,
     },
     helperCounter: {
-      color: '#22222280',
+      color: '#757575',
       fontFamily: 'Inter-Medium',
       fontSize: 13,
       textAlign: 'right',
@@ -9861,7 +10176,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     submitButton: {
       width: '100%',
-      height: 48,
+      minHeight: 48,
       borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
@@ -9976,7 +10291,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     recentCard: {
       backgroundColor: '#FDFCFA',
       borderRadius: 12,
-      height: 88,
+      minHeight: 88,
       paddingTop: 8,
       paddingBottom: 8,
       paddingHorizontal: 16,
@@ -10054,12 +10369,15 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     // Phase 5b: Removed old recentTopRow, recentText, recentBadgeRow, recentBadge styles
     badge_note: {
       backgroundColor: c.sageTint,
+      color: '#556B63',
     },
     badge_todo: {
       backgroundColor: '#E6F0FF',
+      color: '#2E5540',
     },
     badge_habit: {
       backgroundColor: '#EAF7ED',
+      color: '#2E5540',
     },
     badge_unsorted: {
       backgroundColor: c.goldenPear,
@@ -10137,7 +10455,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     targetDateText: {
       fontSize: 10,
-      color: '#7A9A7A',
+      color: '#5d7a5d',
       fontFamily: 'Inter-Medium',
     },
     // Reminder bell chip (golden pear)
@@ -10152,7 +10470,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     reminderText: {
       fontSize: 10,
-      color: '#8B7332',
+      color: '#877030',
       fontFamily: 'Inter-Medium',
     },
     // Journal subtype display - plain text label with separator and mood chips
@@ -10202,8 +10520,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     },
     // Time ago in metadata row - same as recentMetaDue for consistency
     recentMetaTime: {
-      color: c.mutedText,
-      fontSize: 10,
+      color: '#6B7280',
+      fontSize: 11,
       fontFamily: 'Inter-Regular',
       flexShrink: 0,
     },
@@ -10319,6 +10637,32 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       marginTop: 12,
       marginBottom: 8,
       paddingHorizontal: space,
+    },
+    // Calendar prefill chip styles
+    prefillChipRow: {
+      flexDirection: 'row',
+      paddingHorizontal: space,
+      paddingTop: 8,
+      paddingBottom: 4,
+    },
+    prefillChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#EEF3EE',
+      borderRadius: 16,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      gap: 8,
+    },
+    prefillChipText: {
+      fontSize: 13,
+      color: '#2D4A33',
+      fontFamily: 'Inter-Medium',
+    },
+    prefillChipX: {
+      fontSize: 14,
+      color: '#6B7280',
+      lineHeight: 16,
     },
     photoStripContent: {
       flexDirection: 'row',

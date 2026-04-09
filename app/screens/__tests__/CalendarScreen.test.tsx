@@ -18,9 +18,13 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 // Mock safe area context
-jest.mock('react-native-safe-area-context', () => ({
-  useSafeAreaInsets: () => ({ top: 44, bottom: 34, left: 0, right: 0 }),
-}));
+jest.mock('react-native-safe-area-context', () => {
+  const { View } = require('react-native');
+  return {
+    SafeAreaView: ({ children, ...props }: any) => <View {...props}>{children}</View>,
+    useSafeAreaInsets: () => ({ top: 44, bottom: 34, left: 0, right: 0 }),
+  };
+});
 
 // Mock CalendarMonthPicker
 jest.mock('../../../components/calendar/CalendarMonthPicker', () => ({
@@ -35,12 +39,52 @@ jest.mock('../../../lib/today/hooks/useMorningBrief', () => ({
   }),
 }));
 
-// Mock useUnifiedOverlayController
-jest.mock('../../../hooks/useUnifiedOverlayController', () => ({
-  useUnifiedOverlayController: () => ({
-    openOverlay: jest.fn(),
+// Mock useOverlayController
+jest.mock('../../../hooks/useOverlayController', () => ({
+  useOverlayController: () => ({
+    openEdit: jest.fn(),
   }),
 }));
+
+// Mock useCalendarService hooks (avoids CalendarService Intl.DateTimeFormat issues in tests)
+jest.mock('../../../lib/calendar/useCalendarService', () => ({
+  useCalendarEvents: () => [],
+  useCalendarEventsForRange: () => [],
+}));
+
+// Mock calendar components
+jest.mock('../../../components/calendar/CalendarHeader', () => {
+  const { View, Text } = require('react-native');
+  return {
+    __esModule: true,
+    default: () => (
+      <View testID="calendar-header">
+        <Text>December 22, 2025</Text>
+        <Text>Today</Text>
+      </View>
+    ),
+  };
+});
+jest.mock('../../../components/calendar/WeekStrip', () => {
+  const { View } = require('react-native');
+  return { __esModule: true, default: () => <View testID="week-strip" /> };
+});
+jest.mock('../../../components/calendar/DayTimeline', () => {
+  const { View, Text } = require('react-native');
+  return {
+    __esModule: true,
+    default: (props: any) => (
+      <View testID="day-timeline">
+        {(!props.events || props.events.length === 0) && <Text>Nothing scheduled</Text>}
+        {(!props.events || props.events.length === 0) && <Text>Enjoy the open day</Text>}
+      </View>
+    ),
+  };
+});
+jest.mock('../../../components/calendar/CalendarInputBar', () => {
+  const { View } = require('react-native');
+  return { __esModule: true, default: () => <View testID="calendar-input-bar" /> };
+});
 
 // Mock DateService
 const TODAY = '2025-12-22';

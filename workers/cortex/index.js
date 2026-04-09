@@ -160,6 +160,7 @@ import {
   getLifeMapForChat,
 } from './context/chatProjection.js';
 import { getUserProfile } from './context/userProfile.js';
+import { buildTodayActivity } from './context/todayActivity.js';
 import { getAgeGuidance } from './context/gremlyAge.js';
 import { triageMessage, generateLoadingMessage, callMini } from './triage';
 import {
@@ -287,6 +288,15 @@ function extractPreviousExchange(messages) {
  * Examples: "drink more water", "be more present", "reduce screen time", "eat healthier"
  * Note: This is a fuzzy aspiration, not a trackable habit.
  *
+ * @property {boolean} has_occasion_noun
+ * Does the text reference a specific occasion, appointment, event, or scheduled occurrence?
+ *
+ * @property {boolean} is_self_restriction
+ * Is the user declaring a personal behavioral rule, boundary, or prohibition?
+ *
+ * @property {boolean} has_implied_recurrence
+ * Does the text describe a behavior anchored to a recurring life context without explicit frequency words?
+ *
  * @property {boolean} emotional_content
  * Contains emotional expression, venting, or processing feelings.
  * Examples: "feeling overwhelmed", "so frustrated with work", "grateful for today"
@@ -363,132 +373,301 @@ function isCommittedAction(preparse) {
  * @property {string} reason - Why fast path couldn't be used
  */
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Convergence scorers using gate → disqualifier → confirming signal count.
+// Each scorer reads PreParse observations. No single field can fast-path alone.
+// A score of 0.7+ requires 3+ independent signals to converge.
+// ──────────────────────────────────────────────────────────────────────────────
+
+function mapScore(confirming) {
+  if (confirming >= 5) return 0.9;
+  if (confirming >= 4) return 0.85;
+  if (confirming >= 3) return 0.7;
+  if (confirming >= 2) return 0.5;
+  if (confirming >= 1) return 0.3;
+  return 0.15;
+}
+
+function scoreTodo(p, hasUserSelectedDate = false) {
+  // ── REQUIRED GATE (Tier 1 — reliable) ──
+  if (!p.core_verb) return 0.0;
+
+  // ── DISQUALIFIERS (Tier 1 — reliable fields only) ──
+
+  // Past reflection — user is processing, not directing action
+  if (p.temporal_orientation === 'past' && p.is_narrative_reflection) return 0.0;
+
+  // Emotional expression without imperative — journal territory
+  if (p.has_emotion_language && !p.is_command) return 0.0;
+
+  // State verb — can't be marked done
+  if (p.is_state_verb) return 0.0;
+
+  // Direction without destination — vague aspiration, not a finishable action
+  if (
+    p.references_current_state &&
+    p.change_is_open_ended &&
+    (p.struct_modifier_target === 'action' || p.degree_shift_target === 'own_action')
+  )
+    return 0.0;
+
+  // Full cessation of own behaviour — habit_break territory
+  if (p.has_discontinuation && !p.is_command) return 0.0;
+
+  // ── CONFIRMING SIGNALS (Tier 1 — strong) ──
+  let c = 0;
+  if (p.is_command) c++;
+  if (!p.has_emotion_language) c++;
+  if (p.temporal_orientation === 'future') c++;
+  if (!p.has_discontinuation && !p.has_prohibition) c++;
+
+  // ── CONFIRMING SIGNALS (Tier 2 — interpretive, can be wrong) ──
+  if (p.user_intent_mode === 'directing') c++;
+  if (p.action_direction === 'external') c++;
+  if (p.boundary_type === 'one_time') c++;
+  if (!p.is_ongoing_practice) c++;
+
+  if (p.is_ongoing_practice || p.struct_completion === 'recurring') {
+    return Math.min(mapScore(c), 0.5);
+  }
+  return mapScore(c);
+}
+
+function scoreHabitBuild(p, hasUserSelectedDate = false) {
+  // REQUIRED: must have recurrence signal
+  if (!p.is_ongoing_practice && !p.has_routine_anchor) return 0.0;
+  // DISQUALIFIERS
+  if (p.temporal_orientation === 'past') return 0.0;
+  if (p.has_prohibition || p.has_discontinuation) return 0.0;
+  if (p.is_single_instance && p.has_date_or_time) return 0.0;
+  // CONFIRMING SIGNALS
+  let c = 0;
+  if (p.is_ongoing_practice) c++;
+  if (p.has_routine_anchor) c++;
+  if (p.time_role === 'characteristic') c++;
+  if (p.action_direction === 'own_behavior') c++;
+  if (p.is_about_personal_patterns) c++;
+  if (p.user_mode_record_or_change === 'requesting_change') c++;
+  if (p.is_command && p.core_verb) c++;
+  // ASPIRATION DAMPENER: hedging or exploring caps score to force Phase 1
+  if (p.has_hedging || p.user_intent_mode === 'exploring') {
+    return Math.min(mapScore(c), 0.5);
+  }
+  return mapScore(c);
+}
+
+function scoreHabitBreak(p, hasUserSelectedDate = false) {
+  // REQUIRED: must have cessation, prohibition, or relative change signal
+  if (
+    !p.has_discontinuation &&
+    !p.has_prohibition &&
+    !p.has_relative_change &&
+    !p.has_restriction_boundary
+  )
+    return 0.0;
+  // DISQUALIFIERS
+  if (p.temporal_orientation === 'past' && p.is_narrative_reflection) return 0.0;
+  // CONFIRMING SIGNALS
+  let c = 0;
+  if (p.has_discontinuation) c++;
+  if (p.has_prohibition) c++;
+  if (p.action_direction === 'own_behavior') c++;
+  if (p.boundary_type === 'ongoing_boundary') c++;
+  if (p.is_about_personal_patterns) c++;
+  if (p.user_mode_record_or_change === 'requesting_change') c++;
+  if (p.references_existing_pattern) c++;
+  if (p.has_restriction_boundary) c++;
+  // VAGUENESS CAP: relative change without concrete cessation/prohibition forces Phase 1
+  if (!p.has_discontinuation && !p.has_prohibition) {
+    return Math.min(mapScore(c), 0.4);
+  }
+  return mapScore(c);
+}
+
+function scoreEvent(p, hasUserSelectedDate = false) {
+  // REQUIRED: must be about something scheduled/occurring
+  // BUT: if user explicitly selected a date, that IS the scheduling signal
+  if (!p.is_scheduled_occurrence && !hasUserSelectedDate) return 0.0;
+  // DISQUALIFIERS
+  if (p.is_command && !p.is_scheduled_occurrence && !hasUserSelectedDate) return 0.0;
+  // CONFIRMING SIGNALS
+  let c = 0;
+  if (p.has_date_or_time) c++;
+  if (p.has_occasion_noun) c++;
+  if (p.user_mode_record_or_change === 'recording') c++;
+  if (p.user_intent_mode === 'capturing') c++;
+  if (p.is_storing_information) c++;
+  if (p.time_role === 'when') c++;
+  if (p.is_single_instance) c++;
+  // User selected a date — strong signal this is an event
+  if (hasUserSelectedDate) c++;
+  return mapScore(c);
+}
+
+function scoreJournal(p, hasUserSelectedDate = false) {
+  // REQUIRED: must have at least one emotional or reflective signal
+  if (
+    !p.has_emotion_language &&
+    !p.is_about_emotion &&
+    !p.is_about_feelings_not_actions &&
+    !p.is_narrative_reflection
+  )
+    return 0.0;
+  // DISQUALIFIERS
+  if (p.is_command && !p.is_about_emotion && !p.has_emotion_language) return 0.0;
+  // CONFIRMING SIGNALS
+  let c = 0;
+  if (p.has_emotion_language) c++;
+  if (p.is_about_emotion) c++;
+  if (p.is_about_feelings_not_actions) c++;
+  if (p.is_narrative_reflection) c++;
+  if (p.temporal_orientation === 'past') c++;
+  if (p.user_intent_mode === 'processing') c++;
+  if (p.self_reflection) c++;
+  if (p.is_past_or_present) c++;
+  return mapScore(c);
+}
+
+function scoreIdea(p, hasUserSelectedDate = false) {
+  // REQUIRED: must have speculation
+  if (!p.has_speculation && p.struct_novelty !== 'novel') return 0.0;
+  // DISQUALIFIERS
+  if (p.is_command && p.user_intent_mode === 'directing') return 0.0;
+  // User selected a date — penalize idea, they have temporal intent
+  if (hasUserSelectedDate) return 0.0;
+  // CONFIRMING SIGNALS
+  let c = 0;
+  if (p.has_speculation) c++;
+  if (p.has_hedging) c++;
+  if (p.user_intent_mode === 'exploring') c++;
+  if (!p.is_command) c++;
+  if (!p.has_verb || p.core_verb === 'want') c++;
+  if (p.temporal_orientation !== 'past') c++;
+  return mapScore(c);
+}
+
+function scoreGeneral(p, hasUserSelectedDate = false) {
+  // REQUIRED: must have factual/reference signal
+  if (!p.is_declarative && !p.is_storing_information && !p.factual_statement) return 0.0;
+  // DISQUALIFIERS
+  if (p.is_scheduled_occurrence && p.has_date_or_time) return 0.0;
+  if (p.has_emotion_language) return 0.0;
+  if (p.has_speculation) return 0.0;
+  // User selected a date — penalize general, they have temporal intent
+  if (hasUserSelectedDate) return 0.0;
+  // CONFIRMING SIGNALS
+  let c = 0;
+  if (p.is_declarative) c++;
+  if (p.is_storing_information) c++;
+  if (p.factual_statement) c++;
+  if (p.user_intent_mode === 'capturing') c++;
+  if (p.user_mode_record_or_change === 'recording') c++;
+  if (!p.is_command) c++;
+  if (p.time_role === 'characteristic' || p.time_role === 'no_time') c++;
+  return mapScore(c);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Score-to-classification mapper
+// ──────────────────────────────────────────────────────────────────────────────
+
+function mapWinnerToClassification(winnerType) {
+  switch (winnerType) {
+    case 'todo':
+      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
+    case 'habit_build':
+      return { needsPhase1: false, bucket: 'habit', subtype: null, habitSubtype: 'start_habit' };
+    case 'habit_break':
+      return { needsPhase1: false, bucket: 'habit', subtype: null, habitSubtype: 'break_habit' };
+    case 'event':
+      return { needsPhase1: false, bucket: 'log', subtype: 'event', habitSubtype: null };
+    case 'journal':
+      return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
+    case 'idea':
+      return { needsPhase1: false, bucket: 'log', subtype: 'idea', habitSubtype: null };
+    case 'general':
+      return { needsPhase1: false, bucket: 'log', subtype: 'general', habitSubtype: null };
+    default:
+      return { needsPhase1: true, reason: 'unknown_scorer_type' };
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Decision function — replaces the waterfall if/else chain
+// ──────────────────────────────────────────────────────────────────────────────
+
 /**
- * Map preparse result to a classification decision.
+ * Classify a pre-parsed drop using independent scorers per type.
+ * Each scorer evaluates the same PreParse signals but only looks at
+ * signals relevant to its type. Adding or changing one scorer cannot
+ * affect another scorer's output.
  *
- * This function implements deterministic heuristic mapping from linguistic facts
- * to bucket classification. It either returns a fast-path classification or
- * indicates that Phase 1 AI is needed.
- *
- * The mapping prioritizes:
- * 1. Bail to Phase 1 for low-confidence or ambiguous parses
- * 2. Recognize emotional/reflective content → journal
- * 3. Recognize hypothetical exploration → idea
- * 4. Recognize factual statements → general
- * 5. Recognize frequency + commitment → habit
- * 6. Recognize committed actions → todo
- * 7. Recognize exploration → idea
- * 8. Fallback to Phase 1 if no clear mapping
- *
- * @param {PrePhaseParseResult} preparse - The preparse result object
- * @returns {FastPathClassification|NeedsPhase1Classification} Classification decision
+ * Decision thresholds:
+ * - Clear winner (top >= 0.6, gap to second >= 0.2): fast-path
+ * - Otherwise: bail to Phase 1 AI with competing types as context
  */
-function mapPreparseToClassification(preparse) {
-  // --- COMMITTED ACTION OVERRIDE (check FIRST) ---
-  // If uncertainty_target is "object_details", the ACTION is committed but details are fuzzy.
-  // This overrides exploring frame and hypothetical_framing - treat as todo.
-  if (preparse.uncertainty_target === 'object_details') {
-    return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-  }
-
-  // --- FAST PATH: Emotional self-reflection is journal ---
-  if (preparse.emotional_content && preparse.self_reflection) {
-    return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
-  }
-
-  // --- BAIL: Exploring frame needs Phase 1 verification ---
-  if (preparse.frame_type === 'exploring') {
-    return { needsPhase1: true, reason: 'exploring_frame' };
-  }
-
-  // --- BAIL EARLY: Check ambiguous cases ---
-
-  // Vague desire for more/less without concrete measure - needs clarification
-  if (preparse.direction_without_schedule && !preparse.frequency_type) {
-    if (preparse.action_target === 'external') {
-      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-    }
-    if (preparse.temporal_specificity) {
-      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-    }
-    return { needsPhase1: true, reason: 'direction_without_schedule' };
-  }
-
-  // Noun phrase with no clear factual framing
-  if (preparse.is_noun_phrase_only && !preparse.factual_statement) {
-    return { needsPhase1: true, reason: 'noun_phrase_ambiguous' };
-  }
-
-  // Low confidence parse
+function mapPreparseToClassification(preparse, options = {}) {
+  const { hasUserSelectedDate = false } = options;
+  // Low confidence parse — always bail to Phase 1
   if (preparse.parse_confidence === 'low') {
     return { needsPhase1: true, reason: 'low_parse_confidence' };
   }
 
-  // --- FAST PATH: Strong classification signals ---
-
-  // 1. Factual statement or factual frame → general (strong signal)
-  if (preparse.factual_statement || preparse.frame_type === 'factual') {
-    // Cross-check: if there's a leading verb, this might be a misclassified command.
-    // Escalate to Phase 1 instead of fast-pathing to log.
-    if (preparse.verb_position === 'start') {
-      return { needsPhase1: true, reason: 'factual_with_leading_verb' };
-    }
-    return { needsPhase1: false, bucket: 'log', subtype: 'general', habitSubtype: null };
-  }
-
-  // Leading imperative verb is a strong todo signal even if frame_type disagrees.
-  // BUT: if frequency signals are present, skip this fast-path so the frequency
-  // check below can route to Phase 1 for habit verification.
-  if (preparse.verb_position === 'start' && preparse.action_target !== 'other_person') {
-    if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
-      if (!preparse.frequency_present && !preparse.frequency_type) {
-        return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-      }
+  // Ultra-short inputs with no strong signal — bail to Phase 1
+  const textLen = (preparse.text_preview || '').trim().length;
+  if (textLen > 0 && textLen <= 5) {
+    const maxScore = Math.max(
+      scoreTodo(preparse, hasUserSelectedDate),
+      scoreHabitBuild(preparse, hasUserSelectedDate),
+      scoreHabitBreak(preparse, hasUserSelectedDate),
+      scoreEvent(preparse, hasUserSelectedDate),
+      scoreJournal(preparse, hasUserSelectedDate),
+      scoreIdea(preparse, hasUserSelectedDate),
+      scoreGeneral(preparse, hasUserSelectedDate),
+    );
+    if (maxScore < 0.7) {
+      return { needsPhase1: true, reason: 'ultra_short_input' };
     }
   }
 
-  // 2. Emotional content + processing frame → journal
-  if (preparse.emotional_content && preparse.frame_type === 'processing') {
-    return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
+  // Run all scorers — each uses only PreParse fields
+  const scores = {
+    todo: scoreTodo(preparse, hasUserSelectedDate),
+    habit_build: scoreHabitBuild(preparse, hasUserSelectedDate),
+    habit_break: scoreHabitBreak(preparse, hasUserSelectedDate),
+    event: scoreEvent(preparse, hasUserSelectedDate),
+    journal: scoreJournal(preparse, hasUserSelectedDate),
+    idea: scoreIdea(preparse, hasUserSelectedDate),
+    general: scoreGeneral(preparse, hasUserSelectedDate),
+  };
+
+  // Rank by score
+  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  const [topType, topScore] = ranked[0];
+  const [secondType, secondScore] = ranked[1];
+  const gap = topScore - secondScore;
+
+  // Log scores for debugging
+  console.log('[Scorer] Results', {
+    text: preparse.text_preview || '',
+    scores: Object.fromEntries(ranked.map(([k, v]) => [k, Math.round(v * 100) / 100])),
+    winner: topType,
+    topScore: Math.round(topScore * 100) / 100,
+    gap: Math.round(gap * 100) / 100,
+    decision: topScore >= 0.6 && gap >= 0.2 ? 'fast_path' : 'phase1',
+  });
+
+  // Clear winner — fast path
+  if (topScore >= 0.6 && gap >= 0.2) {
+    return mapWinnerToClassification(topType);
   }
 
-  // 3. Self-reflection + processing frame → journal
-  if (preparse.self_reflection && preparse.frame_type === 'processing') {
-    return { needsPhase1: false, bucket: 'log', subtype: 'journal', habitSubtype: null };
-  }
-
-  // 4. Frequency detected → ALWAYS verify with Phase 1
-  // Habits are too consequential to fast-path. Wrong habits pollute the user's list.
-  // Phase 1 can distinguish "discussing habits" from "creating habits" and apply
-  // semantic tests that PreParse keyword-matching cannot.
-  if (preparse.frequency_type) {
-    if (preparse.action_target === 'external') {
-      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-    }
-    return { needsPhase1: true, reason: 'frequency_detected_needs_habit_verification' };
-  }
-
-  // 5. Directing frame or obligation framing → todo (if no hedging on verb)
-  if (preparse.frame_type === 'directing' || preparse.obligation_framing) {
-    if (!preparse.uncertainty_present || preparse.uncertainty_target === 'object_details') {
-      return { needsPhase1: false, bucket: 'todo', subtype: null, habitSubtype: null };
-    }
-  }
-
-  // --- BAIL TO PHASE 1: Remaining ambiguous cases ---
-
-  // Uncertain frame with no other signals
-  if (preparse.frame_type === 'uncertain') {
-    return { needsPhase1: true, reason: 'uncertain_frame' };
-  }
-
-  // Hedged action (uncertainty on the verb itself)
-  if (preparse.uncertainty_present && preparse.uncertainty_target === 'verb') {
-    return { needsPhase1: true, reason: 'hedged_action' };
-  }
-
-  // Fallback
-  return { needsPhase1: true, reason: 'no_clear_mapping' };
+  // No clear winner — bail to Phase 1 with competing types as context
+  return {
+    needsPhase1: true,
+    reason: `scorer_${topType}_vs_${secondType}`,
+    scores: Object.fromEntries(ranked.map(([k, v]) => [k, Math.round(v * 100) / 100])),
+  };
 }
 
 /**
@@ -646,63 +825,73 @@ function computePlausibleInterpretations(preparse) {
   return interpretations;
 }
 
-/**
- * Preparse system prompt - extracted for reuse.
- * @type {string}
- */
-const PREPARSE_SYSTEM_PROMPT = `You are a semantic parser. Extract structural facts from this input. Do not classify it.
-
-Return JSON with these fields:
-
-- core_verb: The main action verb (what the user would DO), or null
-- verb_position: Where the verb appears - "start", "after_hedge", "after_obligation", "inside_hypothetical", or "none"
-- frame_type: What is the user DOING with this thought? "directing" (issuing a command to themselves - the action is decided, they're telling themselves to do it. CRITICAL: If there is a clear action verb at the start and the user is telling themselves to do it, this is "directing" even if there is uncertainty about options, timing, or details), "exploring" (floating a possibility - no commitment made yet, the user is weighing WHETHER to act), "processing" (working through feelings or reflecting), "factual" (stating information to remember), or "uncertain".
-- has_completion_point: true, false, or "uncertain"
-- uncertainty_present: boolean
-- uncertainty_target: "verb" (uncertain WHETHER to do the action), "object_details" (committed to action but uncertain about specifics like which option, where, when, how), "entire_proposition", or null. CRITICAL: Uncertainty about details/options while the action itself is clear = "object_details", not "verb".
-- obligation_framing: boolean
-- frequency_present: boolean
-- frequency_type: "explicit" (daily, weekly, 3x/week), "day_names" (Mondays, weekends), "stop_quit" (stop, quit, no more, give up, break the habit - any language about ceasing a behavior), or null. NOTE: "stop X" or "quit X" or "no X" IS a frequency signal - it means "reduce to zero frequency". Set frequency_present: true when frequency_type is not null.
-- direction_without_schedule: boolean (true ONLY when the user expresses wanting more or less of something without a concrete threshold. NOT true when there is a clear action verb with uncertain details.)
-- emotional_content: boolean
-- hypothetical_framing: boolean - THE STRIP TEST: If you removed all the uncertain or hedging language about details/options, does a committed action remain? If YES → FALSE (this is a committed action with fuzzy details, NOT hypothetical). If NO, the uncertainty IS the content → TRUE (genuinely hypothetical, user is weighing whether to act at all).
-- factual_statement: boolean
-- self_reflection: boolean
-- is_noun_phrase_only: boolean
-- parse_confidence: "high", "medium", or "low"
-
-CRITICAL PRINCIPLE: Uncertainty about WHAT/WHERE/WHEN/WHICH within a committed action is NOT the same as uncertainty about WHETHER to act. An action verb at the start with uncertain details is "directing" with uncertainty_target "object_details" and hypothetical_framing FALSE.
-
-When uncertain about any field, return "uncertain" or the appropriate null value.`;
-
-// Mini-prompt A: Intent & Frame
 const PREPARSE_INTENT_PROMPT = `Extract these facts from the input. Return JSON only.
 
-- core_verb: The main action verb (what the user would DO), or null. For "stop X" or "quit X", the core_verb is "stop" or "quit".
-- verb_position: Where does the action verb appear structurally? "start" (the input opens with a bare verb in imperative form — no subject, no hedging, the verb is the first meaningful word), "after_hedge" (a verb is present but follows uncertain language like maybe/perhaps/thinking about), "after_obligation" (a verb follows should/need to/must/have to), "inside_hypothetical" (a verb appears inside a what-if or wondering frame), or "none" (no action verb found).
-- frame_type: What is the user's commitment state? "directing" (user has decided to act — an imperative self-command IS commitment, regardless of what the action involves. A bare verb opening a sentence is the defining form of a directive), "exploring" (user is uncertain WHETHER to commit — hedging or questioning their own intent), "processing" (working through emotions or reflecting), "factual" (stating information to remember), or "uncertain" (cannot determine intent).
-- factual_statement: Is the user stating complete reference information? This requires BOTH a subject AND its value to be present — "X is Y" form. An imperative sentence has no subject — it is a command, not a statement of fact. This field is about the grammatical form, not the topic.
-- is_noun_phrase_only: Is this ONLY a noun or noun phrase with no verb, no "is", and no action implied?
-- action_target: Who or what is the subject of change or action? "self" (the user will personally do or embody this change), "external" (the user is giving instructions about how a system, product, feature, or thing should behave or be built), or "other_person" (about another person's behavior).`;
+- g1: Is this sentence a bare imperative — a direct instruction that contains NO stated subject? A bare imperative has the verb as the grammatical starting point of the clause, with the actor entirely implied rather than named. The moment a subject appears — particularly a first-person subject — the sentence is no longer an imperative. It becomes a statement about the speaker's internal state: their felt obligation, desire, or aspiration. The distinction matters: imperatives direct action. Statements with a stated subject describe the speaker's relationship to the action — what they feel they should do, want to do, or need to do. These are fundamentally different speech acts even when they reference the same underlying activity. Only return true when there is genuinely no stated subject and the sentence functions as a direct instruction. (boolean)
+- g2: Does the text state a fact about something — providing information about a subject rather than instructing someone to act? A declarative statement asserts that something IS the case. It assigns a property, attribute, date, status, or characteristic to a subject. The subject and its predicate may appear in any order and the copula may be implicit rather than explicitly written. Noun phrases that name a subject alongside a property — where the relationship between them is one of attribution or identity — are declarative even when the verb is omitted. The core test: is the text TELLING you something about the world, or TELLING you to do something? Assertions about the world are declarative. Instructions to act are not. (boolean)
+- g3: Is the user floating a hypothetical or wondering about a possibility? Speculation means the user is IMAGINING something that does not currently exist — the content lives entirely in the realm of "could be" rather than "is" or "was." The key distinction is between three orientations: the user can be directed toward WHAT IS (investigating, researching, checking — not speculation), toward WHAT THEY FEEL (processing, reflecting — not speculation), or toward WHAT COULD BE (imagining, proposing, wondering — this IS speculation). The test: does the substance of the thought exist only in the user's imagination at this moment? If the user is describing something that has no reality yet and they are entertaining whether it should, that is speculation regardless of how tentatively or confidently they express it. (boolean)
+- g4: Is the text describing something that already happened or is currently happening — past or present tense? (boolean)
+- g6: Is the user narrating or reflecting on something that happened to them — recounting an experience, describing a moment, or processing something they went through? (boolean)`;
 
-// Mini-prompt B: Content Signals
 const PREPARSE_CONTENT_PROMPT = `Extract these facts from the input. Return JSON only.
 
-- emotional_content: Is the user expressing feelings, mood, or emotional state?
-- self_reflection: Is the user examining their own thoughts, patterns, or behavior?
-- frequency_present: Does the user intend to personally repeat this behavior on an ongoing basis? Set true if frequency_type is not null.
-- frequency_type: Apply this test: "Has the user specified WHEN or HOW OFTEN they will do this?" Frequency requires concrete timing — not just a desire to do more or less of something. If no timing is specified → null. If timing is specified, classify: "explicit" — the user has stated a recurring schedule or cadence; the input conveys that this behavior repeats at defined intervals or on a regular basis. "day_names" — the user has anchored the behavior to one or more particular named days of the week; the recurrence is defined by which days it occurs on. "stop_quit" — apply this decisional test: Is the user's goal state for this behavior ZERO? Is the user expressing that something they currently do should stop entirely? If the answer to both is yes, this is "stop_quit" — the user has a concrete target (zero) for an existing behavior. This is true regardless of how they phrase it. CRITICAL DISAMBIGUATION: When the user wants a behavior to reach zero, frequency_type is "stop_quit" and direction_without_schedule MUST be false. Zero is a concrete target, not a relative direction. direction_without_schedule only applies to non-zero relative changes. Wanting "more" or "less" of something without a schedule is NOT frequency — that is direction_without_schedule.
-- direction_without_schedule: Does the user's language explicitly express a desire for a NON-ZERO relative change — to increase, decrease, or improve something — without specifying a concrete amount or schedule? This is about the linguistic expression of relative/comparative intent, not whether the activity itself could vary in amount. An imperative to perform an action is false, even if that action could theoretically be done more or less. The question is what the words express, not the nature of the activity. IMPORTANT: If the user's desired end state is zero (complete cessation), that is NOT direction_without_schedule — that is frequency_type "stop_quit". direction_without_schedule is only true when the target is a non-zero relative shift (more, less, better) with no concrete amount or schedule.
-- temporal_specificity: Is the action anchored to a specific or bounded point in time? True when the input constrains WHEN — a particular moment, day, or window that limits the action to a single instance. False when timing is open-ended, unspecified, or recurring.
-- reminder_intent: Does the user want to be reminded or not forget something? True ONLY for: explicit reminder language ("remind me", "don't forget", "remember to", "remember my"), urgency paired with a specific time ("need to do this by 3pm", "must call before lunch"), or appointment-like phrasing that implies a nudge is needed ("doctor appointment tomorrow", "meeting at 2"). False for: vague timing ("soon", "eventually", "this week"), past-tense remembering ("I remembered that..."), journaling or reflection, or simple todos without any reminder/urgency language ("buy groceries").`;
+- c1: Is the text about something that is SCHEDULED TO HAPPEN at a point in time — not something the user needs to DO, but something that WILL OCCUR? This includes any scheduled occurrence the user would want to be aware of — something they would note in a calendar because it exists in time. The test: is the text noting that something EXISTS IN TIME, not instructing an action? (boolean)
+- c1r: "one sentence explaining your choice for c1"
+- c3: Is the user describing their emotional or physical state — expressing how they feel right now or how they felt? The WORDS themselves must convey feeling. Scheduling language, action descriptions, and factual statements carry no emotional weight regardless of the topic. (boolean)
+- c3r: "one sentence explaining your choice for c3"
+- c4: Is the user describing their own inner state — their thoughts, feelings, or reflections? (boolean)
+- c4r: "one sentence explaining your choice for c4"
+- s1: Is the user the one who will act or be affected, or is the text about an external system, product, or other person? "user" / "external" / "other_person"`;
 
-// Mini-prompt C: Structure & Confidence
 const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JSON only.
 
-- uncertainty_present: Is there any hedging, questioning, or uncertain language?
-- uncertainty_target: WHERE is uncertainty directed? "verb" (uncertain WHETHER to act), "object_details" (action certain, details fuzzy), "entire_proposition" (whole idea speculative), or null.
-- obligation_framing: Does it use should, need to, must, have to?
-- parse_confidence: "high" (clear), "medium" (some ambiguity), or "low" (very unclear).`;
+- t1: Does the text contain a specific date, named day of the week, or clock time? (boolean)
+- t2a1: Does the text state a specific COUNT of how many times the action will occur? The text must make a numerical claim about repetition — how many instances of the action are intended within a given period. If no numerical count of occurrences is stated, return false. (boolean)
+- t2a3a: Does the text specify a measurable amount of the action — a defined quantity, duration, or count that states how much of the action is intended? (boolean)
+- t2a3b: Is that amount bounded by a time period that it must fit WITHIN — does the text pair the amount with a period that acts as its container or allowance? The time period is not telling you WHEN to do the action — it is telling you the window that the amount is measured against. Only relevant when t2a3a is true — return false if t2a3a is false. (boolean)
+- t2a3c: Does that containing time period naturally recur — does it exist again and again as part of the rhythm of life without anyone scheduling it? If the period is a single specific upcoming occasion that will pass and not return, return false. If the period is a type of time that keeps occurring, return true. Only relevant when t2a3b is true — return false if t2a3b is false. (boolean)
+- t2b1: Is the USER the one who will personally perform this action each time it occurs? The user must be the agent — the person who carries out the activity. If the action is performed by an external system, another person, or something that happens TO the user without their active participation, return false. (boolean)
+- t2b2: Is the action directed at the FUTURE — something the user intends to do going forward? Return false if the text is reporting what has already been happening, describing a past pattern, or explaining how something external currently operates. Return true only when the action represents forward-looking intended behaviour. (boolean)
+- t3: Does the text anchor a behavior to a moment in the user's day that recurs by its very nature — not because anyone scheduled it, but because the structure of a human day inherently contains it? A routine anchor is a reference to a point in the daily cycle that exists universally and repeats every day without deliberate planning. The distinction from other time references: a routine anchor recurs because human days have a predictable rhythm. A calendar date, a named weekday, or a clock time recurs because of a scheduling system. If the referenced moment would still exist even if the user owned no calendar and no clock, it is a routine anchor. If it requires a calendar or clock to identify, it is not. (boolean)
+- t4: Does the text contain a temporal reference that SCOPES the action to a SINGLE OCCASION? Temporal scoping means the time reference creates a boundary around the action — placing it within a specific, finite time window rather than leaving it open-ended. Named days, named dates, relative time references pointing to a specific upcoming window, and calendar-specific anchors all create temporal scope. The test: does the time reference answer "WHEN specifically?" in a way that limits this to one occurrence? If the time reference describes a PATTERN or CHARACTERISTIC rather than scoping to one occasion, it does not qualify — recurrence and single instance are mutually exclusive. When both a specific time window and a recurrence signal are present in the same text, recurrence takes precedence and t4 is false. (boolean)
+- t4r: "one sentence identifying the specific temporal scoping reference, or explaining why no temporal scope is present"`;
+
+const PREPARSE_BEHAVIORAL_PROMPT = `Extract these facts from the input. Return JSON only.
+
+- b1: Does the text use NEGATIVE framing to set a boundary — expressing that something should NOT happen, is NOT allowed, or WILL NOT be done? Positive recommendations or obligations about what SHOULD happen are not prohibition. (boolean)
+- b2a: Is the user expressing that a behavior should FULLY CEASE — reaching a target state of ZERO? The user must be communicating that something should stop entirely, be eliminated, or no longer occur at all. Wanting LESS of something, wanting to REDUCE something, or wanting a DIFFERENT AMOUNT of something does NOT qualify — those express a desire for relative change, not full cessation. The test: is the user's intended end state for this behavior unambiguously zero occurrences? If the desired state is "less than now" rather than "none at all", return false. Relative or directional language without a zero-target is not discontinuation. (boolean)
+- b2ar: "one sentence explaining whether the target state is zero or merely reduced"
+- b2b: Is the text about a behavior or pattern that ALREADY EXISTS in the user's life? This can be established in two ways: (1) The user explicitly describes a current or past pattern. (2) The user's language LOGICALLY ENTAILS an existing pattern. Cessation, prohibition, and reduction language inherently imply that the behavior already exists — it is impossible to stop, quit, reduce, limit, or cut back on something that is not already happening. When the user expresses wanting to end, reduce, or restrict a behavior, the existence of that behavior as a current pattern is a logical certainty, not an inference. Return true whenever the behavior's current existence is either stated or logically entailed. (boolean)
+- b2br: "one sentence explaining whether the existing pattern is explicitly stated or logically entailed by cessation/reduction language"
+- b3: Does the text express a desire for relative change — wanting a different amount or quality of something — without specifying a concrete target or schedule? (boolean)
+- b4a1: Does the text reference the user's CURRENT STATE or CURRENT LEVEL and express that it should be DIFFERENT? The language must contain an implicit claim about how things are NOW and a desire to move away from that. The test: does the language require you to know the user's current situation to understand what they want? If what the user is describing is fully defined without any reference to how things currently are, return false. If the meaning depends on a comparison to an unstated present baseline, return true. (boolean)
+- b4a2: Is the desired change OPEN-ENDED — expressed as a direction of movement without defining where to stop? The user wants to move along a spectrum but has not stated a point where the change would be complete. The test: if someone asked "how much change is enough?" does the text provide a definite answer? If the text names a specific boundary where the change is achieved, return false. If the text only indicates a direction to move with no stated boundary, return true. Only relevant when b4a1 is true — return false if b4a1 is false. (boolean)
+- b6: Is the user setting an UPPER BOUNDARY on their own consumption or behaviour — expressing that a certain amount, frequency, or duration should not be exceeded? The user is defining a ceiling — a maximum allowable level that they intend to stay within. The behaviour is not being eliminated, it is being capped. (boolean)`;
+
+const PREPARSE_META_PROMPT = `Extract these facts from the input. Return JSON only.
+
+- m1: Does the text use hedging or tentative language expressing doubt about whether to proceed? (boolean)
+- m2: Does the text use language expressing duty or necessity? (boolean)
+- m3: Overall clarity: "high" (clear meaning), "medium" (some ambiguity), or "low" (very unclear).
+- c2: Is the primary purpose of this text to STORE A PIECE OF INFORMATION for future reference? The text must be providing a data point to remember, not directing an action to take or expressing a commitment. (boolean)
+- c2r: "one sentence explaining your choice for c2"`;
+
+const PREPARSE_RELATIONAL_PROMPT = `Analyze the RELATIONSHIPS between elements in this text. Return JSON only.
+
+- r1: Is any action in this text directed at the user's OWN BEHAVIOR or PATTERNS — or is it directed at an EXTERNAL OBJECT, SERVICE, or THING? "own_behavior" / "external" / "unclear"
+- r1r: "one sentence explaining your choice for r1"
+- r2: If there is a time element, is it telling you WHEN a specific one-time thing will happen, or is it describing a PROPERTY or CHARACTERISTIC of the subject — how it works, how long it lasts, or how often it occurs? "when" / "characteristic" / "no_time"
+- r2r: "one sentence explaining your choice for r2"
+- r3: If there is negation or cessation, is the user setting an ONGOING BOUNDARY they will need to maintain, or performing a ONE-TIME ACTION that will be complete once done? "ongoing_boundary" / "one_time" / "no_negation"
+- r3r: "one sentence explaining your choice for r3"`;
+
+const PREPARSE_HOLISTIC_PROMPT = `Look at this text as a whole and answer these questions. Return JSON only.
+
+- m4: Is the user oriented toward the PAST (reflecting on what happened), FUTURE (looking ahead at what is coming or what they will do), or NEITHER (stating a standing fact or exploring)? "past" / "future" / "neither"
+- m5: Is the user RECORDING something (capturing information or noting what exists) or REQUESTING A CHANGE (directing themselves or others to act or behave differently)? "recording" / "requesting_change" / "neither"
+- m6a: Is this drop primarily about the user's OWN PATTERNS, HABITS, or LIFESTYLE — something about how they live or behave? (boolean)
+- m6b: Is this drop primarily about STORING A FACT or PIECE OF INFORMATION for later? (boolean)
+- m6c: Is this drop primarily about a FEELING or EMOTIONAL EXPERIENCE? (boolean)`;
 
 /**
  * Run a single mini-parse via OpenAI.
@@ -712,6 +901,155 @@ const PREPARSE_STRUCTURE_PROMPT = `Extract these facts from the input. Return JS
  * @param {string} systemPrompt - The system prompt for this mini-parse
  * @returns {Promise<Object>} Parsed JSON result
  */
+
+const STRUCTURAL_PARSE_PROMPT = `Parse the structural components of this text. Return JSON only.
+
+- verb: What is the main action verb — the thing someone would DO? 
+  Return the verb as a string. If no action verb is present, return null.
+
+- has_verb: Is there a word in this text that describes an activity 
+  a person PERFORMS — something that occupies their time and effort 
+  while they do it? If no such word is present, return false. (boolean)
+
+- object: What is the THING being acted upon — the noun that receives 
+  the action of the verb? This is the direct object. If the verb has 
+  no external object (the action is self-contained), return null. 
+  Return the noun phrase as a string, or null.
+
+- modifier: Is there comparative or qualitative language that expresses 
+  a desired shift in degree, amount, or quality? Return the modifier 
+  word or phrase as a string. If no comparative or qualitative modifier 
+  is present, return null.
+
+- modifier_target: Does the modifier describe a property of the OBJECT 
+  (the thing being sought, obtained, or selected) or does it describe 
+  the ACTION itself (how the user performs, consumes, or engages)? 
+  Only relevant when both modifier and object are present. When the 
+  modifier and object form a unit that specifies WHICH KIND of thing 
+  the user wants, return "object". When the modifier describes the 
+  manner, degree, or extent of the user's own activity, return "action". 
+  When there is no object and the modifier stands alone with the verb, 
+  return "action". Return null when modifier is null. 
+  ("object" / "action" / null)
+
+- time_reference: Is there a temporal phrase that indicates WHEN or 
+  HOW OFTEN? Return the temporal phrase as a string. If no temporal 
+  language is present, return null.
+
+- time_binding: Can the time reference be placed on ONE SPECIFIC DATE 
+  on a calendar? If it points to a single datable occasion, return 
+  "bound". If it describes a recurring slot or pattern that cannot be 
+  pinpointed to one calendar date, return "unbound". If it could 
+  reasonably mean either, return "ambiguous". Only relevant when 
+  time_reference is not null — return null when time_reference is null. 
+  ("bound" / "unbound" / "ambiguous" / null)
+
+- verb_type: Does the verb describe an ACTION the user performs — an 
+  activity that occupies time and effort — or a STATE the user 
+  inhabits — a condition or quality of being? Return null when has_verb 
+  is false. ("action" / "state" / null)
+
+- intent_mode: What is the user DOING by writing this? Telling 
+  themselves or someone to act = "directing". Storing information 
+  for later = "capturing". Working through a feeling or experience 
+  = "processing". Thinking out loud or wondering = "exploring". 
+  ("directing" / "capturing" / "processing" / "exploring")
+
+- completion: If the user follows through on this text, will they be 
+  DONE — finished, nothing more to do, the action is complete — or 
+  will they need to do it again on a future occasion? Return "done" 
+  when the action has a natural endpoint after which it does not need 
+  repeating. Return "recurring" when the action is meant to happen 
+  again. Return "unclear" when the text genuinely could mean either. 
+  ("done" / "recurring" / "unclear")
+
+- novelty: Is the PRIMARY SUBJECT of this text something that 
+  does not currently exist? Not the actions or feelings mentioned, 
+  but the THING the text is fundamentally about. If the text is 
+  fundamentally about a real action the user will take, a real 
+  experience they had, or a real thing in their life, return 
+  "existing" — even if the action has not happened yet. If the 
+  text is fundamentally about an imagined system, tool, method, 
+  or concept that has no concrete form yet, return "novel". 
+  Return "unclear" when genuinely ambiguous. 
+  ("novel" / "existing" / "unclear")`;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// PreParse field code → readable name mapping
+// Mini-prompts use codes (g1, c2, t3...) to prevent field names from biasing
+// the LLM. This map converts coded output back to readable names for scorers,
+// logging, and downstream code.
+// ──────────────────────────────────────────────────────────────────────────────
+const PREPARSE_FIELD_MAP = {
+  // Prompt A: Grammar
+  g1: 'is_command',
+  g2: 'is_declarative',
+  g3: 'has_speculation',
+  g4: 'is_past_or_present',
+  g6: 'is_narrative_reflection',
+  // Prompt B: Content
+  c1: 'is_scheduled_occurrence',
+  c1r: 'scheduled_reasoning',
+  c3: 'has_emotion_language',
+  c3r: 'emotion_reasoning',
+  c4: 'is_about_feelings_not_actions',
+  c4r: 'feelings_reasoning',
+  s1: 'action_target',
+  // Prompt C: Temporal
+  t1: 'has_date_or_time',
+  t2a1: 'has_occurrence_count',
+  t2a3a: 'has_measurable_amount',
+  t2a3b: 'amount_bounded_by_period',
+  t2a3c: 'bounding_period_recurs',
+  t2b1: 'user_is_agent',
+  t2b2: 'action_is_future',
+  t3: 'has_routine_anchor',
+  t4: 'is_single_instance',
+  t4r: 'single_instance_reasoning',
+  // Prompt D: Behavioral
+  b1: 'has_prohibition',
+  b2a: 'has_discontinuation',
+  b2ar: 'discontinuation_reasoning',
+  b2b: 'references_existing_pattern',
+  b2br: 'pattern_reasoning',
+  b3: 'has_relative_change',
+  b4a1: 'references_current_state',
+  b4a2: 'change_is_open_ended',
+  b6: 'has_restriction_boundary',
+  // Prompt E: Meta
+  m1: 'has_hedging',
+  m2: 'has_obligation',
+  m3: 'parse_confidence',
+  c2: 'is_reference_detail',
+  c2r: 'reference_reasoning',
+  // Prompt F: Relational
+  r1: 'action_direction',
+  r1r: 'action_direction_reasoning',
+  r2: 'time_role',
+  r2r: 'time_role_reasoning',
+  r3: 'boundary_type',
+  r3r: 'boundary_reasoning',
+  // Prompt G: Holistic
+  m4: 'temporal_orientation',
+  m5: 'user_mode_record_or_change',
+  m6a: 'is_about_personal_patterns',
+  m6b: 'is_storing_information',
+  m6c: 'is_about_emotion',
+};
+
+function mapCodedPreparse(coded) {
+  const mapped = {};
+  for (const [code, value] of Object.entries(coded)) {
+    const readableName = PREPARSE_FIELD_MAP[code];
+    if (readableName) {
+      mapped[readableName] = value;
+    } else {
+      mapped[code] = value;
+    }
+  }
+  return mapped;
+}
+
 async function runPreparseMini(text, env, systemPrompt) {
   const result = await aiClassify({
     mode: 'realtime',
@@ -720,12 +1058,31 @@ async function runPreparseMini(text, env, systemPrompt) {
     systemPrompt,
     messages: [{ role: 'user', content: text.substring(0, 500) }],
     temperature: 0.1,
-    maxOutputTokens: 100,
+    maxOutputTokens: 300,
     endpoint: 'preparse-mini',
   });
 
   if (!result.parsed) {
     throw new Error('preparse failed: both providers returned unusable output');
+  }
+
+  return result.parsed;
+}
+
+async function runStructuralParse(text, env) {
+  const result = await aiClassify({
+    mode: 'realtime',
+    ...getProviders('mini', env),
+    env,
+    systemPrompt: STRUCTURAL_PARSE_PROMPT,
+    messages: [{ role: 'user', content: text.substring(0, 500) }],
+    temperature: 0.1,
+    maxOutputTokens: 200,
+    endpoint: 'structural-parse',
+  });
+
+  if (!result.parsed) {
+    throw new Error('structural parse failed: both providers returned unusable output');
   }
 
   return result.parsed;
@@ -746,66 +1103,247 @@ async function runPreparse(text, env) {
   const t0 = Date.now();
 
   try {
-    // Run all three mini-parses in parallel
-    const [intentResult, contentResult, structureResult] = await Promise.all([
+    // Run all parses in parallel — structural (mini) and seven nano parses
+    const [
+      structuralResult,
+      intentResult,
+      contentResult,
+      structureResult,
+      behavioralResult,
+      metaResult,
+      relationalResult,
+      holisticResult,
+    ] = await Promise.all([
+      runStructuralParse(text, env).catch((err) => {
+        console.error('[StructuralParse] Failed, using nano fallback', { error: String(err) });
+        return {};
+      }),
       runPreparseMini(text, env, PREPARSE_INTENT_PROMPT),
       runPreparseMini(text, env, PREPARSE_CONTENT_PROMPT),
       runPreparseMini(text, env, PREPARSE_STRUCTURE_PROMPT),
+      runPreparseMini(text, env, PREPARSE_BEHAVIORAL_PROMPT),
+      runPreparseMini(text, env, PREPARSE_META_PROMPT),
+      runPreparseMini(text, env, PREPARSE_RELATIONAL_PROMPT),
+      runPreparseMini(text, env, PREPARSE_HOLISTIC_PROMPT),
     ]);
 
     const latency = Date.now() - t0;
 
-    // Merge and normalize all results
+    const grammar = mapCodedPreparse(intentResult);
+    const content = mapCodedPreparse(contentResult);
+    const temporal = mapCodedPreparse(structureResult);
+    const behavioral = mapCodedPreparse(behavioralResult);
+    const meta = mapCodedPreparse(metaResult);
+    const relational = mapCodedPreparse(relationalResult);
+    const holistic = mapCodedPreparse(holisticResult);
+
     const result = {
-      // From intent
-      frame_type: ['directing', 'exploring', 'processing', 'factual', 'uncertain'].includes(
-        intentResult.frame_type,
-      )
-        ? intentResult.frame_type
-        : 'uncertain',
-      factual_statement: Boolean(intentResult.factual_statement),
-      is_noun_phrase_only: Boolean(intentResult.is_noun_phrase_only),
-      action_target: ['self', 'external', 'other_person'].includes(intentResult.action_target)
-        ? intentResult.action_target
-        : 'self',
-
-      // From content
-      emotional_content: Boolean(contentResult.emotional_content),
-      self_reflection: Boolean(contentResult.self_reflection),
-      frequency_present: Boolean(contentResult.frequency_present),
-      frequency_type: ['explicit', 'day_names', 'stop_quit'].includes(contentResult.frequency_type)
-        ? contentResult.frequency_type
+      // Atomic observations
+      is_command: Boolean(grammar.is_command),
+      is_declarative: Boolean(grammar.is_declarative),
+      has_speculation: Boolean(grammar.has_speculation),
+      is_past_or_present: Boolean(grammar.is_past_or_present),
+      core_verb: structuralResult.verb || grammar.core_verb || null,
+      struct_object: structuralResult.object || null,
+      struct_modifier: structuralResult.modifier || null,
+      struct_modifier_target: ['object', 'action'].includes(structuralResult.modifier_target)
+        ? structuralResult.modifier_target
         : null,
-      direction_without_schedule: Boolean(contentResult.direction_without_schedule),
-      temporal_specificity: Boolean(contentResult.temporal_specificity),
-      reminder_intent: Boolean(contentResult.reminder_intent),
-
-      // From structure
-      uncertainty_present: Boolean(structureResult.uncertainty_present),
-      uncertainty_target: ['verb', 'object_details', 'entire_proposition'].includes(
-        structureResult.uncertainty_target,
-      )
-        ? structureResult.uncertainty_target
+      struct_time_reference: structuralResult.time_reference || null,
+      struct_time_binding: ['bound', 'unbound', 'ambiguous'].includes(structuralResult.time_binding)
+        ? structuralResult.time_binding
         : null,
-      obligation_framing: Boolean(structureResult.obligation_framing),
-      parse_confidence: ['high', 'medium', 'low'].includes(structureResult.parse_confidence)
-        ? structureResult.parse_confidence
+      struct_completion: ['done', 'recurring', 'unclear'].includes(structuralResult.completion)
+        ? structuralResult.completion
+        : 'unclear',
+      struct_novelty: ['novel', 'existing', 'unclear'].includes(structuralResult.novelty)
+        ? structuralResult.novelty
+        : 'unclear',
+      is_narrative_reflection: Boolean(grammar.is_narrative_reflection),
+      is_state_verb: structuralResult.verb_type === 'state',
+      has_concrete_result: false,
+      verb_has_completion: structuralResult.verb_type === 'action',
+      has_verb: structuralResult.has_verb !== false,
+
+      is_scheduled_occurrence: Boolean(content.is_scheduled_occurrence),
+      scheduled_reasoning: content.scheduled_reasoning || '',
+      has_emotion_language: Boolean(content.has_emotion_language),
+      emotion_reasoning: content.emotion_reasoning || '',
+      is_about_feelings_not_actions: Boolean(content.is_about_feelings_not_actions),
+      feelings_reasoning: content.feelings_reasoning || '',
+      action_target: ['user', 'external', 'other_person'].includes(content.action_target)
+        ? content.action_target
+        : 'user',
+
+      has_date_or_time: Boolean(temporal.has_date_or_time),
+      has_occurrence_count: Boolean(temporal.has_occurrence_count),
+      has_time_reference: Boolean(temporal.has_time_reference),
+      time_reference_binding: ['bound', 'unbound', 'ambiguous'].includes(
+        temporal.time_reference_binding,
+      )
+        ? temporal.time_reference_binding
+        : null,
+      claims_all_instances:
+        temporal.time_reference_binding === 'unbound' ||
+        structuralResult.time_binding === 'unbound',
+      has_measurable_amount: Boolean(temporal.has_measurable_amount),
+      amount_bounded_by_period: Boolean(temporal.amount_bounded_by_period),
+      bounding_period_recurs: Boolean(temporal.bounding_period_recurs),
+      has_explicit_multiplicity:
+        Boolean(temporal.has_occurrence_count) ||
+        temporal.time_reference_binding === 'unbound' ||
+        structuralResult.time_binding === 'unbound' ||
+        (Boolean(temporal.has_measurable_amount) &&
+          Boolean(temporal.amount_bounded_by_period) &&
+          Boolean(temporal.bounding_period_recurs)),
+      user_is_agent: Boolean(temporal.user_is_agent),
+      action_is_future: Boolean(temporal.action_is_future),
+      multiplicity_is_future_self:
+        Boolean(temporal.user_is_agent) && Boolean(temporal.action_is_future),
+      is_ongoing_practice:
+        (Boolean(temporal.has_occurrence_count) ||
+          temporal.time_reference_binding === 'unbound' ||
+          structuralResult.time_binding === 'unbound' ||
+          (Boolean(temporal.has_measurable_amount) &&
+            Boolean(temporal.amount_bounded_by_period) &&
+            Boolean(temporal.bounding_period_recurs))) &&
+        Boolean(temporal.user_is_agent) &&
+        Boolean(temporal.action_is_future),
+      ongoing_reasoning: '',
+      has_routine_anchor: Boolean(temporal.has_routine_anchor),
+      is_single_instance: Boolean(temporal.is_single_instance),
+      single_instance_reasoning: temporal.single_instance_reasoning || '',
+
+      has_prohibition: Boolean(behavioral.has_prohibition),
+      has_discontinuation: Boolean(behavioral.has_discontinuation),
+      discontinuation_reasoning: behavioral.discontinuation_reasoning || '',
+      references_existing_pattern: Boolean(behavioral.references_existing_pattern),
+      pattern_reasoning: behavioral.pattern_reasoning || '',
+      has_relative_change: Boolean(behavioral.has_relative_change),
+      references_current_state: Boolean(behavioral.references_current_state),
+      change_is_open_ended: Boolean(behavioral.change_is_open_ended),
+      has_restriction_boundary: Boolean(behavioral.has_restriction_boundary),
+      degree_shift_target:
+        structuralResult.modifier_target === 'object'
+          ? 'thing_sought'
+          : structuralResult.modifier_target === 'action'
+            ? 'own_action'
+            : ['own_action', 'thing_sought'].includes(behavioral.degree_shift_target)
+              ? behavioral.degree_shift_target
+              : null,
+
+      has_hedging: Boolean(meta.has_hedging),
+      has_obligation: Boolean(meta.has_obligation),
+      parse_confidence: ['high', 'medium', 'low'].includes(meta.parse_confidence)
+        ? meta.parse_confidence
         : 'medium',
 
-      // Restored from Intent mini-prompt for routing cross-checks
-      core_verb: intentResult.core_verb || null,
-      verb_position: [
-        'start',
-        'after_hedge',
-        'after_obligation',
-        'inside_hypothetical',
-        'none',
-      ].includes(intentResult.verb_position)
-        ? intentResult.verb_position
-        : 'none',
+      is_reference_detail: Boolean(meta.is_reference_detail),
+      reference_reasoning: meta.reference_reasoning || '',
+
+      // Relational
+      action_direction: ['own_behavior', 'external', 'unclear'].includes(
+        relational.action_direction,
+      )
+        ? relational.action_direction
+        : 'unclear',
+      action_direction_reasoning: relational.action_direction_reasoning || '',
+      time_role: ['when', 'characteristic', 'no_time'].includes(relational.time_role)
+        ? relational.time_role
+        : 'no_time',
+      time_role_reasoning: relational.time_role_reasoning || '',
+      boundary_type: ['ongoing_boundary', 'one_time', 'no_negation'].includes(
+        relational.boundary_type,
+      )
+        ? relational.boundary_type
+        : 'no_negation',
+      boundary_reasoning: relational.boundary_reasoning || '',
+
+      // Holistic
+      temporal_orientation: ['past', 'future', 'neither'].includes(holistic.temporal_orientation)
+        ? holistic.temporal_orientation
+        : 'neither',
+      user_mode_record_or_change: ['recording', 'requesting_change', 'neither'].includes(
+        holistic.user_mode_record_or_change,
+      )
+        ? holistic.user_mode_record_or_change
+        : 'neither',
+      is_about_personal_patterns: Boolean(holistic.is_about_personal_patterns),
+      is_storing_information: Boolean(holistic.is_storing_information),
+      is_about_emotion: Boolean(holistic.is_about_emotion),
+      user_intent_mode: ['directing', 'capturing', 'processing', 'exploring'].includes(
+        structuralResult.intent_mode,
+      )
+        ? structuralResult.intent_mode
+        : ['directing', 'capturing', 'processing', 'exploring'].includes(holistic.user_intent_mode)
+          ? holistic.user_intent_mode
+          : 'directing',
+
+      // Derived fields for backward compatibility
+      frame_type: 'uncertain',
+      factual_statement: false,
+      is_noun_phrase_only: false,
+      self_reflection: false,
+      emotional_content: false,
+      has_occasion_noun: false,
+      uncertainty_present: false,
+      frequency_present: false,
+      frequency_type: null,
+      is_self_restriction: false,
+      has_implied_recurrence: false,
+      obligation_framing: false,
+      direction_without_schedule: false,
       has_completion_point: 'uncertain',
       hypothetical_framing: false,
+      verb_position: 'none',
+      temporal_specificity: false,
+      reminder_intent: false,
     };
+
+    if (result.has_verb === false) {
+      result.is_command = false;
+      result.is_state_verb = false;
+      if (result.user_intent_mode === 'directing') {
+        result.user_intent_mode = 'capturing';
+      }
+    }
+
+    // Derive backward-compatible fields
+    result.frame_type =
+      result.has_emotion_language && result.is_about_feelings_not_actions
+        ? 'processing'
+        : result.is_command
+          ? 'directing'
+          : result.has_speculation || result.has_hedging
+            ? 'exploring'
+            : result.is_declarative || result.is_reference_detail
+              ? 'factual'
+              : result.is_past_or_present && result.is_about_feelings_not_actions
+                ? 'processing'
+                : 'uncertain';
+    result.factual_statement = result.is_declarative;
+    result.is_noun_phrase_only = !result.has_verb;
+    result.self_reflection = result.is_about_feelings_not_actions;
+    result.emotional_content = result.has_emotion_language;
+    result.has_occasion_noun = result.is_scheduled_occurrence;
+    result.uncertainty_present = result.has_hedging;
+    result.frequency_present = result.is_ongoing_practice || result.has_discontinuation;
+    result.frequency_type =
+      result.has_discontinuation && result.references_existing_pattern
+        ? 'stop_quit'
+        : result.is_ongoing_practice
+          ? 'explicit'
+          : null;
+    result.is_self_restriction =
+      result.has_prohibition && result.references_existing_pattern && !result.is_single_instance;
+    result.has_implied_recurrence = result.has_routine_anchor;
+    result.obligation_framing = result.has_obligation;
+    result.direction_without_schedule = result.has_relative_change;
+    result.verb_position = result.is_command
+      ? 'start'
+      : result.has_speculation
+        ? 'inside_hypothetical'
+        : 'none';
 
     console.log('[PreParse] Success', { latency_ms: latency });
     return { success: true, result, latency_ms: latency };
@@ -831,22 +1369,18 @@ function getReasoningGuidance(reason) {
 Apply THE ACTION IMPLICATION TEST:
 Does this noun inherently imply something needs to be done, or could it equally be reference information to remember? 
 
-If only one interpretation makes sense, choose it. If both are genuinely plausible, return AMBIGUOUS with type "bucket".`;
+If only one interpretation makes sense, choose it. If both are genuinely plausible, return AMBIGUOUS with type "bucket". Additionally, before applying THE ACTION IMPLICATION TEST, first check whether the noun phrase implies project-scale or multi-step work — a system, product, feature, initiative, or named deliverable that would require coordinated effort across multiple actions. When action_target is external AND the noun implies this kind of scale, return AMBIGUOUS with ambiguity_type "scope" rather than "bucket". The distinction: bucket is for nouns where intent is entirely unknown. Scope is for nouns where working on something is implied but the scale — one task vs a larger effort — is what needs clarifying.`;
 
     case 'direction_without_schedule':
-      return `This expresses wanting to change a behavior without specifying a concrete schedule.
+      return `This input expresses a desire for relative change without a concrete schedule. Apply these two tests IN ORDER and stop at the first that resolves:
 
-Apply these two tests IN ORDER:
+FIRST — THE ZERO-TARGET TEST:
+Is the user's desired end state for this behavior unambiguously zero? This means the user has clearly expressed that the behavior should stop entirely, not merely reduce. Relative language — wanting less, fewer, more, better — does NOT satisfy this test. Only explicit cessation intent satisfies this test. If the desired end state is zero with certainty → HABIT with subtype break_habit.
 
-FIRST — THE CESSATION TEST:
-Is the user's desired end state for this behavior ZERO? Can the user answer "did I do this today?" with a yes or no, where the goal answer is "no"?
-If YES: the target is zero, which is concrete and binary. This is trackable. Classify as HABIT with subtype break_habit. Do NOT return AMBIGUOUS.
+SECOND — THE CONCRETE DAILY BINARY TEST:
+Can the user answer "did I do this today?" with an unambiguous yes or no based solely on what was stated in the input? The test is strict: the behavior must be specific enough that two different people reading the input would agree on whether it happened on a given day. Vague qualities — being more present, spending less time, being better at something, being less reactive — do not pass this test because they have no defined threshold. Aspirational language about abstract qualities or relative improvements without a stated threshold always fails this test. If the test fails → return AMBIGUOUS with type "bucket". Do not attempt to infer a threshold that the user did not state.
 
-SECOND — THE TRACKABILITY TEST (only if cessation test fails):
-The user wants more or less of something, but is there any concrete measure of success? Can you draw a line between "done" and "not done" on any given day?
-If NO: there is no threshold to track. Return AMBIGUOUS with type "bucket" and let the user clarify whether they want a trackable habit or are noting an intention.
-
-Key distinction: wanting zero is a concrete, trackable target. Wanting "more" or "less" without a threshold is vague and not trackable. Check for cessation first.`;
+If both tests fail → AMBIGUOUS. The clarify flow exists precisely for these inputs. Do not classify as habit when the user has not provided enough information to make the habit trackable.`;
 
     case 'hedged_action':
       return `This has an action verb, but uncertainty is on the verb itself.
@@ -911,7 +1445,9 @@ Apply THE HABIT GATE — all three tests must pass for HABIT classification:
 3. IS THERE CONCRETE TIMING: Either explicit recurrence schedules (daily, weekly, every morning) or cessation language (stop, quit, give up) count as concrete frequency signals. Vague aspirational language without temporal anchoring does not.
 
 If all three pass → HABIT. Use subtype "start_habit" for building new behaviors, "break_habit" for stopping or quitting existing behaviors.
-If any test fails → TODO. The frequency language is incidental, not definitional.`;
+If any test fails → TODO. The frequency language is incidental, not definitional.
+
+CRITICAL: When the input is a short action phrase of two to four words containing a verb and an activity — with no explicit schedule, no day names, and no specific time anchor — the frequency signal is ambiguous as to whether the user means a one-time action or a recurring practice. In this situation, do not commit to todo or habit with high confidence. Return AMBIGUOUS with ambiguity_type "habit_or_todo" so the user can clarify. The input must be treated as genuinely unclear between a single action and an ongoing commitment.`;
 
     case 'exploring_frame':
       return `Pre-parse detected "exploring" frame, but this signal is unreliable.
@@ -951,7 +1487,14 @@ IGNORE the preparse frame_type for this decision. Evaluate fresh.`;
  * @param {string|null} routingReason - Why heuristic needed Phase 1
  * @returns {Promise<{success: true, result: Object, latency_ms: number} | {success: false, error: string, latency_ms: number}>}
  */
-async function runPhase1Classification(text, env, preparseContext = null, routingReason = null) {
+async function runPhase1Classification(
+  text,
+  env,
+  preparseContext = null,
+  routingReason = null,
+  scorerScores = null,
+  hasUserSelectedDate = false,
+) {
   const t0 = Date.now();
 
   // Build structural facts section
@@ -973,7 +1516,37 @@ Noun phrase only: ${preparseContext.is_noun_phrase_only}`
     : 'No pre-parse context available.';
 
   // Get specific guidance for this routing reason
-  const reasoningGuidance = getReasoningGuidance(routingReason);
+  let reasoningGuidance = getReasoningGuidance(routingReason);
+
+  // When scorer bails, tell Phase 1 which types are competing
+  let scorerGuidance = '';
+  if (routingReason && routingReason.startsWith('scorer_')) {
+    const parts = routingReason.replace('scorer_', '').split('_vs_');
+    if (parts.length === 2) {
+      const typeLabels = {
+        todo: 'a discrete completable action (TODO)',
+        habit_build: 'a recurring behavior to build (HABIT/start_habit)',
+        habit_break: 'a recurring behavior to stop (HABIT/break_habit)',
+        event: 'a scheduled occasion to remember (LOG/event)',
+        journal: 'emotional processing or reflection (LOG/journal)',
+        idea: 'a hypothetical or possibility (LOG/idea)',
+        general: 'factual information to record (LOG/general)',
+      };
+      const a = typeLabels[parts[0]] || parts[0];
+      const b = typeLabels[parts[1]] || parts[1];
+      scorerGuidance = `\nThe heuristic analysis found this is most likely either ${a} or ${b}. Use semantic analysis to determine which is the better fit.`;
+    }
+  }
+  reasoningGuidance += scorerGuidance;
+
+  if (scorerScores) {
+    const scoreContext = Object.entries(scorerScores)
+      .filter(([_, v]) => v > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(', ');
+    reasoningGuidance += `\nScorer confidence levels: ${scoreContext}`;
+  }
 
   // Build the Phase 1 prompt for nuanced interpretation
   const phase1Prompt = `You resolve ambiguous mind drops for Gremly. This input could not be automatically classified because it requires nuanced interpretation beyond structural facts.
@@ -995,6 +1568,21 @@ These pre-phase facts are strong classification signals. Do not ignore them:
 - frame_type: "factual" → Almost always LOG/general. User is stating facts.
 - frame_type: "directing" with uncertainty only on "object_details" → Almost always TODO. User knows WHAT, fuzzy on details.
 - verb_position: "start" with core_verb present → Strong TODO signal regardless of frame_type. Imperative grammatical form expresses commitment to act. Only exception: uncertainty_target is "verb" (user unsure WHETHER to act). CRITICAL EXCEPTION: When frequency_present is true OR frequency_type is "stop_quit", the verb signal does NOT override — apply the HABIT GATE instead. Frequency and cessation signals take precedence over verb position for classification.
+- frequency_type: "stop_quit" is a strong signal toward HABIT/break_habit, but it does not automatically override all other signals. Apply this decision: If stop_quit is present AND the framing is direct or obligatory with no significant emotional processing content, classify as HABIT/break_habit with high confidence. If stop_quit is present AND the framing is exploratory, tentative, or emotionally weighted — meaning the user appears to be processing feelings about a pattern as much as committing to change it — return AMBIGUOUS with type "bucket" so the user can clarify whether they want to track this as a break habit or just needed to express it. The distinguishing question is: has the user committed to changing this behavior, or are they expressing that they feel they should? Commitment warrants break_habit. Expression of should-ness without clear commitment warrants AMBIGUOUS.
+- Cessation of cognitive or automatic behavioral patterns → When the target of a cessation verb is a cognitive process, automatic response, or habitual behavioral pattern — meaning a behavior that occurs repeatedly without deliberate initiation rather than a discrete one-time action — classify as HABIT/break_habit. The defining characteristic is whether the behavior recurs automatically as part of the user's established patterns. A behavior that happens on an ongoing basis and that the user wants to reduce or eliminate is trackable as a break habit even when no explicit schedule is stated, because the recurrence is inherent to the nature of the behavior itself. Contrast this with one-time actions that happen to use cessation language — those remain TODO.
+- direction_without_schedule: true with no concrete behavioral threshold stated → NEVER classify directly as habit. Wanting more or less of something, or wanting to embody an abstract quality more fully, is an aspiration not a trackable behavior. Return AMBIGUOUS with type "bucket" so the user can clarify what the concrete behavior actually is. A habit requires a behavior specific enough that the user can answer "did I do this today?" with certainty. If that answer requires inferring a threshold the user did not provide, the input is AMBIGUOUS.
+
+AMBIGUITY TYPE DETECTION — when returning AMBIGUOUS, use these signals to determine the correct ambiguity_type:
+- is_noun_phrase_only: true → ambiguity_type is almost always "bucket". The input has no frame or verb to signal intent.
+- temporal_specificity: true — particularly when the input contains a specific named day AND a specific time, or a specific date AND a named occasion or appointment-type noun — this is a strong signal for "date_type". The combination of day/date + time + appointment context means the user is almost certainly referring to something scheduled or to-be-scheduled. This should take priority over "action_or_memory" when both seem plausible. Only use "date_type" when the bucket is clearly TODO — if the bucket is unclear, use "bucket" instead. This also applies when is_noun_phrase_only is true but the noun is an appointment, event, or occasion type AND the input contains a specific day name or date AND a specific time. In this case, the absence of a verb does not change the classification — the temporal anchor is the signal. Appointment-type nouns with specific day + time should be date_type, not bucket, even when there is no action verb present.
+- direction_without_schedule: true AND no concrete threshold stated → ambiguity_type is "vague_aspiration". The user wants relative change but has not defined what done looks like.
+- frequency_present: true AND it is unclear whether this is a one-time action or an ongoing practice → ambiguity_type is "habit_or_todo". When frequency signals are present alongside a clear action verb, this ambiguity type takes priority over obligation_framing. Obligation framing indicates the user feels they should act — it does not resolve whether the action is one-time or recurring. When both obligation_framing and frequency_present are true for a personal action, return habit_or_todo ambiguous rather than committing to todo.
+- factual_statement: true OR action_target is "other_person" AND no action verb present → ambiguity_type is "action_or_memory". A fact or reference that may or may not require action.
+- direction_without_schedule: true AND the behaviour is clearly named AND the only uncertainty is whether the user wants accountability → ambiguity_type is "commitment_level". Distinguished from vague_aspiration by having a concrete named activity.
+- emotional_content: true AND self_reflection: true AND an action or change is implied but not committed → ambiguity_type is "emotional_or_action".
+- action_target is "other_person" AND temporal_specificity is true or false AND no clear commitment to plan or just note → ambiguity_type is "social_plan".
+- When is_noun_phrase_only is true AND action_target is external AND the noun phrase describes a project, system, product, or named deliverable — something that implies coordinated multi-step effort rather than a single discrete action — prefer scope over bucket. The distinction: bucket is for nouns where the user's intent is entirely unknown. Scope is for nouns where the intent to work on something is implied, but the scale is unclear. is_noun_phrase_only: true AND the noun implies a potentially large effort rather than a single action → ambiguity_type is "scope". Distinguished from "bucket" by the noun implying project-scale work.
+- frame_type is "exploring" AND uncertainty_target is "entire_proposition" AND the action is concrete → ambiguity_type is "idea_or_commitment". The user is floating something real but has not committed.
 
 Only return AMBIGUOUS if these signals conflict or are absent.
 
@@ -1006,6 +1594,15 @@ ${reasoningGuidance}
 
 === CORE REASONING PRINCIPLES ===
 
+${
+  hasUserSelectedDate
+    ? `DATE SELECTION CONTEXT: The user has explicitly selected a specific date for this item. This signals temporal intent:
+- Activities, appointments, outings, plans, meetings, concerts, or experiences → classify as subtype "event"
+- Tasks or actions → classify as bucket "todo"
+- Do NOT classify as general note, idea, or journal when a date has been selected, unless the text is clearly reflective/emotional with no actionable or temporal content
+`
+    : ''
+}
 THE UNCERTAINTY LOCATION PRINCIPLE:
 When hedging or tentative language appears, ask: Is uncertainty about THE WORLD or about THE USER'S OWN INTENT?
 - World uncertainty (timing, availability, external factors): User has committed but faces external unknowns. Intent is clear. → TODO
@@ -1037,12 +1634,19 @@ HABIT GATE — Before classifying as HABIT, apply these semantic tests:
 
 The test: "Has the user specified WHEN or HOW OFTEN?" If NO → not a habit, even if PreParse detected frequency.
 
+PAST-TENSE PATTERN DESCRIPTION IS NEVER A HABIT.
+When the user describes a behavior in the past tense — what they have been doing, what they did, how a period of their life went — they are REFLECTING, not REQUESTING TRACKING. The value of the input is the reflection itself. Past-tense descriptions of ongoing behaviors are JOURNAL entries about the user's experience, not requests to set up forward-looking habit tracking. The temporal orientation determines classification: past-oriented pattern description is journal. Future-oriented behavioral commitment is habit.
+
 LOG — Capture for reflection, not action:
 - journal: Expressing or processing feelings. The value is in the expression itself.
 - idea: A floating possibility with no commitment. The whole thought is pre-action.
 - general: Recording facts about what IS or WAS. Requires existence framing, not just a noun.
+- event: Something that happens or will happen at a specific point in time that the user wants to note or remember. The defining signals are a concrete temporal anchor (specific date, day, or time) combined with an occasion, appointment, meeting, or occurrence — and crucially, no personal action required beyond noting it. The user is recording that something exists in time, not committing to do anything about it. Distinguish from todo: a todo requires the user to act. An event is something that happens, that the user attends or is aware of. Distinguish from general: a general note records information without a specific temporal anchor. An event is anchored to a specific time. Auto-classify as event when: the input is a factual statement frame AND contains a specific date or time AND describes an occasion or occurrence rather than an action. No clarify needed when intent is unambiguous. Route to clarify (date_type) when: a temporal anchor is present but it is unclear whether the user is noting an existing event or needs to take action to create it. CRITICAL: When the input is a noun phrase containing an appointment, meeting, or occasion type noun alongside a specific day AND a specific time, and it is unclear whether this is already arranged or needs to be arranged — return AMBIGUOUS with ambiguity_type "date_type", not a direct event classification. Only auto-classify as event when the factual nature of the input makes it clear the thing already exists — such as a declarative statement form ("X is on Y") or when no action to create it is plausible. When the arrangement status is uncertain, always prefer date_type ambiguity so the user can clarify.
 
-AMBIGUOUS — Cannot determine intent. LAST RESORT.
+GENERAL IS THE NARROWEST LOG SUBTYPE — NEVER A FALLBACK.
+Before classifying as log/general, apply this verification: is the input PURELY FACTUAL REFERENCE — asserting something about the state of the world with no emotional, aspirational, or behavioral content? If the input expresses any of the following, it is NOT general: aspiration, desire, or wanting (even without action commitment) should be AMBIGUOUS. Emotional state, self-reflection, or processing should be JOURNAL. Hypothetical or speculative framing should be IDEA. Behavioral change intent of any kind should be AMBIGUOUS or HABIT. General is ONLY for pure data points: facts about people, dates of existing events, reference information, status updates stated in existence language. When in doubt between general and another subtype, choose the other subtype. When in doubt between general and ambiguous, choose ambiguous.
+
+AMBIGUOUS — When confidence for any specific bucket is below 0.7.
 
 CRITICAL DISTINCTION: Uncertainty expressed IN the input is not uncertainty about CLASSIFICATION.
 
@@ -1059,14 +1663,21 @@ The input's content may be uncertain. Your classification should not be.
 
 Use AMBIGUOUS only when you genuinely cannot determine if this is something to DO, TRACK, or KNOW - not because the input contains soft language.
 
-Test: Would a thoughtful human be confused about which bucket? If a human would immediately know, so should you.
+The clarification flow handles ambiguous inputs well. It is better to ask the user than to guess wrong. A wrong classification that the user has to manually fix is a worse experience than a brief clarification question that gets it right. Use AMBIGUOUS when you cannot point to specific words in the input that reveal the user's intent with certainty.
 
 === AMBIGUITY TYPES ===
 
 When returning AMBIGUOUS, always specify the type:
-- bucket: Cannot determine if this is something to DO, TRACK, or KNOW
-- action: Has noun + time reference but no verb - unclear if this is something that exists or something that needs to be scheduled
-- date_type: Bucket is clearly TODO, but unclear if the date means when something IS/HAPPENS or when to DO the action
+- bucket: The input is a bare noun phrase or contains no verb, frame, or actionable signal — cannot determine if this is something to DO, TRACK, or KNOW. Only use this when a thoughtful human would also be genuinely unsure.
+- date_type: Bucket is clearly TODO but it is unclear whether the date means when something IS happening (the user will attend) or when the user needs to ACT (a deadline to do something).
+- vague_aspiration: The user wants to change a behaviour but has expressed it in relative or directional language without a concrete measurable threshold. Applies when "more", "less", "better", or similar relative language is present and no specific target has been stated that would make the behaviour trackable.
+- habit_or_todo: The user has expressed clear intent to perform an action but it is genuinely unclear whether this is a one-time completion they will mark done, or an ongoing recurring practice they want to track over time.
+- action_or_memory: The input contains a fact, date, name, or reference that could be purely informational OR could imply an action the user needs to take. The action is not stated but may be implied by context.
+- commitment_level: The behaviour is concrete and named, but it is unclear whether the user wants to formally commit to tracking it as an ongoing practice or simply note an intention without accountability.
+- emotional_or_action: The input contains emotional language or self-reflection alongside language that could imply an actionable intent. It is unclear whether the user is processing a feeling or committing to do something about it.
+- social_plan: The input describes an occasion or interaction involving another person, but it is unclear whether this is already arranged, needs to be arranged, or is simply being noted.
+- scope: The input describes something that could be a single completable action OR a larger multi-part effort or project. The scale of what the user intends is genuinely unclear.
+- idea_or_commitment: The input is framed hypothetically or exploratorily but it is unclear whether the user is seriously committing to something or floating a possibility they have not yet decided on.
 
 === OUTPUT ===
 
@@ -1075,10 +1686,10 @@ Return ONLY valid JSON:
 {
   "bucket": "todo" | "habit" | "log" | "ambiguous",
   "confidence": 0.0-1.0,
-  "subtype": "journal" | "idea" | "general" | null,
+  "subtype": "journal" | "idea" | "general" | "event" | null,
   "habitSubtype": "start_habit" | "break_habit" | null,
   "is_ambiguous": boolean,
-  "ambiguity_type": "bucket" | "action" | "date_type" | null,
+  "ambiguity_type": "bucket" | "date_type" | "vague_aspiration" | "habit_or_todo" | "action_or_memory" | "commitment_level" | "emotional_or_action" | "social_plan" | "scope" | "idea_or_commitment" | null,
   "ambiguity_reason": "Brief explanation of why intent cannot be determined" | null
 }
 
@@ -1130,7 +1741,7 @@ Rules:
 
   let subtype = null;
   if (bucket === 'log') {
-    const validSubtypes = ['journal', 'idea', 'general'];
+    const validSubtypes = ['journal', 'idea', 'general', 'event'];
     subtype = validSubtypes.includes(parsed.subtype) ? parsed.subtype : 'general';
   }
 
@@ -1148,7 +1759,19 @@ Rules:
 
   const isAmbiguous = parsed.bucket === 'ambiguous' || confidence < 0.7;
   const ambiguityType =
-    isAmbiguous && ['bucket', 'action', 'date_type'].includes(parsed.ambiguity_type)
+    isAmbiguous &&
+    [
+      'bucket',
+      'date_type',
+      'vague_aspiration',
+      'habit_or_todo',
+      'action_or_memory',
+      'commitment_level',
+      'emotional_or_action',
+      'social_plan',
+      'scope',
+      'idea_or_commitment',
+    ].includes(parsed.ambiguity_type)
       ? parsed.ambiguity_type
       : null;
   const ambiguityReason =
@@ -2072,11 +2695,12 @@ function getChatConfig(userMessage, opts = {}) {
     : { maxTokens: 2048, thinkingLevel: 'low' };
 }
 
-const WEB_SEARCH_TOOL = {
-  type: 'function',
-  function: {
-    name: 'web_search',
-    description: `Search the web for current, factual information. The current date is ${new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date())}.
+function makeWebSearchTool(timezone) {
+  return {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description: `Search the web for current, factual information. The current date is ${new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: timezone || 'UTC' }).format(new Date())}.
 
 DEFAULT TO SEARCHING. If there is ANY chance that current, specific information would improve your answer, search first. The cost of an unnecessary search is near zero. The cost of giving generic advice when specific information exists is high.
 
@@ -2099,18 +2723,19 @@ DO NOT search for:
 - Simple factual questions you can confidently answer (math, definitions, historical facts)
 - When the user is venting or processing feelings
 - Conversational responses like greetings`,
-    parameters: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Concise search query, 2-8 words. Be specific and include key terms.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Concise search query, 2-8 words. Be specific and include key terms.',
+          },
         },
+        required: ['query'],
       },
-      required: ['query'],
     },
-  },
-};
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DYNAMIC MODEL & TOKEN ROUTING
@@ -2308,6 +2933,54 @@ export default {
       const isPhase2Streaming = wantsStreaming && type === 'enrich-phase2';
       const isEntityChatStreaming = wantsStreaming && type === 'entity-chat';
       const isHabitBuilderStreaming = wantsStreaming && type === 'habit-builder';
+
+      // =========================
+      // Timezone resolution (single source of truth per request)
+      // Three-tier fallback: client body → user_profiles → UTC
+      // =========================
+      async function resolveTimezone(reqBody, reqEnv) {
+        const clientTz = reqBody?.timezone;
+        if (clientTz && typeof clientTz === 'string' && clientTz.length >= 2) {
+          return clientTz;
+        }
+
+        // Client didn't send timezone — read from stored profile
+        if (reqBody?.userId && reqEnv?.SUPABASE_URL) {
+          try {
+            const res = await fetch(
+              `${reqEnv.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${reqBody.userId}&select=timezone`,
+              {
+                headers: {
+                  apikey: reqEnv.SUPABASE_SERVICE_KEY,
+                  Authorization: `Bearer ${reqEnv.SUPABASE_SERVICE_KEY}`,
+                },
+              },
+            );
+            if (res.ok) {
+              const data = await res.json();
+              if (data?.[0]?.timezone) {
+                console.log('[Timezone] Resolved from profile:', data[0].timezone);
+                return data[0].timezone;
+              }
+            }
+          } catch (err) {
+            console.warn('[Timezone] Profile fetch failed:', err.message);
+          }
+        }
+
+        console.warn('[Timezone] Falling back to UTC — no client value, no profile value', {
+          userId: reqBody?.userId?.slice(0, 8) || 'unknown',
+        });
+        return 'UTC';
+      }
+
+      const userTimezone = await resolveTimezone(body, env);
+
+      console.log('[TIMEZONE_DEBUG]', {
+        timezone: body.timezone,
+        type: typeof body.timezone,
+        keys: Object.keys(body).filter((k) => k.toLowerCase().includes('time')),
+      });
 
       // =========================
       // Helpers
@@ -2605,7 +3278,7 @@ export default {
 
         let st = null;
         if (b === 'log') {
-          const validSubtypes = ['journal', 'idea', 'general'];
+          const validSubtypes = ['journal', 'idea', 'general', 'event'];
           st = validSubtypes.includes(subtype) ? subtype : 'general';
           if (st === 'general' && isSenseMakingJournal(text)) st = 'journal';
         }
@@ -3068,7 +3741,6 @@ After the user confirms and locks in a habit, check the existing habits listed i
       // =========================
       if (type === 'general-greeting') {
         try {
-          const userTimezone = body.timezone || 'America/Los_Angeles';
           const dailyFocus = await getDailyFocusForChat(body.userId, env, userTimezone);
           const now = new Date();
           const timeStr = new Intl.DateTimeFormat('en-US', {
@@ -3150,16 +3822,26 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
 
         // Load user profile and session context (same as entity chat)
         let userProfileContext = '';
+        let habitTodayActivity = null;
         if (body.userId) {
           try {
-            const [chatContext, profile] = await Promise.all([
-              buildChatContext(body.userId, 'habit_builder', {}, env),
+            const [chatContext, profile, todayAct] = await Promise.all([
+              buildChatContext(
+                body.userId,
+                'habit_builder',
+                { timezone: userTimezone, currentChatId: body.chatId || null },
+                env,
+              ),
               getUserProfile(body.userId, env),
+              buildTodayActivity(body.userId, userTimezone, env),
             ]);
             const ageInfo = getAgeGuidance(profile?.relationshipStartedAt, profile?.signals);
 
             if (profile?.profileText) {
-              userProfileContext += `\n=== ABOUT THIS USER ===\n${profile.profileText}\n`;
+              userProfileContext += `\n=== ABOUT THIS USER ===\nRead the IDENTITY line first. Use it for this person's name, gender, and pronouns throughout your response. Never assume or guess gender or pronouns — always refer to what's stated. If no IDENTITY line is present, use "they/them" as default.\n\n${profile.profileText}\n`;
+            }
+            if (todayAct) {
+              userProfileContext += `\n${todayAct}\n`;
             }
             if (chatContext) {
               userProfileContext += `\n${chatContext}`;
@@ -3176,12 +3858,12 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
         // eslint-disable-next-line no-restricted-syntax -- server-side fallback; client sends local date via dateService
         const today =
           context.currentDate ||
-          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
+          new Intl.DateTimeFormat('en-CA', { timeZone: userTimezone }).format(new Date());
         const dow =
           context.dayOfWeek ||
           new Intl.DateTimeFormat('en-US', {
             weekday: 'long',
-            timeZone: body.timezone || 'UTC',
+            timeZone: userTimezone,
           }).format(new Date());
         contextParts.push(`Today is ${dow}, ${today}.`);
 
@@ -3301,7 +3983,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
               temperature: 0.7,
               maxOutputTokens: chatCfg.maxTokens,
               thinkingLevel: chatCfg.thinkingLevel,
-              tools: [WEB_SEARCH_TOOL],
+              tools: [makeWebSearchTool(userTimezone)],
             },
             env.GOOGLE_API_KEY,
           );
@@ -3845,7 +4527,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
             : '';
         }
 
-        const tz = body.timezone || 'UTC';
+        const tz = userTimezone;
         const currentDate = new Intl.DateTimeFormat('en-US', {
           weekday: 'long',
           year: 'numeric',
@@ -3975,25 +4657,30 @@ Almost never suggest creating a Space. Only if ALL true:
               let sessionContextStr = '';
               let userProfile = null;
               let cachedDomains = [];
+              let entityTodayActivity = null;
               const previousExchange = extractPreviousExchange(messages);
               if (body.userId) {
                 try {
-                  const [chatContext, profile, domains] = await Promise.all([
+                  const [chatContext, profile, domains, todayAct] = await Promise.all([
                     buildChatContext(
                       body.userId,
                       'entity',
                       {
                         entityTitle: entity?.title || entity?.name || null,
                         entitySpaceId: entity?.spaceId || entity?.space_id || null,
+                        timezone: userTimezone,
+                        currentChatId: body.chatId || null,
                       },
                       env,
                     ),
                     getUserProfile(body.userId, env),
                     getCachedDomainNames(body.userId, env),
+                    buildTodayActivity(body.userId, userTimezone, env),
                   ]);
                   sessionContextStr = chatContext;
                   userProfile = profile;
                   cachedDomains = domains;
+                  entityTodayActivity = todayAct;
                   if (sessionContextStr || userProfile) {
                     console.log('[EntityChat] Context loaded', {
                       userId: body.userId.slice(0, 8),
@@ -4053,6 +4740,7 @@ Almost never suggest creating a Space. Only if ALL true:
                 sessionContextStr,
                 userProfile?.profileText,
                 tz,
+                entityTodayActivity,
               );
 
               const entityMessages = [
@@ -4144,7 +4832,7 @@ Almost never suggest creating a Space. Only if ALL true:
               };
 
               if (searchPolicy.attachTool) {
-                streamConfig.tools = [WEB_SEARCH_TOOL];
+                streamConfig.tools = [makeWebSearchTool(userTimezone)];
               }
 
               console.log('[EntityChat:Streaming:Payload]', {
@@ -4706,25 +5394,30 @@ Almost never suggest creating a Space. Only if ALL true:
         let sessionContextStr = '';
         let userProfile = null;
         let cachedDomains = [];
+        let entityTodayActivity = null;
         const previousExchange = extractPreviousExchange(messages);
         if (body.userId) {
           try {
-            const [chatContext, profile, domains] = await Promise.all([
+            const [chatContext, profile, domains, todayAct] = await Promise.all([
               buildChatContext(
                 body.userId,
                 'entity',
                 {
                   entityTitle: entity?.title || entity?.name || null,
                   entitySpaceId: entity?.spaceId || entity?.space_id || null,
+                  timezone: userTimezone,
+                  currentChatId: body.chatId || null,
                 },
                 env,
               ),
               getUserProfile(body.userId, env),
               getCachedDomainNames(body.userId, env),
+              buildTodayActivity(body.userId, userTimezone, env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
             cachedDomains = domains;
+            entityTodayActivity = todayAct;
           } catch (err) {
             console.error('[EntityChat:NonStreaming] Context error', err);
           }
@@ -4780,6 +5473,7 @@ Almost never suggest creating a Space. Only if ALL true:
           sessionContextStr,
           userProfile?.profileText,
           tz,
+          entityTodayActivity,
         );
 
         const entityMessages = [
@@ -4812,7 +5506,7 @@ Almost never suggest creating a Space. Only if ALL true:
           };
 
           if (searchPolicy.attachTool) {
-            nonStreamConfig.tools = [WEB_SEARCH_TOOL];
+            nonStreamConfig.tools = [makeWebSearchTool(userTimezone)];
             nonStreamConfig.toolChoice =
               searchPolicy.toolChoice === 'required' ? 'web_search' : 'auto';
           }
@@ -5245,14 +5939,14 @@ Return ONLY valid JSON:
        */
       async function extractHabitFields(messages, apiKey, currentDate, builderMode) {
         // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
-        const fallbackDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(
-          new Date(),
-        );
+        const fallbackDate = new Intl.DateTimeFormat('en-CA', {
+          timeZone: userTimezone,
+        }).format(new Date());
         const isBreakMode = builderMode === 'BREAK';
         const isEventMode = builderMode === 'EVENT_ANCHORED';
 
         const extractionPrompt = `You analyze a habit-building conversation and assess readiness.
-Today is ${new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(new Date())}, ${currentDate || fallbackDate}.
+Today is ${new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: userTimezone }).format(new Date())}, ${currentDate || fallbackDate}.
 Resolve relative day and date references into YYYY-MM-DD. Verify the day-of-week matches the calendar date before returning.
 
 Conversation mode: ${builderMode || 'SHAPE'}
@@ -5630,7 +6324,7 @@ Return ONLY valid JSON:
         const tasks = Array.isArray(body.tasks) ? body.tasks : [];
         const calendarEvents = Array.isArray(body.calendarEvents) ? body.calendarEvents : [];
         const blocks = body.blocks || {};
-        const timezone = body.timezone || 'America/Los_Angeles';
+        const timezone = userTimezone;
         let currentHour;
         if (body.currentHour != null) {
           currentHour = body.currentHour;
@@ -6371,7 +7065,7 @@ ${assistantMessage.substring(0, 2000)}
         const validSubtypes = {
           habit: ['start_habit', 'break_habit'],
           todo: [],
-          log: ['general', 'idea', 'journal'],
+          log: ['general', 'idea', 'journal', 'event'],
         };
 
         let subtype = parsed.subtype;
@@ -6629,7 +7323,7 @@ ${assistantMessage.substring(0, 2000)}
             year: 'numeric',
             month: 'long',
             day: 'numeric',
-            timeZone: body.timezone || 'UTC',
+            timeZone: userTimezone,
           }).format(new Date());
 
           const summaryPrompt = `Today is ${todayStr}. Summarize this entire conversation in 3-6 sentences. Cover ALL major topics discussed from start to finish — not just the beginning or the end. Include specific names, dates, decisions, recommendations, and action items mentioned. Write as a factual note the user can reference later.
@@ -6934,29 +7628,108 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
         // Log all pre-phase field values
         console.log('[Phase1v2] PreParse result', {
           text_preview: text.substring(0, 50),
+          // Derived backward-compatible fields
           core_verb: preparseResult.result.core_verb,
-          verb_position: preparseResult.result.verb_position,
+          action_target: preparseResult.result.action_target,
+          parse_confidence: preparseResult.result.parse_confidence,
           frame_type: preparseResult.result.frame_type,
-          has_completion_point: preparseResult.result.has_completion_point,
-          uncertainty_present: preparseResult.result.uncertainty_present,
-          uncertainty_target: preparseResult.result.uncertainty_target,
-          obligation_framing: preparseResult.result.obligation_framing,
-          frequency_present: preparseResult.result.frequency_present,
+          verb_position: preparseResult.result.verb_position,
           frequency_type: preparseResult.result.frequency_type,
-          direction_without_schedule: preparseResult.result.direction_without_schedule,
+          frequency_present: preparseResult.result.frequency_present,
+          is_noun_phrase_only: preparseResult.result.is_noun_phrase_only,
+          is_self_restriction: preparseResult.result.is_self_restriction,
+          has_occasion_noun: preparseResult.result.has_occasion_noun,
+          has_implied_recurrence: preparseResult.result.has_implied_recurrence,
           emotional_content: preparseResult.result.emotional_content,
-          hypothetical_framing: preparseResult.result.hypothetical_framing,
+          uncertainty_present: preparseResult.result.uncertainty_present,
+          obligation_framing: preparseResult.result.obligation_framing,
           factual_statement: preparseResult.result.factual_statement,
           self_reflection: preparseResult.result.self_reflection,
-          is_noun_phrase_only: preparseResult.result.is_noun_phrase_only,
-          parse_confidence: preparseResult.result.parse_confidence,
-          action_target: preparseResult.result.action_target,
-          reminder_intent: preparseResult.result.reminder_intent,
+          direction_without_schedule: preparseResult.result.direction_without_schedule,
+          // Atomic observations
+          is_command: preparseResult.result.is_command,
+          is_declarative: preparseResult.result.is_declarative,
+          has_speculation: preparseResult.result.has_speculation,
+          is_past_or_present: preparseResult.result.is_past_or_present,
+          is_narrative_reflection: preparseResult.result.is_narrative_reflection,
+          is_scheduled_occurrence: preparseResult.result.is_scheduled_occurrence,
+          scheduled_reasoning: preparseResult.result.scheduled_reasoning,
+          is_reference_detail: preparseResult.result.is_reference_detail,
+          reference_reasoning: preparseResult.result.reference_reasoning,
+          has_emotion_language: preparseResult.result.has_emotion_language,
+          emotion_reasoning: preparseResult.result.emotion_reasoning,
+          is_about_feelings_not_actions: preparseResult.result.is_about_feelings_not_actions,
+          feelings_reasoning: preparseResult.result.feelings_reasoning,
+          has_date_or_time: preparseResult.result.has_date_or_time,
+          has_occurrence_count: preparseResult.result.has_occurrence_count,
+          has_time_reference: preparseResult.result.has_time_reference,
+          time_reference_binding: preparseResult.result.time_reference_binding,
+          claims_all_instances: preparseResult.result.claims_all_instances,
+          has_measurable_amount: preparseResult.result.has_measurable_amount,
+          amount_bounded_by_period: preparseResult.result.amount_bounded_by_period,
+          bounding_period_recurs: preparseResult.result.bounding_period_recurs,
+          has_explicit_multiplicity: preparseResult.result.has_explicit_multiplicity,
+          user_is_agent: preparseResult.result.user_is_agent,
+          action_is_future: preparseResult.result.action_is_future,
+          multiplicity_is_future_self: preparseResult.result.multiplicity_is_future_self,
+          is_ongoing_practice: preparseResult.result.is_ongoing_practice,
+          has_routine_anchor: preparseResult.result.has_routine_anchor,
+          is_single_instance: preparseResult.result.is_single_instance,
+          single_instance_reasoning: preparseResult.result.single_instance_reasoning,
+          has_prohibition: preparseResult.result.has_prohibition,
+          has_discontinuation: preparseResult.result.has_discontinuation,
+          discontinuation_reasoning: preparseResult.result.discontinuation_reasoning,
+          references_existing_pattern: preparseResult.result.references_existing_pattern,
+          pattern_reasoning: preparseResult.result.pattern_reasoning,
+          has_relative_change: preparseResult.result.has_relative_change,
+          has_hedging: preparseResult.result.has_hedging,
+          has_obligation: preparseResult.result.has_obligation,
+          action_direction: preparseResult.result.action_direction,
+          action_direction_reasoning: preparseResult.result.action_direction_reasoning,
+          time_role: preparseResult.result.time_role,
+          time_role_reasoning: preparseResult.result.time_role_reasoning,
+          boundary_type: preparseResult.result.boundary_type,
+          boundary_reasoning: preparseResult.result.boundary_reasoning,
+          temporal_orientation: preparseResult.result.temporal_orientation,
+          user_mode_record_or_change: preparseResult.result.user_mode_record_or_change,
+          is_about_personal_patterns: preparseResult.result.is_about_personal_patterns,
+          is_storing_information: preparseResult.result.is_storing_information,
+          is_about_emotion: preparseResult.result.is_about_emotion,
+          user_intent_mode: preparseResult.result.user_intent_mode,
+          is_state_verb: preparseResult.result.is_state_verb,
+          has_concrete_result: preparseResult.result.has_concrete_result,
+          verb_has_completion: preparseResult.result.verb_has_completion,
+          references_current_state: preparseResult.result.references_current_state,
+          change_is_open_ended: preparseResult.result.change_is_open_ended,
+          has_restriction_boundary: preparseResult.result.has_restriction_boundary,
+          degree_shift_target: preparseResult.result.degree_shift_target,
+          // Structural parse (mini)
+          struct_verb: preparseResult.result.core_verb,
+          struct_has_verb: preparseResult.result.has_verb,
+          struct_object: preparseResult.result.struct_object,
+          struct_modifier: preparseResult.result.struct_modifier,
+          struct_modifier_target: preparseResult.result.struct_modifier_target,
+          struct_time_reference: preparseResult.result.struct_time_reference,
+          struct_time_binding: preparseResult.result.struct_time_binding,
+          struct_verb_type: preparseResult.result.is_state_verb
+            ? 'state'
+            : preparseResult.result.has_verb
+              ? 'action'
+              : 'none',
+          struct_intent_mode: preparseResult.result.user_intent_mode,
+          struct_completion: preparseResult.result.struct_completion,
+          struct_novelty: preparseResult.result.struct_novelty,
           latency_ms: preparseResult.latency_ms,
         });
 
         // Step 2: Apply heuristic mapping
-        const heuristicDecision = mapPreparseToClassification(preparseResult.result);
+        preparseResult.result.text_preview = (text || '').substring(0, 60);
+        console.log('[Scorer:DateIntent]', {
+          hasUserSelectedDate: body.hasUserSelectedDate || false,
+        });
+        const heuristicDecision = mapPreparseToClassification(preparseResult.result, {
+          hasUserSelectedDate: body.hasUserSelectedDate || false,
+        });
         const plausibleInterpretations = computePlausibleInterpretations(preparseResult.result);
 
         // Log heuristic decision
@@ -7001,12 +7774,17 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
           reason: heuristicDecision.reason,
           preparse_latency_ms: preparseLatency,
         });
+        console.log('[Phase1:DateIntent]', {
+          hasUserSelectedDate: body.hasUserSelectedDate || false,
+        });
 
         const phase1Result = await runPhase1Classification(
           text,
           env,
           preparseResult.result,
           heuristicDecision.reason,
+          heuristicDecision.scores || null,
+          body.hasUserSelectedDate || false,
         );
 
         const phase1Latency = phase1Result.latency_ms;
@@ -7066,235 +7844,141 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
       }
 
       // =========================
-      // === PHASE 0: MULTI-ENTITY DETECTION (v5 - FACT EXTRACTION) ===
-      // Three parallel fact-extraction prompts, deterministic decision logic
+      // === PHASE 0: MULTI-ENTITY DETECTION (v6 - SINGLE MINI CALL) ===
+      // One mini call handles both detection and extraction
       // =========================
       if (type === 'detect-multi') {
         const text = body.text || '';
         const t0 = Date.now();
 
-        // Prompt A - Emotional presence
-        const promptA = `Is this primarily emotional expression?
+        const gatePrompt = `You are determining whether a text drop contains ONE trackable item or MULTIPLE independently trackable items.
 
-Emotional expression: communicating how someone feels - their mood, internal state, or reflection on experiences.
+Default to SINGLE. Only return "multiple" when items are genuinely independent.
 
-"Primarily emotional" means the PURPOSE of this drop is to express or process feelings. Multiple feelings expressed together is still primarily emotional - the count doesn't matter, the purpose does.
+SINGLE means the items share a causal, explanatory, contextual, or goal relationship. One item explains, motivates, responds to, or is a sub-step of the other. They belong together as one tracked thing.
 
-Ask: "Is this drop ABOUT how someone feels, or ABOUT something they need to do?"
-
-Return JSON only:
-{
-  "has_emotion": true/false,
-  "emotion_is_primary": true/false
-}`;
-
-        // Prompt B - Standalone task check
-        const promptB = `Is there a task here that has NOTHING TO DO with the emotion?
-
-Default to NO standalone task. Only return true for CLEARLY UNRELATED tasks.
-
-A "standalone task" means:
-- Would exist even if the emotion wasn't there
-- Has a completely different PURPOSE than the emotion
-- Is NOT a response to, caused by, or coping with the emotion
-
-Ask: "Does the emotion EXPLAIN why this task exists?" If yes → not standalone.
-Ask: "Would removing the emotion change whether the user does this task?" If no → standalone.
-
-Return JSON only:
-{
-  "has_standalone_task": true/false,
-  "reason": "brief explanation"
-}`;
-
-        // Prompt C - Effort count
-        const promptC = `Count how many SEPARATELY COMPLETABLE items are in this text.
-
-The test: "Would the user finish and check off each item at a DIFFERENT time and place?"
-
-Count as ONE:
-- Sub-steps or prerequisites of a single task
-- A task paired with its context, reason, or cause
+Specific single-item patterns:
+- A task accompanied by its reason, cause, or context
+- An emotion paired with a coping response or reaction to that emotion
 - Alternatives or options for the same underlying need
+- A list of related items that form one errand, purchase, or activity
+- Multiple emotions or feelings expressed together
+- A habit or goal with planning details, schedule notes, or elaboration
+- Sub-steps or prerequisites that serve a single outcome
+- A reflection followed by further elaboration on the same thought
 
-The ONE rules take precedence. Only count as SEPARATE if NONE of the ONE rules apply.
+MULTIPLE means the items have no causal or contextual dependency. They happen to be mentioned together but would be tracked, completed, or resolved independently in different contexts at different times.
 
-Count as SEPARATE when ANY of these are true:
-- Different verbs acting on different objects
-- One is a one-time action, the other is ongoing or recurring
-- User would realistically check them off on different occasions
+Specific multi-item patterns:
+- Unrelated tasks with no shared cause or goal
+- An emotion plus a task that has nothing to do with that emotion
+- A one-time completable action alongside an ongoing recurring commitment
+- Actions spanning completely different life domains with no bridging relationship
 
-IMPORTANT: If you identify 2+ groupings, effort_count MUST match the number of groupings. Do not list separate groupings and then return effort_count: 1.
+THE CORE TEST: Does one item explain, cause, depend on, or serve the same goal as the other? If yes → SINGLE. If they are merely co-located in the same message → MULTIPLE.
 
 Return JSON only:
 {
-  "effort_count": 1,
-  "groupings": ["description"]
+  "result": "single" | "multiple",
+  "reasoning": "one sentence why"
 }
 
-or if separately completable:
-
+If "multiple", also include segments:
 {
-  "effort_count": 2,
-  "groupings": ["first item", "second item"]
-}`;
-
-        {
-          const [resultA, resultB, resultC] = await Promise.all([
-            aiClassify({
-              mode: 'realtime',
-              ...getProviders('nano', env),
-              env,
-              systemPrompt: promptA,
-              messages: [{ role: 'user', content: text.substring(0, 1000) }],
-              temperature: 0.1,
-              maxOutputTokens: 100,
-              endpoint: 'detect-multi-A',
-            }),
-            aiClassify({
-              mode: 'realtime',
-              ...getProviders('nano', env),
-              env,
-              systemPrompt: promptB,
-              messages: [{ role: 'user', content: text.substring(0, 1000) }],
-              temperature: 0.1,
-              maxOutputTokens: 150,
-              endpoint: 'detect-multi-B',
-            }),
-            aiClassify({
-              mode: 'realtime',
-              ...getProviders('nano', env),
-              env,
-              systemPrompt: promptC,
-              messages: [{ role: 'user', content: text.substring(0, 1000) }],
-              temperature: 0.1,
-              maxOutputTokens: 200,
-              endpoint: 'detect-multi-C',
-            }),
-          ]);
-
-          const a = resultA.parsed || { has_emotion: false, emotion_is_primary: false };
-          const b = resultB.parsed || { has_standalone_task: false };
-          const c = resultC.parsed || { effort_count: 1, groupings: [] };
-
-          console.log('[Phase0:A]', a);
-          console.log('[Phase0:B]', b);
-          console.log('[Phase0:C]', c);
-
-          // Decision logic
-          let isMulti = false;
-          let reason = '';
-
-          if (a.has_emotion && a.emotion_is_primary && !b.has_standalone_task) {
-            isMulti = false;
-            reason = 'emotional_primary';
-          } else if (a.has_emotion && b.has_standalone_task) {
-            isMulti = true;
-            reason = 'emotion_plus_task';
-          } else if (!a.has_emotion && c.effort_count === 1) {
-            isMulti = false;
-            reason = 'single_effort';
-          } else if (c.effort_count > 1) {
-            isMulti = true;
-            reason = 'multiple_efforts';
-          } else {
-            isMulti = false;
-            reason = 'default_single';
-          }
-
-          // If SINGLE, return immediately
-          if (!isMulti) {
-            const latency = Date.now() - t0;
-            console.log('[Phase0] SINGLE', { reason, latency_ms: latency });
-            return j({ is_multi: false, source: 'api', reason, latency_ms: latency });
-          }
-
-          // If MULTI, run Prompt D for extraction
-          const groupings = Array.isArray(c.groupings) ? c.groupings : [];
-          const promptD = `Extract segments from this text.
-
-These groupings were identified: ${JSON.stringify(groupings)}
-
-Extract the EXACT words from the user's input for each grouping.
-- Do NOT add words
-- Do NOT rephrase
-- Do NOT embellish
-- Use only what the user wrote
-
-Return JSON only:
-{
+  "result": "multiple",
+  "reasoning": "one sentence why",
   "segments": [
-    {"text": "exact user words for grouping 1", "likely_bucket": "todo"|"habit"|"log"},
-    {"text": "exact user words for grouping 2", "likely_bucket": "todo"|"habit"|"log"}
+    {"text": "exact user words for item 1", "context_from_rest": "brief note about what the other segments said"},
+    {"text": "exact user words for item 2", "context_from_rest": "brief note about what the other segments said"}
   ]
-}`;
+}
 
-          const resultD = await aiClassify({
-            mode: 'realtime',
-            ...getProviders('nano', env),
-            env,
-            systemPrompt: promptD,
-            messages: [{ role: 'user', content: text.substring(0, 1000) }],
-            temperature: 0.1,
-            maxOutputTokens: 300,
-            endpoint: 'detect-multi-D',
-          });
+Segment rules:
+- Use the user's EXACT words — do not rephrase, add, or embellish
+- Each segment must be understandable on its own — if a pronoun would dangle without its referent, include enough of the original wording to resolve it
+- context_from_rest summarizes what the OTHER segments contain, so downstream processing has awareness of the full drop`;
 
-          const d = resultD.parsed || { segments: [] };
+        const gateResult = await aiClassify({
+          mode: 'realtime',
+          ...getProviders('mini', env),
+          env,
+          systemPrompt: gatePrompt,
+          messages: [{ role: 'user', content: text.substring(0, 1000) }],
+          temperature: 0.1,
+          maxOutputTokens: 400,
+          endpoint: 'detect-multi-gate',
+        });
 
-          console.log('[Phase0:D]', d);
+        const gate = gateResult.parsed || { result: 'single', segments: [] };
 
-          const segments = Array.isArray(d.segments) ? d.segments : [];
+        console.log('[Phase0:Gate]', {
+          result: gate.result,
+          reasoning: gate.reasoning,
+          segment_count: gate.segments?.length || 0,
+        });
 
-          // Validate segments
-          const validatedSegments = segments
-            .map((seg) => ({
-              text: String(seg.text || '').trim(),
-              likely_bucket: ['todo', 'habit', 'log'].includes(seg.likely_bucket)
-                ? seg.likely_bucket
-                : 'todo',
-            }))
-            .filter((seg) => seg.text.length > 0);
-
-          if (validatedSegments.length < 2) {
-            const latency = Date.now() - t0;
-            console.log('[Phase0] Extraction gave <2 segments, falling back to SINGLE', {
-              latency_ms: latency,
-            });
-            return j({ is_multi: false, source: 'extraction-fallback', latency_ms: latency });
-          }
-
-          // Build summary from groupings
-          let summary = groupings.slice(0, 3).join(' + ') || 'Multiple items';
-          if (summary.length > 60) summary = summary.substring(0, 57) + '...';
-
-          // Determine dominant bucket
-          const bucketCounts = { todo: 0, habit: 0, log: 0 };
-          validatedSegments.forEach((s) => bucketCounts[s.likely_bucket]++);
-          const dominantBucket = Object.entries(bucketCounts).sort((a, b) => b[1] - a[1])[0][0];
-
+        if (gate.result !== 'multiple') {
           const latency = Date.now() - t0;
-          console.log('[Phase0:Multi]', {
-            reason,
-            item_count: validatedSegments.length,
-            summary,
-            dominant_bucket: dominantBucket,
-            latency_ms: latency,
-          });
-
+          console.log('[Phase0] SINGLE', { reason: gate.reasoning, latency_ms: latency });
           return j({
-            is_multi: true,
-            confidence: 0.85,
-            item_count: validatedSegments.length,
-            segments: validatedSegments,
-            summary,
-            dominant_bucket: dominantBucket,
-            dominant_subtype: dominantBucket === 'log' ? 'general' : null,
+            is_multi: false,
             source: 'api',
-            reason,
+            reason: gate.reasoning || 'single',
             latency_ms: latency,
           });
         }
+
+        const segments = Array.isArray(gate.segments) ? gate.segments : [];
+
+        const validatedSegments = segments
+          .map((seg) => ({
+            text: String(seg.text || '').trim(),
+            context_from_rest: String(seg.context_from_rest || '').trim(),
+            likely_bucket: ['todo', 'habit', 'log'].includes(seg.likely_bucket)
+              ? seg.likely_bucket
+              : 'todo',
+          }))
+          .filter((seg) => seg.text.length > 0);
+
+        if (validatedSegments.length < 2) {
+          const latency = Date.now() - t0;
+          console.log('[Phase0] Extraction gave <2 segments, falling back to SINGLE', {
+            latency_ms: latency,
+          });
+          return j({ is_multi: false, source: 'extraction-fallback', latency_ms: latency });
+        }
+
+        let summary = validatedSegments
+          .map((s) => s.text.substring(0, 30))
+          .slice(0, 3)
+          .join(' + ');
+        if (summary.length > 60) summary = summary.substring(0, 57) + '...';
+
+        const bucketCounts = { todo: 0, habit: 0, log: 0 };
+        validatedSegments.forEach((s) => bucketCounts[s.likely_bucket]++);
+        const dominantBucket = Object.entries(bucketCounts).sort((a, b) => b[1] - a[1])[0][0];
+
+        const latency = Date.now() - t0;
+        console.log('[Phase0:Multi]', {
+          reason: gate.reasoning,
+          item_count: validatedSegments.length,
+          summary,
+          dominant_bucket: dominantBucket,
+          latency_ms: latency,
+        });
+
+        return j({
+          is_multi: true,
+          confidence: 0.85,
+          item_count: validatedSegments.length,
+          segments: validatedSegments,
+          summary,
+          dominant_bucket: dominantBucket,
+          dominant_subtype: dominantBucket === 'log' ? 'general' : null,
+          source: 'api',
+          reason: gate.reasoning,
+          latency_ms: latency,
+        });
       }
 
       // =========================
@@ -7302,162 +7986,305 @@ Return JSON only:
       // =========================
       if (type === 'clarify-ambiguity') {
         const text = body.text || '';
+        const ambiguityType = body.ambiguityType || 'bucket';
         const ambiguityReason = body.ambiguityReason || '';
-        const interpretations = Array.isArray(body.plausibleInterpretations)
-          ? body.plausibleInterpretations
-          : null;
-
-        // --- Static fallback (used if no valid interpretations or AI fails) ---
-        const FALLBACK_OPTIONS = [
-          { id: 'opt_1', label: 'Something I need to do', bucket: 'todo', subtype: null },
-          {
-            id: 'opt_2',
-            label: 'A habit to build',
-            bucket: 'habit',
-            subtype: null,
-            habitSubtype: 'start_habit',
-          },
-          { id: 'opt_3', label: 'Just a note', bucket: 'log', subtype: 'general' },
-          { id: 'opt_4', label: 'An idea to explore', bucket: 'log', subtype: 'idea' },
-        ];
-        const FALLBACK_QUESTION = 'Quick check — what did you have in mind?';
-
         const t0 = Date.now();
 
-        // --- If no valid interpretations, use static fallback ---
-        if (!interpretations || interpretations.length < 2) {
-          const fallbackLatency = Date.now() - t0;
-          console.log('[Phase1.5] No valid interpretations, using static fallback', {
-            interpretations_count: interpretations ? interpretations.length : 0,
-            latency_ms: fallbackLatency,
-          });
+        // --- Type configs ---
+        const TYPE_CONFIGS = {
+          bucket: {
+            question: null,
+            options: [
+              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              { id: 'opt_2', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
+              { id: 'opt_3', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+          date_type: {
+            question: 'Is this already in the diary?',
+            options: [
+              {
+                id: 'opt_1',
+                label: '',
+                bucket: 'log',
+                subtype: 'event',
+                habitSubtype: null,
+                dateField: 'target_date',
+              },
+              {
+                id: 'opt_2',
+                label: '',
+                bucket: 'todo',
+                subtype: null,
+                habitSubtype: null,
+                dateField: 'target_date',
+              },
+              { id: 'opt_3', label: '', bucket: 'log', subtype: 'event', habitSubtype: null },
+            ],
+          },
+          vague_aspiration: {
+            question: 'What did you want to do with this?',
+            options: [
+              {
+                id: 'opt_1',
+                label: '',
+                bucket: 'habit',
+                subtype: null,
+                habitSubtype: 'start_habit',
+              },
+              { id: 'opt_2', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+          habit_or_todo: {
+            question: 'Is this a one-time thing or something you want to keep doing?',
+            options: [
+              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              {
+                id: 'opt_2',
+                label: '',
+                bucket: 'habit',
+                subtype: null,
+                habitSubtype: 'start_habit',
+              },
+            ],
+          },
+          action_or_memory: {
+            question: 'Do you need to do something for this?',
+            options: [
+              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              { id: 'opt_2', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+          commitment_level: {
+            question: 'Do you want to actually track this?',
+            options: [
+              {
+                id: 'opt_1',
+                label: '',
+                bucket: 'habit',
+                subtype: null,
+                habitSubtype: 'start_habit',
+              },
+              { id: 'opt_2', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+          emotional_or_action: {
+            question: 'Did you want to do something with this?',
+            options: [
+              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              { id: 'opt_2', label: '', bucket: 'log', subtype: 'journal', habitSubtype: null },
+            ],
+          },
+          social_plan: {
+            question: 'Is this happening or do you need to make it happen?',
+            options: [
+              { id: 'opt_1', label: '', bucket: 'log', subtype: 'event', habitSubtype: null },
+              { id: 'opt_2', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              { id: 'opt_3', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+          scope: {
+            question: 'How big is this?',
+            options: [
+              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              { id: 'opt_2', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
+              { id: 'opt_3', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
+            ],
+          },
+          idea_or_commitment: {
+            question: 'How real is this for you?',
+            options: [
+              { id: 'opt_1', label: '', bucket: 'todo', subtype: null, habitSubtype: null },
+              {
+                id: 'opt_2',
+                label: '',
+                bucket: 'habit',
+                subtype: null,
+                habitSubtype: 'start_habit',
+              },
+              { id: 'opt_3', label: '', bucket: 'log', subtype: 'idea', habitSubtype: null },
+              { id: 'opt_4', label: '', bucket: 'log', subtype: 'general', habitSubtype: null },
+            ],
+          },
+        };
 
-          return j({
-            success: true,
-            clarification_question: FALLBACK_QUESTION,
-            options: FALLBACK_OPTIONS,
-            latency_ms: fallbackLatency,
-          });
+        const FALLBACK_CONFIG = {
+          question: 'Quick check — what did you have in mind?',
+          options: [
+            {
+              id: 'opt_1',
+              label: 'Something to do',
+              bucket: 'todo',
+              subtype: null,
+              habitSubtype: null,
+            },
+            {
+              id: 'opt_2',
+              label: 'An idea to explore',
+              bucket: 'log',
+              subtype: 'idea',
+              habitSubtype: null,
+            },
+            {
+              id: 'opt_3',
+              label: 'Just a note',
+              bucket: 'log',
+              subtype: 'general',
+              habitSubtype: null,
+            },
+          ],
+        };
+
+        const FALLBACK_LABELS = {
+          bucket: ['Need to do something', 'Thinking about it', 'Just remembering'],
+          date_type: ["Yes, it's in the diary", 'No, need to sort it', 'Just the date'],
+          vague_aspiration: ['Make it a real goal', 'Just holding the thought'],
+          habit_or_todo: ['Do it once', 'Make it regular'],
+          action_or_memory: ['Need to act on this', "Just didn't want to forget"],
+          commitment_level: ['Hold me to it', 'Just noting it'],
+          emotional_or_action: ['Want to tackle it', 'Needed to say it'],
+          social_plan: ["It's already sorted", 'Need to make it happen', 'Just noting it'],
+          scope: ['One thing to finish', 'Bigger than that', 'Just an idea'],
+          idea_or_commitment: [
+            'Doing it — one-off',
+            'Doing it — ongoing',
+            'Still thinking',
+            'Just a thought',
+          ],
+        };
+
+        function getLabelRules(aType) {
+          switch (aType) {
+            case 'bucket':
+              return `The question already references what the user dropped — the labels must not repeat it. Write labels as if the noun was never mentioned. Generic is correct here. The user reads the question first, then the labels — the labels only need to describe the mode of intent, not the subject. For the todo option: something short that conveys there is an action to take. For the idea option: something short that conveys the user is considering something. For the general option: something short that conveys the user wants to remember something. Do not include the noun from the user's input in any label under any circumstances.`;
+            case 'date_type':
+              return `Labels must directly reflect the booking/scheduling status. First option conveys it is already arranged and in the calendar. Second option conveys the user still needs to book or sort it, and references the specific thing. Third option conveys they just want to hold the date mentally.`;
+            case 'vague_aspiration':
+              return `First option should convey making this into a real ongoing goal without projecting what the habit looks like. Second option conveys holding the intention loosely with no commitment.`;
+            case 'habit_or_todo':
+              return `First option conveys doing this as a one-time thing and completing it. Second option conveys doing this on an ongoing regular basis and making it part of their routine. Both should reference the specific activity from the input.`;
+            case 'action_or_memory':
+              return `First option conveys that yes, the user needs to take action on this — something needs to happen. Second option conveys they simply did not want to forget this fact or date.`;
+            case 'commitment_level':
+              return `First option conveys wanting to hold themselves accountable and track this properly. Second option conveys noting the intention without formal commitment. Reference the specific activity.`;
+            case 'emotional_or_action':
+              return `First option conveys wanting to do something about this situation. Second option conveys having needed to express or process this feeling. Tone must be warm — never clinical.`;
+            case 'social_plan':
+              return `First option conveys it is already arranged. Second option conveys the user needs to make it happen — generic, no assumption about specifics. Third option conveys they just want to remember it happened or will happen. Reference the person or occasion if named.`;
+            case 'scope':
+              return `First option conveys this is one discrete thing to complete. Second option conveys this is a bigger multi-part effort. Third option conveys it is an early-stage idea not yet committed to. Reference the specific thing from the input.`;
+            case 'idea_or_commitment':
+              return `First option conveys fully committing to do this as a one-time action. Second option conveys committing to this as an ongoing practice. Third option conveys still thinking it through. Fourth option conveys it was a passing thought with no real intent. Reference the specific activity.`;
+            default:
+              return `Labels should describe what the user might have meant in casual, natural language. Reference the specific content from the input.`;
+          }
         }
 
-        // --- Build interpretation list for prompt ---
-        const interpLines = interpretations
-          .map((interp, i) => {
-            const parts = [];
-            if (interp.bucket) parts.push(`bucket: ${interp.bucket}`);
-            if (interp.subtype) parts.push(`subtype: ${interp.subtype}`);
-            if (interp.habitSubtype) parts.push(`habitSubtype: ${interp.habitSubtype}`);
-            if (interp.dateField) parts.push(`dateField: ${interp.dateField}`);
-            return `${i + 1}. { ${parts.join(', ')} }`;
-          })
-          .join('\n');
+        // --- Resolve config ---
+        const config = TYPE_CONFIGS[ambiguityType] || FALLBACK_CONFIG;
+        const optionCount = config.options.length;
 
-        const clarificationSystemPrompt = `You are writing short labels for an ambiguous user input. The user typed something into a quick-capture box and we need to ask what they meant.
+        // --- Build system prompt ---
+        const questionInstruction =
+          ambiguityType === 'bucket'
+            ? `\nQUESTION RULES (return a "question" field in your JSON):\n- Under 8 words\n- Must reference the specific content of the user's input — use the actual noun, name, or subject they wrote\n- Neutral — does not assume any interpretation\n- Natural spoken language\n- Never use: track, log, note, habit, task, todo, capture, save, manage\n`
+            : '';
 
-You will receive the user's input, context, and a list of possible interpretations. Return exactly the same number of labels as interpretations, in the same order.
+        const jsonShape =
+          ambiguityType === 'bucket'
+            ? `{\n  "question": "...",\n  "labels": ["label for opt_1", "label for opt_2", ...]\n}`
+            : `{\n  "labels": ["label for opt_1", "label for opt_2", ...]\n}`;
 
-RULES FOR LABELS:
-- 4 words max, 30 chars max, casual fragments, no periods
-- NEVER reference app concepts in labels. Never say "to-do", "todo", "note", "list", "habit", "log", "reminder", "record", "session", "details", "add to my"
-- For todo interpretations: describe the most likely real-world action with a verb. What would this person actually DO? "Renew passport", "Find a therapist", "Do yoga", "Book dentist"
-- For log/general interpretations: use "Just remembering" or "Just a thought" — the user is noting something, not acting on it
-- For log/idea interpretations: use "Just an idea" or "Exploring it"
-- For log/journal interpretations: use "Just venting" or "Just processing"
-- For habit interpretations: describe what they'd do regularly. "Build a water habit", "Stop staying up late"
+        const clarifySystemPrompt = `You are generating labels for a clarification popup in a productivity app. The user dropped an ambiguous input and we need to show them options.
 
-RULES FOR QUESTION:
-- Under 6 words, simple, neutral
-- Do not assume any specific interpretation
-- "What about [thing]?" or "How do you mean?" work well
-- Never use "track", "log", "manage", "build", "plan" in the question
+GENERAL LABEL RULES — apply to all types:
+- 4 words max, 35 characters max
+- Casual, natural fragments — no formal language, no periods
+- Never use app terminology: do not say todo, habit, log, note, track, capture, save, manage, record, add to, create
+- Labels must feel like something a person would say, not a UI category name
+- Do not invent specific details that are not in the user's input
 
+TYPE-SPECIFIC RULES:
+${getLabelRules(ambiguityType)}
+${questionInstruction}
 Return JSON only:
-{
-  "question": "short question",
-  "labels": ["label 1", "label 2"]
-}`;
+${jsonShape}
+Labels array must have exactly ${optionCount} items.`;
 
-        const clarificationUserMessage = `USER INPUT: "${text.substring(0, 500)}"
-${ambiguityReason ? `CONTEXT: "${ambiguityReason}"` : ''}
-
-INTERPRETATIONS (return exactly ${interpretations.length} labels in the same order):
-${interpLines}`;
+        const clarifyUserMessage = `INPUT: "${text.substring(0, 500)}"\nTYPE: ${ambiguityType}${ambiguityReason ? `\nCONTEXT: ${ambiguityReason}` : ''}`;
 
         // --- Make AI call ---
-        const result = await aiClassify({
-          mode: 'realtime',
-          ...getProviders('nano', env),
-          env,
-          systemPrompt: clarificationSystemPrompt,
-          messages: [{ role: 'user', content: clarificationUserMessage }],
-          temperature: 0.3,
-          maxOutputTokens: 200,
-          endpoint: 'clarify-ambiguity',
-        });
+        let aiSuccess = false;
+        let finalOptions = config.options;
+        let finalQuestion = config.question || "What's going on here?";
 
-        const latency = Date.now() - t0;
-
-        if (result.parsed) {
-          const parsed = result.parsed;
-
-          // --- Validate response ---
-          const question =
-            typeof parsed.question === 'string' && parsed.question.trim()
-              ? parsed.question.trim().substring(0, 100)
-              : null;
-
-          const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
-
-          // Labels count must match interpretations count
-          if (
-            labels.length === interpretations.length &&
-            labels.every((l) => typeof l === 'string' && l.trim())
-          ) {
-            const options = interpretations.map((interp, i) => ({
-              id: `opt_${i + 1}`,
-              label: labels[i].trim().substring(0, 60),
-              bucket: interp.bucket || null,
-              subtype: interp.subtype || null,
-              habitSubtype: interp.habitSubtype || null,
-              dateField: interp.dateField || null,
-            }));
-
-            console.log('[Phase1.5] AI success', {
-              question,
-              options_count: options.length,
-              wasFallback: result.wasFallback,
-              fallbackReason: result.fallbackReason,
-              latency_ms: latency,
-            });
-
-            return j({
-              success: true,
-              clarification_question: question || FALLBACK_QUESTION,
-              options,
-              latency_ms: latency,
-            });
-          }
-
-          // Labels didn't match — fall through to fallback
-          console.log('[Phase1.5] AI labels mismatch, using fallback', {
-            expected: interpretations.length,
-            got: labels.length,
-            latency_ms: latency,
+        try {
+          const result = await aiClassify({
+            mode: 'realtime',
+            ...getProviders('mini', env),
+            env,
+            systemPrompt: clarifySystemPrompt,
+            messages: [{ role: 'user', content: clarifyUserMessage }],
+            temperature: 0.3,
+            maxOutputTokens: 150,
+            endpoint: 'clarify-ambiguity',
           });
+
+          if (result.parsed) {
+            const parsed = result.parsed;
+            const labels = Array.isArray(parsed.labels) ? parsed.labels : [];
+
+            if (
+              labels.length === optionCount &&
+              labels.every((l) => typeof l === 'string' && l.trim())
+            ) {
+              aiSuccess = true;
+              finalOptions = config.options.map((opt, i) => ({
+                ...opt,
+                label: labels[i].trim().substring(0, 60),
+              }));
+
+              if (
+                ambiguityType === 'bucket' &&
+                typeof parsed.question === 'string' &&
+                parsed.question.trim()
+              ) {
+                finalQuestion = parsed.question.trim().substring(0, 100);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[Phase1.5] AI call failed', { error: String(err) });
         }
 
-        // --- Fallback: static options ---
-        const fallbackLatency = Date.now() - t0;
-        console.log('[Phase1.5] Using static fallback', {
-          options_count: FALLBACK_OPTIONS.length,
-          latency_ms: fallbackLatency,
+        // --- Fallback labels if AI failed ---
+        if (!aiSuccess) {
+          const fallbackLabels = FALLBACK_LABELS[ambiguityType];
+          if (fallbackLabels && fallbackLabels.length === optionCount) {
+            finalOptions = config.options.map((opt, i) => ({
+              ...opt,
+              label: fallbackLabels[i],
+            }));
+          } else {
+            // Unknown type — use full fallback config
+            finalOptions = FALLBACK_CONFIG.options;
+            finalQuestion = FALLBACK_CONFIG.question;
+          }
+        }
+
+        const latency = Date.now() - t0;
+        console.log('[Phase1.5]', {
+          ambiguityType,
+          options_count: finalOptions.length,
+          ai_success: aiSuccess,
+          latency_ms: latency,
         });
 
         return j({
           success: true,
-          clarification_question: FALLBACK_QUESTION,
-          options: FALLBACK_OPTIONS,
-          latency_ms: fallbackLatency,
+          clarification_question: finalQuestion,
+          options: finalOptions,
+          latency_ms: latency,
         });
       }
 
@@ -7473,7 +8300,7 @@ ${interpLines}`;
         // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
         const currentDate =
           body.currentDate ||
-          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
+          new Intl.DateTimeFormat('en-CA', { timeZone: userTimezone }).format(new Date());
         const targetBucket = body.targetBucket || null;
 
         const contextString = `=== CONTEXT ===
@@ -7558,7 +8385,7 @@ If no date in input, all date fields are null.
 
 {
   "bucket": "todo" | "habit" | "log",
-  "subtype": "journal" | "idea" | "general" | null,
+  "subtype": "journal" | "idea" | "general" | "event" | null,
   "smart_title": "Title From Their Words",
   "confirmation_message": "4-8 words max 50 chars",
   "target_date": "YYYY-MM-DD" | null,
@@ -7609,7 +8436,7 @@ If no date in input, all date fields are null.
         // Validate subtype
         let subtype = null;
         if (bucket === 'log') {
-          const validSubtypes = ['general', 'idea', 'journal'];
+          const validSubtypes = ['general', 'idea', 'journal', 'event'];
           subtype =
             selectedSubtype && validSubtypes.includes(selectedSubtype)
               ? selectedSubtype
@@ -7686,7 +8513,17 @@ If no date in input, all date fields are null.
         const hasAttachments = body.hasAttachments || false;
         const heuristicHint = body.heuristicHint || null;
 
+        const currentDate = new Intl.DateTimeFormat('en-CA', {
+          timeZone: userTimezone,
+        }).format(new Date());
+        const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+          weekday: 'long',
+          timeZone: userTimezone,
+        }).format(new Date());
+
         const phase1Prompt = `You classify "mind drops" for Gremly, a productivity app. Your job is to understand the user's TRUE INTENT through semantic reasoning, not pattern matching.
+
+Today is ${currentDate} (${dayOfWeek}).
 
 === THE FOUR BUCKETS ===
 
@@ -8058,7 +8895,7 @@ Return ONLY valid JSON:
   "confidence": 0.0-1.0,
   "subtype": "journal" | "idea" | "general" | null,
   "habitSubtype": "start_habit" | "break_habit" | null,
-  "ambiguity_type": "bucket" | "action" | "date_type" | null,
+  "ambiguity_type": "bucket" | "date_type" | "vague_aspiration" | "habit_or_todo" | "action_or_memory" | "commitment_level" | "emotional_or_action" | "social_plan" | "scope" | "idea_or_commitment" | null,
   "ambiguity_reason": "Short reason why it's ambiguous" | null
 }
 
@@ -8196,7 +9033,18 @@ Rules:
         const ambiguityType =
           isAmbiguous &&
           typeof parsed.ambiguity_type === 'string' &&
-          ['bucket', 'action', 'date_type'].includes(parsed.ambiguity_type)
+          [
+            'bucket',
+            'date_type',
+            'vague_aspiration',
+            'habit_or_todo',
+            'action_or_memory',
+            'commitment_level',
+            'emotional_or_action',
+            'social_plan',
+            'scope',
+            'idea_or_commitment',
+          ].includes(parsed.ambiguity_type)
             ? parsed.ambiguity_type
             : null;
 
@@ -8258,7 +9106,17 @@ Rules:
               .slice(-5)
           : [];
 
+        const currentDate = new Intl.DateTimeFormat('en-CA', {
+          timeZone: userTimezone,
+        }).format(new Date());
+        const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+          weekday: 'long',
+          timeZone: userTimezone,
+        }).format(new Date());
+
         const phase15aSystemPrompt = `You generate a title and reaction for a productivity item that has already been classified.
+
+Today is ${currentDate} (${dayOfWeek}).
 
 === SMART TITLE (3-7 words) ===
 
@@ -8405,12 +9263,29 @@ Return ONLY valid JSON:
         const currentDate =
           body.currentDate ||
           body.today ||
-          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
-        const timezone = body.timezone || 'UTC';
-        const dayOfWeek = body.dayOfWeek || 'Sunday';
+          new Intl.DateTimeFormat('en-CA', { timeZone: userTimezone }).format(new Date());
+        const timezone = userTimezone;
+        // Compute day of week from the date string — never hardcode a fallback day.
+        // currentDate is already timezone-correct from the client's dateService.today().
+        const dayOfWeek =
+          body.dayOfWeek ||
+          (() => {
+            const [_y, _m, _d] = currentDate.split('-').map(Number);
+            return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
+              new Date(_y, _m - 1, _d).getDay()
+            ];
+          })();
+
+        // User-selected date from calendar prefill (may be null)
+        const userSelectedDate = body.userSelectedDate || null;
+        console.log('[PrefillDate:5-Worker] Received userSelectedDate:', userSelectedDate);
+        console.log('[Phase2:DateIntent]', {
+          hasUserSelectedDate: body.hasUserSelectedDate || false,
+          userSelectedDate: body.userSelectedDate || null,
+        });
 
         // Helper: Generate dynamic date examples based on actual current date
-        function generateDateExamples(dateStr, todayDayName) {
+        function generateDateExamples(dateStr, todayDayName, timezone) {
           const dayNames = [
             'Sunday',
             'Monday',
@@ -8428,12 +9303,12 @@ Return ONLY valid JSON:
             return '';
           }
 
-          // Parse date string
+          // Parse date string — use noon to avoid DST/timezone boundary shifts
           const [year, month, day] = dateStr.split('-').map(Number);
-          const baseDate = new Date(year, month - 1, day);
+          const baseMs = new Date(year, month - 1, day, 12, 0, 0).getTime();
 
           // Verify the parsed date matches the day of week
-          const parsedDayOfWeek = baseDate.getDay();
+          const parsedDayOfWeek = new Date(year, month - 1, day, 12, 0, 0).getDay();
           if (parsedDayOfWeek !== todayIndex) {
             console.log('[DateExamples:Mismatch]', {
               dateStr,
@@ -8446,16 +9321,15 @@ Return ONLY valid JSON:
 
           // Generate examples for each day of the week, ordered Sunday-Saturday
           const examples = [];
+          const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: timezone });
           for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
             const dayName = dayNames[dayIndex];
             // Calculate days until this day from today
             let daysUntil = dayIndex - todayIndex;
             if (daysUntil <= 0) daysUntil += 7; // Same day or past = next week
 
-            const targetDate = new Date(baseDate);
-            targetDate.setDate(baseDate.getDate() + daysUntil);
-            // eslint-disable-next-line no-restricted-syntax -- Cloudflare Worker doesn't have dateService
-            const targetDateStr = targetDate.toISOString().split('T')[0];
+            const targetMs = baseMs + daysUntil * 86400000;
+            const targetDateStr = fmt.format(new Date(targetMs));
 
             if (dayIndex === todayIndex) {
               examples.push(
@@ -8475,10 +9349,23 @@ Return ONLY valid JSON:
             examples: examples.join(' | '),
           });
 
+          // Verification log: check Friday is correct
+          const fridayIndex = 5;
+          let daysToFri = fridayIndex - todayIndex;
+          if (daysToFri <= 0) daysToFri += 7;
+          const fridayMs = baseMs + daysToFri * 86400000;
+          const computedFriday = fmt.format(new Date(fridayMs));
+          console.log('[DateExamples:Verify]', {
+            todayDate: dateStr,
+            computedFriday,
+            daysToFri,
+            timezone,
+          });
+
           return examples.join('\n');
         }
 
-        const dateExamples = generateDateExamples(currentDate, dayOfWeek);
+        const dateExamples = generateDateExamples(currentDate, dayOfWeek, timezone);
 
         const phase2Prompt = `You extract core, durable metadata for Gremly, a calm productivity app.
 Your goal is to capture only information that is intrinsic to the item.
@@ -8487,7 +9374,17 @@ Do NOT include planning or scheduling logic.
 === DATE CONTEXT ===
 Today is ${currentDate} (${dayOfWeek}).
 User timezone: ${timezone}.
-
+${
+  userSelectedDate
+    ? `
+=== USER-SELECTED DATE ===
+The user has explicitly chosen ${userSelectedDate} as the date for this item.
+Use ${userSelectedDate} as the target_date/scheduled_date UNLESS the input text explicitly mentions a DIFFERENT specific date.
+If the input contains NO date or time references, use ${userSelectedDate}.
+If the input says "today", still use ${currentDate}, not the selected date.
+`
+    : ''
+}
 === DATE CALCULATION RULES ===
 You MUST calculate dates correctly. Do the math.
 
@@ -8761,7 +9658,8 @@ Extract the event date in YYYY-MM-DD format.
 - "next tuesday" → resolve to actual date using date calculation rules above
 - "march 10th" → "2026-03-10"
 - "on the 15th" → current or next month's 15th
-- If no date mentioned → null
+- If no date mentioned but a USER-SELECTED DATE was provided in the date context above → use that date
+- If no date mentioned and no user-selected date → null
 
 3. end_date (for multi-day events)
 Extract end date in YYYY-MM-DD format for multi-day events.
@@ -8818,6 +9716,8 @@ focused, calm
 8. target_date (ALL LOG SUBTYPES)
 Extract ANY date mentioned, in YYYY-MM-DD format.
 This is when an event IS or HAPPENS — reference information.
+If no date mentioned but a USER-SELECTED DATE was provided in the date context above → use that date.
+If no date mentioned and no user-selected date → null.
 
 9. event_time (ALL LOG SUBTYPES)
 Extract time if mentioned, in HH:mm format (24-hour).
@@ -8911,6 +9811,12 @@ For LOGS (event):
   "event_time": "HH:mm" | null,
   "people": ["name1", "name2"] | []
 }`;
+
+        console.log('[Phase2:PromptCheck]', {
+          hasUserSelectedDateBlock: phase2Prompt.includes('USER-SELECTED DATE'),
+          userSelectedDate: userSelectedDate,
+          promptLength: phase2Prompt.length,
+        });
 
         const t0 = Date.now();
 
@@ -9139,9 +10045,16 @@ For LOGS (event):
         // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
         const currentDate =
           body.currentDate ||
-          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
-        const timezone = body.timezone || 'UTC';
-        const dayOfWeek = body.dayOfWeek || 'Sunday';
+          new Intl.DateTimeFormat('en-CA', { timeZone: userTimezone }).format(new Date());
+        const timezone = userTimezone;
+        const dayOfWeek =
+          body.dayOfWeek ||
+          (() => {
+            const [_y, _m, _d] = currentDate.split('-').map(Number);
+            return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][
+              new Date(_y, _m - 1, _d).getDay()
+            ];
+          })();
 
         // Skip buckets that should never get reminders
         if (bucket === 'log' && subtype !== 'event') {
@@ -9273,7 +10186,7 @@ Return ONLY valid JSON, no explanation:
 
       if (type === 'journal-analyze') {
         const entries = body.entries || [];
-        const timezone = body.timezone || 'UTC';
+        const timezone = userTimezone;
 
         if (!Array.isArray(entries) || entries.length === 0) {
           return j({ error: 'no_entries', detail: 'No journal entries provided' }, 200);
@@ -9566,25 +10479,30 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             let spaceUserProfile = null;
             let cachedDomains = [];
             let spaceEntities = null;
+            let spaceTodayActivity = null;
             if (body.userId) {
               try {
-                const [chatContext, profile, domains, entities] = await Promise.all([
+                const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
                   buildChatContext(
                     body.userId,
                     'space',
                     {
                       spaceId: body.spaceId,
+                      timezone: userTimezone,
+                      currentChatId: body.chatId || null,
                     },
                     env,
                   ),
                   getUserProfile(body.userId, env),
                   getCachedDomainNames(body.userId, env),
                   fetchSpaceEntities(body.userId, body.spaceId, env),
+                  buildTodayActivity(body.userId, userTimezone, env),
                 ]);
                 spaceSessionContextStr = chatContext;
                 spaceUserProfile = profile;
                 cachedDomains = domains;
                 spaceEntities = entities;
+                spaceTodayActivity = todayAct;
                 if (spaceSessionContextStr || spaceUserProfile) {
                   console.log('[SpaceChat] Context loaded', {
                     userId: body.userId.slice(0, 8),
@@ -9635,7 +10553,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               body.accountCreatedAt,
               spaceSessionContextStr,
               spaceUserProfile?.profileText,
-              body.timezone || 'UTC',
+              userTimezone,
+              spaceTodayActivity,
             );
 
             // === BUILD MESSAGES ===
@@ -9669,7 +10588,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             };
 
             if (searchPolicy.attachTool) {
-              streamConfig.tools = [WEB_SEARCH_TOOL];
+              streamConfig.tools = [makeWebSearchTool(userTimezone)];
             }
 
             const t0 = Date.now();
@@ -10118,7 +11037,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       body.spaceName || null,
                       previousSummary,
                       env,
-                      body.timezone || 'UTC',
+                      userTimezone,
                     );
                   } catch (err) {
                     console.warn('[SpaceChat] Running summary failed:', err.message);
@@ -10230,16 +11149,24 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             let sessionContextStr = '';
             let userProfile = null;
             let cachedDomains = [];
+            let generalTodayActivity = null;
             if (body.userId) {
               try {
-                const [chatContext, profile, domains] = await Promise.all([
-                  buildChatContext(body.userId, 'general', {}, env),
+                const [chatContext, profile, domains, todayAct] = await Promise.all([
+                  buildChatContext(
+                    body.userId,
+                    'general',
+                    { timezone: userTimezone, currentChatId: body.chatId || null },
+                    env,
+                  ),
                   getUserProfile(body.userId, env),
                   getCachedDomainNames(body.userId, env),
+                  buildTodayActivity(body.userId, userTimezone, env),
                 ]);
                 sessionContextStr = chatContext;
                 userProfile = profile;
                 cachedDomains = domains;
+                generalTodayActivity = todayAct;
                 if (sessionContextStr || userProfile) {
                   console.log('[GeneralChat] Context loaded', {
                     userId: body.userId.slice(0, 8),
@@ -10283,7 +11210,8 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               body.accountCreatedAt,
               sessionContextStr,
               userProfile?.profileText,
-              body.timezone || 'UTC',
+              userTimezone,
+              generalTodayActivity,
             );
 
             // Build messages with URL context if present
@@ -10307,7 +11235,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               thinkingLevel: genConfig.thinkingLevel,
             };
             if (searchPolicy.attachTool) {
-              streamConfig.tools = [WEB_SEARCH_TOOL];
+              streamConfig.tools = [makeWebSearchTool(userTimezone)];
             }
 
             const t0 = Date.now();
@@ -10629,7 +11557,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       null,
                       previousSummary,
                       env,
-                      body.timezone || 'UTC',
+                      userTimezone,
                     );
                   } catch (err) {
                     console.warn('[GeneralChat] Summary failed:', err.message);
@@ -10685,7 +11613,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric',
-                      timeZone: body.timezone || 'UTC',
+                      timeZone: userTimezone,
                     }).format(new Date());
                     const extractionPromptText = `Today is ${todayStr}.
 
@@ -10700,7 +11628,15 @@ Extract ONLY items where the user showed clear commitment or intent:
 TODO: Actions the user committed to (concrete verb + object). NOT AI suggestions the user didn't affirm.
 HABIT: Only with explicit frequency or stop/quit intent + trackable behavior.
 NOTE: Ideas the user was excited about, decisions reached, recommendations they engaged with.
+EVENT: Upcoming dates, deadlines, exams, appointments, trips, or time-bound milestones the user mentioned. Extract these even without exact dates. Capturing that something is coming up is valuable context for other conversations.
 DO NOT EXTRACT: explorations, emotional processing, unaffirmed AI suggestions, small talk.
+
+TEMPORAL METADATA (EVENT items only — set all to null for todo/habit/note):
+- date_text: The user's exact words about timing, preserved verbatim (e.g. "next Thursday", "sometime in June", "before the end of the semester")
+- resolved_date: Best estimate as YYYY-MM-DD. Today is ${todayStr}. For vague references, pick the midpoint of the likely range.
+- date_confidence: "exact" if user gave a specific date, "approximate" if they gave a rough timeframe, "unknown" if mentioned without any timing
+- date_range_start: Earliest plausible YYYY-MM-DD
+- date_range_end: Latest plausible YYYY-MM-DD
 
 WRITING STYLE for title and body fields:
 - Title should be a short action phrase: "Book restaurant for Saturday" not "Restaurant Booking Task"
@@ -10710,7 +11646,7 @@ WRITING STYLE for title and body fields:
 
 Also generate a chat title (3-6 words) and a one-sentence summary that covers the ENTIRE conversation — not just the most recent messages. Use the CONVERSATION CONTEXT above to include earlier topics. The summary should capture the full arc of what was discussed.
 Return ONLY valid JSON:
-{"extractions":[{"id":"<8chars>","type":"todo|habit|note","title":"...","body":"...","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100}],"chat_summary":{"title":"...","summary":"..."}}`;
+{"extractions":[{"id":"<8chars>","type":"todo|habit|note|event","title":"...","body":"...","due_date":"YYYY-MM-DD or null","frequency":"string or null","confidence":0-100,"date_text":"string or null","resolved_date":"YYYY-MM-DD or null","date_confidence":"exact|approximate|unknown or null","date_range_start":"YYYY-MM-DD or null","date_range_end":"YYYY-MM-DD or null"}],"chat_summary":{"title":"...","summary":"..."}}`;
 
                     let extractResult = null;
                     try {
@@ -10756,6 +11692,105 @@ Return ONLY valid JSON:
                         items: (extractResult.extractions || []).length,
                         title: extractResult.chat_summary?.title,
                       });
+
+                      // ── Persist event extractions to user_temporal_anchors (fire-and-forget) ──
+                      try {
+                        const eventExtractions = (extractResult.extractions || []).filter(
+                          (e) => e.type === 'event' && e.title,
+                        );
+                        if (eventExtractions.length > 0 && body.userId) {
+                          const confidenceRank = { exact: 3, approximate: 2, unknown: 1 };
+                          const supaHeaders = {
+                            apikey: env.SUPABASE_SERVICE_KEY,
+                            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                            'Content-Type': 'application/json',
+                            Prefer: 'return=minimal',
+                          };
+
+                          // Fetch existing active anchors for dedup
+                          const existingRes = await fetch(
+                            `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?user_id=eq.${body.userId}&status=eq.active&select=id,title,date_confidence`,
+                            { headers: supaHeaders },
+                          );
+                          const existingAnchors = existingRes.ok ? await existingRes.json() : [];
+
+                          let savedCount = 0;
+                          for (const evt of eventExtractions) {
+                            const evtTitleLower = evt.title.toLowerCase();
+
+                            // Find duplicate: either title contains the other (case-insensitive)
+                            const match = existingAnchors.find((a) => {
+                              const aTitleLower = a.title.toLowerCase();
+                              return (
+                                aTitleLower.includes(evtTitleLower) ||
+                                evtTitleLower.includes(aTitleLower)
+                              );
+                            });
+
+                            if (match) {
+                              // Only update if new extraction has higher confidence
+                              const existingRank = confidenceRank[match.date_confidence] || 0;
+                              const newRank = confidenceRank[evt.date_confidence] || 0;
+                              if (newRank > existingRank) {
+                                const patchBody = {
+                                  resolved_date: evt.resolved_date || null,
+                                  date_confidence: evt.date_confidence || 'unknown',
+                                  date_range_start: evt.date_range_start || null,
+                                  date_range_end: evt.date_range_end || null,
+                                  date_text: evt.date_text || null,
+                                  updated_at: new Date().toISOString(),
+                                };
+                                if (evt.date_confidence === 'exact') {
+                                  patchBody.resolved_at = new Date().toISOString();
+                                }
+                                await fetch(
+                                  `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?id=eq.${match.id}`,
+                                  {
+                                    method: 'PATCH',
+                                    headers: supaHeaders,
+                                    body: JSON.stringify(patchBody),
+                                  },
+                                );
+                                savedCount++;
+                              }
+                            } else {
+                              // Insert new anchor
+                              const nowIso = new Date().toISOString();
+                              await fetch(`${env.SUPABASE_URL}/rest/v1/user_temporal_anchors`, {
+                                method: 'POST',
+                                headers: supaHeaders,
+                                body: JSON.stringify({
+                                  user_id: body.userId,
+                                  title: evt.title,
+                                  description: evt.body || null,
+                                  category: 'event',
+                                  date_text: evt.date_text || null,
+                                  resolved_date: evt.resolved_date || null,
+                                  date_confidence: evt.date_confidence || 'unknown',
+                                  date_range_start: evt.date_range_start || null,
+                                  date_range_end: evt.date_range_end || null,
+                                  source_chat_id: body.chatId || null,
+                                  source_message: lastUserMsg ? lastUserMsg.slice(0, 500) : null,
+                                  space_id: body.spaceId || null,
+                                  created_at: nowIso,
+                                  updated_at: nowIso,
+                                }),
+                              });
+                              savedCount++;
+                            }
+                          }
+                          if (savedCount > 0) {
+                            console.log('[GeneralChat] Temporal anchors saved', {
+                              count: savedCount,
+                            });
+                          }
+                        }
+                      } catch (anchorErr) {
+                        console.warn(
+                          '[GeneralChat] Temporal anchor persistence failed:',
+                          anchorErr.message,
+                        );
+                      }
                     }
                   } catch (err) {
                     console.warn('[GeneralChat] Extraction failed:', err.message);
@@ -10816,25 +11851,30 @@ Return ONLY valid JSON:
         let userProfile = null;
         let cachedDomains = [];
         let spaceEntities = null;
+        let spaceTodayActivity = null;
         if (body.userId) {
           try {
-            const [chatContext, profile, domains, entities] = await Promise.all([
+            const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
               buildChatContext(
                 body.userId,
                 'space',
                 {
                   spaceId: body.spaceId,
+                  timezone: userTimezone,
+                  currentChatId: body.chatId || null,
                 },
                 env,
               ),
               getUserProfile(body.userId, env),
               getCachedDomainNames(body.userId, env),
               fetchSpaceEntities(body.userId, body.spaceId, env),
+              buildTodayActivity(body.userId, userTimezone, env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
             cachedDomains = domains;
             spaceEntities = entities;
+            spaceTodayActivity = todayAct;
             if (sessionContextStr || userProfile) {
               console.log('[SpaceChat:NonStreaming] Context loaded', {
                 userId: body.userId.slice(0, 8),
@@ -10886,7 +11926,8 @@ Return ONLY valid JSON:
           body.accountCreatedAt,
           sessionContextStr,
           userProfile?.profileText,
-          body.timezone || 'UTC',
+          userTimezone,
+          spaceTodayActivity,
         );
 
         // === BUILD MESSAGES: Replace old system prompt with triage-built one ===
@@ -10904,7 +11945,7 @@ Return ONLY valid JSON:
         };
 
         if (searchPolicy.attachTool) {
-          nonStreamConfig.tools = [WEB_SEARCH_TOOL];
+          nonStreamConfig.tools = [makeWebSearchTool(userTimezone)];
         }
 
         const geminiResult = await geminiGenerate(
@@ -11023,7 +12064,7 @@ Return ONLY valid JSON:
                 body.spaceName || null,
                 previousSummary,
                 env,
-                body.timezone || 'UTC',
+                userTimezone,
               );
             } catch (err) {
               console.warn('[SpaceChat:NonStreaming] Running summary failed:', err.message);

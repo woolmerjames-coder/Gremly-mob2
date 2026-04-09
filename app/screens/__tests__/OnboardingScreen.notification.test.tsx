@@ -33,10 +33,41 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
   useGremlyStore: jest.fn((selector) => {
     const state = {
       markOnboardingComplete: jest.fn().mockResolvedValue(undefined),
+      gremlyColor: 'forest',
+      setGremlyColor: jest.fn(),
+      setUserProfile: jest.fn(),
     };
     return selector(state);
   }),
 }));
+
+// Mock gremlyPalettes
+jest.mock('../../../lib/constants/gremlyPalettes', () => ({
+  GREMLY_PALETTES: [
+    {
+      id: 'forest',
+      name: 'Forest',
+      hex: { dark: '#285441', mid: '#5f966e', cream: '#f0e9bd' },
+      colors: {
+        dark: [0.157, 0.329, 0.255],
+        mid1: [0.373, 0.588, 0.431],
+        mid2: [0.318, 0.51, 0.365],
+        cream: [0.941, 0.914, 0.741],
+      },
+    },
+  ],
+  getPaletteById: jest.fn(() => ({ id: 'forest', name: 'Forest' })),
+  recolorLottieJson: jest.fn((json: any) => json),
+}));
+
+// Mock MascotLottie
+jest.mock('../../components/MascotLottie', () => {
+  const { View } = require('react-native');
+  return {
+    __esModule: true,
+    default: (props: any) => <View testID="mock-mascot-lottie" {...props} />,
+  };
+});
 
 // Mock FlatList to avoid scrollToIndex issues
 jest.mock('react-native/Libraries/Lists/FlatList', () => {
@@ -80,17 +111,13 @@ describe('OnboardingScreen', () => {
     it('renders getting started screen title', () => {
       const { getByText } = render(<OnboardingScreen />);
 
-      expect(getByText('Where do we start?')).toBeTruthy();
+      expect(getByText('Choose your Gremly')).toBeTruthy();
     });
 
     it('renders getting started screen body and subtext', () => {
       const { getByText } = render(<OnboardingScreen />);
 
-      expect(
-        getByText(
-          "Just drop whatever's on your mind. Tasks, thoughts, feelings. I'll figure out the rest.",
-        ),
-      ).toBeTruthy();
+      expect(getByText('Feed me your thoughts every day')).toBeTruthy();
       expect(getByText('Tap any card to chat with me along the way.')).toBeTruthy();
     });
   });

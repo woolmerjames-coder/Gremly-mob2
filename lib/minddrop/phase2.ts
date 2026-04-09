@@ -9,7 +9,7 @@ import type { MindDropBucket, LogSubtype } from './types';
 import { FEATURE_FLAGS } from '../config/featureFlags';
 import { env, getEnv } from '../env';
 import { getDateService } from '../date/DateService';
-import { validateEnrichmentResult } from './phase2Validation';
+import { validateEnrichmentResult, verifyAIDate } from './phase2Validation';
 import { eventBus } from '../events/EventBus';
 import { callEnrichPhase2Streaming, Phase2EnrichmentResult } from '../cortex/CortexClient';
 import { parseFrequencyString } from '../habits/frequencyUtils';
@@ -36,6 +36,7 @@ export interface Phase2Result {
   targetDate: string | null; // When something IS or is DUE (event/deadline)
   scheduledDate: string | null; // When user will DO the work
   dateTypeAmbiguous: boolean; // AI couldn't determine date meaning
+  dateConfidence: 'verified' | 'llm_only' | 'chrono_override' | null; // chrono-node verification result
 }
 
 // --- Constants ---
@@ -182,6 +183,7 @@ async function callEnrichAPI(
       targetDate: json.target_date ?? null,
       scheduledDate: json.scheduled_date ?? null,
       dateTypeAmbiguous: json.date_type_ambiguous === true,
+      dateConfidence: null, // Set later by verifyAIDate
     };
   } catch (err) {
     clearTimeout(timeout);
@@ -307,6 +309,37 @@ export async function runPhase2(
       }
       mark('validation_complete');
 
+      // 6b. Verify AI dates against chrono-node
+      const currentDate = getDateService().today();
+      const dateFields = [
+        { key: 'targetDate', value: result.targetDate },
+        { key: 'scheduledDate', value: result.scheduledDate },
+        { key: 'extractedDate', value: result.extractedDate },
+        { key: 'extractedStartDate', value: result.extractedStartDate },
+      ] as const;
+
+      const confidencePriority: Record<string, number> = {
+        verified: 0,
+        llm_only: 1,
+        chrono_override: 2,
+      };
+      let worstConfidence: 'verified' | 'llm_only' | 'chrono_override' | null = null;
+
+      for (const field of dateFields) {
+        if (field.value) {
+          const verification = verifyAIDate(text, field.value, currentDate);
+          (result as any)[field.key] = verification.resolvedDate;
+          if (
+            worstConfidence === null ||
+            confidencePriority[verification.confidence] > confidencePriority[worstConfidence]
+          ) {
+            worstConfidence = verification.confidence;
+          }
+        }
+      }
+      result.dateConfidence = worstConfidence;
+      mark('date_verification_complete');
+
       // Build update payload based on bucket type
       // Merge people[] into tags as @name format for persistence
       const peopleTags = (result.people || [])
@@ -361,6 +394,7 @@ export async function runPhase2(
           ...(result.dateTypeAmbiguous !== undefined
             ? { date_type_ambiguous: result.dateTypeAmbiguous }
             : {}),
+          ...(result.dateConfidence ? { date_confidence: result.dateConfidence } : {}),
         },
         tags: allTags.length > 0 ? allTags : undefined,
       };
@@ -504,6 +538,7 @@ export async function runPhase2(
         targetDate: result.targetDate ?? null,
         scheduledDate: result.scheduledDate ?? null,
         dateTypeAmbiguous: result.dateTypeAmbiguous ?? false,
+        dateConfidence: result.dateConfidence ?? null,
       });
       mark('event_emitted');
 

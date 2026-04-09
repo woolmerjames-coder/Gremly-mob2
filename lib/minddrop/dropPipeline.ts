@@ -117,6 +117,13 @@ function syncDropToZustand(drop: QueuedDrop): void {
   const exists = useGremlyStore.getState().pendingDrops.has(drop.localId);
   if (!exists) {
     // Drop was already promoted or removed — skip Zustand update
+    console.warn(
+      '[Pipeline] syncDropToZustand: pending drop missing from store — card may appear stuck',
+      {
+        localId: drop.localId,
+        phase: drop.phase || 'unknown',
+      },
+    );
     return;
   }
 
@@ -310,6 +317,14 @@ async function processOne(drop: QueuedDrop): Promise<void> {
       // Terminal handler
       if (updated.phase === 'complete') {
         await handleComplete(updated);
+      }
+
+      // Immediately process next phase of same drop — no tick delay.
+      // Each phase still has its own timeout and error boundary via the
+      // recursive processOne call. The tick interval is now only a fallback
+      // sweep for retries, crash recovery, and multi_awaiting checks.
+      if (updated.phase !== 'complete' && updated.phase !== 'failed') {
+        await processOne(updated);
       }
     } else {
       // Phase didn't change (e.g. multi_awaiting with children still processing)

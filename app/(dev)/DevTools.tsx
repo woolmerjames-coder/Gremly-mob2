@@ -111,6 +111,23 @@ export default function DevTools() {
           </View>
         </View>
 
+        {/* Navigation */}
+        <View style={styles.section}>
+          <Text variant="title" style={styles.sectionTitle}>
+            Navigation
+          </Text>
+          <Text variant="subtle" style={styles.hint}>
+            Navigate to specific screens for testing
+          </Text>
+
+          <Button
+            label="Show Paywall"
+            onPress={() => (navigation as any).navigate('TrialEndPaywall')}
+            testID="show-paywall-button"
+            style={styles.button}
+          />
+        </View>
+
         {/* Age-Up Celebration */}
         <View style={styles.section}>
           <Text variant="title" style={styles.sectionTitle}>

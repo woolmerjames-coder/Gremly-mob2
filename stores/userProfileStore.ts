@@ -4,9 +4,22 @@ import { supabase } from '../lib/supabase/client';
 interface UserProfile {
   profileText: string | null;
   facts: string[];
+  identity: IdentityData;
   generatedAt: string | null;
   relationshipStartedAt: string | null;
   overridesApplied: number;
+}
+
+interface IdentityData {
+  name?: string;
+  gender?: string;
+  pronouns?: string;
+  age?: string;
+  partner?: string;
+  location?: string;
+  conditions?: string[];
+  extracted_at?: string;
+  source?: string;
 }
 
 interface Override {
@@ -27,6 +40,7 @@ interface UserProfileStore {
   fetchProfile: () => Promise<void>;
   addFact: (fact: string) => Promise<void>;
   removeFact: (fact: string) => Promise<void>;
+  editIdentityFact: (field: string, value: string | string[] | null) => Promise<void>;
   forgetEverything: () => Promise<void>;
   clearError: () => void;
 }
@@ -50,7 +64,7 @@ export const useUserProfileStore = create<UserProfileStore>((set, get) => ({
       const [profileRes, overridesRes] = await Promise.all([
         supabase
           .from('user_profiles')
-          .select('profile_text, signals, generated_at, relationship_started_at')
+          .select('profile_text, signals, identity, generated_at, relationship_started_at')
           .eq('user_id', user.id)
           .single(),
         supabase
@@ -64,6 +78,7 @@ export const useUserProfileStore = create<UserProfileStore>((set, get) => ({
       const profile: UserProfile = {
         profileText: profileRes.data?.profile_text || null,
         facts: profileRes.data?.signals?.facts || [],
+        identity: profileRes.data?.identity || {},
         generatedAt: profileRes.data?.generated_at || null,
         relationshipStartedAt: profileRes.data?.relationship_started_at || null,
         overridesApplied: profileRes.data?.signals?.overrides_applied || 0,
@@ -186,6 +201,47 @@ export const useUserProfileStore = create<UserProfileStore>((set, get) => ({
     } catch (err) {
       console.error('[UserProfileStore] Remove fact error:', err);
       set({ error: 'Failed to remove fact', isLoading: false });
+    }
+  },
+
+  editIdentityFact: async (field: string, value: string | string[] | null) => {
+    set({ isLoading: true, error: null });
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // Read current identity, update field
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('identity')
+        .eq('user_id', user.id)
+        .single();
+
+      const updatedIdentity = { ...(profile?.identity || {}), [field]: value };
+
+      // Remove null/empty fields
+      if (value === null || value === '') {
+        delete updatedIdentity[field];
+      }
+
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ identity: updatedIdentity })
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      // Optimistic update
+      set((state) => ({
+        profile: state.profile ? { ...state.profile, identity: updatedIdentity } : null,
+        isLoading: false,
+      }));
+    } catch (err) {
+      console.error('[UserProfileStore] Edit identity error:', err);
+      set({ error: 'Failed to update identity', isLoading: false });
     }
   },
 

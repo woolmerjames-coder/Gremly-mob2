@@ -312,6 +312,13 @@ function sanitizeForSupabase(
     }
   }
 
+  // Mark user-set dates with date_confidence: 'user_set' (unless already set by AI/dropSync)
+  const dateFields = ['due_day', 'due_date', 'target_date', 'scheduled_date', 'start_date', 'date'];
+  const hasDateField = dateFields.some((f) => f in sanitized && sanitized[f] != null);
+  if (hasDateField && !('date_confidence' in sanitized)) {
+    sanitized.date_confidence = 'user_set';
+  }
+
   return sanitized;
 }
 
@@ -597,6 +604,13 @@ interface GremlyState {
   pendingGraduation: boolean;
   /** Whether the post-graduation speech has already fired */
   postGraduationMessageShown: boolean;
+  /** Active Lottie color palette id */
+  gremlyColor: string;
+  setGremlyColor: (colorId: string) => Promise<void>;
+  /** User profile (stored in cortex_preferences.identity JSONB) */
+  userName: string | null;
+  userPronouns: string | null;
+  setUserProfile: (name: string | null, pronouns: string | null) => Promise<void>;
   /** Day 1 drop sequence: 0=not started, 1-5=in progress, 6=done */
   trainingDropStep: number;
   /** Data readiness score 0-100, drives graduation */
@@ -1126,6 +1140,9 @@ const initialState = {
   graduatedAt: null as string | null,
   pendingGraduation: false,
   postGraduationMessageShown: false,
+  gremlyColor: 'forest',
+  userName: null as string | null,
+  userPronouns: null as string | null,
   trainingDropStep: 0,
   trainingReadiness: 0,
   hasSeenGaugeExplanation: false,
@@ -1264,7 +1281,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1316,6 +1333,14 @@ export const useGremlyStore = create<GremlyState>()(
               console.warn('[GremlyStore] sweep events count error:', sweepEventsCountRes.error);
             if (weeklySummariesRes.error)
               console.warn('[GremlyStore] weekly_summaries fetch error:', weeklySummariesRes.error);
+
+            // Fetch identity from user_profiles
+            const { data: userProfile } = await supabase
+              .from('user_profiles')
+              .select('identity')
+              .eq('user_id', userId)
+              .maybeSingle();
+            const profileIdentity = (userProfile?.identity as Record<string, unknown>) ?? {};
 
             // Extract sweep preferences (handle columns that may not exist in TypeScript types)
             const cortexPrefs = cortexPrefsRes.data as Record<string, unknown> | null;
@@ -1442,6 +1467,9 @@ export const useGremlyStore = create<GremlyState>()(
                 (cortexPrefs?.has_seen_entity_chat_highlight as boolean) ?? false,
               hasSeenTrainingMeterAutoOpen:
                 (cortexPrefs?.has_seen_training_meter_auto_open as boolean) ?? false,
+              gremlyColor: (cortexPrefs?.gremly_color as string) ?? 'forest',
+              userName: (profileIdentity?.name as string) ?? null,
+              userPronouns: (profileIdentity?.pronouns as string) ?? null,
               userTimezone: timezone,
               isLoading: false,
               isInitialized: true,
@@ -1612,6 +1640,9 @@ export const useGremlyStore = create<GremlyState>()(
             graduatedAt: null,
             pendingGraduation: false,
             postGraduationMessageShown: false,
+            gremlyColor: 'forest',
+            userName: null,
+            userPronouns: null,
             trainingDropStep: 0,
             trainingReadiness: 0,
             hasSeenGaugeExplanation: false,
@@ -1867,6 +1898,41 @@ export const useGremlyStore = create<GremlyState>()(
 
         markAgeCelebrationShown: () => {
           set({ todayAgeCelebrationShownAt: nowTimestamp() });
+        },
+
+        setGremlyColor: async (colorId: string) => {
+          const userId = get().userId;
+          if (!userId) return;
+
+          set({ gremlyColor: colorId });
+
+          const { error } = await supabase
+            .from('cortex_preferences')
+            .upsert(
+              { owner_id: userId, gremly_color: colorId, updated_at: nowTimestamp() },
+              { onConflict: 'owner_id' },
+            );
+
+          if (error) {
+            console.error('[GremlyStore] setGremlyColor failed:', error);
+          }
+        },
+
+        setUserProfile: async (name, pronouns) => {
+          set({ userName: name, userPronouns: pronouns });
+          const userId = get().userId;
+          if (!userId) return;
+          const { data: existing } = await supabase
+            .from('user_profiles')
+            .select('identity')
+            .eq('user_id', userId)
+            .maybeSingle();
+          const currentIdentity = (existing?.identity as Record<string, unknown>) ?? {};
+          const merged = { ...currentIdentity, name, pronouns, source: 'onboarding' };
+          const { error } = await supabase
+            .from('user_profiles')
+            .upsert({ user_id: userId, identity: merged }, { onConflict: 'user_id' });
+          if (error) console.error('[GremlyStore] setUserProfile failed:', error);
         },
 
         setDayBoundaryHour: async (hour: number) => {
@@ -2599,7 +2665,6 @@ export const useGremlyStore = create<GremlyState>()(
           const payload = {
             ...sanitized,
             owner_id: userId,
-            created_at: now,
             updated_at: now,
           };
 
@@ -2870,7 +2935,6 @@ export const useGremlyStore = create<GremlyState>()(
             ai_placed: sanitized.ai_placed ?? false,
             // Always set these
             owner_id: userId,
-            created_at: now,
             updated_at: now,
           };
 
@@ -3423,7 +3487,6 @@ export const useGremlyStore = create<GremlyState>()(
           const payload = {
             ...sanitized,
             owner_id: userId,
-            created_at: now,
             updated_at: now,
           };
 
@@ -3646,7 +3709,6 @@ export const useGremlyStore = create<GremlyState>()(
           const payload = {
             ...space,
             owner_id: userId,
-            created_at: now,
             updated_at: now,
           };
 
@@ -3924,9 +3986,10 @@ export const useGremlyStore = create<GremlyState>()(
             activeGeneralChatId: tempId,
           }));
           try {
+            const { created_at: _ca, ...insertPayload } = newChat;
             const { data, error } = await supabase
               .from('space_chats')
-              .insert(newChat)
+              .insert(insertPayload)
               .select()
               .single();
             if (error) throw error;
@@ -4039,9 +4102,10 @@ export const useGremlyStore = create<GremlyState>()(
           set((state) => ({ spaceChats: [optimisticChat, ...state.spaceChats] }));
 
           try {
+            const { created_at: _ca, ...insertPayload } = newChat;
             const { data, error } = await supabase
               .from('space_chats')
-              .insert(newChat)
+              .insert(insertPayload)
               .select()
               .single();
 
@@ -4254,9 +4318,10 @@ export const useGremlyStore = create<GremlyState>()(
           }));
 
           try {
+            const { created_at: _ca, ...insertPayload } = newMilestone;
             const { data: result, error } = await supabase
               .from('space_milestones')
-              .insert(newMilestone)
+              .insert(insertPayload)
               .select()
               .single();
 
@@ -4993,7 +5058,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open',
+                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -5065,7 +5130,22 @@ export const useGremlyStore = create<GremlyState>()(
                 hasSeenTrainingMeterAutoOpen:
                   (cp.has_seen_training_meter_auto_open as boolean) ??
                   get().hasSeenTrainingMeterAutoOpen,
+                gremlyColor: (cp.gremly_color as string) ?? get().gremlyColor,
               });
+
+              // Fetch identity from user_profiles
+              const { data: userProfileData } = await supabase
+                .from('user_profiles')
+                .select('identity')
+                .eq('user_id', userId)
+                .maybeSingle();
+              if (userProfileData?.identity) {
+                const ident = userProfileData.identity as Record<string, unknown>;
+                set({
+                  userName: (ident.name as string) ?? get().userName,
+                  userPronouns: (ident.pronouns as string) ?? get().userPronouns,
+                });
+              }
 
               if (__DEV__) {
                 console.log('[GremlyStore] Cortex preferences reconciled from server', {
@@ -5364,6 +5444,14 @@ export const useGremlyStore = create<GremlyState>()(
 
           const now = nowTimestamp();
 
+          const momentDates =
+            (summary.content as any)?.cards
+              ?.filter((c: { type: string }) => c.type === 'moments')
+              ?.flatMap(
+                (c: { moments?: { date?: string }[] }) =>
+                  c.moments?.map((m) => m.date).filter(Boolean) || [],
+              ) || [];
+
           try {
             const { data, error } = await supabase
               .from('weekly_summaries')
@@ -5371,6 +5459,7 @@ export const useGremlyStore = create<GremlyState>()(
                 {
                   ...summary,
                   user_id: userId,
+                  moment_dates: momentDates,
                   created_at: now,
                   updated_at: now,
                 },
@@ -5907,7 +5996,10 @@ export const useGremlyStore = create<GremlyState>()(
             // 4. Creates — insert into Supabase, get real IDs, then add to store
             if (creates.length > 0) {
               const sanitizedCreates = creates.map((c) =>
-                sanitizeForSupabase({ ...c, owner_id: userId } as Record<string, unknown>, 'note'),
+                sanitizeForSupabase(
+                  { ...c, owner_id: userId, date_confidence: 'synced' } as Record<string, unknown>,
+                  'note',
+                ),
               );
               const { data: inserted, error: insertError } = await supabase
                 .from('notes')
@@ -5927,7 +6019,10 @@ export const useGremlyStore = create<GremlyState>()(
             if (updates.length > 0) {
               const updatePromises = updates.map(({ id, patch }) => {
                 const sanitized = sanitizeForSupabase(
-                  { ...patch, updated_at: nowTimestamp() } as Record<string, unknown>,
+                  { ...patch, updated_at: nowTimestamp(), date_confidence: 'synced' } as Record<
+                    string,
+                    unknown
+                  >,
                   'note',
                 );
                 return supabase.from('notes').update(sanitized).eq('id', id);
@@ -7172,7 +7267,6 @@ export const useGremlyStore = create<GremlyState>()(
                     ai_placed: newNote.ai_placed,
                     origin: newNote.origin,
                     views: newNote.views,
-                    created_at: newNote.created_at,
                     updated_at: newNote.updated_at,
                   });
                 }
@@ -9755,6 +9849,9 @@ export const useGremlyStore = create<GremlyState>()(
           hasSeenSweepUnlockModal: state.hasSeenSweepUnlockModal,
           hasSeenEntityChatHighlight: state.hasSeenEntityChatHighlight,
           hasSeenTrainingMeterAutoOpen: state.hasSeenTrainingMeterAutoOpen,
+          gremlyColor: state.gremlyColor,
+          userName: state.userName,
+          userPronouns: state.userPronouns,
         }),
 
         // Merge persisted state with fresh initial state
@@ -9837,6 +9934,7 @@ export const selectMorningBriefItems = (date: string) => (state: GremlyState) =>
     (n) => !n.archived && n.target_date === date && n.subtype !== 'event',
   );
   const reminderNotes = state.notes.filter((n) => !n.archived && n.reminder_date === date);
+
   const calendarEvents = state.calendarEvents[date] ?? [];
   const userCalendarEvents = state.userCalendarEvents.filter((e) => e.event_date === date);
 

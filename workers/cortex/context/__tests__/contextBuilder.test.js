@@ -21,7 +21,7 @@ const fullDcoData = {
   activeToday: {
     overdue_todos: 2,
     habit_streak_risk: ['Meditate'],
-    upcoming_in_7d: ['Dentist appointment'],
+    upcoming_in_7d: [{ date: '2025-12-20', title: 'Dentist appointment' }],
   },
   briefHeadline: 'Big day ahead',
   generatedAt: '2025-12-15T06:00:00Z',

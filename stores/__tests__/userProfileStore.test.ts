@@ -136,6 +136,7 @@ describe('userProfileStore', () => {
         generatedAt: '2026-01-15T00:00:00Z',
         relationshipStartedAt: '2025-11-01T00:00:00Z',
         overridesApplied: 2,
+        identity: {},
       });
     });
 
@@ -162,6 +163,7 @@ describe('userProfileStore', () => {
         generatedAt: null,
         relationshipStartedAt: null,
         overridesApplied: 0,
+        identity: {},
       });
     });
 
@@ -244,6 +246,7 @@ describe('userProfileStore', () => {
           generatedAt: null,
           relationshipStartedAt: null,
           overridesApplied: 0,
+          identity: {},
         },
         overrides: [],
       });
@@ -285,6 +288,7 @@ describe('userProfileStore', () => {
           generatedAt: null,
           relationshipStartedAt: null,
           overridesApplied: 0,
+          identity: {},
         },
         overrides: [existingAddOverride],
       });
@@ -322,6 +326,7 @@ describe('userProfileStore', () => {
           generatedAt: null,
           relationshipStartedAt: null,
           overridesApplied: 0,
+          identity: {},
         },
         overrides: [], // No existing add override for this fact
       });
@@ -356,6 +361,7 @@ describe('userProfileStore', () => {
           generatedAt: '2026-01-15T00:00:00Z',
           relationshipStartedAt: '2025-11-01T00:00:00Z',
           overridesApplied: 1,
+          identity: {},
         },
         overrides: [{ id: '1', action: 'add' as const, fact_text: 'test', created_at: 'now' }],
       });
@@ -385,6 +391,7 @@ describe('userProfileStore', () => {
           generatedAt: null,
           relationshipStartedAt: null,
           overridesApplied: 0,
+          identity: {},
         },
         overrides: [],
       });

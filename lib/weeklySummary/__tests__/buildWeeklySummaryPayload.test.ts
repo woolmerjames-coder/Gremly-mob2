@@ -18,6 +18,15 @@ jest.mock('../../store/useGremlyStore', () => ({
   },
 }));
 
+// Mock CalendarService to avoid Intl.DateTimeFormat issues in tests.
+// Use a module-level variable so tests can override the return value
+// (plain functions survive jest.clearAllMocks, unlike jest.fn).
+let mockEventsForRange: unknown[] = [];
+jest.mock('../../calendar/CalendarService', () => ({
+  getEventsForDate: () => [],
+  getEventsForRange: () => mockEventsForRange,
+}));
+
 const MOCK_TODAY = '2025-12-15'; // Monday
 
 jest.mock('../../date', () => ({
@@ -127,6 +136,7 @@ describe('buildWeeklySummaryPayload', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockEventsForRange = []; // Reset per test
     // Re-require to reset module state
     ({ buildWeeklySummaryPayload } = require('../buildWeeklySummaryPayload'));
   });
@@ -537,6 +547,7 @@ describe('buildWeeklySummaryPayload', () => {
     const state = makeBaseState({
       notes: [
         makeNote({
+          id: 'note-flight',
           subtype: 'event',
           title: 'Flight to Los Angeles',
           target_date: '2025-12-23', // Next week Tuesday
@@ -548,6 +559,18 @@ describe('buildWeeklySummaryPayload', () => {
       ],
       spaces: [{ id: 'space-trip', name: 'LA Trip', created_at: '2025-12-01T00:00:00Z' }],
     });
+    mockEventsForRange = [
+      {
+        id: 'note-flight',
+        source: 'gremly_event',
+        title: 'Flight to Los Angeles',
+        date: '2025-12-23',
+        startTime: '14:30',
+        isAllDay: false,
+        originalId: 'note-flight',
+        location: 'LAX Airport',
+      },
+    ];
     mockGetState.mockReturnValue(state);
     const result = await buildWeeklySummaryPayload();
 
@@ -604,6 +627,7 @@ describe('buildWeeklySummaryPayload', () => {
     const state = makeBaseState({
       notes: [
         makeNote({
+          id: 'note-conf',
           subtype: 'event',
           title: 'Conference',
           target_date: '2025-12-21', // Starts Sunday (this week)
@@ -611,6 +635,33 @@ describe('buildWeeklySummaryPayload', () => {
         }),
       ],
     });
+    // CalendarService emits one item per day; dedup keeps the first (earliest date)
+    mockEventsForRange = [
+      {
+        id: 'note-conf',
+        source: 'gremly_event',
+        title: 'Conference',
+        date: '2025-12-22',
+        isAllDay: true,
+        originalId: 'note-conf',
+      },
+      {
+        id: 'note-conf',
+        source: 'gremly_event',
+        title: 'Conference',
+        date: '2025-12-23',
+        isAllDay: true,
+        originalId: 'note-conf',
+      },
+      {
+        id: 'note-conf',
+        source: 'gremly_event',
+        title: 'Conference',
+        date: '2025-12-24',
+        isAllDay: true,
+        originalId: 'note-conf',
+      },
+    ];
     mockGetState.mockReturnValue(state);
     const result = await buildWeeklySummaryPayload();
 
@@ -642,6 +693,16 @@ describe('buildWeeklySummaryPayload', () => {
         makeTodo({ title: 'Archived prep', linked_event_id: 'event-1', archived: true }),
       ],
     });
+    mockEventsForRange = [
+      {
+        id: 'event-1',
+        source: 'gremly_event',
+        title: 'Big Presentation',
+        date: '2025-12-25',
+        isAllDay: true,
+        originalId: 'event-1',
+      },
+    ];
     mockGetState.mockReturnValue(state);
     const result = await buildWeeklySummaryPayload();
 
@@ -660,6 +721,7 @@ describe('buildWeeklySummaryPayload', () => {
       },
       notes: [
         makeNote({
+          id: 'note-entity',
           subtype: 'event',
           title: 'Entity Event',
           target_date: '2025-12-22', // Monday
@@ -667,6 +729,26 @@ describe('buildWeeklySummaryPayload', () => {
         }),
       ],
     });
+    mockEventsForRange = [
+      {
+        id: 'note-entity',
+        source: 'gremly_event',
+        title: 'Entity Event',
+        date: '2025-12-22',
+        startTime: '09:00',
+        isAllDay: false,
+        originalId: 'note-entity',
+      },
+      {
+        id: 'cal-meeting-1',
+        source: 'synced',
+        title: 'Calendar Meeting',
+        date: '2025-12-24',
+        startTime: '10:00',
+        isAllDay: false,
+        originalId: 'cal-meeting-1',
+      },
+    ];
     mockGetState.mockReturnValue(state);
     const result = await buildWeeklySummaryPayload();
 
@@ -681,6 +763,7 @@ describe('buildWeeklySummaryPayload', () => {
     const state = makeBaseState({
       notes: [
         makeNote({
+          id: 'note-allday',
           subtype: 'event',
           title: 'All Day Event',
           target_date: '2025-12-23',
@@ -689,6 +772,16 @@ describe('buildWeeklySummaryPayload', () => {
         }),
       ],
     });
+    mockEventsForRange = [
+      {
+        id: 'note-allday',
+        source: 'gremly_event',
+        title: 'All Day Event',
+        date: '2025-12-23',
+        isAllDay: true,
+        originalId: 'note-allday',
+      },
+    ];
     mockGetState.mockReturnValue(state);
     const result = await buildWeeklySummaryPayload();
 
@@ -706,6 +799,17 @@ describe('buildWeeklySummaryPayload', () => {
         ],
       },
     });
+    mockEventsForRange = [
+      {
+        id: 'cal-ext-1',
+        source: 'synced',
+        title: 'External Event',
+        date: '2025-12-22',
+        startTime: '09:00',
+        isAllDay: false,
+        originalId: 'ext-1',
+      },
+    ];
     mockGetState.mockReturnValue(state);
     const result = await buildWeeklySummaryPayload();
 

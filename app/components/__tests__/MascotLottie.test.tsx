@@ -25,9 +25,29 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
     const state = {
       feedingGaugeValue: 0,
       isFedToday: false,
+      gremlyColor: 'forest',
     };
     return selector(state);
   }),
+}));
+
+// Mock gremlyPalettes
+jest.mock('../../../lib/constants/gremlyPalettes', () => ({
+  GREMLY_PALETTES: [
+    {
+      id: 'forest',
+      name: 'Forest',
+      hex: { dark: '#285441', mid: '#5f966e', cream: '#f0e9bd' },
+      colors: {
+        dark: [0.157, 0.329, 0.255],
+        mid1: [0.373, 0.588, 0.431],
+        mid2: [0.318, 0.51, 0.365],
+        cream: [0.941, 0.914, 0.741],
+      },
+    },
+  ],
+  getPaletteById: jest.fn(() => ({ id: 'forest', name: 'Forest' })),
+  recolorLottieJson: jest.fn((json: any) => json),
 }));
 
 // Mock reanimated
@@ -43,6 +63,8 @@ jest.mock('react-native-reanimated', () => {
     useSharedValue: (v: number) => ({ value: v }),
     useAnimatedStyle: () => ({}),
     withTiming: (v: number) => v,
+    withDelay: (_d: number, v: number) => v,
+    useReducedMotion: () => false,
     Easing: { out: () => ({}), cubic: {} },
   };
 });
@@ -62,10 +84,11 @@ describe('MascotLottie', () => {
   });
 
   it('renders multiple LottieView instances', () => {
-    const { getAllByTestId } = render(<MascotLottie ref={ref} />);
-    const views = getAllByTestId('lottie-view');
-    // 6 LottieViews: grey(idle,drop,fed) + green(idle,drop,fed)
-    expect(views.length).toBeGreaterThanOrEqual(5);
+    const { toJSON } = render(<MascotLottie ref={ref} />);
+    const json = JSON.stringify(toJSON());
+    // Count testID:"lottie-view" occurrences (6 LottieViews: grey(idle,drop,fed) + green(idle,drop,fed))
+    const matches = json.match(/lottie-view/g) || [];
+    expect(matches.length).toBeGreaterThanOrEqual(5);
   });
 
   it('exposes celebrate and celebrateFed via ref', () => {

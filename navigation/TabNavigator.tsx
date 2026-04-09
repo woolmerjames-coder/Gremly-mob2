@@ -9,7 +9,7 @@ import AskGremlyScreen from '../app/tabs/AskGremlyScreen';
 import TODAY_ICON from '../assets/todayicon1.22.png';
 import MINDDROP_ICON from '../assets/minddropicon1.20.png';
 import SPACES_ICON from '../assets/spacesicon1.20.png';
-import ASK_GREMLY_ICON from '../assets/hubicon1.20.png';
+import ASK_GREMLY_ICON from '../assets/askgremlyicon.png';
 
 /**
  * Tab navigator param list for type safety

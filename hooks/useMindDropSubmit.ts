@@ -44,6 +44,8 @@ export interface SubmitContext {
   testCase?: string;
   /** Override the default due_day (e.g. tomorrow's date for "Plan tomorrow" mode) */
   dueDayOverride?: string | null;
+  /** Pre-fill date from calendar (YYYY-MM-DD) — passed to Phase 2 as userSelectedDate */
+  prefillDate?: string | null;
 }
 
 /**
@@ -195,12 +197,17 @@ export function useMindDropSubmit(): {
         // ============================================
 
         // 1a. Write to AsyncStorage queue (crash safety)
+        console.log(
+          '[PrefillDate:2-Submit] Enqueueing with prefillDate:',
+          context.prefillDate ?? null,
+        );
         const queuedDrop = await enqueue({
           text: entityText,
           attachments: photoUris.length > 0 ? photoUris : undefined,
           spaceId: resolvedSpaceId,
           source: context.source,
           dueDayOverride: context.dueDayOverride ?? null,
+          prefillDate: context.prefillDate ?? null,
         });
 
         console.log('[MindDrop:Submit] Enqueued drop', {

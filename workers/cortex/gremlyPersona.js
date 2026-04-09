@@ -388,9 +388,17 @@ function buildSystemPrompt(opts) {
     }
   }
 
-  // 7. User profile
+  // 7. User profile (with identity instructions)
   if (opts.userProfileText) {
-    parts.push(`=== ABOUT THIS USER ===\n${opts.userProfileText}`);
+    parts.push(`=== ABOUT THIS USER ===
+Read the IDENTITY line first. Use it for this person's name, gender, and pronouns throughout your response. Never assume or guess gender or pronouns — always refer to what's stated. If no IDENTITY line is present, use "they/them" as default.
+
+${opts.userProfileText}`);
+  }
+
+  // 7b. Today's live activity
+  if (opts.todayActivity) {
+    parts.push(opts.todayActivity);
   }
 
   // 8. Conversation context
@@ -412,6 +420,13 @@ function buildSystemPrompt(opts) {
     } else if (opts.spaceName) {
       parts.push(`This conversation is in the user's "${opts.spaceName}" space.`);
     }
+    parts.push(`TEMPORAL ACCURACY (CRITICAL):
+1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or temporal anchor). Never infer or guess when something is happening.
+2. If context marks a date as approximate, use hedging language like "coming up in a few weeks" or "around mid-month". Never state an estimated date as a confirmed date.
+3. If context marks a date as unknown, say so openly. Offer to help plan once the date is known.
+4. If something has no date in the context at all, do not place it on any timeline. Say the date isn't known rather than guessing.
+5. When the user mentions an upcoming event without a date, naturally ask for it in a conversational way — like a friend would, not like a form field. Knowing the date makes planning help much better.
+6. Getting a date wrong erodes trust faster than admitting uncertainty.`);
   } else if (opts.chatType === 'general') {
     parts.push(`This is a general conversation, not scoped to any Space. You have full context about this person's life across all their domains. Be proactive with observations when relevant, but let the conversation flow naturally. You're their companion, not their assistant.
 
@@ -419,7 +434,13 @@ When topics span multiple life areas, connect the dots. If their work stress mig
 
 Never mention saving, dropping, or capturing. The app handles that separately. Your only job is to be a great thinking partner.
 
-When the Life Map mentions future dates or upcoming events, check them against today's date. If a date has passed, treat it as having already happened. Don't reference future plans that have already occurred.`);
+TEMPORAL ACCURACY (CRITICAL):
+1. When referencing any date, deadline, or timeframe, it must come from a concrete date in the context (target_date, due_date, calendar event, or temporal anchor). Never infer or guess when something is happening.
+2. If context marks a date as approximate, use hedging language like "coming up in a few weeks" or "around mid-month". Never state an estimated date as a confirmed date.
+3. If context marks a date as unknown, say so openly. Offer to help plan once the date is known.
+4. If something has no date in the context at all, do not place it on any timeline. Say the date isn't known rather than guessing.
+5. When the user mentions an upcoming event without a date, naturally ask for it in a conversational way — like a friend would, not like a form field. Knowing the date makes planning help much better.
+6. Getting a date wrong erodes trust faster than admitting uncertainty.`);
   }
 
   return parts.join('\n\n');
@@ -524,6 +545,7 @@ export function buildSpaceChatSystemPrompt(
   sessionContextStr,
   userProfileText,
   timezone = 'UTC',
+  todayActivity = null,
 ) {
   // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
   const currentDate = new Intl.DateTimeFormat('en-US', {
@@ -545,6 +567,7 @@ export function buildSpaceChatSystemPrompt(
     userProfileText,
     accountCreatedAt,
     timezone,
+    todayActivity,
   });
 }
 
@@ -558,6 +581,7 @@ export function buildEntityChatConfig(
   sessionContextStr,
   userProfileText,
   timezone = 'UTC',
+  todayActivity = null,
 ) {
   // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
   const currentDate = new Intl.DateTimeFormat('en-US', {
@@ -577,6 +601,7 @@ export function buildEntityChatConfig(
     userProfileText,
     accountCreatedAt,
     timezone,
+    todayActivity,
   });
 }
 
@@ -590,6 +615,7 @@ export function buildGeneralChatConfig(
   sessionContextStr,
   userProfileText,
   timezone = 'UTC',
+  todayActivity = null,
 ) {
   // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
   const currentDate = new Intl.DateTimeFormat('en-US', {
@@ -609,5 +635,6 @@ export function buildGeneralChatConfig(
     userProfileText,
     accountCreatedAt,
     timezone,
+    todayActivity,
   });
 }

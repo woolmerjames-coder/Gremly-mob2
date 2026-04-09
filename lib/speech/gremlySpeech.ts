@@ -45,7 +45,7 @@ export type SpeechContext = {
   tone: 'relaxed' | 'focused' | 'stretched' | 'recovering' | 'celebratory' | null;
   overdueTodos: number;
   habitStreakRisk: string[];
-  upcomingIn7d: string[];
+  upcomingIn7d: (string | { date: string; title: string })[];
   daysSinceLastSweep: number | null;
 
   // Previous speech (for return cooldown / dedup)
@@ -552,7 +552,9 @@ export function getGreetingSpeechV2(ctx: SpeechContext): { message: string; dura
   // Priority 2: Upcoming events this week
   if (!message && ctx.upcomingIn7d.length > 0) {
     const template = pickRandom(SPEECH_POOLS.UPCOMING, recentMessages);
-    message = template.replace('{eventName}', ctx.upcomingIn7d[0]);
+    const first = ctx.upcomingIn7d[0];
+    const eventName = typeof first === 'string' ? first : first.title;
+    message = template.replace('{eventName}', eventName);
   }
 
   // Priority 3: Gauge nearly fed
@@ -587,7 +589,10 @@ export function getGreetingSpeechV2(ctx: SpeechContext): { message: string; dura
  */
 export function getReturnSpeech(ctx: SpeechContext): { message: string; duration: number } | null {
   // 5-minute cooldown
-  if (ctx.lastSpeechTime != null && getDateService().now().getTime() - ctx.lastSpeechTime < 5 * 60 * 1000) {
+  if (
+    ctx.lastSpeechTime != null &&
+    getDateService().now().getTime() - ctx.lastSpeechTime < 5 * 60 * 1000
+  ) {
     return null;
   }
 
@@ -601,7 +606,9 @@ export function getReturnSpeech(ctx: SpeechContext): { message: string; duration
   // Priority 2: Upcoming event reminder
   if (!message && ctx.upcomingIn7d.length > 0) {
     const template = pickRandom(SPEECH_POOLS.RETURN.upcoming, recentMessages);
-    message = template.replace('{eventName}', ctx.upcomingIn7d[0]);
+    const first = ctx.upcomingIn7d[0];
+    const eventName = typeof first === 'string' ? first : first.title;
+    message = template.replace('{eventName}', eventName);
   }
 
   // Priority 3: Sweep nudge

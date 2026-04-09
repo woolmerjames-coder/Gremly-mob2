@@ -27,6 +27,7 @@ export type { Phase1Result };
 export interface ClassifyContext {
   hasAttachments?: boolean;
   spaceId?: string | null;
+  hasUserSelectedDate?: boolean;
 }
 
 // --- Helpers ---
@@ -74,7 +75,7 @@ export async function runPhase1(
   text: string,
   context: ClassifyContext = {},
 ): Promise<Phase1Result> {
-  const { hasAttachments = false } = context;
+  const { hasAttachments = false, hasUserSelectedDate = false } = context;
 
   // Dev-only: simulate degraded classification for testing hardening
   if (__DEV__ && _degradedCallsRemaining > 0) {
@@ -132,6 +133,7 @@ export async function runPhase1(
           type: 'classify-phase1-v2',
           text,
           hasAttachments,
+          hasUserSelectedDate,
         }),
       });
 

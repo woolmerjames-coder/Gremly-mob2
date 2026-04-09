@@ -95,7 +95,7 @@ function makeDco(overrides: Partial<DailyContextObject> = {}): DailyContextObjec
     active_today: {
       overdue_todos: 2,
       habit_streak_risk: ['Meditate'],
-      upcoming_in_7d: ['Dentist'],
+      upcoming_in_7d: [{ date: '2025-12-20', title: 'Dentist' }],
     },
     deltas: {
       drop_velocity: 'normal',

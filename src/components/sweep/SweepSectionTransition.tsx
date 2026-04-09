@@ -19,7 +19,15 @@ import Animated, {
   cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
-import { CheckSquare, Repeat, StickyNote, ArrowRight, ArrowLeft, X } from 'lucide-react-native';
+import {
+  CheckSquare,
+  Repeat,
+  StickyNote,
+  Calendar,
+  ArrowRight,
+  ArrowLeft,
+  X,
+} from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 
 import { BRAND } from '../../../design/brand';
@@ -39,7 +47,7 @@ interface SectionContent {
 }
 
 export interface SweepSectionTransitionProps {
-  sectionType: 'todo' | 'habit' | 'note';
+  sectionType: 'todo' | 'habit' | 'note' | 'event';
   itemCount: number;
   onContinue: () => void;
   onClose?: () => void;
@@ -52,7 +60,7 @@ export interface SweepSectionTransitionProps {
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const GREMLY_BUTTON = require('../../../assets/buttonforHP.png');
 
-const SECTION_CONTENT: Record<'todo' | 'habit' | 'note', SectionContent> = {
+const SECTION_CONTENT: Record<'todo' | 'habit' | 'note' | 'event', SectionContent> = {
   todo: {
     title: 'YOUR TODOS',
     icon: CheckSquare,
@@ -64,6 +72,12 @@ const SECTION_CONTENT: Record<'todo' | 'habit' | 'note', SectionContent> = {
     icon: Repeat,
     rightOptions: ['Pick start date', 'Decide later'],
     leftOption: 'Let it go',
+  },
+  event: {
+    title: 'YOUR EVENTS',
+    icon: Calendar,
+    rightOptions: ['Set reminders', 'Add prep tasks'],
+    leftOption: 'Let them go',
   },
   note: {
     title: 'YOUR NOTES',
@@ -167,7 +181,11 @@ export function SweepSectionTransition({
       </View>
 
       {/* Subtitle */}
-      <Text style={styles.subtitle}>we have {itemCount} to sort through</Text>
+      <Text style={styles.subtitle}>
+        {sectionType === 'event'
+          ? `we have ${itemCount} coming up`
+          : `we have ${itemCount} to sort through`}
+      </Text>
 
       {/* Options Section */}
       <View style={styles.optionsContainer}>

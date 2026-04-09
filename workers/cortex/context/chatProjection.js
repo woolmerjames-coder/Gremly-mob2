@@ -388,12 +388,24 @@ export async function buildChatContext(userId, lane, opts, env) {
   if (!userId) return '';
 
   try {
+    const timezone = opts?.timezone || 'UTC';
+    const currentChatId = opts?.currentChatId;
+
     // Fetch all context in parallel
-    const [lifeMap, dailyFocus, recentDelta] = await Promise.all([
+    const [lifeMap, dailyFocus, recentDelta, temporalAnchors, chatSummaries] = await Promise.all([
       getLifeMapForChat(userId, env),
       getDailyFocusForChat(userId, env),
       fetchRecentActivityDelta(userId, env),
+      fetchTemporalAnchors(userId, timezone, env),
+      fetchRecentChatSummaries(userId, currentChatId, env),
     ]);
+
+    const todayStr = new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      timeZone: timezone,
+    }).format(new Date());
 
     const parts = [];
 
@@ -401,11 +413,23 @@ export async function buildChatContext(userId, lane, opts, env) {
     const focusStr = formatDailyFocusForChat(dailyFocus);
     if (focusStr) parts.push(focusStr);
 
-    // 2. Life Map threads (tiered by lane relevance)
+    // 2. Temporal anchors (upcoming events/deadlines from conversations)
+    if (temporalAnchors) {
+      const anchorsStr = formatTemporalAnchors(temporalAnchors, todayStr);
+      if (anchorsStr) parts.push(anchorsStr);
+    }
+
+    // 3. Recent chat summaries (cross-chat continuity)
+    if (chatSummaries) {
+      const summariesStr = formatRecentChatSummaries(chatSummaries);
+      if (summariesStr) parts.push(summariesStr);
+    }
+
+    // 4. Life Map threads (tiered by lane relevance)
     const lifeMapStr = formatLifeMapForChat(lifeMap, lane, opts);
     if (lifeMapStr) parts.push(lifeMapStr);
 
-    // 3. Recent activity delta
+    // 5. Recent activity delta
     const deltaStr = formatRecentDelta(recentDelta);
     if (deltaStr) parts.push(deltaStr);
 
@@ -540,4 +564,206 @@ export function formatSpaceEntities(entities) {
   }
 
   return parts.join('\n');
+}
+
+/**
+ * Fetch active temporal anchors for a user. KV cached 5 minutes.
+ * Enriches each anchor with daysAway and timeDescription.
+ */
+export async function fetchTemporalAnchors(userId, timezone, env) {
+  if (!userId) return null;
+
+  try {
+    const cacheKey = `temporal-anchors:${userId}`;
+    if (env.CONTEXT_CACHE) {
+      const cached = await env.CONTEXT_CACHE.get(cacheKey);
+      if (cached) {
+        console.log(`[ChatProjection] Temporal anchors cache hit for ${userId.slice(0, 8)}`);
+        return JSON.parse(cached);
+      }
+    }
+
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    };
+
+    const response = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?user_id=eq.${userId}&status=eq.active&order=resolved_date.asc.nullslast&limit=15`,
+      { headers },
+    );
+
+    if (!response.ok) {
+      console.error('[ChatProjection] Temporal anchors fetch failed:', response.statusText);
+      return null;
+    }
+
+    const anchors = await response.json();
+    if (!Array.isArray(anchors) || anchors.length === 0) return null;
+
+    // Get today's date in the user's timezone
+    const todayStr = new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      timeZone: timezone || 'UTC',
+    }).format(new Date());
+
+    const todayMs = new Date(todayStr + 'T00:00:00Z').getTime();
+
+    const enriched = anchors
+      .map((a) => {
+        let daysAway = null;
+        if (a.resolved_date) {
+          const resolvedMs = new Date(a.resolved_date + 'T00:00:00Z').getTime();
+          daysAway = Math.round((resolvedMs - todayMs) / (24 * 60 * 60 * 1000));
+        }
+
+        let timeDescription = 'date unknown';
+        if (daysAway !== null) {
+          if (daysAway === 0) timeDescription = 'today';
+          else if (daysAway === 1) timeDescription = 'tomorrow';
+          else if (daysAway > 1 && daysAway <= 7) timeDescription = `in ${daysAway} days`;
+          else if (daysAway > 7) timeDescription = `in ~${Math.round(daysAway / 7)} weeks`;
+          else if (daysAway === -1) timeDescription = 'yesterday';
+          else timeDescription = `${Math.abs(daysAway)} days ago`;
+        }
+
+        return { ...a, daysAway, timeDescription };
+      })
+      .filter((a) => {
+        if (a.daysAway === null) return true; // unknown — always keep
+        if (a.date_confidence === 'exact') return a.daysAway >= -1;
+        if (a.date_confidence === 'approximate') return a.daysAway >= -3;
+        return true; // unknown confidence — keep
+      });
+
+    if (enriched.length === 0) return null;
+
+    if (env.CONTEXT_CACHE) {
+      await env.CONTEXT_CACHE.put(cacheKey, JSON.stringify(enriched), { expirationTtl: 300 });
+    }
+
+    console.log(
+      `[ChatProjection] Temporal anchors loaded for ${userId.slice(0, 8)}: ${enriched.length} active`,
+    );
+    return enriched;
+  } catch (error) {
+    console.error('[ChatProjection] Temporal anchors error:', error);
+    return null;
+  }
+}
+
+/**
+ * Format temporal anchors into a plain-text context string for LLM injection.
+ */
+export function formatTemporalAnchors(anchors, _todayStr) {
+  if (!anchors || anchors.length === 0) return '';
+
+  const lines = [
+    '=== UPCOMING EVENTS & DEADLINES (from conversations) ===',
+    'Note: Dates marked "approximate" are estimates, not confirmed. Dates marked "unknown" have no confirmed date. Never state approximate or unknown dates as fact. Use hedging language for approximate dates (e.g. "around", "roughly"). For unknown dates, consider naturally asking when it is.',
+    '',
+  ];
+
+  for (const a of anchors) {
+    let line = '';
+    if (a.date_confidence === 'exact') {
+      line = `• ${a.title} — ${a.resolved_date} (${a.timeDescription})`;
+    } else if (a.date_confidence === 'approximate') {
+      line = `• ${a.title} — approximately ${a.timeDescription}`;
+      if (a.date_text) line += ` ("${a.date_text}")`;
+      if (a.date_range_start && a.date_range_end) {
+        line += ` [range: ${a.date_range_start} to ${a.date_range_end}]`;
+      }
+    } else {
+      line = `• ${a.title} — date unknown`;
+      if (a.date_text) line += ` ("${a.date_text}")`;
+      line += ' [consider asking for the date]';
+    }
+    lines.push(line);
+    if (a.description) {
+      lines.push(`  Context: ${a.description}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Fetch recent chat summaries from other conversations for cross-chat continuity.
+ * KV cached 5 minutes.
+ */
+export async function fetchRecentChatSummaries(userId, currentChatId, env) {
+  if (!userId) return null;
+
+  try {
+    const cacheKey = `recent-chat-summaries:${userId}`;
+    if (env.CONTEXT_CACHE) {
+      const cached = await env.CONTEXT_CACHE.get(cacheKey);
+      if (cached) {
+        console.log(`[ChatProjection] Chat summaries cache hit for ${userId.slice(0, 8)}`);
+        return JSON.parse(cached);
+      }
+    }
+
+    const headers = {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    };
+
+    let url =
+      `${env.SUPABASE_URL}/rest/v1/space_chats` +
+      `?user_id=eq.${userId}` +
+      `&running_summary=not.is.null` +
+      `&select=id,running_summary,auto_title,updated_at` +
+      `&order=updated_at.desc` +
+      `&limit=3`;
+
+    if (currentChatId) {
+      url += `&id=neq.${currentChatId}`;
+    }
+
+    const response = await fetch(url, { headers });
+
+    if (!response.ok) {
+      console.error('[ChatProjection] Chat summaries fetch failed:', response.statusText);
+      return null;
+    }
+
+    const summaries = await response.json();
+    if (!Array.isArray(summaries) || summaries.length === 0) return null;
+
+    if (env.CONTEXT_CACHE) {
+      await env.CONTEXT_CACHE.put(cacheKey, JSON.stringify(summaries), { expirationTtl: 300 });
+    }
+
+    console.log(
+      `[ChatProjection] Chat summaries loaded for ${userId.slice(0, 8)}: ${summaries.length} chats`,
+    );
+    return summaries;
+  } catch (error) {
+    console.error('[ChatProjection] Chat summaries error:', error);
+    return null;
+  }
+}
+
+/**
+ * Format recent chat summaries into a plain-text context string for LLM injection.
+ */
+export function formatRecentChatSummaries(summaries) {
+  if (!summaries || summaries.length === 0) return '';
+
+  const lines = [
+    '=== RECENT CONVERSATIONS (other chats with this user) ===',
+    "These are summaries of other recent conversations. Use this context to maintain continuity — the user shouldn't have to repeat themselves across chats. But don't reference these chats explicitly unless the user brings them up.",
+    '',
+  ];
+
+  for (const s of summaries) {
+    const title = s.auto_title || 'Untitled chat';
+    lines.push(`• ${title}: ${s.running_summary}`);
+  }
+
+  return lines.join('\n');
 }

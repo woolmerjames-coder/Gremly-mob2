@@ -84,6 +84,7 @@ type SweepCardNewProps = {
     reminderTime?: string;
     spaceId?: string;
     eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
+    prepTodoText?: string;
   }) => void;
   onConfirmNoteAction?: (action: {
     noteAction: 'fine' | 'resurface';
@@ -93,6 +94,7 @@ type SweepCardNewProps = {
     resurfaceTiming?: 'nextweek' | '2weeks' | 'pick';
     eventReminder?: 'daybefore' | 'weekbefore' | 'custom';
   }) => void;
+  hideGremlyMenu?: boolean;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,6 +123,7 @@ export function SweepCardNew({
   onConfirmTodoAction,
   onConfirmEventAction,
   onConfirmNoteAction,
+  hideGremlyMenu,
 }: SweepCardNewProps) {
   const spaces = useActiveSpaces();
   // ── Action zone state ──
@@ -169,6 +172,8 @@ export function SweepCardNew({
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
   const [selectedSpaceName, setSelectedSpaceName] = useState<string | null>(null);
   const [showSpacePicker, setShowSpacePicker] = useState(false);
+  const [showPrepTodoInput, setShowPrepTodoInput] = useState(false);
+  const [prepTodoText, setPrepTodoText] = useState('');
 
   // ── Reset on candidate change + restore previousDecision ──
   useEffect(() => {
@@ -191,6 +196,8 @@ export function SweepCardNew({
     setSelectedSpaceId(null);
     setSelectedSpaceName(null);
     setShowSpacePicker(false);
+    setShowPrepTodoInput(false);
+    setPrepTodoText('');
 
     // Restore from previousDecision
     if (previousDecision?.dueDate) {
@@ -351,6 +358,7 @@ export function SweepCardNew({
         reminderTime: '09:00',
         spaceId: selectedSpaceId ?? undefined,
         eventReminder,
+        prepTodoText: prepTodoText.trim() || undefined,
       });
     } else if (candidate.kind === 'note') {
       // Idea / general notes
@@ -400,6 +408,7 @@ export function SweepCardNew({
     eventReminder,
     confirmedEventReminderDate,
     selectedSpaceId,
+    prepTodoText,
     onConfirmTodoAction,
     onConfirmEventAction,
     onConfirmNoteAction,
@@ -458,6 +467,7 @@ export function SweepCardNew({
           isConverted={isConverted}
           isClarified={isClarified}
           onRequestPhotoPreview={onRequestPhotoPreview}
+          hideGremlyMenu={hideGremlyMenu}
         >
           {candidate.kind === 'todo' && (
             <TodoActionZone
@@ -563,7 +573,9 @@ export function SweepCardNew({
               daysUntilEventOverride={
                 overriddenEventDate
                   ? Math.round(
-                      (overriddenEventDate.getTime() - getDateService().now().setHours(0, 0, 0, 0)) / 86400000,
+                      (overriddenEventDate.getTime() -
+                        getDateService().now().setHours(0, 0, 0, 0)) /
+                        86400000,
                     )
                   : undefined
               }
@@ -574,6 +586,10 @@ export function SweepCardNew({
                 setSelectedSpaceId(null);
                 setSelectedSpaceName(null);
               }}
+              prepTodoText={prepTodoText}
+              onPrepTodoTextChange={setPrepTodoText}
+              showPrepTodoInput={showPrepTodoInput}
+              onTogglePrepTodo={() => setShowPrepTodoInput((v) => !v)}
             />
           )}
           {candidate.kind === 'note' && !meta.noteCardType && (
@@ -664,7 +680,8 @@ export function SweepCardNew({
                           styles.dateChip,
                           pressed && styles.dateChipPressed,
                           !clearDateFlag &&
-                            getDateService().toLocalDate(selectedDate) === getDateService().tomorrow() &&
+                            getDateService().toLocalDate(selectedDate) ===
+                              getDateService().tomorrow() &&
                             styles.dateChipSelected,
                         ]}
                       >
@@ -679,7 +696,8 @@ export function SweepCardNew({
                           styles.dateChip,
                           pressed && styles.dateChipPressed,
                           !clearDateFlag &&
-                            getDateService().toLocalDate(selectedDate) === getDateService().daysFromNow(7) &&
+                            getDateService().toLocalDate(selectedDate) ===
+                              getDateService().daysFromNow(7) &&
                             styles.dateChipSelected,
                         ]}
                       >
@@ -697,7 +715,8 @@ export function SweepCardNew({
                           styles.dateChip,
                           pressed && styles.dateChipPressed,
                           !clearDateFlag &&
-                            getDateService().toLocalDate(selectedDate) === getDateService().today() &&
+                            getDateService().toLocalDate(selectedDate) ===
+                              getDateService().today() &&
                             styles.dateChipSelected,
                         ]}
                       >
@@ -712,7 +731,8 @@ export function SweepCardNew({
                           styles.dateChip,
                           pressed && styles.dateChipPressed,
                           !clearDateFlag &&
-                            getDateService().toLocalDate(selectedDate) === getDateService().tomorrow() &&
+                            getDateService().toLocalDate(selectedDate) ===
+                              getDateService().tomorrow() &&
                             styles.dateChipSelected,
                         ]}
                       >

@@ -183,3 +183,36 @@ export function validateEnrichmentResult(
     ...(needsCorrection ? { correctedResult: corrections } : {}),
   };
 }
+
+// --- Date Verification ---
+
+/**
+ * Independently verify a date returned by the Phase 2 LLM using chrono-node
+ * via DateService.parseNaturalDate().
+ */
+export function verifyAIDate(
+  originalText: string,
+  aiDate: string,
+  currentDate: string,
+): {
+  resolvedDate: string;
+  confidence: 'verified' | 'llm_only' | 'chrono_override';
+} {
+  const chronoResult = getDateService().parseNaturalDate(originalText);
+
+  if (!chronoResult) {
+    return { resolvedDate: aiDate, confidence: 'llm_only' };
+  }
+
+  if (chronoResult.date === aiDate) {
+    return { resolvedDate: aiDate, confidence: 'verified' };
+  }
+
+  console.warn('[verifyAIDate] chrono disagrees with AI date', {
+    originalText,
+    aiDate,
+    chronoDate: chronoResult.date,
+    currentDate,
+  });
+  return { resolvedDate: chronoResult.date, confidence: 'chrono_override' };
+}

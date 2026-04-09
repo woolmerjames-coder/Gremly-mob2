@@ -74,6 +74,7 @@ export interface AnimatedDropCardItem {
   is_multi?: boolean; // True if this drop contains multiple items
   multi_items?: MultiDropItem[]; // Array of parsed items from multi-entity drop
   multi_summary_title?: string; // Combined title like "Groceries + Running Habit"
+  noteSubtype?: 'event' | 'idea' | 'general' | 'journal' | null;
   views?: {
     is_multi?: boolean;
     multi_items?: MultiDropItem[];
@@ -644,7 +645,22 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
         ? 'Todo'
         : item.kind === 'habit'
           ? 'Habit'
-          : 'Note';
+          : item.kind === 'note' && item.noteSubtype === 'event'
+            ? 'Event'
+            : 'Note';
+
+    const a11yLabel = useMemo(() => {
+      const parts: string[] = [displayTitle, kindLabel];
+      if (item.confirmationMessage) parts.push(item.confirmationMessage);
+      if (item.kind === 'todo' && (item.dueDate || item.dueDay)) {
+        const due = formatDueDate(item.dueDate || item.dueDay);
+        if (due) parts.push(due);
+      }
+      if (item.timeEstimate) parts.push(`estimated ${item.timeEstimate} minutes`);
+      if (item.tags?.length) parts.push(`tags: ${item.tags.slice(0, 2).join(', ')}`);
+      parts.push(relativeTime(item.createdAt));
+      return parts.filter(Boolean).join('. ');
+    }, [displayTitle, kindLabel, item]);
 
     // Handle card press - open multi-split modal for multi-entity drops
     const handleCardPress = () => {
@@ -668,12 +684,13 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
             style={parentStyles.recentCard}
             onPress={handleCardPress}
             accessibilityRole="button"
-            accessibilityLabel={`Edit ${displayTitle}`}
+            accessibilityLabel={a11yLabel}
+            accessibilityHint="Double tap to edit"
           >
             {/* Row 1: Title (left) + Kind badge (right) */}
             <View style={parentStyles.recentTopRow}>
               <Animated.Text
-                numberOfLines={1}
+                numberOfLines={2}
                 style={[
                   parentStyles.recentTitle,
                   titleAnimatedStyle,
@@ -700,7 +717,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
             {isMulti ? (
               <RNText style={localStyles.multiHint}>Tap to decide what to do</RNText>
             ) : isRetrying ? (
-              <RNText style={{ fontSize: 13, color: '#9CA3AF', fontStyle: 'italic', marginTop: 2 }}>
+              <RNText style={{ fontSize: 13, color: '#6a7484', fontStyle: 'italic', marginTop: 2 }}>
                 Hmm, still thinking…
               </RNText>
             ) : item.confirmationMessage ? (
@@ -726,7 +743,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
                 entering={FadeIn.duration(200)}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}
               >
-                <RNText style={{ fontSize: 12, color: '#7A8F7A', fontStyle: 'italic' }}>
+                <RNText style={{ fontSize: 12, color: '#657865', fontStyle: 'italic' }}>
                   {offlineMessage}
                 </RNText>
               </Animated.View>
@@ -748,7 +765,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
                 {/* Time estimate chip */}
                 {item.timeEstimate && (
                   <View style={localStyles.timeChip}>
-                    <Clock size={10} color="#888" strokeWidth={2} />
+                    <Clock size={10} color="#737373" strokeWidth={2} />
                     <RNText style={localStyles.timeText}>~{item.timeEstimate}m</RNText>
                   </View>
                 )}
@@ -766,7 +783,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
                           : formatTime12h(r.time);
                     return (
                       <View style={localStyles.reminderChip}>
-                        <Bell size={10} color="#8B7332" strokeWidth={2} />
+                        <Bell size={10} color="#735F28" strokeWidth={2} />
                         <RNText style={localStyles.reminderText}>{label}</RNText>
                       </View>
                     );
@@ -783,7 +800,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
 
               {/* Right side: photo icon + timestamp */}
               <View style={localStyles.metaRight}>
-                {item.hasPhotos && <Camera size={14} color="#888" strokeWidth={1.5} />}
+                {item.hasPhotos && <Camera size={14} color="#737373" strokeWidth={1.5} />}
                 <RNText style={parentStyles.recentMetaTime}>{relativeTime(item.createdAt)}</RNText>
               </View>
             </Animated.View>
@@ -870,7 +887,7 @@ const localStyles = StyleSheet.create({
   },
   timeText: {
     fontSize: 11,
-    color: '#6B7280',
+    color: '#656b79',
     fontFamily: 'Inter-Regular',
   },
   reminderChip: {
@@ -884,7 +901,7 @@ const localStyles = StyleSheet.create({
   },
   reminderText: {
     fontSize: 11,
-    color: '#8B7332',
+    color: '#836c2f',
     fontFamily: 'Inter-Regular',
   },
   tagChip: {
@@ -906,7 +923,7 @@ const localStyles = StyleSheet.create({
   // Multi-entity hint text
   multiHint: {
     fontSize: 13,
-    color: '#9CA6E0', // periwinkle
+    color: '#5b6ccb',
     fontFamily: 'Inter-Regular',
     fontStyle: 'italic',
   },
