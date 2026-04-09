@@ -2935,6 +2935,33 @@ export default {
       const isHabitBuilderStreaming = wantsStreaming && type === 'habit-builder';
 
       // =========================
+      // Timezone resolution (single source of truth per request)
+      // =========================
+      function resolveTimezone(reqBody) {
+        const tz = reqBody?.timezone;
+        if (!tz || typeof tz !== 'string' || tz.length < 2) {
+          console.warn(
+            '[Timezone] Missing or invalid timezone in request body, falling back to UTC',
+            {
+              received: tz,
+              type: typeof tz,
+              userId: reqBody?.userId?.slice(0, 8) || 'unknown',
+            },
+          );
+          return 'UTC';
+        }
+        return tz;
+      }
+
+      const userTimezone = resolveTimezone(body);
+
+      console.log('[TIMEZONE_DEBUG]', {
+        timezone: body.timezone,
+        type: typeof body.timezone,
+        keys: Object.keys(body).filter((k) => k.toLowerCase().includes('time')),
+      });
+
+      // =========================
       // Helpers
       // =========================
       const clamp01 = (n) => Math.max(0, Math.min(1, n));
@@ -3693,7 +3720,6 @@ After the user confirms and locks in a habit, check the existing habits listed i
       // =========================
       if (type === 'general-greeting') {
         try {
-          const userTimezone = body.timezone || 'UTC';
           const dailyFocus = await getDailyFocusForChat(body.userId, env, userTimezone);
           const now = new Date();
           const timeStr = new Intl.DateTimeFormat('en-US', {
@@ -3782,11 +3808,11 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
               buildChatContext(
                 body.userId,
                 'habit_builder',
-                { timezone: body.timezone || 'UTC', currentChatId: body.chatId || null },
+                { timezone: userTimezone, currentChatId: body.chatId || null },
                 env,
               ),
               getUserProfile(body.userId, env),
-              buildTodayActivity(body.userId, body.timezone || 'UTC', env),
+              buildTodayActivity(body.userId, userTimezone, env),
             ]);
             const ageInfo = getAgeGuidance(profile?.relationshipStartedAt, profile?.signals);
 
@@ -3811,12 +3837,12 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
         // eslint-disable-next-line no-restricted-syntax -- server-side fallback; client sends local date via dateService
         const today =
           context.currentDate ||
-          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
+          new Intl.DateTimeFormat('en-CA', { timeZone: userTimezone }).format(new Date());
         const dow =
           context.dayOfWeek ||
           new Intl.DateTimeFormat('en-US', {
             weekday: 'long',
-            timeZone: body.timezone || 'UTC',
+            timeZone: userTimezone,
           }).format(new Date());
         contextParts.push(`Today is ${dow}, ${today}.`);
 
@@ -3936,7 +3962,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
               temperature: 0.7,
               maxOutputTokens: chatCfg.maxTokens,
               thinkingLevel: chatCfg.thinkingLevel,
-              tools: [makeWebSearchTool(body.timezone)],
+              tools: [makeWebSearchTool(userTimezone)],
             },
             env.GOOGLE_API_KEY,
           );
@@ -4480,7 +4506,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
             : '';
         }
 
-        const tz = body.timezone || 'UTC';
+        const tz = userTimezone;
         const currentDate = new Intl.DateTimeFormat('en-US', {
           weekday: 'long',
           year: 'numeric',
@@ -4621,14 +4647,14 @@ Almost never suggest creating a Space. Only if ALL true:
                       {
                         entityTitle: entity?.title || entity?.name || null,
                         entitySpaceId: entity?.spaceId || entity?.space_id || null,
-                        timezone: body.timezone || 'UTC',
+                        timezone: userTimezone,
                         currentChatId: body.chatId || null,
                       },
                       env,
                     ),
                     getUserProfile(body.userId, env),
                     getCachedDomainNames(body.userId, env),
-                    buildTodayActivity(body.userId, body.timezone || 'UTC', env),
+                    buildTodayActivity(body.userId, userTimezone, env),
                   ]);
                   sessionContextStr = chatContext;
                   userProfile = profile;
@@ -4785,7 +4811,7 @@ Almost never suggest creating a Space. Only if ALL true:
               };
 
               if (searchPolicy.attachTool) {
-                streamConfig.tools = [makeWebSearchTool(body.timezone)];
+                streamConfig.tools = [makeWebSearchTool(userTimezone)];
               }
 
               console.log('[EntityChat:Streaming:Payload]', {
@@ -5358,14 +5384,14 @@ Almost never suggest creating a Space. Only if ALL true:
                 {
                   entityTitle: entity?.title || entity?.name || null,
                   entitySpaceId: entity?.spaceId || entity?.space_id || null,
-                  timezone: body.timezone || 'UTC',
+                  timezone: userTimezone,
                   currentChatId: body.chatId || null,
                 },
                 env,
               ),
               getUserProfile(body.userId, env),
               getCachedDomainNames(body.userId, env),
-              buildTodayActivity(body.userId, body.timezone || 'UTC', env),
+              buildTodayActivity(body.userId, userTimezone, env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
@@ -5459,7 +5485,7 @@ Almost never suggest creating a Space. Only if ALL true:
           };
 
           if (searchPolicy.attachTool) {
-            nonStreamConfig.tools = [makeWebSearchTool(body.timezone)];
+            nonStreamConfig.tools = [makeWebSearchTool(userTimezone)];
             nonStreamConfig.toolChoice =
               searchPolicy.toolChoice === 'required' ? 'web_search' : 'auto';
           }
@@ -5893,13 +5919,13 @@ Return ONLY valid JSON:
       async function extractHabitFields(messages, apiKey, currentDate, builderMode) {
         // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
         const fallbackDate = new Intl.DateTimeFormat('en-CA', {
-          timeZone: body.timezone || 'UTC',
+          timeZone: userTimezone,
         }).format(new Date());
         const isBreakMode = builderMode === 'BREAK';
         const isEventMode = builderMode === 'EVENT_ANCHORED';
 
         const extractionPrompt = `You analyze a habit-building conversation and assess readiness.
-Today is ${new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: body.timezone || 'UTC' }).format(new Date())}, ${currentDate || fallbackDate}.
+Today is ${new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: userTimezone }).format(new Date())}, ${currentDate || fallbackDate}.
 Resolve relative day and date references into YYYY-MM-DD. Verify the day-of-week matches the calendar date before returning.
 
 Conversation mode: ${builderMode || 'SHAPE'}
@@ -6277,7 +6303,7 @@ Return ONLY valid JSON:
         const tasks = Array.isArray(body.tasks) ? body.tasks : [];
         const calendarEvents = Array.isArray(body.calendarEvents) ? body.calendarEvents : [];
         const blocks = body.blocks || {};
-        const timezone = body.timezone || 'UTC';
+        const timezone = userTimezone;
         let currentHour;
         if (body.currentHour != null) {
           currentHour = body.currentHour;
@@ -7276,7 +7302,7 @@ ${assistantMessage.substring(0, 2000)}
             year: 'numeric',
             month: 'long',
             day: 'numeric',
-            timeZone: body.timezone || 'UTC',
+            timeZone: userTimezone,
           }).format(new Date());
 
           const summaryPrompt = `Today is ${todayStr}. Summarize this entire conversation in 3-6 sentences. Cover ALL major topics discussed from start to finish — not just the beginning or the end. Include specific names, dates, decisions, recommendations, and action items mentioned. Write as a factual note the user can reference later.
@@ -8253,7 +8279,7 @@ Labels array must have exactly ${optionCount} items.`;
         // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
         const currentDate =
           body.currentDate ||
-          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
+          new Intl.DateTimeFormat('en-CA', { timeZone: userTimezone }).format(new Date());
         const targetBucket = body.targetBucket || null;
 
         const contextString = `=== CONTEXT ===
@@ -8467,11 +8493,11 @@ If no date in input, all date fields are null.
         const heuristicHint = body.heuristicHint || null;
 
         const currentDate = new Intl.DateTimeFormat('en-CA', {
-          timeZone: body.timezone || 'UTC',
+          timeZone: userTimezone,
         }).format(new Date());
         const dayOfWeek = new Intl.DateTimeFormat('en-US', {
           weekday: 'long',
-          timeZone: body.timezone || 'UTC',
+          timeZone: userTimezone,
         }).format(new Date());
 
         const phase1Prompt = `You classify "mind drops" for Gremly, a productivity app. Your job is to understand the user's TRUE INTENT through semantic reasoning, not pattern matching.
@@ -9060,11 +9086,11 @@ Rules:
           : [];
 
         const currentDate = new Intl.DateTimeFormat('en-CA', {
-          timeZone: body.timezone || 'UTC',
+          timeZone: userTimezone,
         }).format(new Date());
         const dayOfWeek = new Intl.DateTimeFormat('en-US', {
           weekday: 'long',
-          timeZone: body.timezone || 'UTC',
+          timeZone: userTimezone,
         }).format(new Date());
 
         const phase15aSystemPrompt = `You generate a title and reaction for a productivity item that has already been classified.
@@ -9216,8 +9242,8 @@ Return ONLY valid JSON:
         const currentDate =
           body.currentDate ||
           body.today ||
-          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
-        const timezone = body.timezone || 'UTC';
+          new Intl.DateTimeFormat('en-CA', { timeZone: userTimezone }).format(new Date());
+        const timezone = userTimezone;
         // Compute day of week from the date string — never hardcode a fallback day.
         // currentDate is already timezone-correct from the client's dateService.today().
         const dayOfWeek =
@@ -9998,8 +10024,8 @@ For LOGS (event):
         // eslint-disable-next-line no-restricted-syntax -- Worker has no dateService; timezone-safe via Intl
         const currentDate =
           body.currentDate ||
-          new Intl.DateTimeFormat('en-CA', { timeZone: body.timezone || 'UTC' }).format(new Date());
-        const timezone = body.timezone || 'UTC';
+          new Intl.DateTimeFormat('en-CA', { timeZone: userTimezone }).format(new Date());
+        const timezone = userTimezone;
         const dayOfWeek =
           body.dayOfWeek ||
           (() => {
@@ -10139,7 +10165,7 @@ Return ONLY valid JSON, no explanation:
 
       if (type === 'journal-analyze') {
         const entries = body.entries || [];
-        const timezone = body.timezone || 'UTC';
+        const timezone = userTimezone;
 
         if (!Array.isArray(entries) || entries.length === 0) {
           return j({ error: 'no_entries', detail: 'No journal entries provided' }, 200);
@@ -10441,7 +10467,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     'space',
                     {
                       spaceId: body.spaceId,
-                      timezone: body.timezone || 'UTC',
+                      timezone: userTimezone,
                       currentChatId: body.chatId || null,
                     },
                     env,
@@ -10449,7 +10475,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   getUserProfile(body.userId, env),
                   getCachedDomainNames(body.userId, env),
                   fetchSpaceEntities(body.userId, body.spaceId, env),
-                  buildTodayActivity(body.userId, body.timezone || 'UTC', env),
+                  buildTodayActivity(body.userId, userTimezone, env),
                 ]);
                 spaceSessionContextStr = chatContext;
                 spaceUserProfile = profile;
@@ -10506,7 +10532,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               body.accountCreatedAt,
               spaceSessionContextStr,
               spaceUserProfile?.profileText,
-              body.timezone || 'UTC',
+              userTimezone,
               spaceTodayActivity,
             );
 
@@ -10541,7 +10567,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             };
 
             if (searchPolicy.attachTool) {
-              streamConfig.tools = [makeWebSearchTool(body.timezone)];
+              streamConfig.tools = [makeWebSearchTool(userTimezone)];
             }
 
             const t0 = Date.now();
@@ -10990,7 +11016,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       body.spaceName || null,
                       previousSummary,
                       env,
-                      body.timezone || 'UTC',
+                      userTimezone,
                     );
                   } catch (err) {
                     console.warn('[SpaceChat] Running summary failed:', err.message);
@@ -11109,12 +11135,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                   buildChatContext(
                     body.userId,
                     'general',
-                    { timezone: body.timezone || 'UTC', currentChatId: body.chatId || null },
+                    { timezone: userTimezone, currentChatId: body.chatId || null },
                     env,
                   ),
                   getUserProfile(body.userId, env),
                   getCachedDomainNames(body.userId, env),
-                  buildTodayActivity(body.userId, body.timezone || 'UTC', env),
+                  buildTodayActivity(body.userId, userTimezone, env),
                 ]);
                 sessionContextStr = chatContext;
                 userProfile = profile;
@@ -11163,7 +11189,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               body.accountCreatedAt,
               sessionContextStr,
               userProfile?.profileText,
-              body.timezone || 'UTC',
+              userTimezone,
               generalTodayActivity,
             );
 
@@ -11188,7 +11214,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               thinkingLevel: genConfig.thinkingLevel,
             };
             if (searchPolicy.attachTool) {
-              streamConfig.tools = [makeWebSearchTool(body.timezone)];
+              streamConfig.tools = [makeWebSearchTool(userTimezone)];
             }
 
             const t0 = Date.now();
@@ -11510,7 +11536,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       null,
                       previousSummary,
                       env,
-                      body.timezone || 'UTC',
+                      userTimezone,
                     );
                   } catch (err) {
                     console.warn('[GeneralChat] Summary failed:', err.message);
@@ -11566,7 +11592,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric',
-                      timeZone: body.timezone || 'UTC',
+                      timeZone: userTimezone,
                     }).format(new Date());
                     const extractionPromptText = `Today is ${todayStr}.
 
@@ -11813,7 +11839,7 @@ Return ONLY valid JSON:
                 'space',
                 {
                   spaceId: body.spaceId,
-                  timezone: body.timezone || 'UTC',
+                  timezone: userTimezone,
                   currentChatId: body.chatId || null,
                 },
                 env,
@@ -11821,7 +11847,7 @@ Return ONLY valid JSON:
               getUserProfile(body.userId, env),
               getCachedDomainNames(body.userId, env),
               fetchSpaceEntities(body.userId, body.spaceId, env),
-              buildTodayActivity(body.userId, body.timezone || 'UTC', env),
+              buildTodayActivity(body.userId, userTimezone, env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
@@ -11879,7 +11905,7 @@ Return ONLY valid JSON:
           body.accountCreatedAt,
           sessionContextStr,
           userProfile?.profileText,
-          body.timezone || 'UTC',
+          userTimezone,
           spaceTodayActivity,
         );
 
@@ -11898,7 +11924,7 @@ Return ONLY valid JSON:
         };
 
         if (searchPolicy.attachTool) {
-          nonStreamConfig.tools = [makeWebSearchTool(body.timezone)];
+          nonStreamConfig.tools = [makeWebSearchTool(userTimezone)];
         }
 
         const geminiResult = await geminiGenerate(
@@ -12017,7 +12043,7 @@ Return ONLY valid JSON:
                 body.spaceName || null,
                 previousSummary,
                 env,
-                body.timezone || 'UTC',
+                userTimezone,
               );
             } catch (err) {
               console.warn('[SpaceChat:NonStreaming] Running summary failed:', err.message);
