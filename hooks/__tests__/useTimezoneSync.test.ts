@@ -247,12 +247,12 @@ describe('useTimezoneSync', () => {
       });
 
       // Only the timezone sync update may happen, but heartbeat should NOT
-      // Count calls — at most 1 for tz update (if tz differs), 0 for heartbeat
+      // Count calls — at most 2 for tz update (notification_preferences + user_profiles), 0 for heartbeat
       // Since tz matches (data: null → writes update for tz), the total calls
-      // should be <= 1 (timezone update only), no heartbeat write
+      // should be <= 2 (timezone update to both tables), no heartbeat write
       const callCount = mockUpdateEq.mock.calls.length;
       // If tz also updates, that's fine — the key is no second heartbeat
-      expect(callCount).toBeLessThanOrEqual(1);
+      expect(callCount).toBeLessThanOrEqual(2);
     });
 
     it('writes heartbeat again after debounce window expires', async () => {
