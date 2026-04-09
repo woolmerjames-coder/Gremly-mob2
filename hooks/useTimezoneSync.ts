@@ -35,13 +35,19 @@ async function syncTimezone(userId: string): Promise<void> {
 
   // Persist to Supabase for server-side systems (workers, notifications).
   // This can fail gracefully — the local timezone is already correct.
-  const { error: updateErr } = await supabase
-    .from('notification_preferences')
-    .update({ timezone: deviceTz, updated_at: nowTimestamp() })
-    .eq('user_id', userId);
+  const [{ error: notifErr }, { error: profileErr }] = await Promise.all([
+    supabase
+      .from('notification_preferences')
+      .update({ timezone: deviceTz, updated_at: nowTimestamp() })
+      .eq('user_id', userId),
+    supabase.from('user_profiles').update({ timezone: deviceTz }).eq('user_id', userId),
+  ]);
 
-  if (updateErr) {
-    console.warn('[TimezoneSync] Supabase write failed (local timezone updated):', updateErr.message);
+  if (notifErr) {
+    console.warn('[TimezoneSync] notification_preferences write failed:', notifErr.message);
+  }
+  if (profileErr) {
+    console.warn('[TimezoneSync] user_profiles write failed:', profileErr.message);
   }
 
   console.log(`[TimezoneSync] Updated: ${storedTz ?? '(none)'} → ${deviceTz}`);

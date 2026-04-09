@@ -2936,24 +2936,45 @@ export default {
 
       // =========================
       // Timezone resolution (single source of truth per request)
+      // Three-tier fallback: client body → user_profiles → UTC
       // =========================
-      function resolveTimezone(reqBody) {
-        const tz = reqBody?.timezone;
-        if (!tz || typeof tz !== 'string' || tz.length < 2) {
-          console.warn(
-            '[Timezone] Missing or invalid timezone in request body, falling back to UTC',
-            {
-              received: tz,
-              type: typeof tz,
-              userId: reqBody?.userId?.slice(0, 8) || 'unknown',
-            },
-          );
-          return 'UTC';
+      async function resolveTimezone(reqBody, reqEnv) {
+        const clientTz = reqBody?.timezone;
+        if (clientTz && typeof clientTz === 'string' && clientTz.length >= 2) {
+          return clientTz;
         }
-        return tz;
+
+        // Client didn't send timezone — read from stored profile
+        if (reqBody?.userId && reqEnv?.SUPABASE_URL) {
+          try {
+            const res = await fetch(
+              `${reqEnv.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${reqBody.userId}&select=timezone`,
+              {
+                headers: {
+                  apikey: reqEnv.SUPABASE_SERVICE_KEY,
+                  Authorization: `Bearer ${reqEnv.SUPABASE_SERVICE_KEY}`,
+                },
+              },
+            );
+            if (res.ok) {
+              const data = await res.json();
+              if (data?.[0]?.timezone) {
+                console.log('[Timezone] Resolved from profile:', data[0].timezone);
+                return data[0].timezone;
+              }
+            }
+          } catch (err) {
+            console.warn('[Timezone] Profile fetch failed:', err.message);
+          }
+        }
+
+        console.warn('[Timezone] Falling back to UTC — no client value, no profile value', {
+          userId: reqBody?.userId?.slice(0, 8) || 'unknown',
+        });
+        return 'UTC';
       }
 
-      const userTimezone = resolveTimezone(body);
+      const userTimezone = await resolveTimezone(body, env);
 
       console.log('[TIMEZONE_DEBUG]', {
         timezone: body.timezone,
