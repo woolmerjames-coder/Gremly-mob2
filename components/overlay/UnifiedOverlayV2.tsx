@@ -65,6 +65,14 @@ import {
   TrendingDown,
   BarChart3,
   X,
+  FolderOpen,
+  MessageCircle,
+  CalendarDays,
+  Link2,
+  Heart,
+  Zap,
+  RotateCcw,
+  Shield,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -189,6 +197,8 @@ import {
 import { TypePill, TypePickerDropdown, deriveEntityType, getTypeConfig } from './TypePicker';
 import { HabitModeToggle, habitSubtypeToMode, habitModeToSubtype } from './HabitModeToggle';
 import { PhotoStrip } from './PhotoStrip';
+import { ExpandableRow, StaticRow } from './ExpandableRow';
+import { ToggleSwitch } from './ToggleSwitch';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Note', todo: 'To-Do', habit: 'Habit' };
 
@@ -900,7 +910,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     fullEntity?.views?.clarification_type ?? fullEntity?.clarification_type ?? null;
 
   // Local UI state that was previously in the reducer
-  const [expanded, setExpanded] = useState(false);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const toggleRow = (key: string) => setExpandedRow(prev => prev === key ? null : key);
   const [showTypePicker, setShowTypePicker] = useState(false);
   const undoStackRef = useRef<Array<{ kind: 'type' | 'tag' | 'commitment'; prev: Partial<any> }>>([]);
   const baseType = state.baseType;
@@ -1540,7 +1551,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   );
 
   // Derive spaces from store (no useEffect needed)
-  const spaces = expanded ? (storeSpaces || []) : [];
+  const spaces = storeSpaces || [];
 
   // Item reminders are hydrated once in store.open() via hydrateEntityToDraft
 
@@ -1955,16 +1966,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }, 300);
   }, [sourceNote, fullEntity, initialEntity, initialSpaceId, onClose, globalOverlay, getItemById]);
 
-  const handleToggleDetails = useCallback(() => {
-    if (!reduceMotion) {
-      try {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      } catch (e) {
-        // no-op if the platform doesn't support LayoutAnimation
-      }
-    }
-    setExpanded(e => !e);
-  }, [reduceMotion]);
+
 
   /**
    * ─────────────────────────────────────────────────────────────────────────
@@ -2035,8 +2037,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   if (typeof Modal === 'undefined')
     throw new Error('UnifiedOverlayV2 render: `Modal` is undefined');
 
-  // animation values for details panel, commitment and save pulse
-  const detailsAnim = useSharedValue(expanded ? 1 : 0);
+  // animation values for commitment and save pulse
   const commitmentAnim = useSharedValue(state.commitment ? 1 : 0);
   const savePulse = useSharedValue(0);
   const headerPulse = useSharedValue(0);
@@ -2051,10 +2052,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   overlayEntryTypeRef.current = baseType;
   const openTelemetrySentRef = useRef(false);
 
-  const detailsStyle = useAnimatedStyle(() => ({
-    opacity: detailsAnim.value,
-    transform: [{ translateY: interpolate(detailsAnim.value, [0, 1], [8, 0]) }],
-  }));
+
 
   const commitmentStyle = useAnimatedStyle(() => ({
     opacity: commitmentAnim.value,
@@ -2113,20 +2111,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       }),
     ]).start();
   }, [visible, reduceMotion, sheetTranslateY, sheetOpacity, sheetDragY]);
-  // animate details panel expand/collapse
-  useEffect(() => {
-    try {
-      if (detailsAnim && typeof (detailsAnim as any).value !== 'undefined') {
-        (detailsAnim as any).value = conditionalAnimation(
-          withTiming(expanded ? 1 : 0, timingConfig.normal),
-          expanded ? 1 : 0,
-          reduceMotion,
-        );
-      }
-    } catch (e) {
-      // In some test environments reanimated is mocked incompletely; ignore
-    }
-  }, [expanded, detailsAnim, reduceMotion]);
+
 
   // animate commitment reveal/hide
   useEffect(() => {
@@ -4833,94 +4818,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Box>
                           )}
 
-                          {/* Entity Chat & Notes buttons - side by side (hide for events in edit mode) */}
-                          {currentEntityId && (!isEventNote || isViewMode) && (
-                            <View
-                              style={{
-                                flexDirection: 'row',
-                                gap: 10,
-                                paddingHorizontal: 16,
-                                paddingVertical: 8,
-                              }}
-                            >
-                              {/* Check progress button — habits only, not in create mode */}
-                              {baseType === 'habit' && mode !== 'create' && (
-                                <TouchableOpacity
-                                  onPress={() => {
-                                    onClose();
-                                    setTimeout(() => {
-                                      overlayNavigation.navigate('HabitDetail', {
-                                        habitId: currentEntityId,
-                                      });
-                                    }, 300);
-                                  }}
-                                  style={{
-                                    flex: 1,
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: 6,
-                                    paddingVertical: 10,
-                                    paddingHorizontal: 12,
-                                    backgroundColor: 'rgba(191, 216, 192, 0.3)',
-                                    borderRadius: 10,
-                                  }}
-                                  activeOpacity={0.8}
-                                >
-                                  <BarChart3 size={16} color={lightTokens.colors.mossGreen} />
-                                  <Text
-                                    style={{
-                                      fontSize: 13,
-                                      fontFamily: lightTokens.typography.fontFamily.medium,
-                                      color: lightTokens.colors.mossGreen,
-                                    }}
-                                  >
-                                    Check progress
-                                  </Text>
-                                </TouchableOpacity>
-                              )}
-
-                              {/* Chat with Gremly button */}
-                              <EntityChatButton
-                                entityId={currentEntityId}
-                                entityType={entityTypeForChat}
-                                variant="overlay"
-                                onPress={() => store.setUI({ showEntityChat: true })}
-                                style={{ flex: 1 }}
-                              />
-
-                              {/* Notes button - secondary, takes less space */}
-                              {entityChatNotes.length > 0 && (
-                                <TouchableOpacity
-                                  style={{
-                                    flex: 1,
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: 6,
-                                    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-                                    borderRadius: 10,
-                                    paddingVertical: 10,
-                                    paddingHorizontal: 12,
-                                  }}
-                                  onPress={() => store.setUI({ showNotesModal: true })}
-                                  activeOpacity={0.7}
-                                >
-                                  <FileText size={16} color={lightTokens.colors.mossGreen} />
-                                  <Text
-                                    style={{
-                                      fontSize: 13,
-                                      fontFamily: lightTokens.typography.fontFamily.medium,
-                                      color: lightTokens.colors.mossGreen,
-                                    }}
-                                  >
-                                    Notes ({entityChatNotes.length})
-                                  </Text>
-                                </TouchableOpacity>
-                              )}
-                            </View>
-                          )}
-
                           {/* Tags row — no Re-suggest link */}
                           <Box style={{ marginBottom: 16, paddingHorizontal: 16 }}>
                             <TagsRow
@@ -5116,238 +5013,36 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Box>
                           ) : null}
 
-                          <Box>
-                            {/* Event Date for Notes */}
-                            {baseType === 'log' && (
-                              <Box style={{ marginBottom: 16 }}>
-                                <View style={styles.dueAndLockRow}>
-                                  <View style={styles.dueDateLeft}>
-                                    <Pressable
-                                      style={styles.dueDatePill}
-                                      onPress={() => {
-                                        setMoodPickerExpanded(false);
-                                        if (state.log.target_date) {
-                                          const parsed = getDateService().fromLocalDate(
-                                            state.log.target_date,
-                                          );
-                                          if (parsed) {
-                                            setSelectedDate(parsed);
-                                          }
-                                        } else {
-                                          setSelectedDate(getDateService().now());
-                                        }
-                                        setDateModalTarget('note_event');
-                                        store.setUI({ showDateModal: true });
-                                      }}
-                                      accessibilityRole="button"
-                                      accessibilityLabel={
-                                        state.log.target_date
-                                          ? `Event date: ${formatDueDay(state.log.target_date)}`
-                                          : 'Add event date'
-                                      }
-                                    >
-                                      <Calendar
-                                        size={16}
-                                        color={
-                                          state.log.target_date
-                                            ? colorMode === 'dark'
-                                              ? 'rgba(255,255,255,0.7)'
-                                              : '#666666'
-                                            : colorMode === 'dark'
-                                              ? 'rgba(255,255,255,0.5)'
-                                              : '#777777'
-                                        }
-                                        style={styles.dueDateIcon}
-                                      />
-                                      <Text
-                                        style={[
-                                          styles.dueDateText,
-                                          !state.log.target_date && {
-                                            color:
-                                              colorMode === 'dark'
-                                                ? 'rgba(255,255,255,0.5)'
-                                                : '#777777',
-                                            fontWeight: '400',
-                                          },
-                                        ]}
-                                      >
-                                        {state.log.target_date
-                                          ? formatDueDay(state.log.target_date)
-                                          : 'Add event date'}
-                                      </Text>
-                                    </Pressable>
-                                  </View>
-                                </View>
+                          {/* ===== Metadata rows — always visible, no accordion ===== */}
+                          <View style={{ paddingHorizontal: 16 }}>
 
-                                {/* End Date for multi-day events - only shown for event subtype when start date is set */}
-                                {effectiveLogSubtype === 'event' && state.log.target_date && (
-                                  <View style={[styles.dueAndLockRow, { marginTop: 8 }]}>
-                                    <View style={styles.dueDateLeft}>
-                                      <Pressable
-                                        style={styles.dueDatePill}
-                                        onPress={() => {
-                                          setMoodPickerExpanded(false);
-                                          if (state.log.end_date) {
-                                            const parsed = getDateService().fromLocalDate(
-                                              state.log.end_date,
-                                            );
-                                            if (parsed) {
-                                              setSelectedDate(parsed);
-                                            }
-                                          } else {
-                                            // Default to day after start date
-                                            const startDate = getDateService().fromLocalDate(
-                                              state.log.target_date!,
-                                            );
-                                            if (startDate) {
-                                              const nextDay = new Date(startDate);
-                                              nextDay.setDate(nextDay.getDate() + 1);
-                                              setSelectedDate(nextDay);
-                                            } else {
-                                              setSelectedDate(getDateService().now());
-                                            }
-                                          }
-                                          setDateModalTarget('note_end_date');
-                                          store.setUI({ showDateModal: true });
-                                        }}
-                                        accessibilityRole="button"
-                                        accessibilityLabel={
-                                          state.log.end_date
-                                            ? `End date: ${formatDueDay(state.log.end_date)}`
-                                            : 'Add end date'
-                                        }
-                                      >
-                                        <Calendar
-                                          size={16}
-                                          color={
-                                            state.log.end_date
-                                              ? colorMode === 'dark'
-                                                ? 'rgba(255,255,255,0.7)'
-                                                : '#666666'
-                                              : colorMode === 'dark'
-                                                ? 'rgba(255,255,255,0.5)'
-                                                : '#777777'
-                                          }
-                                          style={styles.dueDateIcon}
-                                        />
-                                        <Text
-                                          style={[
-                                            styles.dueDateText,
-                                            !state.log.end_date && {
-                                              color:
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.5)'
-                                                  : '#777777',
-                                              fontWeight: '400',
-                                            },
-                                          ]}
-                                        >
-                                          {state.log.end_date
-                                            ? `End: ${formatDueDay(state.log.end_date)}`
-                                            : '+ End date (optional)'}
-                                        </Text>
-                                      </Pressable>
-                                      {/* Clear end date button */}
-                                      {state.log.end_date && (
-                                        <Pressable
-                                          onPress={() =>
-                                            store.setLogEndDate(null)
-                                          }
-                                          style={{ marginLeft: 8, padding: 4 }}
-                                          accessibilityRole="button"
-                                          accessibilityLabel="Clear end date"
-                                        >
-                                          <X
-                                            size={14}
-                                            color={
-                                              colorMode === 'dark'
-                                                ? 'rgba(255,255,255,0.5)'
-                                                : '#999'
-                                            }
-                                          />
-                                        </Pressable>
-                                      )}
-                                    </View>
-                                  </View>
-                                )}
-                              </Box>
-                            )}
-
-                            {/* ===== To-Do-specific rows: Schedule / Lock In ===== */}
-                            {baseType === 'todo' ? (
-                              <View style={{ paddingHorizontal: 16 }}>
-                                {/* Hairline divider above Schedule */}
-                                <View
-                                  style={{
-                                    height: StyleSheet.hairlineWidth,
-                                    backgroundColor: '#E5E0D8',
+                            {/* ── TO-DO rows ── */}
+                            {baseType === 'todo' && (
+                              <>
+                                <ExpandableRow
+                                  icon={Calendar}
+                                  label="Schedule"
+                                  summary={(() => {
+                                    const parts: string[] = [];
+                                    if (state.todo.target_date)
+                                      parts.push(`Due ${formatDueDay(state.todo.target_date)}`);
+                                    const effectiveDoDate = state.todo.scheduled_date ?? state.todo.due_day;
+                                    if (effectiveDoDate) parts.push(`Do ${formatDueDay(effectiveDoDate)}`);
+                                    if (state.todo.time_estimate_minutes)
+                                      parts.push(formatTimeEstimate(state.todo.time_estimate_minutes));
+                                    if (state.todo.time_window) {
+                                      const label = TIME_WINDOW_OPTIONS.find((o) => o.value === state.todo.time_window)?.label;
+                                      if (label && label !== 'Any time') parts.push(label);
+                                    }
+                                    return parts.length > 0 ? parts.join(' · ') : 'Tap to set';
+                                  })()}
+                                  expanded={expandedRow === 'schedule'}
+                                  onToggle={() => {
+                                    toggleRow('schedule');
+                                    store.setUI({ showScheduleModal: true });
                                   }}
+                                  iconColor="#2E5540"
                                 />
-
-                                {/* Schedule row — single row, opens Schedule modal */}
-                                <Pressable
-                                  onPress={() => store.setUI({ showScheduleModal: true })}
-                                  accessibilityRole="button"
-                                  accessibilityLabel="Edit schedule"
-                                  style={({ pressed }) => ({
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    paddingVertical: 14,
-                                    opacity: pressed ? 0.7 : 1,
-                                  })}
-                                >
-                                  <View
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
-                                  >
-                                    <Calendar size={18} color="#6B665C" />
-                                    <View style={{ flexDirection: 'column' }}>
-                                      <Text
-                                        style={{
-                                          fontSize: 14,
-                                          fontWeight: '600',
-                                          color: '#2D4A3E',
-                                        }}
-                                      >
-                                        Schedule
-                                      </Text>
-                                      <Text
-                                        style={{
-                                          fontSize: 12,
-                                          fontWeight: '400',
-                                          color: '#8B8579',
-                                          marginTop: 2,
-                                        }}
-                                      >
-                                        {(() => {
-                                          const parts: string[] = [];
-                                          if (state.todo.target_date)
-                                            parts.push(
-                                              `Due ${formatDueDay(state.todo.target_date)}`,
-                                            );
-                                          const effectiveDoDate =
-                                            state.todo.scheduled_date ?? state.todo.due_day;
-                                          if (effectiveDoDate)
-                                            parts.push(`Do ${formatDueDay(effectiveDoDate)}`);
-                                          if (state.todo.time_estimate_minutes)
-                                            parts.push(
-                                              formatTimeEstimate(state.todo.time_estimate_minutes),
-                                            );
-                                          if (state.todo.time_window) {
-                                            const label = TIME_WINDOW_OPTIONS.find(
-                                              (o) => o.value === state.todo.time_window,
-                                            )?.label;
-                                            if (label && label !== 'Any time') parts.push(label);
-                                          }
-                                          return parts.length > 0
-                                            ? parts.join(' · ')
-                                            : 'Tap to set schedule';
-                                        })()}
-                                      </Text>
-                                    </View>
-                                  </View>
-                                  <ChevronRight size={18} color="#A09A90" />
-                                </Pressable>
 
                                 {dueToastMessage ? (
                                   <View
@@ -5373,910 +5068,479 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   </View>
                                 ) : null}
 
-                                {/* Hairline divider */}
-                                <View
-                                  style={{
-                                    height: StyleSheet.hairlineWidth,
-                                    backgroundColor: '#E5E0D8',
-                                  }}
+                                <StaticRow
+                                  icon={Bell}
+                                  label="Reminders"
+                                  right={
+                                    <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                      {formatItemReminderSummary(itemReminders)}
+                                    </Text>
+                                  }
+                                  onPress={() => { if (!isViewMode) setShowRemindersModal(true); }}
                                 />
 
-                                {/* Lock In row */}
-                                {commitmentsOn ? (
-                                  <View
-                                    style={{
-                                      flexDirection: 'row',
-                                      alignItems: 'center',
-                                      justifyContent: 'space-between',
-                                      paddingVertical: 12,
-                                    }}
-                                  >
-                                    <View
-                                      style={{
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        gap: 10,
-                                      }}
-                                    >
-                                      <Diamond size={18} color="#6B665C" />
-                                      <Text
-                                        style={{
-                                          fontSize: 14,
-                                          fontWeight: '600',
-                                          color: '#2D4A3E',
-                                        }}
-                                      >
-                                        Lock In
+                                <StaticRow
+                                  icon={FolderOpen}
+                                  label="Space"
+                                  right={
+                                    <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                      {state.spaceId
+                                        ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
+                                        : '+ Add'}
+                                    </Text>
+                                  }
+                                  onPress={() => { if (!isViewMode) store.setUI({ showSpaceModal: true }); }}
+                                />
+
+                                {showLinkedEventPicker && effectiveSpaceId && (
+                                  <StaticRow
+                                    icon={Link2}
+                                    label="Link to event"
+                                    right={
+                                      <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                        {state.linkedEventId ? 'Linked' : 'None'}
                                       </Text>
-                                    </View>
-                                    <Switch
-                                      value={isLockedIn}
-                                      onValueChange={async () => {
-                                        if (!state.commitment) {
-                                          const ok = await canEnableCommitment();
-                                          if (!ok) {
-                                            console.log('[Lock In] Limit reached (3)');
-                                            return;
-                                          }
-                                        }
-                                        pushUndoEntry('commitment', {
-                                          commitment: state.commitment,
-                                          commitmentNote: state.commitmentNote,
-                                          commitmentStartedAt: state.commitmentStartedAt,
-                                        });
-                                        store.setCommitment(!state.commitment);
-                                        try {
-                                          eventBus.emit('OverlayCommitmentToggled', {
-                                            on: !state.commitment,
-                                          });
-                                        } catch (e) {
-                                          // ignore telemetry errors
-                                        }
-                                      }}
-                                      trackColor={{
-                                        false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
-                                        true: lightTokens.colors.moss,
-                                      }}
-                                      thumbColor="#FFFFFF"
-                                    />
-                                  </View>
-                                ) : null}
-
-                                {/* Hairline divider below Lock In */}
-                                <View
-                                  style={{
-                                    height: StyleSheet.hairlineWidth,
-                                    backgroundColor: '#E5E0D8',
-                                  }}
-                                />
-                              </View>
-                            ) : null}
-
-                            {/* LinkedEventPicker for todos - show when space has events */}
-                            {baseType === 'todo' && showLinkedEventPicker && effectiveSpaceId && (
-                              <Box mt={3} px={0}>
-                                <LinkedEventPicker
-                                  spaceId={effectiveSpaceId}
-                                  currentEventId={state.linkedEventId}
-                                  onChange={handleLinkedEventChange}
-                                />
-                              </Box>
-                            )}
-
-                            {/* ===== Habit-specific rows: Schedule / Lock In ===== */}
-                            {baseType === 'habit' ? (
-                              <View style={{ paddingHorizontal: 16 }}>
-                                {/* Optional frequency label for break habits */}
-                                {isBreakHabit && (
-                                  <Text
-                                    style={{
-                                      fontSize: 12,
-                                      color: '#888888',
-                                      marginBottom: 4,
-                                      marginLeft: 4,
-                                    }}
-                                  >
-                                    Check-in frequency
-                                  </Text>
+                                    }
+                                    onPress={() => toggleRow('linked')}
+                                  />
                                 )}
 
-                                {/* Hairline divider above Schedule */}
-                                <View
-                                  style={{
-                                    height: StyleSheet.hairlineWidth,
-                                    backgroundColor: '#E5E0D8',
-                                    marginVertical: 4,
-                                  }}
-                                />
-
-                                {/* Schedule row — full width, tappable */}
-                                <Pressable
-                                  onPress={() => store.setUI({ showScheduleModal: true })}
-                                  accessibilityRole="button"
-                                  accessibilityLabel="Edit schedule"
-                                  style={({ pressed }) => ({
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    paddingVertical: 14,
-                                    opacity: pressed ? 0.7 : 1,
-                                  })}
-                                >
-                                  <View
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
-                                  >
-                                    <Calendar size={18} color="#6B665C" />
-                                    <View style={{ flexDirection: 'column' }}>
-                                      <Text
-                                        style={{
-                                          fontSize: 14,
-                                          fontWeight: '600',
-                                          color: '#2D4A3E',
-                                        }}
-                                      >
-                                        Schedule
-                                      </Text>
-                                      <Text
-                                        style={{
-                                          fontSize: 12,
-                                          fontWeight: '400',
-                                          color: '#8B8579',
-                                          marginTop: 2,
-                                        }}
-                                      >
-                                        {[
-                                          getFrequencyLabel(
-                                            jsonToFrequency(
-                                              state.habit.frequency_json,
-                                            ),
-                                          ),
-                                          state.habit.time_estimate_minutes &&
-                                            `~${state.habit.time_estimate_minutes}m`,
-                                          state.habit.start_date &&
-                                            format(parseISO(state.habit.start_date), 'MMM d'),
-                                        ]
-                                          .filter(Boolean)
-                                          .join(' · ')}
-                                      </Text>
-                                    </View>
-                                  </View>
-                                  <ChevronRight size={18} color="#A09A90" />
-                                </Pressable>
-
-                                {/* Hairline divider between Schedule and Lock In */}
-                                <View
-                                  style={{
-                                    height: StyleSheet.hairlineWidth,
-                                    backgroundColor: '#E5E0D8',
-                                    marginVertical: 4,
-                                  }}
-                                />
-
-                                {/* Lock In row — full width with toggle */}
-                                {commitmentsOn ? (
-                                  <View
-                                    style={{
-                                      flexDirection: 'row',
-                                      alignItems: 'center',
-                                      justifyContent: 'space-between',
-                                      paddingVertical: 12,
-                                    }}
-                                  >
-                                    <View
-                                      style={{
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        gap: 10,
-                                      }}
-                                    >
-                                      <Diamond size={18} color="#6B665C" />
-                                      <Text
-                                        style={{
-                                          fontSize: 14,
-                                          fontWeight: '600',
-                                          color: '#2D4A3E',
-                                        }}
-                                      >
-                                        Lock In
-                                      </Text>
-                                    </View>
-                                    <Switch
-                                      value={isLockedIn}
-                                      onValueChange={async () => {
-                                        if (!state.commitment) {
-                                          const ok = await canEnableCommitment();
-                                          if (!ok) {
-                                            console.log('[Lock In] Limit reached (3)');
-                                            return;
+                                {commitmentsOn && (
+                                  <StaticRow
+                                    icon={Diamond}
+                                    label="Lock In"
+                                    right={
+                                      <ToggleSwitch
+                                        on={isLockedIn}
+                                        onToggle={async () => {
+                                          if (!state.commitment) {
+                                            const ok = await canEnableCommitment();
+                                            if (!ok) return;
                                           }
-                                        }
-                                        pushUndoEntry('commitment', {
-                                          commitment: state.commitment,
-                                          commitmentNote: state.commitmentNote,
-                                          commitmentStartedAt: state.commitmentStartedAt,
-                                        });
-                                        store.setCommitment(!state.commitment);
-                                        try {
-                                          eventBus.emit('OverlayCommitmentToggled', {
-                                            on: !state.commitment,
+                                          pushUndoEntry('commitment', {
+                                            commitment: state.commitment,
+                                            commitmentNote: state.commitmentNote,
+                                            commitmentStartedAt: state.commitmentStartedAt,
                                           });
-                                        } catch (e) {
-                                          // ignore telemetry errors
-                                        }
-                                      }}
-                                      trackColor={{
-                                        false: colorMode === 'dark' ? '#3e3e3e' : '#E0E0E0',
-                                        true: lightTokens.colors.moss,
-                                      }}
-                                      thumbColor="#FFFFFF"
-                                    />
-                                  </View>
-                                ) : null}
+                                          store.setCommitment(!state.commitment);
+                                          try { eventBus.emit('OverlayCommitmentToggled', { on: !state.commitment }); } catch {}
+                                        }}
+                                      />
+                                    }
+                                  />
+                                )}
 
-                                {/* Hairline divider below Lock In */}
-                                <View
-                                  style={{
-                                    height: StyleSheet.hairlineWidth,
-                                    backgroundColor: '#E5E0D8',
-                                    marginVertical: 4,
-                                  }}
-                                />
-                              </View>
-                            ) : null}
+                                {currentEntityId && (
+                                  <StaticRow
+                                    icon={MessageCircle}
+                                    label="Chat with Gremly"
+                                    iconColor="#2E5540"
+                                    right={<ChevronRight size={14} color="#2E5540" />}
+                                    onPress={() => store.setUI({ showEntityChat: true })}
+                                  />
+                                )}
 
-                            {/* LinkedEventPicker for habits - show when space has events */}
-                            {baseType === 'habit' && showLinkedEventPicker && effectiveSpaceId && (
-                              <Box mt={3} px={0}>
-                                <LinkedEventPicker
-                                  spaceId={effectiveSpaceId}
-                                  currentEventId={state.linkedEventId}
-                                  onChange={handleLinkedEventChange}
-                                />
-                              </Box>
+                                {mode === 'edit' && (initialEntity as any)?.id && (
+                                  <StaticRow
+                                    icon={Trash2}
+                                    label="Delete to-do"
+                                    iconColor="#D9534F"
+                                    borderBottom={false}
+                                    onPress={() => {
+                                      Alert.alert('Delete this to-do?', "This can't be undone.", [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        {
+                                          text: 'Delete',
+                                          style: 'destructive',
+                                          onPress: async () => {
+                                            try {
+                                              const itemId = (initialEntity as any).id;
+                                              const itemSpaceId = (initialEntity as any).space_id ?? state.spaceId ?? initialSpaceId;
+                                              await deleteTodo(itemId);
+                                              eventBus.emit('entity:deleted', { id: itemId, type: 'todo', spaceId: itemSpaceId });
+                                              onClose();
+                                            } catch (err) {
+                                              console.error('[UnifiedOverlayV2] Delete failed:', err);
+                                              Alert.alert('Error', 'Failed to delete to-do. Please try again.');
+                                            }
+                                          },
+                                        },
+                                      ]);
+                                    }}
+                                  />
+                                )}
+                              </>
                             )}
 
-                            {/* Show / Hide details toggle with chevron */}
-                            <Pressable
-                              onPress={handleToggleDetails}
-                              hitSlop={8}
-                              style={({ pressed }) => ({
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 6,
-                                paddingVertical: 12,
-                                opacity: pressed ? 0.6 : 1,
-                              })}
-                            >
-                              <Text
-                                style={{
-                                  fontSize: 13,
-                                  fontWeight: '500',
-                                  color: '#8B8579',
-                                }}
-                              >
-                                {expanded ? 'Hide details' : 'Show details'}
-                              </Text>
-                              {expanded ? (
-                                <ChevronUp size={14} color="#8B8579" />
-                              ) : (
-                                <ChevronDown size={14} color="#8B8579" />
-                              )}
-                            </Pressable>
-                            {expanded ? (
-                              <Reanimated.View style={[detailsStyle, { marginTop: 0 }]}>
-                                <Box pb={2}>
-                                  {/* To-Do Details */}
-                                  {baseType === 'todo' ? (
-                                    <View>
-                                      {/* 1) Reminders row */}
-                                      <Pressable
-                                        onPress={() => {
-                                          if (!isViewMode) setShowRemindersModal(true);
+                            {/* ── HABIT rows ── */}
+                            {baseType === 'habit' && (
+                              <>
+                                {isBreakHabit ? (
+                                  <>
+                                    <StaticRow
+                                      icon={Zap}
+                                      label="Trigger"
+                                      right={
+                                        <Text style={{ fontSize: 13, color: '#8B8579' }}>Not set</Text>
+                                      }
+                                      iconColor="#D97706"
+                                      onPress={() => { if (!isViewMode) store.setUI({ showScheduleModal: true }); }}
+                                    />
+
+                                    <StaticRow
+                                      icon={RotateCcw}
+                                      label="Replacement"
+                                      right={
+                                        <Text style={{ fontSize: 13, color: '#8B8579' }}>Not set</Text>
+                                      }
+                                      iconColor="#2E5540"
+                                      onPress={() => { if (!isViewMode) store.setUI({ showScheduleModal: true }); }}
+                                    />
+
+                                    <StaticRow
+                                      icon={Shield}
+                                      label="Tracking"
+                                      right={
+                                        <Text style={{ fontSize: 13, color: '#8B8579' }}>Daily check-in</Text>
+                                      }
+                                      iconColor="#6B4C8A"
+                                      onPress={() => { if (!isViewMode) store.setUI({ showScheduleModal: true }); }}
+                                    />
+                                  </>
+                                ) : (
+                                  <ExpandableRow
+                                    icon={Calendar}
+                                    label="Schedule"
+                                    summary={[
+                                      getFrequencyLabel(jsonToFrequency(state.habit.frequency_json)),
+                                      state.habit.time_estimate_minutes && `~${state.habit.time_estimate_minutes}m`,
+                                      state.habit.start_date && format(parseISO(state.habit.start_date), 'MMM d'),
+                                    ].filter(Boolean).join(' · ')}
+                                    expanded={expandedRow === 'schedule'}
+                                    onToggle={() => {
+                                      toggleRow('schedule');
+                                      store.setUI({ showScheduleModal: true });
+                                    }}
+                                    iconColor="#2E5540"
+                                  />
+                                )}
+
+                                <StaticRow
+                                  icon={Bell}
+                                  label="Reminders"
+                                  right={
+                                    <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                      {formatItemReminderSummary(itemReminders)}
+                                    </Text>
+                                  }
+                                  onPress={() => { if (!isViewMode) setShowRemindersModal(true); }}
+                                />
+
+                                <StaticRow
+                                  icon={FolderOpen}
+                                  label="Space"
+                                  right={
+                                    <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                      {state.spaceId
+                                        ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
+                                        : '+ Add'}
+                                    </Text>
+                                  }
+                                  onPress={() => { if (!isViewMode) store.setUI({ showSpaceModal: true }); }}
+                                />
+
+                                {showLinkedEventPicker && effectiveSpaceId && (
+                                  <StaticRow
+                                    icon={Link2}
+                                    label="Link to event"
+                                    right={
+                                      <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                        {state.linkedEventId ? 'Linked' : 'None'}
+                                      </Text>
+                                    }
+                                    onPress={() => toggleRow('linked')}
+                                  />
+                                )}
+
+                                {commitmentsOn && (
+                                  <StaticRow
+                                    icon={Diamond}
+                                    label="Lock In"
+                                    right={
+                                      <ToggleSwitch
+                                        on={isLockedIn}
+                                        onToggle={async () => {
+                                          if (!state.commitment) {
+                                            const ok = await canEnableCommitment();
+                                            if (!ok) return;
+                                          }
+                                          pushUndoEntry('commitment', {
+                                            commitment: state.commitment,
+                                            commitmentNote: state.commitmentNote,
+                                            commitmentStartedAt: state.commitmentStartedAt,
+                                          });
+                                          store.setCommitment(!state.commitment);
+                                          try { eventBus.emit('OverlayCommitmentToggled', { on: !state.commitment }); } catch {}
                                         }}
-                                        disabled={isViewMode}
-                                        style={({ pressed }) => [
-                                          styles.detailsRow,
-                                          pressed && styles.detailsRowPressed,
-                                        ]}
-                                      >
-                                        <View style={styles.detailsRowLeft}>
-                                          <View style={styles.detailsRowIcon}>
-                                            <Bell
-                                              size={18}
-                                              color={
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.7)'
-                                                  : '#666'
-                                              }
-                                            />
-                                          </View>
-                                          <Text style={styles.detailsRowLabel}>Reminders</Text>
-                                        </View>
-                                        <Text style={styles.detailsRowValue}>
-                                          {formatItemReminderSummary(itemReminders)}
-                                        </Text>
-                                      </Pressable>
+                                      />
+                                    }
+                                  />
+                                )}
 
-                                      {/* 2) Add to Space row */}
-                                      <Pressable
-                                        onPress={() => {
-                                          if (!isViewMode) store.setUI({ showSpaceModal: true });
-                                        }}
-                                        disabled={isViewMode}
-                                        style={({ pressed }) => [
-                                          styles.detailsRow,
-                                          pressed && !isViewMode && styles.detailsRowPressed,
-                                        ]}
-                                      >
-                                        <View style={styles.detailsRowLeft}>
-                                          <View style={styles.detailsRowIcon}>
-                                            <Folder
-                                              size={18}
-                                              color={
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.7)'
-                                                  : '#666'
-                                              }
-                                            />
-                                          </View>
-                                          <Text style={styles.detailsRowLabel}>Add to Space</Text>
-                                        </View>
-                                        {state.spaceId ? (
-                                          <Text style={styles.detailsRowValue}>
-                                            {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
-                                          </Text>
-                                        ) : null}
-                                      </Pressable>
+                                {currentEntityId && (
+                                  <StaticRow
+                                    icon={MessageCircle}
+                                    label="Chat with Gremly"
+                                    iconColor="#2E5540"
+                                    right={<ChevronRight size={14} color="#2E5540" />}
+                                    onPress={() => store.setUI({ showEntityChat: true })}
+                                  />
+                                )}
 
-                                      {/* 3) Delete To-Do row (only in edit mode) */}
-                                      {mode === 'edit' && (initialEntity as any)?.id ? (
-                                        <Pressable
-                                          onPress={() => {
-                                            Alert.alert(
-                                              'Delete this to-do?',
-                                              "This can't be undone.",
-                                              [
-                                                {
-                                                  text: 'Cancel',
-                                                  style: 'cancel',
-                                                },
-                                                {
-                                                  text: 'Delete',
-                                                  style: 'destructive',
-                                                  onPress: async () => {
-                                                    try {
-                                                      const itemId = (initialEntity as any).id;
-                                                      const itemSpaceId =
-                                                        (initialEntity as any).space_id ??
-                                                        state.spaceId ??
-                                                        initialSpaceId;
-
-                                                      // 1. Delete from store FIRST (store mutation)
-                                                      await deleteTodo(itemId);
-                                                      if (__DEV__) {
-                                                        console.log(
-                                                          '[UnifiedOverlayV2] Item deleted from store:',
-                                                          itemId,
-                                                        );
-                                                      }
-
-                                                      // 2. THEN emit event so reload gets fresh data
-                                                      if (__DEV__) {
-                                                        console.log(
-                                                          '[UnifiedOverlayV2] Emitting entity:deleted',
-                                                          {
-                                                            id: itemId,
-                                                            type: 'todo',
-                                                            spaceId: itemSpaceId,
-                                                          },
-                                                        );
-                                                      }
-                                                      eventBus.emit('entity:deleted', {
-                                                        id: itemId,
-                                                        type: 'todo',
-                                                        spaceId: itemSpaceId,
-                                                      });
-
-                                                      // 3. Close overlay last
-                                                      onClose();
-                                                    } catch (err) {
-                                                      console.error(
-                                                        '[UnifiedOverlayV2] Delete failed:',
-                                                        err,
-                                                      );
-                                                      Alert.alert(
-                                                        'Error',
-                                                        'Failed to delete to-do. Please try again.',
-                                                      );
-                                                    }
-                                                  },
-                                                },
-                                              ],
-                                            );
-                                          }}
-                                          style={({ pressed }) => [
-                                            styles.detailsRow,
-                                            pressed && { opacity: 0.7 },
-                                          ]}
-                                        >
-                                          <View style={styles.detailsRowLeft}>
-                                            <View style={styles.detailsRowIcon}>
-                                              <Trash2 size={18} color="#D9534F" />
-                                            </View>
-                                            <Text
-                                              style={[styles.detailsRowLabel, styles.deleteText]}
-                                            >
-                                              Delete to-do
-                                            </Text>
-                                          </View>
-                                        </Pressable>
-                                      ) : null}
-                                    </View>
-                                  ) : null}
-
-                                  {/* Habit Details */}
-                                  {baseType === 'habit' ? (
-                                    <View>
-                                      {/* 1) Reminders row */}
-                                      <Pressable
-                                        onPress={() => {
-                                          if (!isViewMode) setShowRemindersModal(true);
-                                        }}
-                                        disabled={isViewMode}
-                                        style={({ pressed }) => [
-                                          styles.detailsRow,
-                                          pressed && !isViewMode && styles.detailsRowPressed,
-                                        ]}
-                                      >
-                                        <View style={styles.detailsRowLeft}>
-                                          <View style={styles.detailsRowIcon}>
-                                            <Bell
-                                              size={18}
-                                              color={
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.7)'
-                                                  : '#666'
-                                              }
-                                            />
-                                          </View>
-                                          <Text style={styles.detailsRowLabel}>Reminders</Text>
-                                        </View>
-                                        <Text style={styles.detailsRowValue}>
-                                          {formatItemReminderSummary(itemReminders)}
-                                        </Text>
-                                      </Pressable>
-
-                                      {/* 2) Add to Space row */}
-                                      <Pressable
-                                        onPress={() => {
-                                          if (!isViewMode) store.setUI({ showSpaceModal: true });
-                                        }}
-                                        disabled={isViewMode}
-                                        style={({ pressed }) => [
-                                          styles.detailsRow,
-                                          { marginTop: 0 },
-                                          pressed && !isViewMode && styles.detailsRowPressed,
-                                        ]}
-                                      >
-                                        <View style={styles.detailsRowLeft}>
-                                          <View style={styles.detailsRowIcon}>
-                                            <Folder
-                                              size={18}
-                                              color={
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.7)'
-                                                  : '#666'
-                                              }
-                                            />
-                                          </View>
-                                          <Text style={styles.detailsRowLabel}>Add to Space</Text>
-                                        </View>
-                                        {state.spaceId ? (
-                                          <Text style={styles.detailsRowValue}>
-                                            {spaces.find((s) => s.id === state.spaceId)?.name ?? ''}
-                                          </Text>
-                                        ) : null}
-                                      </Pressable>
-
-                                      {/* 3) Delete Habit row (only in edit mode) */}
-                                      {mode === 'edit' && (initialEntity as any)?.id ? (
-                                        <Pressable
-                                          onPress={() => {
-                                            Alert.alert(
-                                              'Delete this habit?',
-                                              "This can't be undone.",
-                                              [
-                                                {
-                                                  text: 'Cancel',
-                                                  style: 'cancel',
-                                                },
-                                                {
-                                                  text: 'Delete',
-                                                  style: 'destructive',
-                                                  onPress: async () => {
-                                                    try {
-                                                      const itemId = (initialEntity as any).id;
-                                                      const itemSpaceId =
-                                                        (initialEntity as any).space_id ??
-                                                        state.spaceId ??
-                                                        initialSpaceId;
-
-                                                      // 1. Delete from store FIRST (store mutation)
-                                                      await deleteHabit(itemId);
-                                                      if (__DEV__) {
-                                                        console.log(
-                                                          '[UnifiedOverlayV2] Item deleted from store:',
-                                                          itemId,
-                                                        );
-                                                      }
-
-                                                      // 2. THEN emit event so reload gets fresh data
-                                                      if (__DEV__) {
-                                                        console.log(
-                                                          '[UnifiedOverlayV2] Emitting entity:deleted',
-                                                          {
-                                                            id: itemId,
-                                                            type: 'habit',
-                                                            spaceId: itemSpaceId,
-                                                          },
-                                                        );
-                                                      }
-                                                      eventBus.emit('entity:deleted', {
-                                                        id: itemId,
-                                                        type: 'habit',
-                                                        spaceId: itemSpaceId,
-                                                      });
-
-                                                      // 3. Close overlay last
-                                                      onClose();
-                                                    } catch (err) {
-                                                      console.error(
-                                                        '[UnifiedOverlayV2] Delete failed:',
-                                                        err,
-                                                      );
-                                                      Alert.alert(
-                                                        'Error',
-                                                        'Failed to delete habit. Please try again.',
-                                                      );
-                                                    }
-                                                  },
-                                                },
-                                              ],
-                                            );
-                                          }}
-                                          style={({ pressed }) => [
-                                            styles.detailsRow,
-                                            pressed && { opacity: 0.7 },
-                                          ]}
-                                        >
-                                          <View style={styles.detailsRowLeft}>
-                                            <View style={styles.detailsRowIcon}>
-                                              <Trash2 size={18} color="#D9534F" />
-                                            </View>
-                                            <Text
-                                              style={[styles.detailsRowLabel, styles.deleteText]}
-                                            >
-                                              Delete habit
-                                            </Text>
-                                          </View>
-                                        </Pressable>
-                                      ) : null}
-                                    </View>
-                                  ) : null}
-
-                                  {/* Log Details */}
-                                  {baseType === 'log' ? (
-                                    <View>
-                                      {/* 1) Reminders row */}
-                                      <Pressable
-                                        onPress={() => {
-                                          if (!isViewMode) setShowRemindersModal(true);
-                                        }}
-                                        disabled={isViewMode}
-                                        style={({ pressed }) => [
-                                          styles.detailsRow,
-                                          pressed && !isViewMode && styles.detailsRowPressed,
-                                        ]}
-                                      >
-                                        <View style={styles.detailsRowLeft}>
-                                          <View style={styles.detailsRowIcon}>
-                                            <Bell
-                                              size={18}
-                                              color={
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.7)'
-                                                  : '#666'
-                                              }
-                                            />
-                                          </View>
-                                          <Text style={styles.detailsRowLabel}>Reminders</Text>
-                                        </View>
-                                        <Text style={styles.detailsRowValue}>
-                                          {formatItemReminderSummary(itemReminders)}
-                                        </Text>
-                                      </Pressable>
-
-                                      {/* 2) Add to Space row */}
-                                      <Pressable
-                                        onPress={() => {
-                                          if (!isViewMode) store.setUI({ showSpaceModal: true });
-                                        }}
-                                        disabled={isViewMode}
-                                        style={({ pressed }) => [
-                                          styles.detailsRow,
-                                          { marginTop: 0 },
-                                          pressed && !isViewMode && styles.detailsRowPressed,
-                                        ]}
-                                      >
-                                        <View style={styles.detailsRowLeft}>
-                                          <View style={styles.detailsRowIcon}>
-                                            <Folder
-                                              size={18}
-                                              color={
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.7)'
-                                                  : '#666'
-                                              }
-                                            />
-                                          </View>
-                                          <Text style={styles.detailsRowLabel}>Add to Space</Text>
-                                        </View>
-                                        <Text style={styles.detailsRowValue}>
-                                          {state.spaceId
-                                            ? (spaces.find((s) => s.id === state.spaceId)?.name ??
-                                              'Unassigned')
-                                            : 'Unassigned'}
-                                        </Text>
-                                      </Pressable>
-
-                                      {/* 3) Private toggle row (Phase L9: Only for journal logs) */}
-                                      {showLogPrivateToggle ? (
-                                        <View style={[styles.detailsRow, { marginTop: 0 }]}>
-                                          <View style={styles.detailsRowLeft}>
-                                            <View style={styles.detailsRowIcon}>
-                                              <Lock
-                                                size={18}
-                                                color={
-                                                  colorMode === 'dark'
-                                                    ? 'rgba(255,255,255,0.7)'
-                                                    : '#666'
-                                                }
-                                              />
-                                            </View>
-                                            <Text style={styles.detailsRowLabel}>Private</Text>
-                                          </View>
-                                          <Switch
-                                            value={state.logIsPrivate}
-                                            onValueChange={() =>
-                                              store.setLogIsPrivate(!state.logIsPrivate)
+                                {mode === 'edit' && (initialEntity as any)?.id && (
+                                  <StaticRow
+                                    icon={Trash2}
+                                    label="Delete habit"
+                                    iconColor="#D9534F"
+                                    borderBottom={false}
+                                    onPress={() => {
+                                      Alert.alert('Delete this habit?', "This can't be undone.", [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        {
+                                          text: 'Delete',
+                                          style: 'destructive',
+                                          onPress: async () => {
+                                            try {
+                                              const itemId = (initialEntity as any).id;
+                                              const itemSpaceId = (initialEntity as any).space_id ?? state.spaceId ?? initialSpaceId;
+                                              await deleteHabit(itemId);
+                                              eventBus.emit('entity:deleted', { id: itemId, type: 'habit', spaceId: itemSpaceId });
+                                              onClose();
+                                            } catch (err) {
+                                              console.error('[UnifiedOverlayV2] Delete failed:', err);
+                                              Alert.alert('Error', 'Failed to delete habit. Please try again.');
                                             }
-                                            disabled={isViewMode}
-                                            trackColor={{ false: '#D1D5DB', true: '#10B981' }}
-                                            thumbColor="#FFFFFF"
-                                          />
-                                        </View>
-                                      ) : null}
+                                          },
+                                        },
+                                      ]);
+                                    }}
+                                  />
+                                )}
+                              </>
+                            )}
 
-                                      {/* Idea Conversion Section (hidden in view mode) */}
-                                      {effectiveLogSubtype === 'idea' && mode === 'edit' ? (
-                                        <View style={{ marginTop: 16 }}>
-                                          <Text
-                                            style={{
-                                              fontSize: 13,
-                                              color: '#888',
-                                              marginBottom: 8,
-                                            }}
-                                          >
-                                            Convert to...
-                                          </Text>
-                                          <View style={{ flexDirection: 'row', gap: 8 }}>
-                                            <Pressable
-                                              onPress={() => {
-                                                const ideaTitle = state.log.title || '';
-                                                const ideaBody = state.log.body || '';
-                                                const ideaTags = state.tags || [];
-                                                const ideaListItems = state.list?.items;
-                                                const ideaIsList = !!state.list?.items?.length;
-                                                const ideaId = (initialEntity as any)?.id;
+                            {/* ── LOG rows (journal, idea, general, event) ── */}
+                            {baseType === 'log' && (
+                              <>
+                                {/* Event-type logs: Date & time */}
+                                {isEventNote && (
+                                  <ExpandableRow
+                                    icon={CalendarDays}
+                                    label="Date & time"
+                                    summary={
+                                      state.log.target_date
+                                        ? formatDueDay(state.log.target_date)
+                                        : 'Set date'
+                                    }
+                                    expanded={expandedRow === 'event-date'}
+                                    onToggle={() => {
+                                      toggleRow('event-date');
+                                      setDateModalTarget('note_event');
+                                      store.setUI({ showDateModal: true });
+                                    }}
+                                    iconColor="#6B4C8A"
+                                  />
+                                )}
 
-                                                // Close current overlay then open create todo overlay
-                                                onClose();
-                                                setTimeout(() => {
-                                                  globalOverlay.openCreate({
-                                                    type: 'todo',
-                                                    conversionMeta: {
-                                                      origin: 'idea_conversion',
-                                                      initialTitle: ideaTitle,
-                                                      initialNote: ideaBody,
-                                                      initialTags: ideaTags,
-                                                      initialListItems: ideaIsList
-                                                        ? ideaListItems
-                                                        : undefined,
-                                                      initialIsList: ideaIsList,
-                                                    },
-                                                  });
-                                                }, 100);
+                                {/* Journal: Private toggle */}
+                                {showLogPrivateToggle && (
+                                  <StaticRow
+                                    icon={Lock}
+                                    label="Private"
+                                    iconColor="#8B5E3C"
+                                    right={
+                                      <ToggleSwitch
+                                        on={state.logIsPrivate}
+                                        onToggle={() => store.setLogIsPrivate(!state.logIsPrivate)}
+                                        disabled={isViewMode}
+                                      />
+                                    }
+                                  />
+                                )}
 
-                                                // Archive the original idea
-                                                if (ideaId) {
-                                                  updateNote(ideaId, { archived: true });
-                                                  eventBus.emit('ItemUpdated', { id: ideaId });
-                                                }
-                                              }}
-                                              style={({ pressed }) => ({
-                                                flex: 1,
-                                                backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
-                                                borderRadius: 8,
-                                                paddingVertical: 12,
-                                                paddingHorizontal: 16,
-                                                minHeight: 44,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                flexDirection: 'row',
-                                                gap: 6,
-                                              })}
-                                            >
-                                              <Text style={{ fontSize: 15 }}>📋</Text>
-                                              <Text
-                                                style={{
-                                                  fontSize: 15,
-                                                  fontWeight: '500',
-                                                  color: '#333',
-                                                }}
-                                              >
-                                                To-Do
-                                              </Text>
-                                            </Pressable>
-                                            <Pressable
-                                              onPress={() => {
-                                                const ideaTitle = state.log.title || '';
-                                                const ideaBody = state.log.body || '';
-                                                const ideaTags = state.tags || [];
-                                                const ideaListItems = state.list?.items;
-                                                const ideaIsList = !!state.list?.items?.length;
-                                                const ideaId = (initialEntity as any)?.id;
+                                {/* Reminders — all log subtypes */}
+                                <StaticRow
+                                  icon={Bell}
+                                  label="Reminders"
+                                  right={
+                                    <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                      {formatItemReminderSummary(itemReminders)}
+                                    </Text>
+                                  }
+                                  onPress={() => { if (!isViewMode) setShowRemindersModal(true); }}
+                                />
 
-                                                // Close current overlay then open create habit overlay
-                                                onClose();
-                                                setTimeout(() => {
-                                                  globalOverlay.openCreate({
-                                                    type: 'habit',
-                                                    conversionMeta: {
-                                                      origin: 'idea_conversion',
-                                                      initialTitle: ideaTitle,
-                                                      initialNote: ideaBody,
-                                                      initialTags: ideaTags,
-                                                      initialListItems: ideaIsList
-                                                        ? ideaListItems
-                                                        : undefined,
-                                                      initialIsList: ideaIsList,
-                                                    },
-                                                  });
-                                                }, 100);
+                                <StaticRow
+                                  icon={FolderOpen}
+                                  label="Space"
+                                  right={
+                                    <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                      {state.spaceId
+                                        ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
+                                        : '+ Add'}
+                                    </Text>
+                                  }
+                                  onPress={() => { if (!isViewMode) store.setUI({ showSpaceModal: true }); }}
+                                />
 
-                                                // Archive the original idea
-                                                if (ideaId) {
-                                                  updateNote(ideaId, { archived: true });
-                                                  eventBus.emit('ItemUpdated', { id: ideaId });
-                                                }
-                                              }}
-                                              style={({ pressed }) => ({
-                                                flex: 1,
-                                                backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
-                                                borderRadius: 8,
-                                                paddingVertical: 12,
-                                                paddingHorizontal: 16,
-                                                minHeight: 44,
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                flexDirection: 'row',
-                                                gap: 6,
-                                              })}
-                                            >
-                                              <Text style={{ fontSize: 15 }}>🔄</Text>
-                                              <Text
-                                                style={{
-                                                  fontSize: 15,
-                                                  fontWeight: '500',
-                                                  color: '#333',
-                                                }}
-                                              >
-                                                Habit
-                                              </Text>
-                                            </Pressable>
-                                          </View>
-                                        </View>
-                                      ) : null}
-
-                                      {/* 4) Delete log row (only in edit mode) */}
-                                      {mode === 'edit' && (initialEntity as any)?.id ? (
-                                        <Pressable
-                                          onPress={() => {
-                                            Alert.alert(
-                                              'Delete this log?',
-                                              "This can't be undone.",
-                                              [
-                                                {
-                                                  text: 'Cancel',
-                                                  style: 'cancel',
-                                                },
-                                                {
-                                                  text: 'Delete',
-                                                  style: 'destructive',
-                                                  onPress: async () => {
-                                                    try {
-                                                      const itemId = (initialEntity as any).id;
-                                                      const itemSpaceId =
-                                                        (initialEntity as any).space_id ??
-                                                        state.spaceId ??
-                                                        initialSpaceId;
-
-                                                      // 1. Delete from store FIRST (store mutation)
-                                                      await deleteNote(itemId);
-                                                      if (__DEV__) {
-                                                        console.log(
-                                                          '[UnifiedOverlayV2] Item deleted from store:',
-                                                          itemId,
-                                                        );
-                                                      }
-
-                                                      // 2. THEN emit event so reload gets fresh data
-                                                      if (__DEV__) {
-                                                        console.log(
-                                                          '[UnifiedOverlayV2] Emitting entity:deleted',
-                                                          {
-                                                            id: itemId,
-                                                            type: 'note',
-                                                            spaceId: itemSpaceId,
-                                                          },
-                                                        );
-                                                      }
-                                                      eventBus.emit('entity:deleted', {
-                                                        id: itemId,
-                                                        type: 'note',
-                                                        spaceId: itemSpaceId,
-                                                      });
-
-                                                      // 3. Close overlay last
-                                                      onClose();
-                                                    } catch (err) {
-                                                      console.error(
-                                                        '[UnifiedOverlayV2] Delete log failed:',
-                                                        err,
-                                                      );
-                                                      Alert.alert(
-                                                        'Error',
-                                                        'Failed to delete log. Please try again.',
-                                                      );
-                                                    }
-                                                  },
-                                                },
-                                              ],
-                                            );
-                                          }}
-                                          style={({ pressed }) => [
-                                            styles.detailsRow,
-                                            pressed && { opacity: 0.7 },
-                                          ]}
-                                        >
-                                          <View style={styles.detailsRowLeft}>
-                                            <View style={styles.detailsRowIcon}>
-                                              <Trash2 size={18} color="#D9534F" />
-                                            </View>
-                                            <Text
-                                              style={[styles.detailsRowLabel, styles.deleteText]}
-                                            >
-                                              Delete log
-                                            </Text>
-                                          </View>
-                                        </Pressable>
-                                      ) : null}
+                                {/* Idea conversion buttons */}
+                                {effectiveLogSubtype === 'idea' && mode === 'edit' && (
+                                  <View style={{ marginTop: 12, marginBottom: 4 }}>
+                                    <Text style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>
+                                      Convert to...
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                                      <Pressable
+                                        onPress={() => {
+                                          const ideaTitle = state.log.title || '';
+                                          const ideaBody = state.log.body || '';
+                                          const ideaTags = state.tags || [];
+                                          const ideaListItems = state.list?.items;
+                                          const ideaIsList = !!state.list?.items?.length;
+                                          const ideaId = (initialEntity as any)?.id;
+                                          onClose();
+                                          setTimeout(() => {
+                                            globalOverlay.openCreate({
+                                              type: 'todo',
+                                              conversionMeta: {
+                                                origin: 'idea_conversion',
+                                                initialTitle: ideaTitle,
+                                                initialNote: ideaBody,
+                                                initialTags: ideaTags,
+                                                initialListItems: ideaIsList ? ideaListItems : undefined,
+                                                initialIsList: ideaIsList,
+                                              },
+                                            });
+                                          }, 100);
+                                          if (ideaId) {
+                                            updateNote(ideaId, { archived: true });
+                                            eventBus.emit('ItemUpdated', { id: ideaId });
+                                          }
+                                        }}
+                                        style={({ pressed }) => ({
+                                          flex: 1,
+                                          backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
+                                          borderRadius: 8,
+                                          paddingVertical: 12,
+                                          paddingHorizontal: 16,
+                                          minHeight: 44,
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          flexDirection: 'row',
+                                          gap: 6,
+                                        })}
+                                      >
+                                        <Text style={{ fontSize: 15 }}>📋</Text>
+                                        <Text style={{ fontSize: 15, fontWeight: '500', color: '#333' }}>To-Do</Text>
+                                      </Pressable>
+                                      <Pressable
+                                        onPress={() => {
+                                          const ideaTitle = state.log.title || '';
+                                          const ideaBody = state.log.body || '';
+                                          const ideaTags = state.tags || [];
+                                          const ideaListItems = state.list?.items;
+                                          const ideaIsList = !!state.list?.items?.length;
+                                          const ideaId = (initialEntity as any)?.id;
+                                          onClose();
+                                          setTimeout(() => {
+                                            globalOverlay.openCreate({
+                                              type: 'habit',
+                                              conversionMeta: {
+                                                origin: 'idea_conversion',
+                                                initialTitle: ideaTitle,
+                                                initialNote: ideaBody,
+                                                initialTags: ideaTags,
+                                                initialListItems: ideaIsList ? ideaListItems : undefined,
+                                                initialIsList: ideaIsList,
+                                              },
+                                            });
+                                          }, 100);
+                                          if (ideaId) {
+                                            updateNote(ideaId, { archived: true });
+                                            eventBus.emit('ItemUpdated', { id: ideaId });
+                                          }
+                                        }}
+                                        style={({ pressed }) => ({
+                                          flex: 1,
+                                          backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
+                                          borderRadius: 8,
+                                          paddingVertical: 12,
+                                          paddingHorizontal: 16,
+                                          minHeight: 44,
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          flexDirection: 'row',
+                                          gap: 6,
+                                        })}
+                                      >
+                                        <Text style={{ fontSize: 15 }}>🔄</Text>
+                                        <Text style={{ fontSize: 15, fontWeight: '500', color: '#333' }}>Habit</Text>
+                                      </Pressable>
                                     </View>
-                                  ) : null}
-                                </Box>
-                              </Reanimated.View>
-                            ) : null}
+                                  </View>
+                                )}
+
+                                {/* Event-type: linked items */}
+                                {isViewMode && isEventNote && fullEntity?.space_id && (
+                                  <StaticRow
+                                    icon={Link2}
+                                    label="Linked items"
+                                    right={<ChevronRight size={14} color="#A09A90" />}
+                                    onPress={() => {/* LinkedItemsSection is rendered above */}}
+                                  />
+                                )}
+
+                                {currentEntityId && (
+                                  <StaticRow
+                                    icon={MessageCircle}
+                                    label="Chat with Gremly"
+                                    iconColor="#2E5540"
+                                    right={<ChevronRight size={14} color="#2E5540" />}
+                                    onPress={() => store.setUI({ showEntityChat: true })}
+                                  />
+                                )}
+
+                                {mode === 'edit' && (initialEntity as any)?.id && (
+                                  <StaticRow
+                                    icon={Trash2}
+                                    label="Delete log"
+                                    iconColor="#D9534F"
+                                    borderBottom={false}
+                                    onPress={() => {
+                                      Alert.alert('Delete this log?', "This can't be undone.", [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        {
+                                          text: 'Delete',
+                                          style: 'destructive',
+                                          onPress: async () => {
+                                            try {
+                                              const itemId = (initialEntity as any).id;
+                                              const itemSpaceId = (initialEntity as any).space_id ?? state.spaceId ?? initialSpaceId;
+                                              await deleteNote(itemId);
+                                              eventBus.emit('entity:deleted', { id: itemId, type: 'note', spaceId: itemSpaceId });
+                                              onClose();
+                                            } catch (err) {
+                                              console.error('[UnifiedOverlayV2] Delete log failed:', err);
+                                              Alert.alert('Error', 'Failed to delete log. Please try again.');
+                                            }
+                                          },
+                                        },
+                                      ]);
+                                    }}
+                                  />
+                                )}
+                              </>
+                            )}
 
                             {/* Mentions / Dates chips (inline suggestions) */}
                             <Box
@@ -6330,7 +5594,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               ))}
                             </Box>
                             {/* Tag row hidden at Level-1; lands in Phase 3 */}
-                          </Box>
+                          </View>
                         </ScrollView>
                       </Reanimated.View>
                     )}
