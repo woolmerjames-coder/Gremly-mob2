@@ -3793,7 +3793,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   <View
                     style={{
                       paddingHorizontal: 16,
-                      paddingTop: 4,
+                      paddingTop: Math.max(insets.top, 20) + 10,
                       paddingBottom: 10,
                       backgroundColor: sheetBackground,
                     }}
@@ -3990,46 +3990,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         >
                           {/* Main text field - moved above tags */}
                           <Box style={{ marginBottom: 16 }}>
-                            {isExpandedEditor ? (
-                              /* Expanded editor mode */
-                              <OverlayExpandedEditor
-                                baseType={baseType}
-                                effectiveLogSubtype={effectiveLogSubtype}
-                                text={currentText}
-                                onChangeText={(t) => store.setBody(t)}
-                                colorMode={colorMode}
-                                isLog={isLog}
-                                onCollapse={() => {
-                                  LayoutAnimation.configureNext(
-                                    LayoutAnimation.Presets.easeInEaseOut,
-                                  );
-                                  setIsExpandedEditor(false);
-                                }}
-                                journalDateTime={
-                                  effectiveLogSubtype === 'journal'
-                                    ? getDateService().now()
-                                    : undefined
-                                }
-                                isChecklistMode={isChecklistMode}
-                                onToggleChecklistMode={() => {
-                                  console.log('[DEBUG-CHECKLIST] Before toggle:', {
-                                    stateIsChecklistMode: state.isChecklistMode,
-                                    checklistItems,
-                                  });
-                                  const newMode = !state.isChecklistMode;
-                                  store.setChecklistMode(newMode);
-                                  console.log(
-                                    '[DEBUG-CHECKLIST] After toggle dispatch, newMode:',
-                                    newMode,
-                                  );
-                                  if (!newMode && checklistItems && checklistItems.length > 0) {
-                                    console.log('[DEBUG-CHECKLIST] Clearing checklist items');
-                                    setUserClearedChecklist(true);
-                                    setChecklistItems(null);
-                                  }
-                                }}
-                              />
-                            ) : isPreviewMode ? (
+                            {isPreviewMode ? (
                               /* Preview mode: Formatted read-only content */
                               <View style={{ position: 'relative' }}>
                                 <View
@@ -6444,7 +6405,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       alignItems: 'center',
                       paddingHorizontal: 20,
                       paddingVertical: 12,
-                      paddingBottom: Math.max(insets.bottom, 12),
+                      paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
                       borderTopWidth: 0.5,
                       borderTopColor: '#D5D0C8',
                       backgroundColor: '#F5F2EB',
@@ -6487,7 +6448,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       alignItems: 'center',
                       paddingHorizontal: 20,
                       paddingVertical: 12,
-                      paddingBottom: Math.max(insets.bottom, 12),
+                      paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
                       borderTopWidth: 0.5,
                       borderTopColor: '#D5D0C8',
                       backgroundColor: '#F5F2EB',
@@ -6514,6 +6475,57 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         <Pencil size={14} color="#2E5540" />
                         <Text style={{ fontSize: 14, fontWeight: '500', color: '#2E5540' }}>Edit</Text>
                       </Pressable>
+                    </View>
+                  )}
+
+                  {/* Expanded editor — full-screen overlay */}
+                  {isExpandedEditor && (
+                    <View style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      zIndex: 50,
+                      backgroundColor: '#FFFFFF',
+                    }}>
+                      <OverlayExpandedEditor
+                        baseType={baseType}
+                        effectiveLogSubtype={effectiveLogSubtype}
+                        text={currentText}
+                        onChangeText={(t) => store.setBody(t)}
+                        colorMode={colorMode}
+                        isLog={isLog}
+                        onCollapse={() => {
+                          LayoutAnimation.configureNext(
+                            LayoutAnimation.Presets.easeInEaseOut,
+                          );
+                          setIsExpandedEditor(false);
+                        }}
+                        journalDateTime={
+                          effectiveLogSubtype === 'journal'
+                            ? getDateService().now()
+                            : undefined
+                        }
+                        isChecklistMode={isChecklistMode}
+                        onToggleChecklistMode={() => {
+                          console.log('[DEBUG-CHECKLIST] Before toggle:', {
+                            stateIsChecklistMode: state.isChecklistMode,
+                            checklistItems,
+                          });
+                          const newMode = !state.isChecklistMode;
+                          store.setChecklistMode(newMode);
+                          console.log(
+                            '[DEBUG-CHECKLIST] After toggle dispatch, newMode:',
+                            newMode,
+                          );
+                          if (!newMode && checklistItems && checklistItems.length > 0) {
+                            console.log('[DEBUG-CHECKLIST] Clearing checklist items');
+                            setUserClearedChecklist(true);
+                            setChecklistItems(null);
+                          }
+                        }}
+                      />
                     </View>
                   )}
 
