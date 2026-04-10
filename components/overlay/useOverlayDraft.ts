@@ -116,7 +116,7 @@ export interface OverlayUI {
   showClarificationPopup: boolean;
 
   // Date modal internals (will move into DatePickerModal in Phase 3)
-  dateModalTarget: 'todo_deadline' | 'todo_dodate' | 'note_event' | 'note_end_date' | 'reminder' | null;
+  dateModalTarget: 'todo_deadline' | 'todo_dodate' | 'note_event' | 'note_end_date' | 'reminder' | 'todo_time' | 'event_time' | null;
   selectedDate: Date;
   selectedTime: Date;
   showTimePicker: boolean;

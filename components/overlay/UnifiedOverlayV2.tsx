@@ -4223,57 +4223,44 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5, marginTop: 4 }}>
                                     Specific time
                                   </Text>
-                                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-                                    {['9:00 AM', '10:00 AM', '12:00 PM', '2:00 PM', '5:00 PM'].map((time) => {
-                                      const isActive = formatDueTime(state.todo.due_time) === time;
-                                      return (
-                                        <Pressable
-                                          key={time}
-                                          onPress={() => {
-                                            if (isActive) {
-                                              store.setTodoDue({ due_time: null });
-                                            } else {
-                                              const [h, min] = time.replace(/ (AM|PM)/, '').split(':').map(Number);
-                                              const isPM = time.includes('PM');
-                                              const hour24 = isPM && h !== 12 ? h + 12 : (!isPM && h === 12 ? 0 : h);
-                                              const timeStr = `${String(hour24).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
-                                              store.setTodoDue({ due_time: timeStr });
-                                            }
-                                          }}
-                                          style={{
-                                            paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
-                                            backgroundColor: isActive ? '#2D4A3E' : '#F5F2ED',
-                                          }}
-                                        >
-                                          <Text style={{
-                                            fontSize: 12, fontWeight: isActive ? '600' : '500',
-                                            color: isActive ? '#FFFFFF' : '#6B665C',
-                                          }}>
-                                            {time}
-                                          </Text>
-                                        </Pressable>
-                                      );
-                                    })}
+                                  <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
                                     <Pressable
-                                      onPress={() => store.setTodoDue({ due_time: null })}
+                                      onPress={() => {
+                                        const now = getDateService().now();
+                                        if (state.todo.due_time) {
+                                          const [h, m] = state.todo.due_time.split(':').map(Number);
+                                          now.setHours(h, m, 0, 0);
+                                        }
+                                        setSelectedTime(now);
+                                        setDateModalTarget('todo_time');
+                                        store.setUI({ showDateModal: true });
+                                      }}
                                       style={{
-                                        paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
-                                        backgroundColor: !state.todo.due_time ? '#2D4A3E' : '#F5F2ED',
+                                        flex: 1, padding: 10, paddingHorizontal: 12, borderRadius: 8,
+                                        borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
                                       }}
                                     >
                                       <Text style={{
-                                        fontSize: 12, fontWeight: !state.todo.due_time ? '600' : '500',
-                                        color: !state.todo.due_time ? '#FFFFFF' : '#6B665C',
+                                        fontSize: 13, fontWeight: '500',
+                                        color: state.todo.due_time ? '#2D4A3E' : '#B5AFA5',
                                       }}>
-                                        None
+                                        {state.todo.due_time ? formatDueTime(state.todo.due_time) : 'Not set'}
                                       </Text>
+                                      <Clock size={14} color="#8B8579" />
                                     </Pressable>
+                                    {state.todo.due_time && (
+                                      <Pressable
+                                        onPress={() => store.setTodoDue({ due_time: null })}
+                                        style={{
+                                          paddingHorizontal: 12, justifyContent: 'center',
+                                          borderRadius: 8, backgroundColor: '#EDEAE3',
+                                        }}
+                                      >
+                                        <Text style={{ fontSize: 12, color: '#8B8579' }}>Clear</Text>
+                                      </Pressable>
+                                    )}
                                   </View>
-                                  {state.todo.due_time && (
-                                    <Text style={{ fontSize: 12, color: '#2E5540', fontWeight: '500', marginBottom: 8 }}>
-                                      Scheduled for {formatDueTime(state.todo.due_time)}
-                                    </Text>
-                                  )}
 
                                   {/* Duration */}
                                   <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
@@ -5125,56 +5112,47 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       <Calendar size={14} color="#8B8579" />
                                     </Pressable>
 
-                                    {/* Event time */}
+                                    {/* Time */}
                                     <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
                                       Time
                                     </Text>
-                                    <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-                                      {['9:00 AM', '12:00 PM', '3:00 PM', '6:00 PM', '9:00 PM'].map((time) => {
-                                        const formatted = formatDueTime(state.log.event_time);
-                                        const isActive = formatted === time;
-                                        return (
-                                          <Pressable
-                                            key={time}
-                                            onPress={() => {
-                                              if (isActive) {
-                                                store.setLogEventTime(null);
-                                              } else {
-                                                const [h, min] = time.replace(/ (AM|PM)/, '').split(':').map(Number);
-                                                const isPM = time.includes('PM');
-                                                const hour24 = isPM && h !== 12 ? h + 12 : (!isPM && h === 12 ? 0 : h);
-                                                const timeStr = `${String(hour24).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
-                                                store.setLogEventTime(timeStr);
-                                              }
-                                            }}
-                                            style={{
-                                              paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
-                                              backgroundColor: isActive ? '#2D4A3E' : '#F5F2ED',
-                                            }}
-                                          >
-                                            <Text style={{
-                                              fontSize: 12, fontWeight: isActive ? '600' : '500',
-                                              color: isActive ? '#FFFFFF' : '#6B665C',
-                                            }}>
-                                              {time}
-                                            </Text>
-                                          </Pressable>
-                                        );
-                                      })}
+                                    <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
                                       <Pressable
-                                        onPress={() => store.setLogEventTime(null)}
+                                        onPress={() => {
+                                          const now = getDateService().now();
+                                          if (state.log.event_time) {
+                                            const [h, m] = state.log.event_time.split(':').map(Number);
+                                            now.setHours(h, m, 0, 0);
+                                          }
+                                          setSelectedTime(now);
+                                          setDateModalTarget('event_time');
+                                          store.setUI({ showDateModal: true });
+                                        }}
                                         style={{
-                                          paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
-                                          backgroundColor: !state.log.event_time ? '#2D4A3E' : '#F5F2ED',
+                                          flex: 1, padding: 10, paddingHorizontal: 12, borderRadius: 8,
+                                          borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                          flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
                                         }}
                                       >
                                         <Text style={{
-                                          fontSize: 12, fontWeight: !state.log.event_time ? '600' : '500',
-                                          color: !state.log.event_time ? '#FFFFFF' : '#6B665C',
+                                          fontSize: 13, fontWeight: '500',
+                                          color: state.log.event_time ? '#2D4A3E' : '#B5AFA5',
                                         }}>
-                                          None
+                                          {state.log.event_time ? formatDueTime(state.log.event_time) : 'Not set'}
                                         </Text>
+                                        <Clock size={14} color="#8B8579" />
                                       </Pressable>
+                                      {state.log.event_time && (
+                                        <Pressable
+                                          onPress={() => store.setLogEventTime(null)}
+                                          style={{
+                                            paddingHorizontal: 12, justifyContent: 'center',
+                                            borderRadius: 8, backgroundColor: '#EDEAE3',
+                                          }}
+                                        >
+                                          <Text style={{ fontSize: 12, color: '#8B8579' }}>Clear</Text>
+                                        </Pressable>
+                                      )}
                                     </View>
                                   </ExpandableRow>
                                 )}
@@ -5420,7 +5398,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     )}
                   </View>
 
-                  <Modal visible={storeUI.showDateModal} transparent animationType="fade">
+                  <Modal visible={storeUI.showDateModal && dateModalTarget !== 'todo_time' && dateModalTarget !== 'event_time'} transparent animationType="fade">
                     <Pressable
                       style={{
                         flex: 1,
@@ -5709,6 +5687,62 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             />
                           </Box>
                         </ScrollView>
+                      </Pressable>
+                    </Pressable>
+                  </Modal>
+
+                  {/* Native time picker modal */}
+                  <Modal
+                    visible={storeUI.showDateModal && (dateModalTarget === 'todo_time' || dateModalTarget === 'event_time')}
+                    transparent
+                    animationType="fade"
+                  >
+                    <Pressable
+                      style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}
+                      onPress={() => { store.setUI({ showDateModal: false }); setDateModalTarget(null); }}
+                    >
+                      <Pressable onPress={(e) => e.stopPropagation()}>
+                        <View style={{
+                          backgroundColor: '#F5F2EB', borderTopLeftRadius: 16,
+                          borderTopRightRadius: 16, paddingBottom: 34, paddingTop: 16,
+                        }}>
+                          <View style={{
+                            flexDirection: 'row', justifyContent: 'space-between',
+                            alignItems: 'center', paddingHorizontal: 20, marginBottom: 12,
+                          }}>
+                            <Pressable onPress={() => { store.setUI({ showDateModal: false }); setDateModalTarget(null); }}>
+                              <Text style={{ fontSize: 15, color: '#6B665C' }}>Cancel</Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => {
+                                const hours = selectedTime.getHours();
+                                const mins = selectedTime.getMinutes();
+                                const timeStr = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+                                if (dateModalTarget === 'todo_time') {
+                                  store.setTodoDue({ due_time: timeStr });
+                                } else if (dateModalTarget === 'event_time') {
+                                  store.setLogEventTime(timeStr);
+                                }
+                                store.setUI({ showDateModal: false });
+                                setDateModalTarget(null);
+                              }}
+                              style={{
+                                backgroundColor: '#2D4A3E', paddingHorizontal: 24,
+                                paddingVertical: 8, borderRadius: 10,
+                              }}
+                            >
+                              <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>Set</Text>
+                            </Pressable>
+                          </View>
+                          <DateTimePicker
+                            value={selectedTime}
+                            mode="time"
+                            display="spinner"
+                            onChange={(_, date) => { if (date) setSelectedTime(date); }}
+                            minuteInterval={5}
+                            style={{ height: 180 }}
+                          />
+                        </View>
                       </Pressable>
                     </Pressable>
                   </Modal>
