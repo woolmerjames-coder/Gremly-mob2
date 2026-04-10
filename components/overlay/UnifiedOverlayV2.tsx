@@ -5,14 +5,12 @@
  * - overlayStyles.ts: StyleSheet definitions
  * - overlayHydration.ts: Entity → state hydration + constants
  * - overlaySave.ts: State → save payload mapping
- * - ScheduleModal.tsx: Schedule editing modal
  * - OverlayExpandedEditor.tsx: Full-screen text editor
  * - SetRemindersModal.tsx: Reminder management
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useMemo, useCallback, useState, useRef } from 'react';
 import {
-  Dimensions,
   KeyboardAvoidingView,
   LayoutAnimation,
   Platform,
@@ -31,9 +29,6 @@ import {
   Image,
   ActionSheetIOS,
   Keyboard,
-  PanResponder,
-  GestureResponderEvent,
-  PanResponderGestureState,
   TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
@@ -97,7 +92,6 @@ import {
   lightTokens,
   darkTokens,
   spacing as tokenSpacing,
-  borderRadius as tokenRadius,
 } from '../../design/tokens';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { selectItemById, useActiveSpaces, useSpaceHasEvents } from '../../lib/store/selectors';
@@ -148,7 +142,6 @@ import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/background
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import SetRemindersModal from './SetRemindersModal';
-// ScheduleModal removed — schedule editing is now inline in ExpandableRow
 import type { ItemReminder } from '../../lib/types';
 import {
   scheduleItemReminder,
@@ -650,7 +643,7 @@ function removeMetaTag(
   const key = canonical.toLowerCase();
   return list.filter((entry) => typeof entry === 'string' && entry.toLowerCase() !== key);
 }
-const SHEET_MAX_H = Math.round(Dimensions.get('window').height * 0.9);
+
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -1359,85 +1352,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return hasActionableList(body);
   }, [mode, baseType, state.log?.body, fullEntity, viewModeEntity, initialEntity, checklistItems]);
 
-  // Swipe-down-to-close: track drag offset and store onClose ref
-  const sheetDragY = useRef(new RNAnimated.Value(0)).current;
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose; // Keep ref updated with latest onClose
 
-  // Threshold for swipe-to-close (in pixels)
-  const SWIPE_CLOSE_THRESHOLD = 100;
-  const SWIPE_VELOCITY_THRESHOLD = 0.5;
-
-  // PanResponder for swipe-down-to-close gesture
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (
-        _evt: GestureResponderEvent,
-        gestureState: PanResponderGestureState,
-      ) => {
-        const { dx, dy, vy } = gestureState;
-        // Start handling when the user clearly drags mostly downward
-        const isVerticalSwipe = Math.abs(dy) > Math.abs(dx);
-        const isDownward = dy > 10 && vy >= 0;
-        // Don't capture if saving
-        if (isSavingRef.current) return false;
-        return isVerticalSwipe && isDownward;
-      },
-      onPanResponderGrant: () => {
-        // Reset drag offset when gesture starts
-        sheetDragY.setValue(0);
-      },
-      onPanResponderMove: (_evt: GestureResponderEvent, gestureState: PanResponderGestureState) => {
-        // Update drag offset for visual feedback (only allow downward drag)
-        const clampedDy = Math.max(0, gestureState.dy);
-        sheetDragY.setValue(clampedDy);
-        // Dismiss keyboard when dragging
-        if (gestureState.dy > 10) {
-          Keyboard.dismiss();
-        }
-      },
-      onPanResponderRelease: (
-        _evt: GestureResponderEvent,
-        gestureState: PanResponderGestureState,
-      ) => {
-        Keyboard.dismiss();
-        const { dy, vy } = gestureState;
-        // Close if threshold exceeded OR velocity is high enough
-        if (dy > SWIPE_CLOSE_THRESHOLD || vy > SWIPE_VELOCITY_THRESHOLD) {
-          // Animate sheet off screen then close
-          RNAnimated.timing(sheetDragY, {
-            toValue: 500,
-            duration: 200,
-            useNativeDriver: true,
-          }).start(() => {
-            onCloseRef.current?.();
-            sheetDragY.setValue(0);
-          });
-        } else {
-          // Snap back to original position
-          RNAnimated.spring(sheetDragY, {
-            toValue: 0,
-            useNativeDriver: true,
-            tension: 100,
-            friction: 10,
-          }).start();
-        }
-      },
-      onPanResponderTerminate: () => {
-        // If gesture is interrupted, snap back
-        RNAnimated.spring(sheetDragY, {
-          toValue: 0,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 10,
-        }).start();
-      },
-    }),
-  ).current;
-
-  // Ref to track isSaving for PanResponder (since PanResponder is created once)
-  const isSavingRef = useRef(storeUI.saving);
-  isSavingRef.current = storeUI.saving;
 
 
 
@@ -2089,8 +2004,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   useEffect(() => {
     if (!visible) return;
-    // Reset drag offset when opening
-    sheetDragY.setValue(0);
     const delay = 24;
     if (reduceMotion) {
       sheetTranslateY.setValue(0);
@@ -2115,7 +2028,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         useNativeDriver: true,
       }),
     ]).start();
-  }, [visible, reduceMotion, sheetTranslateY, sheetOpacity, sheetDragY]);
+  }, [visible, reduceMotion, sheetTranslateY, sheetOpacity]);
 
 
   // animate commitment reveal/hide
@@ -2871,17 +2784,13 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // theme / background for overlay (phase‑8 visual polish)
   const colorMode = useColorScheme();
-  // Phase 6a: Overlay surface background - use brand cream color for warmth
-  const sheetBackground = colorMode === 'dark' ? darkTokens.colors.linen : '#F9F6F1'; // linenCream
-  // Footer bar keeps a clean white background for contrast with Save button
-  const footerBackground = sheetBackground; // Match sheet background
-  const sheetBorderColor = colorMode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
-  const handleColor = colorMode === 'dark' ? 'rgba(255,255,255,0.24)' : 'rgba(0,0,0,0.16)';
-  const typeTabActiveColor = colorMode === 'dark' ? darkTokens.colors.moss : '#2E5540';
+  const tokens = colorMode === 'dark' ? darkTokens : lightTokens;
+  const sheetBackground = tokens.colors.linen;
+
+  const typeTabActiveColor = tokens.colors.moss;
   const typeTabInactiveColor =
     colorMode === 'dark' ? 'rgba(248,250,249,0.65)' : 'rgba(34,34,34,0.55)';
-  const typeTabUnderlineColor =
-    colorMode === 'dark' ? darkTokens.colors.moss : lightTokens.colors.moss;
+  const typeTabUnderlineColor = tokens.colors.moss;
 
   // Type-specific accent colors for subtle underline
   const getTypeAccentColor = (type: BaseType): string => {
@@ -3650,7 +3559,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               paddingHorizontal: 9, paddingVertical: 3, borderRadius: 10,
             }}
           >
-            <Text style={{ fontSize: 11, fontWeight: '500', color: '#2E5540', textTransform: 'capitalize' }}>
+            <Text style={{ fontSize: 11, fontWeight: '500', color: tokens.colors.primary, textTransform: 'capitalize' }}>
               {effectiveLogSubtype === 'event' ? 'Event' : BASE_LABEL[baseType]}
             </Text>
           </View>
@@ -3664,7 +3573,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           style={{
             fontSize: 22,
             fontWeight: '600',
-            color: '#1a1a1a',
+            color: tokens.colors.text,
             marginBottom: 12,
             lineHeight: 30,
           }}
@@ -3740,7 +3649,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   paddingVertical: 4, borderRadius: 8,
                 }}
               >
-                <Text style={{ fontSize: 12, color: '#2E5540', fontWeight: '500' }}>#{tag}</Text>
+                <Text style={{ fontSize: 12, color: tokens.colors.primary, fontWeight: '500' }}>#{tag}</Text>
               </View>
             ))}
           </View>
@@ -3757,19 +3666,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           >
             {scheduleSummary && (
               <View style={{ flexDirection: 'row', marginBottom: entitySpaceName ? 4 : 0 }}>
-                <Text style={{ fontSize: 12, color: '#8B8579', fontWeight: '500', width: 68 }}>Schedule</Text>
+                <Text style={{ fontSize: 12, color: tokens.colors.subtle, fontWeight: '500', width: 68 }}>Schedule</Text>
                 <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{scheduleSummary}</Text>
               </View>
             )}
             {entitySpaceName && (
               <View style={{ flexDirection: 'row' }}>
-                <Text style={{ fontSize: 12, color: '#8B8579', fontWeight: '500', width: 68 }}>Space</Text>
+                <Text style={{ fontSize: 12, color: tokens.colors.subtle, fontWeight: '500', width: 68 }}>Space</Text>
                 <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{entitySpaceName}</Text>
               </View>
             )}
             {itemReminders.length > 0 && (
               <View style={{ flexDirection: 'row', marginTop: 4 }}>
-                <Text style={{ fontSize: 12, color: '#8B8579', fontWeight: '500', width: 68 }}>Reminders</Text>
+                <Text style={{ fontSize: 12, color: tokens.colors.subtle, fontWeight: '500', width: 68 }}>Reminders</Text>
                 <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{formatItemReminderSummary(itemReminders)}</Text>
               </View>
             )}
@@ -3779,8 +3688,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         {/* Mood display (journal) */}
         {isJournal && moods.length > 0 && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}>
-            <Text style={{ fontSize: 13, color: '#8B8579' }}>Mood:</Text>
-            <Text style={{ fontSize: 13, color: '#2E5540', fontWeight: '500' }}>
+            <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>Mood:</Text>
+            <Text style={{ fontSize: 13, color: tokens.colors.primary, fontWeight: '500' }}>
               {moods.map((m) => MOOD_CONFIG[m]?.label ?? m).join(', ')}
             </Text>
           </View>
@@ -3803,7 +3712,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           <View style={{ marginBottom: 14 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <Star size={14} color="#8B8579" />
-              <Text style={{ fontSize: 12, color: '#8B8579', fontWeight: '600' }}>
+              <Text style={{ fontSize: 12, color: tokens.colors.subtle, fontWeight: '600' }}>
                 Saved from chat
               </Text>
             </View>
@@ -3871,65 +3780,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   return (
     <>
       <KeyboardAvoidingView
-        style={[{ flex: 1, backgroundColor: 'rgba(0,0,0,0.10)' }]}
+        style={[{ flex: 1, backgroundColor: sheetBackground }]}
         behavior={Platform.select({ ios: 'padding', android: undefined })}
         keyboardVerticalOffset={0}
       >
-        <View
-          style={{
-            flex: 1,
-            justifyContent: 'flex-end',
-            alignSelf: 'stretch',
-          }}
-        >
-          {/* Backdrop tap area - only the visible backdrop above the sheet */}
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => {
-              // First tap: dismiss keyboard if open
-              // Second tap: close overlay
-              if (keyboardHeight > 0) {
-                Keyboard.dismiss();
-                return;
-              }
-              onClose?.();
-            }}
-          />
-          {/* Bottom-anchored sheet: max 90% of viewport (or less when keyboard open), rounded top corners */}
+        <SafeAreaView style={{ flex: 1 }}>
           <RNAnimated.View
             style={{
-              width: '100%',
+              flex: 1,
               opacity: sheetOpacity,
-              transform: [{ translateY: RNAnimated.add(sheetTranslateY, sheetDragY) }],
+              transform: [{ translateY: sheetTranslateY }],
+              backgroundColor: sheetBackground,
             }}
           >
-            {/* Dynamic sheet height: when keyboard is open, shrink to fit available space */}
-            {(() => {
-              const screenHeight = Dimensions.get('window').height;
-              const availableHeight = screenHeight - keyboardHeight - insets.top - 20; // 20px buffer
-              const dynamicSheetHeight = Math.min(SHEET_MAX_H, availableHeight);
-              return (
-                <View
-                  style={{
-                    width: '100%',
-                    alignSelf: 'stretch',
-                    height: dynamicSheetHeight,
-                    maxHeight: dynamicSheetHeight,
-                    borderTopLeftRadius: tokenRadius.md,
-                    borderTopRightRadius: tokenRadius.md,
-                    overflow: 'hidden',
-                    backgroundColor: sheetBackground,
-                    // Lock In visual state: add green top border when locked
-                    borderTopWidth: isLockedIn ? 3 : 0,
-                    borderTopColor: isLockedIn ? lightTokens.colors.moss : 'transparent',
-                    // subtle shadow to feel like a sheet of paper floating above the app
-                    shadowColor: '#000',
-                    shadowOpacity: 0.05,
-                    shadowRadius: 3,
-                    shadowOffset: { width: 0, height: 1 },
-                    elevation: 4,
-                  }}
-                >
                   {showSaveToast ? (
                     <View
                       pointerEvents="none"
@@ -3958,25 +3821,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       </Text>
                     </View>
                   ) : null}
-                  {/* Grab handle for visual separation - drag here to dismiss */}
-                  <View
-                    {...panResponder.panHandlers}
-                    style={{
-                      alignItems: 'center',
-                      paddingTop: 12,
-                      paddingBottom: 8,
-                      backgroundColor: sheetBackground,
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: 36,
-                        height: 4,
-                        borderRadius: 2,
-                        backgroundColor: handleColor,
-                      }}
-                    />
-                  </View>
                   {/* ── Top bar: Cancel / Save ── */}
                   <View
                     style={{
@@ -3996,6 +3840,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         hitSlop={8}
                         accessibilityRole="button"
                         accessibilityLabel="Cancel"
+                        style={{ minHeight: 44, justifyContent: 'center' }}
                       >
                         <Text
                           style={{
@@ -4013,6 +3858,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         hitSlop={8}
                         accessibilityRole="button"
                         accessibilityLabel="Close"
+                        style={{ minHeight: 44, justifyContent: 'center' }}
                       >
                         <Text style={{ color: '#6B665C', fontSize: 15, fontWeight: '400' }}>
                           Close
@@ -4030,15 +3876,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           alignItems: 'center',
                           gap: 5,
                           borderWidth: 0.5,
-                          borderColor: '#D5D0C8',
+                          borderColor: tokens.colors.border,
                           paddingHorizontal: 14,
                           paddingVertical: 6,
                           borderRadius: 16,
+                          minHeight: 44,
                           opacity: pressed ? 0.7 : 1,
                         })}
                       >
-                        <Pencil size={14} color="#2E5540" />
-                        <Text style={{ color: '#2E5540', fontSize: 14, fontWeight: '500' }}>
+                        <Pencil size={14} color={tokens.colors.primary} />
+                        <Text style={{ color: tokens.colors.primary, fontSize: 14, fontWeight: '500' }}>
                           Edit
                         </Text>
                       </Pressable>
@@ -4054,6 +3901,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             paddingHorizontal: 24,
                             paddingVertical: 8,
                             borderRadius: 20,
+                            minHeight: 44,
+                            justifyContent: 'center',
                           }}
                         >
                           <Text
@@ -4104,7 +3953,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           placeholderTextColor="#999999"
                           editable={!isViewMode}
                           style={{
-                            color: '#1a1a1a',
+                            color: tokens.colors.text,
                             fontWeight: '600',
                             fontSize: 21,
                             flex: 1,
@@ -4181,7 +4030,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             backgroundColor: 'rgba(46,85,64,0.12)',
                           }}
                         >
-                          <Text style={{ fontSize: 10, fontWeight: '500', color: '#2E5540' }}>
+                          <Text style={{ fontSize: 10, fontWeight: '500', color: tokens.colors.primary }}>
                             {sweepStatus.label}
                           </Text>
                         </View>
@@ -4326,7 +4175,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     nestedScrollEnabled={true}
                                   >
                                     {renderFormattedContent(currentText, {
-                                      textColor: '#1a1a1a',
+                                      textColor: tokens.colors.text,
                                       fontSize: 14,
                                       lineHeight: 14 * 1.65,
                                     })}
@@ -4359,7 +4208,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       fontSize: 13,
                                       fontWeight: '600',
                                       color:
-                                        colorMode === 'dark' ? 'rgba(255,255,255,0.8)' : '#2E5540',
+                                        colorMode === 'dark' ? 'rgba(255,255,255,0.8)' : tokens.colors.primary,
                                     }}
                                   >
                                     Edit
@@ -4390,7 +4239,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   style={{
                                     fontSize: 14,
                                     lineHeight: 14 * 1.65,
-                                    color: '#1a1a1a',
+                                    color: tokens.colors.text,
                                     maxHeight: 72,
                                     paddingVertical: 8,
                                     paddingHorizontal: 0,
@@ -4518,7 +4367,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       <Text
                                         style={[
                                           styles.moodChipText,
-                                          { color: colorMode === 'dark' ? '#fff' : '#2E5540' },
+                                          { color: colorMode === 'dark' ? '#fff' : tokens.colors.primary },
                                         ]}
                                       >
                                         {moods.map((m) => MOOD_CONFIG[m]?.label ?? m).join(', ')}
@@ -4621,7 +4470,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                               style={[
                                                 styles.moodOptionText,
                                                 {
-                                                  color: colorMode === 'dark' ? '#fff' : '#2E5540',
+                                                  color: colorMode === 'dark' ? '#fff' : tokens.colors.primary,
                                                 },
                                               ]}
                                             >
@@ -4647,7 +4496,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       <Text
                                         style={[
                                           styles.moodDoneButtonText,
-                                          { color: colorMode === 'dark' ? '#fff' : '#2E5540' },
+                                          { color: colorMode === 'dark' ? '#fff' : tokens.colors.primary },
                                         ]}
                                       >
                                         Done
@@ -4687,7 +4536,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   iconColor="#2E5540"
                                 >
                                   {/* Time of day */}
-                                  <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                  <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
                                     Time of day
                                   </Text>
                                   <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
@@ -4714,7 +4563,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   </View>
 
                                   {/* Duration */}
-                                  <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                  <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
                                     Duration
                                   </Text>
                                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
@@ -4783,7 +4632,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   </View>
 
                                   {/* Dates */}
-                                  <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                  <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
                                     Dates
                                   </Text>
                                   <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
@@ -4794,7 +4643,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       }}
                                       style={{
                                         flex: 1, padding: 7, paddingHorizontal: 10, borderRadius: 8,
-                                        borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                        borderWidth: 0.5, borderColor: tokens.colors.border, backgroundColor: '#EDEAE3',
                                         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
                                       }}
                                     >
@@ -4817,7 +4666,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       }}
                                       style={{
                                         flex: 1, padding: 7, paddingHorizontal: 10, borderRadius: 8,
-                                        borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                        borderWidth: 0.5, borderColor: tokens.colors.border, backgroundColor: '#EDEAE3',
                                         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
                                       }}
                                     >
@@ -4864,7 +4713,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   icon={Bell}
                                   label="Reminders"
                                   right={
-                                    <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                    <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
                                       {formatItemReminderSummary(itemReminders)}
                                     </Text>
                                   }
@@ -4875,7 +4724,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   icon={FolderOpen}
                                   label="Space"
                                   right={
-                                    <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                    <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
                                       {state.spaceId
                                         ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
                                         : '+ Add'}
@@ -4889,7 +4738,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     icon={Link2}
                                     label="Link to event"
                                     right={
-                                      <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                      <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
                                         {state.linkedEventId ? 'Linked' : 'None'}
                                       </Text>
                                     }
@@ -4973,7 +4822,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       icon={Zap}
                                       label="Trigger"
                                       right={
-                                        <Text style={{ fontSize: 13, color: '#8B8579' }}>Not set</Text>
+                                        <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>Not set</Text>
                                       }
                                       iconColor="#D97706"
                                     />
@@ -4982,7 +4831,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       icon={RotateCcw}
                                       label="Replacement"
                                       right={
-                                        <Text style={{ fontSize: 13, color: '#8B8579' }}>Not set</Text>
+                                        <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>Not set</Text>
                                       }
                                       iconColor="#2E5540"
                                     />
@@ -4991,7 +4840,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       icon={Shield}
                                       label="Tracking"
                                       right={
-                                        <Text style={{ fontSize: 13, color: '#8B8579' }}>Daily check-in</Text>
+                                        <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>Daily check-in</Text>
                                       }
                                       iconColor="#6B4C8A"
                                     />
@@ -5010,7 +4859,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     iconColor="#2E5540"
                                   >
                                     {/* Frequency presets */}
-                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                    <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
                                       Frequency
                                     </Text>
                                     {(() => {
@@ -5109,7 +4958,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                                 >
                                                   <Text style={{ fontSize: 18, color: '#2D4A3E' }}>+</Text>
                                                 </Pressable>
-                                                <Text style={{ fontSize: 13, color: '#8B8579', marginLeft: 12 }}>times per</Text>
+                                                <Text style={{ fontSize: 13, color: tokens.colors.subtle, marginLeft: 12 }}>times per</Text>
                                               </View>
                                               <View style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}>
                                                 {(['day', 'week', 'month'] as const).map((u) => {
@@ -5143,7 +4992,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           {curUnit === 'week' && (
                                             <View style={{ marginBottom: 8 }}>
                                               <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 6 }}>
-                                                <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500' }}>On these days</Text>
+                                                <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500' }}>On these days</Text>
                                                 <Text style={{ fontSize: 11, color: '#A09A90', marginLeft: 4 }}>(optional)</Text>
                                               </View>
                                               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -5186,7 +5035,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                                     {/* Time of day */}
                                     <View style={{ height: 1, backgroundColor: '#E5E0D8', marginVertical: 10 }} />
-                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                    <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
                                       Time of day
                                     </Text>
                                     <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
@@ -5213,7 +5062,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     </View>
 
                                     {/* Duration */}
-                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                    <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
                                       Duration
                                     </Text>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
@@ -5283,7 +5132,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                                     {/* Dates */}
                                     <View style={{ height: 1, backgroundColor: '#E5E0D8', marginVertical: 10 }} />
-                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                    <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
                                       Dates
                                     </Text>
                                     <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
@@ -5291,7 +5140,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         onPress={() => store.setUI({ showHabitStartDatePicker: true })}
                                         style={{
                                           flex: 1, padding: 7, paddingHorizontal: 10, borderRadius: 8,
-                                          borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                          borderWidth: 0.5, borderColor: tokens.colors.border, backgroundColor: '#EDEAE3',
                                           flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
                                         }}
                                       >
@@ -5311,7 +5160,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         onPress={() => store.setUI({ showHabitEndDatePicker: true })}
                                         style={{
                                           flex: 1, padding: 7, paddingHorizontal: 10, borderRadius: 8,
-                                          borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                          borderWidth: 0.5, borderColor: tokens.colors.border, backgroundColor: '#EDEAE3',
                                           flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
                                         }}
                                       >
@@ -5335,7 +5184,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   icon={Bell}
                                   label="Reminders"
                                   right={
-                                    <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                    <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
                                       {formatItemReminderSummary(itemReminders)}
                                     </Text>
                                   }
@@ -5346,7 +5195,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   icon={FolderOpen}
                                   label="Space"
                                   right={
-                                    <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                    <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
                                       {state.spaceId
                                         ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
                                         : '+ Add'}
@@ -5360,7 +5209,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     icon={Link2}
                                     label="Link to event"
                                     right={
-                                      <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                      <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
                                         {state.linkedEventId ? 'Linked' : 'None'}
                                       </Text>
                                     }
@@ -5479,7 +5328,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   icon={Bell}
                                   label="Reminders"
                                   right={
-                                    <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                    <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
                                       {formatItemReminderSummary(itemReminders)}
                                     </Text>
                                   }
@@ -5490,7 +5339,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   icon={FolderOpen}
                                   label="Space"
                                   right={
-                                    <Text style={{ fontSize: 13, color: '#8B8579' }}>
+                                    <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
                                       {state.spaceId
                                         ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
                                         : '+ Add'}
@@ -5796,7 +5645,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     clearDateFlag === false &&
                                     getDateService().toLocalDate(selectedDate) ===
                                       getDateService().today()
-                                      ? '#2E5540'
+                                      ? tokens.colors.primary
                                       : '#E0E0E0',
                                 })}
                               >
@@ -5831,7 +5680,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     clearDateFlag === false &&
                                     getDateService().toLocalDate(selectedDate) ===
                                       getDateService().tomorrow()
-                                      ? '#2E5540'
+                                      ? tokens.colors.primary
                                       : '#E0E0E0',
                                 })}
                               >
@@ -5861,7 +5710,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       ? '#F0F4F1'
                                       : '#FAFAFA',
                                   borderWidth: 1,
-                                  borderColor: clearDateFlag ? '#2E5540' : '#E0E0E0',
+                                  borderColor: clearDateFlag ? tokens.colors.primary : '#E0E0E0',
                                 })}
                               >
                                 <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
@@ -5928,7 +5777,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   }}
                                   trackColor={{
                                     false: '#E0E0E0',
-                                    true: '#2E5540',
+                                    true: tokens.colors.primary,
                                   }}
                                   thumbColor="#FFFFFF"
                                 />
@@ -5970,7 +5819,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           borderWidth: 1,
                                           borderColor:
                                             selectedTimePreset === preset.key
-                                              ? '#2E5540'
+                                              ? tokens.colors.primary
                                               : '#E0E0E0',
                                         })}
                                       >
@@ -5980,7 +5829,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                             fontWeight: '500',
                                             color:
                                               selectedTimePreset === preset.key
-                                                ? '#2E5540'
+                                                ? tokens.colors.primary
                                                 : '#222222',
                                           }}
                                         >
@@ -6005,7 +5854,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                             : '#FAFAFA',
                                         borderWidth: 1,
                                         borderColor:
-                                          selectedTimePreset === 'custom' ? '#2E5540' : '#E0E0E0',
+                                          selectedTimePreset === 'custom' ? tokens.colors.primary : '#E0E0E0',
                                       })}
                                     >
                                       <Text
@@ -6013,7 +5862,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           fontSize: 13,
                                           fontWeight: '500',
                                           color:
-                                            selectedTimePreset === 'custom' ? '#2E5540' : '#222222',
+                                            selectedTimePreset === 'custom' ? tokens.colors.primary : '#222222',
                                         }}
                                       >
                                         {selectedTimePreset === 'custom'
@@ -6270,7 +6119,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               <Minus
                                 size={20}
                                 color={
-                                  timeEstimateValue <= TIME_ESTIMATE_MIN ? '#CCCCCC' : '#2E5540'
+                                  timeEstimateValue <= TIME_ESTIMATE_MIN ? '#CCCCCC' : tokens.colors.primary
                                 }
                               />
                             </Pressable>
@@ -6283,7 +6132,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   color: !TIME_ESTIMATE_QUICK_OPTIONS.includes(
                                     timeEstimateValue as (typeof TIME_ESTIMATE_QUICK_OPTIONS)[number],
                                   )
-                                    ? '#2E5540'
+                                    ? tokens.colors.primary
                                     : '#333333',
                                 }}
                               >
@@ -6311,7 +6160,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               <Plus
                                 size={20}
                                 color={
-                                  timeEstimateValue >= TIME_ESTIMATE_MAX ? '#CCCCCC' : '#2E5540'
+                                  timeEstimateValue >= TIME_ESTIMATE_MAX ? '#CCCCCC' : tokens.colors.primary
                                 }
                               />
                             </Pressable>
@@ -6345,7 +6194,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                           <Pressable
                             style={{
-                              backgroundColor: '#2E5540',
+                              backgroundColor: tokens.colors.primary,
                               paddingVertical: 12,
                               paddingHorizontal: 24,
                               borderRadius: 8,
@@ -6780,11 +6629,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   ) : null}
 
                   {/* Footer spacer — Cancel/Save now live in top bar */}
-                </View>
-              );
-            })()}
+
           </RNAnimated.View>
-        </View>
+        </SafeAreaView>
 
         {/* Fullscreen image modal (Phase L5 - multi-photo support) */}
         <Modal visible={selectedPhotoIndex !== null} transparent animationType="fade">

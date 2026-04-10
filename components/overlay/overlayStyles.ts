@@ -6,35 +6,6 @@ import {
 } from '../../design/tokens';
 
 export const styles = StyleSheet.create({
-  // Phase 6c: Type selector - segmented control
-  tabsContainer: {
-    flexDirection: 'row',
-    borderRadius: 999,
-    backgroundColor: 'rgba(191, 216, 192, 0.18)',
-    padding: 2,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 16,
-    borderRadius: 999,
-  },
-  tabLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#8A8F8A',
-  },
-  tabActive: {
-    backgroundColor: 'rgba(46, 85, 64, 0.08)',
-  },
-  tabLabelActive: {
-    color: '#2E5540',
-    fontWeight: '600',
-  },
   textArea: {
     minHeight: 120,
     fontSize: 16,

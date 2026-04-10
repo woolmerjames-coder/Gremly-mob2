@@ -188,7 +188,7 @@ describe('UnifiedOverlayV2 - View Mode Visual', () => {
   });
 
   describe('Edit button interaction', () => {
-    it('pressing Edit button calls openEdit with correct record', () => {
+    it('pressing Edit button toggles to edit mode inline', () => {
       const onClose = jest.fn();
       const { getAllByLabelText } = render(
         <UnifiedOverlayV2
@@ -199,16 +199,11 @@ describe('UnifiedOverlayV2 - View Mode Visual', () => {
         />,
       );
 
-      // Use first Edit button (footer Edit button)
       const editButtons = getAllByLabelText('Edit');
       fireEvent.press(editButtons[0]);
 
-      expect(mockOpenEdit).toHaveBeenCalledTimes(1);
-      expect(mockOpenEdit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          record: expect.objectContaining({ id: 'test-todo-123' }),
-        }),
-      );
+      // openEdit should NOT be called — inline toggle via setDisplayMode('edit')
+      expect(mockOpenEdit).not.toHaveBeenCalled();
     });
   });
 
