@@ -69,6 +69,7 @@ import {
   RotateCcw,
   Shield,
   Pencil,
+  Clock,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -5274,17 +5275,78 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     label="Date & time"
                                     summary={
                                       state.log.target_date
-                                        ? formatDueDay(state.log.target_date)
+                                        ? `${formatDueDay(state.log.target_date)}${state.log.event_time ? ' · ' + state.log.event_time : ''}`
                                         : 'Set date'
                                     }
                                     expanded={expandedRow === 'event-date'}
-                                    onToggle={() => {
-                                      toggleRow('event-date');
-                                      setDateModalTarget('note_event');
-                                      store.setUI({ showDateModal: true });
-                                    }}
+                                    onToggle={() => toggleRow('event-date')}
                                     iconColor="#6B4C8A"
-                                  />
+                                  >
+                                    {/* Start date */}
+                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                      Date
+                                    </Text>
+                                    <Pressable
+                                      onPress={() => {
+                                        setDateModalTarget('note_event');
+                                        store.setUI({ showDateModal: true });
+                                      }}
+                                      style={{
+                                        padding: 7, paddingHorizontal: 10, borderRadius: 8,
+                                        borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                                        marginBottom: 12,
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 13, fontWeight: '500', color: state.log.target_date ? '#2D4A3E' : '#B5AFA5' }}>
+                                        {state.log.target_date ? formatDueDay(state.log.target_date) : 'Not set'}
+                                      </Text>
+                                      <Calendar size={14} color="#8B8579" />
+                                    </Pressable>
+
+                                    {/* End date */}
+                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                      End date
+                                    </Text>
+                                    <Pressable
+                                      onPress={() => {
+                                        setDateModalTarget('note_end_date');
+                                        store.setUI({ showDateModal: true });
+                                      }}
+                                      style={{
+                                        padding: 7, paddingHorizontal: 10, borderRadius: 8,
+                                        borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                                        marginBottom: 12,
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 13, fontWeight: '500', color: state.log.end_date ? '#2D4A3E' : '#B5AFA5' }}>
+                                        {state.log.end_date ? formatDueDay(state.log.end_date) : 'Same day'}
+                                      </Text>
+                                      <Calendar size={14} color="#8B8579" />
+                                    </Pressable>
+
+                                    {/* Event time */}
+                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                      Time
+                                    </Text>
+                                    <Pressable
+                                      onPress={() => {
+                                        setDateModalTarget('note_event');
+                                        store.setUI({ showTimePicker: true });
+                                      }}
+                                      style={{
+                                        padding: 7, paddingHorizontal: 10, borderRadius: 8,
+                                        borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 13, fontWeight: '500', color: state.log.event_time ? '#2D4A3E' : '#B5AFA5' }}>
+                                        {state.log.event_time ?? 'Not set'}
+                                      </Text>
+                                      <Clock size={14} color="#8B8579" />
+                                    </Pressable>
+                                  </ExpandableRow>
                                 )}
 
                                 {/* Journal: Private toggle */}
