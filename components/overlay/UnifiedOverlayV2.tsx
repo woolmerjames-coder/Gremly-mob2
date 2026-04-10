@@ -4913,6 +4913,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   />
                                 )}
 
+                                {baseType === 'habit' && currentEntityId && (
+                                  <StaticRow
+                                    icon={BarChart3}
+                                    label="View progress"
+                                    iconColor="#2E5540"
+                                    right={<ChevronRight size={14} color="#2E5540" />}
+                                    onPress={() => store.setUI({ displayMode: 'view' })}
+                                  />
+                                )}
+
                                 {currentEntityId && (
                                   <StaticRow
                                     icon={MessageCircle}
