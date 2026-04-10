@@ -57,6 +57,7 @@ export const TypePill: React.FC<TypePillProps> = ({ type, onPress, testID }) => 
   return (
     <Pressable
       onPress={onPress}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       style={({ pressed }) => [
         styles.pill,
         { backgroundColor: `${config.color}10` },
@@ -124,9 +125,13 @@ export const TypePickerDropdown: React.FC<TypePickerDropdownProps> = ({
 
 const styles = StyleSheet.create({
   pill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 10,
+    minHeight: 32,
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pillText: {
     fontSize: 12,
@@ -156,9 +161,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: 8,
+    minHeight: 44,
   },
   optionActive: {
     backgroundColor: 'rgba(46, 85, 64, 0.06)',
