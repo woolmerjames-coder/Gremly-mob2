@@ -3789,104 +3789,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       </Text>
                     </View>
                   ) : null}
-                  {/* ── Top bar: Cancel / Save ── */}
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      paddingHorizontal: 16,
-                      paddingTop: 4,
-                      paddingBottom: 8,
-                      backgroundColor: sheetBackground,
-                    }}
-                  >
-                    {!isViewMode ? (
-                      <Pressable
-                        onPress={handleCancel}
-                        disabled={storeUI.saving}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Cancel"
-                        style={{ minHeight: 44, justifyContent: 'center' }}
-                      >
-                        <Text
-                          style={{
-                            color: storeUI.saving ? 'rgba(107,102,92,0.4)' : '#6B665C',
-                            fontSize: 15,
-                            fontWeight: '400',
-                          }}
-                        >
-                          Cancel
-                        </Text>
-                      </Pressable>
-                    ) : (
-                      <Pressable
-                        onPress={() => onClose?.()}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Close"
-                        style={{ minHeight: 44, justifyContent: 'center' }}
-                      >
-                        <Text style={{ color: '#6B665C', fontSize: 15, fontWeight: '400' }}>
-                          Close
-                        </Text>
-                      </Pressable>
-                    )}
-
-                    {isViewMode ? (
-                      <Pressable
-                        onPress={() => setDisplayMode('edit')}
-                        accessibilityRole="button"
-                        accessibilityLabel="Edit"
-                        style={({ pressed }) => ({
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 5,
-                          borderWidth: 0.5,
-                          borderColor: tokens.colors.border,
-                          paddingHorizontal: 14,
-                          paddingVertical: 6,
-                          borderRadius: 16,
-                          minHeight: 44,
-                          opacity: pressed ? 0.7 : 1,
-                        })}
-                      >
-                        <Pencil size={14} color={tokens.colors.primary} />
-                        <Text style={{ color: tokens.colors.primary, fontSize: 14, fontWeight: '500' }}>
-                          Edit
-                        </Text>
-                      </Pressable>
-                    ) : (
-                      <Reanimated.View style={saveStyle}>
-                        <Pressable
-                          onPress={onSave}
-                          disabled={!canSave}
-                          accessibilityRole="button"
-                          accessibilityLabel={storeUI.saving ? 'Saving' : 'Save'}
-                          style={{
-                            backgroundColor: !canSave ? 'rgba(45,74,62,0.35)' : '#2D4A3E',
-                            paddingHorizontal: 24,
-                            paddingVertical: 8,
-                            borderRadius: 20,
-                            minHeight: 44,
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: !canSave ? 'rgba(255,255,255,0.6)' : '#FFFFFF',
-                              fontSize: 15,
-                              fontWeight: '600',
-                            }}
-                          >
-                            {storeUI.saving ? 'Saving...' : isLockedIn ? 'Lock It In →' : 'Save'}
-                          </Text>
-                        </Pressable>
-                      </Reanimated.View>
-                    )}
-                  </View>
-
                   {/* ── Header: Title row + type pill ── */}
                   <View
                     style={{
@@ -4082,7 +3984,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           }}
                           contentContainerStyle={{
                             paddingHorizontal: 16,
-                            paddingBottom: 8,
+                            paddingBottom: 80,
                             paddingTop: 0,
                           }}
                         >
@@ -6534,7 +6436,86 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </Box>
                   ) : null}
 
-                  {/* Footer spacer — Cancel/Save now live in top bar */}
+                  {/* Persistent footer — Cancel / Save */}
+                  {!isViewMode && (
+                    <View style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      paddingHorizontal: 20,
+                      paddingVertical: 12,
+                      paddingBottom: Math.max(insets.bottom, 12),
+                      borderTopWidth: 0.5,
+                      borderTopColor: '#D5D0C8',
+                      backgroundColor: '#F5F2EB',
+                    }}>
+                      <Pressable
+                        onPress={handleCancel}
+                        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, minHeight: 44, justifyContent: 'center' })}
+                        accessibilityRole="button"
+                        accessibilityLabel="Cancel"
+                      >
+                        <Text style={{ fontSize: 15, color: '#6B665C' }}>Cancel</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={onSave}
+                        disabled={storeUI.saving || !canSave}
+                        accessibilityRole="button"
+                        accessibilityLabel={storeUI.saving ? 'Saving' : 'Save'}
+                        style={({ pressed }) => ({
+                          backgroundColor: (storeUI.saving || !canSave) ? 'rgba(45,74,62,0.35)' : '#2D4A3E',
+                          paddingHorizontal: 28,
+                          paddingVertical: 10,
+                          borderRadius: 20,
+                          minHeight: 44,
+                          justifyContent: 'center',
+                          opacity: pressed ? 0.85 : 1,
+                        })}
+                      >
+                        <Text style={{ fontSize: 15, fontWeight: '600', color: (storeUI.saving || !canSave) ? 'rgba(255,255,255,0.6)' : '#FFFFFF' }}>
+                          {storeUI.saving ? 'Saving...' : isLockedIn ? 'Lock It In →' : 'Save'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {/* View mode footer */}
+                  {isViewMode && (
+                    <View style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      paddingHorizontal: 20,
+                      paddingVertical: 12,
+                      paddingBottom: Math.max(insets.bottom, 12),
+                      borderTopWidth: 0.5,
+                      borderTopColor: '#D5D0C8',
+                      backgroundColor: '#F5F2EB',
+                    }}>
+                      <Pressable
+                        onPress={handleCancel}
+                        style={{ minHeight: 44, justifyContent: 'center' }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Close"
+                      >
+                        <Text style={{ fontSize: 15, color: '#6B665C' }}>Close</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setDisplayMode('edit')}
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit"
+                        style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 4,
+                          borderWidth: 0.5, borderColor: '#D5D0C8',
+                          paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
+                          minHeight: 44,
+                        }}
+                      >
+                        <Pencil size={14} color="#2E5540" />
+                        <Text style={{ fontSize: 14, fontWeight: '500', color: '#2E5540' }}>Edit</Text>
+                      </Pressable>
+                    </View>
+                  )}
 
           </RNAnimated.View>
         </SafeAreaView>
