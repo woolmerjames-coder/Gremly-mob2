@@ -5,7 +5,7 @@
  * NOTE: Tags in the overlay state include prefixes (#tag, @person)
  */
 
-import { buildDraftPayloadFromEntity } from '../components/overlay/UnifiedOverlayV2';
+import { buildDraftPayloadFromEntity } from '../components/overlay/overlayHydration';
 
 describe('Overlay Tag Preservation', () => {
   describe('buildDraftPayloadFromEntity - tag initialization', () => {

@@ -268,16 +268,14 @@ describe('UnifiedOverlayV2 - View Mode Visual', () => {
       expect(allEditButtons).toBeNull();
     });
 
-    it('shows type selector pills in create mode', () => {
+    it('shows type pill in create mode', () => {
       const onClose = jest.fn();
-      const { getByText } = render(
+      const { getByTestId } = render(
         <UnifiedOverlayV2 visible={true} mode="create" onClose={onClose} />,
       );
 
-      // Type selector should be visible and interactable in create mode
-      expect(getByText('Note')).toBeTruthy();
-      expect(getByText('To-Do')).toBeTruthy();
-      expect(getByText('Habit')).toBeTruthy();
+      // Type pill should be visible and tappable in create mode
+      expect(getByTestId('type-pill')).toBeTruthy();
     });
   });
 });

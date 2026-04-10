@@ -1,5 +1,16 @@
+/**
+ * UnifiedOverlayV2 — Entity create/edit/view overlay
+ *
+ * Extracted modules:
+ * - overlayStyles.ts: StyleSheet definitions
+ * - overlayHydration.ts: Entity → state hydration + constants
+ * - overlaySave.ts: State → save payload mapping
+ * - ScheduleModal.tsx: Schedule editing modal
+ * - OverlayExpandedEditor.tsx: Full-screen text editor
+ * - SetRemindersModal.tsx: Reminder management
+ */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useEffect, useMemo, useCallback, useReducer, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useCallback, useState, useRef } from 'react';
 import {
   Dimensions,
   KeyboardAvoidingView,
@@ -50,7 +61,6 @@ import {
   Maximize2,
   Star,
   FileText,
-  Clock,
   TrendingUp,
   TrendingDown,
   BarChart3,
@@ -88,47 +98,47 @@ import { usePhase8LinksState } from './hooks/usePhase8LinksState';
 import { PeopleLinker } from './fields/PeopleLinker';
 import PersonPicker from './fields/PersonPicker';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
+import { styles } from './overlayStyles';
 import {
-  v2Reducer,
   initialV2State,
-  firstLine,
-  classifyLogKind,
   type BaseType,
   type TagKey,
   type V2State,
   type HabitState,
 } from './overlayV2.state';
+import {
+  normalizeToTagKey,
+  extractTagKeysFromEntity,
+  extractDaysActiveFromFrequencyJson,
+  TYPE_FAMILY,
+  type TypeFamily,
+  hydrateEntityToDraft,
+} from './overlayHydration';
+import { useOverlayDraft, selectDraft, selectUI } from './useOverlayDraft';
 import ToastUndo from './ToastUndo';
 import { OverlayExpandedEditor } from './OverlayExpandedEditor';
 import {
   linkSelectedPerson,
-  sanitizeSuggestedTags,
-  filterMindDropTodoTags,
 } from './overlayV2.mapping';
 import { recordOverlayFeedback } from './overlayV2.feedback';
 import { eventBus } from '../../lib/events/EventBus';
-import { today as getTodayISO, nowTimestamp } from '../../lib/date/DateService';
 import { TagsRow, type TagsRowTag } from './fields/TagsRow';
-import { normalizeTag, filterAndNormalizeTags } from '../../lib/tags/normalize';
+import { normalizeTag } from '../../lib/tags/normalize';
 import { extractMeaningfulTags } from '../../lib/tags/extractTags';
-import { getEffectiveTags } from '../../lib/tags/getEffectiveTags';
-import { getEffectiveLogSubtype } from '../../lib/logs/getEffectiveLogSubtype';
-import { calculateBuffers } from '../../lib/planning';
+
 import {
   ALL_MOODS,
   MOOD_CONFIG,
-  getMoodsByCategory,
-  isValidMood,
-  migrateLegacyMood,
   type Mood,
 } from '../../lib/shared/moods';
 import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
-import { buildCanonicalFromMindDrop } from '../../lib/minddrop/buildCanonicalFromMindDrop';
+
 import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import SetRemindersModal from './SetRemindersModal';
+import ScheduleModal, { type ScheduleChanges } from './ScheduleModal';
 import type { ItemReminder } from '../../lib/types';
 import {
   scheduleItemReminder,
@@ -139,18 +149,17 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { enrichListItems } from '../../lib/ai/enrichListItem';
 import {
-  type FrequencyConfig,
-  type DayOfWeek,
   frequencyToJson,
   jsonToFrequency,
   getFrequencyLabel,
   DAY_LABELS,
 } from './frequencyHelpers';
 import {
-  canonicalToFrequencyJson,
-  frequencyJsonToCanonical,
-  parseFrequencyString,
-} from '../../lib/habits/frequencyUtils';
+  buildSavePayload,
+  detectListFromText,
+  type ListDetectionResult,
+  type SaveContext,
+} from './overlaySave';
 
 // Make Actionable feature
 import { MakeActionableButton } from './MakeActionableButton';
@@ -160,7 +169,7 @@ import { ChecklistView } from './ChecklistView';
 import HabitViewMode from './HabitViewMode';
 
 // Entity Chat
-import { EntityChatButton, EntityChatScreen, EntityNotesSection, EntityNotesModal } from '../chat';
+import { EntityChatButton, EntityChatScreen, EntityNotesModal } from '../chat';
 import { ChecklistProgress } from './ChecklistProgress';
 
 // Linked Items for Events
@@ -177,147 +186,11 @@ import {
   type ExtractedListItem,
   type ListItem,
 } from '../../lib/lists';
+import { TypePill, TypePickerDropdown, deriveEntityType, getTypeConfig } from './TypePicker';
+import { HabitModeToggle, habitSubtypeToMode, habitModeToSubtype } from './HabitModeToggle';
+import { PhotoStrip } from './PhotoStrip';
 
 const BASE_LABEL: Record<BaseType, string> = { log: 'Note', todo: 'To-Do', habit: 'Habit' };
-
-/**
- * Constructs frequency_json from DB columns for the overlay's FrequencyConfig format.
- *
- * Uses centralized frequencyUtils for canonical schema, with fallback for legacy schema.
- * Priority: cadence/target_per_period > frequency_value > parsed frequency string
- */
-function buildFrequencyJsonFromDb(
-  frequency: string | null | undefined,
-  frequencyValue: number | null | undefined,
-  cadence?: string | null,
-  targetPerPeriod?: number | null,
-  daysActive?: number[] | string[] | null,
-): any {
-  // If frequency_value is already a JSON object, use it directly (legacy support)
-  if (frequencyValue && typeof frequencyValue === 'object') {
-    console.log('[buildFrequencyJsonFromDb] Using legacy frequencyValue object:', frequencyValue);
-    return frequencyValue;
-  }
-
-  // If days_active is set, build custom_days frequency
-  // DB may return as integer[] or string[] depending on how it was stored
-  if (daysActive && Array.isArray(daysActive) && daysActive.length > 0) {
-    // Convert strings to numbers if needed (DB sometimes returns strings)
-    const days = daysActive
-      .map((d) => (typeof d === 'string' ? parseInt(d, 10) : d))
-      .filter((d): d is number => typeof d === 'number' && !isNaN(d) && d >= 0 && d <= 6)
-      .sort((a, b) => a - b);
-    if (days.length > 0) {
-      console.log('[buildFrequencyJsonFromDb] ✅ Built custom_days from days_active:', {
-        daysActive,
-        days,
-        result: { type: 'days', days },
-      });
-      return { type: 'days', days };
-    }
-  }
-
-  // Use centralized utility for canonical schema (SINGLE SOURCE OF TRUTH)
-  if (cadence) {
-    const result = canonicalToFrequencyJson(cadence, targetPerPeriod);
-    console.log('[buildFrequencyJsonFromDb] Built from cadence:', {
-      cadence,
-      targetPerPeriod,
-      result,
-    });
-    return result;
-  }
-
-  // Legacy: parse frequency string if no canonical fields
-  if (frequency) {
-    const { cadence: parsedCadence, target_per_period } = parseFrequencyString(frequency);
-    const result = canonicalToFrequencyJson(parsedCadence, target_per_period);
-    console.log('[buildFrequencyJsonFromDb] Built from legacy frequency:', { frequency, result });
-    return result;
-  }
-
-  // Default to daily
-  console.log('[buildFrequencyJsonFromDb] Defaulting to daily');
-  return { type: 'simple', value: 'daily' };
-}
-
-/**
- * Extract days_active from frequency_json for custom_days frequency.
- * Returns numeric day indices (0=Sunday, 1=Monday, etc.) as integer array.
- *
- * @param frequencyJson - The frequency_json object from overlay state
- * @returns Array of day numbers like [1, 3, 5] or null
- */
-function extractDaysActiveFromFrequencyJson(frequencyJson: any): number[] | null {
-  if (!frequencyJson || typeof frequencyJson !== 'object') {
-    console.log(
-      '[UnifiedOverlay:DaysActive] ❌ extractDaysActive - no frequencyJson:',
-      frequencyJson,
-    );
-    return null;
-  }
-
-  // Handle custom_days format: { kind: 'custom_days', days: [1, 3, 5] }
-  if (
-    frequencyJson.kind === 'custom_days' &&
-    Array.isArray(frequencyJson.days) &&
-    frequencyJson.days.length > 0
-  ) {
-    const days = frequencyJson.days.filter(
-      (d: number) => typeof d === 'number' && d >= 0 && d <= 6,
-    );
-    console.log('[UnifiedOverlay:DaysActive] ✅ extractDaysActive - found days:', {
-      frequencyJson,
-      extractedDays: days,
-    });
-    return days;
-  }
-
-  console.log('[UnifiedOverlay:DaysActive] ⚠️ extractDaysActive - not custom_days:', frequencyJson);
-  return null;
-}
-
-/**
- * Convert frequency_json back to canonical cadence/target_per_period fields.
- * Uses centralized frequencyUtils (SINGLE SOURCE OF TRUTH).
- *
- * @param frequencyJson - The frequency_json object from overlay state
- * @param schedule - The schedule string from overlay state (fallback)
- * @returns Object with cadence and target_per_period
- */
-function frequencyJsonToCadenceFields(
-  frequencyJson: any,
-  schedule?: string | null,
-): { cadence: 'daily' | 'weekly' | 'monthly'; target_per_period: number } {
-  // Use centralized utility (SINGLE SOURCE OF TRUTH)
-  if (frequencyJson && typeof frequencyJson === 'object') {
-    return frequencyJsonToCanonical(frequencyJson);
-  }
-
-  // Fallback to schedule string
-  const sched = (schedule || 'daily').toLowerCase();
-  if (sched === 'weekly') return { cadence: 'weekly', target_per_period: 1 };
-  if (sched === 'monthly') return { cadence: 'monthly', target_per_period: 1 };
-  return { cadence: 'daily', target_per_period: 1 };
-}
-
-/**
- * TYPE_FAMILY maps BaseType to Supabase table family.
- * - 'note' family: logs/notes (stored in `notes` table)
- * - 'todo' family: todos (stored in `todos` table)
- * - 'habit' family: habits (stored in `habits` table)
- *
- * When converting between different families, we must:
- * 1. Create a new record in the target table
- * 2. Archive/delete the old record in the source table
- * 3. Preserve drop_id to maintain Mind Drop linkage
- */
-type TypeFamily = 'note' | 'todo' | 'habit';
-const TYPE_FAMILY: Record<BaseType, TypeFamily> = {
-  log: 'note',
-  todo: 'todo',
-  habit: 'habit',
-};
 
 // Preset time options for time picker
 const PRESET_TIMES = [
@@ -365,23 +238,6 @@ const TIME_WINDOW_OPTIONS: {
 
 // Multi-photo support for logs (Phase L5)
 
-// ── Schedule Modal Constants ──
-const DURATION_STEPS = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240] as const;
-
-const SCHEDULE_PRESETS: {
-  key: string;
-  label: string;
-  count: number;
-  unit: 'day' | 'week' | 'month';
-  days: number[];
-}[] = [
-  { key: 'every_day', label: 'Every day', count: 1, unit: 'day', days: [] },
-  { key: 'weekdays', label: 'Weekdays', count: 5, unit: 'week', days: [1, 2, 3, 4, 5] },
-  { key: 'weekly', label: 'Weekly', count: 1, unit: 'week', days: [] },
-  { key: '3x_week', label: '3× / week', count: 3, unit: 'week', days: [] },
-  { key: 'monthly', label: 'Monthly', count: 1, unit: 'month', days: [] },
-];
-
 type LogPhoto = {
   id?: string; // existing DB row id (for edit mode)
   url: string; // public URL or storage path (or local file URI for new photos)
@@ -389,149 +245,6 @@ type LogPhoto = {
   isNew?: boolean; // not yet persisted to backend
   isDeleted?: boolean; // marked for deletion on save
 };
-
-// Overlay-only reminder type for unified reminders UX
-type OverlayReminder = {
-  id: string; // local UUID for list keys
-  time: string; // "HH:mm" in 24h format (e.g. "09:00")
-  repeat: 'once' | 'daily' | 'weekdays' | 'weekends' | 'custom';
-  date?: string; // ISO date for "once" reminders
-  days?: number[]; // 0–6 for custom days (0=Sunday, 6=Saturday)
-};
-
-// Short day labels for custom repeat display
-const SHORT_DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-
-// Smart list detection helper (Prompt 3)
-type ListDetectionResult =
-  | { kind: 'plain' }
-  | { kind: 'list'; items: Array<{ id: string; label: string; checked?: boolean }> };
-
-function detectListFromText(text: string): ListDetectionResult {
-  if (!text || text.trim().length === 0) {
-    return { kind: 'plain' };
-  }
-
-  const lines = text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-
-  if (lines.length < 2) {
-    return { kind: 'plain' };
-  }
-
-  // List patterns to detect
-  const bulletPattern = /^[-•]\s+(.+)$/; // - item or • item
-  const checkboxPattern = /^\[([ xX])\]\s+(.+)$/; // [ ] item or [x] item
-  const numberedPattern = /^\d+\.\s+(.+)$/; // 1. item or 2. item
-
-  const items: Array<{ id: string; label: string; checked?: boolean }> = [];
-  let matchCount = 0;
-
-  for (const line of lines) {
-    let matched = false;
-
-    // Check for checkbox pattern first (preserves checked state)
-    const checkboxMatch = line.match(checkboxPattern);
-    if (checkboxMatch) {
-      const checked = checkboxMatch[1].toLowerCase() === 'x';
-      const label = checkboxMatch[2];
-      items.push({ id: `item-${items.length}`, label, checked });
-      matched = true;
-      matchCount++;
-    }
-
-    // Check for bullet pattern
-    if (!matched) {
-      const bulletMatch = line.match(bulletPattern);
-      if (bulletMatch) {
-        const label = bulletMatch[1];
-        items.push({ id: `item-${items.length}`, label, checked: false });
-        matched = true;
-        matchCount++;
-      }
-    }
-
-    // Check for numbered pattern
-    if (!matched) {
-      const numberedMatch = line.match(numberedPattern);
-      if (numberedMatch) {
-        const label = numberedMatch[1];
-        items.push({ id: `item-${items.length}`, label, checked: false });
-        matched = true;
-        matchCount++;
-      }
-    }
-
-    // If this line doesn't match any pattern, it might be part of previous item or non-list text
-    // For simplicity, we'll skip it (could be enhanced to append to previous item)
-  }
-
-  // Require at least 2 matching list items to qualify as a list
-  if (matchCount >= 2 && items.length >= 2) {
-    return { kind: 'list', items };
-  }
-
-  return { kind: 'plain' };
-}
-
-// Helper: format time from "HH:mm" to "h:mm AM/PM"
-function formatTime24To12(time24: string): string {
-  const [hourStr, minute] = time24.split(':');
-  const hour = parseInt(hourStr, 10);
-  const period = hour >= 12 ? 'PM' : 'AM';
-  const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-  return `${hour12}:${minute} ${period}`;
-}
-
-// Helper: format single reminder for display
-function formatSingleReminder(r: OverlayReminder): string {
-  const timeFormatted = formatTime24To12(r.time);
-
-  switch (r.repeat) {
-    case 'once':
-      // Format date like "Nov 25 · 3:00 PM"
-      if (r.date) {
-        try {
-          const dateFormatted = format(parseISO(r.date), 'MMM d');
-          return `${dateFormatted} · ${timeFormatted}`;
-        } catch {
-          return `Once · ${timeFormatted}`;
-        }
-      }
-      return `Once · ${timeFormatted}`;
-
-    case 'daily':
-      return `Daily · ${timeFormatted}`;
-
-    case 'weekdays':
-      return `Weekdays · ${timeFormatted}`;
-
-    case 'weekends':
-      return `Weekends · ${timeFormatted}`;
-
-    case 'custom':
-      if (r.days && r.days.length > 0) {
-        const dayLabels = r.days
-          .sort((a, b) => a - b)
-          .map((d) => SHORT_DAY_LABELS[d])
-          .join(', ');
-        return `${dayLabels} · ${timeFormatted}`;
-      }
-      return `Custom · ${timeFormatted}`;
-
-    default:
-      return timeFormatted;
-  }
-}
-
-// Helper: format reminders array for summary display
-function formatReminderSummary(reminders: OverlayReminder[]): string {
-  if (reminders.length === 0) return 'Off';
-  if (reminders.length === 1) return formatSingleReminder(reminders[0]);
-  return `${reminders.length} reminders`;
-}
 
 // Helper: format ItemReminder[] for summary display in detail rows
 function formatItemReminderSummary(reminders: ItemReminder[]): string {
@@ -548,89 +261,6 @@ function formatItemReminderSummary(reminders: ItemReminder[]): string {
   return `${reminders.length} reminders`;
 }
 
-// Helper: map reminders array to legacy reminderAt field (use first reminder only)
-function mapRemindersToLegacyFields(reminders: OverlayReminder[]): {
-  reminderAt: string | null;
-} {
-  if (reminders.length === 0) {
-    return { reminderAt: null };
-  }
-
-  const first = reminders[0];
-
-  // For "once" reminders, combine date + time into ISO timestamp
-  if (first.repeat === 'once' && first.date) {
-    try {
-      const [hour, minute] = first.time.split(':').map(Number);
-      const dateObj = parseISO(first.date);
-      const combined = setMinutes(setHours(dateObj, hour), minute);
-      return { reminderAt: combined.toISOString() };
-    } catch {
-      return { reminderAt: null };
-    }
-  }
-
-  // For recurring reminders, store as today + time for now
-  // (full recurrence will be handled in backend later)
-  try {
-    const [hour, minute] = first.time.split(':').map(Number);
-    const today = getDateService().now();
-    const combined = setMinutes(setHours(today, hour), minute);
-    return { reminderAt: combined.toISOString() };
-  } catch {
-    return { reminderAt: null };
-  }
-}
-
-// Helper: hydrate reminders array from existing reminderAt field
-function hydrateRemindersFromLegacy(reminderAt: string | null): OverlayReminder[] {
-  if (!reminderAt) return [];
-
-  try {
-    const dateObj = parseISO(reminderAt);
-    const hour = format(dateObj, 'HH');
-    const minute = format(dateObj, 'mm');
-    const time = `${hour}:${minute}`;
-    const date = format(dateObj, 'yyyy-MM-dd');
-
-    // Create a single "once" reminder from existing reminderAt
-    return [
-      {
-        id: `reminder-${getDateService().now().getTime()}`,
-        time,
-        repeat: 'once',
-        date,
-      },
-    ];
-  } catch {
-    return [];
-  }
-}
-
-function normalizeTagCandidate(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  const trimmed = value.trim().toLowerCase();
-  // Preserve @ and # prefixes, only strip other leading chars
-  if (/^[@#]/.test(trimmed)) {
-    return trimmed;
-  }
-  return trimmed.replace(/^[^a-z0-9]+/, '');
-}
-
-function normalizeToTagKey(value: unknown): TagKey | null {
-  const slug = normalizeTagCandidate(value);
-  return slug || null;
-}
-
-function coerceIsoTimestamp(value: string | null | undefined): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const ms = Date.parse(trimmed);
-  if (Number.isNaN(ms)) return null;
-  return new Date(ms).toISOString();
-}
-
 function toCanonicalParts(value: string | null | undefined): { canonical: string; slug: string } {
   if (!value) return { canonical: '', slug: '' };
   let trimmed = String(value).trim().toLowerCase();
@@ -640,34 +270,6 @@ function toCanonicalParts(value: string | null | undefined): { canonical: string
   }
   const slug = trimmed.replace(/^[#@*]+/, '');
   return { canonical: trimmed, slug };
-}
-
-function extractTagKeysFromEntity(entity: any): TagKey[] {
-  if (!entity) return [];
-  const raw = entity.tags;
-  if (!Array.isArray(raw)) return [];
-
-  // For Mind Drop todos (origin='catchall'), apply tag quality filtering
-  const isMindDropTodo = entity.type === 'todo' && entity.origin === 'catchall';
-  let tagsToProcess = isMindDropTodo ? filterAndNormalizeTags(raw) : raw;
-
-  // Apply "Book [appointment]" heuristic for Mind Drop todos
-  if (isMindDropTodo) {
-    const rawText = getMindDropRawText(entity);
-    if (rawText) {
-      tagsToProcess = filterMindDropTodoTags(rawText, tagsToProcess);
-    }
-  }
-
-  // IMPORTANT: Only use tags from entity.tags (DB source of truth)
-  // Do NOT extract additional tags from body text here.
-  // People/topic tags should be persisted to DB during Phase 2 enrichment.
-  const seen = new Set<TagKey>();
-  for (const entry of tagsToProcess) {
-    const tag = normalizeToTagKey(entry);
-    if (tag && !seen.has(tag)) seen.add(tag);
-  }
-  return Array.from(seen);
 }
 
 function mergeTagKeys(base: TagKey[], incoming: TagKey[]): TagKey[] {
@@ -773,14 +375,6 @@ function mergeLogTags(existingTags: string[], aiTags: string[]): string[] {
   return result;
 }
 
-function deriveBaseTypeFromInitial(type: unknown): BaseType | null {
-  if (!type) return null;
-  const normalized = String(type).toLowerCase();
-  if (normalized === 'todo') return 'todo';
-  if (normalized === 'habit') return 'habit';
-  return 'log';
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Sweep Status Chip Helper
 // ─────────────────────────────────────────────────────────────────────────────
@@ -856,70 +450,6 @@ function computeSweepStatus(entity: any, baseType: BaseType): SweepStatus {
   }
 
   return { label: '', type: null };
-}
-
-/**
- * Derives the initial V2State from props, ensuring baseType is correct on first render.
- * This fixes the P0 bug where editing a todo/habit briefly shows an empty LOG overlay.
- *
- * For edit/view mode: derives baseType from initialEntity.type synchronously
- * For create mode: uses the default baseType from initialV2State ('log')
- */
-function getInitialV2StateFromProps(props: UnifiedCreateOverlayProps): V2State {
-  const { mode, initialEntity } = props;
-
-  // Start with the default initial state
-  let baseType: BaseType = initialV2State.baseType; // default is 'log'
-
-  // For edit/view mode with an initialEntity, derive baseType from entity type
-  if ((mode === 'edit' || mode === 'view') && initialEntity) {
-    const entityType = (initialEntity as any)?.type;
-    const derived = deriveBaseTypeFromInitial(entityType);
-    if (derived) {
-      baseType = derived;
-    }
-  }
-
-  // Return initial state with the correct baseType
-  // Note: Full hydration still happens via HYDRATE_EDIT action
-  return {
-    ...initialV2State,
-    baseType,
-  };
-}
-
-function stripJournalTags(tags: TagKey[], keepJournal: boolean): TagKey[] {
-  if (keepJournal) return [...tags];
-  return tags.filter((tag) => {
-    const slug = tag.trim().toLowerCase();
-    return slug !== 'journal' && slug !== '*journal';
-  });
-}
-
-/**
- * Compare two tag arrays to determine if they have changed.
- * Returns true if tags are different (order-insensitive).
- */
-function areTagsEqual(originalTags: string[], newTags: string[]): boolean {
-  // Normalize and sort both arrays for comparison
-  const normalize = (tags: string[]) => {
-    const normalized = tags
-      .map((tag) => tag.trim().toLowerCase())
-      .filter(Boolean)
-      .sort();
-    return Array.from(new Set(normalized)); // Remove duplicates
-  };
-
-  const normalizedOriginal = normalize(originalTags);
-  const normalizedNew = normalize(newTags);
-
-  // Compare lengths first
-  if (normalizedOriginal.length !== normalizedNew.length) {
-    return false;
-  }
-
-  // Compare each element (arrays are already sorted)
-  return normalizedOriginal.every((tag, index) => tag === normalizedNew[index]);
 }
 
 // ============================================================================
@@ -1172,61 +702,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const propsEntity = (props as any).entity ?? initialEntity ?? null;
   const entityIdToFetch = propsEntity?.id ?? null;
 
-  // Fetch the LIVE entity from Zustand store (so we get updated clarification data)
-  const fullEntity = useGremlyStore((state) => {
-    if (!entityIdToFetch) return propsEntity; // Fall back to props if no ID
-
-    // Check all entity types for the most up-to-date data
-    const todo = state.todos.find((t) => t.id === entityIdToFetch);
-    if (todo) return todo;
-
-    const habit = state.habits.find((h) => h.id === entityIdToFetch);
-    if (habit) return habit;
-
-    const note = state.notes.find((n) => n.id === entityIdToFetch);
-    if (note) return note;
-
-    // Fall back to props entity if not found in store
-    return propsEntity;
-  });
-
-  // Debug: Log entity sources to understand what's available
-  console.log('[UnifiedOverlayV2] Entity sources:', {
-    propsEntityId: propsEntity?.id,
-    entityIdToFetch,
-    fullEntityId: fullEntity?.id,
-    fullEntityType: fullEntity?.type,
-    fullEntityViews: fullEntity?.views ? Object.keys(fullEntity.views) : 'none',
-    fromZustand: fullEntity?.id && fullEntity?.id === entityIdToFetch,
-  });
-
-  // Clarification detection (Phase 2)
-  // Check both direct fields and views JSONB (data stored in views)
-  const needsClarification =
-    (fullEntity?.views?.needs_clarification === true ||
-      fullEntity?.needs_clarification === true ||
-      fullEntity?.clarification_needed === true) &&
-    fullEntity?.views?.clarification_resolved !== true &&
-    fullEntity?.clarification_resolved !== true;
-  const clarificationQuestion =
-    fullEntity?.views?.clarification_question ?? fullEntity?.clarification_question ?? null;
-  const clarificationOptions =
-    fullEntity?.views?.clarification_options ?? fullEntity?.clarification_options ?? null;
-  const clarificationType =
-    fullEntity?.views?.clarification_type ?? fullEntity?.clarification_type ?? null;
-
-  // Debug: Log clarification check
-  console.log('[UnifiedOverlayV2] Clarification data from fullEntity:', {
-    visible,
-    entityId: fullEntity?.id,
-    needsClarification,
-    clarificationResolved:
-      fullEntity?.clarification_resolved || fullEntity?.views?.clarification_resolved,
-    clarificationQuestion,
-    clarificationOptionsCount: clarificationOptions?.length || 0,
-    clarificationType,
-  });
-
   // Zustand store mutations (replaces useRepo)
   const createTodo = useGremlyStore((s) => s.createTodo);
   const createNote = useGremlyStore((s) => s.createNote);
@@ -1328,22 +803,130 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   const globalOverlay = useGlobalOverlay();
   const overlayNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  // P0 fix: Use lazy initializer to derive baseType from initialEntity.type on first render
-  // This prevents the brief flash of empty LOG form when editing todos/habits
-  const [state, dispatch] = useReducer(v2Reducer, props, getInitialV2StateFromProps);
+
+  // ── Draft store ─────────────────────────────────────────────────────
+  const store = useOverlayDraft();
+  const draft = useOverlayDraft(selectDraft);
+  const storeUI = useOverlayDraft(selectUI);
+
+  // Safe draft read — falls back to initialV2State when overlay is closed
+  const state = draft ?? initialV2State;
+
+  // ── Store-backed UI aliases (replace legacy useState declarations) ──
+  const keyboardHeight = storeUI.keyboardHeight;
+  const setKeyboardHeight = (v: number) => store.setUI({ keyboardHeight: v });
+  const showRemindersModal = storeUI.showRemindersModal;
+  const setShowRemindersModal = (v: boolean) => store.setUI({ showRemindersModal: v });
+  const saveError = storeUI.saveError;
+  const setSaveError = (v: string | null) => store.setUI({ saveError: v });
+  const showSaveToast = storeUI.showSaveToast;
+  const setShowSaveToast = (v: boolean) => store.setUI({ showSaveToast: v });
+  const showUndoToast = storeUI.showUndoToast;
+  const setShowUndoToast = (v: boolean) => store.setUI({ showUndoToast: v });
+  const showClarificationPopup = storeUI.showClarificationPopup;
+  const setShowClarificationPopup = (v: boolean) => store.setUI({ showClarificationPopup: v });
+  const clarificationLoading = storeUI.clarificationLoading;
+  const setClarificationLoading = (v: boolean) => store.setUI({ clarificationLoading: v });
+  const isExpandedEditor = storeUI.isExpandedEditor;
+  const setIsExpandedEditor = (v: boolean) => store.setUI({ isExpandedEditor: v });
+  const isPreviewMode = storeUI.isPreviewMode;
+  const setIsPreviewMode = (v: boolean) => store.setUI({ isPreviewMode: v });
+  const moodPickerExpanded = storeUI.moodPickerExpanded;
+  const setMoodPickerExpanded = (v: boolean) => store.setUI({ moodPickerExpanded: v });
+  const bodyFocused = storeUI.bodyFocused;
+  const setBodyFocused = (v: boolean) => store.setUI({ bodyFocused: v });
+  const commitmentFocused = storeUI.commitmentFocused;
+  const setCommitmentFocused = (v: boolean) => store.setUI({ commitmentFocused: v });
+  const isResuggestingTags = storeUI.isResuggestingTags;
+  const setIsResuggestingTags = (v: boolean) => store.setUI({ isResuggestingTags: v });
+  const isResummarizingTitle = storeUI.isResummarizingTitle;
+  const setIsResummarizingTitle = (v: boolean) => store.setUI({ isResummarizingTitle: v });
+  const isCreatingTodos = storeUI.isCreatingTodos;
+  const setIsCreatingTodos = (v: boolean) => store.setUI({ isCreatingTodos: v });
+  const displayMode = storeUI.displayMode;
+  const setDisplayMode = (v: 'view' | 'edit') => store.setUI({ displayMode: v });
+  const timeEstimateValue = storeUI.timeEstimateValue;
+  const setTimeEstimateValue = (v: number) => store.setUI({ timeEstimateValue: v });
+  const dateModalTarget = storeUI.dateModalTarget;
+  const setDateModalTarget = (v: typeof dateModalTarget) => store.setUI({ dateModalTarget: v });
+  const selectedDate = storeUI.selectedDate;
+  const setSelectedDate = (v: Date) => store.setUI({ selectedDate: v });
+  const selectedTime = storeUI.selectedTime;
+  const setSelectedTime = (v: Date) => store.setUI({ selectedTime: v });
+  const showTimePicker = storeUI.showTimePicker;
+  const setShowTimePicker = (v: boolean) => store.setUI({ showTimePicker: v });
+  const clearDateFlag = storeUI.clearDateFlag;
+  const setClearDateFlag = (v: boolean) => store.setUI({ clearDateFlag: v });
+  const selectedTimePreset = storeUI.selectedTimePreset;
+  const setSelectedTimePreset = (v: string | null) => store.setUI({ selectedTimePreset: v });
+  const showCustomTimePicker = storeUI.showCustomTimePicker;
+  const setShowCustomTimePicker = (v: boolean) => store.setUI({ showCustomTimePicker: v });
+  const dueToastMessage = storeUI.dueToastMessage;
+  const setDueToastMessage = (v: string | null) => store.setUI({ dueToastMessage: v });
+  const clarificationSuccess = storeUI.clarificationSuccess;
+  const setClarificationSuccess = (v: string | null) => store.setUI({ clarificationSuccess: v });
+
+  // ── Store-backed entity-data aliases (replace legacy useState declarations) ──
+  const isFavorite = draft?.isFavorite ?? false;
+  const setIsFavorite = (v: boolean) => store.setFavorite(v);
+  const tagsDirty = draft?.tagsDirty ?? false;
+  const setTagsDirty = (_v?: boolean) => store.setTagsDirty();
+  const userClearedChecklist = draft?.userClearedChecklist ?? false;
+  const setUserClearedChecklist = (v: boolean) => store.setUserClearedChecklist(v);
+  const itemReminders = draft?.itemReminders ?? [];
+  const setItemReminders = (v: ItemReminder[]) => store.setItemReminders(v);
+  const checklistItems = draft?.checklistItems ?? null;
+  const setChecklistItems = (v: ListItem[] | null) => store.setChecklistItems(v);
+  const photoUri = draft?.photoUri ?? null;
+  const setPhotoUri = (v: string | null) => store.setPhotoUri(v);
+  const moods = draft?.moods ?? [];
+  const setMoods = (v: Mood[]) => store.setMoods(v);
+
+  // Fetch the entity snapshot from the draft store (one-shot, no live subscription)
+  const fullEntity = store.draft?.originalEntity ?? propsEntity ?? null;
+
+  // Clarification detection (Phase 2)
+  const needsClarification =
+    (fullEntity?.views?.needs_clarification === true ||
+      fullEntity?.needs_clarification === true ||
+      fullEntity?.clarification_needed === true) &&
+    fullEntity?.views?.clarification_resolved !== true &&
+    fullEntity?.clarification_resolved !== true;
+  const clarificationQuestion =
+    fullEntity?.views?.clarification_question ?? fullEntity?.clarification_question ?? null;
+  const clarificationOptions =
+    fullEntity?.views?.clarification_options ?? fullEntity?.clarification_options ?? null;
+  const clarificationType =
+    fullEntity?.views?.clarification_type ?? fullEntity?.clarification_type ?? null;
+
+  // Local UI state that was previously in the reducer
+  const [expanded, setExpanded] = useState(false);
+  const [showTypePicker, setShowTypePicker] = useState(false);
+  const undoStackRef = useRef<Array<{ kind: 'type' | 'tag' | 'commitment'; prev: Partial<any> }>>([]);
   const baseType = state.baseType;
   const isBreakHabit = baseType === 'habit' && state.habit.subtype === 'break_habit';
 
-  // Track previous entity ID to detect entity changes
-  const prevEntityIdRef = useRef<string | null>(null);
+  // Track entity ID for dependency array
   const currentEntityId = (initialEntity as any)?.id ?? null;
 
-  // Local display mode for habits - allows toggling between view/edit within the overlay
+  // Initialize store when overlay opens
+  useEffect(() => {
+    if (visible) {
+      // Always (re)open — forces fresh hydration from entity, discarding any dirty state
+      store.open({
+        entity: propsEntity || null,
+        mode: mode as 'create' | 'edit' | 'view',
+        initialSpaceId,
+        hydrate: (entity) => hydrateEntityToDraft(entity, mode as any, initialSpaceId),
+      });
+      aiTagOverrideAppliedRef.current = false;
+    } else {
+      store.discard();
+    }
+  }, [visible, currentEntityId, mode]);
+
   // Track if we started in view mode so we can show a back button
   const startedInViewMode = mode === 'view' && baseType === 'habit';
-  const [displayMode, setDisplayMode] = useState<'view' | 'edit'>(
-    startedInViewMode ? 'view' : 'edit',
-  );
 
   // Derive effective view mode - use local state for habits, prop for others
   const isViewMode = baseType === 'habit' ? displayMode === 'view' : mode === 'view';
@@ -1452,15 +1035,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Clarification popup: auto-show when overlay opens for item needing clarification
   useEffect(() => {
-    console.log('[UnifiedOverlayV2] Clarification useEffect triggered:', {
-      visible,
-      needsClarification,
-      clarificationQuestion,
-      clarificationOptionsLength: clarificationOptions?.length,
-    });
-
     if (visible && needsClarification && clarificationQuestion) {
-      console.log('[UnifiedOverlayV2] Should show clarification popup!');
       // Small delay to let overlay animate in first
       const timer = setTimeout(() => {
         setShowClarificationPopup(true);
@@ -1632,92 +1207,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       effectiveLogSubtype,
     );
   }
-  const [isSaving, setIsSaving] = useState(false);
-  const [showDateModal, setShowDateModal] = useState(false);
-  const [showTimeEstimateModal, setShowTimeEstimateModal] = useState(false);
-  const [timeEstimateValue, setTimeEstimateValue] = useState<number>(30); // Stepper value for time estimate modal
-  const [showTimeWindowModal, setShowTimeWindowModal] = useState(false);
-  const [showHabitStartDatePicker, setShowHabitStartDatePicker] = useState(false);
-  const [showHabitEndDatePicker, setShowHabitEndDatePicker] = useState(false);
-  const [dateModalTarget, setDateModalTarget] = useState<
-    'todo_deadline' | 'todo_dodate' | 'note_event' | 'note_end_date' | 'reminder' | null
-  >(null);
-  const [showSpaceModal, setShowSpaceModal] = useState(false);
 
-  // Keyboard height tracking for dynamic sheet sizing
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-
-  // Reminders management state
-  const [reminders, setReminders] = useState<OverlayReminder[]>([]);
-  const [showRemindersModal, setShowRemindersModal] = useState(false);
-  const [editingReminder, setEditingReminder] = useState<OverlayReminder | null>(null);
-  const [editingMode, setEditingMode] = useState<'add' | 'edit'>('add');
-  const [reminderTimeValue, setReminderTimeValue] = useState(getDateService().now());
-  const [reminderDateValue, setReminderDateValue] = useState(getDateService().now());
-  const [reminderRepeat, setReminderRepeat] = useState<OverlayReminder['repeat']>('once');
-  const [reminderCustomDays, setReminderCustomDays] = useState<number[]>([]);
-  const [reminderValidationError, setReminderValidationError] = useState<string | null>(null);
-
-  // Item Reminders state (new, persisted to `reminders` JSON column)
-  const [itemReminders, setItemReminders] = useState<ItemReminder[]>([]);
-
-  // Date picker state
-  const [selectedDate, setSelectedDate] = useState(getDateService().now());
-  const [selectedTime, setSelectedTime] = useState(getDateService().now());
-  const [showTimePicker, setShowTimePicker] = useState(false);
-  const [clearDateFlag, setClearDateFlag] = useState(false);
-  // Preset time picker state
-  const [selectedTimePreset, setSelectedTimePreset] = useState<string | 'custom' | null>(null);
-  const [showCustomTimePicker, setShowCustomTimePicker] = useState(false);
-  // Unified Schedule Modal state
-  const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [showScheduleStartDatePicker, setShowScheduleStartDatePicker] = useState(false);
-  const [showScheduleEndDatePicker, setShowScheduleEndDatePicker] = useState(false);
-  const [scheduleModalState, setScheduleModalState] = useState({
-    selectedDays: [] as number[],
-    count: 1,
-    unit: 'day' as 'day' | 'week' | 'month',
-    isCustom: false,
-    startDate: null as string | null,
-    endDate: null as string | null,
-    timeWindow: null as string | null,
-    timeEstimateMinutes: null as number | null,
-  });
-  // save error UI
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [showSaveToast, setShowSaveToast] = useState(false);
-  const [dueToastMessage, setDueToastMessage] = useState<string | null>(null);
 
   // Make Actionable feature state
-  const [showTodoPreview, setShowTodoPreview] = useState(false);
   const [extractedItems, setExtractedItems] = useState<ExtractedListItem[]>([]);
-  const [checklistItems, setChecklistItems] = useState<ListItem[] | null>(null);
-  const [userClearedChecklist, setUserClearedChecklist] = useState(false);
 
-  // Reset checklistItems when overlay opens - critical for reopening same entity
-  useEffect(() => {
-    if (!visible) return;
-
-    // Get the freshest has_list value from the entity passed via openEdit
-    const passedEntity = initialEntity as any;
-    const entityData = fullEntity || passedEntity;
-
-    if (entityData?.has_list === true && entityData?.list_items?.length > 0) {
-      setChecklistItems(entityData.list_items);
-    } else {
-      // Explicitly clear - this is the key fix
-      setChecklistItems(null);
-    }
-  }, [visible]); // Only run when visibility changes
-
-  const [isFavorite, setIsFavorite] = useState(false);
-  const [moodPickerExpanded, setMoodPickerExpanded] = useState(false);
   const [sourceNote, setSourceNote] = useState<{ id: string; title: string } | null>(null);
-  const [isCreatingTodos, setIsCreatingTodos] = useState(false);
 
   // Entity Chat state
-  const [showEntityChat, setShowEntityChat] = useState(false);
-  const [showNotesModal, setShowNotesModal] = useState(false);
 
   // LinkedItemsSection handlers for event notes
   const handleLinkedItemPress = useCallback(
@@ -1770,27 +1267,29 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Handler for LinkedEventPicker changes
   const handleLinkedEventChange = useCallback(
     (eventId: string | null) => {
-      dispatch({ type: 'SET_LINKED_EVENT_ID', eventId });
+      store.setLinkedEventId(eventId);
 
       // Auto-populate todo deadline from event date if todo doesn't have one
       if (eventId && baseType === 'todo' && !state.todo.target_date) {
         const event = getItemById(eventId);
         const eventDate = (event as any)?.target_date;
         if (eventDate) {
-          dispatch({ type: 'SET_TODO_TARGET_DATE', date: eventDate });
+          store.setTodoTargetDate(eventDate);
         }
       }
     },
-    [dispatch, baseType, state.todo.target_date, getItemById],
+    [baseType, state.todo.target_date, getItemById],
   );
 
-  // Clarification popup state (Phase 2)
-  const [showClarificationPopup, setShowClarificationPopup] = useState(false);
-  const [clarificationLoading, setClarificationLoading] = useState(false);
-  const [clarificationSuccess, setClarificationSuccess] = useState<string | null>(null);
+
 
   // View mode: store fetched entity for display
-  const [viewModeEntity, setViewModeEntity] = useState<any>(null);
+  const viewModeEntity: any = useMemo(() => {
+    if (mode !== 'view' || !initialEntity) return null;
+    const entityId = (initialEntity as any)?.id;
+    if (!entityId) return null;
+    return getItemById(entityId) ?? null;
+  }, [mode, initialEntity, getItemById]);
 
   // Keep this for other parts of the component that need the body
   const noteBody =
@@ -1904,12 +1403,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   ).current;
 
   // Ref to track isSaving for PanResponder (since PanResponder is created once)
-  const isSavingRef = useRef(isSaving);
-  isSavingRef.current = isSaving;
+  const isSavingRef = useRef(storeUI.saving);
+  isSavingRef.current = storeUI.saving;
 
-  // Photo support for logs (Phase L3 - single photo)
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [showImageModal, setShowImageModal] = useState(false);
+
 
   // Multi-photo support for logs (Phase L5)
   const [logPhotos, setLogPhotos] = useState<LogPhoto[]>([]);
@@ -1918,7 +1415,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Photo Drop: hydrate logPhotos from initialLogPhotoUris for create-mode logs (once)
   const initialLogPhotosHydratedRef = useRef(false);
 
-  // Keyboard height tracking: listen for keyboard show/hide events
+  // Keyboard height tracking + timer cleanup on unmount
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
@@ -1933,6 +1430,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return () => {
       showSubscription.remove();
       hideSubscription.remove();
+      if (undoTimerRef.current) {
+        clearTimeout(undoTimerRef.current as any);
+        undoTimerRef.current = null;
+      }
+      if (saveToastTimerRef.current) {
+        clearTimeout(saveToastTimerRef.current as any);
+        saveToastTimerRef.current = null;
+      }
+      if (dueToastTimerRef.current) {
+        clearTimeout(dueToastTimerRef.current as any);
+        dueToastTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -1958,16 +1467,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     initialLogPhotosHydratedRef.current = true;
   }, [baseType, mode, initialLogPhotoUris]);
 
-  // Mood selector for journal logs (Phase L4) - now multi-select
-  const [moods, setMoods] = useState<Mood[]>([]);
+
 
   // focus states for accessibility focus rings
-  const [bodyFocused, setBodyFocused] = useState(false);
   // Expanded editor mode state
-  const [isExpandedEditor, setIsExpandedEditor] = useState(false);
   // Preview mode: When opening a log from chat, show formatted read-only view first
-  const [isPreviewMode, setIsPreviewMode] = useState(false);
-  const [commitmentFocused, setCommitmentFocused] = useState(false);
   // useAuth may not be available in some test harnesses that mock providers,
   // so guard against the hook throwing by falling back to null.
   let userId: string | null = null;
@@ -1984,114 +1488,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     null,
     baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note',
   );
-  const [spaces, setSpaces] = useState<any[]>([]);
-  const [isResuggestingTags, setIsResuggestingTags] = useState(false);
-  const [isResummarizingTitle, setIsResummarizingTitle] = useState(false);
   const [pendingTitleResummarize, setPendingTitleResummarize] = useState(false);
   // Track whether user has modified tags (to avoid overwriting Mind Drop AI tags on edit)
-  const [tagsDirty, setTagsDirty] = useState(false);
   // local UI state for undo toast
-  const [showUndoToast, setShowUndoToast] = useState(false);
   const undoTimerRef = useRef<number | null>(null);
   const saveToastTimerRef = useRef<number | null>(null);
   const dueToastTimerRef = useRef<number | null>(null);
-  const createPrefillAppliedRef = useRef(false);
-  const editAutoPrefillRanRef = useRef(false);
-  const hasLocalScheduleChanges = useRef(false);
-  // Snapshot of the user's local schedule edits so re-hydration can preserve them
-  const localScheduleSnapshot = useRef<Partial<
-    Pick<
-      HabitState,
-      | 'schedule'
-      | 'frequency_json'
-      | 'start_date'
-      | 'end_date'
-      | 'time_window'
-      | 'time_estimate_minutes'
-    >
-  > | null>(null);
   const aiTitlePersistedRef = useRef(false);
-  const hasHydratedEditRef = useRef(false);
   const textInputRef = useRef<TextInput | null>(null);
   const prevConversionMetaRef = useRef(conversionMeta);
-
-  // CRITICAL: Reset prefill flags when overlay closes or conversionMeta changes
-  // This prevents stale data from previous saves appearing in new saves
-  useEffect(() => {
-    if (!visible) {
-      // Reset when overlay closes
-      createPrefillAppliedRef.current = false;
-      editAutoPrefillRanRef.current = false;
-      hasHydratedEditRef.current = false;
-      hasLocalScheduleChanges.current = false;
-      localScheduleSnapshot.current = null;
-    } else if (conversionMeta !== prevConversionMetaRef.current) {
-      // Reset when conversionMeta changes while visible (new save action)
-      createPrefillAppliedRef.current = false;
-      editAutoPrefillRanRef.current = false;
-      hasHydratedEditRef.current = false;
-      hasLocalScheduleChanges.current = false;
-      localScheduleSnapshot.current = null;
-    }
-    prevConversionMetaRef.current = conversionMeta;
-  }, [visible, conversionMeta]);
 
   // feature flag for commitments (soft rollout)
   const commitmentsOn = env.feature.commitments;
   const currentTagsRef = useRef<TagKey[]>(state.tags);
-  useEffect(() => {
-    currentTagsRef.current = state.tags;
-  }, [state.tags]);
+  currentTagsRef.current = state.tags;
   const hasLoadedEditTagsRef = useRef(false);
-
-  // Reset all state when entity changes - MUST run before HYDRATE_EDIT effects
-  useEffect(() => {
-    const prev = prevEntityIdRef.current;
-    const shouldReset = visible && currentEntityId !== prev;
-
-    if (shouldReset && prev !== null) {
-      // Entity changed while visible or overlay opened with new entity
-      console.log('[UnifiedOverlayV2] Entity changed, full reset', { prev, new: currentEntityId });
-
-      // Reset reducer state
-      dispatch({ type: 'RESET' });
-
-      // Reset all useState values that hold entity-specific data
-      setReminders([]);
-      setChecklistItems(null);
-      setIsFavorite(false);
-      setSourceNote(null);
-      setShowTodoPreview(false);
-      setExtractedItems([]);
-      setViewModeEntity(null);
-      setIsExpandedEditor(false);
-      setIsPreviewMode(false);
-      setTagsDirty(false);
-      setSaveError(null);
-      setShowSaveToast(false);
-      setPhotoUri(null);
-      setLogPhotos([]);
-      setSelectedPhotoIndex(null);
-      setMoods([]);
-      setMoodPickerExpanded(false);
-
-      // Reset refs
-      createPrefillAppliedRef.current = false;
-      editAutoPrefillRanRef.current = false;
-      hasLoadedEditTagsRef.current = false;
-      aiTitlePersistedRef.current = false;
-      hasHydratedEditRef.current = false;
-      hasLocalScheduleChanges.current = false;
-      localScheduleSnapshot.current = null;
-
-      // Reset displayMode based on incoming mode prop and baseType
-      const newStartedInView = mode === 'view' && baseType === 'habit';
-      setDisplayMode(newStartedInView ? 'view' : 'edit');
-    }
-
-    // Always update the ref to track current entity
-    prevEntityIdRef.current = currentEntityId;
-  }, [visible, currentEntityId, mode, baseType]);
 
   async function canEnableCommitment(): Promise<boolean> {
     try {
@@ -2109,215 +1520,51 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return true;
   }
 
-  // Open unified schedule modal with current habit state
-  const openScheduleModal = useCallback(() => {
-    if (baseType === 'todo') {
-      // For To-Dos: no frequency, just dates/time/duration
-      setScheduleModalState({
-        selectedDays: [],
-        count: 1,
-        unit: 'day',
-        isCustom: false,
-        startDate: state.todo.scheduled_date ?? state.todo.due_day ?? null,
-        endDate: state.todo.target_date ?? null,
-        timeWindow: state.todo.time_window ?? null,
-        timeEstimateMinutes: state.todo.time_estimate_minutes ?? null,
+  // Handle schedule modal apply — single atomic store update (fixes Bug #3)
+  const handleScheduleApply = useCallback(
+    (changes: ScheduleChanges) => {
+      store.applySchedule({
+        scheduledDate: changes.scheduledDate ?? null,
+        targetDate: changes.targetDate ?? null,
+        dueDay: changes.scheduledDate ?? null,
+        timeWindow: changes.timeWindow as 'day' | 'any' | 'morning' | 'evening' | null,
+        timeEstimateMinutes: changes.timeEstimateMinutes ?? null,
+        frequencyJson: changes.frequencyJson,
+        schedule: changes.schedule ?? 'custom',
+        startDate: changes.startDate ?? null,
+        endDate: changes.endDate ?? null,
       });
-      setShowScheduleStartDatePicker(false);
-      setShowScheduleEndDatePicker(false);
-      setShowScheduleModal(true);
-      return;
-    }
+      store.setUI({ showScheduleModal: false });
+    },
+    [],
+  );
 
-    const currentFreq = jsonToFrequency(
-      localScheduleSnapshot.current?.frequency_json ?? state.habit.frequency_json,
-    );
-    // Map frequency config to unified count/unit/days
-    let initCount = 1;
-    let initUnit: 'day' | 'week' | 'month' = 'day';
-    let initDays: number[] = [];
-    if (currentFreq.mode === 'simple') {
-      initCount = 1;
-      initUnit =
-        currentFreq.value === 'daily' ? 'day' : currentFreq.value === 'weekly' ? 'week' : 'month';
-    } else if (currentFreq.mode === 'custom') {
-      initCount = currentFreq.value.count;
-      initUnit = currentFreq.value.unit;
-    } else if (currentFreq.mode === 'days') {
-      initCount = currentFreq.days.length;
-      initUnit = 'week';
-      initDays = currentFreq.days;
-    }
-    // Determine if current values match any preset
-    const matchesPreset = SCHEDULE_PRESETS.some(
-      (p) =>
-        p.count === initCount &&
-        p.unit === initUnit &&
-        JSON.stringify([...p.days].sort()) === JSON.stringify([...initDays].sort()),
-    );
-    setScheduleModalState({
-      selectedDays: initDays,
-      count: initCount,
-      unit: initUnit,
-      isCustom: !matchesPreset,
-      startDate: state.habit.start_date ?? null,
-      endDate: state.habit.end_date ?? null,
-      timeWindow: state.habit.time_window ?? null,
-      timeEstimateMinutes: state.habit.time_estimate_minutes ?? null,
-    });
-    setShowScheduleStartDatePicker(false);
-    setShowScheduleEndDatePicker(false);
-    setShowScheduleModal(true);
-  }, [baseType, state.habit, state.todo]);
+  // Derive spaces from store (no useEffect needed)
+  const spaces = expanded ? (storeSpaces || []) : [];
 
-  // Apply all schedule changes at once from modal state
-  const applyScheduleChanges = useCallback(() => {
-    if (baseType === 'todo') {
-      // For To-Dos: apply dates, time window, and time estimate
-      // Date Intelligence fields (for views JSONB)
-      dispatch({ type: 'SET_TODO_SCHEDULED_DATE', date: scheduleModalState.startDate });
-      dispatch({ type: 'SET_TODO_TARGET_DATE', date: scheduleModalState.endDate });
+  // Item reminders are hydrated once in store.open() via hydrateEntityToDraft
 
-      // CRITICAL: Also sync due_day — this is what the save path reads
-      // and what drives Today page display, sweep eligibility, etc.
-      dispatch({
-        type: 'SET_TODO_DUE',
-        due_at: null,
-        due_day: scheduleModalState.startDate, // do date = due_day
-        // don't include due_time — reducer preserves existing value
-      });
-
-      dispatch({
-        type: 'SET_TODO_TIME_WINDOW',
-        window: scheduleModalState.timeWindow as 'day' | 'any' | 'morning' | 'evening' | null,
-      });
-      dispatch({
-        type: 'SET_TODO_TIME_ESTIMATE',
-        minutes: scheduleModalState.timeEstimateMinutes,
-      });
-      setShowScheduleModal(false);
-      return;
-    }
-
-    // Build frequency_json from unified modal state
-    const count = scheduleModalState.count;
-    const unit = scheduleModalState.unit;
-    let newFrequencyJson;
-    if (unit === 'week' && scheduleModalState.selectedDays.length > 0) {
-      // Pinned days mode
-      newFrequencyJson = { type: 'days', days: scheduleModalState.selectedDays };
-    } else if (count === 1) {
-      // Simple frequency: 1x/day → daily, 1x/week → weekly, 1x/month → monthly
-      const simpleMap: Record<string, string> = { day: 'daily', week: 'weekly', month: 'monthly' };
-      newFrequencyJson = { type: 'simple', value: simpleMap[unit] };
+  // Emit an 'opened' funnel event when the overlay becomes visible;
+  // reset local-only state when closing.
+  useEffect(() => {
+    if (visible) {
+      try {
+        eventBus.emit('OverlayOpened', { mode, baseType: state.baseType });
+      } catch (e) {
+        // ignore telemetry errors
+      }
+      overlayEntryTypeRef.current = state.baseType;
+      if (!openTelemetrySentRef.current) {
+        openTelemetrySentRef.current = true;
+        void emitOverlayEvent({ type: 'overlay_open', mode, entryType: overlayEntryTypeRef.current });
+      }
     } else {
-      // Custom frequency: Nx/unit
-      newFrequencyJson = { type: 'custom', value: { count, unit } };
-    }
-
-    // Dispatch all updates
-    console.log('[Schedule] Applying:', JSON.stringify(newFrequencyJson));
-    hasLocalScheduleChanges.current = true;
-
-    // Derive schedule string from frequency_json
-    let derivedSchedule: HabitState['schedule'] = 'custom';
-    if (newFrequencyJson?.type === 'simple') {
-      const val = newFrequencyJson.value;
-      if (val === 'daily') derivedSchedule = 'daily';
-      else if (val === 'weekly') derivedSchedule = 'weekly';
-      else derivedSchedule = 'custom';
-    } else if (newFrequencyJson?.type === 'custom') {
-      const cVal = newFrequencyJson.value as { count: number; unit: string };
-      if (cVal?.unit === 'day') derivedSchedule = 'daily';
-      else if (cVal?.unit === 'week') derivedSchedule = 'weekly';
-      else derivedSchedule = 'custom';
-    }
-
-    localScheduleSnapshot.current = {
-      schedule: derivedSchedule,
-      frequency_json: newFrequencyJson,
-      start_date: scheduleModalState.startDate,
-      end_date: scheduleModalState.endDate,
-      time_window: (scheduleModalState.timeWindow ?? null) as HabitState['time_window'],
-      time_estimate_minutes: scheduleModalState.timeEstimateMinutes,
-    };
-    dispatch({ type: 'SET_HABIT_FREQUENCY', frequency_json: newFrequencyJson });
-    dispatch({ type: 'SET_HABIT_START_DATE', date: scheduleModalState.startDate });
-    dispatch({ type: 'SET_HABIT_END_DATE', date: scheduleModalState.endDate });
-    dispatch({
-      type: 'SET_HABIT_TIME_WINDOW',
-      window: scheduleModalState.timeWindow as 'day' | 'any' | 'morning' | 'evening' | null,
-    });
-    dispatch({
-      type: 'SET_HABIT_TIME_ESTIMATE',
-      minutes: scheduleModalState.timeEstimateMinutes,
-    });
-
-    setShowScheduleModal(false);
-  }, [baseType, scheduleModalState, dispatch]);
-
-  // Sync spaces from store when details panel expands (replaces repo.listSpaces)
-  useEffect(() => {
-    if (!state.expanded) return;
-    setSpaces(storeSpaces || []);
-  }, [storeSpaces, state.expanded]);
-
-  // Hydrate reminders from existing reminderAt field when overlay opens
-  useEffect(() => {
-    if (!visible) return;
-    const hydrated = hydrateRemindersFromLegacy(state.reminderAt);
-    setReminders(hydrated);
-  }, [visible, state.reminderAt]);
-
-  // Hydrate item reminders from entity's reminders JSON column when overlay opens
-  useEffect(() => {
-    if (!visible) return;
-    const fromReminders = Array.isArray(fullEntity?.reminders)
-      ? (fullEntity.reminders as ItemReminder[])
-      : [];
-    const fromJson = Array.isArray((fullEntity as any)?.reminders_json)
-      ? ((fullEntity as any).reminders_json as ItemReminder[])
-      : [];
-    const existing = fromReminders.length > 0 ? fromReminders : fromJson;
-    setItemReminders(existing);
-  }, [visible, fullEntity?.reminders, (fullEntity as any)?.reminders_json]);
-
-  // Emit an 'opened' funnel event when the overlay becomes visible so analytics
-  // can track funnel starts (best-effort, ignore telemetry errors).
-  useEffect(() => {
-    if (!visible) return;
-    try {
-      eventBus.emit('OverlayOpened', { mode, baseType: state.baseType });
-    } catch (e) {
-      // ignore telemetry errors
-    }
-    overlayEntryTypeRef.current = state.baseType;
-    if (!openTelemetrySentRef.current) {
-      openTelemetrySentRef.current = true;
-      void emitOverlayEvent({ type: 'overlay_open', mode, entryType: overlayEntryTypeRef.current });
-    }
-  }, [visible, mode, state.baseType]);
-
-  useEffect(() => {
-    overlayEntryTypeRef.current = baseType;
-  }, [baseType]);
-
-  useEffect(() => {
-    if (!visible) {
       openTelemetrySentRef.current = false;
-      if (showSaveToast) setShowSaveToast(false);
-      // Reset expanded editor when overlay closes
-      if (isExpandedEditor) setIsExpandedEditor(false);
-      // Reset preview mode when overlay closes
-      setIsPreviewMode(false);
-      // Reset Make Actionable state when overlay closes
-      setChecklistItems(null);
-      setIsFavorite(false);
+      // Reset local-only state; store-backed fields are reset by store.discard()
       setSourceNote(null);
-      setShowTodoPreview(false);
       setExtractedItems([]);
     }
-  }, [visible, showSaveToast, isExpandedEditor]);
+  }, [visible, mode, state.baseType]);
 
   // Auto-expand for journal logs when overlay opens
   useEffect(() => {
@@ -2331,15 +1578,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [visible, isLog, effectiveLogSubtype]);
 
+  // Reset transient UI on baseType change
   useEffect(() => {
-    if (baseType !== 'todo' && dueToastMessage) {
-      setDueToastMessage(null);
-    }
-  }, [baseType, dueToastMessage]);
-
-  // Reset expanded editor when baseType changes to prevent stale views
-  useEffect(() => {
+    if (baseType !== 'todo' && dueToastMessage) setDueToastMessage(null);
     setIsExpandedEditor(false);
+    if (baseType !== 'log') {
+      setLogPhotos([]);
+      setSelectedPhotoIndex(null);
+    }
   }, [baseType]);
 
   // Initialize preview mode when opening a log from chat with content OR viewing a note
@@ -2357,47 +1603,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setIsPreviewMode(true);
     }
   }, [visible, mode, baseType, conversionMeta, initialEntity]);
-
-  // Initialize Make Actionable state from entity
-  useEffect(() => {
-    // Prefer the entity passed directly via openEdit (initialEntity) for has_list check
-    // because the store (fullEntity) may have stale data
-    const passedEntity = initialEntity as any;
-    const entity = fullEntity || passedEntity;
-
-    if (entity) {
-      // Initialize favorite state
-      setIsFavorite(entity.is_favorite ?? false);
-
-      // Initialize checklist state if note has list - only on first load
-      // CRITICAL: Check has_list from the passed entity first (freshest source)
-      // The store may have stale list_items even after has_list was set to false
-      const hasListFlag = passedEntity?.has_list ?? entity?.has_list;
-      const listItems = passedEntity?.list_items ?? entity?.list_items;
-
-      if (hasListFlag === true && listItems && Array.isArray(listItems) && listItems.length > 0) {
-        setChecklistItems(listItems);
-      } else if (hasListFlag === false) {
-        // Explicitly clear if has_list is false (user reverted the checklist)
-        setChecklistItems(null);
-      }
-    }
-  }, [fullEntity, initialEntity]);
-
-  // Fetch is_favorite fresh from store in view mode (list doesn't pass it)
-  useEffect(() => {
-    if (mode !== 'view' || baseType !== 'log') return;
-
-    const entity = fullEntity || (initialEntity as any);
-    const entityId = entity?.id;
-    if (!entityId) return;
-
-    const freshNote = getItemById(entityId);
-    if (freshNote) {
-      const favValue = (freshNote as any).is_favorite ?? false;
-      setIsFavorite(favValue);
-    }
-  }, [mode, baseType, fullEntity, initialEntity, getItemById]);
 
   // Get source note for todos created via "explode to todos" (from store)
   useEffect(() => {
@@ -2496,7 +1701,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const handleShowTodoPreview = useCallback(() => {
     const items = extractListItems(noteBody);
     setExtractedItems(items);
-    setShowTodoPreview(true);
+    store.setUI({ showTodoPreview: true });
   }, [noteBody]);
 
   /**
@@ -2658,7 +1863,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         }
 
         // Close modal
-        setShowTodoPreview(false);
+        store.setUI({ showTodoPreview: false });
 
         // Haptic feedback
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -2758,8 +1963,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         // no-op if the platform doesn't support LayoutAnimation
       }
     }
-    dispatch({ type: 'TOGGLE_EXPANDED' });
-  }, [dispatch, reduceMotion]);
+    setExpanded(e => !e);
+  }, [reduceMotion]);
 
   /**
    * ─────────────────────────────────────────────────────────────────────────
@@ -2800,14 +2005,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         todo: state.todo,
         habit: state.habit,
       });
-      dispatch({ type: 'SET_BASE_TYPE', to: next });
+      store.setBaseType(next);
       try {
         eventBus.emit('OverlayTypeChanged', { from: prev, to: next });
       } catch (e) {
         // ignore telemetry errors
       }
     },
-    [dispatch, state.baseType, state.habit, state.log, state.todo],
+    [state.baseType, state.habit, state.log, state.todo],
   );
 
   // Runtime checks for components that must exist at render time.
@@ -2831,7 +2036,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     throw new Error('UnifiedOverlayV2 render: `Modal` is undefined');
 
   // animation values for details panel, commitment and save pulse
-  const detailsAnim = useSharedValue(state.expanded ? 1 : 0);
+  const detailsAnim = useSharedValue(expanded ? 1 : 0);
   const commitmentAnim = useSharedValue(state.commitment ? 1 : 0);
   const savePulse = useSharedValue(0);
   const headerPulse = useSharedValue(0);
@@ -2843,6 +2048,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const sheetTranslateY = useRef(new RNAnimated.Value(16)).current;
   const sheetOpacity = useRef(new RNAnimated.Value(0)).current;
   const overlayEntryTypeRef = useRef<BaseType>(baseType);
+  overlayEntryTypeRef.current = baseType;
   const openTelemetrySentRef = useRef(false);
 
   const detailsStyle = useAnimatedStyle(() => ({
@@ -2912,15 +2118,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     try {
       if (detailsAnim && typeof (detailsAnim as any).value !== 'undefined') {
         (detailsAnim as any).value = conditionalAnimation(
-          withTiming(state.expanded ? 1 : 0, timingConfig.normal),
-          state.expanded ? 1 : 0,
+          withTiming(expanded ? 1 : 0, timingConfig.normal),
+          expanded ? 1 : 0,
           reduceMotion,
         );
       }
     } catch (e) {
       // In some test environments reanimated is mocked incompletely; ignore
     }
-  }, [state.expanded, detailsAnim, reduceMotion]);
+  }, [expanded, detailsAnim, reduceMotion]);
 
   // animate commitment reveal/hide
   useEffect(() => {
@@ -2994,11 +2200,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   ]);
 
   function pushUndoEntry(kind: 'type' | 'tag' | 'commitment', prev: Partial<any>) {
-    try {
-      dispatch({ type: 'PUSH_UNDO', entry: { kind, prev } } as any);
-    } catch (e) {
-      // ignore dispatch typing in JS/TS mixed environments
-    }
+    undoStackRef.current = [...undoStackRef.current, { kind, prev }];
     setShowUndoToast(true);
     if (undoTimerRef.current) {
       clearTimeout(undoTimerRef.current as any);
@@ -3009,10 +2211,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }
 
   function handleUndo() {
-    try {
-      dispatch({ type: 'UNDO_LAST' } as any);
-    } catch (e) {
-      // ignore
+    const stack = undoStackRef.current;
+    if (stack.length > 0) {
+      const last = stack[stack.length - 1];
+      undoStackRef.current = stack.slice(0, -1);
+      store.patchDraft(last.prev);
     }
     setShowUndoToast(false);
     if (undoTimerRef.current) {
@@ -3039,294 +2242,25 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return getDateService().formatForChip(dueDay);
   }
 
-  useEffect(() => {
-    if (mode !== 'create') return;
-    if (createPrefillAppliedRef.current) return;
-
-    const override = deriveBaseTypeFromInitial((initialEntity as any)?.type);
-    const rawText = typeof initialText === 'string' ? initialText : '';
-    const hasText = rawText.trim().length > 0;
-    const hasLinkedEventId = !!(initialEntity as any)?.linked_event_id;
-
-    // Check for conversionMeta prefill (Idea → Todo/Habit conversion, Space Chat)
-    const hasConversionMeta =
-      conversionMeta &&
-      (conversionMeta.initialTitle ||
-        conversionMeta.initialNote ||
-        conversionMeta.initialTags?.length ||
-        conversionMeta.initialListItems?.length ||
-        conversionMeta.initialFrequency ||
-        conversionMeta.initialDueDate); // ADD: Space Chat todo due date
-
-    if (!override && !hasText && !defaultDueToday && !hasConversionMeta && !hasLinkedEventId) {
-      createPrefillAppliedRef.current = true;
-      return;
-    }
-
-    const payload: Partial<V2State> = {};
-    if (override) payload.baseType = override;
-
-    if (hasText) {
-      const title = firstLine(rawText);
-      payload.log = { ...initialV2State.log, body: rawText, title };
-      payload.todo = { ...initialV2State.todo, details: rawText, title };
-      payload.habit = { ...initialV2State.habit, notes: rawText, title };
-    }
-
-    // Apply conversionMeta prefill (Idea → Todo/Habit conversion)
-    if (hasConversionMeta) {
-      const { initialTitle, initialNote, initialTags, initialListItems, initialIsList } =
-        conversionMeta as any;
-
-      console.log('[UnifiedOverlayV2] conversionMeta dueDate:', conversionMeta?.initialDueDate);
-
-      // Apply title and note
-      if (initialTitle || initialNote) {
-        const title = initialTitle || '';
-        const note = initialNote || '';
-        payload.todo = {
-          ...(payload.todo || initialV2State.todo),
-          title,
-          details: note,
-        };
-        payload.habit = {
-          ...(payload.habit || initialV2State.habit),
-          title,
-          notes: note,
-        };
-        // Also apply note to log body for notes
-        payload.log = {
-          ...(payload.log || initialV2State.log),
-          title: title,
-          body: note,
-        };
-      }
-
-      // SPACE CHAT FIX: For todos/habits, if initialNote is falsy, explicitly clear details/notes
-      // This prevents rawText from the hasText block from leaking into the details field
-      // Space Chat passes the title separately - todos/habits don't need body text
-      if (initialTitle && !initialNote) {
-        payload.todo = {
-          ...(payload.todo || initialV2State.todo),
-          details: '',
-        };
-        payload.habit = {
-          ...(payload.habit || initialV2State.habit),
-          notes: '',
-        };
-      }
-
-      // Apply todo due date from Space Chat detection
-      if (conversionMeta.initialDueDate) {
-        payload.todo = {
-          ...(payload.todo || initialV2State.todo),
-          due_day: conversionMeta.initialDueDate,
-        };
-      }
-
-      // Apply habit frequency from Space Chat detection
-      if (conversionMeta.initialFrequency) {
-        const frequencyJson = buildFrequencyJsonFromDb(
-          conversionMeta.initialFrequency,
-          conversionMeta.initialFrequencyValue ?? 1,
-        );
-        // Map incoming frequency to valid schedule values (daily | weekly | custom)
-        const freq = conversionMeta.initialFrequency.toLowerCase();
-        const schedule: 'daily' | 'weekly' | 'custom' =
-          freq === 'daily' ? 'daily' : freq === 'weekly' ? 'weekly' : 'custom';
-        payload.habit = {
-          ...(payload.habit || initialV2State.habit),
-          schedule, // Maps to DB 'frequency' column
-          frequency_json: frequencyJson, // Maps to DB 'frequency_json' column
-        };
-      }
-
-      // Apply tags (filter out system tags)
-      if (initialTags && Array.isArray(initialTags) && initialTags.length > 0) {
-        const systemTags = ['idea', 'journal', 'general', 'list'];
-        const filteredTags = initialTags.filter(
-          (tag: string) => !systemTags.includes(tag.toLowerCase()),
-        );
-        if (filteredTags.length > 0) {
-          payload.tags = filteredTags;
-        }
-      }
-
-      // Apply list items
-      if (
-        initialIsList &&
-        initialListItems &&
-        Array.isArray(initialListItems) &&
-        initialListItems.length > 0
-      ) {
-        payload.list = { items: initialListItems };
-      }
-    }
-
-    // Default todo to due today when defaultDueToday is true (Now page)
-    if (defaultDueToday && (override === 'todo' || !override)) {
-      const todayISO = getTodayISO();
-      payload.todo = {
-        ...(payload.todo || initialV2State.todo),
-        due_at: todayISO,
-      };
-    }
-
-    // Apply linked_event_id from initialEntity (for "+ Add to-do" / "+ Add note" from events)
-    const linkedEventIdFromInitial = (initialEntity as any)?.linked_event_id;
-    if (linkedEventIdFromInitial) {
-      payload.linkedEventId = linkedEventIdFromInitial;
-    }
-
-    // Apply target_date from initialEntity for todos (event date becomes todo deadline)
-    const targetDateFromInitial = (initialEntity as any)?.target_date;
-    if (targetDateFromInitial && override === 'todo') {
-      payload.todo = {
-        ...(payload.todo || initialV2State.todo),
-        target_date: targetDateFromInitial,
-      };
-    }
-
-    if (Object.keys(payload).length > 0) {
-      dispatch({ type: 'HYDRATE_EDIT', payload });
-    }
-
-    createPrefillAppliedRef.current = true;
-  }, [mode, initialEntity, initialText, defaultDueToday, conversionMeta, dispatch]);
-
   // Initial defaults (match brief: text-first; first line becomes title)
   // CRITICAL: Always get full entity from store to ensure commitment fields round-trip
   // Today/Now selectors may pass truncated entity shapes that lose commitment fields
-  useEffect(() => {
-    if (mode !== 'edit' || !initialEntity) return;
-
-    // Only hydrate once per entity — prevent re-hydration
-    // from overwriting user's local changes (e.g. frequency)
-    if (hasHydratedEditRef.current) {
-      console.log('[HYDRATE GUARD] Skipping re-hydration — already hydrated');
-      return;
-    }
-
-    const entityId = (initialEntity as any)?.id;
-    let entityToUse = initialEntity;
-
-    // Get fresh entity from store to get ALL fields including commitment
-    if (entityId) {
-      console.log('[UnifiedOverlayV2] Getting full entity from store:', entityId);
-      const freshEntity = getItemById(entityId);
-      if (freshEntity) {
-        console.log('[UnifiedOverlayV2] Fresh entity from store:', {
-          id: freshEntity.id,
-          type: freshEntity.type,
-          commitment: (freshEntity as any).commitment,
-          commitmentNote: (freshEntity as any).commitmentNote,
-        });
-        entityToUse = freshEntity;
-      } else {
-        console.warn(
-          '[UnifiedOverlayV2] Could not find entity in store, using initialEntity fallback',
-        );
-      }
-    }
-
-    const payload = buildDraftPayloadFromEntity(entityToUse);
-
-    // Guard: if user has local schedule changes (from Schedule modal),
-    // don't let re-hydration overwrite them
-    if (hasLocalScheduleChanges.current && payload.habit && localScheduleSnapshot.current) {
-      console.log('[UnifiedOverlayV2] Preserving local schedule changes during re-hydration');
-      const {
-        schedule,
-        frequency_json,
-        start_date,
-        end_date,
-        time_window,
-        time_estimate_minutes,
-        ...restHabit
-      } = payload.habit;
-      payload.habit = {
-        ...restHabit, // non-schedule fields from store
-        ...localScheduleSnapshot.current, // user's local schedule edits (from ref, never stale)
-      };
-    }
-
-    console.log('[UnifiedOverlayV2] Hydrating with payload:', {
-      commitment: payload.commitment,
-      commitmentNote: payload.commitmentNote,
-    });
-    dispatch({ type: 'HYDRATE_EDIT', payload } as any);
-    hasHydratedEditRef.current = true;
-
-    // Hydrate mood for journal logs (Phase L4) - now multi-select
-    const entity = entityToUse as any;
-    if (entity?.mood) {
-      // Handle both array (new format) and single string (legacy)
-      if (Array.isArray(entity.mood)) {
-        const validMoods = entity.mood.filter(isValidMood);
-        setMoods(validMoods);
-      } else if (typeof entity.mood === 'string') {
-        // Migrate legacy single mood to array
-        const migrated = migrateLegacyMood(entity.mood);
-        setMoods(migrated ? [migrated] : []);
-      }
-    }
-
-    // Hydrate photo for logs (Phase L3)
-    if (entity?.photo_uri) {
-      setPhotoUri(entity.photo_uri);
-    }
-  }, [mode, initialEntity, getItemById]);
-
-  // View mode: Get full entity from store for display
-  // initialEntity from chat only has {id, type, logSubtype} - we need the full entity with body/title
-  useEffect(() => {
-    if (mode !== 'view' || !initialEntity) return;
-
-    const entityId = (initialEntity as any)?.id;
-    if (!entityId) return;
-
-    console.log('[UnifiedOverlayV2] View mode: Getting full entity from store:', entityId);
-    const freshEntity = getItemById(entityId);
-    if (freshEntity) {
-      console.log('[UnifiedOverlayV2] View mode: Entity from store:', {
-        id: freshEntity.id,
-        type: freshEntity.type,
-        title: (freshEntity as any).title || (freshEntity as any).name,
-        hasBody: !!(freshEntity as any).body,
-      });
-      setViewModeEntity(freshEntity);
-    } else {
-      console.warn('[UnifiedOverlayV2] View mode: Could not find entity in store');
-    }
-  }, [mode, initialEntity, getItemById]);
+  // → Now handled by store.open() via hydrateEntityToDraft (one-shot)
 
   // Load existing log photos from database (Phase L5)
   useEffect(() => {
     const loadLogPhotos = async () => {
-      // Check entity type directly to avoid race condition with HYDRATE_EDIT
-      // The entity's type field is 'note' for logs in the database
       const entityType = (initialEntity as any)?.type;
       const isNoteEntity = entityType === 'note' || entityType === 'log';
 
-      console.log('[UnifiedOverlayV2] loadLogPhotos effect:', {
-        mode,
-        hasInitialEntity: !!initialEntity,
-        entityType,
-        isNoteEntity,
-        noteId: (initialEntity as any)?.id,
-      });
-
-      // Only load photos for note/log entities in edit mode
       if (mode !== 'edit' || !initialEntity || !isNoteEntity) return;
 
       const noteId = (initialEntity as any)?.id;
       if (!noteId) return;
 
       try {
-        console.log('[UnifiedOverlayV2] Loading photos for note:', noteId);
         const data = await listLogPhotos(noteId);
 
-        console.log('[UnifiedOverlayV2] Loaded photos from store:', data);
         if (data && data.length > 0) {
           const photos: LogPhoto[] = data.map((row) => ({
             id: row.id,
@@ -3335,11 +2269,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             isNew: false,
             isDeleted: false,
           }));
-          console.log('[UnifiedOverlayV2] Setting logPhotos state:', photos);
           setLogPhotos(photos);
         }
       } catch (err) {
-        console.error('[UnifiedOverlayV2] Error loading log photos:', err);
+        // ignore photo load errors gracefully
       }
     };
 
@@ -3431,30 +2364,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Clear photos when switching away from log type (Phase L5)
   useEffect(() => {
-    if (baseType !== 'log') {
-      setLogPhotos([]);
-      setSelectedPhotoIndex(null);
-    }
-  }, [baseType]);
-
-  useEffect(() => {
-    return () => {
-      if (undoTimerRef.current) {
-        clearTimeout(undoTimerRef.current as any);
-        undoTimerRef.current = null;
-      }
-      if (saveToastTimerRef.current) {
-        clearTimeout(saveToastTimerRef.current as any);
-        saveToastTimerRef.current = null;
-      }
-      if (dueToastTimerRef.current) {
-        clearTimeout(dueToastTimerRef.current as any);
-        dueToastTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     if (mode !== 'edit') return;
     if (hasLoadedEditTagsRef.current) return;
 
@@ -3462,7 +2371,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (inlineTags.length > 0) {
       const merged = mergeTagKeys(currentTagsRef.current, inlineTags);
       if (merged.length !== currentTagsRef.current.length) {
-        dispatch({ type: 'SET_TAGS', tags: merged });
+        store.setTags(merged);
       }
       hasLoadedEditTagsRef.current = true;
       return;
@@ -3481,22 +2390,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (fetched.length > 0) {
         const merged = mergeTagKeys(currentTagsRef.current, fetched);
         if (merged.length !== currentTagsRef.current.length) {
-          dispatch({ type: 'SET_TAGS', tags: merged });
+          store.setTags(merged);
         }
       }
-      const metaPayload = buildDraftPayloadFromEntity(entity);
-      if (
-        Array.isArray((metaPayload as any).stickyTags) ||
-        Array.isArray((metaPayload as any).tagTombstones)
-      ) {
-        dispatch({
-          type: 'HYDRATE_EDIT',
-          payload: {
-            stickyTags: (metaPayload as any).stickyTags ?? [],
-            tagTombstones: (metaPayload as any).tagTombstones ?? [],
-          },
-        } as any);
-      }
+
     }
     hasLoadedEditTagsRef.current = true;
   }, [mode, initialEntity, getItemById]);
@@ -3530,14 +2427,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // AI Tag Override for Mind Drop items
   // Phase 2: Removed Mind Drop tag override logic - overlay no longer runs AI prefill
   const aiTagOverrideAppliedRef = useRef(false);
-
-  // Reset the override flag when the entity changes
-  useEffect(() => {
-    const entityId = (initialEntity as any)?.id;
-    return () => {
-      aiTagOverrideAppliedRef.current = false;
-    };
-  }, [(initialEntity as any)?.id]);
 
   const stickyCanonicalMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -3591,11 +2480,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         const nextTags = state.tags.filter((t) => t !== normalized);
         const nextSticky = removeMetaTag(stickySnapshot, metaSource);
         const nextTombstones = addMetaTag(tombstoneSnapshot, metaSource);
-        dispatch({ type: 'SET_TAGS', tags: nextTags });
-        dispatch({
-          type: 'HYDRATE_EDIT',
-          payload: { stickyTags: nextSticky, tagTombstones: nextTombstones },
-        } as any);
+        store.setTags(nextTags);
         setTagsDirty(true); // Mark tags as user-modified
         return;
       }
@@ -3603,14 +2488,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const nextTags = [...state.tags, normalized];
       const nextSticky = stickySnapshot;
       const nextTombstones = removeMetaTag(tombstoneSnapshot, metaSource);
-      dispatch({ type: 'SET_TAGS', tags: nextTags });
-      dispatch({
-        type: 'HYDRATE_EDIT',
-        payload: { stickyTags: nextSticky, tagTombstones: nextTombstones },
-      } as any);
+      store.setTags(nextTags);
       setTagsDirty(true); // Mark tags as user-modified
     },
-    [dispatch, state.list, state.mood, state.tags, state.stickyTags, state.tagTombstones],
+    [state.list, state.mood, state.tags, state.stickyTags, state.tagTombstones],
   );
 
   const handleTagAdd = useCallback(
@@ -3636,15 +2517,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const nextSticky = addMetaTag(stickySnapshot, canonical);
       const nextTombstones = removeMetaTag(tombstoneSnapshot, canonical);
 
-      dispatch({ type: 'SET_TAGS', tags: nextTags });
-      dispatch({
-        type: 'HYDRATE_EDIT',
-        payload: { stickyTags: nextSticky, tagTombstones: nextTombstones },
-      } as any);
-
+      store.setTags(nextTags);
       setTagsDirty(true); // Mark tags as user-modified
     },
-    [dispatch, state.list, state.mood, state.tags, state.stickyTags, state.tagTombstones],
+    [state.list, state.mood, state.tags, state.stickyTags, state.tagTombstones],
   );
 
   const handleTelemetryTagAdd = useCallback((canonical: string) => {
@@ -3847,7 +2723,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       if (updated && title) {
         // Update local state with new title
-        dispatch({ type: 'SET_TEXT', text: title });
+        store.setBody(title);
         console.log('[OverlayV2] Title resummarized', { entityId: fullEntity.id, title });
       }
     } catch (error) {
@@ -3876,7 +2752,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         const tagKeys = extractedTags
           .map((tag) => normalizeToTagKey(tag))
           .filter(Boolean) as TagKey[];
-        dispatch({ type: 'SET_TAGS', tags: tagKeys });
+        store.setTags(tagKeys);
         console.log('[OverlayV2] Tags re-extracted deterministically', {
           tagsCount: tagKeys.length,
         });
@@ -3927,7 +2803,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           };
 
           const value = subtypeMap[buttonIndex];
-          dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value });
+          store.setLogSubtypeOverride(value);
         },
       );
     } else {
@@ -3935,23 +2811,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       Alert.alert('Select log subtype', 'Choose a subtype or clear to use automatic detection', [
         {
           text: 'Journal',
-          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'journal' }),
+          onPress: () => store.setLogSubtypeOverride('journal'),
         },
         {
           text: 'Idea',
-          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'idea' }),
+          onPress: () => store.setLogSubtypeOverride('idea'),
         },
         {
           text: 'General',
-          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'general' }),
+          onPress: () => store.setLogSubtypeOverride('general'),
         },
         {
           text: 'Event',
-          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: 'event' }),
+          onPress: () => store.setLogSubtypeOverride('event'),
         },
         {
           text: 'Clear subtype',
-          onPress: () => dispatch({ type: 'SET_LOG_SUBTYPE_OVERRIDE', value: null }),
+          onPress: () => store.setLogSubtypeOverride(null),
           style: 'destructive',
         },
         {
@@ -3976,8 +2852,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         console.log('[handleTodoDueChange] Setting due_day:', dueDay);
 
         // Dispatch with due_day as source of truth, due_at = null (not used)
-        dispatch({
-          type: 'SET_TODO_DUE',
+        store.setTodoDue({
           due_at: null, // Explicitly null - we don't use due_at for all-day todos
           due_day: dueDay,
           due_time: null, // All-day todos have no specific time
@@ -3990,8 +2865,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         // Clear all due date fields - user pressed Clear
         console.log('[handleTodoDueChange] Clearing due date (due_day: null)');
 
-        dispatch({
-          type: 'SET_TODO_DUE',
+        store.setTodoDue({
           due_at: null,
           due_day: null,
           due_time: null,
@@ -4000,7 +2874,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         void emitOverlayEvent({ type: 'overlay_due_clear' });
       }
     },
-    [dispatch, showDueToast],
+    [showDueToast],
   );
 
   // Phase 2: Removed prefill suggestion normalization effect - overlay no longer runs AI prefill
@@ -4055,589 +2929,21 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Log subtype chip label - only show for non-plain subtypes
   const logSubtypeLabel = isLog ? getLogSubtypeChipLabel(effectiveLogSubtype) : null;
 
-  const canSave = currentText.trim().length > 0 && !isSaving;
+  const canSave = currentText.trim().length > 0 && !storeUI.saving;
 
-  async function toCreateOrUpdateInput(
-    baseType: BaseType,
-    s: typeof initialV2State,
-    spaceId: string | null,
-    existingEntity?: any,
-    photoUri?: string | null, // Phase L3: Photo support
-    moodsParam?: Mood[], // Phase L4: Multi-select moods for journals
-    effectiveLogSubtype?: 'journal' | 'idea' | 'general' | 'list' | 'event', // Phase L8: Manual log subtype
-  ) {
-    const isEditingMindDrop = mode === 'edit' && (existingEntity as any)?.origin === 'catchall';
+  // Save context for buildSavePayload (extracted to overlaySave.ts)
+  const saveContext: SaveContext = useMemo(() => ({
+    mode,
+    initialEntity,
+    fullEntity: fullEntity ?? initialEntity,
+    tagsDirty,
+    isViewMode,
+    isChecklistMode,
+    checklistItems,
+    userEditedTitle: state.userEditedTitle,
+  }), [mode, initialEntity, fullEntity, tagsDirty, isViewMode, isChecklistMode, checklistItems, state.userEditedTitle]);
 
-    // For logs: if effectiveLogSubtype is 'general', use AI to classify the subtype
-    // BUT: Skip AI classification for Mind Drop edits since buildCanonicalFromMindDrop already does it
-    let aiClassifiedSubtype: 'journal' | 'idea' | 'general' | 'list' | undefined;
-
-    if (
-      baseType === 'log' &&
-      effectiveLogSubtype === 'general' &&
-      s.log.body &&
-      !isEditingMindDrop
-    ) {
-      try {
-        const aiResult = await getEffectiveLogSubtype(s.log.body);
-        // Map AI result to simplified subtypes
-        if (aiResult === 'journal' || aiResult === 'idea') {
-          aiClassifiedSubtype = aiResult;
-        } else {
-          aiClassifiedSubtype = 'general';
-        }
-        console.log('[UnifiedOverlayV2] AI classified log subtype:', aiClassifiedSubtype);
-      } catch (err) {
-        console.warn(
-          '[UnifiedOverlayV2] AI log subtype classification failed, using fallback',
-          err,
-        );
-        aiClassifiedSubtype = 'general'; // Fallback to general on AI failure
-      }
-    }
-
-    // Use AI-classified subtype if available, otherwise use the provided effectiveLogSubtype
-    const finalLogSubtype = aiClassifiedSubtype ?? effectiveLogSubtype;
-
-    const textForTags =
-      baseType === 'log' ? s.log.body : baseType === 'todo' ? s.todo.details : s.habit.notes;
-    const normalizeMetaValues = (values: string[] | undefined | null): string[] => {
-      if (!Array.isArray(values)) return [];
-      const normalized = values
-        .map((value) => (typeof value === 'string' ? value.trim().toLowerCase() : ''))
-        .filter(Boolean);
-      return Array.from(new Set(normalized));
-    };
-    const normalizedStickyMeta = normalizeMetaValues(s.stickyTags);
-    const normalizedTombstonesMeta = normalizeMetaValues(s.tagTombstones);
-
-    const manualStickyKeys = normalizedStickyMeta
-      .map((value) => {
-        if (!value) return null;
-        if (value.startsWith('#') || value.startsWith('@') || value.startsWith('*')) {
-          const stripped = value.replace(/^[#@*]+/, '');
-          return stripped || null;
-        }
-        return value;
-      })
-      .filter((value): value is string => !!value);
-
-    // Use AI tag extraction with deterministic fallback
-    const extractedTags = await getEffectiveTags(textForTags ?? '');
-
-    // Combine AI-extracted tags with existing user tags
-    const sanitized = sanitizeSuggestedTags(textForTags ?? '', Array.isArray(s.tags) ? s.tags : []);
-    const combined = new Map<string, string>();
-
-    // Add extracted tags first (preserving @ prefix for names)
-    extractedTags.forEach((tag) => {
-      // Tags from getEffectiveTags may have @ prefix for names
-      const hasAtPrefix = tag.startsWith('@');
-      const stripped = tag.replace(/^[@#]/, '');
-      const key = stripped.toLowerCase();
-      if (!combined.has(key)) {
-        // Preserve @ prefix for names, use # for regular tags
-        combined.set(key, hasAtPrefix ? `@${stripped}` : `#${stripped}`);
-      }
-    });
-
-    // Add user-provided tags (preserving format)
-    sanitized.forEach((tag) => {
-      const key = tag.toLowerCase();
-      if (!combined.has(key)) combined.set(key, tag);
-    });
-
-    // Add sticky tags
-    manualStickyKeys.forEach((tag) => {
-      const key = tag.toLowerCase();
-      if (!combined.has(key)) combined.set(key, tag);
-    });
-
-    const combinedTags = Array.from(combined.values());
-    const tags = stripJournalTags(combinedTags, baseType === 'log');
-
-    // Prompt 3: Auto-add #list tag for list-type logs
-    if (baseType === 'log') {
-      const detection = detectListFromText(s.log.body);
-      if (detection.kind === 'list') {
-        // Remove conflicting subtype tags when list is detected
-        const filtered = tags.filter((t) => {
-          const lower = t.toLowerCase();
-          return lower !== 'journal' && lower !== 'idea';
-        });
-        // Add list tag if not present
-        if (!filtered.some((t) => t.toLowerCase() === 'list')) {
-          filtered.push('list');
-        }
-        // Replace tags array with filtered version
-        tags.length = 0;
-        tags.push(...filtered);
-      }
-    }
-
-    // Phase 2: Removed Mind Drop prefill marking logic - overlay no longer runs AI prefill
-
-    // Build views object - preserve existing views from entity
-    const entity = fullEntity || initialEntity;
-    const existingViews = entity?.views || {};
-    const viewsWithPrefillFlag = {
-      ...(existingEntity?.views || existingViews || {}),
-      // Persist title_user_edited flag so we know not to overwrite user's title on future opens
-      title_user_edited:
-        state.userEditedTitle || (existingEntity?.views as any)?.title_user_edited || false,
-    };
-
-    // Preserve existing tags_meta when available, only override if tags were modified
-    const existingTagsMeta = existingEntity?.tags_meta ??
-      entity?.tags_meta ?? { sticky: [], tombstones: [] };
-    const tagsMeta = {
-      sticky:
-        normalizedStickyMeta.length > 0 ? normalizedStickyMeta : (existingTagsMeta.sticky ?? []),
-      tombstones:
-        normalizedTombstonesMeta.length > 0
-          ? normalizedTombstonesMeta
-          : (existingTagsMeta.tombstones ?? []),
-    };
-
-    // Determine if tags have changed by comparing current tags with original entity tags
-    // Only send tags in the patch if they've actually changed
-    const originalTags = Array.isArray(entity?.tags) ? entity.tags : [];
-    const tagsHaveChanged = !areTagsEqual(originalTags, tags);
-
-    // Conditionally include tags/tags_meta:
-    // - Create mode: always include (mode !== 'edit')
-    // - Edit mode: only include if tags have actually changed
-    // This preserves Mind Drop AI-generated tags when user only edits title/due date
-    const shouldIncludeTags = mode !== 'edit' || (tagsDirty && tagsHaveChanged);
-    const tagsPayload = shouldIncludeTags
-      ? { tags, tags_meta: tagsMeta }
-      : { tags_meta: existingTagsMeta };
-
-    if (baseType === 'todo') {
-      // For Mind Drop edits, use canonical mapper for consistency
-      const isMindDropEdit = mode === 'edit' && (initialEntity as any)?.origin === 'catchall';
-
-      if (isMindDropEdit && s.todo.details) {
-        // Use canonical mapper to ensure consistent title/body/tags
-        const canonical = await buildCanonicalFromMindDrop({
-          kind: 'todo',
-          rawText: s.todo.details,
-          aiTitle: s.todo.title || undefined,
-          aiTags: shouldIncludeTags ? tags : undefined,
-          existing: initialEntity,
-        });
-
-        // GREMLY TODO DATE MODEL: Use due_day (YYYY-MM-DD) as canonical source of truth
-        // due_at is NOT used for todos - we only send due_day and due_date
-        // Fallback to scheduled_date if due_day is missing (belt-and-suspenders for schedule modal)
-        const dueDay = s.todo.due_day ?? s.todo.scheduled_date ?? null;
-        // Resolve space_id: explicit null means "None" selected, undefined means use fallback
-        const resolvedSpaceId = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
-        if (__DEV__ && s.spaceId === null) {
-          console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
-        }
-        // Calculate buffers when time estimate changes
-        const todoBuffers = calculateBuffers(
-          (entity as any)?.energy_type ?? null,
-          canonical.title || canonical.name || '',
-          s.todo.time_estimate_minutes ?? 30,
-        );
-        return {
-          type: 'todo' as const,
-          ...canonical, // Spread canonical fields (title, name, body, tags, tags_meta, canonicalType, labels)
-          due_at: null, // Explicitly null - we use due_day instead
-          due_day: dueDay,
-          due_date: dueDay, // Set due_date same as due_day for backwards compatibility
-          undefined_due: !dueDay, // True if no due date is set
-          // Top-level DB columns for Date Intelligence
-          scheduled_date: s.todo.scheduled_date ?? null,
-          target_date: s.todo.target_date ?? null,
-          time_estimate_minutes: s.todo.time_estimate_minutes ?? null,
-          time_window: s.todo.time_window ?? null,
-          energy_type: (entity as any)?.energy_type ?? 'administrative',
-          prep_buffer_minutes: todoBuffers.prep_buffer_minutes,
-          cooldown_buffer_minutes: todoBuffers.cooldown_buffer_minutes,
-          space_id: resolvedSpaceId,
-          origin: 'catchall' as const,
-          views: {
-            ...viewsWithPrefillFlag,
-            // Keep in views too for backwards compat
-            target_date: s.todo.target_date ?? null,
-            scheduled_date: s.todo.scheduled_date ?? null,
-          },
-          // Commitment fields (only for todos/habits)
-          commitment: s.commitment,
-          commitment_note: s.commitment ? s.commitmentNote || null : null,
-          commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
-          // Key Dates: Link to an event
-          linked_event_id: s.linkedEventId ?? null,
-        };
-      }
-
-      // For todos: title and details are strictly separate
-      // - title should be the explicitly set short label (or empty)
-      // - details is the long text field
-      // Phase 2C: Use normalizeTodoTitle to ensure title doesn't duplicate details
-      const rawDetails = (s.todo.details || '').trim();
-      const overlayTitle = (s.todo.title || '').trim();
-      const compactTitle = (s.compactTitle || '').trim();
-
-      // Use overlay title if set, otherwise use compact title
-      // Never fall back to full rawDetails as the title
-      const effectiveTitle =
-        overlayTitle || compactTitle || (rawDetails ? firstLine(rawDetails) : '');
-
-      // GREMLY TODO DATE MODEL: Use due_day (YYYY-MM-DD) as canonical source of truth
-      // due_at is NOT used for todos - we only send due_day and due_date
-      // Fallback to scheduled_date if due_day is missing (belt-and-suspenders for schedule modal)
-      const dueDay = s.todo.due_day ?? s.todo.scheduled_date ?? null;
-      // Resolve space_id: explicit null means "None" selected, undefined means use fallback
-      const resolvedSpaceId2 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
-      if (__DEV__ && s.spaceId === null) {
-        console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
-      }
-      // Calculate buffers when time estimate changes
-      const todoBuffers2 = calculateBuffers(
-        (entity as any)?.energy_type ?? null,
-        effectiveTitle,
-        s.todo.time_estimate_minutes ?? 30,
-      );
-      return {
-        type: 'todo' as const,
-        title: effectiveTitle,
-        name: effectiveTitle,
-        details: rawDetails || null,
-        due_at: null, // Explicitly null - we use due_day instead
-        due_day: dueDay,
-        due_date: dueDay, // Set due_date same as due_day for backwards compatibility
-        undefined_due: !dueDay, // True if no due date is set
-        // Top-level DB columns for Date Intelligence
-        scheduled_date: s.todo.scheduled_date ?? null,
-        target_date: s.todo.target_date ?? null,
-        time_estimate_minutes: s.todo.time_estimate_minutes ?? null,
-        time_window: s.todo.time_window ?? null,
-        energy_type: (entity as any)?.energy_type ?? 'administrative',
-        prep_buffer_minutes: todoBuffers2.prep_buffer_minutes,
-        cooldown_buffer_minutes: todoBuffers2.cooldown_buffer_minutes,
-        space_id: resolvedSpaceId2,
-        origin: 'catchall' as const,
-        views: {
-          ...viewsWithPrefillFlag,
-          // Keep in views too for backwards compat
-          target_date: s.todo.target_date ?? null,
-          scheduled_date: s.todo.scheduled_date ?? null,
-        },
-        ...tagsPayload, // Conditionally include tags/tags_meta
-        // Commitment fields (only for todos/habits)
-        ...{
-          commitment: s.commitment,
-          commitment_note: s.commitment ? s.commitmentNote || null : null,
-          commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
-        },
-        // Key Dates: Link to an event
-        linked_event_id: s.linkedEventId ?? null,
-      };
-    }
-    if (baseType === 'habit') {
-      // For Mind Drop edits, use canonical mapper for consistency
-      const isMindDropEdit = mode === 'edit' && (initialEntity as any)?.origin === 'catchall';
-
-      if (isMindDropEdit && s.habit.notes) {
-        // Use canonical mapper to ensure consistent title/notes/tags
-        const canonical = await buildCanonicalFromMindDrop({
-          kind: 'habit',
-          rawText: s.habit.notes,
-          aiTitle: s.habit.title || undefined,
-          aiTags: shouldIncludeTags ? tags : undefined,
-          existing: initialEntity,
-        });
-
-        // Resolve space_id: explicit null means "None" selected, undefined means use fallback
-        const resolvedSpaceId3 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
-        if (__DEV__ && s.spaceId === null) {
-          console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
-        }
-        const effectiveFreqJson =
-          localScheduleSnapshot.current?.frequency_json ?? s.habit.frequency_json;
-        const effectiveSchedule = localScheduleSnapshot.current?.schedule ?? s.habit.schedule;
-        const daysActiveFromJson = extractDaysActiveFromFrequencyJson(effectiveFreqJson);
-        console.log('[Save] FINAL frequency payload (edit):', {
-          frequency: effectiveSchedule,
-          frequency_json: effectiveFreqJson,
-          cadenceFields: frequencyJsonToCadenceFields(effectiveFreqJson, effectiveSchedule),
-          localScheduleDirty: hasLocalScheduleChanges.current,
-          days_active: daysActiveFromJson,
-          usedSnapshot: !!localScheduleSnapshot.current?.frequency_json,
-        });
-        // Calculate buffers when time estimate changes
-        const habitBuffers = calculateBuffers(
-          (entity as any)?.energy_type ?? null,
-          canonical.title || canonical.name || '',
-          s.habit.time_estimate_minutes ?? 30,
-        );
-        return {
-          type: 'habit' as const,
-          ...canonical,
-          frequency: effectiveSchedule ?? 'custom',
-          frequency_value: effectiveFreqJson ?? null,
-          ...frequencyJsonToCadenceFields(effectiveFreqJson, effectiveSchedule),
-          days_active: daysActiveFromJson,
-          subtype: s.habit.subtype ?? 'start_habit', // Build/Break habit mode
-          space_id: resolvedSpaceId3,
-          origin: 'catchall' as const,
-          views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
-          start_date: s.habit.start_date ?? null,
-          end_date: s.habit.end_date ?? null,
-          time_window: s.habit.time_window ?? null,
-          time_estimate_minutes: s.habit.time_estimate_minutes ?? null,
-          energy_type: (entity as any)?.energy_type ?? 'administrative',
-          prep_buffer_minutes: habitBuffers.prep_buffer_minutes,
-          cooldown_buffer_minutes: habitBuffers.cooldown_buffer_minutes,
-          // Commitment fields (only for todos/habits)
-          commitment: s.commitment,
-          commitment_note: s.commitment ? s.commitmentNote || null : null,
-          commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
-          // Key Dates: Link to an event
-          linked_event_id: s.linkedEventId ?? null,
-        };
-      }
-
-      // Resolve space_id: explicit null means "None" selected, undefined means use fallback
-      const resolvedSpaceId4 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
-      if (__DEV__ && s.spaceId === null) {
-        console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
-      }
-      const effectiveFreqJson2 =
-        localScheduleSnapshot.current?.frequency_json ?? s.habit.frequency_json;
-      const effectiveSchedule2 = localScheduleSnapshot.current?.schedule ?? s.habit.schedule;
-      const daysActiveFromJson2 = extractDaysActiveFromFrequencyJson(effectiveFreqJson2);
-      console.log('[Save] FINAL frequency payload (create):', {
-        frequency: effectiveSchedule2,
-        frequency_json: effectiveFreqJson2,
-        cadenceFields: frequencyJsonToCadenceFields(effectiveFreqJson2, effectiveSchedule2),
-        localScheduleDirty: hasLocalScheduleChanges.current,
-        days_active: daysActiveFromJson2,
-        usedSnapshot: !!localScheduleSnapshot.current?.frequency_json,
-      });
-      // Calculate buffers when time estimate changes
-      const habitBuffers2 = calculateBuffers(
-        (entity as any)?.energy_type ?? null,
-        s.habit.title || firstLine(s.habit.notes) || 'Untitled',
-        s.habit.time_estimate_minutes ?? 30,
-      );
-      return {
-        type: 'habit' as const,
-        title: s.habit.title || firstLine(s.habit.notes) || 'Untitled',
-        notes: s.habit.notes || null,
-        frequency: effectiveSchedule2 ?? 'custom',
-        frequency_value: effectiveFreqJson2 ?? null,
-        ...frequencyJsonToCadenceFields(effectiveFreqJson2, effectiveSchedule2),
-        days_active: daysActiveFromJson2,
-        subtype: s.habit.subtype ?? 'start_habit', // Build/Break habit mode
-        space_id: resolvedSpaceId4,
-        origin: 'catchall' as const,
-        views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
-        start_date: s.habit.start_date ?? null,
-        end_date: s.habit.end_date ?? null,
-        time_window: s.habit.time_window ?? null,
-        time_estimate_minutes: s.habit.time_estimate_minutes ?? null,
-        energy_type: (entity as any)?.energy_type ?? 'administrative',
-        prep_buffer_minutes: habitBuffers2.prep_buffer_minutes,
-        cooldown_buffer_minutes: habitBuffers2.cooldown_buffer_minutes,
-        ...tagsPayload, // Conditionally include tags/tags_meta
-        // Commitment fields (only for todos/habits)
-        ...{
-          commitment: s.commitment,
-          commitment_note: s.commitment ? s.commitmentNote || null : null,
-          commitment_started_at: s.commitment ? coerceIsoTimestamp(s.commitmentStartedAt) : null,
-        },
-        // Key Dates: Link to an event
-        linked_event_id: s.linkedEventId ?? null,
-      };
-    }
-
-    // For Mind Drop log edits, use canonical mapper for consistency
-    const isMindDropEdit = mode === 'edit' && (initialEntity as any)?.origin === 'catchall';
-
-    if (isMindDropEdit && s.log.body) {
-      // Use canonical mapper to ensure consistent title/body/tags
-      const canonical = await buildCanonicalFromMindDrop({
-        kind: 'log',
-        rawText: s.log.body,
-        aiTitle: s.log.title || undefined,
-        aiTags: shouldIncludeTags ? tags : undefined,
-        existing: initialEntity,
-      });
-
-      // Mood support for journal logs (Phase L4) - now multi-select array
-      const moodPatch =
-        s.log.kind === 'journal' && moodsParam && moodsParam.length > 0 ? { mood: moodsParam } : {};
-
-      // fmt: list tag overrides explicit format
-      // Only use valid fmt values: 'bullets', 'numbers', 'checkboxes'
-      let fmtVal: any = null;
-      if (s.tags.includes('list')) fmtVal = 'checkboxes';
-      else if (s.format && s.format !== 'plain') fmtVal = s.format; // Skip 'plain' as it's invalid
-
-      const fmtPatch = fmtVal ? { fmt: fmtVal } : {};
-
-      const reminderIso = coerceIsoTimestamp(s.reminderAt);
-      const datePatch = reminderIso ? { date: reminderIso } : {};
-
-      // Phase L8: Use effective log subtype for Mind Drop logs
-      // For journal/idea, use the detected subtype
-      // For general, use null (database allows null subtypes)
-      const subtype = finalLogSubtype === 'general' ? null : finalLogSubtype;
-
-      // For Mind Drop logs confirmed as logs, ensure canonicalType and labels are set
-      // This clears catchall/needs_review labels and marks the item as a confirmed log
-      const logConfirmationPatch = {
-        canonicalType: 'log' as const,
-        labels: ['log'] as const,
-        subtype: subtype,
-      };
-
-      // Photo support for logs (Phase L3)
-      const photoPatch = photoUri ? { photo_uri: photoUri } : {};
-
-      // NOTE: 'private' column does NOT exist in notes table
-      // Private flag is stored in views.private_journal instead (see below)
-
-      // Phase L9: Private toggle for journal logs via views.private_journal
-      const viewsWithPrivate =
-        finalLogSubtype === 'journal'
-          ? { ...viewsWithPrefillFlag, private_journal: !!s.logIsPrivate }
-          : viewsWithPrefillFlag;
-
-      // Add Date Intelligence fields to views
-      const viewsWithDateIntelligence = {
-        ...viewsWithPrivate,
-        target_date: s.log.target_date ?? null,
-        end_date: s.log.end_date ?? null,
-        event_time: s.log.event_time ?? null,
-      };
-
-      // Resolve space_id: explicit null means "None" selected, undefined means use fallback
-      const resolvedSpaceId5 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
-      if (__DEV__ && s.spaceId === null) {
-        console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
-      }
-      console.log('[DEBUG-CHECKLIST] Mind Drop save payload:', {
-        isChecklistMode,
-        checklistItems,
-        stateIsChecklistMode: s.isChecklistMode,
-        entityHasList: existingEntity?.has_list,
-      });
-      return {
-        type: 'note' as const,
-        ...canonical, // Spread canonical fields (title, body, tags, tags_meta, canonicalType, labels)
-        ...logConfirmationPatch, // Override with confirmed log status and correct subtype
-        space_id: resolvedSpaceId5,
-        origin: 'catchall' as const,
-        views: viewsWithDateIntelligence, // Add views with Date Intelligence, private_journal, and prefill flags
-        ...moodPatch,
-        ...fmtPatch,
-        ...datePatch,
-        ...photoPatch,
-        // Checklist persistence - use isChecklistMode as the source of truth
-        has_list: isChecklistMode,
-        list_items: checklistItems,
-        // Key Dates: Date Intelligence fields (direct on note, not just views)
-        target_date: s.log.target_date ?? null,
-        end_date: s.log.end_date ?? null,
-        event_time: s.log.event_time ?? null,
-        // Key Dates: Link to an event
-        linked_event_id: s.linkedEventId ?? null,
-      };
-    }
-
-    // Phase L8: Use effective log subtype for base note payload
-    // For journal/idea, use the detected subtype
-    // For general, use null (database allows null subtypes)
-    const subtype2 = finalLogSubtype === 'general' ? null : finalLogSubtype;
-
-    // Preserve AI-generated title when editing existing entities
-    // Only use fallback (firstLine) for new entities or when user explicitly cleared title
-    // Phase L10: For new logs from Mind Drop (create mode), always use full body as title
-    const preserveExistingTitle =
-      (mode === 'edit' || isViewMode) && initialEntity && (initialEntity as any)?.title;
-    const isNewLogFromMindDrop = mode === 'create' && s.log.body && !s.log.title;
-    const derivedTitle = isNewLogFromMindDrop
-      ? s.log.body // Use full body for new Mind Drop logs
-      : s.log.title ||
-        (preserveExistingTitle ? (initialEntity as any).title : firstLine(s.log.body)) ||
-        'Untitled note';
-
-    // Resolve space_id: explicit null means "None" selected, undefined means use fallback
-    const resolvedSpaceId6 = s.spaceId === undefined ? (spaceId ?? null) : s.spaceId;
-    if (__DEV__ && s.spaceId === null) {
-      console.log('[toCreateOrUpdateInput] Clearing space_id (user selected None)');
-    }
-    // base note payload (for non-Mind Drop logs or manual log creation)
-    const base = {
-      type: 'note' as const,
-      subtype: subtype2,
-      canonicalType: 'log' as const, // Mark as confirmed log
-      labels: ['log'] as const, // Mark as confirmed log
-      title: derivedTitle,
-      body: s.log.body,
-      space_id: resolvedSpaceId6,
-      origin: 'catchall' as const,
-      views: viewsWithPrefillFlag, // Add views with minddrop_prefilled_v1 flag
-      ...tagsPayload, // Conditionally include tags/tags_meta
-    } as any;
-
-    // Mood support for journal logs (Phase L4) - now multi-select array
-    const moodPatch2 =
-      s.log.kind === 'journal' && moodsParam && moodsParam.length > 0 ? { mood: moodsParam } : {};
-
-    // fmt: list tag overrides explicit format
-    // Only use valid fmt values: 'bullets', 'numbers', 'checkboxes'
-    let fmtVal: any = null;
-    if (s.tags.includes('list')) fmtVal = 'checkboxes';
-    else if (s.format && s.format !== 'plain') fmtVal = s.format; // Skip 'plain' as it's invalid
-
-    const fmtPatch = fmtVal ? { fmt: fmtVal } : {};
-
-    const reminderIso = coerceIsoTimestamp(s.reminderAt);
-    const datePatch = reminderIso ? { date: reminderIso } : {};
-
-    // Photo support for logs (Phase L3)
-    const photoPatch = photoUri ? { photo_uri: photoUri } : {};
-
-    // NOTE: 'private' column does NOT exist in notes table
-    // Private flag is stored in views.private_journal instead (see below)
-
-    // Phase L9: Private toggle for journal logs via views.private_journal
-    const viewsWithPrivate2 =
-      finalLogSubtype === 'journal'
-        ? { ...viewsWithPrefillFlag, private_journal: !!s.logIsPrivate }
-        : viewsWithPrefillFlag;
-
-    console.log('[DEBUG-CHECKLIST] Base note save payload:', {
-      isChecklistMode,
-      checklistItems,
-      stateIsChecklistMode: s.isChecklistMode,
-      entityHasList: existingEntity?.has_list,
-    });
-    return {
-      ...base,
-      views: viewsWithPrivate2, // Override with views containing private_journal
-      ...moodPatch2,
-      ...fmtPatch,
-      ...datePatch,
-      ...photoPatch,
-      // Checklist persistence - use isChecklistMode as the source of truth
-      has_list: isChecklistMode,
-      list_items: checklistItems,
-      // Key Dates: Date Intelligence fields (direct on note)
-      target_date: s.log.target_date ?? null,
-      end_date: s.log.end_date ?? null,
-      event_time: s.log.event_time ?? null,
-      // Key Dates: Link to an event
-      linked_event_id: s.linkedEventId ?? null,
-    };
-  }
+  /* --- toCreateOrUpdateInput was here; now lives in overlaySave.ts as buildSavePayload --- */
 
   const onSave = useCallback(async () => {
     if (!canSave) return;
@@ -4654,17 +2960,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
 
     setSaveError(null);
-    setIsSaving(true);
+    store.setUI({ saving: true });
     try {
-      // Map reminders array back to legacy reminderAt field before save
-      const { reminderAt } = mapRemindersToLegacyFields(reminders);
-      const stateWithReminder = { ...state, reminderAt, itemReminders };
+      const stateForSave = { ...state, itemReminders };
 
-      const input = await toCreateOrUpdateInput(
+      // Build save context with fresh ref values
+      const ctx: SaveContext = saveContext;
+
+      const input = await buildSavePayload(
         baseType,
-        stateWithReminder as any,
+        stateForSave as any,
         initialSpaceId ?? null,
         fullEntity,
+        ctx,
         photoUri, // Phase L3: Pass photo URI
         moods, // Phase L4: Pass multi-select moods for journals
         effectiveLogSubtype, // Phase L8: Pass effective log subtype
@@ -4875,7 +3183,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       const savedId = result?.id;
 
       // Clear saving state
-      setIsSaving(false);
+      store.setUI({ saving: false });
       setUserClearedChecklist(false);
 
       // Notify parent and close
@@ -5194,7 +3502,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       console.error('[UnifiedOverlayV2] save failed', e);
       // show inline retry bar; do not clear draft
       setSaveError('Save failed. Retry?');
-      setIsSaving(false);
+      store.setUI({ saving: false });
     }
   }, [
     canSave,
@@ -5209,7 +3517,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     isOffline,
     reduceMotion,
     headerPulse,
-    reminders,
     photoUri, // Phase L3: Photo dependency
     moods, // Phase L4: Multi-select moods dependency
     conversionMeta, // Sweep conversion: capture sourceNoteId for archival
@@ -5260,7 +3567,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   );
 
   const handleOpenHabitChat = useCallback(() => {
-    setShowEntityChat(true);
+    store.setUI({ showEntityChat: true });
   }, []);
 
   // ============================================================================
@@ -5548,7 +3855,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                 entityId={currentEntityId}
                 entityType="note"
                 variant="overlay"
-                onPress={() => setShowEntityChat(true)}
+                onPress={() => store.setUI({ showEntityChat: true })}
               />
             </View>
           )}
@@ -5736,7 +4043,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               >
                 {getFrequencyLabel(
                   jsonToFrequency(
-                    localScheduleSnapshot.current?.frequency_json ?? state.habit.frequency_json,
+                    state.habit.frequency_json,
                   ),
                 )}
               </Text>
@@ -5857,7 +4164,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         )}
 
         {/* Reminders display (read-only) */}
-        {reminders.length > 0 && (
+        {itemReminders.length > 0 && (
           <View
             style={{
               flexDirection: 'row',
@@ -6037,13 +4344,107 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       }}
                     />
                   </View>
-                  {/* Header: contextual title - Phase 6b cleanup */}
-                  <Box
+                  {/* ── Top bar: Cancel / Save ── */}
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingHorizontal: 16,
+                      paddingTop: 4,
+                      paddingBottom: 8,
+                      backgroundColor: sheetBackground,
+                    }}
+                  >
+                    {!isViewMode ? (
+                      <Pressable
+                        onPress={handleCancel}
+                        disabled={storeUI.saving}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Cancel"
+                      >
+                        <Text
+                          style={{
+                            color: storeUI.saving ? 'rgba(107,102,92,0.4)' : '#6B665C',
+                            fontSize: 15,
+                            fontWeight: '400',
+                          }}
+                        >
+                          Cancel
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        onPress={() => onClose?.()}
+                        hitSlop={8}
+                        accessibilityRole="button"
+                        accessibilityLabel="Close"
+                      >
+                        <Text style={{ color: '#6B665C', fontSize: 15, fontWeight: '400' }}>
+                          Close
+                        </Text>
+                      </Pressable>
+                    )}
+
+                    {isViewMode ? (
+                      <Pressable
+                        onPress={() => {
+                          if (initialEntity && (initialEntity as any).id) {
+                            globalOverlay.openEdit({
+                              record: initialEntity as any,
+                              spaceId: initialSpaceId,
+                            });
+                          }
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit"
+                        style={({ pressed }) => ({
+                          backgroundColor: '#2D4A3E',
+                          paddingHorizontal: 24,
+                          paddingVertical: 8,
+                          borderRadius: 20,
+                          opacity: pressed ? 0.8 : 1,
+                        })}
+                      >
+                        <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '600' }}>
+                          Edit
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      <Reanimated.View style={saveStyle}>
+                        <Pressable
+                          onPress={onSave}
+                          disabled={!canSave}
+                          accessibilityRole="button"
+                          accessibilityLabel={storeUI.saving ? 'Saving' : 'Save'}
+                          style={{
+                            backgroundColor: !canSave ? 'rgba(45,74,62,0.35)' : '#2D4A3E',
+                            paddingHorizontal: 24,
+                            paddingVertical: 8,
+                            borderRadius: 20,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: !canSave ? 'rgba(255,255,255,0.6)' : '#FFFFFF',
+                              fontSize: 15,
+                              fontWeight: '600',
+                            }}
+                          >
+                            {storeUI.saving ? 'Saving...' : isLockedIn ? 'Lock It In →' : 'Save'}
+                          </Text>
+                        </Pressable>
+                      </Reanimated.View>
+                    )}
+                  </View>
+
+                  {/* ── Header: Title row + type pill ── */}
+                  <View
                     style={{
                       paddingHorizontal: 16,
-                      paddingVertical: 14,
-                      // remove harsh bottom border on header to keep sheet soft
-                      borderBottomWidth: 0,
+                      paddingTop: 4,
+                      paddingBottom: 10,
                       backgroundColor: sheetBackground,
                     }}
                   >
@@ -6064,138 +4465,46 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           gap: 12,
                         }}
                       >
-                        <View
-                          style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}
-                        >
-                          {(mode === 'edit' && initialEntity?.id) ||
-                          (mode === 'create' && isLog) ? (
-                            <TextInput
-                              value={mode === 'create' ? state.compactTitle : state.compactTitle}
-                              onChangeText={(text) =>
-                                dispatch({ type: 'SET_COMPACT_TITLE', title: text })
-                              }
-                              placeholder={mode === 'create' ? 'Add title...' : 'Add title...'}
-                              placeholderTextColor="#999999"
-                              style={{
-                                color: '#222222',
-                                fontWeight: '500',
-                                fontSize: 18,
-                                flex: 1,
-                                padding: 0,
-                                margin: 0,
-                              }}
-                              maxLength={100}
-                              selectTextOnFocus={false}
-                              autoCorrect={false}
-                            />
-                          ) : (
-                            // Hide "View" text for event notes in view mode - show empty space
-                            !(isViewMode && isLog && effectiveLogSubtype === 'event') && (
-                              <Text
-                                variant="title"
-                                style={{
-                                  color: '#222222',
-                                  fontWeight: '500',
-                                  fontSize: 18,
-                                  flex: 1,
-                                }}
-                                numberOfLines={1}
-                              >
-                                {headerFor(baseType, mode, overlaySubtitle)}
-                              </Text>
-                            )
-                          )}
-                          {/* Lock In badge */}
-                          {isLockedIn ? (
-                            <View
-                              style={[
-                                styles.lockedBadge,
-                                { flexDirection: 'row', alignItems: 'center', gap: 4 },
-                              ]}
-                            >
-                              <Diamond size={12} color="#2E5540" fill="#2E5540" />
-                              <Text style={styles.lockedBadgeText}>Locked In</Text>
-                            </View>
-                          ) : null}
-                          {/* Note chip - show before Event chip for event notes in view mode */}
-                          {isLog && effectiveLogSubtype === 'event' && isViewMode ? (
-                            <View
-                              style={{
-                                alignSelf: 'center',
-                                marginLeft: 8,
-                                paddingHorizontal: 8,
-                                paddingVertical: 3,
-                                borderRadius: 999,
-                                borderWidth: StyleSheet.hairlineWidth,
-                                borderColor:
-                                  colorMode === 'dark'
-                                    ? 'rgba(255, 255, 255, 0.15)'
-                                    : 'rgba(0, 0, 0, 0.12)',
-                                backgroundColor:
-                                  colorMode === 'dark'
-                                    ? 'rgba(255, 255, 255, 0.04)'
-                                    : 'rgba(46, 85, 64, 0.06)',
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: '500',
-                                  color:
-                                    colorMode === 'dark' ? 'rgba(255, 255, 255, 0.65)' : '#5a5a5a',
-                                }}
-                              >
-                                Note
-                              </Text>
-                            </View>
-                          ) : null}
-                          {/* Log subtype chip - tappable for manual override */}
-                          {isLog && logSubtypeLabel ? (
-                            <Pressable
-                              onPress={handleLogSubtypeChipPress}
-                              hitSlop={8}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Log subtype: ${logSubtypeLabel}. Tap to change.`}
-                              style={({ pressed }) => ({
-                                alignSelf: 'center',
-                                marginLeft: 8,
-                                paddingHorizontal: 8,
-                                paddingVertical: 3,
-                                borderRadius: 999,
-                                borderWidth: StyleSheet.hairlineWidth,
-                                borderColor:
-                                  colorMode === 'dark'
-                                    ? 'rgba(255, 255, 255, 0.15)'
-                                    : 'rgba(0, 0, 0, 0.12)',
-                                backgroundColor:
-                                  colorMode === 'dark'
-                                    ? 'rgba(255, 255, 255, 0.04)'
-                                    : 'rgba(46, 85, 64, 0.06)',
-                                opacity: pressed ? 0.6 : 1,
-                              })}
-                            >
-                              <Text
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: '500',
-                                  color:
-                                    colorMode === 'dark' ? 'rgba(255, 255, 255, 0.65)' : '#5a5a5a',
-                                }}
-                              >
-                                {logSubtypeLabel}
-                              </Text>
-                            </Pressable>
-                          ) : null}
-                        </View>
+                        {/* Editable title */}
+                        <TextInput
+                          value={state.compactTitle}
+                          onChangeText={(text) => store.setCompactTitle(text)}
+                          placeholder="Add title..."
+                          placeholderTextColor="#999999"
+                          editable={!isViewMode}
+                          style={{
+                            color: '#1a1a1a',
+                            fontWeight: '600',
+                            fontSize: 21,
+                            flex: 1,
+                            padding: 0,
+                            margin: 0,
+                            borderBottomWidth: !isViewMode ? 2 : 0,
+                            borderBottomColor: 'rgba(46,85,64,0.25)',
+                            paddingBottom: 3,
+                          }}
+                          maxLength={100}
+                          selectTextOnFocus={false}
+                          autoCorrect={false}
+                        />
 
-                        {/* Favorite star - view mode, notes only (not for events) */}
+                        {/* Type pill */}
+                        {!isViewMode && (
+                          <TypePill
+                            type={deriveEntityType(state.baseType, state.logSubtypeOverride || effectiveLogSubtype)}
+                            onPress={() => setShowTypePicker(true)}
+                            testID="type-pill"
+                          />
+                        )}
+
+                        {/* Favorite star - view mode, notes only */}
                         {isViewMode &&
                           baseType === 'log' &&
                           effectiveLogSubtype !== 'event' &&
                           (fullEntity?.id || (initialEntity as any)?.id) && (
                             <Pressable
                               onPress={handleToggleFavorite}
-                              style={{ padding: 8, marginRight: 4 }}
+                              style={{ padding: 8 }}
                               accessibilityRole="button"
                               accessibilityLabel={
                                 isFavorite ? 'Remove from favorites' : 'Add to favorites'
@@ -6209,7 +4518,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Pressable>
                           )}
 
-                        {/* Back to View button - only for habits when in edit mode and started in view */}
+                        {/* Back to View button - habits in edit mode */}
                         {baseType === 'habit' && displayMode === 'edit' && startedInViewMode ? (
                           <Pressable
                             onPress={() => setDisplayMode('view')}
@@ -6222,73 +4531,69 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               opacity: pressed ? 0.6 : 1,
                             })}
                           >
-                            <Text
-                              style={{
-                                color: colorMode === 'dark' ? '#FFFFFF' : '#666666',
-                                fontSize: 14,
-                                fontWeight: '500',
-                              }}
-                            >
+                            <Text style={{ color: '#666666', fontSize: 14, fontWeight: '500' }}>
                               ← View
                             </Text>
                           </Pressable>
                         ) : null}
-
-                        {/* Header Edit button - view mode only (not for habits or events - they have Edit button in footer) */}
-                        {isViewMode &&
-                        fullEntity &&
-                        baseType !== 'habit' &&
-                        effectiveLogSubtype !== 'event' ? (
-                          <Pressable
-                            onPress={() => {
-                              if (initialEntity && (initialEntity as any).id) {
-                                // Reopen in edit mode
-                                globalOverlay.openEdit({
-                                  record: initialEntity as any,
-                                  spaceId: initialSpaceId,
-                                });
-                              }
-                            }}
-                            accessibilityRole="button"
-                            accessibilityLabel="Edit"
-                            style={({ pressed }) => ({
-                              backgroundColor:
-                                colorMode === 'dark'
-                                  ? darkTokens.colors.moss
-                                  : lightTokens.colors.moss,
-                              paddingHorizontal: 16,
-                              paddingVertical: 8,
-                              borderRadius: 999,
-                              opacity: pressed ? 0.8 : 1,
-                            })}
-                          >
-                            <Text
-                              style={{
-                                color: '#FFFFFF',
-                                fontSize: 14,
-                                fontWeight: '600',
-                              }}
-                            >
-                              Edit
-                            </Text>
-                          </Pressable>
-                        ) : null}
                       </View>
-                      {/* Phase 6b: Removed subtitle to avoid duplication - title now shows in header */}
                     </View>
-                    {/* Decorative title divider - hide for event notes in view mode */}
-                    {!(isViewMode && isLog && effectiveLogSubtype === 'event') && (
+
+                    {/* Sweep badge */}
+                    {sweepStatus.label && mode !== 'create' && (
+                      <View style={{ alignItems: 'flex-start', marginTop: 6 }}>
+                        <View
+                          style={{
+                            paddingHorizontal: 8,
+                            paddingVertical: 2,
+                            borderRadius: 8,
+                            backgroundColor: 'rgba(46,85,64,0.12)',
+                          }}
+                        >
+                          <Text style={{ fontSize: 10, fontWeight: '500', color: '#2E5540' }}>
+                            {sweepStatus.label}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Lock In badge */}
+                    {isLockedIn ? (
                       <View
-                        style={{
-                          width: '35%',
-                          height: 1,
-                          backgroundColor: 'rgba(191, 216, 192, 0.9)',
-                          marginTop: 4,
-                          marginBottom: 4,
-                        }}
+                        style={[
+                          styles.lockedBadge,
+                          { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+                        ]}
+                      >
+                        <Diamond size={12} color="#2E5540" fill="#2E5540" />
+                        <Text style={styles.lockedBadgeText}>Locked In</Text>
+                      </View>
+                    ) : null}
+
+                    {/* Habit Build/Break toggle */}
+                    {baseType === 'habit' && !isViewMode && (
+                      <HabitModeToggle
+                        mode={habitSubtypeToMode(state.habit.subtype)}
+                        onChange={(m) => store.setHabitSubtype(habitModeToSubtype(m))}
                       />
                     )}
-                  </Box>
+                  </View>
+
+                  {/* Type picker dropdown */}
+                  <TypePickerDropdown
+                    visible={showTypePicker}
+                    current={deriveEntityType(state.baseType, state.logSubtypeOverride || effectiveLogSubtype)}
+                    onSelect={(entityType) => {
+                      const config = getTypeConfig(entityType);
+                      if (config.baseType !== state.baseType) {
+                        handleTypeSelect(config.baseType);
+                      }
+                      if (config.baseType === 'log' && config.logSubtype) {
+                        store.setLogSubtypeOverride(config.logSubtype);
+                      }
+                    }}
+                    onClose={() => setShowTypePicker(false)}
+                  />
 
                   {/* View/Edit Mode Content Container with Crossfade Animation */}
                   <View style={{ flex: 1 }}>
@@ -6333,151 +4638,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             paddingTop: 0,
                           }}
                         >
-                          {/* Sweep Status Chip - subtle system status */}
-                          {sweepStatus.label && mode !== 'create' && (
-                            <View
-                              style={{
-                                alignItems: 'flex-start',
-                                marginBottom: 8,
-                              }}
-                            >
-                              <View
-                                style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  paddingHorizontal: 10,
-                                  paddingVertical: 4,
-                                  borderRadius: 12,
-                                  backgroundColor:
-                                    sweepStatus.type === 'archived'
-                                      ? 'rgba(0, 0, 0, 0.06)'
-                                      : sweepStatus.type === 'completed'
-                                        ? 'rgba(46, 85, 64, 0.08)'
-                                        : 'rgba(46, 85, 64, 0.06)',
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 11,
-                                    fontWeight: '500',
-                                    color:
-                                      sweepStatus.type === 'archived'
-                                        ? '#888888'
-                                        : sweepStatus.type === 'completed'
-                                          ? '#2E5540'
-                                          : '#5a5a5a',
-                                  }}
-                                >
-                                  {sweepStatus.label}
-                                </Text>
-                              </View>
-                            </View>
-                          )}
-
-                          {/* Phase 6c: Type selector - segmented control */}
-                          <View style={styles.tabsContainer}>
-                            {(['log', 'todo', 'habit'] as BaseType[]).map((t) => {
-                              const selected = baseType === t;
-                              return (
-                                <Pressable
-                                  key={t}
-                                  onPress={() => handleTypeSelect(t)}
-                                  style={[styles.tab, selected && styles.tabActive]}
-                                  accessibilityRole="tab"
-                                  accessibilityState={{ selected }}
-                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                >
-                                  <Text
-                                    style={[styles.tabLabel, selected && styles.tabLabelActive]}
-                                  >
-                                    {BASE_LABEL[t]}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-
-                          {/* Build/Break Habit underline toggle - only for habits */}
-                          {baseType === 'habit' && (
-                            <View
-                              style={{
-                                flexDirection: 'row',
-                                justifyContent: 'space-between',
-                                marginTop: 0,
-                                marginBottom: 12,
-                                paddingHorizontal: 4,
-                              }}
-                            >
-                              {/* Build option */}
-                              <Pressable
-                                onPress={() => {
-                                  dispatch({
-                                    type: 'SET_HABIT_SUBTYPE',
-                                    subtype: 'start_habit',
-                                  });
-                                }}
-                                style={({ pressed }) => ({
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  gap: 5,
-                                  paddingVertical: 6,
-                                  borderBottomWidth: !isBreakHabit ? 2 : 0,
-                                  borderBottomColor: lightTokens.colors.moss,
-                                  opacity: pressed ? 0.7 : 1,
-                                })}
-                              >
-                                <TrendingUp
-                                  size={14}
-                                  color={!isBreakHabit ? lightTokens.colors.moss : '#999999'}
-                                  strokeWidth={!isBreakHabit ? 2.5 : 2}
-                                />
-                                <Text
-                                  style={{
-                                    fontSize: 13,
-                                    fontWeight: !isBreakHabit ? '600' : '400',
-                                    color: !isBreakHabit ? lightTokens.colors.moss : '#999999',
-                                  }}
-                                >
-                                  Build a habit
-                                </Text>
-                              </Pressable>
-
-                              {/* Break option */}
-                              <Pressable
-                                onPress={() => {
-                                  dispatch({
-                                    type: 'SET_HABIT_SUBTYPE',
-                                    subtype: 'break_habit',
-                                  });
-                                }}
-                                style={({ pressed }) => ({
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  gap: 5,
-                                  paddingVertical: 6,
-                                  borderBottomWidth: isBreakHabit ? 2 : 0,
-                                  borderBottomColor: lightTokens.colors.moss,
-                                  opacity: pressed ? 0.7 : 1,
-                                })}
-                              >
-                                <TrendingDown
-                                  size={14}
-                                  color={isBreakHabit ? lightTokens.colors.moss : '#999999'}
-                                  strokeWidth={isBreakHabit ? 2.5 : 2}
-                                />
-                                <Text
-                                  style={{
-                                    fontSize: 13,
-                                    fontWeight: isBreakHabit ? '600' : '400',
-                                    color: isBreakHabit ? lightTokens.colors.moss : '#999999',
-                                  }}
-                                >
-                                  Break a habit
-                                </Text>
-                              </Pressable>
-                            </View>
-                          )}
-
                           {/* Main text field - moved above tags */}
                           <Box style={{ marginBottom: 16 }}>
                             {isExpandedEditor ? (
@@ -6486,7 +4646,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 baseType={baseType}
                                 effectiveLogSubtype={effectiveLogSubtype}
                                 text={currentText}
-                                onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                                onChangeText={(t) => store.setBody(t)}
                                 colorMode={colorMode}
                                 isLog={isLog}
                                 onCollapse={() => {
@@ -6507,7 +4667,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     checklistItems,
                                   });
                                   const newMode = !state.isChecklistMode;
-                                  dispatch({ type: 'TOGGLE_CHECKLIST_MODE' });
+                                  store.setChecklistMode(newMode);
                                   console.log(
                                     '[DEBUG-CHECKLIST] After toggle dispatch, newMode:',
                                     newMode,
@@ -6523,18 +4683,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               /* Preview mode: Formatted read-only content */
                               <View style={{ position: 'relative' }}>
                                 <View
-                                  style={[
-                                    styles.textArea,
-                                    {
-                                      maxHeight: 200,
-                                      backgroundColor:
-                                        colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                                      borderWidth: 1,
-                                      borderColor:
-                                        colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-                                      paddingRight: 50,
-                                    },
-                                  ]}
+                                  style={{
+                                    maxHeight: 72,
+                                    paddingVertical: 8,
+                                    paddingRight: 36,
+                                  }}
                                 >
                                   <ScrollView
                                     style={{ flex: 1 }}
@@ -6542,12 +4695,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     nestedScrollEnabled={true}
                                   >
                                     {renderFormattedContent(currentText, {
-                                      textColor:
-                                        colorMode === 'dark'
-                                          ? 'rgba(255,255,255,0.9)'
-                                          : lightTokens.colors.text,
-                                      fontSize: 16,
-                                      lineHeight: 24,
+                                      textColor: '#1a1a1a',
+                                      fontSize: 14,
+                                      lineHeight: 14 * 1.65,
                                     })}
                                   </ScrollView>
                                 </View>
@@ -6557,20 +4707,17 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   onPress={() => {
                                     // Strip markdown and switch to edit mode
                                     const strippedText = stripMarkdown(currentText);
-                                    dispatch({ type: 'SET_TEXT', text: strippedText });
+                                    store.setBody(strippedText);
                                     setIsPreviewMode(false);
                                   }}
                                   style={({ pressed }) => ({
                                     position: 'absolute',
-                                    top: 10,
-                                    right: 10,
-                                    paddingHorizontal: 12,
-                                    paddingVertical: 6,
-                                    borderRadius: 14,
-                                    backgroundColor:
-                                      colorMode === 'dark'
-                                        ? 'rgba(255,255,255,0.1)'
-                                        : 'rgba(46, 85, 64, 0.1)',
+                                    top: 8,
+                                    right: 0,
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 4,
+                                    borderRadius: 10,
+                                    backgroundColor: 'rgba(0,0,0,0.04)',
                                     opacity: pressed ? 0.7 : 1,
                                   })}
                                   accessibilityLabel="Edit content"
@@ -6591,11 +4738,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             ) : (
                               /* Compact text area mode */
                               <View style={{ position: 'relative' }}>
-                                {/* Standard text input for all log subtypes */}
+                                {/* Borderless body text */}
                                 <TextInput
                                   ref={textInputRef}
                                   value={currentText}
-                                  onChangeText={(t) => dispatch({ type: 'SET_TEXT', text: t })}
+                                  onChangeText={(t) => store.setBody(t)}
                                   editable={!isViewMode}
                                   pointerEvents={isViewMode ? 'none' : 'auto'}
                                   accessibilityLabel="Overlay content input"
@@ -6609,25 +4756,18 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   multiline
                                   scrollEnabled={true}
                                   textAlignVertical="top"
-                                  style={[
-                                    styles.textArea,
-                                    {
-                                      maxHeight: 200,
-                                      color: lightTokens.colors.text,
-                                      backgroundColor:
-                                        colorMode === 'dark' ? darkTokens.colors.deep : '#FAFAFA',
-                                      borderWidth: 1,
-                                      borderColor:
-                                        colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-                                      shadowColor: '#000',
-                                      shadowOpacity: 0.03,
-                                      shadowOffset: { width: 0, height: 1 },
-                                      shadowRadius: 2,
-                                      paddingRight: isLog ? 56 : 16, // Extra padding for camera button in logs
-                                    },
-                                  ]}
+                                  style={{
+                                    fontSize: 14,
+                                    lineHeight: 14 * 1.65,
+                                    color: '#1a1a1a',
+                                    maxHeight: 72,
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 0,
+                                    paddingRight: 36,
+                                    textAlignVertical: 'top',
+                                  }}
                                 />
-                                {/* Expand button in top-right corner */}
+                                {/* Expand button — top-right of text area */}
                                 <Pressable
                                   onPress={() => {
                                     LayoutAnimation.configureNext(
@@ -6637,15 +4777,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   }}
                                   style={({ pressed }) => ({
                                     position: 'absolute',
-                                    top: 10,
-                                    right: 10,
-                                    width: 32,
-                                    height: 32,
-                                    borderRadius: 16,
-                                    backgroundColor:
-                                      colorMode === 'dark'
-                                        ? 'rgba(255,255,255,0.1)'
-                                        : 'rgba(46, 85, 64, 0.08)',
+                                    top: 8,
+                                    right: 0,
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 14,
+                                    backgroundColor: 'rgba(0,0,0,0.04)',
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     opacity: pressed ? 0.7 : 1,
@@ -6653,103 +4790,22 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   accessibilityLabel="Expand editor"
                                   accessibilityRole="button"
                                 >
-                                  <Maximize2
-                                    size={16}
-                                    color={
-                                      colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#2E5540'
-                                    }
-                                  />
+                                  <Maximize2 size={14} color="#666" />
                                 </Pressable>
-                                {/* Camera button inside text area for logs only (hidden in view mode) */}
-                                {isLog && !isViewMode && (
-                                  <Pressable
-                                    onPress={handleOpenMultiPhotoActionSheet}
-                                    style={({ pressed }) => ({
-                                      position: 'absolute',
-                                      bottom: 14,
-                                      right: 14,
-                                      width: 40,
-                                      height: 40,
-                                      borderRadius: 20,
-                                      backgroundColor:
-                                        colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : '#FFFFFF',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      shadowColor: '#000',
-                                      shadowOpacity: 0.08,
-                                      shadowOffset: { width: 0, height: 2 },
-                                      shadowRadius: 4,
-                                      opacity: pressed ? 0.7 : 1,
-                                    })}
-                                    accessibilityLabel="Add photo"
-                                    accessibilityRole="button"
-                                  >
-                                    <Camera
-                                      size={24}
-                                      color={
-                                        colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#666666'
-                                      }
-                                    />
-                                  </Pressable>
-                                )}
                               </View>
                             )}
                           </Box>
 
-                          {/* Multi-photo grid for logs (Phase L5) - only show when photos exist */}
-                          {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
-                            <Box px={4} mt={2}>
-                              <ScrollView
-                                horizontal
-                                showsHorizontalScrollIndicator={false}
-                                style={styles.photoGridScroll}
-                                contentContainerStyle={styles.photoGridContent}
-                              >
-                                {logPhotos
-                                  .filter((p) => !p.isDeleted)
-                                  .map((photo, index) => {
-                                    const actualIndex = logPhotos.findIndex((p) => p === photo);
-                                    return (
-                                      <View
-                                        key={actualIndex}
-                                        style={styles.photoThumbnailContainer}
-                                      >
-                                        <Pressable
-                                          onPress={() => handleViewLogPhoto(actualIndex)}
-                                          accessibilityLabel={`View photo ${index + 1}`}
-                                          accessibilityRole="button"
-                                        >
-                                          <Image
-                                            source={{ uri: photo.url }}
-                                            style={styles.photoGridThumbnail}
-                                            resizeMode="cover"
-                                          />
-                                        </Pressable>
-                                        <Pressable
-                                          onPress={() => handleDeleteLogPhoto(actualIndex)}
-                                          style={styles.photoGridDeleteButton}
-                                          hitSlop={8}
-                                          accessibilityLabel={`Remove photo ${index + 1}`}
-                                          accessibilityRole="button"
-                                        >
-                                          <CloseIcon size={12} color="#666666" />
-                                        </Pressable>
-                                      </View>
-                                    );
-                                  })}
-                                {logPhotos.filter((p) => !p.isDeleted).length < 5 && (
-                                  <Pressable
-                                    onPress={handleOpenMultiPhotoActionSheet}
-                                    style={styles.addMorePhotosButton}
-                                    accessibilityLabel="Add another photo"
-                                    accessibilityRole="button"
-                                  >
-                                    <Camera size={16} color="#666666" />
-                                    <Text style={styles.addMorePhotosText}>Add photo</Text>
-                                  </Pressable>
-                                )}
-                              </ScrollView>
-                            </Box>
+                          {/* Photo strip — thumbnails or subtle "Add photo" link */}
+                          {isLog && (
+                            <View style={{ paddingHorizontal: 0 }}>
+                              <PhotoStrip
+                                photos={logPhotos as import('./useOverlayDraft').DraftPhoto[]}
+                                onAddPhoto={handleOpenMultiPhotoActionSheet}
+                                onTapPhoto={(i) => handleViewLogPhoto(i)}
+                                disabled={isViewMode}
+                              />
+                            </View>
                           )}
 
                           {/* Linked Items section for event notes - only in view mode */}
@@ -6829,7 +4885,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 entityId={currentEntityId}
                                 entityType={entityTypeForChat}
                                 variant="overlay"
-                                onPress={() => setShowEntityChat(true)}
+                                onPress={() => store.setUI({ showEntityChat: true })}
                                 style={{ flex: 1 }}
                               />
 
@@ -6847,7 +4903,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     paddingVertical: 10,
                                     paddingHorizontal: 12,
                                   }}
-                                  onPress={() => setShowNotesModal(true)}
+                                  onPress={() => store.setUI({ showNotesModal: true })}
                                   activeOpacity={0.7}
                                 >
                                   <FileText size={16} color={lightTokens.colors.mossGreen} />
@@ -6865,20 +4921,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </View>
                           )}
 
-                          {/* Tags row - now directly below text field */}
+                          {/* Tags row — no Re-suggest link */}
                           <Box style={{ marginBottom: 16, paddingHorizontal: 16 }}>
                             <TagsRow
                               tags={activeTagChips}
                               suggested={[]}
                               onToggle={isViewMode ? () => {} : handleTagToggle}
-                              onResuggest={
-                                isViewMode
-                                  ? undefined
-                                  : mode === 'edit' && fullEntity
-                                    ? handleResuggestTags
-                                    : undefined
-                              }
-                              resuggesting={isResuggestingTags}
                               onAdd={isViewMode ? undefined : handleTagAdd}
                               onUserAdd={isViewMode ? undefined : handleTelemetryTagAdd}
                               onUserRemove={isViewMode ? undefined : handleTelemetryTagRemove}
@@ -7089,7 +5137,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           setSelectedDate(getDateService().now());
                                         }
                                         setDateModalTarget('note_event');
-                                        setShowDateModal(true);
+                                        store.setUI({ showDateModal: true });
                                       }}
                                       accessibilityRole="button"
                                       accessibilityLabel={
@@ -7160,7 +5208,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                             }
                                           }
                                           setDateModalTarget('note_end_date');
-                                          setShowDateModal(true);
+                                          store.setUI({ showDateModal: true });
                                         }}
                                         accessibilityRole="button"
                                         accessibilityLabel={
@@ -7203,7 +5251,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       {state.log.end_date && (
                                         <Pressable
                                           onPress={() =>
-                                            dispatch({ type: 'SET_LOG_END_DATE', date: null })
+                                            store.setLogEndDate(null)
                                           }
                                           style={{ marginLeft: 8, padding: 4 }}
                                           accessibilityRole="button"
@@ -7238,7 +5286,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                                 {/* Schedule row — single row, opens Schedule modal */}
                                 <Pressable
-                                  onPress={openScheduleModal}
+                                  onPress={() => store.setUI({ showScheduleModal: true })}
                                   accessibilityRole="button"
                                   accessibilityLabel="Edit schedule"
                                   style={({ pressed }) => ({
@@ -7376,7 +5424,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           commitmentNote: state.commitmentNote,
                                           commitmentStartedAt: state.commitmentStartedAt,
                                         });
-                                        dispatch({ type: 'TOGGLE_COMMITMENT' });
+                                        store.setCommitment(!state.commitment);
                                         try {
                                           eventBus.emit('OverlayCommitmentToggled', {
                                             on: !state.commitment,
@@ -7443,7 +5491,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                                 {/* Schedule row — full width, tappable */}
                                 <Pressable
-                                  onPress={openScheduleModal}
+                                  onPress={() => store.setUI({ showScheduleModal: true })}
                                   accessibilityRole="button"
                                   accessibilityLabel="Edit schedule"
                                   style={({ pressed }) => ({
@@ -7479,8 +5527,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         {[
                                           getFrequencyLabel(
                                             jsonToFrequency(
-                                              localScheduleSnapshot.current?.frequency_json ??
-                                                state.habit.frequency_json,
+                                              state.habit.frequency_json,
                                             ),
                                           ),
                                           state.habit.time_estimate_minutes &&
@@ -7548,7 +5595,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           commitmentNote: state.commitmentNote,
                                           commitmentStartedAt: state.commitmentStartedAt,
                                         });
-                                        dispatch({ type: 'TOGGLE_COMMITMENT' });
+                                        store.setCommitment(!state.commitment);
                                         try {
                                           eventBus.emit('OverlayCommitmentToggled', {
                                             on: !state.commitment,
@@ -7608,15 +5655,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   color: '#8B8579',
                                 }}
                               >
-                                {state.expanded ? 'Hide details' : 'Show details'}
+                                {expanded ? 'Hide details' : 'Show details'}
                               </Text>
-                              {state.expanded ? (
+                              {expanded ? (
                                 <ChevronUp size={14} color="#8B8579" />
                               ) : (
                                 <ChevronDown size={14} color="#8B8579" />
                               )}
                             </Pressable>
-                            {state.expanded ? (
+                            {expanded ? (
                               <Reanimated.View style={[detailsStyle, { marginTop: 0 }]}>
                                 <Box pb={2}>
                                   {/* To-Do Details */}
@@ -7654,7 +5701,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       {/* 2) Add to Space row */}
                                       <Pressable
                                         onPress={() => {
-                                          if (!isViewMode) setShowSpaceModal(true);
+                                          if (!isViewMode) store.setUI({ showSpaceModal: true });
                                         }}
                                         disabled={isViewMode}
                                         style={({ pressed }) => [
@@ -7803,7 +5850,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       {/* 2) Add to Space row */}
                                       <Pressable
                                         onPress={() => {
-                                          if (!isViewMode) setShowSpaceModal(true);
+                                          if (!isViewMode) store.setUI({ showSpaceModal: true });
                                         }}
                                         disabled={isViewMode}
                                         style={({ pressed }) => [
@@ -7953,7 +6000,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       {/* 2) Add to Space row */}
                                       <Pressable
                                         onPress={() => {
-                                          if (!isViewMode) setShowSpaceModal(true);
+                                          if (!isViewMode) store.setUI({ showSpaceModal: true });
                                         }}
                                         disabled={isViewMode}
                                         style={({ pressed }) => [
@@ -8002,10 +6049,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                           <Switch
                                             value={state.logIsPrivate}
                                             onValueChange={() =>
-                                              dispatch({
-                                                type: 'SET_LOG_IS_PRIVATE',
-                                                value: !state.logIsPrivate,
-                                              })
+                                              store.setLogIsPrivate(!state.logIsPrivate)
                                             }
                                             disabled={isViewMode}
                                             trackColor={{ false: '#D1D5DB', true: '#10B981' }}
@@ -8272,7 +6316,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         setSelectedDate(getDateService().now());
                                       }
                                       setDateModalTarget('todo_deadline');
-                                      setShowDateModal(true);
+                                      store.setUI({ showDateModal: true });
                                     }
                                   }}
                                   title={
@@ -8292,7 +6336,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     )}
                   </View>
 
-                  <Modal visible={showDateModal} transparent animationType="fade">
+                  <Modal visible={storeUI.showDateModal} transparent animationType="fade">
                     <Pressable
                       style={{
                         flex: 1,
@@ -8302,7 +6346,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                       }}
                       onPress={() => {
                         // Close modal when tapping outside
-                        setShowDateModal(false);
+                        store.setUI({ showDateModal: false });
                         setDateModalTarget(null);
                         setShowTimePicker(false);
                         setClearDateFlag(false);
@@ -8361,8 +6405,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   setSelectedDate(today);
                                   setClearDateFlag(false);
                                   if (dateModalTarget === 'reminder') {
-                                    dispatch({ type: 'SET_REMINDER', when: today.toISOString() });
-                                    setShowDateModal(false);
+                                    store.setReminderAt(today.toISOString());
+                                    store.setUI({ showDateModal: false });
                                     setDateModalTarget(null);
                                   }
                                 }}
@@ -8396,11 +6440,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   setSelectedDate(tomorrow);
                                   setClearDateFlag(false);
                                   if (dateModalTarget === 'reminder') {
-                                    dispatch({
-                                      type: 'SET_REMINDER',
-                                      when: tomorrow.toISOString(),
-                                    });
-                                    setShowDateModal(false);
+                                    store.setReminderAt(tomorrow.toISOString());
+                                    store.setUI({ showDateModal: false });
                                     setDateModalTarget(null);
                                   }
                                 }}
@@ -8435,8 +6476,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   setSelectedTimePreset(null);
                                   setShowCustomTimePicker(false);
                                   if (dateModalTarget === 'reminder') {
-                                    dispatch({ type: 'SET_REMINDER', when: null });
-                                    setShowDateModal(false);
+                                    store.setReminderAt(null);
+                                    store.setUI({ showDateModal: false });
                                     setDateModalTarget(null);
                                   }
                                 }}
@@ -8652,7 +6693,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             <Button
                               variant="ghost"
                               onPress={() => {
-                                setShowDateModal(false);
+                                store.setUI({ showDateModal: false });
                                 setDateModalTarget(null);
                                 setShowTimePicker(false);
                                 setClearDateFlag(false);
@@ -8687,39 +6728,34 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   // Apply the change based on target type
                                   if (dateModalTarget === 'reminder') {
                                     // Reminders still use ISO timestamps
-                                    dispatch({
-                                      type: 'SET_REMINDER',
-                                      when: finalDate?.toISOString() ?? null,
-                                    });
+                                    store.setReminderAt(finalDate?.toISOString() ?? null);
                                   } else if (dateModalTarget === 'todo_deadline') {
                                     // Deadline (target_date) - when it's due
                                     if (finalDate) {
                                       const dateStr = getDateService().toLocalDate(finalDate);
-                                      dispatch({ type: 'SET_TODO_TARGET_DATE', date: dateStr });
+                                      store.setTodoTargetDate(dateStr);
                                       showDueToast(
                                         `Deadline set for ${format(finalDate, 'MMM d')}`,
                                       );
                                     } else {
-                                      dispatch({ type: 'SET_TODO_TARGET_DATE', date: null });
+                                      store.setTodoTargetDate(null);
                                       showDueToast('Deadline cleared');
                                     }
                                   } else if (dateModalTarget === 'todo_dodate') {
                                     // Do date (scheduled_date) - when user will work on it
                                     if (finalDate) {
                                       const dateStr = getDateService().toLocalDate(finalDate);
-                                      dispatch({ type: 'SET_TODO_SCHEDULED_DATE', date: dateStr });
+                                      store.setTodoScheduledDate(dateStr);
                                       // Also update legacy due_day for backwards compatibility
-                                      dispatch({
-                                        type: 'SET_TODO_DUE',
+                                      store.setTodoDue({
                                         due_at: null,
                                         due_day: dateStr,
                                         due_time: null,
                                       });
                                       showDueToast(`Do date set for ${format(finalDate, 'MMM d')}`);
                                     } else {
-                                      dispatch({ type: 'SET_TODO_SCHEDULED_DATE', date: null });
-                                      dispatch({
-                                        type: 'SET_TODO_DUE',
+                                      store.setTodoScheduledDate(null);
+                                      store.setTodoDue({
                                         due_at: null,
                                         due_day: null,
                                         due_time: null,
@@ -8730,30 +6766,30 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     // Event date for notes (target_date)
                                     if (finalDate) {
                                       const dateStr = getDateService().toLocalDate(finalDate);
-                                      dispatch({ type: 'SET_LOG_TARGET_DATE', date: dateStr });
+                                      store.setLogTargetDate(dateStr);
                                       showDueToast(
                                         `Event date set for ${format(finalDate, 'MMM d')}`,
                                       );
                                     } else {
-                                      dispatch({ type: 'SET_LOG_TARGET_DATE', date: null });
+                                      store.setLogTargetDate(null);
                                       showDueToast('Event date cleared');
                                     }
                                   } else if (dateModalTarget === 'note_end_date') {
                                     // End date for multi-day events
                                     if (finalDate) {
                                       const dateStr = getDateService().toLocalDate(finalDate);
-                                      dispatch({ type: 'SET_LOG_END_DATE', date: dateStr });
+                                      store.setLogEndDate(dateStr);
                                       showDueToast(
                                         `End date set for ${format(finalDate, 'MMM d')}`,
                                       );
                                     } else {
-                                      dispatch({ type: 'SET_LOG_END_DATE', date: null });
+                                      store.setLogEndDate(null);
                                       showDueToast('End date cleared');
                                     }
                                   }
 
                                   // Reset and close
-                                  setShowDateModal(false);
+                                  store.setUI({ showDateModal: false });
                                   setDateModalTarget(null);
                                   setShowTimePicker(false);
                                   setClearDateFlag(false);
@@ -8772,7 +6808,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </Modal>
 
                   {/* Time Estimate Modal - Hybrid Grid + Stepper */}
-                  <Modal visible={showTimeEstimateModal} transparent animationType="fade">
+                  <Modal visible={storeUI.showTimeEstimateModal} transparent animationType="fade">
                     <Pressable
                       style={{
                         flex: 1,
@@ -8780,7 +6816,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         alignItems: 'center',
                         backgroundColor: 'rgba(0,0,0,0.4)',
                       }}
-                      onPress={() => setShowTimeEstimateModal(false)}
+                      onPress={() => store.setUI({ showTimeEstimateModal: false })}
                     >
                       <Pressable
                         onPress={(e) => e.stopPropagation()}
@@ -8855,8 +6891,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 opacity: timeEstimateValue <= TIME_ESTIMATE_MIN ? 0.5 : 1,
                               }}
                               onPress={() =>
-                                setTimeEstimateValue((prev) =>
-                                  Math.max(TIME_ESTIMATE_MIN, prev - TIME_ESTIMATE_STEP),
+                                setTimeEstimateValue(
+                                  Math.max(TIME_ESTIMATE_MIN, timeEstimateValue - TIME_ESTIMATE_STEP),
                                 )
                               }
                               disabled={timeEstimateValue <= TIME_ESTIMATE_MIN}
@@ -8896,8 +6932,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 opacity: timeEstimateValue >= TIME_ESTIMATE_MAX ? 0.5 : 1,
                               }}
                               onPress={() =>
-                                setTimeEstimateValue((prev) =>
-                                  Math.min(TIME_ESTIMATE_MAX, prev + TIME_ESTIMATE_STEP),
+                                setTimeEstimateValue(
+                                  Math.min(TIME_ESTIMATE_MAX, timeEstimateValue + TIME_ESTIMATE_STEP),
                                 )
                               }
                               disabled={timeEstimateValue >= TIME_ESTIMATE_MAX}
@@ -8927,11 +6963,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             style={{ paddingVertical: 12, paddingHorizontal: 16 }}
                             onPress={() => {
                               if (baseType === 'habit') {
-                                dispatch({ type: 'SET_HABIT_TIME_ESTIMATE', minutes: null });
+                                store.setHabitTimeEstimate(null);
                               } else {
-                                dispatch({ type: 'SET_TODO_TIME_ESTIMATE', minutes: null });
+                                store.setTodoTimeEstimate(null);
                               }
-                              setShowTimeEstimateModal(false);
+                              store.setUI({ showTimeEstimateModal: false });
                             }}
                           >
                             <Text style={{ fontSize: 14, color: '#666666' }}>Clear</Text>
@@ -8946,17 +6982,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             }}
                             onPress={() => {
                               if (baseType === 'habit') {
-                                dispatch({
-                                  type: 'SET_HABIT_TIME_ESTIMATE',
-                                  minutes: timeEstimateValue,
-                                });
+                                store.setHabitTimeEstimate(timeEstimateValue);
                               } else {
-                                dispatch({
-                                  type: 'SET_TODO_TIME_ESTIMATE',
-                                  minutes: timeEstimateValue,
-                                });
+                                store.setTodoTimeEstimate(timeEstimateValue);
                               }
-                              setShowTimeEstimateModal(false);
+                              store.setUI({ showTimeEstimateModal: false });
                             }}
                           >
                             <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
@@ -8969,7 +6999,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </Modal>
 
                   {/* Time Window Modal */}
-                  <Modal visible={showTimeWindowModal} transparent animationType="fade">
+                  <Modal visible={storeUI.showTimeWindowModal} transparent animationType="fade">
                     <Pressable
                       style={{
                         flex: 1,
@@ -8977,7 +7007,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         alignItems: 'center',
                         backgroundColor: 'rgba(0,0,0,0.4)',
                       }}
-                      onPress={() => setShowTimeWindowModal(false)}
+                      onPress={() => store.setUI({ showTimeWindowModal: false })}
                     >
                       <Pressable
                         onPress={(e) => e.stopPropagation()}
@@ -9024,17 +7054,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 ]}
                                 onPress={() => {
                                   if (baseType === 'todo') {
-                                    dispatch({
-                                      type: 'SET_TODO_TIME_WINDOW',
-                                      window: option.value,
-                                    });
+                                    store.setTodoTimeWindow(option.value);
                                   } else {
-                                    dispatch({
-                                      type: 'SET_HABIT_TIME_WINDOW',
-                                      window: option.value,
-                                    });
+                                    store.setHabitTimeWindow(option.value);
                                   }
-                                  setShowTimeWindowModal(false);
+                                  store.setUI({ showTimeWindowModal: false });
                                 }}
                               >
                                 <Text
@@ -9054,651 +7078,32 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </Modal>
 
                   {/* Schedule Modal */}
-                  <Modal
-                    visible={showScheduleModal}
-                    transparent
-                    animationType="fade"
-                    onRequestClose={() => setShowScheduleModal(false)}
-                  >
-                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                      {/* Backdrop layer — absolute fill, sits BEHIND modal content */}
-                      <Pressable
-                        style={{
-                          ...StyleSheet.absoluteFillObject,
-                          backgroundColor: 'rgba(0,0,0,0.4)',
-                        }}
-                        onPress={() => setShowScheduleModal(false)}
-                      />
-                      {/* Modal content — plain View, NOT wrapped in any Pressable */}
-                      <View style={styles.scheduleModalContent}>
-                        <Text style={styles.scheduleModalTitle}>Schedule</Text>
-
-                        <ScrollView
-                          style={{ flexShrink: 1 }}
-                          showsVerticalScrollIndicator={false}
-                          keyboardShouldPersistTaps="handled"
-                          nestedScrollEnabled
-                          contentContainerStyle={{ paddingBottom: 20 }}
-                        >
-                          {/* ===== Frequency sections — habits only ===== */}
-                          {baseType === 'habit' && (
-                            <>
-                              {/* ===== SECTION 1: Frequency presets ===== */}
-                              <Text style={styles.schSectionLabel}>Frequency</Text>
-                              <View
-                                style={{
-                                  flexDirection: 'row',
-                                  flexWrap: 'wrap',
-                                  gap: 8,
-                                  marginBottom: 4,
-                                }}
-                              >
-                                {SCHEDULE_PRESETS.map((preset) => {
-                                  const isMatch =
-                                    !scheduleModalState.isCustom &&
-                                    scheduleModalState.count === preset.count &&
-                                    scheduleModalState.unit === preset.unit &&
-                                    JSON.stringify([...scheduleModalState.selectedDays].sort()) ===
-                                      JSON.stringify([...preset.days].sort());
-                                  return (
-                                    <Pressable
-                                      key={preset.key}
-                                      onPress={() => {
-                                        LayoutAnimation.configureNext(
-                                          LayoutAnimation.Presets.easeInEaseOut,
-                                        );
-                                        setScheduleModalState((prev) => ({
-                                          ...prev,
-                                          count: preset.count,
-                                          unit: preset.unit,
-                                          selectedDays: [...preset.days],
-                                          isCustom: false,
-                                        }));
-                                      }}
-                                      style={{
-                                        paddingVertical: 8,
-                                        paddingHorizontal: 16,
-                                        borderRadius: 8,
-                                        backgroundColor: isMatch ? '#2D4A3E' : '#F5F2ED',
-                                      }}
-                                    >
-                                      <Text
-                                        style={{
-                                          fontSize: 13,
-                                          fontWeight: isMatch ? '600' : '500',
-                                          color: isMatch ? '#FFFFFF' : '#6B665C',
-                                        }}
-                                      >
-                                        {preset.label}
-                                      </Text>
-                                    </Pressable>
-                                  );
-                                })}
-                                {/* Custom pill */}
-                                <Pressable
-                                  onPress={() => {
-                                    LayoutAnimation.configureNext(
-                                      LayoutAnimation.Presets.easeInEaseOut,
-                                    );
-                                    setScheduleModalState((prev) => ({ ...prev, isCustom: true }));
-                                  }}
-                                  style={{
-                                    paddingVertical: 8,
-                                    paddingHorizontal: 16,
-                                    borderRadius: 8,
-                                    backgroundColor: scheduleModalState.isCustom
-                                      ? '#2D4A3E'
-                                      : '#F5F2ED',
-                                  }}
-                                >
-                                  <Text
-                                    style={{
-                                      fontSize: 13,
-                                      fontWeight: scheduleModalState.isCustom ? '600' : '500',
-                                      color: scheduleModalState.isCustom ? '#FFFFFF' : '#6B665C',
-                                    }}
-                                  >
-                                    Custom
-                                  </Text>
-                                </Pressable>
-                              </View>
-
-                              {/* ===== SECTION 1b: Custom counter (conditional) ===== */}
-                              {scheduleModalState.isCustom && (
-                                <View
-                                  style={{
-                                    backgroundColor: '#F5F2ED',
-                                    borderRadius: 12,
-                                    padding: 16,
-                                    marginTop: 12,
-                                  }}
-                                >
-                                  {/* Counter row */}
-                                  <View
-                                    style={{
-                                      flexDirection: 'row',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                    }}
-                                  >
-                                    <Pressable
-                                      onPress={() =>
-                                        setScheduleModalState((prev) => ({
-                                          ...prev,
-                                          count: Math.max(1, prev.count - 1),
-                                        }))
-                                      }
-                                      disabled={scheduleModalState.count <= 1}
-                                      style={{
-                                        width: 36,
-                                        height: 36,
-                                        borderRadius: 18,
-                                        backgroundColor: '#FFFFFF',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        opacity: scheduleModalState.count <= 1 ? 0.3 : 1,
-                                      }}
-                                    >
-                                      <Text style={{ fontSize: 18, color: '#2D4A3E' }}>−</Text>
-                                    </Pressable>
-                                    <Text
-                                      style={{
-                                        fontSize: 22,
-                                        fontWeight: '700',
-                                        color: '#2D4A3E',
-                                        marginHorizontal: 24,
-                                        minWidth: 30,
-                                        textAlign: 'center',
-                                      }}
-                                    >
-                                      {scheduleModalState.count}
-                                    </Text>
-                                    <Pressable
-                                      onPress={() =>
-                                        setScheduleModalState((prev) => ({
-                                          ...prev,
-                                          count: Math.min(30, prev.count + 1),
-                                        }))
-                                      }
-                                      disabled={scheduleModalState.count >= 30}
-                                      style={{
-                                        width: 36,
-                                        height: 36,
-                                        borderRadius: 18,
-                                        backgroundColor: '#FFFFFF',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        opacity: scheduleModalState.count >= 30 ? 0.3 : 1,
-                                      }}
-                                    >
-                                      <Text style={{ fontSize: 18, color: '#2D4A3E' }}>+</Text>
-                                    </Pressable>
-                                    <Text
-                                      style={{ fontSize: 14, color: '#8B8579', marginLeft: 16 }}
-                                    >
-                                      times per
-                                    </Text>
-                                  </View>
-                                  {/* Unit selector row */}
-                                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-                                    {(['day', 'week', 'month'] as const).map((u) => {
-                                      const isUnitSel = scheduleModalState.unit === u;
-                                      return (
-                                        <Pressable
-                                          key={u}
-                                          onPress={() => {
-                                            LayoutAnimation.configureNext(
-                                              LayoutAnimation.Presets.easeInEaseOut,
-                                            );
-                                            setScheduleModalState((prev) => ({
-                                              ...prev,
-                                              unit: u,
-                                              selectedDays: u !== 'week' ? [] : prev.selectedDays,
-                                            }));
-                                          }}
-                                          style={{
-                                            flex: 1,
-                                            paddingVertical: 8,
-                                            alignItems: 'center',
-                                            borderRadius: 8,
-                                            backgroundColor: isUnitSel ? '#2D4A3E' : '#FFFFFF',
-                                          }}
-                                        >
-                                          <Text
-                                            style={{
-                                              fontSize: 13,
-                                              fontWeight: isUnitSel ? '600' : '500',
-                                              color: isUnitSel ? '#FFFFFF' : '#6B665C',
-                                            }}
-                                          >
-                                            {u}
-                                          </Text>
-                                        </Pressable>
-                                      );
-                                    })}
-                                  </View>
-                                </View>
-                              )}
-
-                              <View style={styles.schDivider} />
-                            </>
-                          )}
-
-                          {/* ===== SECTION 2: Pin to days (habits only, conditional) ===== */}
-                          {baseType === 'habit' && scheduleModalState.unit === 'week' && (
-                            <>
-                              <View
-                                style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'baseline',
-                                  marginBottom: 10,
-                                }}
-                              >
-                                <Text style={styles.schSectionLabel}>On these days</Text>
-                                <Text
-                                  style={{
-                                    fontSize: 12,
-                                    color: '#A09A90',
-                                    marginLeft: 4,
-                                    marginBottom: 10,
-                                  }}
-                                >
-                                  (optional)
-                                </Text>
-                              </View>
-                              <View
-                                style={{ flexDirection: 'row', justifyContent: 'space-between' }}
-                              >
-                                {(
-                                  [
-                                    { day: 1, label: 'M' },
-                                    { day: 2, label: 'T' },
-                                    { day: 3, label: 'W' },
-                                    { day: 4, label: 'T' },
-                                    { day: 5, label: 'F' },
-                                    { day: 6, label: 'S' },
-                                    { day: 0, label: 'S' },
-                                  ] as const
-                                ).map(({ day, label }) => {
-                                  const isDaySelected =
-                                    scheduleModalState.selectedDays.includes(day);
-                                  return (
-                                    <Pressable
-                                      key={day}
-                                      onPress={() =>
-                                        setScheduleModalState((prev) => {
-                                          const newDays = isDaySelected
-                                            ? prev.selectedDays.filter((d) => d !== day)
-                                            : [...prev.selectedDays, day].sort();
-                                          return { ...prev, selectedDays: newDays };
-                                        })
-                                      }
-                                      style={{
-                                        width: 38,
-                                        height: 38,
-                                        borderRadius: 19,
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        backgroundColor: isDaySelected ? '#2D4A3E' : '#F5F2ED',
-                                      }}
-                                    >
-                                      <Text
-                                        style={{
-                                          fontSize: 13,
-                                          fontWeight: '600',
-                                          color: isDaySelected ? '#FFFFFF' : '#6B665C',
-                                        }}
-                                      >
-                                        {label}
-                                      </Text>
-                                    </Pressable>
-                                  );
-                                })}
-                              </View>
-                              <View style={styles.schDivider} />
-                            </>
-                          )}
-
-                          {/* ===== SECTION 3: Time of day ===== */}
-                          <Text style={styles.schSectionLabel}>Time of day</Text>
-                          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4 }}>
-                            {[
-                              { label: 'Anytime', value: null as string | null },
-                              { label: 'Morning', value: 'morning' },
-                              { label: 'Afternoon', value: 'day' },
-                              { label: 'Evening', value: 'evening' },
-                            ].map((opt) => {
-                              const isSel = scheduleModalState.timeWindow === opt.value;
-                              return (
-                                <Pressable
-                                  key={opt.value ?? 'null'}
-                                  onPress={() =>
-                                    setScheduleModalState((prev) => ({
-                                      ...prev,
-                                      timeWindow: opt.value,
-                                    }))
-                                  }
-                                  style={{
-                                    flex: 1,
-                                    paddingVertical: 9,
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    borderRadius: 8,
-                                    backgroundColor: isSel ? '#2D4A3E' : '#F5F2ED',
-                                  }}
-                                >
-                                  <Text
-                                    numberOfLines={1}
-                                    style={{
-                                      fontSize: 12,
-                                      fontWeight: isSel ? '600' : '500',
-                                      color: isSel ? '#FFFFFF' : '#6B665C',
-                                    }}
-                                  >
-                                    {opt.label}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-
-                          {/* ===== SECTION 4: Duration ===== */}
-                          {(baseType === 'todo' || state.habit.subtype !== 'break_habit') && (
-                            <>
-                              <View style={styles.schDivider} />
-                              <Text style={styles.schSectionLabel}>Duration</Text>
-                              {/* Row 1: Stepper */}
-                              <View
-                                style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                }}
-                              >
-                                <Pressable
-                                  onPress={() =>
-                                    setScheduleModalState((prev) => {
-                                      const cur = prev.timeEstimateMinutes ?? 0;
-                                      const idx = DURATION_STEPS.findIndex((s) => s >= cur);
-                                      const prevIdx = Math.max(
-                                        0,
-                                        (idx > 0 ? idx : DURATION_STEPS.length) - 1,
-                                      );
-                                      return {
-                                        ...prev,
-                                        timeEstimateMinutes: DURATION_STEPS[prevIdx] || null,
-                                      };
-                                    })
-                                  }
-                                  disabled={!scheduleModalState.timeEstimateMinutes}
-                                  style={{
-                                    width: 32,
-                                    height: 32,
-                                    borderRadius: 16,
-                                    backgroundColor: '#F5F2ED',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    opacity: !scheduleModalState.timeEstimateMinutes ? 0.3 : 1,
-                                  }}
-                                >
-                                  <Text style={{ fontSize: 16, color: '#2D4A3E' }}>−</Text>
-                                </Pressable>
-                                <Text
-                                  style={{
-                                    fontSize: 15,
-                                    fontWeight: '600',
-                                    color: '#2D4A3E',
-                                    marginHorizontal: 8,
-                                    minWidth: 46,
-                                    textAlign: 'center',
-                                  }}
-                                >
-                                  {scheduleModalState.timeEstimateMinutes
-                                    ? formatTimeEstimate(scheduleModalState.timeEstimateMinutes)
-                                    : 'None'}
-                                </Text>
-                                <Pressable
-                                  onPress={() =>
-                                    setScheduleModalState((prev) => {
-                                      const cur = prev.timeEstimateMinutes ?? 0;
-                                      const idx = DURATION_STEPS.findIndex((s) => s > cur);
-                                      const nextIdx = idx >= 0 ? idx : DURATION_STEPS.length - 1;
-                                      return {
-                                        ...prev,
-                                        timeEstimateMinutes: DURATION_STEPS[nextIdx],
-                                      };
-                                    })
-                                  }
-                                  disabled={(scheduleModalState.timeEstimateMinutes ?? 0) >= 240}
-                                  style={{
-                                    width: 32,
-                                    height: 32,
-                                    borderRadius: 16,
-                                    backgroundColor: '#F5F2ED',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    opacity:
-                                      (scheduleModalState.timeEstimateMinutes ?? 0) >= 240
-                                        ? 0.3
-                                        : 1,
-                                  }}
-                                >
-                                  <Text style={{ fontSize: 16, color: '#2D4A3E' }}>+</Text>
-                                </Pressable>
-                              </View>
-                              {/* Row 2: Quick picks */}
-                              <View
-                                style={{
-                                  flexDirection: 'row',
-                                  gap: 8,
-                                  justifyContent: 'center',
-                                  marginTop: 10,
-                                }}
-                              >
-                                {[
-                                  { label: '15m', value: 15 },
-                                  { label: '30m', value: 30 },
-                                  { label: '1h', value: 60 },
-                                  { label: '2h', value: 120 },
-                                ].map((chip) => {
-                                  const isDurSel =
-                                    scheduleModalState.timeEstimateMinutes === chip.value;
-                                  return (
-                                    <Pressable
-                                      key={chip.value}
-                                      onPress={() =>
-                                        setScheduleModalState((prev) => ({
-                                          ...prev,
-                                          timeEstimateMinutes: isDurSel ? null : chip.value,
-                                        }))
-                                      }
-                                      style={{
-                                        paddingVertical: 7,
-                                        paddingHorizontal: 16,
-                                        borderRadius: 8,
-                                        backgroundColor: isDurSel ? '#2D4A3E' : '#F5F2ED',
-                                      }}
-                                    >
-                                      <Text
-                                        style={{
-                                          fontSize: 12,
-                                          fontWeight: isDurSel ? '600' : '500',
-                                          color: isDurSel ? '#FFFFFF' : '#6B665C',
-                                        }}
-                                      >
-                                        {chip.label}
-                                      </Text>
-                                    </Pressable>
-                                  );
-                                })}
-                              </View>
-                            </>
-                          )}
-
-                          {/* ── Divider ── */}
-                          <View style={styles.schDivider} />
-
-                          {/* ===== SECTION 5: Dates ===== */}
-                          <Text style={styles.schSectionLabel}>Dates</Text>
-                          <View style={{ flexDirection: 'row', gap: 12, marginBottom: 8 }}>
-                            {/* Start date */}
-                            <View style={{ flex: 1 }}>
-                              <Text
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: '500',
-                                  color: '#A09A90',
-                                  marginBottom: 4,
-                                }}
-                              >
-                                {baseType === 'todo' ? 'Do date' : 'Starts'}
-                              </Text>
-                              <Pressable
-                                onPress={() =>
-                                  setShowScheduleStartDatePicker(!showScheduleStartDatePicker)
-                                }
-                                style={{
-                                  backgroundColor: '#F5F2ED',
-                                  borderRadius: 8,
-                                  paddingVertical: 10,
-                                  paddingHorizontal: 12,
-                                  flexDirection: 'row',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                }}
-                              >
-                                <Text style={{ fontSize: 13, fontWeight: '500', color: '#2D4A3E' }}>
-                                  {scheduleModalState.startDate
-                                    ? format(parseISO(scheduleModalState.startDate), 'MMM d, yyyy')
-                                    : 'Not set'}
-                                </Text>
-                                <Calendar size={14} color="#8B8579" />
-                              </Pressable>
-                            </View>
-                            {/* End date */}
-                            <View style={{ flex: 1 }}>
-                              <Text
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: '500',
-                                  color: '#A09A90',
-                                  marginBottom: 4,
-                                }}
-                              >
-                                {baseType === 'todo' ? 'Deadline' : 'Ends'}
-                              </Text>
-                              <Pressable
-                                onPress={() =>
-                                  setShowScheduleEndDatePicker(!showScheduleEndDatePicker)
-                                }
-                                style={{
-                                  backgroundColor: '#F5F2ED',
-                                  borderRadius: 8,
-                                  paddingVertical: 10,
-                                  paddingHorizontal: 12,
-                                  flexDirection: 'row',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 13,
-                                    fontWeight: '500',
-                                    color: scheduleModalState.endDate ? '#2D4A3E' : '#B5AFA5',
-                                  }}
-                                >
-                                  {scheduleModalState.endDate
-                                    ? format(parseISO(scheduleModalState.endDate), 'MMM d, yyyy')
-                                    : 'No end'}
-                                </Text>
-                                <Calendar size={14} color="#8B8579" />
-                              </Pressable>
-                            </View>
-                          </View>
-
-                          {/* Inline DateTimePicker for start date */}
-                          {showScheduleStartDatePicker && (
-                            <DateTimePicker
-                              value={
-                                scheduleModalState.startDate
-                                  ? parseISO(scheduleModalState.startDate)
-                                  : getDateService().now()
-                              }
-                              mode="date"
-                              display="inline"
-                              onChange={(event, date) => {
-                                if (date) {
-                                  setScheduleModalState((prev) => ({
-                                    ...prev,
-                                    startDate: format(date, 'yyyy-MM-dd'),
-                                  }));
-                                }
-                                setShowScheduleStartDatePicker(false);
-                              }}
-                              style={{ backgroundColor: 'white' }}
-                            />
-                          )}
-
-                          {showScheduleEndDatePicker && (
-                            <View>
-                              <DateTimePicker
-                                value={
-                                  scheduleModalState.endDate
-                                    ? parseISO(scheduleModalState.endDate)
-                                    : getDateService().now()
-                                }
-                                mode="date"
-                                display="inline"
-                                onChange={(event, date) => {
-                                  if (date) {
-                                    setScheduleModalState((prev) => ({
-                                      ...prev,
-                                      endDate: format(date, 'yyyy-MM-dd'),
-                                    }));
-                                  }
-                                  setShowScheduleEndDatePicker(false);
-                                }}
-                                style={{ backgroundColor: 'white' }}
-                              />
-                              <Pressable
-                                onPress={() => {
-                                  setScheduleModalState((prev) => ({
-                                    ...prev,
-                                    endDate: null,
-                                  }));
-                                  setShowScheduleEndDatePicker(false);
-                                }}
-                                style={{ alignSelf: 'center', paddingVertical: 8 }}
-                              >
-                                <Text style={{ color: '#8B8579', fontSize: 14 }}>
-                                  Clear end date
-                                </Text>
-                              </Pressable>
-                            </View>
-                          )}
-                        </ScrollView>
-
-                        {/* Footer */}
-                        <View style={styles.scheduleModalFooter}>
-                          <Pressable
-                            onPress={() => setShowScheduleModal(false)}
-                            style={styles.scheduleModalCancelButton}
-                          >
-                            <Text style={styles.scheduleModalCancelText}>Cancel</Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={applyScheduleChanges}
-                            style={styles.scheduleModalSetButton}
-                          >
-                            <Text style={styles.scheduleModalSetText}>Set</Text>
-                          </Pressable>
-                        </View>
-                      </View>
-                    </View>
-                  </Modal>
+                  <ScheduleModal
+                    visible={storeUI.showScheduleModal}
+                    onClose={() => store.setUI({ showScheduleModal: false })}
+                    currentSchedule={{
+                      scheduledDate: state.todo.scheduled_date ?? null,
+                      dueDay: state.todo.due_day ?? null,
+                      targetDate: state.todo.target_date ?? null,
+                      timeWindow:
+                        baseType === 'todo'
+                          ? state.todo.time_window ?? null
+                          : state.habit.time_window ?? null,
+                      timeEstimateMinutes:
+                        baseType === 'todo'
+                          ? state.todo.time_estimate_minutes ?? null
+                          : state.habit.time_estimate_minutes ?? null,
+                      frequencyJson:
+                        state.habit.frequency_json,
+                      startDate: state.habit.start_date ?? null,
+                      endDate: state.habit.end_date ?? null,
+                    }}
+                    baseType={baseType}
+                    habitSubtype={state.habit.subtype}
+                    onApply={handleScheduleApply}
+                  />
                   {/* Habit Start Date Picker Modal */}
-                  <Modal visible={showHabitStartDatePicker} transparent animationType="fade">
+                  <Modal visible={storeUI.showHabitStartDatePicker} transparent animationType="fade">
                     <Pressable
                       style={{
                         flex: 1,
@@ -9706,7 +7111,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         alignItems: 'center',
                         backgroundColor: 'rgba(0,0,0,0.4)',
                       }}
-                      onPress={() => setShowHabitStartDatePicker(false)}
+                      onPress={() => store.setUI({ showHabitStartDatePicker: false })}
                     >
                       <Pressable
                         onPress={(e) => e.stopPropagation()}
@@ -9748,12 +7153,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           display="spinner"
                           onChange={(event, date) => {
                             if (event.type === 'set' && date) {
-                              dispatch({
-                                type: 'SET_HABIT_START_DATE',
-                                date: format(date, 'yyyy-MM-dd'),
-                              });
+                              store.setHabitStartDate(format(date, 'yyyy-MM-dd'));
                             }
-                            setShowHabitStartDatePicker(false);
+                            store.setUI({ showHabitStartDatePicker: false });
                           }}
                         />
                         <View
@@ -9765,8 +7167,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         >
                           <Pressable
                             onPress={() => {
-                              dispatch({ type: 'SET_HABIT_START_DATE', date: null });
-                              setShowHabitStartDatePicker(false);
+                              store.setHabitStartDate(null);
+                              store.setUI({ showHabitStartDatePicker: false });
                             }}
                             style={{ paddingVertical: 8, paddingHorizontal: 12 }}
                           >
@@ -9774,11 +7176,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           </Pressable>
                           <Pressable
                             onPress={() => {
-                              dispatch({
-                                type: 'SET_HABIT_START_DATE',
-                                date: format(getDateService().now(), 'yyyy-MM-dd'),
-                              });
-                              setShowHabitStartDatePicker(false);
+                              store.setHabitStartDate(format(getDateService().now(), 'yyyy-MM-dd'));
+                              store.setUI({ showHabitStartDatePicker: false });
                             }}
                             style={{
                               paddingVertical: 8,
@@ -9797,7 +7196,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </Modal>
 
                   {/* Habit End Date Picker Modal */}
-                  <Modal visible={showHabitEndDatePicker} transparent animationType="fade">
+                  <Modal visible={storeUI.showHabitEndDatePicker} transparent animationType="fade">
                     <Pressable
                       style={{
                         flex: 1,
@@ -9805,7 +7204,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         alignItems: 'center',
                         backgroundColor: 'rgba(0,0,0,0.4)',
                       }}
-                      onPress={() => setShowHabitEndDatePicker(false)}
+                      onPress={() => store.setUI({ showHabitEndDatePicker: false })}
                     >
                       <Pressable
                         onPress={(e) => e.stopPropagation()}
@@ -9852,12 +7251,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                           }
                           onChange={(event, date) => {
                             if (event.type === 'set' && date) {
-                              dispatch({
-                                type: 'SET_HABIT_END_DATE',
-                                date: format(date, 'yyyy-MM-dd'),
-                              });
+                              store.setHabitEndDate(format(date, 'yyyy-MM-dd'));
                             }
-                            setShowHabitEndDatePicker(false);
+                            store.setUI({ showHabitEndDatePicker: false });
                           }}
                         />
                         <View
@@ -9869,15 +7265,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         >
                           <Pressable
                             onPress={() => {
-                              dispatch({ type: 'SET_HABIT_END_DATE', date: null });
-                              setShowHabitEndDatePicker(false);
+                              store.setHabitEndDate(null);
+                              store.setUI({ showHabitEndDatePicker: false });
                             }}
                             style={{ paddingVertical: 8, paddingHorizontal: 12 }}
                           >
                             <Text style={{ color: '#888888', fontSize: 14 }}>No end date</Text>
                           </Pressable>
                           <Pressable
-                            onPress={() => setShowHabitEndDatePicker(false)}
+                            onPress={() => store.setUI({ showHabitEndDatePicker: false })}
                             style={{
                               paddingVertical: 8,
                               paddingHorizontal: 16,
@@ -9895,7 +7291,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   </Modal>
 
                   {/* Space Selector Modal for To-Do Details */}
-                  <Modal visible={showSpaceModal} transparent animationType="fade">
+                  <Modal visible={storeUI.showSpaceModal} transparent animationType="fade">
                     <Pressable
                       style={{
                         flex: 1,
@@ -9903,7 +7299,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         alignItems: 'center',
                         backgroundColor: 'rgba(0,0,0,0.4)',
                       }}
-                      onPress={() => setShowSpaceModal(false)}
+                      onPress={() => store.setUI({ showSpaceModal: false })}
                     >
                       <Pressable
                         onPress={(e) => e.stopPropagation()}
@@ -9934,8 +7330,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         {/* Clear selection option */}
                         <Pressable
                           onPress={() => {
-                            dispatch({ type: 'SET_SPACE', spaceId: null });
-                            setShowSpaceModal(false);
+                            store.setSpaceId(null);
+                            store.setUI({ showSpaceModal: false });
                           }}
                           style={({ pressed }) => ({
                             paddingVertical: 12,
@@ -9958,8 +7354,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             <Pressable
                               key={space.id}
                               onPress={() => {
-                                dispatch({ type: 'SET_SPACE', spaceId: space.id });
-                                setShowSpaceModal(false);
+                                store.setSpaceId(space.id);
+                                store.setUI({ showSpaceModal: false });
                               }}
                               style={({ pressed }) => ({
                                 paddingVertical: 12,
@@ -10037,162 +7433,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </Box>
                   ) : null}
 
-                  {/* Phase 6d: Footer with better spacing and clear primary action */}
-                  <View
-                    style={{
-                      backgroundColor: footerBackground,
-                      borderTopWidth: 1,
-                      borderTopColor: 'rgba(191, 216, 192, 0.4)',
-                    }}
-                  >
-                    <Box
-                      style={{
-                        paddingHorizontal: 20,
-                        paddingTop: 20,
-                        paddingBottom: 20,
-                        backgroundColor: footerBackground,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      {/* Cancel button - text-only, subtle (hidden in view mode) */}
-                      {!isViewMode && (
-                        <Pressable
-                          onPress={handleCancel}
-                          disabled={isSaving}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                          accessibilityLabel="Cancel"
-                          style={{
-                            paddingVertical: 12,
-                            minHeight: 44,
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: isSaving
-                                ? colorMode === 'dark'
-                                  ? 'rgba(255,255,255,0.3)'
-                                  : 'rgba(34,34,34,0.3)'
-                                : 'rgba(34,34,34,0.7)',
-                              fontSize: 14,
-                              fontWeight: '500',
-                            }}
-                          >
-                            Cancel
-                          </Text>
-                        </Pressable>
-                      )}
-
-                      {/* Close button - view mode only (matches Cancel button styling) */}
-                      {isViewMode && (
-                        <Pressable
-                          onPress={() => onClose?.()}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                          accessibilityLabel="Close"
-                          style={{
-                            paddingVertical: 12,
-                            minHeight: 44,
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: 'rgba(34,34,34,0.7)',
-                              fontSize: 14,
-                              fontWeight: '500',
-                            }}
-                          >
-                            Close
-                          </Text>
-                        </Pressable>
-                      )}
-
-                      {/* View mode: Edit button to switch to edit mode */}
-                      {isViewMode && (
-                        <Pressable
-                          onPress={() => {
-                            // Switch to edit mode for this record
-                            if (initialEntity && (initialEntity as any).id) {
-                              globalOverlay.openEdit({
-                                record: initialEntity as any,
-                                spaceId: initialSpaceId,
-                              });
-                            }
-                          }}
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            effectiveLogSubtype === 'event' ? 'Edit Details' : 'Edit'
-                          }
-                          style={{
-                            backgroundColor:
-                              colorMode === 'dark'
-                                ? darkTokens.colors.moss
-                                : lightTokens.colors.moss,
-                            minWidth: 120,
-                            paddingHorizontal: 20,
-                            height: 44,
-                            borderRadius: 999,
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: '#FFFFFF',
-                              fontSize: 15,
-                              fontWeight: '600',
-                            }}
-                          >
-                            {effectiveLogSubtype === 'event' ? 'Edit Details' : 'Edit'}
-                          </Text>
-                        </Pressable>
-                      )}
-
-                      {/* Save button - primary action (hidden in view mode) */}
-                      {!isViewMode && (
-                        <Reanimated.View style={saveStyle}>
-                          <Pressable
-                            onPress={onSave}
-                            disabled={!canSave}
-                            accessibilityRole="button"
-                            accessibilityLabel={isSaving ? 'Saving' : 'Save'}
-                            style={{
-                              backgroundColor: !canSave
-                                ? colorMode === 'dark'
-                                  ? 'rgba(94, 160, 138, 0.3)'
-                                  : 'rgba(46, 125, 106, 0.3)'
-                                : colorMode === 'dark'
-                                  ? darkTokens.colors.moss
-                                  : lightTokens.colors.moss,
-                              width: 120,
-                              height: 44,
-                              borderRadius: 999,
-                              justifyContent: 'center',
-                              alignItems: 'center',
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: !canSave
-                                  ? colorMode === 'dark'
-                                    ? 'rgba(255,255,255,0.4)'
-                                    : 'rgba(255,255,255,0.6)'
-                                  : '#FFFFFF',
-                                fontSize: 15,
-                                fontWeight: '600',
-                              }}
-                            >
-                              {isSaving ? 'Saving...' : isLockedIn ? 'Lock It In →' : 'Save'}
-                            </Text>
-                          </Pressable>
-                        </Reanimated.View>
-                      )}
-                    </Box>
-                  </View>
+                  {/* Footer spacer — Cancel/Save now live in top bar */}
                 </View>
               );
             })()}
@@ -10219,32 +7460,32 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       </KeyboardAvoidingView>
 
       {/* Entity Chat Screen - full screen overlay on top of current overlay */}
-      {showEntityChat && currentEntityId && (
-        <Modal visible={showEntityChat} animationType="slide" presentationStyle="fullScreen">
+      {storeUI.showEntityChat && currentEntityId && (
+        <Modal visible={storeUI.showEntityChat} animationType="slide" presentationStyle="fullScreen">
           <EntityChatScreen
             entityId={currentEntityId}
             entityType={entityTypeForChat}
-            onClose={() => setShowEntityChat(false)}
+            onClose={() => store.setUI({ showEntityChat: false })}
           />
         </Modal>
       )}
 
       {/* TodoPreviewModal - for exploding notes to todos */}
       <TodoPreviewModal
-        visible={showTodoPreview}
+        visible={storeUI.showTodoPreview}
         items={extractedItems}
         spaceName={currentSpaceName}
         spaceId={fullEntity?.space_id || initialSpaceId || ''}
         onConfirm={handleExplodeToTodos}
-        onCancel={() => setShowTodoPreview(false)}
+        onCancel={() => store.setUI({ showTodoPreview: false })}
         isLoading={isCreatingTodos}
       />
 
       {/* Entity Notes Modal - saved notes from chat */}
       <EntityNotesModal
-        visible={showNotesModal}
+        visible={storeUI.showNotesModal}
         notes={entityChatNotes}
-        onClose={() => setShowNotesModal(false)}
+        onClose={() => store.setUI({ showNotesModal: false })}
         onChecklistToggle={handleChatNoteChecklistToggle}
         onUpdateNote={handleChatNoteUpdate}
         onDeleteNote={handleChatNoteDelete}
@@ -10266,354 +7507,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   );
 }
 
-/**
- * Heuristic: detect if text looks like a simple comma-separated list.
- * Used to auto-enable checklist mode for logs like "Eggs, milk, bananas, yoghurt".
- * Only applied on initial hydration, user overrides always win.
- */
-function looksLikeSimpleCommaList(text: string | null | undefined): boolean {
-  if (!text) return false;
-  if (text.includes('\n')) return false; // Multi-line, let existing logic handle it
-  const parts = text
-    .split(',')
-    .map((p) => p.trim())
-    .filter(Boolean);
-  // Require at least 3 items to reduce false positives (e.g. "A, B" won't trigger)
-  if (parts.length < 3) return false;
-  return true;
-}
-
-/**
- * Heuristic: detect if text is already formatted as checklist markup.
- * Matches lines like "[ ] Eggs" or "[x] Milk".
- * Used to re-enable checklist mode when re-opening a saved checklist.
- */
-function looksLikeChecklistMarkup(text: string | null | undefined): boolean {
-  if (!text) return false;
-
-  const lines = text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (lines.length < 2) return false;
-
-  // Count lines that look like "[ ] something" or "[x] something"
-  const checklistLines = lines.filter((line) => /^\[( |x|X)\]\s+.+/.test(line));
-
-  // Require at least 2 checklist-ish lines to avoid false positives
-  return checklistLines.length >= 2;
-}
-
-export function buildDraftPayloadFromEntity(entity: any): Partial<V2State> {
-  if (!entity) return {};
-
-  const type = (entity as any)?.type;
-  const baseType: BaseType = type === 'todo' ? 'todo' : type === 'habit' ? 'habit' : 'log';
-
-  // Use standardized helper to get raw Mind Drop text
-  const mindDropRawText = getMindDropRawText(entity);
-
-  // === Habit-specific long text and title computation ===
-  if (type === 'habit') {
-    // Long text for habits: prefer Mind Drop raw text, then notes, then body, then name
-    const habitLongText =
-      mindDropRawText ??
-      (entity as any)?.notes ??
-      (entity as any)?.body ??
-      (entity as any)?.name ??
-      '';
-
-    // Short title for habits: prefer name, then title, then first line of long text
-    const compactTitle =
-      (entity as any)?.name ?? (entity as any)?.title ?? firstLine(habitLongText) ?? '';
-
-    // Normalize tags from entity
-    const extractedTags = extractTagKeysFromEntity(entity);
-
-    const normalizeMetaValues = (values: unknown): string[] => {
-      if (!Array.isArray(values)) return [];
-      const normalized = values
-        .map((value) => (typeof value === 'string' ? value.trim().toLowerCase() : ''))
-        .filter(Boolean);
-      return Array.from(new Set(normalized));
-    };
-
-    const tagsMeta = (entity as any)?.tags_meta ?? {};
-
-    // Hydrate commitment fields from entity (Phase 6)
-    const commitment = (entity as any)?.commitment === true;
-    const commitmentNote = (entity as any)?.commitment_note ?? '';
-    const commitmentStartedAt = (entity as any)?.commitment_started_at ?? null;
-
-    // Build frequency_json from DB columns
-    // Priority: cadence + target_per_period (canonical) > frequency + frequency_value (legacy)
-    const dbCadence = (entity as any)?.cadence;
-    const dbTargetPerPeriod = (entity as any)?.target_per_period;
-    const dbFrequency = (entity as any)?.frequency;
-    const dbFrequencyValue = (entity as any)?.frequency_value;
-    const dbDaysActive = (entity as any)?.days_active;
-    console.log('[UnifiedOverlay:DaysActive] 📥 Loading from entity:', {
-      entityId: (entity as any)?.id,
-      dbDaysActive,
-      dbCadence,
-      dbTargetPerPeriod,
-    });
-    const frequencyJson = buildFrequencyJsonFromDb(
-      dbFrequency,
-      dbFrequencyValue,
-      dbCadence,
-      dbTargetPerPeriod,
-      dbDaysActive,
-    );
-
-    if (__DEV__) {
-      console.log('[UnifiedOverlayV2.init] Loaded habit with:', {
-        id: (entity as any)?.id,
-        commitment,
-        commitmentNote: commitmentNote?.slice?.(0, 30) || null,
-        commitmentStartedAt,
-        cadence: dbCadence,
-        target_per_period: dbTargetPerPeriod,
-        frequency: dbFrequency,
-        frequency_value: dbFrequencyValue,
-        frequencyJson,
-      });
-    }
-
-    // Determine schedule from cadence (new) or frequency (legacy)
-    const effectiveCadence = dbCadence || dbFrequency || 'daily';
-    const scheduleFromCadence =
-      effectiveCadence === 'daily'
-        ? 'daily'
-        : effectiveCadence === 'weekly' || effectiveCadence === 'week'
-          ? 'weekly'
-          : effectiveCadence === 'monthly' || effectiveCadence === 'month'
-            ? 'weekly'
-            : 'custom';
-
-    return {
-      baseType: 'habit',
-      compactTitle,
-      // Hydrate all type-specific states for symmetry (in case user switches types)
-      habit: {
-        title: compactTitle,
-        notes: habitLongText,
-        schedule: scheduleFromCadence,
-        frequency_json: frequencyJson, // Built from cadence/target_per_period or frequency columns
-        subtype:
-          (entity as any)?.subtype === 'start_habit' || (entity as any)?.subtype === 'break_habit'
-            ? (entity as any)?.subtype
-            : 'start_habit', // Validate habit subtype (not log subtypes like 'journal')
-        start_date: (entity as any)?.start_date ?? null,
-        end_date: (entity as any)?.end_date ?? null,
-        time_window: (entity as any)?.time_window ?? null,
-        time_estimate_minutes: (entity as any)?.time_estimate_minutes ?? null,
-      },
-      todo: {
-        title: compactTitle,
-        details: habitLongText,
-        due_at: null,
-      },
-      log: {
-        title: compactTitle,
-        body: habitLongText,
-        kind: classifyLogKind(habitLongText),
-        private: false, // Default for logs (Phase L7)
-      },
-      tags: extractedTags,
-      stickyTags: normalizeMetaValues(tagsMeta?.sticky),
-      tagTombstones: normalizeMetaValues(tagsMeta?.tombstones),
-      // Commitment fields (Phase 6)
-      commitment,
-      commitmentNote,
-      commitmentStartedAt,
-      // Space and other fields
-      spaceId: (entity as any)?.space_id ?? null,
-      logSubtypeOverride: null, // Phase L8: Default for habits
-      logIsPrivate: false, // Phase L9: Default for habits
-      // Key Dates: Link to an event
-      linkedEventId: (entity as any)?.linked_event_id ?? null,
-    };
-  }
-
-  // === Todo/Log handling ===
-  // Use Mind Drop raw text if available, otherwise fall back to standard fields
-  const rawDetails =
-    mindDropRawText ??
-    (entity as any)?.details ??
-    (entity as any)?.body ??
-    (entity as any)?.notes ??
-    '';
-  const title = (entity as any)?.title ?? '';
-  const name = (entity as any)?.name ?? '';
-
-  // For todos: prefer name over title (name is the primary field for todos)
-  // For logs: prefer title over name
-  const todoTitle = name || title || '';
-  const logTitle = title || name || '';
-
-  // For todos: handle Mind Drop items
-  // - Use Mind Drop raw text as the long text source (body/details mapping)
-  // - If no Mind Drop text, fall back to name/title (backwards compatibility)
-  // - title remains as the short label (possibly AI-generated)
-  const todoDetails = rawDetails || name || title || '';
-
-  // For notes/logs: handle Mind Drop items
-  // - Use Mind Drop raw text as the long text source (body mapping)
-  // - title remains as the short label (possibly AI-generated)
-  const logBody = rawDetails || title || '';
-
-  // Extract tags from entity for all types (not just habits)
-  const extractedTags = extractTagKeysFromEntity(entity);
-
-  const normalizeMetaValues = (values: unknown): string[] => {
-    if (!Array.isArray(values)) return [];
-    const normalized = values
-      .map((value) => (typeof value === 'string' ? value.trim().toLowerCase() : ''))
-      .filter(Boolean);
-    return Array.from(new Set(normalized));
-  };
-
-  const tagsMeta = (entity as any)?.tags_meta ?? {};
-
-  // Phase L8: Hydrate logSubtypeOverride from entity.subtype for logs
-  const rawSubtype = (entity as any)?.subtype as string | undefined;
-  let logSubtypeOverride: 'journal' | 'idea' | 'general' | 'list' | 'event' | null = null;
-  if (baseType === 'log') {
-    if (
-      rawSubtype === 'journal' ||
-      rawSubtype === 'idea' ||
-      rawSubtype === 'list' ||
-      rawSubtype === 'event'
-    ) {
-      logSubtypeOverride = rawSubtype;
-    } else {
-      logSubtypeOverride = 'general';
-    }
-  }
-
-  // Phase L9: Hydrate logIsPrivate from entity.views.private_journal for logs
-  const logIsPrivate =
-    baseType === 'log'
-      ? !!(entity?.views && (entity.views as any).private_journal === true)
-      : false;
-
-  // Hydrate commitment fields from entity (Phase 6)
-  // Todos and notes can have commitment fields (habits use habit-specific path above)
-  const commitment = (entity as any)?.commitment === true;
-  const commitmentNote = (entity as any)?.commitment_note ?? '';
-  const commitmentStartedAt = (entity as any)?.commitment_started_at ?? null;
-
-  // Hydrate reminders from entity (used for journal entries and todos)
-  const reminders = (entity as any)?.reminders ?? null;
-
-  // Build frequency_json from DB columns (for habits loaded via todo/log path)
-  // Priority: cadence + target_per_period (canonical) > frequency + frequency_value (legacy)
-  const entityCadence = (entity as any)?.cadence;
-  const entityTargetPerPeriod = (entity as any)?.target_per_period;
-  const entityFrequency = (entity as any)?.frequency;
-  const entityFrequencyValue = (entity as any)?.frequency_value;
-  const entityDaysActive = (entity as any)?.days_active;
-  const habitFrequencyJson = buildFrequencyJsonFromDb(
-    entityFrequency,
-    entityFrequencyValue,
-    entityCadence,
-    entityTargetPerPeriod,
-    entityDaysActive,
-  );
-
-  if (__DEV__) {
-    console.log('[UnifiedOverlayV2.init] Loaded entity with:', {
-      id: (entity as any)?.id,
-      type: baseType,
-      commitment,
-      commitmentNote: commitmentNote?.slice?.(0, 30) || null,
-      commitmentStartedAt,
-      reminders: reminders?.length ?? 0,
-      due_day: (entity as any)?.due_day,
-      due_time: (entity as any)?.due_time,
-      mood: (entity as any)?.mood,
-      frequency: entityFrequency,
-      frequency_value: entityFrequencyValue,
-    });
-  }
-
-  const payload: Partial<V2State> = {
-    baseType,
-    compactTitle: title || '', // Preserve entity title as compactTitle
-    compactTitleSource: title || '', // Track source of title
-    userEditedTitle: (entity?.views as any)?.title_user_edited ?? false, // Respect if user previously edited title
-    log: {
-      title: logTitle,
-      body: logBody,
-      kind: classifyLogKind(logBody),
-      private: (entity as any)?.private ?? false, // Hydrate private field for logs (Phase L7)
-      // Date Intelligence fields for notes
-      target_date: (entity as any)?.target_date ?? (entity?.views as any)?.target_date ?? null,
-      end_date: (entity as any)?.end_date ?? (entity?.views as any)?.end_date ?? null,
-      event_time: (entity as any)?.event_time ?? (entity?.views as any)?.event_time ?? null,
-    },
-    todo: {
-      title: todoTitle,
-      details: todoDetails,
-      // GREMLY TODO DATE MODEL:
-      // Use due_day (YYYY-MM-DD) as the canonical source of truth.
-      // due_at is NOT used for Mind Drop / Today logic.
-      due_at: null, // Explicitly null - we don't rely on due_at
-      // Prefer due_day, fallback to computing from due_date if needed
-      due_day: (entity as any)?.due_day ?? null,
-      due_time: (entity as any)?.due_time ?? null,
-      time_estimate_minutes: (entity as any)?.time_estimate_minutes ?? null,
-      time_window: (entity as any)?.time_window ?? null,
-      // Date Intelligence fields for todos
-      target_date: (entity as any)?.target_date ?? (entity?.views as any)?.target_date ?? null,
-      scheduled_date:
-        (entity as any)?.scheduled_date ?? (entity?.views as any)?.scheduled_date ?? null,
-    },
-    habit: {
-      title: name || title || '',
-      notes: rawDetails || '',
-      schedule:
-        entityFrequency === 'daily' ? 'daily' : entityFrequency === 'weekly' ? 'weekly' : 'custom',
-      frequency_json: habitFrequencyJson, // Built from frequency + frequency_value columns
-      subtype:
-        (entity as any)?.subtype === 'start_habit' || (entity as any)?.subtype === 'break_habit'
-          ? (entity as any)?.subtype
-          : 'start_habit', // Validate habit subtype (not log subtypes)
-      start_date: (entity as any)?.start_date ?? null,
-      end_date: (entity as any)?.end_date ?? null,
-      time_window: (entity as any)?.time_window ?? null,
-    },
-    tags: extractedTags, // Initialize tags from entity for all types
-    stickyTags: normalizeMetaValues(tagsMeta?.sticky),
-    tagTombstones: normalizeMetaValues(tagsMeta?.tombstones),
-    mood: (entity as any)?.mood ?? null, // Hydrate mood for journal logs (Phase L2)
-    logSubtypeOverride, // Phase L8: Manual log subtype override
-    logIsPrivate, // Phase L9: Private flag for journal logs
-    // Commitment fields (Phase 6) - for todos and notes
-    commitment,
-    commitmentNote,
-    commitmentStartedAt,
-    // Space and other common fields
-    spaceId: (entity as any)?.space_id ?? null,
-    // Reminder support (for journals and todos)
-    reminderAt: reminders?.[0]?.when ?? null, // Map first reminder to reminderAt for backwards compat
-    // Checklist mode: respect explicit has_list value from database, only auto-detect if not set
-    isChecklistMode:
-      baseType === 'log' &&
-      (entity?.has_list === true || // User explicitly saved as list
-        (entity?.has_list == null && // Not explicitly set yet - auto-detect
-          (looksLikeSimpleCommaList(logBody) || looksLikeChecklistMarkup(logBody)))),
-    // Key Dates: Link to an event
-    linkedEventId: (entity as any)?.linked_event_id ?? null,
-  };
-
-  return payload;
-}
-
 function headerFor(base: BaseType, mode: 'create' | 'edit' | 'view', title?: string) {
   // Phase 6b: Show entity title in edit mode instead of generic "Edit"
-  if ((mode === 'edit' || mode === 'view') && title) return title;
+  // View mode shows its own title inside renderViewModeContent — avoid duplicating it in header
+  if (mode === 'edit' && title) return title;
   if (mode === 'view') return base === 'habit' ? 'Habit Progress' : 'View';
   if (mode === 'edit') return 'Edit';
   return base === 'log' ? 'New Log' : base === 'todo' ? 'New To-Do' : 'New Habit';
@@ -10703,532 +7600,3 @@ function buildCreateOrUpdateInput({
   };
 }
 
-const styles = StyleSheet.create({
-  // Phase 6c: Type selector - segmented control
-  tabsContainer: {
-    flexDirection: 'row',
-    borderRadius: 999,
-    backgroundColor: 'rgba(191, 216, 192, 0.18)',
-    padding: 2,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 16,
-    borderRadius: 999,
-  },
-  tabLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#8A8F8A',
-  },
-  tabActive: {
-    backgroundColor: 'rgba(46, 85, 64, 0.08)',
-  },
-  tabLabelActive: {
-    color: '#2E5540',
-    fontWeight: '600',
-  },
-  textArea: {
-    minHeight: 120,
-    fontSize: 16,
-    lineHeight: 24,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    textAlignVertical: 'top',
-  },
-
-  /* Due date pill styling */
-  dueDateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    alignSelf: 'flex-start',
-  },
-  dueDateIcon: {
-    marginRight: 6,
-  },
-  dueDateText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#222222',
-  },
-
-  /* Lock In feature styles */
-  dueAndLockRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  dueDateLeft: {
-    flex: 1,
-  },
-  dueDatePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    alignSelf: 'flex-start',
-    minHeight: 44, // Ensure adequate touch target
-  },
-  lockInRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  lockIcon: {
-    opacity: 0.7,
-    marginRight: 2,
-  },
-  lockLabel: {
-    fontSize: 13,
-    color: '#222222',
-    fontWeight: '500',
-  },
-  lockedBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: '#E0F0E5',
-  },
-  lockedBadgeText: {
-    fontSize: 11,
-    color: '#2E5540',
-    fontWeight: '500',
-  },
-
-  /* Time estimate modal styles */
-  timeEstimateGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  timeEstimateOption: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    minWidth: '30%',
-    alignItems: 'center',
-  },
-  timeEstimateOptionSelected: {
-    backgroundColor: lightTokens.colors.moss,
-  },
-  timeEstimateOptionText: {
-    fontSize: 14,
-    color: '#333333',
-  },
-  timeEstimateOptionTextSelected: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  timeEstimateClearButton: {
-    marginTop: 16,
-    alignSelf: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  timeEstimateClearButtonText: {
-    fontSize: 14,
-    color: '#888888',
-  },
-
-  /* Habit date row styling */
-  habitDateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 8,
-    paddingLeft: 12,
-  },
-  habitDatePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.03)',
-  },
-  habitDateText: {
-    fontSize: 13,
-    color: '#666666',
-  },
-
-  /* Schedule Popover styles */
-  schedulePopoverRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    minHeight: 44,
-  },
-  schedulePopoverLabel: {
-    fontSize: 14,
-    color: '#333333',
-    fontWeight: '500',
-  },
-  schedulePopoverValue: {
-    fontSize: 14,
-    color: '#666666',
-  },
-  schedulePopoverDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(0,0,0,0.08)',
-  },
-
-  /* Title actions styling */
-  titleActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-
-  /* Details panel layout */
-  detailsContainer: {
-    paddingHorizontal: tokenSpacing.base,
-    paddingVertical: tokenSpacing.sm,
-    borderRadius: tokenRadius.md,
-    backgroundColor: lightTokens.colors.surface || '#FFFFFF',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: lightTokens.colors.border,
-    // use token elevation for a subtle shadow
-    ...lightTokens.elevation.lg,
-  },
-
-  controlButton: {
-    minHeight: 36,
-    paddingHorizontal: tokenSpacing.md,
-    paddingVertical: tokenSpacing.xs,
-    borderRadius: tokenRadius.sm,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  scopeSelector: {
-    minHeight: 36,
-    justifyContent: 'center',
-    paddingHorizontal: tokenSpacing.md,
-  },
-
-  chip: {
-    minHeight: 44,
-    paddingHorizontal: tokenSpacing.md,
-    paddingVertical: tokenSpacing.xs,
-    borderRadius: tokenRadius.sm,
-    justifyContent: 'center',
-  },
-  chipSmall: {
-    minHeight: 44,
-    paddingHorizontal: tokenSpacing.sm,
-    paddingVertical: tokenSpacing.xs,
-    borderRadius: tokenRadius.sm,
-    justifyContent: 'center',
-    marginRight: tokenSpacing.sm,
-    marginBottom: tokenSpacing.xs,
-  },
-  listItem: {
-    alignItems: 'center',
-    marginBottom: tokenSpacing.sm,
-    minHeight: 44,
-  },
-
-  /* Detail row styles for redesigned To-Do details section */
-  /* Details row styles - unified layout */
-  detailsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 44,
-    paddingVertical: 10,
-  },
-  detailsRowPressed: {
-    backgroundColor: 'rgba(0,0,0,0.02)',
-  },
-  detailsRowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  detailsRowIcon: {
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  detailsRowLabel: {
-    fontSize: 14,
-    color: '#222222',
-  },
-  detailsRowValue: {
-    fontSize: 14,
-    color: '#8A8F8A',
-  },
-  deleteText: {
-    color: '#D9534F',
-    fontWeight: '500',
-    fontSize: 14,
-  },
-  detailDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(0,0,0,0.06)',
-  },
-
-  /* Log meta row styles (Phase L2) */
-  logMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 12,
-  },
-  logTimestampText: {
-    fontSize: 13,
-    color: '#666666',
-  },
-  moodRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 12,
-    paddingVertical: 6,
-    paddingLeft: 6,
-  },
-  moodButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F2F6F3', // subtle sage tint
-  },
-  moodButtonActive: {
-    backgroundColor: '#CDE8D0', // deeper sage when selected
-  },
-  // New mood picker styles
-  moodChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  moodChipText: {
-    fontSize: 13,
-    fontFamily: 'Inter-Medium',
-  },
-  moodPickerExpanded: {
-    flexDirection: 'column',
-    gap: 12,
-    flex: 1,
-  },
-  moodCategoryRow: {
-    flexDirection: 'column',
-    gap: 6,
-  },
-  moodCategoryLabel: {
-    fontSize: 11,
-    fontFamily: 'Inter-Medium',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  moodOptionsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  moodOptionChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-  },
-  moodOptionChipActive: {
-    // Active state handled inline
-  },
-  moodOptionText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-  },
-  moodDoneButton: {
-    alignSelf: 'flex-end',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 16,
-    marginTop: 4,
-  },
-  moodDoneButtonText: {
-    fontSize: 13,
-    fontFamily: 'Inter-SemiBold',
-  },
-  // Legacy mood pill styles (Phase L2, deprecated in L4)
-  moodPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  moodPillText: {
-    fontSize: 13,
-  },
-
-  /* Photo support styles (Phase L3) */
-  photoContainer: {
-    position: 'relative',
-    width: '100%',
-    marginTop: 12,
-  },
-  photoThumbnail: {
-    width: '100%',
-    height: 160,
-    borderRadius: 12,
-  },
-  photoRemoveButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
-  },
-  addPhotoButton: {
-    alignSelf: 'flex-end',
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
-  },
-  imageModalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imageModalImage: {
-    width: '100%',
-    height: '100%',
-  },
-
-  /* Multi-photo grid styles (Phase L5) */
-  photoGridScroll: {
-    marginBottom: 8,
-  },
-  photoGridContent: {
-    gap: 8,
-    paddingRight: 4,
-  },
-  photoThumbnailContainer: {
-    position: 'relative',
-    width: 80,
-    height: 60,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  photoGridThumbnail: {
-    width: 80,
-    height: 60,
-    borderRadius: 8,
-  },
-  photoGridDeleteButton: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 2,
-  },
-  addMorePhotosButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    padding: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
-    gap: 6,
-  },
-  addMorePhotosText: {
-    fontSize: 14,
-    color: '#666666',
-  },
-
-  /* ===== Schedule Modal Styles ===== */
-  scheduleModalContent: {
-    backgroundColor: '#FFFDF5',
-    borderRadius: 16,
-    marginHorizontal: 20,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
-    maxHeight: '85%',
-    alignSelf: 'stretch',
-  },
-  scheduleModalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginBottom: 16,
-  },
-  schSectionLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6B665C',
-    marginBottom: 10,
-  },
-  schDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: '#E5E0D8',
-    marginVertical: 16,
-  },
-  scheduleModalFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 16,
-    paddingTop: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#E5E0D8',
-  },
-  scheduleModalCancelButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-  },
-  scheduleModalCancelText: {
-    fontSize: 15,
-    color: '#6B665C',
-    fontWeight: '500',
-  },
-  scheduleModalSetButton: {
-    backgroundColor: '#2D4A3E',
-    paddingVertical: 10,
-    paddingHorizontal: 28,
-    borderRadius: 10,
-  },
-  scheduleModalSetText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-});

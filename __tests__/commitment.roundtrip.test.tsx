@@ -9,7 +9,7 @@
  * 4. Save payload → repo.update → DB row
  */
 
-import { buildDraftPayloadFromEntity } from '../components/overlay/UnifiedOverlayV2';
+import { buildDraftPayloadFromEntity } from '../components/overlay/overlayHydration';
 
 describe('Commitment Round-Trip', () => {
   describe('Todo commitment fields', () => {

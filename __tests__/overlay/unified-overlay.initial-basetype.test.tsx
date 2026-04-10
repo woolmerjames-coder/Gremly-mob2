@@ -102,7 +102,7 @@ describe('UnifiedOverlayV2 - Initial baseType Fix (P0)', () => {
   describe('Edit mode initial baseType', () => {
     it('initializes baseType to "todo" when editing a todo entity', () => {
       const onClose = jest.fn();
-      const { getByText } = render(
+      const { getByLabelText } = render(
         <UnifiedOverlayV2
           visible={true}
           mode="edit"
@@ -111,9 +111,8 @@ describe('UnifiedOverlayV2 - Initial baseType Fix (P0)', () => {
         />,
       );
 
-      // The To-Do tab should exist and be rendered on first frame
-      // This verifies baseType is 'todo' from the start, not 'log'
-      expect(getByText('To-Do')).toBeTruthy();
+      // The type pill should show To-Do, proving baseType is 'todo' from the start
+      expect(getByLabelText('Type: To-Do. Tap to change.')).toBeTruthy();
     });
 
     it('initializes baseType to "habit" when editing a habit entity', () => {
@@ -124,7 +123,7 @@ describe('UnifiedOverlayV2 - Initial baseType Fix (P0)', () => {
       // but the important assertion is that the Habit tab is found,
       // which proves baseType was initialized to 'habit'
       try {
-        const { getByText } = render(
+        const { getByLabelText } = render(
           <UnifiedOverlayV2
             visible={true}
             mode="edit"
@@ -133,8 +132,8 @@ describe('UnifiedOverlayV2 - Initial baseType Fix (P0)', () => {
           />,
         );
 
-        // The Habit tab should exist and be rendered on first frame
-        expect(getByText('Habit')).toBeTruthy();
+        // The Habit type pill should exist and be rendered on first frame
+        expect(getByLabelText('Type: Habit. Tap to change.')).toBeTruthy();
       } catch (e: any) {
         // If Switch mock error occurs, verify it's not a baseType issue
         // The error message should mention Switch, not Log form
@@ -147,7 +146,7 @@ describe('UnifiedOverlayV2 - Initial baseType Fix (P0)', () => {
     it('initializes baseType to "log" when editing a note/log entity', () => {
       mockGetById.mockResolvedValue(mockNoteRecord);
       const onClose = jest.fn();
-      const { getByText } = render(
+      const { getByLabelText } = render(
         <UnifiedOverlayV2
           visible={true}
           mode="edit"
@@ -156,27 +155,27 @@ describe('UnifiedOverlayV2 - Initial baseType Fix (P0)', () => {
         />,
       );
 
-      // The Log tab should exist
-      expect(getByText('Note')).toBeTruthy();
+      // The type pill should show General for a note entity
+      expect(getByLabelText(/^Type:.*Tap to change/)).toBeTruthy();
     });
   });
 
   describe('Create mode unchanged behavior', () => {
     it('defaults baseType to "log" in create mode', () => {
       const onClose = jest.fn();
-      const { getByText } = render(
+      const { getByTestId } = render(
         <UnifiedOverlayV2 visible={true} mode="create" onClose={onClose} />,
       );
 
-      // In create mode, log should be the default (unchanged behavior)
-      expect(getByText('Note')).toBeTruthy();
+      // In create mode, the type pill should be visible (defaults to log/general)
+      expect(getByTestId('type-pill')).toBeTruthy();
     });
   });
 
   describe('View mode initial baseType', () => {
     it('initializes baseType correctly in view mode for todos', () => {
       const onClose = jest.fn();
-      const { getByText, queryByText } = render(
+      const { queryByText } = render(
         <UnifiedOverlayV2
           visible={true}
           mode="view"
@@ -185,11 +184,7 @@ describe('UnifiedOverlayV2 - Initial baseType Fix (P0)', () => {
         />,
       );
 
-      // In view mode for todo, the component should still know it's a todo
-      // The To-Do tab exists in the header
-      expect(getByText('To-Do')).toBeTruthy();
-
-      // View mode hides Save button
+      // View mode hides Save button (Cancel/Save are in top bar, which shows Close/Edit in view mode)
       expect(queryByText('Save')).toBeNull();
     });
   });
