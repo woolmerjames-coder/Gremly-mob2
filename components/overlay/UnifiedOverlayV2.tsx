@@ -2122,6 +2122,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return getDateService().formatForChip(dueDay);
   }
 
+  function formatDueTime(time: string | null | undefined): string {
+    if (!time) return '';
+    const [h, m] = time.split(':').map(Number);
+    const isPM = h >= 12;
+    const hour12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    return `${hour12}:${String(m).padStart(2, '0')} ${isPM ? 'PM' : 'AM'}`;
+  }
+
   // Initial defaults (match brief: text-first; first line becomes title)
   // CRITICAL: Always get full entity from store to ensure commitment fields round-trip
   // Today/Now selectors may pass truncated entity shapes that lose commitment fields
@@ -3466,6 +3474,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (effectiveDoDate) scheduleParts.push(formatDueDay(effectiveDoDate));
       if (state.todo.time_estimate_minutes)
         scheduleParts.push(formatTimeEstimate(state.todo.time_estimate_minutes));
+      if (state.todo.due_time) scheduleParts.push(formatDueTime(state.todo.due_time));
       if (state.todo.time_window) {
         const twLabel = TIME_WINDOW_OPTIONS.find((o) => o.value === state.todo.time_window)?.label;
         if (twLabel && twLabel !== 'Any time') scheduleParts.push(twLabel);
@@ -4209,6 +4218,62 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       );
                                     })}
                                   </View>
+
+                                  {/* Specific time */}
+                                  <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5, marginTop: 4 }}>
+                                    Specific time
+                                  </Text>
+                                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+                                    {['9:00 AM', '10:00 AM', '12:00 PM', '2:00 PM', '5:00 PM'].map((time) => {
+                                      const isActive = formatDueTime(state.todo.due_time) === time;
+                                      return (
+                                        <Pressable
+                                          key={time}
+                                          onPress={() => {
+                                            if (isActive) {
+                                              store.setTodoDue({ due_time: null });
+                                            } else {
+                                              const [h, min] = time.replace(/ (AM|PM)/, '').split(':').map(Number);
+                                              const isPM = time.includes('PM');
+                                              const hour24 = isPM && h !== 12 ? h + 12 : (!isPM && h === 12 ? 0 : h);
+                                              const timeStr = `${String(hour24).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+                                              store.setTodoDue({ due_time: timeStr });
+                                            }
+                                          }}
+                                          style={{
+                                            paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
+                                            backgroundColor: isActive ? '#2D4A3E' : '#F5F2ED',
+                                          }}
+                                        >
+                                          <Text style={{
+                                            fontSize: 12, fontWeight: isActive ? '600' : '500',
+                                            color: isActive ? '#FFFFFF' : '#6B665C',
+                                          }}>
+                                            {time}
+                                          </Text>
+                                        </Pressable>
+                                      );
+                                    })}
+                                    <Pressable
+                                      onPress={() => store.setTodoDue({ due_time: null })}
+                                      style={{
+                                        paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
+                                        backgroundColor: !state.todo.due_time ? '#2D4A3E' : '#F5F2ED',
+                                      }}
+                                    >
+                                      <Text style={{
+                                        fontSize: 12, fontWeight: !state.todo.due_time ? '600' : '500',
+                                        color: !state.todo.due_time ? '#FFFFFF' : '#6B665C',
+                                      }}>
+                                        None
+                                      </Text>
+                                    </Pressable>
+                                  </View>
+                                  {state.todo.due_time && (
+                                    <Text style={{ fontSize: 12, color: '#2E5540', fontWeight: '500', marginBottom: 8 }}>
+                                      Scheduled for {formatDueTime(state.todo.due_time)}
+                                    </Text>
+                                  )}
 
                                   {/* Duration */}
                                   <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
@@ -5064,22 +5129,53 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
                                       Time
                                     </Text>
-                                    <Pressable
-                                      onPress={() => {
-                                        setDateModalTarget('note_event');
-                                        store.setUI({ showTimePicker: true });
-                                      }}
-                                      style={{
-                                        padding: 7, paddingHorizontal: 10, borderRadius: 8,
-                                        borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
-                                        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-                                      }}
-                                    >
-                                      <Text style={{ fontSize: 13, fontWeight: '500', color: state.log.event_time ? '#2D4A3E' : '#B5AFA5' }}>
-                                        {state.log.event_time ?? 'Not set'}
-                                      </Text>
-                                      <Clock size={14} color="#8B8579" />
-                                    </Pressable>
+                                    <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                                      {['9:00 AM', '12:00 PM', '3:00 PM', '6:00 PM', '9:00 PM'].map((time) => {
+                                        const formatted = formatDueTime(state.log.event_time);
+                                        const isActive = formatted === time;
+                                        return (
+                                          <Pressable
+                                            key={time}
+                                            onPress={() => {
+                                              if (isActive) {
+                                                store.setLogEventTime(null);
+                                              } else {
+                                                const [h, min] = time.replace(/ (AM|PM)/, '').split(':').map(Number);
+                                                const isPM = time.includes('PM');
+                                                const hour24 = isPM && h !== 12 ? h + 12 : (!isPM && h === 12 ? 0 : h);
+                                                const timeStr = `${String(hour24).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+                                                store.setLogEventTime(timeStr);
+                                              }
+                                            }}
+                                            style={{
+                                              paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
+                                              backgroundColor: isActive ? '#2D4A3E' : '#F5F2ED',
+                                            }}
+                                          >
+                                            <Text style={{
+                                              fontSize: 12, fontWeight: isActive ? '600' : '500',
+                                              color: isActive ? '#FFFFFF' : '#6B665C',
+                                            }}>
+                                              {time}
+                                            </Text>
+                                          </Pressable>
+                                        );
+                                      })}
+                                      <Pressable
+                                        onPress={() => store.setLogEventTime(null)}
+                                        style={{
+                                          paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8,
+                                          backgroundColor: !state.log.event_time ? '#2D4A3E' : '#F5F2ED',
+                                        }}
+                                      >
+                                        <Text style={{
+                                          fontSize: 12, fontWeight: !state.log.event_time ? '600' : '500',
+                                          color: !state.log.event_time ? '#FFFFFF' : '#6B665C',
+                                        }}>
+                                          None
+                                        </Text>
+                                      </Pressable>
+                                    </View>
                                   </ExpandableRow>
                                 )}
 
@@ -5508,173 +5604,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Box>
                           )}
 
-                          {/* Add time toggle */}
-                          {!clearDateFlag && (
-                            <Box mt={3} mb={4}>
-                              <Box
-                                row
-                                style={{ alignItems: 'center', justifyContent: 'space-between' }}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 15,
-                                    fontWeight: '500',
-                                    color: '#555555',
-                                  }}
-                                >
-                                  Add time?
-                                </Text>
-                                <Switch
-                                  value={showTimePicker}
-                                  onValueChange={(value) => {
-                                    setShowTimePicker(value);
-                                    if (value) {
-                                      // Default to 9 AM if no preset selected
-                                      if (!selectedTimePreset) {
-                                        setSelectedTimePreset(PRESET_TIMES[0].key);
-                                        const defaultTime = setHours(
-                                          setMinutes(getDateService().now(), 0),
-                                          9,
-                                        );
-                                        setSelectedTime(defaultTime);
-                                      }
-                                    } else {
-                                      // Reset when toggling off
-                                      setSelectedTimePreset(null);
-                                      setShowCustomTimePicker(false);
-                                    }
-                                  }}
-                                  trackColor={{
-                                    false: '#E0E0E0',
-                                    true: tokens.colors.primary,
-                                  }}
-                                  thumbColor="#FFFFFF"
-                                />
-                              </Box>
 
-                              {/* Preset Time Chips */}
-                              {showTimePicker && (
-                                <Box mt={3} style={{ marginBottom: 0, paddingBottom: 4 }}>
-                                  <Box
-                                    row
-                                    style={{
-                                      flexWrap: 'wrap',
-                                      rowGap: 8,
-                                      columnGap: 8,
-                                    }}
-                                  >
-                                    {PRESET_TIMES.map((preset) => (
-                                      <Pressable
-                                        key={preset.key}
-                                        onPress={() => {
-                                          setSelectedTimePreset(preset.key);
-                                          setShowCustomTimePicker(false);
-                                          // Update selectedTime for use in Set button
-                                          const newTime = setHours(
-                                            setMinutes(getDateService().now(), preset.minute),
-                                            preset.hour,
-                                          );
-                                          setSelectedTime(newTime);
-                                        }}
-                                        style={({ pressed }) => ({
-                                          paddingHorizontal: 14,
-                                          paddingVertical: 8,
-                                          borderRadius: 18,
-                                          backgroundColor: pressed
-                                            ? '#F5F5F5'
-                                            : selectedTimePreset === preset.key
-                                              ? '#F0F4F1'
-                                              : '#FAFAFA',
-                                          borderWidth: 1,
-                                          borderColor:
-                                            selectedTimePreset === preset.key
-                                              ? tokens.colors.primary
-                                              : '#E0E0E0',
-                                        })}
-                                      >
-                                        <Text
-                                          style={{
-                                            fontSize: 13,
-                                            fontWeight: '500',
-                                            color:
-                                              selectedTimePreset === preset.key
-                                                ? tokens.colors.primary
-                                                : '#222222',
-                                          }}
-                                        >
-                                          {preset.label}
-                                        </Text>
-                                      </Pressable>
-                                    ))}
-                                    {/* Custom time chip */}
-                                    <Pressable
-                                      onPress={() => {
-                                        setSelectedTimePreset('custom');
-                                        setShowCustomTimePicker(true);
-                                      }}
-                                      style={({ pressed }) => ({
-                                        paddingHorizontal: 14,
-                                        paddingVertical: 8,
-                                        borderRadius: 18,
-                                        backgroundColor: pressed
-                                          ? '#F5F5F5'
-                                          : selectedTimePreset === 'custom'
-                                            ? '#F0F4F1'
-                                            : '#FAFAFA',
-                                        borderWidth: 1,
-                                        borderColor:
-                                          selectedTimePreset === 'custom' ? tokens.colors.primary : '#E0E0E0',
-                                      })}
-                                    >
-                                      <Text
-                                        style={{
-                                          fontSize: 13,
-                                          fontWeight: '500',
-                                          color:
-                                            selectedTimePreset === 'custom' ? tokens.colors.primary : '#222222',
-                                        }}
-                                      >
-                                        {selectedTimePreset === 'custom'
-                                          ? `Custom (${format(selectedTime, 'h:mm a')})`
-                                          : 'Custom…'}
-                                      </Text>
-                                    </Pressable>
-                                  </Box>
-
-                                  {/* Custom Time Picker - shown inline when Custom is selected */}
-                                  {showCustomTimePicker && (
-                                    <Box mt={3}>
-                                      <DateTimePicker
-                                        value={selectedTime}
-                                        mode="time"
-                                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                                        onChange={(event, time) => {
-                                          // On Android, event.type === 'dismissed' means the user cancelled
-                                          if (
-                                            Platform.OS === 'android' &&
-                                            event.type === 'dismissed'
-                                          ) {
-                                            setShowCustomTimePicker(false);
-                                            return;
-                                          }
-
-                                          if (time) {
-                                            setSelectedTime(time);
-                                            if (Platform.OS === 'android') {
-                                              // Close picker after selection on Android
-                                              setShowCustomTimePicker(false);
-                                            }
-                                          }
-                                        }}
-                                        themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
-                                        accentColor="#2E5540"
-                                      />
-                                    </Box>
-                                  )}
-                                </Box>
-                              )}
-                            </Box>
-                          )}
 
                           {/* Action buttons - now inside ScrollView */}
                           <Box row style={{ gap: 12, marginTop: 12 }}>
@@ -5698,19 +5628,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   let finalDate: Date | null = null;
 
                                   if (!clearDateFlag) {
-                                    // Combine date and optional time
                                     finalDate = selectedDate;
-
-                                    if (showTimePicker && selectedTime) {
-                                      // Merge the selected time into the selected date
-                                      finalDate = setHours(
-                                        setMinutes(selectedDate, selectedTime.getMinutes()),
-                                        selectedTime.getHours(),
-                                      );
-                                    } else {
-                                      // No time selected, use the date as-is (all-day)
-                                      finalDate = selectedDate;
-                                    }
                                   }
 
                                   // Apply the change based on target type
