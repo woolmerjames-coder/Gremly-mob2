@@ -699,9 +699,6 @@ export default function ChatThreadScreen({ route }: Props) {
             });
           }
 
-          // Phase 10.6: Start thinking animation briefly
-          mascot.thinking();
-
           // Add slight delay so response feels natural (not instantaneous)
           setTimeout(async () => {
             const responseText = getQuickResponseText(quickResponse);
@@ -716,9 +713,6 @@ export default function ChatThreadScreen({ route }: Props) {
               },
               activeChatId,
             );
-
-            // Phase 10.6: Transition to replying state
-            mascot.replying();
 
             // Record performance metric
             await perfMonitor.recordQuickResponse();
@@ -741,7 +735,6 @@ export default function ChatThreadScreen({ route }: Props) {
           getMessagesForResolution(),
         );
         if (metaResult.type === 'save_this') {
-          mascot.thinking();
           const saveResult = await spaceChatEnhanced.handleSaveThisCommand(
             metaResult.intent,
             metaResult.resolution,
@@ -751,7 +744,6 @@ export default function ChatThreadScreen({ route }: Props) {
           setSending(false);
           return;
         } else if (metaResult.type === 'summary') {
-          mascot.thinking();
           // Filter to only user/assistant messages for summary
           const recentMessages = getMessagesForResolution()
             .filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -762,9 +754,6 @@ export default function ChatThreadScreen({ route }: Props) {
           setSending(false);
           return;
         }
-
-        // Phase 10.6: Start thinking animation for API call
-        mascot.thinking();
 
         // 2. Process with Cortex streaming (Phase 12)
         try {
@@ -862,8 +851,6 @@ export default function ChatThreadScreen({ route }: Props) {
                 const finalizedMessage = await finalizeStreamingMessage(messageId, finalText);
                 streamingMessageIdRef.current = null;
                 streamingControllerRef.current = null;
-                mascot.replying();
-
                 // Combine fetchedUrl with sources
                 let finalSources = richResult?.sources || [];
                 if (richResult?.fetchedUrl) {
@@ -998,8 +985,7 @@ export default function ChatThreadScreen({ route }: Props) {
           // Still add an assistant message to acknowledge the user's input
           try {
             await appendAssistantMessage(errorResponse);
-            // Phase 10.6: Even on error, show replying state briefly
-            mascot.replying();
+            mascot.idle();
           } catch (appendError) {
             console.error('[ChatThread] Failed to append error message:', appendError);
             // Phase 10.6: Return to idle on complete failure

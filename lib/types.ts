@@ -813,10 +813,23 @@ export interface HabitBuddy {
 }
 
 /**
- * Mascot emotion states for Phase 10.6
- * Controls visual feedback and animations during chat interactions
+ * Unified mascot animation mode – drives both useMascotController and MascotLottie.
+ *
+ * idle / drop / fed              – existing Lottie one-shots
+ * waving / fallingAsleep /
+ * sleeping / wakingUp            – new lifecycle animations (Phase 10.7)
  */
-export type MascotState = 'idle' | 'thinking' | 'replying' | 'playful' | 'celebration' | 'rest';
+export type AnimationMode =
+  | 'idle'
+  | 'drop'
+  | 'fed'
+  | 'waving'
+  | 'fallingAsleep'
+  | 'sleeping'
+  | 'wakingUp';
+
+/** @deprecated Use AnimationMode instead */
+export type MascotState = AnimationMode;
 
 // ============================================================================
 // MORNING BRIEF TYPES

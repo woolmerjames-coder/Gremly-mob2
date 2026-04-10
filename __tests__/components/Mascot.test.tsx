@@ -29,11 +29,11 @@ describe('Mascot Component', () => {
   it('should render different emojis for different states', () => {
     const states: { state: MascotState; emoji: string }[] = [
       { state: 'idle', emoji: '😌' },
-      { state: 'thinking', emoji: '🤔' },
-      { state: 'replying', emoji: '😊' },
-      { state: 'playful', emoji: '😉' },
-      { state: 'celebration', emoji: '🎉' },
-      { state: 'rest', emoji: '😴' },
+      { state: 'drop', emoji: '🎉' },
+      { state: 'fed', emoji: '😊' },
+      { state: 'waving', emoji: '👋' },
+      { state: 'sleeping', emoji: '😴' },
+      { state: 'wakingUp', emoji: '🥱' },
     ];
 
     states.forEach(({ state, emoji }) => {
@@ -89,7 +89,7 @@ describe('Mascot Component', () => {
     it('should not crash when Lottie is not available', () => {
       // Test that component renders without throwing
       expect(() => {
-        render(<Mascot state="thinking" />);
+        render(<Mascot state="drop" />);
       }).not.toThrow();
     });
   });
@@ -108,8 +108,8 @@ describe('Mascot Component', () => {
       const { rerender } = render(<Mascot state="idle" />);
 
       // Change state multiple times
-      rerender(<Mascot state="thinking" />);
-      rerender(<Mascot state="replying" />);
+      rerender(<Mascot state="drop" />);
+      rerender(<Mascot state="fed" />);
       rerender(<Mascot state="idle" />);
 
       // Should not crash or cause issues

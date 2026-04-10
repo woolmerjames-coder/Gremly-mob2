@@ -20,6 +20,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { recolorLottieJson, GREMLY_PALETTES } from '../../lib/constants/gremlyPalettes';
+import type { AnimationMode } from '../../lib/types';
 
 // Lottie sources: 3 animations × 2 colorways (source props NEVER change at runtime)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -75,14 +76,15 @@ function gaugeToFill(gaugeValue: number): number {
   return EDGE_FILL_RANGE + middleProgress * middleFillRange;
 }
 
-type AnimationMode = 'idle' | 'drop' | 'fed';
-
+/** @deprecated Use the `mode` prop instead of the imperative handle. */
 export type MascotLottieHandle = {
   celebrate: () => void;
   celebrateFed: () => void;
 };
 
 type Props = {
+  /** Controlled animation mode – when supplied the component is fully controlled. */
+  mode?: AnimationMode;
   style?: ViewStyle;
   showFullColor?: boolean;
   drainAnimation?: boolean;
@@ -90,8 +92,14 @@ type Props = {
 };
 
 const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
-  ({ style, showFullColor = false, drainAnimation = false, drainVisible = false }, ref) => {
-    const [mode, setMode] = useState<AnimationMode>('idle');
+  (
+    { mode: modeProp, style, showFullColor = false, drainAnimation = false, drainVisible = false },
+    ref,
+  ) => {
+    // Internal state only used by the deprecated imperative handle
+    const [imperativeMode, setImperativeMode] = useState<AnimationMode>('idle');
+    // Controlled prop takes precedence over imperative state
+    const mode: AnimationMode = modeProp ?? imperativeMode;
     const isCelebratingRef = useRef(false);
     const fedPlayCountRef = useRef(0);
     const reduceMotion = useReducedMotion();
@@ -199,23 +207,25 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
       }
     }, [mode]);
 
+    /** @deprecated Use the mode prop instead. */
     const celebrate = useCallback(() => {
       if (isCelebratingRef.current) return;
       isCelebratingRef.current = true;
-      setMode('drop');
+      setImperativeMode('drop');
     }, []);
 
+    /** @deprecated Use the mode prop instead. */
     const celebrateFed = useCallback(() => {
       if (isCelebratingRef.current) return;
       isCelebratingRef.current = true;
       fedPlayCountRef.current = 0;
-      setMode('fed');
+      setImperativeMode('fed');
     }, []);
 
     const handleDropFinish = useCallback(() => {
       if (mode !== 'drop') return;
       isCelebratingRef.current = false;
-      setMode('idle');
+      setImperativeMode('idle');
     }, [mode]);
 
     const handleFedFinish = useCallback(() => {
@@ -229,7 +239,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
         greyFedRef.current?.play();
       } else {
         isCelebratingRef.current = false;
-        setMode('idle');
+        setImperativeMode('idle');
       }
     }, [mode]);
 
