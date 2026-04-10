@@ -19,13 +19,17 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { overlayStyles } from '../../app/styles/manualAdd.styles';
-import { ManualAddHeader } from '../../components/overlay/ManualAddHeader';
-import { ManualAddFooter } from '../../components/overlay/ManualAddFooter';
-import { ReminderSelector } from '../../components/overlay/ReminderSelector';
-import { HabitsTab } from '../../components/overlay/HabitsTab';
-import { TodoForm } from '../../components/overlay/TodoForm';
-import { JournalForm } from '../../components/overlay/JournalForm';
-import { CatchAllForm } from '../../components/overlay/CatchAllForm';
+
+// Stub components — originals deleted during overlay cleanup (Phase 7).
+// This legacy file is @deprecated and kept only for reference.
+const ManualAddHeader = (_p: any) => null;
+const ManualAddFooter = (_p: any) => null;
+const ReminderSelector = (_p: any) => null;
+const HabitsTab = (_p: any) => null;
+const TodoForm = (_p: any) => null;
+const JournalForm = (_p: any) => null;
+const CatchAllForm = (_p: any) => null;
+
 import type { ManualAddPayload, TReminderRule } from '../../app/schemas/manualAdd';
 import { useCortex } from '../../providers/CortexProvider';
 import { useRepo } from '../../providers/RepoProvider';

@@ -166,7 +166,6 @@ import {
 } from './overlaySave';
 
 // Make Actionable feature
-import { MakeActionableButton } from './MakeActionableButton';
 import { ChecklistView } from './ChecklistView';
 
 // Habit View Mode
@@ -179,7 +178,6 @@ import { ChecklistProgress } from './ChecklistProgress';
 // Linked Items for Events
 import LinkedItemsSection from './LinkedItemsSection';
 import LinkedEventPicker from './LinkedEventPicker';
-import { RevertToTextButton } from './RevertToTextButton';
 import { TodoPreviewModal } from './TodoPreviewModal';
 import { env } from '../../lib/env';
 import { ClarificationPopup } from '../minddrop/ClarificationPopup';
