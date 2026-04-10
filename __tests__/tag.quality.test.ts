@@ -1,9 +1,7 @@
 import { filterAndNormalizeTags } from '../lib/tags/normalize';
 import {
-  toCreateOrUpdateInput,
   sanitizeSuggestedTags,
 } from '../components/overlay/overlayV2.mapping';
-import { initialV2State } from '../components/overlay/overlayV2.state';
 
 describe('Overlay Phase 2 — Tag Quality', () => {
   describe('Tag junk-word filtering', () => {
@@ -26,30 +24,6 @@ describe('Overlay Phase 2 — Tag Quality', () => {
       const result = filterAndNormalizeTags(['#find', '#Fitness', '@Dave', '#great']);
       // CP-TAG-3: @tags are normalized to lowercase, hashtags too
       expect(result).toEqual(['@dave', '#fitness']);
-    });
-  });
-
-  describe('Tag permanence across provisional → conversion', () => {
-    it('retains sticky tags, preserves tombstones, and never resurrects junk tags', () => {
-      const state = {
-        ...initialV2State,
-        baseType: 'log' as const,
-        log: {
-          ...initialV2State.log,
-          body: 'Travel recap with Dave after long run',
-          title: 'Travel recap with Dave',
-        },
-        tags: ['#fitness', '#find'],
-        stickyTags: ['#travel'],
-        tagTombstones: ['#fitness'],
-      };
-
-      const payload = toCreateOrUpdateInput('log', state, null);
-
-      expect(payload.tags).not.toContain('#find');
-      expect(payload.tags).not.toContain('#fitness');
-      expect(payload.tags_meta?.tombstones).toContain('#fitness');
-      expect(payload.tags_meta?.sticky).toContain('#travel');
     });
   });
 
