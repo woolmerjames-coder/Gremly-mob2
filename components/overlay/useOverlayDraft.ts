@@ -2,7 +2,6 @@
  * useOverlayDraft — Single source of truth for overlay state
  *
  * Replaces:
- * - useReducer(v2Reducer) with 40 action types
  * - ~20 entity-related useStates (reminders, moods, photos, etc.)
  * - fullEntity live Zustand subscription
  * - HYDRATE_EDIT effects
