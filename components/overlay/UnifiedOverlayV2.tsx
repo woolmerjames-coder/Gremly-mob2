@@ -1,12 +1,27 @@
 /**
  * UnifiedOverlayV2 — Entity create/edit/view overlay
  *
+ * Architecture:
+ * - State: useOverlayDraft (Zustand + immer) — single source of truth
+ * - Save: buildSavePayload (overlaySave.ts) → Zustand mutations → Supabase
+ * - Hydration: hydrateEntityToDraft (overlayHydration.ts) — one-shot on open
+ *
  * Extracted modules:
+ * - useOverlayDraft.ts: Draft store (Zustand + immer)
+ * - overlayHydration.ts: Entity → draft mapping
+ * - overlaySave.ts: Draft → save payload mapping
  * - overlayStyles.ts: StyleSheet definitions
- * - overlayHydration.ts: Entity → state hydration + constants
- * - overlaySave.ts: State → save payload mapping
+ * - ExpandableRow.tsx: Inline-expandable metadata rows
+ * - TypePicker.tsx: Type pill + dropdown (6 entity types)
+ * - HabitModeToggle.tsx: Build/Break segmented control
+ * - ToggleSwitch.tsx: iOS-style toggle
+ * - PhotoStrip.tsx: Photo thumbnails + add button
  * - OverlayExpandedEditor.tsx: Full-screen text editor
  * - SetRemindersModal.tsx: Reminder management
+ *
+ * Refactor complete: 2026-04-10
+ * Before: 11,234 lines, 65 useStates, 35 useEffects, 4 state layers
+ * After:   6,083 lines,  7 useStates, 14 useEffects, 1 state layer
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useMemo, useCallback, useState, useRef } from 'react';
