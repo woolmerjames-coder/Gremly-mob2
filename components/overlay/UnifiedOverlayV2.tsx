@@ -4564,7 +4564,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     icon={MessageCircle}
                                     label="Chat with Gremly"
                                     iconColor="#2E5540"
-                                    right={<ChevronRight size={14} color="#2E5540" />}
+                                    right={
+                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <Image
+                                          source={require('../../assets/buttonforHP.png')}
+                                          style={{ width: 22, height: 22, borderRadius: 11 }}
+                                          resizeMode="cover"
+                                        />
+                                        <ChevronRight size={14} color="#2E5540" />
+                                      </View>
+                                    }
                                     onPress={() => store.setUI({ showEntityChat: true })}
                                   />
                                 )}
@@ -5035,7 +5044,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     icon={MessageCircle}
                                     label="Chat with Gremly"
                                     iconColor="#2E5540"
-                                    right={<ChevronRight size={14} color="#2E5540" />}
+                                    right={
+                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <Image
+                                          source={require('../../assets/buttonforHP.png')}
+                                          style={{ width: 22, height: 22, borderRadius: 11 }}
+                                          resizeMode="cover"
+                                        />
+                                        <ChevronRight size={14} color="#2E5540" />
+                                      </View>
+                                    }
                                     onPress={() => store.setUI({ showEntityChat: true })}
                                   />
                                 )}
@@ -5358,7 +5376,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     icon={MessageCircle}
                                     label="Chat with Gremly"
                                     iconColor="#2E5540"
-                                    right={<ChevronRight size={14} color="#2E5540" />}
+                                    right={
+                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                        <Image
+                                          source={require('../../assets/buttonforHP.png')}
+                                          style={{ width: 22, height: 22, borderRadius: 11 }}
+                                          resizeMode="cover"
+                                        />
+                                        <ChevronRight size={14} color="#2E5540" />
+                                      </View>
+                                    }
                                     onPress={() => store.setUI({ showEntityChat: true })}
                                   />
                                 )}
