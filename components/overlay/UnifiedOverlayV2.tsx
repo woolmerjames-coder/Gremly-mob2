@@ -119,6 +119,7 @@ import {
   extractTagKeysFromEntity,
   extractDaysActiveFromFrequencyJson,
   TYPE_FAMILY,
+  SCHEDULE_PRESETS,
   type TypeFamily,
   hydrateEntityToDraft,
 } from './overlayHydration';
@@ -146,7 +147,7 @@ import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/background
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import SetRemindersModal from './SetRemindersModal';
-import ScheduleModal, { type ScheduleChanges } from './ScheduleModal';
+// ScheduleModal removed — schedule editing is now inline in ExpandableRow
 import type { ItemReminder } from '../../lib/types';
 import {
   scheduleItemReminder,
@@ -245,6 +246,25 @@ const TIME_WINDOW_OPTIONS: {
   { label: 'Afternoon', value: 'day' }, // Display "Afternoon", store as 'day'
   { label: 'Evening', value: 'evening' },
 ];
+
+// Duration stepper steps (minutes)
+const DURATION_STEPS = [0, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240] as const;
+const QUICK_DURATIONS = [
+  { label: '15m', value: 15 },
+  { label: '30m', value: 30 },
+  { label: '1h', value: 60 },
+  { label: '2h', value: 120 },
+];
+
+// Build frequency_json from count/unit/days for inline schedule editing
+function buildFreqJson(count: number, unit: 'day' | 'week' | 'month', days: number[]) {
+  if (unit === 'week' && days.length > 0) return { type: 'days', days };
+  if (count === 1) {
+    const simpleMap: Record<string, string> = { day: 'daily', week: 'weekly', month: 'monthly' };
+    return { type: 'simple', value: simpleMap[unit] };
+  }
+  return { type: 'custom', value: { count, unit } };
+}
 
 // Multi-photo support for logs (Phase L5)
 
@@ -912,6 +932,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Local UI state that was previously in the reducer
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const toggleRow = (key: string) => setExpandedRow(prev => prev === key ? null : key);
+  const [habitIsCustomFreq, setHabitIsCustomFreq] = useState(false);
   const [showTypePicker, setShowTypePicker] = useState(false);
   const undoStackRef = useRef<Array<{ kind: 'type' | 'tag' | 'commitment'; prev: Partial<any> }>>([]);
   const baseType = state.baseType;
@@ -1531,24 +1552,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return true;
   }
 
-  // Handle schedule modal apply — single atomic store update (fixes Bug #3)
-  const handleScheduleApply = useCallback(
-    (changes: ScheduleChanges) => {
-      store.applySchedule({
-        scheduledDate: changes.scheduledDate ?? null,
-        targetDate: changes.targetDate ?? null,
-        dueDay: changes.scheduledDate ?? null,
-        timeWindow: changes.timeWindow as 'day' | 'any' | 'morning' | 'evening' | null,
-        timeEstimateMinutes: changes.timeEstimateMinutes ?? null,
-        frequencyJson: changes.frequencyJson,
-        schedule: changes.schedule ?? 'custom',
-        startDate: changes.startDate ?? null,
-        endDate: changes.endDate ?? null,
-      });
-      store.setUI({ showScheduleModal: false });
-    },
-    [],
-  );
+
 
   // Derive spaces from store (no useEffect needed)
   const spaces = storeSpaces || [];
@@ -5037,12 +5041,158 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     return parts.length > 0 ? parts.join(' · ') : 'Tap to set';
                                   })()}
                                   expanded={expandedRow === 'schedule'}
-                                  onToggle={() => {
-                                    toggleRow('schedule');
-                                    store.setUI({ showScheduleModal: true });
-                                  }}
+                                  onToggle={() => toggleRow('schedule')}
                                   iconColor="#2E5540"
-                                />
+                                >
+                                  {/* Time of day */}
+                                  <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                    Time of day
+                                  </Text>
+                                  <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+                                    {TIME_WINDOW_OPTIONS.map((opt) => {
+                                      const isSel = (state.todo.time_window ?? null) === opt.value;
+                                      return (
+                                        <Pressable
+                                          key={opt.value ?? 'null'}
+                                          onPress={() => store.setTodoTimeWindow(opt.value)}
+                                          style={{
+                                            flex: 1, paddingVertical: 7, alignItems: 'center',
+                                            borderRadius: 8, backgroundColor: isSel ? '#2D4A3E' : '#F5F2ED',
+                                          }}
+                                        >
+                                          <Text style={{
+                                            fontSize: 12, fontWeight: isSel ? '600' : '500',
+                                            color: isSel ? '#FFFFFF' : '#6B665C',
+                                          }}>
+                                            {opt.label}
+                                          </Text>
+                                        </Pressable>
+                                      );
+                                    })}
+                                  </View>
+
+                                  {/* Duration */}
+                                  <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                    Duration
+                                  </Text>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Pressable
+                                      onPress={() => {
+                                        const cur = state.todo.time_estimate_minutes ?? 0;
+                                        const idx = DURATION_STEPS.findIndex((s) => s >= cur);
+                                        const prevIdx = Math.max(0, (idx > 0 ? idx : DURATION_STEPS.length) - 1);
+                                        store.setTodoTimeEstimate(DURATION_STEPS[prevIdx] || null);
+                                      }}
+                                      disabled={!state.todo.time_estimate_minutes}
+                                      style={{
+                                        width: 30, height: 30, borderRadius: 15,
+                                        backgroundColor: '#F5F2ED', alignItems: 'center', justifyContent: 'center',
+                                        opacity: !state.todo.time_estimate_minutes ? 0.3 : 1,
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 16, color: '#2D4A3E' }}>−</Text>
+                                    </Pressable>
+                                    <Text style={{
+                                      fontSize: 15, fontWeight: '600', color: '#2D4A3E',
+                                      marginHorizontal: 8, minWidth: 46, textAlign: 'center',
+                                    }}>
+                                      {state.todo.time_estimate_minutes
+                                        ? formatTimeEstimate(state.todo.time_estimate_minutes)
+                                        : 'None'}
+                                    </Text>
+                                    <Pressable
+                                      onPress={() => {
+                                        const cur = state.todo.time_estimate_minutes ?? 0;
+                                        const idx = DURATION_STEPS.findIndex((s) => s > cur);
+                                        const nextIdx = idx >= 0 ? idx : DURATION_STEPS.length - 1;
+                                        store.setTodoTimeEstimate(DURATION_STEPS[nextIdx]);
+                                      }}
+                                      disabled={(state.todo.time_estimate_minutes ?? 0) >= 240}
+                                      style={{
+                                        width: 30, height: 30, borderRadius: 15,
+                                        backgroundColor: '#F5F2ED', alignItems: 'center', justifyContent: 'center',
+                                        opacity: (state.todo.time_estimate_minutes ?? 0) >= 240 ? 0.3 : 1,
+                                      }}
+                                    >
+                                      <Text style={{ fontSize: 16, color: '#2D4A3E' }}>+</Text>
+                                    </Pressable>
+                                  </View>
+                                  <View style={{ flexDirection: 'row', gap: 6, justifyContent: 'center', marginTop: 8, marginBottom: 12 }}>
+                                    {QUICK_DURATIONS.map((chip) => {
+                                      const isDurSel = state.todo.time_estimate_minutes === chip.value;
+                                      return (
+                                        <Pressable
+                                          key={chip.value}
+                                          onPress={() => store.setTodoTimeEstimate(isDurSel ? null : chip.value)}
+                                          style={{
+                                            paddingVertical: 6, paddingHorizontal: 14, borderRadius: 8,
+                                            backgroundColor: isDurSel ? '#2D4A3E' : '#F5F2ED',
+                                          }}
+                                        >
+                                          <Text style={{
+                                            fontSize: 12, fontWeight: isDurSel ? '600' : '500',
+                                            color: isDurSel ? '#FFFFFF' : '#6B665C',
+                                          }}>
+                                            {chip.label}
+                                          </Text>
+                                        </Pressable>
+                                      );
+                                    })}
+                                  </View>
+
+                                  {/* Dates */}
+                                  <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                    Dates
+                                  </Text>
+                                  <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
+                                    <Pressable
+                                      onPress={() => {
+                                        setDateModalTarget('todo_dodate');
+                                        store.setUI({ showDateModal: true });
+                                      }}
+                                      style={{
+                                        flex: 1, padding: 7, paddingHorizontal: 10, borderRadius: 8,
+                                        borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                                      }}
+                                    >
+                                      <View>
+                                        <Text style={{ fontSize: 11, fontWeight: '500', color: '#A09A90', marginBottom: 2 }}>
+                                          Do date
+                                        </Text>
+                                        <Text style={{ fontSize: 13, fontWeight: '500', color: '#2D4A3E' }}>
+                                          {(state.todo.scheduled_date ?? state.todo.due_day)
+                                            ? formatDueDay(state.todo.scheduled_date ?? state.todo.due_day ?? '')
+                                            : 'Not set'}
+                                        </Text>
+                                      </View>
+                                      <Calendar size={14} color="#8B8579" />
+                                    </Pressable>
+                                    <Pressable
+                                      onPress={() => {
+                                        setDateModalTarget('todo_deadline');
+                                        store.setUI({ showDateModal: true });
+                                      }}
+                                      style={{
+                                        flex: 1, padding: 7, paddingHorizontal: 10, borderRadius: 8,
+                                        borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                                      }}
+                                    >
+                                      <View>
+                                        <Text style={{ fontSize: 11, fontWeight: '500', color: '#A09A90', marginBottom: 2 }}>
+                                          Deadline
+                                        </Text>
+                                        <Text style={{ fontSize: 13, fontWeight: '500', color: state.todo.target_date ? '#2D4A3E' : '#B5AFA5' }}>
+                                          {state.todo.target_date
+                                            ? formatDueDay(state.todo.target_date)
+                                            : 'None'}
+                                        </Text>
+                                      </View>
+                                      <Calendar size={14} color="#8B8579" />
+                                    </Pressable>
+                                  </View>
+                                </ExpandableRow>
 
                                 {dueToastMessage ? (
                                   <View
@@ -5184,7 +5334,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         <Text style={{ fontSize: 13, color: '#8B8579' }}>Not set</Text>
                                       }
                                       iconColor="#D97706"
-                                      onPress={() => { if (!isViewMode) store.setUI({ showScheduleModal: true }); }}
                                     />
 
                                     <StaticRow
@@ -5194,7 +5343,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         <Text style={{ fontSize: 13, color: '#8B8579' }}>Not set</Text>
                                       }
                                       iconColor="#2E5540"
-                                      onPress={() => { if (!isViewMode) store.setUI({ showScheduleModal: true }); }}
                                     />
 
                                     <StaticRow
@@ -5204,7 +5352,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                         <Text style={{ fontSize: 13, color: '#8B8579' }}>Daily check-in</Text>
                                       }
                                       iconColor="#6B4C8A"
-                                      onPress={() => { if (!isViewMode) store.setUI({ showScheduleModal: true }); }}
                                     />
                                   </>
                                 ) : (
@@ -5217,12 +5364,329 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       state.habit.start_date && format(parseISO(state.habit.start_date), 'MMM d'),
                                     ].filter(Boolean).join(' · ')}
                                     expanded={expandedRow === 'schedule'}
-                                    onToggle={() => {
-                                      toggleRow('schedule');
-                                      store.setUI({ showScheduleModal: true });
-                                    }}
+                                    onToggle={() => toggleRow('schedule')}
                                     iconColor="#2E5540"
-                                  />
+                                  >
+                                    {/* Frequency presets */}
+                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                      Frequency
+                                    </Text>
+                                    {(() => {
+                                      const freq = jsonToFrequency(state.habit.frequency_json);
+                                      let curCount = 1, curUnit: 'day' | 'week' | 'month' = 'day', curDays: number[] = [];
+                                      if (freq.mode === 'simple') {
+                                        curUnit = freq.value === 'daily' ? 'day' : freq.value === 'weekly' ? 'week' : 'month';
+                                      } else if (freq.mode === 'custom') {
+                                        curCount = freq.value.count; curUnit = freq.value.unit;
+                                      } else if (freq.mode === 'days') {
+                                        curCount = freq.days.length; curUnit = 'week'; curDays = [...freq.days];
+                                      }
+                                      const matchesAnyPreset = SCHEDULE_PRESETS.some(
+                                        (p) => p.count === curCount && p.unit === curUnit &&
+                                          JSON.stringify([...p.days].sort()) === JSON.stringify([...curDays].sort()),
+                                      );
+                                      const isCustom = habitIsCustomFreq || !matchesAnyPreset;
+                                      return (
+                                        <>
+                                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                                            {SCHEDULE_PRESETS.map((preset) => {
+                                              const isMatch = !isCustom && curCount === preset.count && curUnit === preset.unit &&
+                                                JSON.stringify([...curDays].sort()) === JSON.stringify([...preset.days].sort());
+                                              return (
+                                                <Pressable
+                                                  key={preset.key}
+                                                  onPress={() => {
+                                                    setHabitIsCustomFreq(false);
+                                                    store.setHabitFrequency(buildFreqJson(preset.count, preset.unit, [...preset.days]));
+                                                  }}
+                                                  style={{
+                                                    paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8,
+                                                    backgroundColor: isMatch ? '#2D4A3E' : '#F5F2ED',
+                                                  }}
+                                                >
+                                                  <Text style={{
+                                                    fontSize: 12, fontWeight: isMatch ? '600' : '500',
+                                                    color: isMatch ? '#FFFFFF' : '#6B665C',
+                                                  }}>
+                                                    {preset.label}
+                                                  </Text>
+                                                </Pressable>
+                                              );
+                                            })}
+                                            <Pressable
+                                              onPress={() => setHabitIsCustomFreq(true)}
+                                              style={{
+                                                paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8,
+                                                backgroundColor: isCustom ? '#2D4A3E' : '#F5F2ED',
+                                              }}
+                                            >
+                                              <Text style={{
+                                                fontSize: 12, fontWeight: isCustom ? '600' : '500',
+                                                color: isCustom ? '#FFFFFF' : '#6B665C',
+                                              }}>
+                                                Custom
+                                              </Text>
+                                            </Pressable>
+                                          </View>
+
+                                          {/* Custom counter */}
+                                          {isCustom && (
+                                            <View style={{ backgroundColor: '#F5F2ED', borderRadius: 12, padding: 12, marginBottom: 8 }}>
+                                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                                                <Pressable
+                                                  onPress={() => {
+                                                    const nc = Math.max(1, curCount - 1);
+                                                    store.setHabitFrequency(buildFreqJson(nc, curUnit, curDays));
+                                                  }}
+                                                  disabled={curCount <= 1}
+                                                  style={{
+                                                    width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFFFFF',
+                                                    alignItems: 'center', justifyContent: 'center',
+                                                    opacity: curCount <= 1 ? 0.3 : 1,
+                                                  }}
+                                                >
+                                                  <Text style={{ fontSize: 18, color: '#2D4A3E' }}>−</Text>
+                                                </Pressable>
+                                                <Text style={{
+                                                  fontSize: 20, fontWeight: '700', color: '#2D4A3E',
+                                                  marginHorizontal: 20, minWidth: 28, textAlign: 'center',
+                                                }}>
+                                                  {curCount}
+                                                </Text>
+                                                <Pressable
+                                                  onPress={() => {
+                                                    const nc = Math.min(30, curCount + 1);
+                                                    store.setHabitFrequency(buildFreqJson(nc, curUnit, curDays));
+                                                  }}
+                                                  disabled={curCount >= 30}
+                                                  style={{
+                                                    width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFFFFF',
+                                                    alignItems: 'center', justifyContent: 'center',
+                                                    opacity: curCount >= 30 ? 0.3 : 1,
+                                                  }}
+                                                >
+                                                  <Text style={{ fontSize: 18, color: '#2D4A3E' }}>+</Text>
+                                                </Pressable>
+                                                <Text style={{ fontSize: 13, color: '#8B8579', marginLeft: 12 }}>times per</Text>
+                                              </View>
+                                              <View style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}>
+                                                {(['day', 'week', 'month'] as const).map((u) => {
+                                                  const isUnitSel = curUnit === u;
+                                                  return (
+                                                    <Pressable
+                                                      key={u}
+                                                      onPress={() => {
+                                                        const newDays = u !== 'week' ? [] : curDays;
+                                                        store.setHabitFrequency(buildFreqJson(curCount, u, newDays));
+                                                      }}
+                                                      style={{
+                                                        flex: 1, paddingVertical: 7, alignItems: 'center', borderRadius: 8,
+                                                        backgroundColor: isUnitSel ? '#2D4A3E' : '#FFFFFF',
+                                                      }}
+                                                    >
+                                                      <Text style={{
+                                                        fontSize: 12, fontWeight: isUnitSel ? '600' : '500',
+                                                        color: isUnitSel ? '#FFFFFF' : '#6B665C',
+                                                      }}>
+                                                        {u}
+                                                      </Text>
+                                                    </Pressable>
+                                                  );
+                                                })}
+                                              </View>
+                                            </View>
+                                          )}
+
+                                          {/* Pin to days (weekly only) */}
+                                          {curUnit === 'week' && (
+                                            <View style={{ marginBottom: 8 }}>
+                                              <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 6 }}>
+                                                <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500' }}>On these days</Text>
+                                                <Text style={{ fontSize: 11, color: '#A09A90', marginLeft: 4 }}>(optional)</Text>
+                                              </View>
+                                              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                                {([
+                                                  { day: 1, label: 'M' }, { day: 2, label: 'T' }, { day: 3, label: 'W' },
+                                                  { day: 4, label: 'T' }, { day: 5, label: 'F' }, { day: 6, label: 'S' },
+                                                  { day: 0, label: 'S' },
+                                                ] as const).map(({ day, label }) => {
+                                                  const isDayOn = curDays.includes(day);
+                                                  return (
+                                                    <Pressable
+                                                      key={day}
+                                                      onPress={() => {
+                                                        const newDays = isDayOn
+                                                          ? curDays.filter((d) => d !== day)
+                                                          : [...curDays, day].sort();
+                                                        store.setHabitFrequency(buildFreqJson(curCount, curUnit, newDays));
+                                                      }}
+                                                      style={{
+                                                        width: 34, height: 34, borderRadius: 17,
+                                                        alignItems: 'center', justifyContent: 'center',
+                                                        backgroundColor: isDayOn ? '#2D4A3E' : '#F5F2ED',
+                                                      }}
+                                                    >
+                                                      <Text style={{
+                                                        fontSize: 12, fontWeight: '600',
+                                                        color: isDayOn ? '#FFFFFF' : '#6B665C',
+                                                      }}>
+                                                        {label}
+                                                      </Text>
+                                                    </Pressable>
+                                                  );
+                                                })}
+                                              </View>
+                                            </View>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
+
+                                    {/* Time of day */}
+                                    <View style={{ height: 1, backgroundColor: '#E5E0D8', marginVertical: 10 }} />
+                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                      Time of day
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+                                      {TIME_WINDOW_OPTIONS.map((opt) => {
+                                        const isSel = (state.habit.time_window ?? null) === opt.value;
+                                        return (
+                                          <Pressable
+                                            key={opt.value ?? 'null'}
+                                            onPress={() => store.setHabitTimeWindow(opt.value)}
+                                            style={{
+                                              flex: 1, paddingVertical: 7, alignItems: 'center',
+                                              borderRadius: 8, backgroundColor: isSel ? '#2D4A3E' : '#F5F2ED',
+                                            }}
+                                          >
+                                            <Text style={{
+                                              fontSize: 12, fontWeight: isSel ? '600' : '500',
+                                              color: isSel ? '#FFFFFF' : '#6B665C',
+                                            }}>
+                                              {opt.label}
+                                            </Text>
+                                          </Pressable>
+                                        );
+                                      })}
+                                    </View>
+
+                                    {/* Duration */}
+                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                      Duration
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                                      <Pressable
+                                        onPress={() => {
+                                          const cur = state.habit.time_estimate_minutes ?? 0;
+                                          const idx = DURATION_STEPS.findIndex((s) => s >= cur);
+                                          const prevIdx = Math.max(0, (idx > 0 ? idx : DURATION_STEPS.length) - 1);
+                                          store.setHabitTimeEstimate(DURATION_STEPS[prevIdx] || null);
+                                        }}
+                                        disabled={!state.habit.time_estimate_minutes}
+                                        style={{
+                                          width: 30, height: 30, borderRadius: 15,
+                                          backgroundColor: '#F5F2ED', alignItems: 'center', justifyContent: 'center',
+                                          opacity: !state.habit.time_estimate_minutes ? 0.3 : 1,
+                                        }}
+                                      >
+                                        <Text style={{ fontSize: 16, color: '#2D4A3E' }}>−</Text>
+                                      </Pressable>
+                                      <Text style={{
+                                        fontSize: 15, fontWeight: '600', color: '#2D4A3E',
+                                        marginHorizontal: 8, minWidth: 46, textAlign: 'center',
+                                      }}>
+                                        {state.habit.time_estimate_minutes
+                                          ? formatTimeEstimate(state.habit.time_estimate_minutes)
+                                          : 'None'}
+                                      </Text>
+                                      <Pressable
+                                        onPress={() => {
+                                          const cur = state.habit.time_estimate_minutes ?? 0;
+                                          const idx = DURATION_STEPS.findIndex((s) => s > cur);
+                                          const nextIdx = idx >= 0 ? idx : DURATION_STEPS.length - 1;
+                                          store.setHabitTimeEstimate(DURATION_STEPS[nextIdx]);
+                                        }}
+                                        disabled={(state.habit.time_estimate_minutes ?? 0) >= 240}
+                                        style={{
+                                          width: 30, height: 30, borderRadius: 15,
+                                          backgroundColor: '#F5F2ED', alignItems: 'center', justifyContent: 'center',
+                                          opacity: (state.habit.time_estimate_minutes ?? 0) >= 240 ? 0.3 : 1,
+                                        }}
+                                      >
+                                        <Text style={{ fontSize: 16, color: '#2D4A3E' }}>+</Text>
+                                      </Pressable>
+                                    </View>
+                                    <View style={{ flexDirection: 'row', gap: 6, justifyContent: 'center', marginTop: 8, marginBottom: 12 }}>
+                                      {QUICK_DURATIONS.map((chip) => {
+                                        const isDurSel = state.habit.time_estimate_minutes === chip.value;
+                                        return (
+                                          <Pressable
+                                            key={chip.value}
+                                            onPress={() => store.setHabitTimeEstimate(isDurSel ? null : chip.value)}
+                                            style={{
+                                              paddingVertical: 6, paddingHorizontal: 14, borderRadius: 8,
+                                              backgroundColor: isDurSel ? '#2D4A3E' : '#F5F2ED',
+                                            }}
+                                          >
+                                            <Text style={{
+                                              fontSize: 12, fontWeight: isDurSel ? '600' : '500',
+                                              color: isDurSel ? '#FFFFFF' : '#6B665C',
+                                            }}>
+                                              {chip.label}
+                                            </Text>
+                                          </Pressable>
+                                        );
+                                      })}
+                                    </View>
+
+                                    {/* Dates */}
+                                    <View style={{ height: 1, backgroundColor: '#E5E0D8', marginVertical: 10 }} />
+                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
+                                      Dates
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
+                                      <Pressable
+                                        onPress={() => store.setUI({ showHabitStartDatePicker: true })}
+                                        style={{
+                                          flex: 1, padding: 7, paddingHorizontal: 10, borderRadius: 8,
+                                          borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                          flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                                        }}
+                                      >
+                                        <View>
+                                          <Text style={{ fontSize: 11, fontWeight: '500', color: '#A09A90', marginBottom: 2 }}>
+                                            Starts
+                                          </Text>
+                                          <Text style={{ fontSize: 13, fontWeight: '500', color: '#2D4A3E' }}>
+                                            {state.habit.start_date
+                                              ? format(parseISO(state.habit.start_date), 'MMM d, yyyy')
+                                              : 'Not set'}
+                                          </Text>
+                                        </View>
+                                        <Calendar size={14} color="#8B8579" />
+                                      </Pressable>
+                                      <Pressable
+                                        onPress={() => store.setUI({ showHabitEndDatePicker: true })}
+                                        style={{
+                                          flex: 1, padding: 7, paddingHorizontal: 10, borderRadius: 8,
+                                          borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
+                                          flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                                        }}
+                                      >
+                                        <View>
+                                          <Text style={{ fontSize: 11, fontWeight: '500', color: '#A09A90', marginBottom: 2 }}>
+                                            Ends
+                                          </Text>
+                                          <Text style={{ fontSize: 13, fontWeight: '500', color: state.habit.end_date ? '#2D4A3E' : '#B5AFA5' }}>
+                                            {state.habit.end_date
+                                              ? format(parseISO(state.habit.end_date), 'MMM d, yyyy')
+                                              : 'No end'}
+                                          </Text>
+                                        </View>
+                                        <Calendar size={14} color="#8B8579" />
+                                      </Pressable>
+                                    </View>
+                                  </ExpandableRow>
                                 )}
 
                                 <StaticRow
@@ -6341,31 +6805,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                     </Pressable>
                   </Modal>
 
-                  {/* Schedule Modal */}
-                  <ScheduleModal
-                    visible={storeUI.showScheduleModal}
-                    onClose={() => store.setUI({ showScheduleModal: false })}
-                    currentSchedule={{
-                      scheduledDate: state.todo.scheduled_date ?? null,
-                      dueDay: state.todo.due_day ?? null,
-                      targetDate: state.todo.target_date ?? null,
-                      timeWindow:
-                        baseType === 'todo'
-                          ? state.todo.time_window ?? null
-                          : state.habit.time_window ?? null,
-                      timeEstimateMinutes:
-                        baseType === 'todo'
-                          ? state.todo.time_estimate_minutes ?? null
-                          : state.habit.time_estimate_minutes ?? null,
-                      frequencyJson:
-                        state.habit.frequency_json,
-                      startDate: state.habit.start_date ?? null,
-                      endDate: state.habit.end_date ?? null,
-                    }}
-                    baseType={baseType}
-                    habitSubtype={state.habit.subtype}
-                    onApply={handleScheduleApply}
-                  />
+
                   {/* Habit Start Date Picker Modal */}
                   <Modal visible={storeUI.showHabitStartDatePicker} transparent animationType="fade">
                     <Pressable
