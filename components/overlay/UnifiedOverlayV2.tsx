@@ -2654,6 +2654,36 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }, 1000) as unknown as number;
   }, []);
 
+  const handleDateConfirm = useCallback((date: Date) => {
+    try {
+      const dateStr = getDateService().toLocalDate(date);
+      if (dateModalTarget === 'reminder') {
+        store.setReminderAt(date.toISOString());
+      } else if (dateModalTarget === 'todo_deadline') {
+        store.setTodoTargetDate(dateStr);
+        showDueToast(`Deadline set for ${format(date, 'MMM d')}`);
+      } else if (dateModalTarget === 'todo_dodate') {
+        store.setTodoScheduledDate(dateStr);
+        store.setTodoDue({ due_at: null, due_day: dateStr, due_time: null });
+        showDueToast(`Do date set for ${format(date, 'MMM d')}`);
+      } else if (dateModalTarget === 'note_event') {
+        store.setLogTargetDate(dateStr);
+        showDueToast(`Event date set for ${format(date, 'MMM d')}`);
+      } else if (dateModalTarget === 'note_end_date') {
+        store.setLogEndDate(dateStr);
+        showDueToast(`End date set for ${format(date, 'MMM d')}`);
+      }
+      store.setUI({ showDateModal: false });
+      setDateModalTarget(null);
+      setShowTimePicker(false);
+      setClearDateFlag(false);
+      setSelectedTimePreset(null);
+      setShowCustomTimePicker(false);
+    } catch (e) {
+      console.error('[DatePicker] Error setting date:', e);
+    }
+  }, [dateModalTarget, store, showDueToast, setDateModalTarget, setShowTimePicker, setClearDateFlag, setSelectedTimePreset, setShowCustomTimePicker]);
+
   // Handle log subtype chip press - open selector for manual override
   const handleLogSubtypeChipPress = useCallback(() => {
     if (!isLog) return;
@@ -4263,66 +4293,32 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                   </View>
 
                                   {/* Duration */}
-                                  <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
+                                  <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
                                     Duration
                                   </Text>
-                                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                                    <Pressable
-                                      onPress={() => {
-                                        const cur = state.todo.time_estimate_minutes ?? 0;
-                                        const idx = DURATION_STEPS.findIndex((s) => s >= cur);
-                                        const prevIdx = Math.max(0, (idx > 0 ? idx : DURATION_STEPS.length) - 1);
-                                        store.setTodoTimeEstimate(DURATION_STEPS[prevIdx] || null);
-                                      }}
-                                      disabled={!state.todo.time_estimate_minutes}
-                                      style={{
-                                        width: 30, height: 30, borderRadius: 15,
-                                        backgroundColor: '#F5F2ED', alignItems: 'center', justifyContent: 'center',
-                                        opacity: !state.todo.time_estimate_minutes ? 0.3 : 1,
-                                      }}
-                                    >
-                                      <Text style={{ fontSize: 16, color: '#2D4A3E' }}>−</Text>
-                                    </Pressable>
-                                    <Text style={{
-                                      fontSize: 15, fontWeight: '600', color: '#2D4A3E',
-                                      marginHorizontal: 8, minWidth: 46, textAlign: 'center',
-                                    }}>
-                                      {state.todo.time_estimate_minutes
-                                        ? formatTimeEstimate(state.todo.time_estimate_minutes)
-                                        : 'None'}
-                                    </Text>
-                                    <Pressable
-                                      onPress={() => {
-                                        const cur = state.todo.time_estimate_minutes ?? 0;
-                                        const idx = DURATION_STEPS.findIndex((s) => s > cur);
-                                        const nextIdx = idx >= 0 ? idx : DURATION_STEPS.length - 1;
-                                        store.setTodoTimeEstimate(DURATION_STEPS[nextIdx]);
-                                      }}
-                                      disabled={(state.todo.time_estimate_minutes ?? 0) >= 240}
-                                      style={{
-                                        width: 30, height: 30, borderRadius: 15,
-                                        backgroundColor: '#F5F2ED', alignItems: 'center', justifyContent: 'center',
-                                        opacity: (state.todo.time_estimate_minutes ?? 0) >= 240 ? 0.3 : 1,
-                                      }}
-                                    >
-                                      <Text style={{ fontSize: 16, color: '#2D4A3E' }}>+</Text>
-                                    </Pressable>
-                                  </View>
-                                  <View style={{ flexDirection: 'row', gap: 6, justifyContent: 'center', marginTop: 8, marginBottom: 12 }}>
-                                    {QUICK_DURATIONS.map((chip) => {
-                                      const isDurSel = state.todo.time_estimate_minutes === chip.value;
+                                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+                                    {[
+                                      { label: '15m', value: 15 },
+                                      { label: '30m', value: 30 },
+                                      { label: '45m', value: 45 },
+                                      { label: '1h', value: 60 },
+                                      { label: '1.5h', value: 90 },
+                                      { label: '2h', value: 120 },
+                                      { label: '3h', value: 180 },
+                                    ].map((chip) => {
+                                      const isSelected = state.todo.time_estimate_minutes === chip.value;
                                       return (
                                         <Pressable
                                           key={chip.value}
-                                          onPress={() => store.setTodoTimeEstimate(isDurSel ? null : chip.value)}
+                                          onPress={() => store.setTodoTimeEstimate(isSelected ? null : chip.value)}
                                           style={{
-                                            paddingVertical: 6, paddingHorizontal: 14, borderRadius: 8,
-                                            backgroundColor: isDurSel ? '#2D4A3E' : '#F5F2ED',
+                                            paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8,
+                                            backgroundColor: isSelected ? '#2D4A3E' : '#F5F2ED',
                                           }}
                                         >
                                           <Text style={{
-                                            fontSize: 12, fontWeight: isDurSel ? '600' : '500',
-                                            color: isDurSel ? '#FFFFFF' : '#6B665C',
+                                            fontSize: 12, fontWeight: isSelected ? '600' : '500',
+                                            color: isSelected ? '#FFFFFF' : '#6B665C',
                                           }}>
                                             {chip.label}
                                           </Text>
@@ -4771,66 +4767,32 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                     </View>
 
                                     {/* Duration */}
-                                    <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
+                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
                                       Duration
                                     </Text>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                                      <Pressable
-                                        onPress={() => {
-                                          const cur = state.habit.time_estimate_minutes ?? 0;
-                                          const idx = DURATION_STEPS.findIndex((s) => s >= cur);
-                                          const prevIdx = Math.max(0, (idx > 0 ? idx : DURATION_STEPS.length) - 1);
-                                          store.setHabitTimeEstimate(DURATION_STEPS[prevIdx] || null);
-                                        }}
-                                        disabled={!state.habit.time_estimate_minutes}
-                                        style={{
-                                          width: 30, height: 30, borderRadius: 15,
-                                          backgroundColor: '#F5F2ED', alignItems: 'center', justifyContent: 'center',
-                                          opacity: !state.habit.time_estimate_minutes ? 0.3 : 1,
-                                        }}
-                                      >
-                                        <Text style={{ fontSize: 16, color: '#2D4A3E' }}>−</Text>
-                                      </Pressable>
-                                      <Text style={{
-                                        fontSize: 15, fontWeight: '600', color: '#2D4A3E',
-                                        marginHorizontal: 8, minWidth: 46, textAlign: 'center',
-                                      }}>
-                                        {state.habit.time_estimate_minutes
-                                          ? formatTimeEstimate(state.habit.time_estimate_minutes)
-                                          : 'None'}
-                                      </Text>
-                                      <Pressable
-                                        onPress={() => {
-                                          const cur = state.habit.time_estimate_minutes ?? 0;
-                                          const idx = DURATION_STEPS.findIndex((s) => s > cur);
-                                          const nextIdx = idx >= 0 ? idx : DURATION_STEPS.length - 1;
-                                          store.setHabitTimeEstimate(DURATION_STEPS[nextIdx]);
-                                        }}
-                                        disabled={(state.habit.time_estimate_minutes ?? 0) >= 240}
-                                        style={{
-                                          width: 30, height: 30, borderRadius: 15,
-                                          backgroundColor: '#F5F2ED', alignItems: 'center', justifyContent: 'center',
-                                          opacity: (state.habit.time_estimate_minutes ?? 0) >= 240 ? 0.3 : 1,
-                                        }}
-                                      >
-                                        <Text style={{ fontSize: 16, color: '#2D4A3E' }}>+</Text>
-                                      </Pressable>
-                                    </View>
-                                    <View style={{ flexDirection: 'row', gap: 6, justifyContent: 'center', marginTop: 8, marginBottom: 12 }}>
-                                      {QUICK_DURATIONS.map((chip) => {
-                                        const isDurSel = state.habit.time_estimate_minutes === chip.value;
+                                    <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+                                      {[
+                                        { label: '15m', value: 15 },
+                                        { label: '30m', value: 30 },
+                                        { label: '45m', value: 45 },
+                                        { label: '1h', value: 60 },
+                                        { label: '1.5h', value: 90 },
+                                        { label: '2h', value: 120 },
+                                        { label: '3h', value: 180 },
+                                      ].map((chip) => {
+                                        const isSelected = state.habit.time_estimate_minutes === chip.value;
                                         return (
                                           <Pressable
                                             key={chip.value}
-                                            onPress={() => store.setHabitTimeEstimate(isDurSel ? null : chip.value)}
+                                            onPress={() => store.setHabitTimeEstimate(isSelected ? null : chip.value)}
                                             style={{
-                                              paddingVertical: 6, paddingHorizontal: 14, borderRadius: 8,
-                                              backgroundColor: isDurSel ? '#2D4A3E' : '#F5F2ED',
+                                              paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8,
+                                              backgroundColor: isSelected ? '#2D4A3E' : '#F5F2ED',
                                             }}
                                           >
                                             <Text style={{
-                                              fontSize: 12, fontWeight: isDurSel ? '600' : '500',
-                                              color: isDurSel ? '#FFFFFF' : '#6B665C',
+                                              fontSize: 12, fontWeight: isSelected ? '600' : '500',
+                                              color: isSelected ? '#FFFFFF' : '#6B665C',
                                             }}>
                                               {chip.label}
                                             </Text>
@@ -5464,12 +5426,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               <Pressable
                                 onPress={() => {
                                   const today = getDateService().now();
-                                  setSelectedDate(today);
-                                  setClearDateFlag(false);
                                   if (dateModalTarget === 'reminder') {
                                     store.setReminderAt(today.toISOString());
                                     store.setUI({ showDateModal: false });
                                     setDateModalTarget(null);
+                                  } else {
+                                    handleDateConfirm(today);
                                   }
                                 }}
                                 style={({ pressed }) => ({
@@ -5499,12 +5461,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               <Pressable
                                 onPress={() => {
                                   const tomorrow = addDays(getDateService().now(), 1);
-                                  setSelectedDate(tomorrow);
-                                  setClearDateFlag(false);
                                   if (dateModalTarget === 'reminder') {
                                     store.setReminderAt(tomorrow.toISOString());
                                     store.setUI({ showDateModal: false });
                                     setDateModalTarget(null);
+                                  } else {
+                                    handleDateConfirm(tomorrow);
                                   }
                                 }}
                                 style={({ pressed }) => ({
@@ -5572,8 +5534,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                 display={Platform.OS === 'ios' ? 'inline' : 'default'}
                                 onChange={(event, date) => {
                                   if (date) {
-                                    setSelectedDate(date);
-                                    setClearDateFlag(false);
+                                    if (isSameDay(selectedDate, date)) {
+                                      handleDateConfirm(date);
+                                    } else {
+                                      setSelectedDate(date);
+                                      setClearDateFlag(false);
+                                    }
                                   }
                                 }}
                                 themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
@@ -5603,75 +5569,28 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               variant="primary"
                               onPress={() => {
                                 try {
-                                  let finalDate: Date | null = null;
-
-                                  if (!clearDateFlag) {
-                                    finalDate = selectedDate;
-                                  }
-
-                                  // Apply the change based on target type
-                                  if (dateModalTarget === 'reminder') {
-                                    // Reminders still use ISO timestamps
-                                    store.setReminderAt(finalDate?.toISOString() ?? null);
-                                  } else if (dateModalTarget === 'todo_deadline') {
-                                    // Deadline (target_date) - when it's due
-                                    if (finalDate) {
-                                      const dateStr = getDateService().toLocalDate(finalDate);
-                                      store.setTodoTargetDate(dateStr);
-                                      showDueToast(
-                                        `Deadline set for ${format(finalDate, 'MMM d')}`,
-                                      );
-                                    } else {
+                                  if (clearDateFlag) {
+                                    // Clear logic
+                                    if (dateModalTarget === 'reminder') {
+                                      store.setReminderAt(null);
+                                    } else if (dateModalTarget === 'todo_deadline') {
                                       store.setTodoTargetDate(null);
                                       showDueToast('Deadline cleared');
-                                    }
-                                  } else if (dateModalTarget === 'todo_dodate') {
-                                    // Do date (scheduled_date) - when user will work on it
-                                    if (finalDate) {
-                                      const dateStr = getDateService().toLocalDate(finalDate);
-                                      store.setTodoScheduledDate(dateStr);
-                                      // Also update legacy due_day for backwards compatibility
-                                      store.setTodoDue({
-                                        due_at: null,
-                                        due_day: dateStr,
-                                        due_time: null,
-                                      });
-                                      showDueToast(`Do date set for ${format(finalDate, 'MMM d')}`);
-                                    } else {
+                                    } else if (dateModalTarget === 'todo_dodate') {
                                       store.setTodoScheduledDate(null);
-                                      store.setTodoDue({
-                                        due_at: null,
-                                        due_day: null,
-                                        due_time: null,
-                                      });
+                                      store.setTodoDue({ due_at: null, due_day: null, due_time: null });
                                       showDueToast('Do date cleared');
-                                    }
-                                  } else if (dateModalTarget === 'note_event') {
-                                    // Event date for notes (target_date)
-                                    if (finalDate) {
-                                      const dateStr = getDateService().toLocalDate(finalDate);
-                                      store.setLogTargetDate(dateStr);
-                                      showDueToast(
-                                        `Event date set for ${format(finalDate, 'MMM d')}`,
-                                      );
-                                    } else {
+                                    } else if (dateModalTarget === 'note_event') {
                                       store.setLogTargetDate(null);
                                       showDueToast('Event date cleared');
-                                    }
-                                  } else if (dateModalTarget === 'note_end_date') {
-                                    // End date for multi-day events
-                                    if (finalDate) {
-                                      const dateStr = getDateService().toLocalDate(finalDate);
-                                      store.setLogEndDate(dateStr);
-                                      showDueToast(
-                                        `End date set for ${format(finalDate, 'MMM d')}`,
-                                      );
-                                    } else {
+                                    } else if (dateModalTarget === 'note_end_date') {
                                       store.setLogEndDate(null);
                                       showDueToast('End date cleared');
                                     }
+                                  } else {
+                                    handleDateConfirm(selectedDate);
+                                    return; // handleDateConfirm already resets and closes
                                   }
-
                                   // Reset and close
                                   store.setUI({ showDateModal: false });
                                   setDateModalTarget(null);
