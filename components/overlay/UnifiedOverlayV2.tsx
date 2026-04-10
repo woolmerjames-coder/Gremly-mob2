@@ -1202,9 +1202,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     effectiveLogSubtype !== 'event' &&
     !(baseType === 'habit' && state.habit.subtype === 'break_habit'); // Don't show for break habits
 
-  // Phase L9: Show Private toggle only for journal logs
-  const showLogPrivateToggle = baseType === 'log' && effectiveLogSubtype === 'journal';
-
   // Derived checklist mode: explicit state OR legacy "list" subtype for logs
   const isChecklistMode =
     state.isChecklistMode || (baseType === 'log' && effectiveLogSubtype === 'list');
@@ -5221,22 +5218,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                                       <Clock size={14} color="#8B8579" />
                                     </Pressable>
                                   </ExpandableRow>
-                                )}
-
-                                {/* Journal: Private toggle */}
-                                {showLogPrivateToggle && (
-                                  <StaticRow
-                                    icon={Lock}
-                                    label="Private"
-                                    iconColor="#8B5E3C"
-                                    right={
-                                      <ToggleSwitch
-                                        on={state.logIsPrivate}
-                                        onToggle={() => store.setLogIsPrivate(!state.logIsPrivate)}
-                                        disabled={isViewMode}
-                                      />
-                                    }
-                                  />
                                 )}
 
                                 {/* Reminders — all log subtypes */}
