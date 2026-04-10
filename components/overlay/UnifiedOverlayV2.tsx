@@ -16,7 +16,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Switch,
   TextInput,
   StyleSheet,
   UIManager,
@@ -24,40 +23,31 @@ import {
   View,
   Animated as RNAnimated,
   Easing,
-  ActivityIndicator,
   Alert,
   Image,
   ActionSheetIOS,
   Keyboard,
-  TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import Reanimated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSequence,
   interpolate,
 } from 'react-native-reanimated';
 import {
-  X as CloseIcon,
   Plus,
   Minus,
   Calendar,
   Lock,
   Bell,
-  Folder,
   ChevronRight,
-  ChevronDown,
-  ChevronUp,
   Trash2,
   Camera,
   Diamond,
   Maximize2,
   Star,
   FileText,
-  TrendingUp,
-  TrendingDown,
   BarChart3,
   X,
   FolderOpen,
@@ -82,7 +72,6 @@ import {
   parseISO,
   addDays,
   setHours,
-  setMinutes,
   isSameDay,
   differenceInDays,
 } from 'date-fns';
@@ -107,13 +96,10 @@ import {
   initialV2State,
   type BaseType,
   type TagKey,
-  type V2State,
-  type HabitState,
 } from './overlayV2.state';
 import {
   normalizeToTagKey,
   extractTagKeysFromEntity,
-  extractDaysActiveFromFrequencyJson,
   TYPE_FAMILY,
   SCHEDULE_PRESETS,
   type TypeFamily,
@@ -125,11 +111,10 @@ import { OverlayExpandedEditor } from './OverlayExpandedEditor';
 import {
   linkSelectedPerson,
 } from './overlayV2.mapping';
-import { recordOverlayFeedback } from './overlayV2.feedback';
+
 import { eventBus } from '../../lib/events/EventBus';
 import { TagsRow, type TagsRowTag } from './fields/TagsRow';
 import { normalizeTag } from '../../lib/tags/normalize';
-import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 
 import {
   ALL_MOODS,
@@ -139,29 +124,24 @@ import {
 import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 
-import { resummarizeTitle, resummarizeTags } from '../../lib/minddrop/backgroundPrefill';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import SetRemindersModal from './SetRemindersModal';
 import type { ItemReminder } from '../../lib/types';
 import {
   scheduleItemReminder,
-  cancelItemReminder,
   cancelAllItemReminders,
 } from '../../lib/notifications/itemReminderService';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { enrichListItems } from '../../lib/ai/enrichListItem';
 import {
-  frequencyToJson,
   jsonToFrequency,
   getFrequencyLabel,
-  DAY_LABELS,
 } from './frequencyHelpers';
 import {
   buildSavePayload,
   detectListFromText,
-  type ListDetectionResult,
   type SaveContext,
 } from './overlaySave';
 
@@ -182,9 +162,7 @@ import { TodoPreviewModal } from './TodoPreviewModal';
 import { env } from '../../lib/env';
 import { ClarificationPopup } from '../minddrop/ClarificationPopup';
 import {
-  extractListItems,
   hasActionableList,
-  toListItems,
   type ExtractedListItem,
   type ListItem,
 } from '../../lib/lists';
@@ -848,10 +826,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const setBodyFocused = (v: boolean) => store.setUI({ bodyFocused: v });
   const commitmentFocused = storeUI.commitmentFocused;
   const setCommitmentFocused = (v: boolean) => store.setUI({ commitmentFocused: v });
-  const isResuggestingTags = storeUI.isResuggestingTags;
-  const setIsResuggestingTags = (v: boolean) => store.setUI({ isResuggestingTags: v });
-  const isResummarizingTitle = storeUI.isResummarizingTitle;
-  const setIsResummarizingTitle = (v: boolean) => store.setUI({ isResummarizingTitle: v });
   const isCreatingTodos = storeUI.isCreatingTodos;
   const setIsCreatingTodos = (v: boolean) => store.setUI({ isCreatingTodos: v });
   const displayMode = storeUI.displayMode;
@@ -889,7 +863,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const checklistItems = draft?.checklistItems ?? null;
   const setChecklistItems = (v: ListItem[] | null) => store.setChecklistItems(v);
   const photoUri = draft?.photoUri ?? null;
-  const setPhotoUri = (v: string | null) => store.setPhotoUri(v);
   const moods = draft?.moods ?? [];
   const setMoods = (v: Mood[]) => store.setMoods(v);
 
@@ -986,19 +959,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     const chatData = views?.chat;
     const notes = chatData?.notes ?? [];
 
-    // Debug logging
-    if (__DEV__) {
-      console.log('[UnifiedOverlayV2] entityChatNotes computed:', {
-        entityId: currentEntityId,
-        entityType: entityTypeForChat,
-        hasEntity: !!entity,
-        viewsKeys: views ? Object.keys(views) : null,
-        hasChatData: !!chatData,
-        notesCount: notes.length,
-        notes: notes.map((n: any) => ({ id: n.id, content: n.content?.substring(0, 30) })),
-      });
-    }
-
     return notes;
   }, [currentEntityId, entityTypeForChat, storeTodos, storeHabits, storeNotes]);
 
@@ -1065,16 +1025,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const resolveSkippedClarification = useGremlyStore((s) => s.resolveSkippedClarification);
   const handleClarificationSelect = useCallback(
     async (optionId: string) => {
-      console.log('[UnifiedOverlayV2] handleClarificationSelect called:', { optionId });
-
       // Get the entity ID from fullEntity (which combines props.entity and initialEntity)
       const entityId = fullEntity?.id;
-      console.log('[UnifiedOverlayV2] Entity ID resolved:', {
-        entityId,
-        fromFullEntity: fullEntity?.id,
-        propsEntityId: propsEntity?.id,
-        initialEntityId: initialEntity?.id,
-      });
 
       if (!entityId) {
         console.error('[UnifiedOverlayV2] No entity ID available for clarification');
@@ -1085,11 +1037,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       // Show loading state
       setClarificationLoading(true);
 
-      console.log('[UnifiedOverlayV2] Calling store action resolvePendingDropClarification...');
-
       try {
         await resolvePendingDropClarification(entityId, optionId);
-        console.log('[UnifiedOverlayV2] Store action completed successfully');
 
         // Haptic feedback
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1117,8 +1066,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
             type: 'unknown', // May have changed type during conversion
             source: 'clarification-resolved',
           });
-
-          console.log('[UnifiedOverlayV2] Clarification resolved, events emitted');
         }, 1200); // Show success for 1.2 seconds
       } catch (error) {
         console.error('[UnifiedOverlayV2] Store action failed:', error);
@@ -1132,7 +1079,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // Clarification: handle skip
   const handleClarificationSkip = useCallback(async () => {
     const entityId = fullEntity?.id;
-    console.log('[UnifiedOverlayV2] Clarification skipped', { entityId });
 
     // Close popup immediately
     setShowClarificationPopup(false);
@@ -1142,7 +1088,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     // Resolve as skipped - this updates the entity and runs Phase 2
     try {
       await resolveSkippedClarification(entityId);
-      console.log('[UnifiedOverlayV2] Skip resolution completed');
     } catch (error) {
       console.error('[UnifiedOverlayV2] Skip resolution failed:', error);
     }
@@ -1209,15 +1154,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (!isLog) return { kind: 'plain' } as const;
     return detectListFromText(state.log.body);
   }, [isLog, state.log.body]);
-
-  if (__DEV__ && isLog) {
-    console.log(
-      '[UnifiedOverlayV2] log kind:',
-      logKind,
-      'effectiveLogSubtype:',
-      effectiveLogSubtype,
-    );
-  }
 
 
   // Make Actionable feature state
@@ -1421,7 +1357,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     null,
     baseType === 'todo' ? 'todo' : baseType === 'habit' ? 'habit' : 'note',
   );
-  const [pendingTitleResummarize, setPendingTitleResummarize] = useState(false);
   // Track whether user has modified tags (to avoid overwriting Mind Drop AI tags on edit)
   // local UI state for undo toast
   const undoTimerRef = useRef<number | null>(null);
@@ -1568,82 +1503,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   // ============================================
 
   /**
-   * Convert note to inline checklist
-   */
-  const handleConvertToChecklist = useCallback(async () => {
-    // Get entity from fullEntity OR initialEntity (same pattern as body)
-    const entity = fullEntity || (initialEntity as any);
-    const entityId = entity?.id;
-
-    if (!entityId) return;
-
-    const items = extractListItems(noteBody);
-    const listItems = toListItems(items);
-
-    try {
-      // Update via store mutation (notes have list_items)
-      await updateNote(entityId, {
-        list_items: listItems,
-        has_list: true,
-      } as any);
-
-      // Update local state
-      setChecklistItems(listItems);
-
-      // Haptic feedback
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      // Emit event for other components
-      eventBus.emit('ItemUpdated', { id: entityId });
-    } catch (error) {
-      console.error('[MakeActionable] Failed to convert to checklist:', error);
-      Alert.alert('Error', 'Failed to convert to checklist');
-    }
-  }, [fullEntity, initialEntity, noteBody, updateNote]);
-
-  /**
-   * Show todo preview modal
-   */
-  const handleShowTodoPreview = useCallback(() => {
-    const items = extractListItems(noteBody);
-    setExtractedItems(items);
-    store.setUI({ showTodoPreview: true });
-  }, [noteBody]);
-
-  /**
-   * Show action sheet with Make Actionable options
-   */
-  const handleMakeActionable = useCallback(() => {
-    const options = ['Turn into checklist', 'Create todos', 'Cancel'];
-    const cancelButtonIndex = 2;
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options,
-          cancelButtonIndex,
-          title: 'Make Actionable',
-          message: 'Choose how to use this list',
-        },
-        (buttonIndex) => {
-          if (buttonIndex === 0) {
-            handleConvertToChecklist();
-          } else if (buttonIndex === 1) {
-            handleShowTodoPreview();
-          }
-        },
-      );
-    } else {
-      // Android fallback using Alert
-      Alert.alert('Make Actionable', 'Choose how to use this list', [
-        { text: 'Turn into checklist', onPress: handleConvertToChecklist },
-        { text: 'Create todos', onPress: handleShowTodoPreview },
-        { text: 'Cancel', style: 'cancel' },
-      ]);
-    }
-  }, [handleConvertToChecklist, handleShowTodoPreview]);
-
-  /**
    * Toggle a checklist item's checked state
    */
   const handleToggleChecklistItem = useCallback(
@@ -1674,48 +1533,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     },
     [fullEntity, initialEntity, checklistItems, updateNote],
   );
-
-  /**
-   * Revert checklist back to plain text
-   */
-  const handleRevertToText = useCallback(() => {
-    const entity = fullEntity || (initialEntity as any);
-    const entityId = entity?.id;
-
-    if (!entityId) return;
-
-    Alert.alert(
-      'Revert to text?',
-      'This will convert the checklist back to regular text. Your check marks will be lost.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Revert',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await updateNote(entityId, {
-                has_list: false,
-                list_items: null,
-              } as any);
-
-              // Update local state
-              setChecklistItems(null);
-
-              // Haptic feedback
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-              // Emit event
-              eventBus.emit('ItemUpdated', { id: entityId });
-            } catch (error) {
-              console.error('[Checklist] Failed to revert:', error);
-              Alert.alert('Error', 'Failed to revert checklist');
-            }
-          },
-        },
-      ],
-    );
-  }, [fullEntity, initialEntity, updateNote]);
 
   /**
    * Create todos from selected items
@@ -2045,38 +1862,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         ? state.todo.details
         : state.habit.notes;
 
-  const getPrefillText = useCallback(() => {
-    // Prefer the main text field if present
-    const bodyText =
-      baseType === 'log'
-        ? state.log.body
-        : baseType === 'todo'
-          ? state.todo.details
-          : state.habit.notes;
-
-    if (bodyText && bodyText.trim().length > 0) {
-      return bodyText;
-    }
-
-    // Fallback to the title if body/details/notes is empty
-    const titleText =
-      baseType === 'log'
-        ? state.log.title
-        : baseType === 'todo'
-          ? state.todo.title
-          : state.habit.title;
-
-    return titleText || '';
-  }, [
-    baseType,
-    state.log.body,
-    state.log.title,
-    state.todo.details,
-    state.todo.title,
-    state.habit.notes,
-    state.habit.title,
-  ]);
-
   function pushUndoEntry(kind: 'type' | 'tag' | 'commitment', prev: Partial<any>) {
     undoStackRef.current = [...undoStackRef.current, { kind, prev }];
     setShowUndoToast(true);
@@ -2218,8 +2003,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         } else {
           await updateNote(entity.id, patch);
         }
-
-        console.log('[MindDrop.FallbackRetry] Retry completed', { entityId: entity.id });
       } catch (err) {
         console.error('[MindDrop.FallbackRetry] Retry failed', err);
 
@@ -2410,92 +2193,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     void emitOverlayEvent({ type: 'overlay_tag_user_remove', label: canonical, wasAi });
   }, []);
 
-  // Handler for edit icon - focuses the main text input
-  const handleEditTitle = useCallback(() => {
-    textInputRef.current?.focus();
-  }, []);
-
-  // Photo handlers for logs (Phase L3)
-  const handleTakePhoto = useCallback(async () => {
-    try {
-      const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permissionResult.granted) {
-        Alert.alert('Permission Required', 'Camera permission is required to take photos.');
-        return;
-      }
-
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        aspect: [16, 9],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets?.[0]?.uri) {
-        setPhotoUri(result.assets[0].uri);
-      }
-    } catch (error) {
-      console.error('Error taking photo:', error);
-      Alert.alert('Error', 'Failed to take photo. Please try again.');
-    }
-  }, []);
-
-  const handleChoosePhoto = useCallback(async () => {
-    try {
-      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permissionResult.granted) {
-        Alert.alert(
-          'Permission Required',
-          'Photo library permission is required to choose photos.',
-        );
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [16, 9],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets?.[0]?.uri) {
-        setPhotoUri(result.assets[0].uri);
-      }
-    } catch (error) {
-      console.error('Error choosing photo:', error);
-      Alert.alert('Error', 'Failed to choose photo. Please try again.');
-    }
-  }, []);
-
-  const handleOpenPhotoActionSheet = useCallback(() => {
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: ['Cancel', 'Take Photo', 'Choose from Library'],
-          cancelButtonIndex: 0,
-        },
-        (buttonIndex) => {
-          if (buttonIndex === 1) {
-            handleTakePhoto();
-          } else if (buttonIndex === 2) {
-            handleChoosePhoto();
-          }
-        },
-      );
-    } else {
-      // Android fallback
-      Alert.alert(
-        'Add Photo',
-        'Choose an option',
-        [
-          { text: 'Take Photo', onPress: handleTakePhoto },
-          { text: 'Choose from Library', onPress: handleChoosePhoto },
-          { text: 'Cancel', style: 'cancel' },
-        ],
-        { cancelable: true },
-      );
-    }
-  }, [handleTakePhoto, handleChoosePhoto]);
-
   // Multi-photo handlers for logs (Phase L5)
   const handleAddLogPhoto = useCallback(
     async (fromCamera: boolean) => {
@@ -2580,66 +2277,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [handleAddLogPhoto]);
 
-  const handleDeleteLogPhoto = useCallback((index: number) => {
-    setLogPhotos((prev) =>
-      prev.map((photo, i) => (i === index ? { ...photo, isDeleted: true } : photo)),
-    );
-  }, []);
-
   const handleViewLogPhoto = useCallback((index: number) => {
     setSelectedPhotoIndex(index);
   }, []);
-
-  // Resummarize handlers for background AI prefill
-  const handleResummarizeTitle = useCallback(async () => {
-    if (!fullEntity || !currentText || isResummarizingTitle) return;
-
-    setIsResummarizingTitle(true);
-    try {
-      const { title, updated } = await resummarizeTitle(fullEntity, currentText);
-
-      if (updated && title) {
-        // Update local state with new title
-        store.setBody(title);
-        console.log('[OverlayV2] Title resummarized', { entityId: fullEntity.id, title });
-      }
-    } catch (error) {
-      console.error('[OverlayV2] Resummarize title failed', error);
-    } finally {
-      setIsResummarizingTitle(false);
-    }
-  }, [fullEntity, currentText, isResummarizingTitle]);
-
-  const handleResuggestTags = useCallback(async () => {
-    if (!currentText || isResuggestingTags) return;
-
-    setIsResuggestingTags(true);
-    try {
-      // Determine subtype for tag extraction
-      let extractionSubtype: string | undefined;
-      if (baseType === 'log') {
-        extractionSubtype = effectiveLogSubtype === 'general' ? undefined : effectiveLogSubtype;
-      }
-
-      // Extract tags deterministically
-      const extractedTags = extractMeaningfulTags(currentText, extractionSubtype);
-
-      if (extractedTags.length > 0) {
-        // Convert to TagKeys
-        const tagKeys = extractedTags
-          .map((tag) => normalizeToTagKey(tag))
-          .filter(Boolean) as TagKey[];
-        store.setTags(tagKeys);
-        console.log('[OverlayV2] Tags re-extracted deterministically', {
-          tagsCount: tagKeys.length,
-        });
-      }
-    } catch (error) {
-      console.error('[OverlayV2] Re-extract tags failed', error);
-    } finally {
-      setIsResuggestingTags(false);
-    }
-  }, [currentText, baseType, effectiveLogSubtype, isResuggestingTags]);
 
   const showDueToast = useCallback((message: string) => {
     setDueToastMessage(message);
@@ -2682,69 +2322,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [dateModalTarget, store, showDueToast, setDateModalTarget, setShowTimePicker, setClearDateFlag, setSelectedTimePreset, setShowCustomTimePicker]);
 
-  // Handle log subtype chip press - open selector for manual override
-  const handleLogSubtypeChipPress = useCallback(() => {
-    if (!isLog) return;
-
-    const options = ['Journal', 'Idea', 'General', 'Event', 'Clear subtype', 'Cancel'];
-    const destructiveButtonIndex = 4; // Clear subtype
-    const cancelButtonIndex = 5;
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options,
-          cancelButtonIndex,
-          destructiveButtonIndex,
-          title: 'Select log subtype',
-        },
-        (buttonIndex) => {
-          if (buttonIndex === cancelButtonIndex) return;
-
-          const subtypeMap: Record<number, 'journal' | 'idea' | 'general' | 'event' | null> = {
-            0: 'journal',
-            1: 'idea',
-            2: 'general',
-            3: 'event',
-            4: null, // Clear subtype
-          };
-
-          const value = subtypeMap[buttonIndex];
-          store.setLogSubtypeOverride(value);
-        },
-      );
-    } else {
-      // Android: use Alert with buttons
-      Alert.alert('Select log subtype', 'Choose a subtype or clear to use automatic detection', [
-        {
-          text: 'Journal',
-          onPress: () => store.setLogSubtypeOverride('journal'),
-        },
-        {
-          text: 'Idea',
-          onPress: () => store.setLogSubtypeOverride('idea'),
-        },
-        {
-          text: 'General',
-          onPress: () => store.setLogSubtypeOverride('general'),
-        },
-        {
-          text: 'Event',
-          onPress: () => store.setLogSubtypeOverride('event'),
-        },
-        {
-          text: 'Clear subtype',
-          onPress: () => store.setLogSubtypeOverride(null),
-          style: 'destructive',
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-      ]);
-    }
-  }, [isLog]);
-
   const handleTodoDueChange = useCallback(
     (dateOrNull: Date | null, options?: { label?: string }) => {
       // GREMLY TODO DATE MODEL:
@@ -2755,8 +2332,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       if (dateOrNull) {
         // Compute due_day using local timezone helper
         const dueDay = getDateService().toLocalDate(dateOrNull);
-
-        console.log('[handleTodoDueChange] Setting due_day:', dueDay);
 
         // Dispatch with due_day as source of truth, due_at = null (not used)
         store.setTodoDue({
@@ -2770,8 +2345,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         void emitOverlayEvent({ type: 'overlay_due_set' });
       } else {
         // Clear all due date fields - user pressed Clear
-        console.log('[handleTodoDueChange] Clearing due date (due_day: null)');
-
         store.setTodoDue({
           due_at: null,
           due_day: null,
@@ -2916,20 +2489,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         }
       }
 
-      // Development logging for todo saves
-      if (__DEV__ && baseType === 'todo') {
-        console.log('[UnifiedOverlayV2.onSave] Todo state before save', {
-          'state.todo.title': state.todo.title,
-          'state.todo.details': state.todo.details,
-          'state.compactTitle': state.compactTitle,
-        });
-        console.log('[UnifiedOverlayV2.onSave] Todo input payload', {
-          title: (input as any).title,
-          name: (input as any).name,
-          details: (input as any).details,
-        });
-      }
-
       const telemetryTitle =
         typeof (input as any)?.title === 'string'
           ? ((input as any).title as string)
@@ -2997,17 +2556,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         const oldId = (initialEntity as any).id;
         const dropId = (fullEntity as any)?.drop_id ?? (initialEntity as any)?.drop_id ?? null;
 
-        if (__DEV__) {
-          console.log('[OverlayTypeChange] Cross-table conversion detected', {
-            oldId,
-            dropId,
-            originalFamily,
-            targetFamily,
-            from: originalEntityType,
-            to: baseType,
-          });
-        }
-
         // Ensure drop_id is preserved in the create input
         const createInput = {
           ...(input as any),
@@ -3021,14 +2569,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           result = await createHabit(createInput);
         } else {
           result = await createNote(createInput);
-        }
-
-        if (__DEV__) {
-          console.log('[OverlayTypeChange] New record created', {
-            newId: result?.id,
-            newType: result?.type,
-            dropId,
-          });
         }
 
         // Step 2: Archive/delete old record - moved to fire-and-forget background IIFE
@@ -3091,12 +2631,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       // Notify parent and close
       try {
-        if (__DEV__) {
-          console.log('[UnifiedOverlayV2] Closing immediately after save', {
-            savedId,
-            savedType,
-          });
-        }
         onSaved?.({
           id: savedId,
           type: savedType,
@@ -3163,11 +2697,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                   await backgroundDeleteNote(backgroundConversionOldId);
                   break;
               }
-              console.log('[UnifiedOverlayV2] Background: archived old entity by ID', {
-                oldId: backgroundConversionOldId,
-                entityType: backgroundConversionEntityType,
-                source: 'edit-conversion',
-              });
             } catch (removeError) {
               console.warn(
                 '[UnifiedOverlayV2] Background: Failed to archive old entity during conversion:',
@@ -3181,10 +2710,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           if (backgroundSweepSourceNoteId && !backgroundConversionOldId) {
             try {
               await backgroundArchiveNote(backgroundSweepSourceNoteId, 'sweep-conversion');
-              console.log('[UnifiedOverlayV2] Background: archived source note from Sweep', {
-                sourceNoteId: backgroundSweepSourceNoteId,
-                source: 'sweep-conversion',
-              });
             } catch (removeError) {
               console.warn(
                 '[UnifiedOverlayV2] Background: Failed to archive Sweep source note:',
@@ -3196,10 +2721,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
           // Handle multi-photo uploads and deletions for logs (Phase L5)
           if (backgroundBaseType === 'log' && backgroundResult?.id && backgroundUserId) {
-            console.log('[UnifiedOverlayV2] Background: Processing log photos:', {
-              noteId: backgroundResult.id,
-              photoCount: backgroundLogPhotos.length,
-            });
             try {
               const noteId = backgroundResult.id;
               const { supabase } = await import('../../lib/supabase/client');
@@ -3772,8 +3293,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       </ScrollView>
     );
   };
-
-  console.log('[UnifiedOverlayV2] render', { visible, mode, baseType });
 
   if (!visible) return null;
 
@@ -6388,18 +5907,9 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                         }
                         isChecklistMode={isChecklistMode}
                         onToggleChecklistMode={() => {
-                          console.log('[DEBUG-CHECKLIST] Before toggle:', {
-                            stateIsChecklistMode: state.isChecklistMode,
-                            checklistItems,
-                          });
                           const newMode = !state.isChecklistMode;
                           store.setChecklistMode(newMode);
-                          console.log(
-                            '[DEBUG-CHECKLIST] After toggle dispatch, newMode:',
-                            newMode,
-                          );
                           if (!newMode && checklistItems && checklistItems.length > 0) {
-                            console.log('[DEBUG-CHECKLIST] Clearing checklist items');
                             setUserClearedChecklist(true);
                             setChecklistItems(null);
                           }
