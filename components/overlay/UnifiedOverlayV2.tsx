@@ -1487,17 +1487,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }
   }, [visible, mode, state.baseType]);
 
-  // Auto-expand for journal logs when overlay opens
-  useEffect(() => {
-    if (visible && isLog && effectiveLogSubtype === 'journal' && !isExpandedEditor) {
-      // Small delay to allow overlay animation to complete
-      const timer = setTimeout(() => {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setIsExpandedEditor(true);
-      }, 150);
-      return () => clearTimeout(timer);
-    }
-  }, [visible, isLog, effectiveLogSubtype]);
+
 
   // Reset transient UI on baseType change
   useEffect(() => {
@@ -4306,189 +4296,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             />
                           </Box>
 
-                          {/* Log meta row: timestamp + mood strip (Phase L4) - ONLY for journal logs */}
-                          {isJournal ? (
-                            <Box style={{ marginBottom: 16 }}>
-                              <View style={styles.logMetaRow}>
-                                {logTimestampLabel ? (
-                                  <View
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                                  >
-                                    <Text style={styles.logTimestampText}>{logTimestampLabel}</Text>
-                                    {state.log.private && (
-                                      <Lock
-                                        size={14}
-                                        color={
-                                          colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'
-                                        }
-                                        style={{ opacity: 0.8 }}
-                                      />
-                                    )}
-                                  </View>
-                                ) : null}
-                                {/* Mood picker - collapsed/expanded states */}
-                                {!moodPickerExpanded ? (
-                                  // Collapsed state
-                                  moods.length > 0 ? (
-                                    // Moods are set - show as chips with clear button
-                                    <Pressable
-                                      onPress={() => !isViewMode && setMoodPickerExpanded(true)}
-                                      style={[
-                                        styles.moodChip,
-                                        {
-                                          backgroundColor:
-                                            colorMode === 'dark'
-                                              ? 'rgba(255,255,255,0.1)'
-                                              : '#E8F0EB',
-                                        },
-                                      ]}
-                                      accessibilityRole="button"
-                                      accessibilityLabel={`Moods: ${moods.map((m) => MOOD_CONFIG[m]?.label ?? m).join(', ')}. Tap to change`}
-                                    >
-                                      <Text
-                                        style={[
-                                          styles.moodChipText,
-                                          { color: colorMode === 'dark' ? '#fff' : tokens.colors.primary },
-                                        ]}
-                                      >
-                                        {moods.map((m) => MOOD_CONFIG[m]?.label ?? m).join(', ')}
-                                      </Text>
-                                      {!isViewMode && (
-                                        <Pressable
-                                          onPress={(e) => {
-                                            e.stopPropagation();
-                                            setMoods([]);
-                                            setMoodPickerExpanded(false);
-                                          }}
-                                          hitSlop={8}
-                                          accessibilityLabel="Clear moods"
-                                        >
-                                          <CloseIcon
-                                            size={14}
-                                            color={
-                                              colorMode === 'dark'
-                                                ? 'rgba(255,255,255,0.6)'
-                                                : '#666'
-                                            }
-                                          />
-                                        </Pressable>
-                                      )}
-                                    </Pressable>
-                                  ) : (
-                                    // No mood set - show "+ Mood" button
-                                    !isViewMode && (
-                                      <Pressable
-                                        onPress={() => setMoodPickerExpanded(true)}
-                                        style={[
-                                          styles.moodChip,
-                                          {
-                                            backgroundColor:
-                                              colorMode === 'dark'
-                                                ? 'rgba(255,255,255,0.05)'
-                                                : '#F5F5F5',
-                                          },
-                                        ]}
-                                        accessibilityRole="button"
-                                        accessibilityLabel="Add mood"
-                                      >
-                                        <Plus
-                                          size={14}
-                                          color={
-                                            colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#888'
-                                          }
-                                        />
-                                        <Text
-                                          style={[
-                                            styles.moodChipText,
-                                            {
-                                              color:
-                                                colorMode === 'dark'
-                                                  ? 'rgba(255,255,255,0.5)'
-                                                  : '#888',
-                                            },
-                                          ]}
-                                        >
-                                          Mood
-                                        </Text>
-                                      </Pressable>
-                                    )
-                                  )
-                                ) : (
-                                  // Expanded state - show all mood options in a single wrapped group
-                                  <View style={styles.moodPickerExpanded}>
-                                    <View style={styles.moodOptionsRow}>
-                                      {ALL_MOODS.map((moodValue) => {
-                                        const moodConfig = MOOD_CONFIG[moodValue];
-                                        const isSelected = moods.includes(moodValue);
-                                        return (
-                                          <Pressable
-                                            key={moodValue}
-                                            onPress={() => {
-                                              // Toggle mood selection
-                                              if (isSelected) {
-                                                setMoods(moods.filter((m) => m !== moodValue));
-                                              } else {
-                                                setMoods([...moods, moodValue]);
-                                              }
-                                            }}
-                                            style={[
-                                              styles.moodOptionChip,
-                                              isSelected && styles.moodOptionChipActive,
-                                              {
-                                                backgroundColor: isSelected
-                                                  ? colorMode === 'dark'
-                                                    ? 'rgba(255,255,255,0.2)'
-                                                    : '#D4E8DA'
-                                                  : colorMode === 'dark'
-                                                    ? 'rgba(255,255,255,0.08)'
-                                                    : '#F0F4F2',
-                                              },
-                                            ]}
-                                            accessibilityRole="button"
-                                            accessibilityLabel={`${isSelected ? 'Remove' : 'Add'} ${moodConfig.label} mood`}
-                                          >
-                                            <Text
-                                              style={[
-                                                styles.moodOptionText,
-                                                {
-                                                  color: colorMode === 'dark' ? '#fff' : tokens.colors.primary,
-                                                },
-                                              ]}
-                                            >
-                                              {moodConfig.label}
-                                            </Text>
-                                          </Pressable>
-                                        );
-                                      })}
-                                    </View>
-                                    {/* Done button to collapse */}
-                                    <Pressable
-                                      onPress={() => setMoodPickerExpanded(false)}
-                                      style={[
-                                        styles.moodDoneButton,
-                                        {
-                                          backgroundColor:
-                                            colorMode === 'dark'
-                                              ? 'rgba(255,255,255,0.1)'
-                                              : '#E8F0EB',
-                                        },
-                                      ]}
-                                    >
-                                      <Text
-                                        style={[
-                                          styles.moodDoneButtonText,
-                                          { color: colorMode === 'dark' ? '#fff' : tokens.colors.primary },
-                                        ]}
-                                      >
-                                        Done
-                                      </Text>
-                                    </Pressable>
-                                  </View>
-                                )}
-                              </View>
-                            </Box>
-                          ) : null}
-
                           {/* ===== Metadata rows — always visible, no accordion ===== */}
                           <View style={{ paddingHorizontal: 16 }}>
 
@@ -5269,6 +5076,55 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             {baseType === 'log' && (
                               <>
                                 {/* Event-type logs: Date & time */}
+                                {/* Journal: Mood */}
+                                {isJournal && (
+                                  <ExpandableRow
+                                    icon={Heart}
+                                    label="Mood"
+                                    summary={
+                                      moods.length > 0
+                                        ? moods.map((m) => MOOD_CONFIG[m]?.label ?? m).join(', ')
+                                        : 'Tap to set'
+                                    }
+                                    expanded={expandedRow === 'mood'}
+                                    onToggle={() => toggleRow('mood')}
+                                    iconColor="#8B5E3C"
+                                  >
+                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                      {ALL_MOODS.map((moodKey) => {
+                                        const config = MOOD_CONFIG[moodKey];
+                                        if (!config) return null;
+                                        const isSelected = moods.includes(moodKey);
+                                        return (
+                                          <Pressable
+                                            key={moodKey}
+                                            onPress={() => {
+                                              if (isSelected) {
+                                                setMoods(moods.filter((m) => m !== moodKey));
+                                              } else {
+                                                setMoods([...moods, moodKey]);
+                                              }
+                                            }}
+                                            style={{
+                                              paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16,
+                                              backgroundColor: isSelected ? 'rgba(46,85,64,0.12)' : '#EDEAE3',
+                                              borderWidth: isSelected ? 1 : 0,
+                                              borderColor: isSelected ? 'rgba(46,85,64,0.3)' : 'transparent',
+                                            }}
+                                          >
+                                            <Text style={{
+                                              fontSize: 13, fontWeight: isSelected ? '600' : '400',
+                                              color: isSelected ? '#2E5540' : '#6B665C',
+                                            }}>
+                                              {config.label}
+                                            </Text>
+                                          </Pressable>
+                                        );
+                                      })}
+                                    </View>
+                                  </ExpandableRow>
+                                )}
+
                                 {isEventNote && (
                                   <ExpandableRow
                                     icon={CalendarDays}
