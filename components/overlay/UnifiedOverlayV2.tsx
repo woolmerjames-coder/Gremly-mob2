@@ -296,18 +296,6 @@ function toCanonicalParts(value: string | null | undefined): { canonical: string
   return { canonical: trimmed, slug };
 }
 
-function mergeTagKeys(base: TagKey[], incoming: TagKey[]): TagKey[] {
-  if (incoming.length === 0) return base;
-  const next = new Set(base.map((tag) => normalizeToTagKey(tag) ?? tag));
-  incoming.forEach((tag) => {
-    const normalized = normalizeToTagKey(tag);
-    if (normalized) {
-      next.add(normalized);
-    }
-  });
-  return Array.from(next) as TagKey[];
-}
-
 /**
  * Common emotion tags that should be prioritized for journal/log entries.
  * Synced with lib/tags/extractTags.ts ALLOWED_EMOTIONS for consistency.
@@ -946,6 +934,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         hydrate: (entity) => hydrateEntityToDraft(entity, mode as any, initialSpaceId),
       });
       aiTagOverrideAppliedRef.current = false;
+      hasLoadedEditTagsRef.current = false;
     } else {
       store.discard();
     }
@@ -2270,33 +2259,24 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (mode !== 'edit') return;
     if (hasLoadedEditTagsRef.current) return;
 
-    const inlineTags = extractTagKeysFromEntity(initialEntity);
-    if (inlineTags.length > 0) {
-      const merged = mergeTagKeys(currentTagsRef.current, inlineTags);
-      if (merged.length !== currentTagsRef.current.length) {
-        store.setTags(merged);
-      }
-      hasLoadedEditTagsRef.current = true;
-      return;
-    }
+    // Extract tags from entity props or store — hydration already sets tags
+    // via store.open(), so this is a safety net only. We must NOT merge with
+    // currentTagsRef (which reflects the previous render and may hold a stale
+    // entity's tags). Instead, set tags directly from the entity source.
+    let entityTags = extractTagKeysFromEntity(initialEntity);
 
-    const entityId = (initialEntity as any)?.id;
-    if (!entityId) {
-      hasLoadedEditTagsRef.current = true;
-      return;
-    }
-
-    // Get entity from store (synchronous)
-    const entity = getItemById(entityId);
-    if (entity) {
-      const fetched = extractTagKeysFromEntity(entity);
-      if (fetched.length > 0) {
-        const merged = mergeTagKeys(currentTagsRef.current, fetched);
-        if (merged.length !== currentTagsRef.current.length) {
-          store.setTags(merged);
+    if (entityTags.length === 0) {
+      const entityId = (initialEntity as any)?.id;
+      if (entityId) {
+        const entity = getItemById(entityId);
+        if (entity) {
+          entityTags = extractTagKeysFromEntity(entity);
         }
       }
+    }
 
+    if (entityTags.length > 0) {
+      store.setTags(entityTags);
     }
     hasLoadedEditTagsRef.current = true;
   }, [mode, initialEntity, getItemById]);
