@@ -73,6 +73,7 @@ import {
   Zap,
   RotateCcw,
   Shield,
+  Pencil,
 } from 'lucide-react-native';
 import { useReducedMotion, conditionalAnimation, timingConfig } from '../../design/animations';
 import { Box, Text, Button } from '../../ui';
@@ -958,10 +959,10 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [visible, currentEntityId, mode]);
 
   // Track if we started in view mode so we can show a back button
-  const startedInViewMode = mode === 'view' && baseType === 'habit';
+  const startedInViewMode = mode === 'view';
 
-  // Derive effective view mode - use local state for habits, prop for others
-  const isViewMode = baseType === 'habit' ? displayMode === 'view' : mode === 'view';
+  // Derive effective view mode - displayMode toggles for all types
+  const isViewMode = displayMode === 'view' && mode === 'view';
 
   // Entity Chat: get store selectors and derive entityType
   const getEntityChatMessageCount = useGremlyStore((s) => s.getEntityChatMessageCount);
@@ -3572,644 +3573,287 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       (entity as any).body || (entity as any).notes || (entity as any).content || '';
     const entityTags = state.tags || [];
     const entitySpaceName = state.spaceId ? spaces.find((s) => s.id === state.spaceId)?.name : null;
-    const entityDueDay = state.todo.due_day;
     const entityCreatedAt = (entity as any).created_at;
 
-    // Format due date for display
-    const formattedDueDate = entityDueDay ? formatDueDay(entityDueDay) : null;
-
-    // Format created date
     const formattedCreatedDate = entityCreatedAt
       ? format(parseISO(entityCreatedAt), 'MMM d, yyyy')
       : null;
 
-    // Check if body has real content (not just duplicating the title)
     const bodyHasContent =
       entityBody && entityBody.trim() && entityBody.trim() !== entityTitle.trim();
 
-    // Format event date for display
+    // Build schedule summary for todo/habit metadata card
+    const scheduleParts: string[] = [];
+    if (baseType === 'todo') {
+      const effectiveDoDate = state.todo.scheduled_date ?? state.todo.due_day;
+      if (effectiveDoDate) scheduleParts.push(formatDueDay(effectiveDoDate));
+      if (state.todo.time_estimate_minutes)
+        scheduleParts.push(formatTimeEstimate(state.todo.time_estimate_minutes));
+      if (state.todo.time_window) {
+        const twLabel = TIME_WINDOW_OPTIONS.find((o) => o.value === state.todo.time_window)?.label;
+        if (twLabel && twLabel !== 'Any time') scheduleParts.push(twLabel);
+      }
+      if (state.todo.target_date) scheduleParts.push(`Due ${formatDueDay(state.todo.target_date)}`);
+    } else if (baseType === 'habit') {
+      scheduleParts.push(getFrequencyLabel(jsonToFrequency(state.habit.frequency_json)));
+      if (state.habit.time_estimate_minutes)
+        scheduleParts.push(`~${state.habit.time_estimate_minutes}m`);
+      if (state.habit.time_window) {
+        const twLabel = TIME_WINDOW_OPTIONS.find((o) => o.value === state.habit.time_window)?.label;
+        if (twLabel && twLabel !== 'Any time') scheduleParts.push(twLabel);
+      }
+    }
+    const scheduleSummary = scheduleParts.length > 0 ? scheduleParts.join(' · ') : null;
+
+    // Event-specific date formatting
     const formatEventDate = () => {
       if (!state.log.target_date) return null;
-
       const targetDate = parseISO(state.log.target_date);
       const endDate = state.log.end_date ? parseISO(state.log.end_date) : null;
       const eventTime = state.log.event_time;
       const today = getDateService().now();
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
-
-      // Check if dates are same day
       const isToday = isSameDay(targetDate, today);
       const isTomorrow = isSameDay(targetDate, tomorrow);
-
-      // Calculate days from now
       const daysFromNow = differenceInDays(targetDate, today);
-
-      // Format the date part
       let dateStr: string;
-      if (isToday) {
-        dateStr = 'Today';
-      } else if (isTomorrow) {
-        dateStr = 'Tomorrow';
-      } else if (daysFromNow > 0 && daysFromNow <= 7) {
-        dateStr = format(targetDate, 'EEEE'); // Day name like "Friday"
-      } else if (daysFromNow > 7 && daysFromNow <= 14) {
-        dateStr = `In ${daysFromNow} days`;
-      } else {
-        dateStr = format(targetDate, 'MMM d, yyyy');
-      }
-
-      // Handle multi-day events
+      if (isToday) dateStr = 'Today';
+      else if (isTomorrow) dateStr = 'Tomorrow';
+      else if (daysFromNow > 0 && daysFromNow <= 7) dateStr = format(targetDate, 'EEEE');
+      else dateStr = format(targetDate, 'MMM d, yyyy');
       if (endDate && !isSameDay(targetDate, endDate)) {
-        const startStr = format(targetDate, 'MMM d');
-        const endStr = format(
-          endDate,
-          targetDate.getFullYear() === endDate.getFullYear() ? 'd, yyyy' : 'MMM d, yyyy',
-        );
-        dateStr = `${startStr}–${endStr}`;
+        dateStr = `${format(targetDate, 'MMM d')}–${format(endDate, targetDate.getFullYear() === endDate.getFullYear() ? 'd, yyyy' : 'MMM d, yyyy')}`;
       }
-
-      // Format time part
       let timeStr = 'All day';
       if (eventTime) {
         const [hours, minutes] = eventTime.split(':').map(Number);
-        const timeDate = getDateService().now();
-        timeDate.setHours(hours, minutes, 0, 0);
-        timeStr = format(timeDate, 'h:mm a');
+        const td = getDateService().now();
+        td.setHours(hours, minutes, 0, 0);
+        timeStr = format(td, 'h:mm a');
       }
-
-      return { dateStr, timeStr };
+      return `${dateStr} · ${timeStr}`;
     };
 
-    const eventDateInfo = effectiveLogSubtype === 'event' ? formatEventDate() : null;
-
-    // Special rendering for event notes
-    if (effectiveLogSubtype === 'event') {
-      return (
-        <ScrollView
-          style={{ flex: 1 }}
-          keyboardShouldPersistTaps="handled"
-          nestedScrollEnabled={true}
-          scrollEnabled={true}
-          bounces={true}
-          showsVerticalScrollIndicator={true}
-          contentContainerStyle={{
-            paddingHorizontal: 20,
-            paddingBottom: 24,
-            paddingTop: 16,
-          }}
-        >
-          {/* Title - Large, prominent display */}
-          <Text
-            style={{
-              fontSize: 24,
-              fontWeight: '600',
-              color: colorMode === 'dark' ? '#FFFFFF' : '#1a1a1a',
-              fontFamily: Platform.OS === 'ios' ? 'Plus Jakarta Sans' : undefined,
-              marginBottom: 12,
-              lineHeight: 32,
-            }}
-          >
-            {entityTitle}
-          </Text>
-
-          {/* Event Date Row: Calendar icon + Date + Time ... Space name */}
-          {eventDateInfo && (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 16,
-              }}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Calendar
-                  size={16}
-                  color={colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#2E5540'}
-                />
-                <Text
-                  style={{
-                    fontSize: 15,
-                    fontWeight: '500',
-                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.9)' : '#333',
-                  }}
-                >
-                  {eventDateInfo.dateStr}
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 15,
-                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
-                  }}
-                >
-                  ·
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 15,
-                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
-                  }}
-                >
-                  {eventDateInfo.timeStr}
-                </Text>
-              </View>
-              {entitySpaceName && (
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: colorMode === 'dark' ? 'rgba(255,255,255,0.5)' : '#999',
-                  }}
-                >
-                  {entitySpaceName}
-                </Text>
-              )}
-            </View>
-          )}
-
-          {/* Divider between header and content */}
-          <View
-            style={{
-              height: 1,
-              backgroundColor: colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-              marginBottom: 16,
-            }}
-          />
-
-          {/* Tags row - read-only display */}
-          {entityTags.length > 0 && (
-            <View
-              style={{
-                flexDirection: 'row',
-                flexWrap: 'wrap',
-                gap: 6,
-                marginBottom: 16,
-              }}
-            >
-              {entityTags.map((tag) => (
-                <View
-                  key={tag}
-                  style={{
-                    backgroundColor:
-                      colorMode === 'dark' ? 'rgba(94, 160, 138, 0.2)' : 'rgba(94, 160, 138, 0.15)',
-                    paddingHorizontal: 10,
-                    paddingVertical: 5,
-                    borderRadius: 14,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      color: colorMode === 'dark' ? '#8FCBB4' : '#2E7D6A',
-                      fontWeight: '500',
-                    }}
-                  >
-                    #{tag}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {/* Body content - only show if it has real content different from title */}
-          {bodyHasContent && (
-            <View
-              style={{
-                backgroundColor:
-                  colorMode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
-                borderRadius: 12,
-                padding: 16,
-                marginBottom: 16,
-              }}
-            >
-              {renderFormattedContent(entityBody, {
-                textColor: colorMode === 'dark' ? 'rgba(255,255,255,0.9)' : '#333',
-                fontSize: 16,
-                lineHeight: 24,
-              })}
-            </View>
-          )}
-
-          {/* Photos grid (read-only) - for logs with photos */}
-          {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
-            <View style={{ marginBottom: 16 }}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 8 }}
-              >
-                {logPhotos
-                  .filter((p) => !p.isDeleted)
-                  .map((photo, index) => {
-                    const actualIndex = logPhotos.findIndex((p) => p === photo);
-                    return (
-                      <Pressable
-                        key={actualIndex}
-                        onPress={() => handleViewLogPhoto(actualIndex)}
-                        accessibilityLabel={`View photo ${index + 1}`}
-                        accessibilityRole="button"
-                      >
-                        <Image
-                          source={{ uri: photo.url }}
-                          style={{
-                            width: 100,
-                            height: 100,
-                            borderRadius: 8,
-                          }}
-                          resizeMode="cover"
-                        />
-                      </Pressable>
-                    );
-                  })}
-              </ScrollView>
-            </View>
-          )}
-
-          {/* Linked Items section for event notes */}
-          {currentEntityId && fullEntity?.space_id && (
-            <LinkedItemsSection
-              eventId={currentEntityId}
-              spaceId={fullEntity.space_id}
-              onItemPress={handleLinkedItemPress}
-              onAddTodo={handleLinkedAddTodo}
-              onAddNote={handleLinkedAddNote}
-              onLinkExisting={handleLinkExisting}
-            />
-          )}
-
-          {/* Chat with Gremly button */}
-          {currentEntityId && (
-            <View style={{ marginTop: 16 }}>
-              <EntityChatButton
-                entityId={currentEntityId}
-                entityType="note"
-                variant="overlay"
-                onPress={() => store.setUI({ showEntityChat: true })}
-              />
-            </View>
-          )}
-
-          {/* Created date - subtle footer info, very small */}
-          {formattedCreatedDate && (
-            <Text
-              style={{
-                fontSize: 11,
-                color: colorMode === 'dark' ? 'rgba(255,255,255,0.3)' : '#bbb',
-                marginTop: 24,
-                textAlign: 'center',
-              }}
-            >
-              Created {formattedCreatedDate}
-            </Text>
-          )}
-        </ScrollView>
-      );
-    }
-
-    // Default rendering for non-event entities
     return (
       <ScrollView
         style={{ flex: 1 }}
         keyboardShouldPersistTaps="handled"
-        nestedScrollEnabled={true}
-        scrollEnabled={true}
-        bounces={true}
-        showsVerticalScrollIndicator={true}
-        contentContainerStyle={{
-          paddingHorizontal: 20,
-          paddingBottom: 24,
-          paddingTop: 8,
-        }}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 28, paddingTop: 12 }}
       >
-        {/* Title - Large, prominent display */}
+        {/* Type badge + date row */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <View
+            style={{
+              backgroundColor: 'rgba(46,85,64,0.08)',
+              paddingHorizontal: 9, paddingVertical: 3, borderRadius: 10,
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: '500', color: '#2E5540', textTransform: 'capitalize' }}>
+              {effectiveLogSubtype === 'event' ? 'Event' : BASE_LABEL[baseType]}
+            </Text>
+          </View>
+          {formattedCreatedDate && (
+            <Text style={{ fontSize: 12, color: '#A09A90' }}>{formattedCreatedDate}</Text>
+          )}
+        </View>
+
+        {/* Title */}
         <Text
           style={{
-            fontSize: 24,
+            fontSize: 22,
             fontWeight: '600',
-            color: colorMode === 'dark' ? '#FFFFFF' : '#1a1a1a',
-            fontFamily: Platform.OS === 'ios' ? 'Plus Jakarta Sans' : undefined,
+            color: '#1a1a1a',
             marginBottom: 12,
-            lineHeight: 32,
+            lineHeight: 30,
           }}
         >
           {entityTitle}
         </Text>
 
-        {/* Subtitle row: Type badge + Space + Due date */}
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: 8,
-            marginBottom: 16,
-          }}
-        >
-          {/* Type badge */}
+        {/* Event date row */}
+        {effectiveLogSubtype === 'event' && (() => {
+          const eventStr = formatEventDate();
+          if (!eventStr) return null;
+          return (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}>
+              <CalendarDays size={14} color="#2E5540" />
+              <Text style={{ fontSize: 14, color: '#555', fontWeight: '500' }}>{eventStr}</Text>
+            </View>
+          );
+        })()}
+
+        {/* Body in subtle card */}
+        {bodyHasContent && (
           <View
             style={{
-              backgroundColor:
-                colorMode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(46, 85, 64, 0.08)',
-              paddingHorizontal: 10,
-              paddingVertical: 4,
-              borderRadius: 12,
+              padding: 14, paddingHorizontal: 16,
+              backgroundColor: '#EDEAE380', borderRadius: 12,
+              borderWidth: 0.5, borderColor: '#E8E5DE',
+              marginBottom: 14,
             }}
           >
-            <Text
-              style={{
-                fontSize: 12,
-                fontWeight: '500',
-                color: colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#2E5540',
-                textTransform: 'capitalize',
-              }}
-            >
-              {BASE_LABEL[baseType]}
-            </Text>
+            {renderFormattedContent(entityBody, {
+              textColor: '#333',
+              fontSize: 15,
+              lineHeight: 23,
+            })}
           </View>
+        )}
 
-          {/* Space badge */}
-          {entitySpaceName && (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 4,
-                backgroundColor:
-                  colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
-                paddingHorizontal: 10,
-                paddingVertical: 4,
-                borderRadius: 12,
-              }}
-            >
-              <Folder size={12} color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'} />
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
-                }}
-              >
-                {entitySpaceName}
-              </Text>
-            </View>
-          )}
-
-          {/* Due date badge (for todos) */}
-          {baseType === 'todo' && formattedDueDate && (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 4,
-                backgroundColor:
-                  colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
-                paddingHorizontal: 10,
-                paddingVertical: 4,
-                borderRadius: 12,
-              }}
-            >
-              <Calendar size={12} color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'} />
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
-                }}
-              >
-                {formattedDueDate}
-              </Text>
-            </View>
-          )}
-
-          {/* Source note reference - for todos created from notes */}
-          {baseType === 'todo' && sourceNote && (
-            <Pressable
-              onPress={handleOpenSourceNote}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-                paddingVertical: 8,
-                paddingHorizontal: 12,
-                backgroundColor: 'rgba(107, 142, 107, 0.08)',
-                borderRadius: 8,
-                marginBottom: 12,
-                alignSelf: 'flex-start',
-              }}
-            >
-              <FileText size={14} color={lightTokens.colors.mossGreen} />
-              <Text
-                style={{
-                  flex: 1,
-                  fontSize: 13,
-                  color: lightTokens.colors.mossGreen,
-                }}
-              >
-                From: {sourceNote.title}
-              </Text>
-              <ChevronRight size={14} color="#999" />
-            </Pressable>
-          )}
-
-          {/* Frequency badge (for habits) */}
-          {baseType === 'habit' && state.habit.frequency_json && (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 4,
-                backgroundColor:
-                  colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
-                paddingHorizontal: 10,
-                paddingVertical: 4,
-                borderRadius: 12,
-              }}
-            >
-              <Calendar size={12} color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'} />
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
-                }}
-              >
-                {getFrequencyLabel(
-                  jsonToFrequency(
-                    state.habit.frequency_json,
-                  ),
-                )}
-              </Text>
-            </View>
-          )}
-        </View>
-
-        {/* Tags row - read-only display */}
-        {entityTags.length > 0 && (
+        {/* Checklist (if note has checklist) */}
+        {baseType === 'log' && checklistItems && checklistItems.length > 0 && !bodyHasContent && (
           <View
             style={{
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-              gap: 6,
-              marginBottom: 20,
+              padding: 14, paddingHorizontal: 16,
+              backgroundColor: '#EDEAE380', borderRadius: 12,
+              borderWidth: 0.5, borderColor: '#E8E5DE',
+              marginBottom: 14,
             }}
           >
+            <ChecklistProgress items={checklistItems} />
+            <ChecklistView items={checklistItems} onToggle={handleToggleChecklistItem} />
+          </View>
+        )}
+
+        {/* Photo strip */}
+        {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
+          <View style={{ marginBottom: 14 }}>
+            <PhotoStrip
+              photos={logPhotos as import('./useOverlayDraft').DraftPhoto[]}
+              onAddPhoto={() => {}}
+              onTapPhoto={(i) => handleViewLogPhoto(i)}
+              disabled
+            />
+          </View>
+        )}
+
+        {/* Tags — read-only, no dismiss, no add */}
+        {entityTags.length > 0 && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
             {entityTags.map((tag) => (
               <View
                 key={tag}
                 style={{
-                  backgroundColor:
-                    colorMode === 'dark' ? 'rgba(94, 160, 138, 0.2)' : 'rgba(94, 160, 138, 0.15)',
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                  borderRadius: 14,
+                  backgroundColor: 'rgba(46,85,64,0.08)', paddingHorizontal: 10,
+                  paddingVertical: 4, borderRadius: 8,
                 }}
               >
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: colorMode === 'dark' ? '#8FCBB4' : '#2E7D6A',
-                    fontWeight: '500',
-                  }}
-                >
-                  #{tag}
+                <Text style={{ fontSize: 12, color: '#2E5540', fontWeight: '500' }}>#{tag}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Metadata summary card (todo/habit) */}
+        {(baseType === 'todo' || baseType === 'habit') && (scheduleSummary || entitySpaceName) && (
+          <View
+            style={{
+              padding: 10, paddingHorizontal: 14,
+              backgroundColor: '#EDEAE3', borderRadius: 10,
+              marginBottom: 14,
+            }}
+          >
+            {scheduleSummary && (
+              <View style={{ flexDirection: 'row', marginBottom: entitySpaceName ? 4 : 0 }}>
+                <Text style={{ fontSize: 12, color: '#8B8579', fontWeight: '500', width: 68 }}>Schedule</Text>
+                <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{scheduleSummary}</Text>
+              </View>
+            )}
+            {entitySpaceName && (
+              <View style={{ flexDirection: 'row' }}>
+                <Text style={{ fontSize: 12, color: '#8B8579', fontWeight: '500', width: 68 }}>Space</Text>
+                <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{entitySpaceName}</Text>
+              </View>
+            )}
+            {itemReminders.length > 0 && (
+              <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                <Text style={{ fontSize: 12, color: '#8B8579', fontWeight: '500', width: 68 }}>Reminders</Text>
+                <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{formatItemReminderSummary(itemReminders)}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Mood display (journal) */}
+        {isJournal && moods.length > 0 && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}>
+            <Text style={{ fontSize: 13, color: '#8B8579' }}>Mood:</Text>
+            <Text style={{ fontSize: 13, color: '#2E5540', fontWeight: '500' }}>
+              {moods.map((m) => MOOD_CONFIG[m]?.label ?? m).join(', ')}
+            </Text>
+          </View>
+        )}
+
+        {/* Linked items (event notes) */}
+        {effectiveLogSubtype === 'event' && currentEntityId && fullEntity?.space_id && (
+          <LinkedItemsSection
+            eventId={currentEntityId}
+            spaceId={fullEntity.space_id}
+            onItemPress={handleLinkedItemPress}
+            onAddTodo={handleLinkedAddTodo}
+            onAddNote={handleLinkedAddNote}
+            onLinkExisting={handleLinkExisting}
+          />
+        )}
+
+        {/* Chat saved notes */}
+        {entityChatNotes.length > 0 && (
+          <View style={{ marginBottom: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <Star size={14} color="#8B8579" />
+              <Text style={{ fontSize: 12, color: '#8B8579', fontWeight: '600' }}>
+                Saved from chat
+              </Text>
+            </View>
+            {entityChatNotes.map((note: any, idx: number) => (
+              <View
+                key={note.id ?? idx}
+                style={{
+                  padding: 10, paddingHorizontal: 12,
+                  backgroundColor: '#EDEAE380', borderRadius: 10,
+                  borderWidth: 0.5, borderColor: '#E8E5DE',
+                  marginBottom: 6,
+                }}
+              >
+                <Text style={{ fontSize: 13, color: '#444', lineHeight: 19 }}>
+                  {note.content}
                 </Text>
               </View>
             ))}
           </View>
         )}
 
-        {/* Body content - checklist or formatted text */}
-        {baseType === 'log' && checklistItems && checklistItems.length > 0 ? (
-          // Checklist mode - use local state as primary trigger
-          <View
-            style={{
-              backgroundColor: colorMode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
-              borderRadius: 12,
-              padding: 16,
-              marginBottom: 20,
-            }}
-          >
-            <ChecklistProgress items={checklistItems} />
-            <ChecklistView items={checklistItems} onToggle={handleToggleChecklistItem} />
-          </View>
-        ) : entityBody ? (
-          // Regular formatted content
-          <View
-            style={{
-              backgroundColor: colorMode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
-              borderRadius: 12,
-              padding: 16,
-              marginBottom: 20,
-            }}
-          >
-            {renderFormattedContent(entityBody, {
-              textColor: colorMode === 'dark' ? 'rgba(255,255,255,0.9)' : '#333',
-              fontSize: 16,
-              lineHeight: 24,
-            })}
-          </View>
-        ) : null}
-
-        {/* Make Actionable button - only for notes with lists that aren't already checklists */}
-        {baseType === 'log' && showMakeActionable && (
-          <MakeActionableButton onPress={handleMakeActionable} />
-        )}
-
-        {/* Revert to text button - only for notes that ARE checklists */}
-        {baseType === 'log' && checklistItems && checklistItems.length > 0 && (
-          <RevertToTextButton onPress={handleRevertToText} />
-        )}
-
-        {/* Photos grid (read-only) - for logs with photos */}
-        {isLog && logPhotos.filter((p) => !p.isDeleted).length > 0 && (
-          <View style={{ marginBottom: 20 }}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 8 }}
-            >
-              {logPhotos
-                .filter((p) => !p.isDeleted)
-                .map((photo, index) => {
-                  const actualIndex = logPhotos.findIndex((p) => p === photo);
-                  return (
-                    <Pressable
-                      key={actualIndex}
-                      onPress={() => handleViewLogPhoto(actualIndex)}
-                      accessibilityLabel={`View photo ${index + 1}`}
-                      accessibilityRole="button"
-                    >
-                      <Image
-                        source={{ uri: photo.url }}
-                        style={{
-                          width: 100,
-                          height: 100,
-                          borderRadius: 8,
-                        }}
-                        resizeMode="cover"
-                      />
-                    </Pressable>
-                  );
-                })}
-            </ScrollView>
+        {/* Chat with Gremly button */}
+        {currentEntityId && (
+          <View style={{ marginTop: 4 }}>
+            <EntityChatButton
+              entityId={currentEntityId}
+              entityType={entityTypeForChat ?? 'note'}
+              variant="overlay"
+              onPress={() => store.setUI({ showEntityChat: true })}
+            />
           </View>
         )}
 
-        {/* Reminders display (read-only) */}
-        {itemReminders.length > 0 && (
-          <View
+        {/* Source note link (todos from notes) */}
+        {baseType === 'todo' && sourceNote && (
+          <Pressable
+            onPress={handleOpenSourceNote}
             style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-              marginBottom: 16,
-              paddingVertical: 8,
+              flexDirection: 'row', alignItems: 'center', gap: 6,
+              paddingVertical: 8, paddingHorizontal: 12,
+              backgroundColor: 'rgba(107,142,107,0.08)', borderRadius: 8,
+              marginTop: 10, alignSelf: 'flex-start',
             }}
           >
-            <Bell size={16} color={colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666'} />
-            <Text
-              style={{
-                fontSize: 14,
-                color: colorMode === 'dark' ? 'rgba(255,255,255,0.7)' : '#555',
-              }}
-            >
-              {formatItemReminderSummary(itemReminders)}
+            <FileText size={14} color={lightTokens.colors.mossGreen} />
+            <Text style={{ flex: 1, fontSize: 13, color: lightTokens.colors.mossGreen }}>
+              From: {sourceNote.title}
             </Text>
-          </View>
-        )}
-
-        {/* Mood display (for journal logs) */}
-        {isJournal && moods.length > 0 && (
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-              marginBottom: 16,
-            }}
-          >
-            <Text
-              style={{
-                fontSize: 14,
-                color: colorMode === 'dark' ? 'rgba(255,255,255,0.6)' : '#666',
-              }}
-            >
-              Mood:
-            </Text>
-            <Text style={{ fontSize: 14, color: colorMode === 'dark' ? '#fff' : '#2E5540' }}>
-              {moods.map((m) => MOOD_CONFIG[m]?.label ?? m).join(', ')}
-            </Text>
-          </View>
-        )}
-
-        {/* Created date - subtle footer info */}
-        {formattedCreatedDate && (
-          <Text
-            style={{
-              fontSize: 12,
-              color: colorMode === 'dark' ? 'rgba(255,255,255,0.4)' : '#999',
-              marginTop: 16,
-            }}
-          >
-            Created {formattedCreatedDate}
-          </Text>
+            <ChevronRight size={14} color="#999" />
+          </Pressable>
         )}
       </ScrollView>
     );
@@ -4378,25 +4022,23 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
                     {isViewMode ? (
                       <Pressable
-                        onPress={() => {
-                          if (initialEntity && (initialEntity as any).id) {
-                            globalOverlay.openEdit({
-                              record: initialEntity as any,
-                              spaceId: initialSpaceId,
-                            });
-                          }
-                        }}
+                        onPress={() => setDisplayMode('edit')}
                         accessibilityRole="button"
                         accessibilityLabel="Edit"
                         style={({ pressed }) => ({
-                          backgroundColor: '#2D4A3E',
-                          paddingHorizontal: 24,
-                          paddingVertical: 8,
-                          borderRadius: 20,
-                          opacity: pressed ? 0.8 : 1,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 5,
+                          borderWidth: 0.5,
+                          borderColor: '#D5D0C8',
+                          paddingHorizontal: 14,
+                          paddingVertical: 6,
+                          borderRadius: 16,
+                          opacity: pressed ? 0.7 : 1,
                         })}
                       >
-                        <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '600' }}>
+                        <Pencil size={14} color="#2E5540" />
+                        <Text style={{ color: '#2E5540', fontSize: 14, fontWeight: '500' }}>
                           Edit
                         </Text>
                       </Pressable>
@@ -4507,8 +4149,8 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                             </Pressable>
                           )}
 
-                        {/* Back to View button - habits in edit mode */}
-                        {baseType === 'habit' && displayMode === 'edit' && startedInViewMode ? (
+                        {/* Back to View button - shown when we started in view mode and switched to edit */}
+                        {displayMode === 'edit' && startedInViewMode ? (
                           <Pressable
                             onPress={() => setDisplayMode('view')}
                             accessibilityRole="button"

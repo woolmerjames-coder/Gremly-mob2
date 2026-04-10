@@ -293,7 +293,7 @@ describe('UnifiedOverlayV2 - View Mode', () => {
   });
 
   describe('Edit button behavior', () => {
-    it('Edit button calls openEdit with correct record and spaceId when pressed', () => {
+    it('Edit button toggles to edit mode inline (no longer calls openEdit)', () => {
       const onClose = jest.fn();
       const testSpaceId = 'test-space-456';
 
@@ -307,18 +307,12 @@ describe('UnifiedOverlayV2 - View Mode', () => {
         />,
       );
 
-      // Find and press the Edit button (use first one - footer Edit button)
+      // Find and press the Edit button
       const editButtons = getAllByLabelText('Edit');
       fireEvent.press(editButtons[0]);
 
-      // Assert openEdit was called once
-      expect(mockOpenEdit).toHaveBeenCalledTimes(1);
-
-      // Assert openEdit was called with the correct arguments
-      expect(mockOpenEdit).toHaveBeenCalledWith({
-        record: mockRecord,
-        spaceId: testSpaceId,
-      });
+      // openEdit should NOT be called — inline toggle via setDisplayMode('edit')
+      expect(mockOpenEdit).not.toHaveBeenCalled();
     });
   });
 
