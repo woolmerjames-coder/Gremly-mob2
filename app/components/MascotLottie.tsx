@@ -133,12 +133,18 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
     const { mode: contextMode } = useMascotMode();
     // Internal state only used by the deprecated imperative handle
     const [imperativeMode, setImperativeMode] = useState<AnimationMode>('idle');
-    const [isCelebrating, setIsCelebrating] = useState(false);
+    const isCelebratingRef = useRef(false);
     // Imperative mode wins during active celebrations; otherwise prop > context
-    const mode: AnimationMode = isCelebrating
+    // The ref avoids async-state race conditions during celebrate —
+    // setImperativeMode (state) always accompanies ref writes, forcing a re-render.
+    /* eslint-disable react-hooks/refs */
+    const mode: AnimationMode = isCelebratingRef.current
       ? imperativeMode
       : (modeProp ?? contextMode ?? 'idle');
+    /* eslint-enable react-hooks/refs */
     const fedPlayCountRef = useRef(0);
+    const hasStartedRef = useRef(false);
+    const prevModeRef = useRef<AnimationMode>(mode);
     const reduceMotion = useReducedMotion();
 
     // Only 2 LottieView refs needed — grey + green for the active mode
@@ -275,83 +281,91 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
           : fillHeight.value,
     }));
 
-    // key-based remounting handles reset+play — no manual useEffect needed
+    // ─── Manual play on mode change (proven ref.reset+play pattern) ───
+    useEffect(() => {
+      if (mode === prevModeRef.current && mode === 'idle') return;
+      prevModeRef.current = mode;
+
+      if (mode === 'idle') {
+        // Idle auto-plays and loops — just make sure it's running
+        greenRef.current?.play();
+        greyRef.current?.play();
+        hasStartedRef.current = false; // idle has no finish handler
+        return;
+      }
+
+      // For all non-idle modes: reset to frame 0 and play
+      hasStartedRef.current = true;
+      greenRef.current?.reset();
+      greenRef.current?.play();
+      greyRef.current?.reset();
+      greyRef.current?.play();
+    }, [mode]);
 
     /** @deprecated Use the mode prop instead. */
     const celebrate = useCallback(() => {
-      if (isCelebrating) return;
-      setIsCelebrating(true);
+      if (isCelebratingRef.current) return;
+      isCelebratingRef.current = true;
       setImperativeMode('drop');
-    }, [isCelebrating]);
+    }, []);
 
     /** @deprecated Use the mode prop instead. */
     const celebrateFed = useCallback(() => {
-      if (isCelebrating) return;
-      setIsCelebrating(true);
+      if (isCelebratingRef.current) return;
+      isCelebratingRef.current = true;
       fedPlayCountRef.current = 0;
       setImperativeMode('fed');
-    }, [isCelebrating]);
+    }, []);
 
     const handleDropFinish = useCallback(() => {
-      if (mode !== 'drop') return;
-      setIsCelebrating(false);
+      isCelebratingRef.current = false;
       setImperativeMode('idle');
-    }, [mode]);
+    }, []);
 
     const handleFedFinish = useCallback(() => {
-      if (mode !== 'fed') return;
       fedPlayCountRef.current += 1;
       if (fedPlayCountRef.current < 2) {
-        // Replay via refs (key stays the same so refs are stable)
+        // Replay: refs are stable (no key remounting)
         greenRef.current?.reset();
         greenRef.current?.play();
         greyRef.current?.reset();
         greyRef.current?.play();
+        hasStartedRef.current = true;
       } else {
-        setIsCelebrating(false);
+        isCelebratingRef.current = false;
         setImperativeMode('idle');
       }
-    }, [mode]);
-
-    const handleWavingFinish = useCallback(() => {
-      if (mode !== 'waving') return;
-      setIsCelebrating(false);
-    }, [mode]);
-
-    const handleFallAsleepFinish = useCallback(() => {
-      if (mode !== 'fallingAsleep') return;
-      // Controller auto-transitions to 'sleeping' — no state change here
-    }, [mode]);
-
-    const handleWakeUpFinish = useCallback(() => {
-      if (mode !== 'wakingUp') return;
-      // Controller auto-transitions to 'idle' — no state change here
-    }, [mode]);
+    }, []);
 
     useImperativeHandle(ref, () => ({ celebrate, celebrateFed }), [celebrate, celebrateFed]);
 
-    // Per-mode finish handler lookup
-    const finishHandlers: Partial<Record<AnimationMode, () => void>> = useMemo(
-      () => ({
-        drop: handleDropFinish,
-        fed: handleFedFinish,
-        waving: handleWavingFinish,
-        fallingAsleep: handleFallAsleepFinish,
-        wakingUp: handleWakeUpFinish,
-      }),
-      [
-        handleDropFinish,
-        handleFedFinish,
-        handleWavingFinish,
-        handleFallAsleepFinish,
-        handleWakeUpFinish,
-      ],
-    );
-
+    // Determine sources and behavior for current mode
     const isLooping = mode === 'idle' || mode === 'sleeping';
     const greySource = greySourceMap[mode];
     const coloredSource = coloredSourceMap[mode];
-    const currentFinishHandler = finishHandlers[mode];
+
+    // Only attach onAnimationFinish for modes that need it
+    const finishHandler = useMemo(() => {
+      switch (mode) {
+        case 'drop':
+          return handleDropFinish;
+        case 'fed':
+          return handleFedFinish;
+        default:
+          return undefined;
+      }
+    }, [mode, handleDropFinish, handleFedFinish]);
+
+    // Guard against spurious fires (source change, reset, unmount)
+    const guardedFinishHandler = useCallback(
+      (isCancelled: boolean) => {
+        if (isCancelled) return;
+        if (!hasStartedRef.current) return;
+        hasStartedRef.current = false;
+        finishHandler?.();
+      },
+      [finishHandler],
+    );
 
     // ─── Simplified render for onboarding (showFullColor) ───
     if (showFullColor && !drainAnimation) {
@@ -439,14 +453,13 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
         importantForAccessibility="no-hide-descendants"
         accessibilityElementsHidden={true}
       >
-        {/* ─── GREY LAYER (single LottieView, remounts on mode change) ─── */}
+        {/* ─── GREY LAYER (stable LottieView, source swaps in place) ─── */}
         {!isFedToday && !showFullColor && (
           <View style={styles.greyContainer}>
             <LottieView
-              key={`grey-${mode}`}
               ref={greyRef}
               source={greySource}
-              autoPlay={!reduceMotion}
+              autoPlay={mode === 'idle' && !reduceMotion}
               loop={isLooping}
               renderMode="HARDWARE"
               style={styles.lottie}
@@ -454,15 +467,14 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
           </View>
         )}
 
-        {/* ─── GREEN LAYER (single LottieView, clipped from bottom up) ─── */}
+        {/* ─── GREEN LAYER (stable LottieView, clipped from bottom up) ─── */}
         <Animated.View style={[styles.clipContainer, clipAnimatedStyle]}>
           <LottieView
-            key={`green-${mode}`}
             ref={greenRef}
             source={coloredSource}
-            autoPlay={!reduceMotion}
+            autoPlay={mode === 'idle' && !reduceMotion}
             loop={isLooping}
-            onAnimationFinish={currentFinishHandler}
+            onAnimationFinish={guardedFinishHandler}
             renderMode="HARDWARE"
             style={styles.lottieGreen}
           />
