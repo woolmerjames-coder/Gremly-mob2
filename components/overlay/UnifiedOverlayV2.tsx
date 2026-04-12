@@ -82,22 +82,11 @@ import { renderFormattedContent } from '../../lib/markdown/renderFormattedConten
 import { stripMarkdown } from '../../lib/markdown/stripMarkdown';
 import * as Haptics from 'expo-haptics';
 import { Modal } from 'react-native';
-import {
-  format,
-  parseISO,
-  addDays,
-  setHours,
-  isSameDay,
-  differenceInDays,
-} from 'date-fns';
+import { format, parseISO, addDays, setHours, isSameDay, differenceInDays } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import { getDateService, getTodayDayString } from '../../lib/date';
-import {
-  lightTokens,
-  darkTokens,
-  spacing as tokenSpacing,
-} from '../../design/tokens';
+import { lightTokens, darkTokens, spacing as tokenSpacing } from '../../design/tokens';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { selectItemById, useActiveSpaces, useSpaceHasEvents } from '../../lib/store/selectors';
 import { useAuth } from '../../providers/AuthProvider';
@@ -107,11 +96,7 @@ import { PeopleLinker } from './fields/PeopleLinker';
 import PersonPicker from './fields/PersonPicker';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 import { styles } from './overlayStyles';
-import {
-  initialV2State,
-  type BaseType,
-  type TagKey,
-} from './overlayV2.state';
+import { initialV2State, type BaseType, type TagKey } from './overlayV2.state';
 import {
   normalizeToTagKey,
   extractTagKeysFromEntity,
@@ -123,19 +108,13 @@ import {
 import { useOverlayDraft, selectDraft, selectUI } from './useOverlayDraft';
 import ToastUndo from './ToastUndo';
 import { OverlayExpandedEditor } from './OverlayExpandedEditor';
-import {
-  linkSelectedPerson,
-} from './overlayV2.mapping';
+import { linkSelectedPerson } from './overlayV2.mapping';
 
 import { eventBus } from '../../lib/events/EventBus';
 import { TagsRow, type TagsRowTag } from './fields/TagsRow';
 import { normalizeTag } from '../../lib/tags/normalize';
 
-import {
-  ALL_MOODS,
-  MOOD_CONFIG,
-  type Mood,
-} from '../../lib/shared/moods';
+import { ALL_MOODS, MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 import { emitOverlayEvent } from '../../lib/telemetry/overlay';
 import { getMindDropRawText } from './getMindDropRawText';
 
@@ -150,15 +129,8 @@ import {
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { enrichListItems } from '../../lib/ai/enrichListItem';
-import {
-  jsonToFrequency,
-  getFrequencyLabel,
-} from './frequencyHelpers';
-import {
-  buildSavePayload,
-  detectListFromText,
-  type SaveContext,
-} from './overlaySave';
+import { jsonToFrequency, getFrequencyLabel } from './frequencyHelpers';
+import { buildSavePayload, detectListFromText, type SaveContext } from './overlaySave';
 
 // Make Actionable feature
 import { ChecklistView } from './ChecklistView';
@@ -176,11 +148,7 @@ import LinkedEventPicker from './LinkedEventPicker';
 import { TodoPreviewModal } from './TodoPreviewModal';
 import { env } from '../../lib/env';
 import { ClarificationPopup } from '../minddrop/ClarificationPopup';
-import {
-  hasActionableList,
-  type ExtractedListItem,
-  type ListItem,
-} from '../../lib/lists';
+import { hasActionableList, type ExtractedListItem, type ListItem } from '../../lib/lists';
 import { TypePill, TypePickerDropdown, deriveEntityType, getTypeConfig } from './TypePicker';
 import { HabitModeToggle, habitSubtypeToMode, habitModeToSubtype } from './HabitModeToggle';
 import { PhotoStrip } from './PhotoStrip';
@@ -624,7 +592,6 @@ function removeMetaTag(
   return list.filter((entry) => typeof entry === 'string' && entry.toLowerCase() !== key);
 }
 
-
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
@@ -900,10 +867,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
   // Local UI state that was previously in the reducer
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
-  const toggleRow = (key: string) => setExpandedRow(prev => prev === key ? null : key);
+  const toggleRow = (key: string) => setExpandedRow((prev) => (prev === key ? null : key));
   const [habitIsCustomFreq, setHabitIsCustomFreq] = useState(false);
   const [showTypePicker, setShowTypePicker] = useState(false);
-  const undoStackRef = useRef<Array<{ kind: 'type' | 'tag' | 'commitment'; prev: Partial<any> }>>([]);
+  const undoStackRef = useRef<Array<{ kind: 'type' | 'tag' | 'commitment'; prev: Partial<any> }>>(
+    [],
+  );
   const baseType = state.baseType;
   const isBreakHabit = baseType === 'habit' && state.habit.subtype === 'break_habit';
 
@@ -1170,7 +1139,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return detectListFromText(state.log.body);
   }, [isLog, state.log.body]);
 
-
   // Make Actionable feature state
   const [extractedItems, setExtractedItems] = useState<ExtractedListItem[]>([]);
 
@@ -1243,8 +1211,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     [baseType, state.todo.target_date, getItemById],
   );
 
-
-
   // View mode: store fetched entity for display
   const viewModeEntity: any = useMemo(() => {
     if (mode !== 'view' || !initialEntity) return null;
@@ -1287,10 +1253,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     if (checklistItems && checklistItems.length > 0) return false; // Already showing checklist
     return hasActionableList(body);
   }, [mode, baseType, state.log?.body, fullEntity, viewModeEntity, initialEntity, checklistItems]);
-
-
-
-
 
   // Multi-photo support for logs (Phase L5)
   const [logPhotos, setLogPhotos] = useState<LogPhoto[]>([]);
@@ -1351,8 +1313,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     initialLogPhotosHydratedRef.current = true;
   }, [baseType, mode, initialLogPhotoUris]);
 
-
-
   // focus states for accessibility focus rings
   // Expanded editor mode state
   // Preview mode: When opening a log from chat, show formatted read-only view first
@@ -1403,8 +1363,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     return true;
   }
 
-
-
   // Derive spaces from store (no useEffect needed)
   const spaces = storeSpaces || [];
 
@@ -1422,7 +1380,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       overlayEntryTypeRef.current = state.baseType;
       if (!openTelemetrySentRef.current) {
         openTelemetrySentRef.current = true;
-        void emitOverlayEvent({ type: 'overlay_open', mode, entryType: overlayEntryTypeRef.current });
+        void emitOverlayEvent({
+          type: 'overlay_open',
+          mode,
+          entryType: overlayEntryTypeRef.current,
+        });
       }
     } else {
       openTelemetrySentRef.current = false;
@@ -1431,8 +1393,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setExtractedItems([]);
     }
   }, [visible, mode, state.baseType]);
-
-
 
   // Reset transient UI on baseType change
   useEffect(() => {
@@ -1693,8 +1653,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }, 300);
   }, [sourceNote, fullEntity, initialEntity, initialSpaceId, onClose, globalOverlay, getItemById]);
 
-
-
   /**
    * ─────────────────────────────────────────────────────────────────────────
    * TYPE CHANGE HANDLER
@@ -1779,8 +1737,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   overlayEntryTypeRef.current = baseType;
   const openTelemetrySentRef = useRef(false);
 
-
-
   const commitmentStyle = useAnimatedStyle(() => ({
     opacity: commitmentAnim.value,
     transform: [{ scale: interpolate(commitmentAnim.value, [0, 1], [0.98, 1]) }],
@@ -1836,7 +1792,6 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       }),
     ]).start();
   }, [visible, reduceMotion, sheetTranslateY, sheetOpacity]);
-
 
   // animate commitment reveal/hide
   useEffect(() => {
@@ -2307,35 +2262,47 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
     }, 1000) as unknown as number;
   }, []);
 
-  const handleDateConfirm = useCallback((date: Date) => {
-    try {
-      const dateStr = getDateService().toLocalDate(date);
-      if (dateModalTarget === 'reminder') {
-        store.setReminderAt(date.toISOString());
-      } else if (dateModalTarget === 'todo_deadline') {
-        store.setTodoTargetDate(dateStr);
-        showDueToast(`Deadline set for ${format(date, 'MMM d')}`);
-      } else if (dateModalTarget === 'todo_dodate') {
-        store.setTodoScheduledDate(dateStr);
-        store.setTodoDue({ due_at: null, due_day: dateStr, due_time: null });
-        showDueToast(`Do date set for ${format(date, 'MMM d')}`);
-      } else if (dateModalTarget === 'note_event') {
-        store.setLogTargetDate(dateStr);
-        showDueToast(`Event date set for ${format(date, 'MMM d')}`);
-      } else if (dateModalTarget === 'note_end_date') {
-        store.setLogEndDate(dateStr);
-        showDueToast(`End date set for ${format(date, 'MMM d')}`);
+  const handleDateConfirm = useCallback(
+    (date: Date) => {
+      try {
+        const dateStr = getDateService().toLocalDate(date);
+        if (dateModalTarget === 'reminder') {
+          store.setReminderAt(date.toISOString());
+        } else if (dateModalTarget === 'todo_deadline') {
+          store.setTodoTargetDate(dateStr);
+          showDueToast(`Deadline set for ${format(date, 'MMM d')}`);
+        } else if (dateModalTarget === 'todo_dodate') {
+          store.setTodoScheduledDate(dateStr);
+          store.setTodoDue({ due_at: null, due_day: dateStr, due_time: null });
+          showDueToast(`Do date set for ${format(date, 'MMM d')}`);
+        } else if (dateModalTarget === 'note_event') {
+          store.setLogTargetDate(dateStr);
+          showDueToast(`Event date set for ${format(date, 'MMM d')}`);
+        } else if (dateModalTarget === 'note_end_date') {
+          store.setLogEndDate(dateStr);
+          showDueToast(`End date set for ${format(date, 'MMM d')}`);
+        }
+        store.setUI({ showDateModal: false });
+        setDateModalTarget(null);
+        setShowTimePicker(false);
+        setClearDateFlag(false);
+        setSelectedTimePreset(null);
+        setShowCustomTimePicker(false);
+      } catch (e) {
+        console.error('[DatePicker] Error setting date:', e);
       }
-      store.setUI({ showDateModal: false });
-      setDateModalTarget(null);
-      setShowTimePicker(false);
-      setClearDateFlag(false);
-      setSelectedTimePreset(null);
-      setShowCustomTimePicker(false);
-    } catch (e) {
-      console.error('[DatePicker] Error setting date:', e);
-    }
-  }, [dateModalTarget, store, showDueToast, setDateModalTarget, setShowTimePicker, setClearDateFlag, setSelectedTimePreset, setShowCustomTimePicker]);
+    },
+    [
+      dateModalTarget,
+      store,
+      showDueToast,
+      setDateModalTarget,
+      setShowTimePicker,
+      setClearDateFlag,
+      setSelectedTimePreset,
+      setShowCustomTimePicker,
+    ],
+  );
 
   const handleTodoDueChange = useCallback(
     (dateOrNull: Date | null, options?: { label?: string }) => {
@@ -2423,16 +2390,28 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   const canSave = currentText.trim().length > 0 && !storeUI.saving;
 
   // Save context for buildSavePayload (extracted to overlaySave.ts)
-  const saveContext: SaveContext = useMemo(() => ({
-    mode,
-    initialEntity,
-    fullEntity: fullEntity ?? initialEntity,
-    tagsDirty,
-    isViewMode,
-    isChecklistMode,
-    checklistItems,
-    userEditedTitle: state.userEditedTitle,
-  }), [mode, initialEntity, fullEntity, tagsDirty, isViewMode, isChecklistMode, checklistItems, state.userEditedTitle]);
+  const saveContext: SaveContext = useMemo(
+    () => ({
+      mode,
+      initialEntity,
+      fullEntity: fullEntity ?? initialEntity,
+      tagsDirty,
+      isViewMode,
+      isChecklistMode,
+      checklistItems,
+      userEditedTitle: state.userEditedTitle,
+    }),
+    [
+      mode,
+      initialEntity,
+      fullEntity,
+      tagsDirty,
+      isViewMode,
+      isChecklistMode,
+      checklistItems,
+      state.userEditedTitle,
+    ],
+  );
 
   /* --- toCreateOrUpdateInput was here; now lives in overlaySave.ts as buildSavePayload --- */
 
@@ -3097,10 +3076,19 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           <View
             style={{
               backgroundColor: 'rgba(46,85,64,0.08)',
-              paddingHorizontal: 9, paddingVertical: 3, borderRadius: 10,
+              paddingHorizontal: 9,
+              paddingVertical: 3,
+              borderRadius: 10,
             }}
           >
-            <Text style={{ fontSize: 11, fontWeight: '500', color: tokens.colors.primary, textTransform: 'capitalize' }}>
+            <Text
+              style={{
+                fontSize: 11,
+                fontWeight: '500',
+                color: tokens.colors.primary,
+                textTransform: 'capitalize',
+              }}
+            >
               {effectiveLogSubtype === 'event' ? 'Event' : BASE_LABEL[baseType]}
             </Text>
           </View>
@@ -3123,24 +3111,30 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         </Text>
 
         {/* Event date row */}
-        {effectiveLogSubtype === 'event' && (() => {
-          const eventStr = formatEventDate();
-          if (!eventStr) return null;
-          return (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}>
-              <CalendarDays size={14} color="#2E5540" />
-              <Text style={{ fontSize: 14, color: '#555', fontWeight: '500' }}>{eventStr}</Text>
-            </View>
-          );
-        })()}
+        {effectiveLogSubtype === 'event' &&
+          (() => {
+            const eventStr = formatEventDate();
+            if (!eventStr) return null;
+            return (
+              <View
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}
+              >
+                <CalendarDays size={14} color="#2E5540" />
+                <Text style={{ fontSize: 14, color: '#555', fontWeight: '500' }}>{eventStr}</Text>
+              </View>
+            );
+          })()}
 
         {/* Body in subtle card */}
         {bodyHasContent && (
           <View
             style={{
-              padding: 14, paddingHorizontal: 16,
-              backgroundColor: '#EDEAE380', borderRadius: 12,
-              borderWidth: 0.5, borderColor: '#E8E5DE',
+              padding: 14,
+              paddingHorizontal: 16,
+              backgroundColor: '#EDEAE380',
+              borderRadius: 12,
+              borderWidth: 0.5,
+              borderColor: '#E8E5DE',
               marginBottom: 14,
             }}
           >
@@ -3156,9 +3150,12 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         {baseType === 'log' && checklistItems && checklistItems.length > 0 && !bodyHasContent && (
           <View
             style={{
-              padding: 14, paddingHorizontal: 16,
-              backgroundColor: '#EDEAE380', borderRadius: 12,
-              borderWidth: 0.5, borderColor: '#E8E5DE',
+              padding: 14,
+              paddingHorizontal: 16,
+              backgroundColor: '#EDEAE380',
+              borderRadius: 12,
+              borderWidth: 0.5,
+              borderColor: '#E8E5DE',
               marginBottom: 14,
             }}
           >
@@ -3186,11 +3183,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               <View
                 key={tag}
                 style={{
-                  backgroundColor: 'rgba(46,85,64,0.08)', paddingHorizontal: 10,
-                  paddingVertical: 4, borderRadius: 8,
+                  backgroundColor: 'rgba(46,85,64,0.08)',
+                  paddingHorizontal: 10,
+                  paddingVertical: 4,
+                  borderRadius: 8,
                 }}
               >
-                <Text style={{ fontSize: 12, color: tokens.colors.primary, fontWeight: '500' }}>#{tag}</Text>
+                <Text style={{ fontSize: 12, color: tokens.colors.primary, fontWeight: '500' }}>
+                  #{tag}
+                </Text>
               </View>
             ))}
           </View>
@@ -3200,27 +3201,58 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         {(baseType === 'todo' || baseType === 'habit') && (scheduleSummary || entitySpaceName) && (
           <View
             style={{
-              padding: 10, paddingHorizontal: 14,
-              backgroundColor: '#EDEAE3', borderRadius: 10,
+              padding: 10,
+              paddingHorizontal: 14,
+              backgroundColor: '#EDEAE3',
+              borderRadius: 10,
               marginBottom: 14,
             }}
           >
             {scheduleSummary && (
               <View style={{ flexDirection: 'row', marginBottom: entitySpaceName ? 4 : 0 }}>
-                <Text style={{ fontSize: 12, color: tokens.colors.subtle, fontWeight: '500', width: 68 }}>Schedule</Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: tokens.colors.subtle,
+                    fontWeight: '500',
+                    width: 68,
+                  }}
+                >
+                  Schedule
+                </Text>
                 <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{scheduleSummary}</Text>
               </View>
             )}
             {entitySpaceName && (
               <View style={{ flexDirection: 'row' }}>
-                <Text style={{ fontSize: 12, color: tokens.colors.subtle, fontWeight: '500', width: 68 }}>Space</Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: tokens.colors.subtle,
+                    fontWeight: '500',
+                    width: 68,
+                  }}
+                >
+                  Space
+                </Text>
                 <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{entitySpaceName}</Text>
               </View>
             )}
             {itemReminders.length > 0 && (
               <View style={{ flexDirection: 'row', marginTop: 4 }}>
-                <Text style={{ fontSize: 12, color: tokens.colors.subtle, fontWeight: '500', width: 68 }}>Reminders</Text>
-                <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>{formatItemReminderSummary(itemReminders)}</Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: tokens.colors.subtle,
+                    fontWeight: '500',
+                    width: 68,
+                  }}
+                >
+                  Reminders
+                </Text>
+                <Text style={{ fontSize: 12, color: '#555', flex: 1 }}>
+                  {formatItemReminderSummary(itemReminders)}
+                </Text>
               </View>
             )}
           </View>
@@ -3261,15 +3293,16 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               <View
                 key={note.id ?? idx}
                 style={{
-                  padding: 10, paddingHorizontal: 12,
-                  backgroundColor: '#EDEAE380', borderRadius: 10,
-                  borderWidth: 0.5, borderColor: '#E8E5DE',
+                  padding: 10,
+                  paddingHorizontal: 12,
+                  backgroundColor: '#EDEAE380',
+                  borderRadius: 10,
+                  borderWidth: 0.5,
+                  borderColor: '#E8E5DE',
                   marginBottom: 6,
                 }}
               >
-                <Text style={{ fontSize: 13, color: '#444', lineHeight: 19 }}>
-                  {note.content}
-                </Text>
+                <Text style={{ fontSize: 13, color: '#444', lineHeight: 19 }}>{note.content}</Text>
               </View>
             ))}
           </View>
@@ -3292,10 +3325,15 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
           <Pressable
             onPress={handleOpenSourceNote}
             style={{
-              flexDirection: 'row', alignItems: 'center', gap: 6,
-              paddingVertical: 8, paddingHorizontal: 12,
-              backgroundColor: 'rgba(107,142,107,0.08)', borderRadius: 8,
-              marginTop: 10, alignSelf: 'flex-start',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              backgroundColor: 'rgba(107,142,107,0.08)',
+              borderRadius: 8,
+              marginTop: 10,
+              alignSelf: 'flex-start',
             }}
           >
             <FileText size={14} color={lightTokens.colors.mossGreen} />
@@ -3332,2607 +3370,3143 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               backgroundColor: sheetBackground,
             }}
           >
-                  {showSaveToast ? (
-                    <View
-                      pointerEvents="none"
-                      style={{
-                        position: 'absolute',
-                        top: tokenSpacing.sm,
-                        right: tokenSpacing.base,
-                        backgroundColor:
-                          colorMode === 'dark'
-                            ? 'rgba(255,255,255,0.08)'
-                            : 'rgba(46, 125, 106, 0.12)',
-                        paddingHorizontal: 12,
-                        paddingVertical: 6,
-                        borderRadius: 12,
-                        zIndex: 2,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          color: typeTabUnderlineColor,
-                          fontWeight: '600',
-                          fontSize: lightTokens.typography.size.sm,
-                        }}
-                      >
-                        Saved
-                      </Text>
-                    </View>
-                  ) : null}
-                  {/* ── Header: Title row + type pill ── */}
-                  <View
+            {showSaveToast ? (
+              <View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  top: tokenSpacing.sm,
+                  right: tokenSpacing.base,
+                  backgroundColor:
+                    colorMode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(46, 125, 106, 0.12)',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 12,
+                  zIndex: 2,
+                }}
+              >
+                <Text
+                  style={{
+                    color: typeTabUnderlineColor,
+                    fontWeight: '600',
+                    fontSize: lightTokens.typography.size.sm,
+                  }}
+                >
+                  Saved
+                </Text>
+              </View>
+            ) : null}
+            {/* ── Header: Title row + type pill ── */}
+            <View
+              style={{
+                paddingHorizontal: 16,
+                paddingTop: Math.max(insets.top, 20) + 10,
+                paddingBottom: 10,
+                backgroundColor: sheetBackground,
+              }}
+            >
+              <View style={{ position: 'relative' }}>
+                <Reanimated.View
+                  pointerEvents="none"
+                  style={[
+                    StyleSheet.absoluteFillObject,
+                    { backgroundColor: headerPulseColor, borderRadius: 12 },
+                    headerPulseStyle,
+                  ]}
+                />
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                  }}
+                >
+                  {/* Editable title */}
+                  <TextInput
+                    value={state.compactTitle}
+                    onChangeText={(text) => store.setCompactTitle(text)}
+                    placeholder="Add title..."
+                    placeholderTextColor="#999999"
+                    editable={!isViewMode}
                     style={{
-                      paddingHorizontal: 16,
-                      paddingTop: Math.max(insets.top, 20) + 10,
-                      paddingBottom: 10,
-                      backgroundColor: sheetBackground,
+                      color: tokens.colors.text,
+                      fontWeight: '600',
+                      fontSize: 21,
+                      flex: 1,
+                      padding: 0,
+                      margin: 0,
+                      borderBottomWidth: !isViewMode ? 2 : 0,
+                      borderBottomColor: 'rgba(46,85,64,0.25)',
+                      paddingBottom: 3,
                     }}
-                  >
-                    <View style={{ position: 'relative' }}>
-                      <Reanimated.View
-                        pointerEvents="none"
-                        style={[
-                          StyleSheet.absoluteFillObject,
-                          { backgroundColor: headerPulseColor, borderRadius: 12 },
-                          headerPulseStyle,
-                        ]}
-                      />
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 12,
-                        }}
-                      >
-                        {/* Editable title */}
-                        <TextInput
-                          value={state.compactTitle}
-                          onChangeText={(text) => store.setCompactTitle(text)}
-                          placeholder="Add title..."
-                          placeholderTextColor="#999999"
-                          editable={!isViewMode}
-                          style={{
-                            color: tokens.colors.text,
-                            fontWeight: '600',
-                            fontSize: 21,
-                            flex: 1,
-                            padding: 0,
-                            margin: 0,
-                            borderBottomWidth: !isViewMode ? 2 : 0,
-                            borderBottomColor: 'rgba(46,85,64,0.25)',
-                            paddingBottom: 3,
-                          }}
-                          maxLength={100}
-                          selectTextOnFocus={false}
-                          autoCorrect={false}
-                        />
-
-                        {/* Type pill */}
-                        {!isViewMode && (
-                          <TypePill
-                            type={deriveEntityType(state.baseType, state.logSubtypeOverride || effectiveLogSubtype)}
-                            onPress={() => setShowTypePicker(true)}
-                            testID="type-pill"
-                          />
-                        )}
-
-                        {/* Favorite star - view mode, notes only */}
-                        {isViewMode &&
-                          baseType === 'log' &&
-                          effectiveLogSubtype !== 'event' &&
-                          (fullEntity?.id || (initialEntity as any)?.id) && (
-                            <Pressable
-                              onPress={handleToggleFavorite}
-                              style={{ padding: 8 }}
-                              accessibilityRole="button"
-                              accessibilityLabel={
-                                isFavorite ? 'Remove from favorites' : 'Add to favorites'
-                              }
-                            >
-                              <Star
-                                size={22}
-                                color={isFavorite ? '#F5A623' : '#ccc'}
-                                fill={isFavorite ? '#F5A623' : 'transparent'}
-                              />
-                            </Pressable>
-                          )}
-
-                        {/* Back to View button - shown when we started in view mode and switched to edit */}
-                        {displayMode === 'edit' && startedInViewMode ? (
-                          <Pressable
-                            onPress={() => setDisplayMode('view')}
-                            accessibilityRole="button"
-                            accessibilityLabel="Back to view"
-                            style={({ pressed }) => ({
-                              paddingHorizontal: 12,
-                              paddingVertical: 8,
-                              borderRadius: 999,
-                              opacity: pressed ? 0.6 : 1,
-                            })}
-                          >
-                            <Text style={{ color: '#666666', fontSize: 14, fontWeight: '500' }}>
-                              ← View
-                            </Text>
-                          </Pressable>
-                        ) : null}
-                      </View>
-                    </View>
-
-                    {/* Sweep badge */}
-                    {sweepStatus.label && mode !== 'create' && (
-                      <View style={{ alignItems: 'flex-start', marginTop: 6 }}>
-                        <View
-                          style={{
-                            paddingHorizontal: 8,
-                            paddingVertical: 2,
-                            borderRadius: 8,
-                            backgroundColor: 'rgba(46,85,64,0.12)',
-                          }}
-                        >
-                          <Text style={{ fontSize: 10, fontWeight: '500', color: tokens.colors.primary }}>
-                            {sweepStatus.label}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-
-                    {/* Lock In badge */}
-                    {isLockedIn ? (
-                      <View
-                        style={[
-                          styles.lockedBadge,
-                          { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
-                        ]}
-                      >
-                        <Diamond size={12} color="#2E5540" fill="#2E5540" />
-                        <Text style={styles.lockedBadgeText}>Locked In</Text>
-                      </View>
-                    ) : null}
-
-                    {/* Habit Build/Break toggle */}
-                    {baseType === 'habit' && !isViewMode && (
-                      <HabitModeToggle
-                        mode={habitSubtypeToMode(state.habit.subtype)}
-                        onChange={(m) => store.setHabitSubtype(habitModeToSubtype(m))}
-                      />
-                    )}
-                  </View>
-
-                  {/* Type picker dropdown */}
-                  <TypePickerDropdown
-                    visible={showTypePicker}
-                    current={deriveEntityType(state.baseType, state.logSubtypeOverride || effectiveLogSubtype)}
-                    onSelect={(entityType) => {
-                      const config = getTypeConfig(entityType);
-                      if (config.baseType !== state.baseType) {
-                        handleTypeSelect(config.baseType);
-                      }
-                      if (config.baseType === 'log' && config.logSubtype) {
-                        store.setLogSubtypeOverride(config.logSubtype);
-                      }
-                    }}
-                    onClose={() => setShowTypePicker(false)}
+                    maxLength={100}
+                    selectTextOnFocus={false}
+                    autoCorrect={false}
                   />
 
-                  {/* View/Edit Mode Content Container with Crossfade Animation */}
-                  <View style={{ flex: 1 }}>
-                    {/* View Mode Content - Read-only display */}
-                    {isViewMode && (
-                      <View style={{ flex: 1 }}>
-                        {baseType === 'habit' && (fullEntity || initialEntity?.id) ? (
-                          <HabitViewMode
-                            habit={
-                              (fullEntity ||
-                                storeHabits.find((h) => h.id === (initialEntity as any)?.id)) as any
-                            }
-                            habitProgress={habitProgressForView}
-                            spaceName={spaces.find((s) => s.id === state.spaceId)?.name}
-                            onLogToday={handleLogHabitToday}
-                            onLogDate={handleLogHabitDate}
-                            onRemoveDate={handleRemoveHabitDate}
-                            onUpdateWhy={handleUpdateHabitWhy}
-                            onChatWithGremly={handleOpenHabitChat}
-                            onLogSlip={handleLogHabitToday}
+                  {/* Type pill */}
+                  {!isViewMode && (
+                    <TypePill
+                      type={deriveEntityType(
+                        state.baseType,
+                        state.logSubtypeOverride || effectiveLogSubtype,
+                      )}
+                      onPress={() => setShowTypePicker(true)}
+                      testID="type-pill"
+                    />
+                  )}
+
+                  {/* Favorite star - view mode, notes only */}
+                  {isViewMode &&
+                    baseType === 'log' &&
+                    effectiveLogSubtype !== 'event' &&
+                    (fullEntity?.id || (initialEntity as any)?.id) && (
+                      <Pressable
+                        onPress={handleToggleFavorite}
+                        style={{ padding: 8 }}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          isFavorite ? 'Remove from favorites' : 'Add to favorites'
+                        }
+                      >
+                        <Star
+                          size={22}
+                          color={isFavorite ? '#F5A623' : '#ccc'}
+                          fill={isFavorite ? '#F5A623' : 'transparent'}
+                        />
+                      </Pressable>
+                    )}
+
+                  {/* Back to View button - shown when we started in view mode and switched to edit */}
+                  {displayMode === 'edit' && startedInViewMode ? (
+                    <Pressable
+                      onPress={() => setDisplayMode('view')}
+                      accessibilityRole="button"
+                      accessibilityLabel="Back to view"
+                      style={({ pressed }) => ({
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 999,
+                        opacity: pressed ? 0.6 : 1,
+                      })}
+                    >
+                      <Text style={{ color: '#666666', fontSize: 14, fontWeight: '500' }}>
+                        ← View
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+
+              {/* Sweep badge */}
+              {sweepStatus.label && mode !== 'create' && (
+                <View style={{ alignItems: 'flex-start', marginTop: 6 }}>
+                  <View
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                      borderRadius: 8,
+                      backgroundColor: 'rgba(46,85,64,0.12)',
+                    }}
+                  >
+                    <Text style={{ fontSize: 10, fontWeight: '500', color: tokens.colors.primary }}>
+                      {sweepStatus.label}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Lock In badge */}
+              {isLockedIn ? (
+                <View
+                  style={[
+                    styles.lockedBadge,
+                    { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+                  ]}
+                >
+                  <Diamond size={12} color="#2E5540" fill="#2E5540" />
+                  <Text style={styles.lockedBadgeText}>Locked In</Text>
+                </View>
+              ) : null}
+
+              {/* Habit Build/Break toggle */}
+              {baseType === 'habit' && !isViewMode && (
+                <HabitModeToggle
+                  mode={habitSubtypeToMode(state.habit.subtype)}
+                  onChange={(m) => store.setHabitSubtype(habitModeToSubtype(m))}
+                />
+              )}
+            </View>
+
+            {/* Type picker dropdown */}
+            <TypePickerDropdown
+              visible={showTypePicker}
+              current={deriveEntityType(
+                state.baseType,
+                state.logSubtypeOverride || effectiveLogSubtype,
+              )}
+              onSelect={(entityType) => {
+                const config = getTypeConfig(entityType);
+                if (config.baseType !== state.baseType) {
+                  handleTypeSelect(config.baseType);
+                }
+                if (config.baseType === 'log' && config.logSubtype) {
+                  store.setLogSubtypeOverride(config.logSubtype);
+                }
+              }}
+              onClose={() => setShowTypePicker(false)}
+            />
+
+            {/* View/Edit Mode Content Container with Crossfade Animation */}
+            <View style={{ flex: 1 }}>
+              {/* View Mode Content - Read-only display */}
+              {isViewMode && (
+                <View style={{ flex: 1 }}>
+                  {baseType === 'habit' && (fullEntity || initialEntity?.id) ? (
+                    <HabitViewMode
+                      habit={
+                        (fullEntity ||
+                          storeHabits.find((h) => h.id === (initialEntity as any)?.id)) as any
+                      }
+                      habitProgress={habitProgressForView}
+                      spaceName={spaces.find((s) => s.id === state.spaceId)?.name}
+                      onLogToday={handleLogHabitToday}
+                      onLogDate={handleLogHabitDate}
+                      onRemoveDate={handleRemoveHabitDate}
+                      onUpdateWhy={handleUpdateHabitWhy}
+                      onChatWithGremly={handleOpenHabitChat}
+                      onLogSlip={handleLogHabitToday}
+                    />
+                  ) : (
+                    renderViewModeContent()
+                  )}
+                </View>
+              )}
+
+              {/* Edit/Create Mode Content - Interactive form */}
+              {!isViewMode && (
+                <Reanimated.View style={[editModeStyle, { flex: 1 }]}>
+                  <ScrollView
+                    style={{ flex: 1 }}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="on-drag"
+                    onScrollBeginDrag={() => {
+                      Keyboard.dismiss();
+                      setMoodPickerExpanded(false);
+                    }}
+                    contentContainerStyle={{
+                      paddingHorizontal: 16,
+                      paddingBottom: 80,
+                      paddingTop: 0,
+                    }}
+                  >
+                    {/* Main text field - moved above tags */}
+                    <Box style={{ marginBottom: 16 }}>
+                      {isPreviewMode ? (
+                        /* Preview mode: Formatted read-only content */
+                        <View style={{ position: 'relative' }}>
+                          <View
+                            style={{
+                              maxHeight: 72,
+                              paddingVertical: 8,
+                              paddingRight: 36,
+                            }}
+                          >
+                            <ScrollView
+                              style={{ flex: 1 }}
+                              showsVerticalScrollIndicator={true}
+                              nestedScrollEnabled={true}
+                            >
+                              {renderFormattedContent(currentText, {
+                                textColor: tokens.colors.text,
+                                fontSize: 14,
+                                lineHeight: 14 * 1.65,
+                              })}
+                            </ScrollView>
+                          </View>
+
+                          {/* Edit button - top right */}
+                          <Pressable
+                            onPress={() => {
+                              // Strip markdown and switch to edit mode
+                              const strippedText = stripMarkdown(currentText);
+                              store.setBody(strippedText);
+                              setIsPreviewMode(false);
+                            }}
+                            style={({ pressed }) => ({
+                              position: 'absolute',
+                              top: 8,
+                              right: 0,
+                              paddingHorizontal: 10,
+                              paddingVertical: 4,
+                              borderRadius: 10,
+                              backgroundColor: 'rgba(0,0,0,0.04)',
+                              opacity: pressed ? 0.7 : 1,
+                            })}
+                            accessibilityLabel="Edit content"
+                            accessibilityRole="button"
+                          >
+                            <Text
+                              style={{
+                                fontSize: 13,
+                                fontWeight: '600',
+                                color:
+                                  colorMode === 'dark'
+                                    ? 'rgba(255,255,255,0.8)'
+                                    : tokens.colors.primary,
+                              }}
+                            >
+                              Edit
+                            </Text>
+                          </Pressable>
+                        </View>
+                      ) : (
+                        /* Compact text area mode */
+                        <View style={{ position: 'relative' }}>
+                          {/* Borderless body text */}
+                          <TextInput
+                            ref={textInputRef}
+                            value={currentText}
+                            onChangeText={(t) => store.setBody(t)}
+                            editable={!isViewMode}
+                            pointerEvents={isViewMode ? 'none' : 'auto'}
+                            accessibilityLabel="Overlay content input"
+                            onFocus={() => {
+                              setBodyFocused(true);
+                              setMoodPickerExpanded(false);
+                            }}
+                            onBlur={() => setBodyFocused(false)}
+                            placeholder="Add notes..."
+                            placeholderTextColor={lightTokens.colors.subtle}
+                            multiline
+                            scrollEnabled={true}
+                            textAlignVertical="top"
+                            style={{
+                              fontSize: 14,
+                              lineHeight: 14 * 1.65,
+                              color: tokens.colors.text,
+                              maxHeight: 72,
+                              paddingVertical: 8,
+                              paddingHorizontal: 0,
+                              paddingRight: 36,
+                              textAlignVertical: 'top',
+                            }}
                           />
-                        ) : (
-                          renderViewModeContent()
-                        )}
+                          {/* Expand button — top-right of text area */}
+                          <Pressable
+                            onPress={() => {
+                              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                              setIsExpandedEditor(true);
+                            }}
+                            style={({ pressed }) => ({
+                              position: 'absolute',
+                              top: 8,
+                              right: 0,
+                              width: 28,
+                              height: 28,
+                              borderRadius: 14,
+                              backgroundColor: 'rgba(0,0,0,0.04)',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              opacity: pressed ? 0.7 : 1,
+                            })}
+                            accessibilityLabel="Expand editor"
+                            accessibilityRole="button"
+                          >
+                            <Maximize2 size={14} color="#666" />
+                          </Pressable>
+                        </View>
+                      )}
+                    </Box>
+
+                    {/* Photo strip — thumbnails or subtle "Add photo" link */}
+                    {isLog && (
+                      <View style={{ paddingHorizontal: 0 }}>
+                        <PhotoStrip
+                          photos={logPhotos as import('./useOverlayDraft').DraftPhoto[]}
+                          onAddPhoto={handleOpenMultiPhotoActionSheet}
+                          onTapPhoto={(i) => handleViewLogPhoto(i)}
+                          disabled={isViewMode}
+                        />
                       </View>
                     )}
 
-                    {/* Edit/Create Mode Content - Interactive form */}
-                    {!isViewMode && (
-                      <Reanimated.View style={[editModeStyle, { flex: 1 }]}>
-                        <ScrollView
-                          style={{ flex: 1 }}
-                          keyboardShouldPersistTaps="handled"
-                          keyboardDismissMode="on-drag"
-                          onScrollBeginDrag={() => {
-                            Keyboard.dismiss();
-                            setMoodPickerExpanded(false);
-                          }}
-                          contentContainerStyle={{
-                            paddingHorizontal: 16,
-                            paddingBottom: 80,
-                            paddingTop: 0,
-                          }}
-                        >
-                          {/* Main text field - moved above tags */}
-                          <Box style={{ marginBottom: 16 }}>
-                            {isPreviewMode ? (
-                              /* Preview mode: Formatted read-only content */
-                              <View style={{ position: 'relative' }}>
-                                <View
+                    {/* Linked Items section for event notes - only in view mode */}
+                    {isViewMode && isEventNote && fullEntity?.space_id && (
+                      <Box px={4}>
+                        <LinkedItemsSection
+                          eventId={currentEntityId}
+                          spaceId={fullEntity.space_id}
+                          onItemPress={handleLinkedItemPress}
+                          onAddTodo={handleLinkedAddTodo}
+                          onAddNote={handleLinkedAddNote}
+                          onLinkExisting={handleLinkExisting}
+                        />
+                      </Box>
+                    )}
+
+                    {/* LinkedEventPicker for notes (non-event) - show when space has events */}
+                    {isLog && !isEventNote && showLinkedEventPicker && effectiveSpaceId && (
+                      <Box px={4} mt={3}>
+                        <LinkedEventPicker
+                          spaceId={effectiveSpaceId}
+                          currentEventId={state.linkedEventId}
+                          onChange={handleLinkedEventChange}
+                        />
+                      </Box>
+                    )}
+
+                    {/* Tags row — no Re-suggest link */}
+                    <Box style={{ marginBottom: 16, paddingHorizontal: 16 }}>
+                      <TagsRow
+                        tags={activeTagChips}
+                        suggested={[]}
+                        onToggle={isViewMode ? () => {} : handleTagToggle}
+                        onAdd={isViewMode ? undefined : handleTagAdd}
+                        onUserAdd={isViewMode ? undefined : handleTelemetryTagAdd}
+                        onUserRemove={isViewMode ? undefined : handleTelemetryTagRemove}
+                      />
+                    </Box>
+
+                    {/* ===== Metadata rows — always visible, no accordion ===== */}
+                    <View style={{ paddingHorizontal: 16 }}>
+                      {/* ── TO-DO rows ── */}
+                      {baseType === 'todo' && (
+                        <>
+                          <ExpandableRow
+                            icon={Calendar}
+                            label="Schedule"
+                            summary={(() => {
+                              const parts: string[] = [];
+                              if (state.todo.target_date)
+                                parts.push(`Due ${formatDueDay(state.todo.target_date)}`);
+                              const effectiveDoDate =
+                                state.todo.scheduled_date ?? state.todo.due_day;
+                              if (effectiveDoDate)
+                                parts.push(`Do ${formatDueDay(effectiveDoDate)}`);
+                              if (state.todo.time_estimate_minutes)
+                                parts.push(formatTimeEstimate(state.todo.time_estimate_minutes));
+                              if (state.todo.time_window) {
+                                const label = TIME_WINDOW_OPTIONS.find(
+                                  (o) => o.value === state.todo.time_window,
+                                )?.label;
+                                if (label && label !== 'Any time') parts.push(label);
+                              }
+                              return parts.length > 0 ? parts.join(' · ') : 'Tap to set';
+                            })()}
+                            expanded={expandedRow === 'schedule'}
+                            onToggle={() => toggleRow('schedule')}
+                            iconColor="#2E5540"
+                          >
+                            {/* Time of day */}
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                color: tokens.colors.subtle,
+                                fontWeight: '500',
+                                marginBottom: 5,
+                              }}
+                            >
+                              Time of day
+                            </Text>
+                            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+                              {TIME_WINDOW_OPTIONS.map((opt) => {
+                                const isSel = (state.todo.time_window ?? null) === opt.value;
+                                return (
+                                  <Pressable
+                                    key={opt.value ?? 'null'}
+                                    onPress={() => store.setTodoTimeWindow(opt.value)}
+                                    style={{
+                                      flex: 1,
+                                      paddingVertical: 7,
+                                      alignItems: 'center',
+                                      borderRadius: 8,
+                                      backgroundColor: isSel ? '#2D4A3E' : '#F5F2ED',
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 12,
+                                        fontWeight: isSel ? '600' : '500',
+                                        color: isSel ? '#FFFFFF' : '#6B665C',
+                                      }}
+                                    >
+                                      {opt.label}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+
+                            {/* Specific time */}
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                color: tokens.colors.subtle,
+                                fontWeight: '500',
+                                marginBottom: 5,
+                                marginTop: 4,
+                              }}
+                            >
+                              Specific time
+                            </Text>
+                            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+                              <Pressable
+                                onPress={() => {
+                                  const now = getDateService().now();
+                                  if (state.todo.due_time) {
+                                    const [h, m] = state.todo.due_time.split(':').map(Number);
+                                    now.setHours(h, m, 0, 0);
+                                  }
+                                  setSelectedTime(now);
+                                  setDateModalTarget('todo_time');
+                                  store.setUI({ showDateModal: true });
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: 10,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 8,
+                                  borderWidth: 0.5,
+                                  borderColor: '#D5D0C8',
+                                  backgroundColor: '#EDEAE3',
+                                  flexDirection: 'row',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <Text
                                   style={{
-                                    maxHeight: 72,
-                                    paddingVertical: 8,
-                                    paddingRight: 36,
+                                    fontSize: 13,
+                                    fontWeight: '500',
+                                    color: state.todo.due_time ? '#2D4A3E' : '#B5AFA5',
                                   }}
                                 >
-                                  <ScrollView
-                                    style={{ flex: 1 }}
-                                    showsVerticalScrollIndicator={true}
-                                    nestedScrollEnabled={true}
-                                  >
-                                    {renderFormattedContent(currentText, {
-                                      textColor: tokens.colors.text,
-                                      fontSize: 14,
-                                      lineHeight: 14 * 1.65,
-                                    })}
-                                  </ScrollView>
-                                </View>
+                                  {state.todo.due_time
+                                    ? formatDueTime(state.todo.due_time)
+                                    : 'Not set'}
+                                </Text>
+                                <Clock size={14} color="#8B8579" />
+                              </Pressable>
+                              {state.todo.due_time && (
+                                <Pressable
+                                  onPress={() => store.setTodoDue({ due_time: null })}
+                                  style={{
+                                    paddingHorizontal: 12,
+                                    justifyContent: 'center',
+                                    borderRadius: 8,
+                                    backgroundColor: '#EDEAE3',
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 12, color: '#8B8579' }}>Clear</Text>
+                                </Pressable>
+                              )}
+                            </View>
 
-                                {/* Edit button - top right */}
+                            {/* Duration */}
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                color: '#8B8579',
+                                fontWeight: '500',
+                                marginBottom: 5,
+                              }}
+                            >
+                              Duration
+                            </Text>
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                gap: 6,
+                                flexWrap: 'wrap',
+                                marginBottom: 12,
+                              }}
+                            >
+                              {[
+                                { label: '15m', value: 15 },
+                                { label: '30m', value: 30 },
+                                { label: '45m', value: 45 },
+                                { label: '1h', value: 60 },
+                                { label: '1.5h', value: 90 },
+                                { label: '2h', value: 120 },
+                                { label: '3h', value: 180 },
+                              ].map((chip) => {
+                                const isSelected = state.todo.time_estimate_minutes === chip.value;
+                                return (
+                                  <Pressable
+                                    key={chip.value}
+                                    onPress={() =>
+                                      store.setTodoTimeEstimate(isSelected ? null : chip.value)
+                                    }
+                                    style={{
+                                      paddingVertical: 7,
+                                      paddingHorizontal: 14,
+                                      borderRadius: 8,
+                                      backgroundColor: isSelected ? '#2D4A3E' : '#F5F2ED',
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 12,
+                                        fontWeight: isSelected ? '600' : '500',
+                                        color: isSelected ? '#FFFFFF' : '#6B665C',
+                                      }}
+                                    >
+                                      {chip.label}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+
+                            {/* Dates */}
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                color: tokens.colors.subtle,
+                                fontWeight: '500',
+                                marginBottom: 5,
+                              }}
+                            >
+                              Dates
+                            </Text>
+                            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
+                              <Pressable
+                                onPress={() => {
+                                  setDateModalTarget('todo_dodate');
+                                  store.setUI({ showDateModal: true });
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: 7,
+                                  paddingHorizontal: 10,
+                                  borderRadius: 8,
+                                  borderWidth: 0.5,
+                                  borderColor: tokens.colors.border,
+                                  backgroundColor: '#EDEAE3',
+                                  flexDirection: 'row',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <View>
+                                  <Text
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: '500',
+                                      color: '#A09A90',
+                                      marginBottom: 2,
+                                    }}
+                                  >
+                                    Do date
+                                  </Text>
+                                  <Text
+                                    style={{ fontSize: 13, fontWeight: '500', color: '#2D4A3E' }}
+                                  >
+                                    {(state.todo.scheduled_date ?? state.todo.due_day)
+                                      ? formatDueDay(
+                                          state.todo.scheduled_date ?? state.todo.due_day ?? '',
+                                        )
+                                      : 'Not set'}
+                                  </Text>
+                                </View>
+                                <Calendar size={14} color="#8B8579" />
+                              </Pressable>
+                              <Pressable
+                                onPress={() => {
+                                  setDateModalTarget('todo_deadline');
+                                  store.setUI({ showDateModal: true });
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: 7,
+                                  paddingHorizontal: 10,
+                                  borderRadius: 8,
+                                  borderWidth: 0.5,
+                                  borderColor: tokens.colors.border,
+                                  backgroundColor: '#EDEAE3',
+                                  flexDirection: 'row',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <View>
+                                  <Text
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: '500',
+                                      color: '#A09A90',
+                                      marginBottom: 2,
+                                    }}
+                                  >
+                                    Deadline
+                                  </Text>
+                                  <Text
+                                    style={{
+                                      fontSize: 13,
+                                      fontWeight: '500',
+                                      color: state.todo.target_date ? '#2D4A3E' : '#B5AFA5',
+                                    }}
+                                  >
+                                    {state.todo.target_date
+                                      ? formatDueDay(state.todo.target_date)
+                                      : 'None'}
+                                  </Text>
+                                </View>
+                                <Calendar size={14} color="#8B8579" />
+                              </Pressable>
+                            </View>
+                          </ExpandableRow>
+
+                          {dueToastMessage ? (
+                            <View
+                              style={{
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                                borderRadius: 999,
+                                backgroundColor: 'rgba(46,125,106,0.12)',
+                                alignSelf: 'flex-start',
+                                marginBottom: 4,
+                              }}
+                              pointerEvents="none"
+                            >
+                              <Text
+                                style={{
+                                  color: typeTabUnderlineColor,
+                                  fontSize: lightTokens.typography.size.xs,
+                                  fontWeight: '600',
+                                }}
+                              >
+                                {dueToastMessage}
+                              </Text>
+                            </View>
+                          ) : null}
+
+                          <StaticRow
+                            icon={Bell}
+                            label="Reminders"
+                            right={
+                              <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
+                                {formatItemReminderSummary(itemReminders)}
+                              </Text>
+                            }
+                            onPress={() => {
+                              if (!isViewMode) setShowRemindersModal(true);
+                            }}
+                          />
+
+                          <StaticRow
+                            icon={FolderOpen}
+                            label="Space"
+                            right={
+                              <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
+                                {state.spaceId
+                                  ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
+                                  : '+ Add'}
+                              </Text>
+                            }
+                            onPress={() => {
+                              if (!isViewMode) store.setUI({ showSpaceModal: true });
+                            }}
+                          />
+
+                          {showLinkedEventPicker && effectiveSpaceId && (
+                            <StaticRow
+                              icon={Link2}
+                              label="Link to event"
+                              right={
+                                <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
+                                  {state.linkedEventId ? 'Linked' : 'None'}
+                                </Text>
+                              }
+                              onPress={() => toggleRow('linked')}
+                            />
+                          )}
+
+                          {commitmentsOn && (
+                            <StaticRow
+                              icon={Diamond}
+                              label="Lock In"
+                              right={
+                                <ToggleSwitch
+                                  on={isLockedIn}
+                                  onToggle={async () => {
+                                    if (!state.commitment) {
+                                      const ok = await canEnableCommitment();
+                                      if (!ok) return;
+                                    }
+                                    pushUndoEntry('commitment', {
+                                      commitment: state.commitment,
+                                      commitmentNote: state.commitmentNote,
+                                      commitmentStartedAt: state.commitmentStartedAt,
+                                    });
+                                    store.setCommitment(!state.commitment);
+                                    try {
+                                      eventBus.emit('OverlayCommitmentToggled', {
+                                        on: !state.commitment,
+                                      });
+                                    } catch {
+                                      /* fire-and-forget */
+                                    }
+                                  }}
+                                />
+                              }
+                            />
+                          )}
+
+                          {currentEntityId && (
+                            <StaticRow
+                              icon={MessageCircle}
+                              label="Chat with Gremly"
+                              iconColor="#2E5540"
+                              right={
+                                <View
+                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                                >
+                                  <Image
+                                    source={require('../../assets/buttonforHP.png')}
+                                    style={{ width: 22, height: 22, borderRadius: 11 }}
+                                    resizeMode="cover"
+                                  />
+                                  <ChevronRight size={14} color="#2E5540" />
+                                </View>
+                              }
+                              onPress={() => store.setUI({ showEntityChat: true })}
+                            />
+                          )}
+
+                          {mode === 'edit' && (initialEntity as any)?.id && (
+                            <StaticRow
+                              icon={Trash2}
+                              label="Delete to-do"
+                              iconColor="#D9534F"
+                              borderBottom={false}
+                              onPress={() => {
+                                Alert.alert('Delete this to-do?', "This can't be undone.", [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  {
+                                    text: 'Delete',
+                                    style: 'destructive',
+                                    onPress: async () => {
+                                      try {
+                                        const itemId = (initialEntity as any).id;
+                                        const itemSpaceId =
+                                          (initialEntity as any).space_id ??
+                                          state.spaceId ??
+                                          initialSpaceId;
+                                        await deleteTodo(itemId);
+                                        eventBus.emit('entity:deleted', {
+                                          id: itemId,
+                                          type: 'todo',
+                                          spaceId: itemSpaceId,
+                                        });
+                                        onClose();
+                                      } catch (err) {
+                                        console.error('[UnifiedOverlayV2] Delete failed:', err);
+                                        Alert.alert(
+                                          'Error',
+                                          'Failed to delete to-do. Please try again.',
+                                        );
+                                      }
+                                    },
+                                  },
+                                ]);
+                              }}
+                            />
+                          )}
+                        </>
+                      )}
+
+                      {/* ── HABIT rows ── */}
+                      {baseType === 'habit' && (
+                        <>
+                          {isBreakHabit ? (
+                            <>
+                              <StaticRow
+                                icon={Zap}
+                                label="Trigger"
+                                right={
+                                  <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
+                                    Not set
+                                  </Text>
+                                }
+                                iconColor="#D97706"
+                              />
+
+                              <StaticRow
+                                icon={RotateCcw}
+                                label="Replacement"
+                                right={
+                                  <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
+                                    Not set
+                                  </Text>
+                                }
+                                iconColor="#2E5540"
+                              />
+
+                              <StaticRow
+                                icon={Shield}
+                                label="Tracking"
+                                right={
+                                  <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
+                                    Daily check-in
+                                  </Text>
+                                }
+                                iconColor="#6B4C8A"
+                              />
+                            </>
+                          ) : (
+                            <ExpandableRow
+                              icon={Calendar}
+                              label="Schedule"
+                              summary={[
+                                getFrequencyLabel(jsonToFrequency(state.habit.frequency_json)),
+                                state.habit.time_estimate_minutes &&
+                                  `~${state.habit.time_estimate_minutes}m`,
+                                state.habit.start_date &&
+                                  format(parseISO(state.habit.start_date), 'MMM d'),
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                              expanded={expandedRow === 'schedule'}
+                              onToggle={() => toggleRow('schedule')}
+                              iconColor="#2E5540"
+                            >
+                              {/* Frequency presets */}
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: tokens.colors.subtle,
+                                  fontWeight: '500',
+                                  marginBottom: 5,
+                                }}
+                              >
+                                Frequency
+                              </Text>
+                              {(() => {
+                                const freq = jsonToFrequency(state.habit.frequency_json);
+                                let curCount = 1,
+                                  curUnit: 'day' | 'week' | 'month' = 'day',
+                                  curDays: number[] = [];
+                                if (freq.mode === 'simple') {
+                                  curUnit =
+                                    freq.value === 'daily'
+                                      ? 'day'
+                                      : freq.value === 'weekly'
+                                        ? 'week'
+                                        : 'month';
+                                } else if (freq.mode === 'custom') {
+                                  curCount = freq.value.count;
+                                  curUnit = freq.value.unit;
+                                } else if (freq.mode === 'days') {
+                                  curCount = freq.days.length;
+                                  curUnit = 'week';
+                                  curDays = [...freq.days];
+                                }
+                                const matchesAnyPreset = SCHEDULE_PRESETS.some(
+                                  (p) =>
+                                    p.count === curCount &&
+                                    p.unit === curUnit &&
+                                    JSON.stringify([...p.days].sort()) ===
+                                      JSON.stringify([...curDays].sort()),
+                                );
+                                const isCustom = habitIsCustomFreq || !matchesAnyPreset;
+                                return (
+                                  <>
+                                    <View
+                                      style={{
+                                        flexDirection: 'row',
+                                        flexWrap: 'wrap',
+                                        gap: 6,
+                                        marginBottom: 8,
+                                      }}
+                                    >
+                                      {SCHEDULE_PRESETS.map((preset) => {
+                                        const isMatch =
+                                          !isCustom &&
+                                          curCount === preset.count &&
+                                          curUnit === preset.unit &&
+                                          JSON.stringify([...curDays].sort()) ===
+                                            JSON.stringify([...preset.days].sort());
+                                        return (
+                                          <Pressable
+                                            key={preset.key}
+                                            onPress={() => {
+                                              setHabitIsCustomFreq(false);
+                                              store.setHabitFrequency(
+                                                buildFreqJson(preset.count, preset.unit, [
+                                                  ...preset.days,
+                                                ]),
+                                              );
+                                            }}
+                                            style={{
+                                              paddingVertical: 7,
+                                              paddingHorizontal: 14,
+                                              borderRadius: 8,
+                                              backgroundColor: isMatch ? '#2D4A3E' : '#F5F2ED',
+                                            }}
+                                          >
+                                            <Text
+                                              style={{
+                                                fontSize: 12,
+                                                fontWeight: isMatch ? '600' : '500',
+                                                color: isMatch ? '#FFFFFF' : '#6B665C',
+                                              }}
+                                            >
+                                              {preset.label}
+                                            </Text>
+                                          </Pressable>
+                                        );
+                                      })}
+                                      <Pressable
+                                        onPress={() => setHabitIsCustomFreq(true)}
+                                        style={{
+                                          paddingVertical: 7,
+                                          paddingHorizontal: 14,
+                                          borderRadius: 8,
+                                          backgroundColor: isCustom ? '#2D4A3E' : '#F5F2ED',
+                                        }}
+                                      >
+                                        <Text
+                                          style={{
+                                            fontSize: 12,
+                                            fontWeight: isCustom ? '600' : '500',
+                                            color: isCustom ? '#FFFFFF' : '#6B665C',
+                                          }}
+                                        >
+                                          Custom
+                                        </Text>
+                                      </Pressable>
+                                    </View>
+
+                                    {/* Custom counter */}
+                                    {isCustom && (
+                                      <View
+                                        style={{
+                                          backgroundColor: '#F5F2ED',
+                                          borderRadius: 12,
+                                          padding: 12,
+                                          marginBottom: 8,
+                                        }}
+                                      >
+                                        <View
+                                          style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                          }}
+                                        >
+                                          <Pressable
+                                            onPress={() => {
+                                              const nc = Math.max(1, curCount - 1);
+                                              store.setHabitFrequency(
+                                                buildFreqJson(nc, curUnit, curDays),
+                                              );
+                                            }}
+                                            disabled={curCount <= 1}
+                                            style={{
+                                              width: 32,
+                                              height: 32,
+                                              borderRadius: 16,
+                                              backgroundColor: '#FFFFFF',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              opacity: curCount <= 1 ? 0.3 : 1,
+                                            }}
+                                          >
+                                            <Text style={{ fontSize: 18, color: '#2D4A3E' }}>
+                                              −
+                                            </Text>
+                                          </Pressable>
+                                          <Text
+                                            style={{
+                                              fontSize: 20,
+                                              fontWeight: '700',
+                                              color: '#2D4A3E',
+                                              marginHorizontal: 20,
+                                              minWidth: 28,
+                                              textAlign: 'center',
+                                            }}
+                                          >
+                                            {curCount}
+                                          </Text>
+                                          <Pressable
+                                            onPress={() => {
+                                              const nc = Math.min(30, curCount + 1);
+                                              store.setHabitFrequency(
+                                                buildFreqJson(nc, curUnit, curDays),
+                                              );
+                                            }}
+                                            disabled={curCount >= 30}
+                                            style={{
+                                              width: 32,
+                                              height: 32,
+                                              borderRadius: 16,
+                                              backgroundColor: '#FFFFFF',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              opacity: curCount >= 30 ? 0.3 : 1,
+                                            }}
+                                          >
+                                            <Text style={{ fontSize: 18, color: '#2D4A3E' }}>
+                                              +
+                                            </Text>
+                                          </Pressable>
+                                          <Text
+                                            style={{
+                                              fontSize: 13,
+                                              color: tokens.colors.subtle,
+                                              marginLeft: 12,
+                                            }}
+                                          >
+                                            times per
+                                          </Text>
+                                        </View>
+                                        <View
+                                          style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}
+                                        >
+                                          {(['day', 'week', 'month'] as const).map((u) => {
+                                            const isUnitSel = curUnit === u;
+                                            return (
+                                              <Pressable
+                                                key={u}
+                                                onPress={() => {
+                                                  const newDays = u !== 'week' ? [] : curDays;
+                                                  store.setHabitFrequency(
+                                                    buildFreqJson(curCount, u, newDays),
+                                                  );
+                                                }}
+                                                style={{
+                                                  flex: 1,
+                                                  paddingVertical: 7,
+                                                  alignItems: 'center',
+                                                  borderRadius: 8,
+                                                  backgroundColor: isUnitSel
+                                                    ? '#2D4A3E'
+                                                    : '#FFFFFF',
+                                                }}
+                                              >
+                                                <Text
+                                                  style={{
+                                                    fontSize: 12,
+                                                    fontWeight: isUnitSel ? '600' : '500',
+                                                    color: isUnitSel ? '#FFFFFF' : '#6B665C',
+                                                  }}
+                                                >
+                                                  {u}
+                                                </Text>
+                                              </Pressable>
+                                            );
+                                          })}
+                                        </View>
+                                      </View>
+                                    )}
+
+                                    {/* Pin to days (weekly only) */}
+                                    {curUnit === 'week' && (
+                                      <View style={{ marginBottom: 8 }}>
+                                        <View
+                                          style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'baseline',
+                                            marginBottom: 6,
+                                          }}
+                                        >
+                                          <Text
+                                            style={{
+                                              fontSize: 11,
+                                              color: tokens.colors.subtle,
+                                              fontWeight: '500',
+                                            }}
+                                          >
+                                            On these days
+                                          </Text>
+                                          <Text
+                                            style={{
+                                              fontSize: 11,
+                                              color: '#A09A90',
+                                              marginLeft: 4,
+                                            }}
+                                          >
+                                            (optional)
+                                          </Text>
+                                        </View>
+                                        <View
+                                          style={{
+                                            flexDirection: 'row',
+                                            justifyContent: 'space-between',
+                                          }}
+                                        >
+                                          {(
+                                            [
+                                              { day: 1, label: 'M' },
+                                              { day: 2, label: 'T' },
+                                              { day: 3, label: 'W' },
+                                              { day: 4, label: 'T' },
+                                              { day: 5, label: 'F' },
+                                              { day: 6, label: 'S' },
+                                              { day: 0, label: 'S' },
+                                            ] as const
+                                          ).map(({ day, label }) => {
+                                            const isDayOn = curDays.includes(day);
+                                            return (
+                                              <Pressable
+                                                key={day}
+                                                onPress={() => {
+                                                  const newDays = isDayOn
+                                                    ? curDays.filter((d) => d !== day)
+                                                    : [...curDays, day].sort();
+                                                  store.setHabitFrequency(
+                                                    buildFreqJson(curCount, curUnit, newDays),
+                                                  );
+                                                }}
+                                                style={{
+                                                  width: 34,
+                                                  height: 34,
+                                                  borderRadius: 17,
+                                                  alignItems: 'center',
+                                                  justifyContent: 'center',
+                                                  backgroundColor: isDayOn ? '#2D4A3E' : '#F5F2ED',
+                                                }}
+                                              >
+                                                <Text
+                                                  style={{
+                                                    fontSize: 12,
+                                                    fontWeight: '600',
+                                                    color: isDayOn ? '#FFFFFF' : '#6B665C',
+                                                  }}
+                                                >
+                                                  {label}
+                                                </Text>
+                                              </Pressable>
+                                            );
+                                          })}
+                                        </View>
+                                      </View>
+                                    )}
+                                  </>
+                                );
+                              })()}
+
+                              {/* Time of day */}
+                              <View
+                                style={{
+                                  height: 1,
+                                  backgroundColor: '#E5E0D8',
+                                  marginVertical: 10,
+                                }}
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: tokens.colors.subtle,
+                                  fontWeight: '500',
+                                  marginBottom: 5,
+                                }}
+                              >
+                                Time of day
+                              </Text>
+                              <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+                                {TIME_WINDOW_OPTIONS.map((opt) => {
+                                  const isSel = (state.habit.time_window ?? null) === opt.value;
+                                  return (
+                                    <Pressable
+                                      key={opt.value ?? 'null'}
+                                      onPress={() => store.setHabitTimeWindow(opt.value)}
+                                      style={{
+                                        flex: 1,
+                                        paddingVertical: 7,
+                                        alignItems: 'center',
+                                        borderRadius: 8,
+                                        backgroundColor: isSel ? '#2D4A3E' : '#F5F2ED',
+                                      }}
+                                    >
+                                      <Text
+                                        style={{
+                                          fontSize: 12,
+                                          fontWeight: isSel ? '600' : '500',
+                                          color: isSel ? '#FFFFFF' : '#6B665C',
+                                        }}
+                                      >
+                                        {opt.label}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+
+                              {/* Duration */}
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: '#8B8579',
+                                  fontWeight: '500',
+                                  marginBottom: 5,
+                                }}
+                              >
+                                Duration
+                              </Text>
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  gap: 6,
+                                  flexWrap: 'wrap',
+                                  marginBottom: 12,
+                                }}
+                              >
+                                {[
+                                  { label: '15m', value: 15 },
+                                  { label: '30m', value: 30 },
+                                  { label: '45m', value: 45 },
+                                  { label: '1h', value: 60 },
+                                  { label: '1.5h', value: 90 },
+                                  { label: '2h', value: 120 },
+                                  { label: '3h', value: 180 },
+                                ].map((chip) => {
+                                  const isSelected =
+                                    state.habit.time_estimate_minutes === chip.value;
+                                  return (
+                                    <Pressable
+                                      key={chip.value}
+                                      onPress={() =>
+                                        store.setHabitTimeEstimate(isSelected ? null : chip.value)
+                                      }
+                                      style={{
+                                        paddingVertical: 7,
+                                        paddingHorizontal: 14,
+                                        borderRadius: 8,
+                                        backgroundColor: isSelected ? '#2D4A3E' : '#F5F2ED',
+                                      }}
+                                    >
+                                      <Text
+                                        style={{
+                                          fontSize: 12,
+                                          fontWeight: isSelected ? '600' : '500',
+                                          color: isSelected ? '#FFFFFF' : '#6B665C',
+                                        }}
+                                      >
+                                        {chip.label}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+
+                              {/* Dates */}
+                              <View
+                                style={{
+                                  height: 1,
+                                  backgroundColor: '#E5E0D8',
+                                  marginVertical: 10,
+                                }}
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: tokens.colors.subtle,
+                                  fontWeight: '500',
+                                  marginBottom: 5,
+                                }}
+                              >
+                                Dates
+                              </Text>
+                              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
+                                <Pressable
+                                  onPress={() => store.setUI({ showHabitStartDatePicker: true })}
+                                  style={{
+                                    flex: 1,
+                                    padding: 7,
+                                    paddingHorizontal: 10,
+                                    borderRadius: 8,
+                                    borderWidth: 0.5,
+                                    borderColor: tokens.colors.border,
+                                    backgroundColor: '#EDEAE3',
+                                    flexDirection: 'row',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                  }}
+                                >
+                                  <View>
+                                    <Text
+                                      style={{
+                                        fontSize: 11,
+                                        fontWeight: '500',
+                                        color: '#A09A90',
+                                        marginBottom: 2,
+                                      }}
+                                    >
+                                      Starts
+                                    </Text>
+                                    <Text
+                                      style={{ fontSize: 13, fontWeight: '500', color: '#2D4A3E' }}
+                                    >
+                                      {state.habit.start_date
+                                        ? format(parseISO(state.habit.start_date), 'MMM d, yyyy')
+                                        : 'Not set'}
+                                    </Text>
+                                  </View>
+                                  <Calendar size={14} color="#8B8579" />
+                                </Pressable>
+                                <Pressable
+                                  onPress={() => store.setUI({ showHabitEndDatePicker: true })}
+                                  style={{
+                                    flex: 1,
+                                    padding: 7,
+                                    paddingHorizontal: 10,
+                                    borderRadius: 8,
+                                    borderWidth: 0.5,
+                                    borderColor: tokens.colors.border,
+                                    backgroundColor: '#EDEAE3',
+                                    flexDirection: 'row',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                  }}
+                                >
+                                  <View>
+                                    <Text
+                                      style={{
+                                        fontSize: 11,
+                                        fontWeight: '500',
+                                        color: '#A09A90',
+                                        marginBottom: 2,
+                                      }}
+                                    >
+                                      Ends
+                                    </Text>
+                                    <Text
+                                      style={{
+                                        fontSize: 13,
+                                        fontWeight: '500',
+                                        color: state.habit.end_date ? '#2D4A3E' : '#B5AFA5',
+                                      }}
+                                    >
+                                      {state.habit.end_date
+                                        ? format(parseISO(state.habit.end_date), 'MMM d, yyyy')
+                                        : 'No end'}
+                                    </Text>
+                                  </View>
+                                  <Calendar size={14} color="#8B8579" />
+                                </Pressable>
+                              </View>
+                            </ExpandableRow>
+                          )}
+
+                          <StaticRow
+                            icon={Bell}
+                            label="Reminders"
+                            right={
+                              <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
+                                {formatItemReminderSummary(itemReminders)}
+                              </Text>
+                            }
+                            onPress={() => {
+                              if (!isViewMode) setShowRemindersModal(true);
+                            }}
+                          />
+
+                          <StaticRow
+                            icon={FolderOpen}
+                            label="Space"
+                            right={
+                              <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
+                                {state.spaceId
+                                  ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
+                                  : '+ Add'}
+                              </Text>
+                            }
+                            onPress={() => {
+                              if (!isViewMode) store.setUI({ showSpaceModal: true });
+                            }}
+                          />
+
+                          {showLinkedEventPicker && effectiveSpaceId && (
+                            <StaticRow
+                              icon={Link2}
+                              label="Link to event"
+                              right={
+                                <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
+                                  {state.linkedEventId ? 'Linked' : 'None'}
+                                </Text>
+                              }
+                              onPress={() => toggleRow('linked')}
+                            />
+                          )}
+
+                          {commitmentsOn && (
+                            <StaticRow
+                              icon={Diamond}
+                              label="Lock In"
+                              right={
+                                <ToggleSwitch
+                                  on={isLockedIn}
+                                  onToggle={async () => {
+                                    if (!state.commitment) {
+                                      const ok = await canEnableCommitment();
+                                      if (!ok) return;
+                                    }
+                                    pushUndoEntry('commitment', {
+                                      commitment: state.commitment,
+                                      commitmentNote: state.commitmentNote,
+                                      commitmentStartedAt: state.commitmentStartedAt,
+                                    });
+                                    store.setCommitment(!state.commitment);
+                                    try {
+                                      eventBus.emit('OverlayCommitmentToggled', {
+                                        on: !state.commitment,
+                                      });
+                                    } catch {
+                                      /* fire-and-forget */
+                                    }
+                                  }}
+                                />
+                              }
+                            />
+                          )}
+
+                          {baseType === 'habit' && currentEntityId && (
+                            <StaticRow
+                              icon={BarChart3}
+                              label="View progress"
+                              iconColor="#2E5540"
+                              right={<ChevronRight size={14} color="#2E5540" />}
+                              onPress={() => store.setUI({ displayMode: 'view' })}
+                            />
+                          )}
+
+                          {currentEntityId && (
+                            <StaticRow
+                              icon={MessageCircle}
+                              label="Chat with Gremly"
+                              iconColor="#2E5540"
+                              right={
+                                <View
+                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                                >
+                                  <Image
+                                    source={require('../../assets/buttonforHP.png')}
+                                    style={{ width: 22, height: 22, borderRadius: 11 }}
+                                    resizeMode="cover"
+                                  />
+                                  <ChevronRight size={14} color="#2E5540" />
+                                </View>
+                              }
+                              onPress={() => store.setUI({ showEntityChat: true })}
+                            />
+                          )}
+
+                          {mode === 'edit' && (initialEntity as any)?.id && (
+                            <StaticRow
+                              icon={Trash2}
+                              label="Delete habit"
+                              iconColor="#D9534F"
+                              borderBottom={false}
+                              onPress={() => {
+                                Alert.alert('Delete this habit?', "This can't be undone.", [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  {
+                                    text: 'Delete',
+                                    style: 'destructive',
+                                    onPress: async () => {
+                                      try {
+                                        const itemId = (initialEntity as any).id;
+                                        const itemSpaceId =
+                                          (initialEntity as any).space_id ??
+                                          state.spaceId ??
+                                          initialSpaceId;
+                                        await deleteHabit(itemId);
+                                        eventBus.emit('entity:deleted', {
+                                          id: itemId,
+                                          type: 'habit',
+                                          spaceId: itemSpaceId,
+                                        });
+                                        onClose();
+                                      } catch (err) {
+                                        console.error('[UnifiedOverlayV2] Delete failed:', err);
+                                        Alert.alert(
+                                          'Error',
+                                          'Failed to delete habit. Please try again.',
+                                        );
+                                      }
+                                    },
+                                  },
+                                ]);
+                              }}
+                            />
+                          )}
+                        </>
+                      )}
+
+                      {/* ── LOG rows (journal, idea, general, event) ── */}
+                      {baseType === 'log' && (
+                        <>
+                          {/* Event-type logs: Date & time */}
+                          {/* Journal: Mood */}
+                          {isJournal && (
+                            <ExpandableRow
+                              icon={Heart}
+                              label="Mood"
+                              summary={
+                                moods.length > 0
+                                  ? moods.map((m) => MOOD_CONFIG[m]?.label ?? m).join(', ')
+                                  : 'Tap to set'
+                              }
+                              expanded={expandedRow === 'mood'}
+                              onToggle={() => toggleRow('mood')}
+                              iconColor="#8B5E3C"
+                            >
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                {ALL_MOODS.map((moodKey) => {
+                                  const config = MOOD_CONFIG[moodKey];
+                                  if (!config) return null;
+                                  const isSelected = moods.includes(moodKey);
+                                  return (
+                                    <Pressable
+                                      key={moodKey}
+                                      onPress={() => {
+                                        if (isSelected) {
+                                          setMoods(moods.filter((m) => m !== moodKey));
+                                        } else {
+                                          setMoods([...moods, moodKey]);
+                                        }
+                                      }}
+                                      style={{
+                                        paddingVertical: 6,
+                                        paddingHorizontal: 12,
+                                        borderRadius: 16,
+                                        backgroundColor: isSelected
+                                          ? 'rgba(46,85,64,0.12)'
+                                          : '#EDEAE3',
+                                        borderWidth: isSelected ? 1 : 0,
+                                        borderColor: isSelected
+                                          ? 'rgba(46,85,64,0.3)'
+                                          : 'transparent',
+                                      }}
+                                    >
+                                      <Text
+                                        style={{
+                                          fontSize: 13,
+                                          fontWeight: isSelected ? '600' : '400',
+                                          color: isSelected ? '#2E5540' : '#6B665C',
+                                        }}
+                                      >
+                                        {config.label}
+                                      </Text>
+                                    </Pressable>
+                                  );
+                                })}
+                              </View>
+                            </ExpandableRow>
+                          )}
+
+                          {isEventNote && (
+                            <ExpandableRow
+                              icon={CalendarDays}
+                              label="Date & time"
+                              summary={
+                                state.log.target_date
+                                  ? `${formatDueDay(state.log.target_date)}${state.log.event_time ? ' · ' + state.log.event_time : ''}`
+                                  : 'Set date'
+                              }
+                              expanded={expandedRow === 'event-date'}
+                              onToggle={() => toggleRow('event-date')}
+                              iconColor="#6B4C8A"
+                            >
+                              {/* Start date */}
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: '#8B8579',
+                                  fontWeight: '500',
+                                  marginBottom: 5,
+                                }}
+                              >
+                                Date
+                              </Text>
+                              <Pressable
+                                onPress={() => {
+                                  setDateModalTarget('note_event');
+                                  store.setUI({ showDateModal: true });
+                                }}
+                                style={{
+                                  padding: 7,
+                                  paddingHorizontal: 10,
+                                  borderRadius: 8,
+                                  borderWidth: 0.5,
+                                  borderColor: '#D5D0C8',
+                                  backgroundColor: '#EDEAE3',
+                                  flexDirection: 'row',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  marginBottom: 12,
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: '500',
+                                    color: state.log.target_date ? '#2D4A3E' : '#B5AFA5',
+                                  }}
+                                >
+                                  {state.log.target_date
+                                    ? formatDueDay(state.log.target_date)
+                                    : 'Not set'}
+                                </Text>
+                                <Calendar size={14} color="#8B8579" />
+                              </Pressable>
+
+                              {/* End date */}
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: '#8B8579',
+                                  fontWeight: '500',
+                                  marginBottom: 5,
+                                }}
+                              >
+                                End date
+                              </Text>
+                              <Pressable
+                                onPress={() => {
+                                  setDateModalTarget('note_end_date');
+                                  store.setUI({ showDateModal: true });
+                                }}
+                                style={{
+                                  padding: 7,
+                                  paddingHorizontal: 10,
+                                  borderRadius: 8,
+                                  borderWidth: 0.5,
+                                  borderColor: '#D5D0C8',
+                                  backgroundColor: '#EDEAE3',
+                                  flexDirection: 'row',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  marginBottom: 12,
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: '500',
+                                    color: state.log.end_date ? '#2D4A3E' : '#B5AFA5',
+                                  }}
+                                >
+                                  {state.log.end_date
+                                    ? formatDueDay(state.log.end_date)
+                                    : 'Same day'}
+                                </Text>
+                                <Calendar size={14} color="#8B8579" />
+                              </Pressable>
+
+                              {/* Time */}
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: '#8B8579',
+                                  fontWeight: '500',
+                                  marginBottom: 5,
+                                }}
+                              >
+                                Time
+                              </Text>
+                              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
                                 <Pressable
                                   onPress={() => {
-                                    // Strip markdown and switch to edit mode
-                                    const strippedText = stripMarkdown(currentText);
-                                    store.setBody(strippedText);
-                                    setIsPreviewMode(false);
+                                    const now = getDateService().now();
+                                    if (state.log.event_time) {
+                                      const [h, m] = state.log.event_time.split(':').map(Number);
+                                      now.setHours(h, m, 0, 0);
+                                    }
+                                    setSelectedTime(now);
+                                    setDateModalTarget('event_time');
+                                    store.setUI({ showDateModal: true });
                                   }}
-                                  style={({ pressed }) => ({
-                                    position: 'absolute',
-                                    top: 8,
-                                    right: 0,
-                                    paddingHorizontal: 10,
-                                    paddingVertical: 4,
-                                    borderRadius: 10,
-                                    backgroundColor: 'rgba(0,0,0,0.04)',
-                                    opacity: pressed ? 0.7 : 1,
-                                  })}
-                                  accessibilityLabel="Edit content"
-                                  accessibilityRole="button"
+                                  style={{
+                                    flex: 1,
+                                    padding: 10,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 8,
+                                    borderWidth: 0.5,
+                                    borderColor: '#D5D0C8',
+                                    backgroundColor: '#EDEAE3',
+                                    flexDirection: 'row',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                  }}
                                 >
                                   <Text
                                     style={{
                                       fontSize: 13,
-                                      fontWeight: '600',
-                                      color:
-                                        colorMode === 'dark' ? 'rgba(255,255,255,0.8)' : tokens.colors.primary,
+                                      fontWeight: '500',
+                                      color: state.log.event_time ? '#2D4A3E' : '#B5AFA5',
                                     }}
                                   >
-                                    Edit
+                                    {state.log.event_time
+                                      ? formatDueTime(state.log.event_time)
+                                      : 'Not set'}
                                   </Text>
+                                  <Clock size={14} color="#8B8579" />
                                 </Pressable>
+                                {state.log.event_time && (
+                                  <Pressable
+                                    onPress={() => store.setLogEventTime(null)}
+                                    style={{
+                                      paddingHorizontal: 12,
+                                      justifyContent: 'center',
+                                      borderRadius: 8,
+                                      backgroundColor: '#EDEAE3',
+                                    }}
+                                  >
+                                    <Text style={{ fontSize: 12, color: '#8B8579' }}>Clear</Text>
+                                  </Pressable>
+                                )}
                               </View>
-                            ) : (
-                              /* Compact text area mode */
-                              <View style={{ position: 'relative' }}>
-                                {/* Borderless body text */}
-                                <TextInput
-                                  ref={textInputRef}
-                                  value={currentText}
-                                  onChangeText={(t) => store.setBody(t)}
-                                  editable={!isViewMode}
-                                  pointerEvents={isViewMode ? 'none' : 'auto'}
-                                  accessibilityLabel="Overlay content input"
-                                  onFocus={() => {
-                                    setBodyFocused(true);
-                                    setMoodPickerExpanded(false);
-                                  }}
-                                  onBlur={() => setBodyFocused(false)}
-                                  placeholder="Add notes..."
-                                  placeholderTextColor={lightTokens.colors.subtle}
-                                  multiline
-                                  scrollEnabled={true}
-                                  textAlignVertical="top"
-                                  style={{
-                                    fontSize: 14,
-                                    lineHeight: 14 * 1.65,
-                                    color: tokens.colors.text,
-                                    maxHeight: 72,
-                                    paddingVertical: 8,
-                                    paddingHorizontal: 0,
-                                    paddingRight: 36,
-                                    textAlignVertical: 'top',
-                                  }}
-                                />
-                                {/* Expand button — top-right of text area */}
+                            </ExpandableRow>
+                          )}
+
+                          {/* Reminders — all log subtypes */}
+                          <StaticRow
+                            icon={Bell}
+                            label="Reminders"
+                            right={
+                              <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
+                                {formatItemReminderSummary(itemReminders)}
+                              </Text>
+                            }
+                            onPress={() => {
+                              if (!isViewMode) setShowRemindersModal(true);
+                            }}
+                          />
+
+                          <StaticRow
+                            icon={FolderOpen}
+                            label="Space"
+                            right={
+                              <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
+                                {state.spaceId
+                                  ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
+                                  : '+ Add'}
+                              </Text>
+                            }
+                            onPress={() => {
+                              if (!isViewMode) store.setUI({ showSpaceModal: true });
+                            }}
+                          />
+
+                          {/* Idea conversion buttons */}
+                          {effectiveLogSubtype === 'idea' && mode === 'edit' && (
+                            <View style={{ marginTop: 12, marginBottom: 4 }}>
+                              <Text style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>
+                                Convert to...
+                              </Text>
+                              <View style={{ flexDirection: 'row', gap: 8 }}>
                                 <Pressable
                                   onPress={() => {
-                                    LayoutAnimation.configureNext(
-                                      LayoutAnimation.Presets.easeInEaseOut,
-                                    );
-                                    setIsExpandedEditor(true);
+                                    const ideaTitle = state.log.title || '';
+                                    const ideaBody = state.log.body || '';
+                                    const ideaTags = state.tags || [];
+                                    const ideaListItems = state.list?.items;
+                                    const ideaIsList = !!state.list?.items?.length;
+                                    const ideaId = (initialEntity as any)?.id;
+                                    onClose();
+                                    setTimeout(() => {
+                                      globalOverlay.openCreate({
+                                        type: 'todo',
+                                        conversionMeta: {
+                                          origin: 'idea_conversion',
+                                          initialTitle: ideaTitle,
+                                          initialNote: ideaBody,
+                                          initialTags: ideaTags,
+                                          initialListItems: ideaIsList ? ideaListItems : undefined,
+                                          initialIsList: ideaIsList,
+                                        },
+                                      });
+                                    }, 100);
+                                    if (ideaId) {
+                                      updateNote(ideaId, { archived: true });
+                                      eventBus.emit('ItemUpdated', { id: ideaId });
+                                    }
                                   }}
                                   style={({ pressed }) => ({
-                                    position: 'absolute',
-                                    top: 8,
-                                    right: 0,
-                                    width: 28,
-                                    height: 28,
-                                    borderRadius: 14,
-                                    backgroundColor: 'rgba(0,0,0,0.04)',
+                                    flex: 1,
+                                    backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
+                                    borderRadius: 8,
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 16,
+                                    minHeight: 44,
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    opacity: pressed ? 0.7 : 1,
+                                    flexDirection: 'row',
+                                    gap: 6,
                                   })}
-                                  accessibilityLabel="Expand editor"
-                                  accessibilityRole="button"
                                 >
-                                  <Maximize2 size={14} color="#666" />
+                                  <Text style={{ fontSize: 15 }}>📋</Text>
+                                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#333' }}>
+                                    To-Do
+                                  </Text>
                                 </Pressable>
-                              </View>
-                            )}
-                          </Box>
-
-                          {/* Photo strip — thumbnails or subtle "Add photo" link */}
-                          {isLog && (
-                            <View style={{ paddingHorizontal: 0 }}>
-                              <PhotoStrip
-                                photos={logPhotos as import('./useOverlayDraft').DraftPhoto[]}
-                                onAddPhoto={handleOpenMultiPhotoActionSheet}
-                                onTapPhoto={(i) => handleViewLogPhoto(i)}
-                                disabled={isViewMode}
-                              />
-                            </View>
-                          )}
-
-                          {/* Linked Items section for event notes - only in view mode */}
-                          {isViewMode && isEventNote && fullEntity?.space_id && (
-                            <Box px={4}>
-                              <LinkedItemsSection
-                                eventId={currentEntityId}
-                                spaceId={fullEntity.space_id}
-                                onItemPress={handleLinkedItemPress}
-                                onAddTodo={handleLinkedAddTodo}
-                                onAddNote={handleLinkedAddNote}
-                                onLinkExisting={handleLinkExisting}
-                              />
-                            </Box>
-                          )}
-
-                          {/* LinkedEventPicker for notes (non-event) - show when space has events */}
-                          {isLog && !isEventNote && showLinkedEventPicker && effectiveSpaceId && (
-                            <Box px={4} mt={3}>
-                              <LinkedEventPicker
-                                spaceId={effectiveSpaceId}
-                                currentEventId={state.linkedEventId}
-                                onChange={handleLinkedEventChange}
-                              />
-                            </Box>
-                          )}
-
-                          {/* Tags row — no Re-suggest link */}
-                          <Box style={{ marginBottom: 16, paddingHorizontal: 16 }}>
-                            <TagsRow
-                              tags={activeTagChips}
-                              suggested={[]}
-                              onToggle={isViewMode ? () => {} : handleTagToggle}
-                              onAdd={isViewMode ? undefined : handleTagAdd}
-                              onUserAdd={isViewMode ? undefined : handleTelemetryTagAdd}
-                              onUserRemove={isViewMode ? undefined : handleTelemetryTagRemove}
-                            />
-                          </Box>
-
-                          {/* ===== Metadata rows — always visible, no accordion ===== */}
-                          <View style={{ paddingHorizontal: 16 }}>
-
-                            {/* ── TO-DO rows ── */}
-                            {baseType === 'todo' && (
-                              <>
-                                <ExpandableRow
-                                  icon={Calendar}
-                                  label="Schedule"
-                                  summary={(() => {
-                                    const parts: string[] = [];
-                                    if (state.todo.target_date)
-                                      parts.push(`Due ${formatDueDay(state.todo.target_date)}`);
-                                    const effectiveDoDate = state.todo.scheduled_date ?? state.todo.due_day;
-                                    if (effectiveDoDate) parts.push(`Do ${formatDueDay(effectiveDoDate)}`);
-                                    if (state.todo.time_estimate_minutes)
-                                      parts.push(formatTimeEstimate(state.todo.time_estimate_minutes));
-                                    if (state.todo.time_window) {
-                                      const label = TIME_WINDOW_OPTIONS.find((o) => o.value === state.todo.time_window)?.label;
-                                      if (label && label !== 'Any time') parts.push(label);
-                                    }
-                                    return parts.length > 0 ? parts.join(' · ') : 'Tap to set';
-                                  })()}
-                                  expanded={expandedRow === 'schedule'}
-                                  onToggle={() => toggleRow('schedule')}
-                                  iconColor="#2E5540"
-                                >
-                                  {/* Time of day */}
-                                  <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
-                                    Time of day
-                                  </Text>
-                                  <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
-                                    {TIME_WINDOW_OPTIONS.map((opt) => {
-                                      const isSel = (state.todo.time_window ?? null) === opt.value;
-                                      return (
-                                        <Pressable
-                                          key={opt.value ?? 'null'}
-                                          onPress={() => store.setTodoTimeWindow(opt.value)}
-                                          style={{
-                                            flex: 1, paddingVertical: 7, alignItems: 'center',
-                                            borderRadius: 8, backgroundColor: isSel ? '#2D4A3E' : '#F5F2ED',
-                                          }}
-                                        >
-                                          <Text style={{
-                                            fontSize: 12, fontWeight: isSel ? '600' : '500',
-                                            color: isSel ? '#FFFFFF' : '#6B665C',
-                                          }}>
-                                            {opt.label}
-                                          </Text>
-                                        </Pressable>
-                                      );
-                                    })}
-                                  </View>
-
-                                  {/* Specific time */}
-                                  <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5, marginTop: 4 }}>
-                                    Specific time
-                                  </Text>
-                                  <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
-                                    <Pressable
-                                      onPress={() => {
-                                        const now = getDateService().now();
-                                        if (state.todo.due_time) {
-                                          const [h, m] = state.todo.due_time.split(':').map(Number);
-                                          now.setHours(h, m, 0, 0);
-                                        }
-                                        setSelectedTime(now);
-                                        setDateModalTarget('todo_time');
-                                        store.setUI({ showDateModal: true });
-                                      }}
-                                      style={{
-                                        flex: 1, padding: 10, paddingHorizontal: 12, borderRadius: 8,
-                                        borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
-                                        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-                                      }}
-                                    >
-                                      <Text style={{
-                                        fontSize: 13, fontWeight: '500',
-                                        color: state.todo.due_time ? '#2D4A3E' : '#B5AFA5',
-                                      }}>
-                                        {state.todo.due_time ? formatDueTime(state.todo.due_time) : 'Not set'}
-                                      </Text>
-                                      <Clock size={14} color="#8B8579" />
-                                    </Pressable>
-                                    {state.todo.due_time && (
-                                      <Pressable
-                                        onPress={() => store.setTodoDue({ due_time: null })}
-                                        style={{
-                                          paddingHorizontal: 12, justifyContent: 'center',
-                                          borderRadius: 8, backgroundColor: '#EDEAE3',
-                                        }}
-                                      >
-                                        <Text style={{ fontSize: 12, color: '#8B8579' }}>Clear</Text>
-                                      </Pressable>
-                                    )}
-                                  </View>
-
-                                  {/* Duration */}
-                                  <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
-                                    Duration
-                                  </Text>
-                                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-                                    {[
-                                      { label: '15m', value: 15 },
-                                      { label: '30m', value: 30 },
-                                      { label: '45m', value: 45 },
-                                      { label: '1h', value: 60 },
-                                      { label: '1.5h', value: 90 },
-                                      { label: '2h', value: 120 },
-                                      { label: '3h', value: 180 },
-                                    ].map((chip) => {
-                                      const isSelected = state.todo.time_estimate_minutes === chip.value;
-                                      return (
-                                        <Pressable
-                                          key={chip.value}
-                                          onPress={() => store.setTodoTimeEstimate(isSelected ? null : chip.value)}
-                                          style={{
-                                            paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8,
-                                            backgroundColor: isSelected ? '#2D4A3E' : '#F5F2ED',
-                                          }}
-                                        >
-                                          <Text style={{
-                                            fontSize: 12, fontWeight: isSelected ? '600' : '500',
-                                            color: isSelected ? '#FFFFFF' : '#6B665C',
-                                          }}>
-                                            {chip.label}
-                                          </Text>
-                                        </Pressable>
-                                      );
-                                    })}
-                                  </View>
-
-                                  {/* Dates */}
-                                  <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
-                                    Dates
-                                  </Text>
-                                  <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
-                                    <Pressable
-                                      onPress={() => {
-                                        setDateModalTarget('todo_dodate');
-                                        store.setUI({ showDateModal: true });
-                                      }}
-                                      style={{
-                                        flex: 1, padding: 7, paddingHorizontal: 10, borderRadius: 8,
-                                        borderWidth: 0.5, borderColor: tokens.colors.border, backgroundColor: '#EDEAE3',
-                                        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-                                      }}
-                                    >
-                                      <View>
-                                        <Text style={{ fontSize: 11, fontWeight: '500', color: '#A09A90', marginBottom: 2 }}>
-                                          Do date
-                                        </Text>
-                                        <Text style={{ fontSize: 13, fontWeight: '500', color: '#2D4A3E' }}>
-                                          {(state.todo.scheduled_date ?? state.todo.due_day)
-                                            ? formatDueDay(state.todo.scheduled_date ?? state.todo.due_day ?? '')
-                                            : 'Not set'}
-                                        </Text>
-                                      </View>
-                                      <Calendar size={14} color="#8B8579" />
-                                    </Pressable>
-                                    <Pressable
-                                      onPress={() => {
-                                        setDateModalTarget('todo_deadline');
-                                        store.setUI({ showDateModal: true });
-                                      }}
-                                      style={{
-                                        flex: 1, padding: 7, paddingHorizontal: 10, borderRadius: 8,
-                                        borderWidth: 0.5, borderColor: tokens.colors.border, backgroundColor: '#EDEAE3',
-                                        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-                                      }}
-                                    >
-                                      <View>
-                                        <Text style={{ fontSize: 11, fontWeight: '500', color: '#A09A90', marginBottom: 2 }}>
-                                          Deadline
-                                        </Text>
-                                        <Text style={{ fontSize: 13, fontWeight: '500', color: state.todo.target_date ? '#2D4A3E' : '#B5AFA5' }}>
-                                          {state.todo.target_date
-                                            ? formatDueDay(state.todo.target_date)
-                                            : 'None'}
-                                        </Text>
-                                      </View>
-                                      <Calendar size={14} color="#8B8579" />
-                                    </Pressable>
-                                  </View>
-                                </ExpandableRow>
-
-                                {dueToastMessage ? (
-                                  <View
-                                    style={{
-                                      paddingHorizontal: 10,
-                                      paddingVertical: 4,
-                                      borderRadius: 999,
-                                      backgroundColor: 'rgba(46,125,106,0.12)',
-                                      alignSelf: 'flex-start',
-                                      marginBottom: 4,
-                                    }}
-                                    pointerEvents="none"
-                                  >
-                                    <Text
-                                      style={{
-                                        color: typeTabUnderlineColor,
-                                        fontSize: lightTokens.typography.size.xs,
-                                        fontWeight: '600',
-                                      }}
-                                    >
-                                      {dueToastMessage}
-                                    </Text>
-                                  </View>
-                                ) : null}
-
-                                <StaticRow
-                                  icon={Bell}
-                                  label="Reminders"
-                                  right={
-                                    <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                      {formatItemReminderSummary(itemReminders)}
-                                    </Text>
-                                  }
-                                  onPress={() => { if (!isViewMode) setShowRemindersModal(true); }}
-                                />
-
-                                <StaticRow
-                                  icon={FolderOpen}
-                                  label="Space"
-                                  right={
-                                    <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                      {state.spaceId
-                                        ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
-                                        : '+ Add'}
-                                    </Text>
-                                  }
-                                  onPress={() => { if (!isViewMode) store.setUI({ showSpaceModal: true }); }}
-                                />
-
-                                {showLinkedEventPicker && effectiveSpaceId && (
-                                  <StaticRow
-                                    icon={Link2}
-                                    label="Link to event"
-                                    right={
-                                      <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                        {state.linkedEventId ? 'Linked' : 'None'}
-                                      </Text>
-                                    }
-                                    onPress={() => toggleRow('linked')}
-                                  />
-                                )}
-
-                                {commitmentsOn && (
-                                  <StaticRow
-                                    icon={Diamond}
-                                    label="Lock In"
-                                    right={
-                                      <ToggleSwitch
-                                        on={isLockedIn}
-                                        onToggle={async () => {
-                                          if (!state.commitment) {
-                                            const ok = await canEnableCommitment();
-                                            if (!ok) return;
-                                          }
-                                          pushUndoEntry('commitment', {
-                                            commitment: state.commitment,
-                                            commitmentNote: state.commitmentNote,
-                                            commitmentStartedAt: state.commitmentStartedAt,
-                                          });
-                                          store.setCommitment(!state.commitment);
-                                          try { eventBus.emit('OverlayCommitmentToggled', { on: !state.commitment }); } catch {}
-                                        }}
-                                      />
-                                    }
-                                  />
-                                )}
-
-                                {currentEntityId && (
-                                  <StaticRow
-                                    icon={MessageCircle}
-                                    label="Chat with Gremly"
-                                    iconColor="#2E5540"
-                                    right={
-                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                        <Image
-                                          source={require('../../assets/buttonforHP.png')}
-                                          style={{ width: 22, height: 22, borderRadius: 11 }}
-                                          resizeMode="cover"
-                                        />
-                                        <ChevronRight size={14} color="#2E5540" />
-                                      </View>
-                                    }
-                                    onPress={() => store.setUI({ showEntityChat: true })}
-                                  />
-                                )}
-
-                                {mode === 'edit' && (initialEntity as any)?.id && (
-                                  <StaticRow
-                                    icon={Trash2}
-                                    label="Delete to-do"
-                                    iconColor="#D9534F"
-                                    borderBottom={false}
-                                    onPress={() => {
-                                      Alert.alert('Delete this to-do?', "This can't be undone.", [
-                                        { text: 'Cancel', style: 'cancel' },
-                                        {
-                                          text: 'Delete',
-                                          style: 'destructive',
-                                          onPress: async () => {
-                                            try {
-                                              const itemId = (initialEntity as any).id;
-                                              const itemSpaceId = (initialEntity as any).space_id ?? state.spaceId ?? initialSpaceId;
-                                              await deleteTodo(itemId);
-                                              eventBus.emit('entity:deleted', { id: itemId, type: 'todo', spaceId: itemSpaceId });
-                                              onClose();
-                                            } catch (err) {
-                                              console.error('[UnifiedOverlayV2] Delete failed:', err);
-                                              Alert.alert('Error', 'Failed to delete to-do. Please try again.');
-                                            }
-                                          },
-                                        },
-                                      ]);
-                                    }}
-                                  />
-                                )}
-                              </>
-                            )}
-
-                            {/* ── HABIT rows ── */}
-                            {baseType === 'habit' && (
-                              <>
-                                {isBreakHabit ? (
-                                  <>
-                                    <StaticRow
-                                      icon={Zap}
-                                      label="Trigger"
-                                      right={
-                                        <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>Not set</Text>
-                                      }
-                                      iconColor="#D97706"
-                                    />
-
-                                    <StaticRow
-                                      icon={RotateCcw}
-                                      label="Replacement"
-                                      right={
-                                        <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>Not set</Text>
-                                      }
-                                      iconColor="#2E5540"
-                                    />
-
-                                    <StaticRow
-                                      icon={Shield}
-                                      label="Tracking"
-                                      right={
-                                        <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>Daily check-in</Text>
-                                      }
-                                      iconColor="#6B4C8A"
-                                    />
-                                  </>
-                                ) : (
-                                  <ExpandableRow
-                                    icon={Calendar}
-                                    label="Schedule"
-                                    summary={[
-                                      getFrequencyLabel(jsonToFrequency(state.habit.frequency_json)),
-                                      state.habit.time_estimate_minutes && `~${state.habit.time_estimate_minutes}m`,
-                                      state.habit.start_date && format(parseISO(state.habit.start_date), 'MMM d'),
-                                    ].filter(Boolean).join(' · ')}
-                                    expanded={expandedRow === 'schedule'}
-                                    onToggle={() => toggleRow('schedule')}
-                                    iconColor="#2E5540"
-                                  >
-                                    {/* Frequency presets */}
-                                    <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
-                                      Frequency
-                                    </Text>
-                                    {(() => {
-                                      const freq = jsonToFrequency(state.habit.frequency_json);
-                                      let curCount = 1, curUnit: 'day' | 'week' | 'month' = 'day', curDays: number[] = [];
-                                      if (freq.mode === 'simple') {
-                                        curUnit = freq.value === 'daily' ? 'day' : freq.value === 'weekly' ? 'week' : 'month';
-                                      } else if (freq.mode === 'custom') {
-                                        curCount = freq.value.count; curUnit = freq.value.unit;
-                                      } else if (freq.mode === 'days') {
-                                        curCount = freq.days.length; curUnit = 'week'; curDays = [...freq.days];
-                                      }
-                                      const matchesAnyPreset = SCHEDULE_PRESETS.some(
-                                        (p) => p.count === curCount && p.unit === curUnit &&
-                                          JSON.stringify([...p.days].sort()) === JSON.stringify([...curDays].sort()),
-                                      );
-                                      const isCustom = habitIsCustomFreq || !matchesAnyPreset;
-                                      return (
-                                        <>
-                                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                                            {SCHEDULE_PRESETS.map((preset) => {
-                                              const isMatch = !isCustom && curCount === preset.count && curUnit === preset.unit &&
-                                                JSON.stringify([...curDays].sort()) === JSON.stringify([...preset.days].sort());
-                                              return (
-                                                <Pressable
-                                                  key={preset.key}
-                                                  onPress={() => {
-                                                    setHabitIsCustomFreq(false);
-                                                    store.setHabitFrequency(buildFreqJson(preset.count, preset.unit, [...preset.days]));
-                                                  }}
-                                                  style={{
-                                                    paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8,
-                                                    backgroundColor: isMatch ? '#2D4A3E' : '#F5F2ED',
-                                                  }}
-                                                >
-                                                  <Text style={{
-                                                    fontSize: 12, fontWeight: isMatch ? '600' : '500',
-                                                    color: isMatch ? '#FFFFFF' : '#6B665C',
-                                                  }}>
-                                                    {preset.label}
-                                                  </Text>
-                                                </Pressable>
-                                              );
-                                            })}
-                                            <Pressable
-                                              onPress={() => setHabitIsCustomFreq(true)}
-                                              style={{
-                                                paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8,
-                                                backgroundColor: isCustom ? '#2D4A3E' : '#F5F2ED',
-                                              }}
-                                            >
-                                              <Text style={{
-                                                fontSize: 12, fontWeight: isCustom ? '600' : '500',
-                                                color: isCustom ? '#FFFFFF' : '#6B665C',
-                                              }}>
-                                                Custom
-                                              </Text>
-                                            </Pressable>
-                                          </View>
-
-                                          {/* Custom counter */}
-                                          {isCustom && (
-                                            <View style={{ backgroundColor: '#F5F2ED', borderRadius: 12, padding: 12, marginBottom: 8 }}>
-                                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                                                <Pressable
-                                                  onPress={() => {
-                                                    const nc = Math.max(1, curCount - 1);
-                                                    store.setHabitFrequency(buildFreqJson(nc, curUnit, curDays));
-                                                  }}
-                                                  disabled={curCount <= 1}
-                                                  style={{
-                                                    width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFFFFF',
-                                                    alignItems: 'center', justifyContent: 'center',
-                                                    opacity: curCount <= 1 ? 0.3 : 1,
-                                                  }}
-                                                >
-                                                  <Text style={{ fontSize: 18, color: '#2D4A3E' }}>−</Text>
-                                                </Pressable>
-                                                <Text style={{
-                                                  fontSize: 20, fontWeight: '700', color: '#2D4A3E',
-                                                  marginHorizontal: 20, minWidth: 28, textAlign: 'center',
-                                                }}>
-                                                  {curCount}
-                                                </Text>
-                                                <Pressable
-                                                  onPress={() => {
-                                                    const nc = Math.min(30, curCount + 1);
-                                                    store.setHabitFrequency(buildFreqJson(nc, curUnit, curDays));
-                                                  }}
-                                                  disabled={curCount >= 30}
-                                                  style={{
-                                                    width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFFFFF',
-                                                    alignItems: 'center', justifyContent: 'center',
-                                                    opacity: curCount >= 30 ? 0.3 : 1,
-                                                  }}
-                                                >
-                                                  <Text style={{ fontSize: 18, color: '#2D4A3E' }}>+</Text>
-                                                </Pressable>
-                                                <Text style={{ fontSize: 13, color: tokens.colors.subtle, marginLeft: 12 }}>times per</Text>
-                                              </View>
-                                              <View style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}>
-                                                {(['day', 'week', 'month'] as const).map((u) => {
-                                                  const isUnitSel = curUnit === u;
-                                                  return (
-                                                    <Pressable
-                                                      key={u}
-                                                      onPress={() => {
-                                                        const newDays = u !== 'week' ? [] : curDays;
-                                                        store.setHabitFrequency(buildFreqJson(curCount, u, newDays));
-                                                      }}
-                                                      style={{
-                                                        flex: 1, paddingVertical: 7, alignItems: 'center', borderRadius: 8,
-                                                        backgroundColor: isUnitSel ? '#2D4A3E' : '#FFFFFF',
-                                                      }}
-                                                    >
-                                                      <Text style={{
-                                                        fontSize: 12, fontWeight: isUnitSel ? '600' : '500',
-                                                        color: isUnitSel ? '#FFFFFF' : '#6B665C',
-                                                      }}>
-                                                        {u}
-                                                      </Text>
-                                                    </Pressable>
-                                                  );
-                                                })}
-                                              </View>
-                                            </View>
-                                          )}
-
-                                          {/* Pin to days (weekly only) */}
-                                          {curUnit === 'week' && (
-                                            <View style={{ marginBottom: 8 }}>
-                                              <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 6 }}>
-                                                <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500' }}>On these days</Text>
-                                                <Text style={{ fontSize: 11, color: '#A09A90', marginLeft: 4 }}>(optional)</Text>
-                                              </View>
-                                              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                                                {([
-                                                  { day: 1, label: 'M' }, { day: 2, label: 'T' }, { day: 3, label: 'W' },
-                                                  { day: 4, label: 'T' }, { day: 5, label: 'F' }, { day: 6, label: 'S' },
-                                                  { day: 0, label: 'S' },
-                                                ] as const).map(({ day, label }) => {
-                                                  const isDayOn = curDays.includes(day);
-                                                  return (
-                                                    <Pressable
-                                                      key={day}
-                                                      onPress={() => {
-                                                        const newDays = isDayOn
-                                                          ? curDays.filter((d) => d !== day)
-                                                          : [...curDays, day].sort();
-                                                        store.setHabitFrequency(buildFreqJson(curCount, curUnit, newDays));
-                                                      }}
-                                                      style={{
-                                                        width: 34, height: 34, borderRadius: 17,
-                                                        alignItems: 'center', justifyContent: 'center',
-                                                        backgroundColor: isDayOn ? '#2D4A3E' : '#F5F2ED',
-                                                      }}
-                                                    >
-                                                      <Text style={{
-                                                        fontSize: 12, fontWeight: '600',
-                                                        color: isDayOn ? '#FFFFFF' : '#6B665C',
-                                                      }}>
-                                                        {label}
-                                                      </Text>
-                                                    </Pressable>
-                                                  );
-                                                })}
-                                              </View>
-                                            </View>
-                                          )}
-                                        </>
-                                      );
-                                    })()}
-
-                                    {/* Time of day */}
-                                    <View style={{ height: 1, backgroundColor: '#E5E0D8', marginVertical: 10 }} />
-                                    <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
-                                      Time of day
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
-                                      {TIME_WINDOW_OPTIONS.map((opt) => {
-                                        const isSel = (state.habit.time_window ?? null) === opt.value;
-                                        return (
-                                          <Pressable
-                                            key={opt.value ?? 'null'}
-                                            onPress={() => store.setHabitTimeWindow(opt.value)}
-                                            style={{
-                                              flex: 1, paddingVertical: 7, alignItems: 'center',
-                                              borderRadius: 8, backgroundColor: isSel ? '#2D4A3E' : '#F5F2ED',
-                                            }}
-                                          >
-                                            <Text style={{
-                                              fontSize: 12, fontWeight: isSel ? '600' : '500',
-                                              color: isSel ? '#FFFFFF' : '#6B665C',
-                                            }}>
-                                              {opt.label}
-                                            </Text>
-                                          </Pressable>
-                                        );
-                                      })}
-                                    </View>
-
-                                    {/* Duration */}
-                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
-                                      Duration
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-                                      {[
-                                        { label: '15m', value: 15 },
-                                        { label: '30m', value: 30 },
-                                        { label: '45m', value: 45 },
-                                        { label: '1h', value: 60 },
-                                        { label: '1.5h', value: 90 },
-                                        { label: '2h', value: 120 },
-                                        { label: '3h', value: 180 },
-                                      ].map((chip) => {
-                                        const isSelected = state.habit.time_estimate_minutes === chip.value;
-                                        return (
-                                          <Pressable
-                                            key={chip.value}
-                                            onPress={() => store.setHabitTimeEstimate(isSelected ? null : chip.value)}
-                                            style={{
-                                              paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8,
-                                              backgroundColor: isSelected ? '#2D4A3E' : '#F5F2ED',
-                                            }}
-                                          >
-                                            <Text style={{
-                                              fontSize: 12, fontWeight: isSelected ? '600' : '500',
-                                              color: isSelected ? '#FFFFFF' : '#6B665C',
-                                            }}>
-                                              {chip.label}
-                                            </Text>
-                                          </Pressable>
-                                        );
-                                      })}
-                                    </View>
-
-                                    {/* Dates */}
-                                    <View style={{ height: 1, backgroundColor: '#E5E0D8', marginVertical: 10 }} />
-                                    <Text style={{ fontSize: 11, color: tokens.colors.subtle, fontWeight: '500', marginBottom: 5 }}>
-                                      Dates
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
-                                      <Pressable
-                                        onPress={() => store.setUI({ showHabitStartDatePicker: true })}
-                                        style={{
-                                          flex: 1, padding: 7, paddingHorizontal: 10, borderRadius: 8,
-                                          borderWidth: 0.5, borderColor: tokens.colors.border, backgroundColor: '#EDEAE3',
-                                          flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-                                        }}
-                                      >
-                                        <View>
-                                          <Text style={{ fontSize: 11, fontWeight: '500', color: '#A09A90', marginBottom: 2 }}>
-                                            Starts
-                                          </Text>
-                                          <Text style={{ fontSize: 13, fontWeight: '500', color: '#2D4A3E' }}>
-                                            {state.habit.start_date
-                                              ? format(parseISO(state.habit.start_date), 'MMM d, yyyy')
-                                              : 'Not set'}
-                                          </Text>
-                                        </View>
-                                        <Calendar size={14} color="#8B8579" />
-                                      </Pressable>
-                                      <Pressable
-                                        onPress={() => store.setUI({ showHabitEndDatePicker: true })}
-                                        style={{
-                                          flex: 1, padding: 7, paddingHorizontal: 10, borderRadius: 8,
-                                          borderWidth: 0.5, borderColor: tokens.colors.border, backgroundColor: '#EDEAE3',
-                                          flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-                                        }}
-                                      >
-                                        <View>
-                                          <Text style={{ fontSize: 11, fontWeight: '500', color: '#A09A90', marginBottom: 2 }}>
-                                            Ends
-                                          </Text>
-                                          <Text style={{ fontSize: 13, fontWeight: '500', color: state.habit.end_date ? '#2D4A3E' : '#B5AFA5' }}>
-                                            {state.habit.end_date
-                                              ? format(parseISO(state.habit.end_date), 'MMM d, yyyy')
-                                              : 'No end'}
-                                          </Text>
-                                        </View>
-                                        <Calendar size={14} color="#8B8579" />
-                                      </Pressable>
-                                    </View>
-                                  </ExpandableRow>
-                                )}
-
-                                <StaticRow
-                                  icon={Bell}
-                                  label="Reminders"
-                                  right={
-                                    <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                      {formatItemReminderSummary(itemReminders)}
-                                    </Text>
-                                  }
-                                  onPress={() => { if (!isViewMode) setShowRemindersModal(true); }}
-                                />
-
-                                <StaticRow
-                                  icon={FolderOpen}
-                                  label="Space"
-                                  right={
-                                    <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                      {state.spaceId
-                                        ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
-                                        : '+ Add'}
-                                    </Text>
-                                  }
-                                  onPress={() => { if (!isViewMode) store.setUI({ showSpaceModal: true }); }}
-                                />
-
-                                {showLinkedEventPicker && effectiveSpaceId && (
-                                  <StaticRow
-                                    icon={Link2}
-                                    label="Link to event"
-                                    right={
-                                      <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                        {state.linkedEventId ? 'Linked' : 'None'}
-                                      </Text>
-                                    }
-                                    onPress={() => toggleRow('linked')}
-                                  />
-                                )}
-
-                                {commitmentsOn && (
-                                  <StaticRow
-                                    icon={Diamond}
-                                    label="Lock In"
-                                    right={
-                                      <ToggleSwitch
-                                        on={isLockedIn}
-                                        onToggle={async () => {
-                                          if (!state.commitment) {
-                                            const ok = await canEnableCommitment();
-                                            if (!ok) return;
-                                          }
-                                          pushUndoEntry('commitment', {
-                                            commitment: state.commitment,
-                                            commitmentNote: state.commitmentNote,
-                                            commitmentStartedAt: state.commitmentStartedAt,
-                                          });
-                                          store.setCommitment(!state.commitment);
-                                          try { eventBus.emit('OverlayCommitmentToggled', { on: !state.commitment }); } catch {}
-                                        }}
-                                      />
-                                    }
-                                  />
-                                )}
-
-                                {baseType === 'habit' && currentEntityId && (
-                                  <StaticRow
-                                    icon={BarChart3}
-                                    label="View progress"
-                                    iconColor="#2E5540"
-                                    right={<ChevronRight size={14} color="#2E5540" />}
-                                    onPress={() => store.setUI({ displayMode: 'view' })}
-                                  />
-                                )}
-
-                                {currentEntityId && (
-                                  <StaticRow
-                                    icon={MessageCircle}
-                                    label="Chat with Gremly"
-                                    iconColor="#2E5540"
-                                    right={
-                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                        <Image
-                                          source={require('../../assets/buttonforHP.png')}
-                                          style={{ width: 22, height: 22, borderRadius: 11 }}
-                                          resizeMode="cover"
-                                        />
-                                        <ChevronRight size={14} color="#2E5540" />
-                                      </View>
-                                    }
-                                    onPress={() => store.setUI({ showEntityChat: true })}
-                                  />
-                                )}
-
-                                {mode === 'edit' && (initialEntity as any)?.id && (
-                                  <StaticRow
-                                    icon={Trash2}
-                                    label="Delete habit"
-                                    iconColor="#D9534F"
-                                    borderBottom={false}
-                                    onPress={() => {
-                                      Alert.alert('Delete this habit?', "This can't be undone.", [
-                                        { text: 'Cancel', style: 'cancel' },
-                                        {
-                                          text: 'Delete',
-                                          style: 'destructive',
-                                          onPress: async () => {
-                                            try {
-                                              const itemId = (initialEntity as any).id;
-                                              const itemSpaceId = (initialEntity as any).space_id ?? state.spaceId ?? initialSpaceId;
-                                              await deleteHabit(itemId);
-                                              eventBus.emit('entity:deleted', { id: itemId, type: 'habit', spaceId: itemSpaceId });
-                                              onClose();
-                                            } catch (err) {
-                                              console.error('[UnifiedOverlayV2] Delete failed:', err);
-                                              Alert.alert('Error', 'Failed to delete habit. Please try again.');
-                                            }
-                                          },
-                                        },
-                                      ]);
-                                    }}
-                                  />
-                                )}
-                              </>
-                            )}
-
-                            {/* ── LOG rows (journal, idea, general, event) ── */}
-                            {baseType === 'log' && (
-                              <>
-                                {/* Event-type logs: Date & time */}
-                                {/* Journal: Mood */}
-                                {isJournal && (
-                                  <ExpandableRow
-                                    icon={Heart}
-                                    label="Mood"
-                                    summary={
-                                      moods.length > 0
-                                        ? moods.map((m) => MOOD_CONFIG[m]?.label ?? m).join(', ')
-                                        : 'Tap to set'
-                                    }
-                                    expanded={expandedRow === 'mood'}
-                                    onToggle={() => toggleRow('mood')}
-                                    iconColor="#8B5E3C"
-                                  >
-                                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                                      {ALL_MOODS.map((moodKey) => {
-                                        const config = MOOD_CONFIG[moodKey];
-                                        if (!config) return null;
-                                        const isSelected = moods.includes(moodKey);
-                                        return (
-                                          <Pressable
-                                            key={moodKey}
-                                            onPress={() => {
-                                              if (isSelected) {
-                                                setMoods(moods.filter((m) => m !== moodKey));
-                                              } else {
-                                                setMoods([...moods, moodKey]);
-                                              }
-                                            }}
-                                            style={{
-                                              paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16,
-                                              backgroundColor: isSelected ? 'rgba(46,85,64,0.12)' : '#EDEAE3',
-                                              borderWidth: isSelected ? 1 : 0,
-                                              borderColor: isSelected ? 'rgba(46,85,64,0.3)' : 'transparent',
-                                            }}
-                                          >
-                                            <Text style={{
-                                              fontSize: 13, fontWeight: isSelected ? '600' : '400',
-                                              color: isSelected ? '#2E5540' : '#6B665C',
-                                            }}>
-                                              {config.label}
-                                            </Text>
-                                          </Pressable>
-                                        );
-                                      })}
-                                    </View>
-                                  </ExpandableRow>
-                                )}
-
-                                {isEventNote && (
-                                  <ExpandableRow
-                                    icon={CalendarDays}
-                                    label="Date & time"
-                                    summary={
-                                      state.log.target_date
-                                        ? `${formatDueDay(state.log.target_date)}${state.log.event_time ? ' · ' + state.log.event_time : ''}`
-                                        : 'Set date'
-                                    }
-                                    expanded={expandedRow === 'event-date'}
-                                    onToggle={() => toggleRow('event-date')}
-                                    iconColor="#6B4C8A"
-                                  >
-                                    {/* Start date */}
-                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
-                                      Date
-                                    </Text>
-                                    <Pressable
-                                      onPress={() => {
-                                        setDateModalTarget('note_event');
-                                        store.setUI({ showDateModal: true });
-                                      }}
-                                      style={{
-                                        padding: 7, paddingHorizontal: 10, borderRadius: 8,
-                                        borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
-                                        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-                                        marginBottom: 12,
-                                      }}
-                                    >
-                                      <Text style={{ fontSize: 13, fontWeight: '500', color: state.log.target_date ? '#2D4A3E' : '#B5AFA5' }}>
-                                        {state.log.target_date ? formatDueDay(state.log.target_date) : 'Not set'}
-                                      </Text>
-                                      <Calendar size={14} color="#8B8579" />
-                                    </Pressable>
-
-                                    {/* End date */}
-                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
-                                      End date
-                                    </Text>
-                                    <Pressable
-                                      onPress={() => {
-                                        setDateModalTarget('note_end_date');
-                                        store.setUI({ showDateModal: true });
-                                      }}
-                                      style={{
-                                        padding: 7, paddingHorizontal: 10, borderRadius: 8,
-                                        borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
-                                        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-                                        marginBottom: 12,
-                                      }}
-                                    >
-                                      <Text style={{ fontSize: 13, fontWeight: '500', color: state.log.end_date ? '#2D4A3E' : '#B5AFA5' }}>
-                                        {state.log.end_date ? formatDueDay(state.log.end_date) : 'Same day'}
-                                      </Text>
-                                      <Calendar size={14} color="#8B8579" />
-                                    </Pressable>
-
-                                    {/* Time */}
-                                    <Text style={{ fontSize: 11, color: '#8B8579', fontWeight: '500', marginBottom: 5 }}>
-                                      Time
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', gap: 10, marginBottom: 4 }}>
-                                      <Pressable
-                                        onPress={() => {
-                                          const now = getDateService().now();
-                                          if (state.log.event_time) {
-                                            const [h, m] = state.log.event_time.split(':').map(Number);
-                                            now.setHours(h, m, 0, 0);
-                                          }
-                                          setSelectedTime(now);
-                                          setDateModalTarget('event_time');
-                                          store.setUI({ showDateModal: true });
-                                        }}
-                                        style={{
-                                          flex: 1, padding: 10, paddingHorizontal: 12, borderRadius: 8,
-                                          borderWidth: 0.5, borderColor: '#D5D0C8', backgroundColor: '#EDEAE3',
-                                          flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-                                        }}
-                                      >
-                                        <Text style={{
-                                          fontSize: 13, fontWeight: '500',
-                                          color: state.log.event_time ? '#2D4A3E' : '#B5AFA5',
-                                        }}>
-                                          {state.log.event_time ? formatDueTime(state.log.event_time) : 'Not set'}
-                                        </Text>
-                                        <Clock size={14} color="#8B8579" />
-                                      </Pressable>
-                                      {state.log.event_time && (
-                                        <Pressable
-                                          onPress={() => store.setLogEventTime(null)}
-                                          style={{
-                                            paddingHorizontal: 12, justifyContent: 'center',
-                                            borderRadius: 8, backgroundColor: '#EDEAE3',
-                                          }}
-                                        >
-                                          <Text style={{ fontSize: 12, color: '#8B8579' }}>Clear</Text>
-                                        </Pressable>
-                                      )}
-                                    </View>
-                                  </ExpandableRow>
-                                )}
-
-                                {/* Reminders — all log subtypes */}
-                                <StaticRow
-                                  icon={Bell}
-                                  label="Reminders"
-                                  right={
-                                    <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                      {formatItemReminderSummary(itemReminders)}
-                                    </Text>
-                                  }
-                                  onPress={() => { if (!isViewMode) setShowRemindersModal(true); }}
-                                />
-
-                                <StaticRow
-                                  icon={FolderOpen}
-                                  label="Space"
-                                  right={
-                                    <Text style={{ fontSize: 13, color: tokens.colors.subtle }}>
-                                      {state.spaceId
-                                        ? (spaces.find((s) => s.id === state.spaceId)?.name ?? '+ Add')
-                                        : '+ Add'}
-                                    </Text>
-                                  }
-                                  onPress={() => { if (!isViewMode) store.setUI({ showSpaceModal: true }); }}
-                                />
-
-                                {/* Idea conversion buttons */}
-                                {effectiveLogSubtype === 'idea' && mode === 'edit' && (
-                                  <View style={{ marginTop: 12, marginBottom: 4 }}>
-                                    <Text style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>
-                                      Convert to...
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                                      <Pressable
-                                        onPress={() => {
-                                          const ideaTitle = state.log.title || '';
-                                          const ideaBody = state.log.body || '';
-                                          const ideaTags = state.tags || [];
-                                          const ideaListItems = state.list?.items;
-                                          const ideaIsList = !!state.list?.items?.length;
-                                          const ideaId = (initialEntity as any)?.id;
-                                          onClose();
-                                          setTimeout(() => {
-                                            globalOverlay.openCreate({
-                                              type: 'todo',
-                                              conversionMeta: {
-                                                origin: 'idea_conversion',
-                                                initialTitle: ideaTitle,
-                                                initialNote: ideaBody,
-                                                initialTags: ideaTags,
-                                                initialListItems: ideaIsList ? ideaListItems : undefined,
-                                                initialIsList: ideaIsList,
-                                              },
-                                            });
-                                          }, 100);
-                                          if (ideaId) {
-                                            updateNote(ideaId, { archived: true });
-                                            eventBus.emit('ItemUpdated', { id: ideaId });
-                                          }
-                                        }}
-                                        style={({ pressed }) => ({
-                                          flex: 1,
-                                          backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
-                                          borderRadius: 8,
-                                          paddingVertical: 12,
-                                          paddingHorizontal: 16,
-                                          minHeight: 44,
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          flexDirection: 'row',
-                                          gap: 6,
-                                        })}
-                                      >
-                                        <Text style={{ fontSize: 15 }}>📋</Text>
-                                        <Text style={{ fontSize: 15, fontWeight: '500', color: '#333' }}>To-Do</Text>
-                                      </Pressable>
-                                      <Pressable
-                                        onPress={() => {
-                                          const ideaTitle = state.log.title || '';
-                                          const ideaBody = state.log.body || '';
-                                          const ideaTags = state.tags || [];
-                                          const ideaListItems = state.list?.items;
-                                          const ideaIsList = !!state.list?.items?.length;
-                                          const ideaId = (initialEntity as any)?.id;
-                                          onClose();
-                                          setTimeout(() => {
-                                            globalOverlay.openCreate({
-                                              type: 'habit',
-                                              conversionMeta: {
-                                                origin: 'idea_conversion',
-                                                initialTitle: ideaTitle,
-                                                initialNote: ideaBody,
-                                                initialTags: ideaTags,
-                                                initialListItems: ideaIsList ? ideaListItems : undefined,
-                                                initialIsList: ideaIsList,
-                                              },
-                                            });
-                                          }, 100);
-                                          if (ideaId) {
-                                            updateNote(ideaId, { archived: true });
-                                            eventBus.emit('ItemUpdated', { id: ideaId });
-                                          }
-                                        }}
-                                        style={({ pressed }) => ({
-                                          flex: 1,
-                                          backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
-                                          borderRadius: 8,
-                                          paddingVertical: 12,
-                                          paddingHorizontal: 16,
-                                          minHeight: 44,
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          flexDirection: 'row',
-                                          gap: 6,
-                                        })}
-                                      >
-                                        <Text style={{ fontSize: 15 }}>🔄</Text>
-                                        <Text style={{ fontSize: 15, fontWeight: '500', color: '#333' }}>Habit</Text>
-                                      </Pressable>
-                                    </View>
-                                  </View>
-                                )}
-
-                                {/* Event-type: linked items */}
-                                {isViewMode && isEventNote && fullEntity?.space_id && (
-                                  <StaticRow
-                                    icon={Link2}
-                                    label="Linked items"
-                                    right={<ChevronRight size={14} color="#A09A90" />}
-                                    onPress={() => {/* LinkedItemsSection is rendered above */}}
-                                  />
-                                )}
-
-                                {currentEntityId && (
-                                  <StaticRow
-                                    icon={MessageCircle}
-                                    label="Chat with Gremly"
-                                    iconColor="#2E5540"
-                                    right={
-                                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                        <Image
-                                          source={require('../../assets/buttonforHP.png')}
-                                          style={{ width: 22, height: 22, borderRadius: 11 }}
-                                          resizeMode="cover"
-                                        />
-                                        <ChevronRight size={14} color="#2E5540" />
-                                      </View>
-                                    }
-                                    onPress={() => store.setUI({ showEntityChat: true })}
-                                  />
-                                )}
-
-                                {mode === 'edit' && (initialEntity as any)?.id && (
-                                  <StaticRow
-                                    icon={Trash2}
-                                    label="Delete log"
-                                    iconColor="#D9534F"
-                                    borderBottom={false}
-                                    onPress={() => {
-                                      Alert.alert('Delete this log?', "This can't be undone.", [
-                                        { text: 'Cancel', style: 'cancel' },
-                                        {
-                                          text: 'Delete',
-                                          style: 'destructive',
-                                          onPress: async () => {
-                                            try {
-                                              const itemId = (initialEntity as any).id;
-                                              const itemSpaceId = (initialEntity as any).space_id ?? state.spaceId ?? initialSpaceId;
-                                              await deleteNote(itemId);
-                                              eventBus.emit('entity:deleted', { id: itemId, type: 'note', spaceId: itemSpaceId });
-                                              onClose();
-                                            } catch (err) {
-                                              console.error('[UnifiedOverlayV2] Delete log failed:', err);
-                                              Alert.alert('Error', 'Failed to delete log. Please try again.');
-                                            }
-                                          },
-                                        },
-                                      ]);
-                                    }}
-                                  />
-                                )}
-                              </>
-                            )}
-
-                            {/* Mentions / Dates chips (inline suggestions) */}
-                            <Box
-                              mt={3}
-                              row
-                              gap={2}
-                              style={{ flexWrap: 'wrap', marginTop: tokenSpacing.md }}
-                            >
-                              {(state.detected?.mentions || []).map((m) => (
-                                <Chip key={m} label={`@${m}`} />
-                              ))}
-                              {(state.detected?.dates || []).map((d) => (
-                                <Button
-                                  key={d}
-                                  size="sm"
-                                  variant="ghost"
+                                <Pressable
                                   onPress={() => {
-                                    if (d === '__token:today') {
-                                      handleTodoDueChange(getDateService().now(), {
-                                        label: 'Today',
+                                    const ideaTitle = state.log.title || '';
+                                    const ideaBody = state.log.body || '';
+                                    const ideaTags = state.tags || [];
+                                    const ideaListItems = state.list?.items;
+                                    const ideaIsList = !!state.list?.items?.length;
+                                    const ideaId = (initialEntity as any)?.id;
+                                    onClose();
+                                    setTimeout(() => {
+                                      globalOverlay.openCreate({
+                                        type: 'habit',
+                                        conversionMeta: {
+                                          origin: 'idea_conversion',
+                                          initialTitle: ideaTitle,
+                                          initialNote: ideaBody,
+                                          initialTags: ideaTags,
+                                          initialListItems: ideaIsList ? ideaListItems : undefined,
+                                          initialIsList: ideaIsList,
+                                        },
                                       });
-                                    } else if (d === '__token:tomorrow') {
-                                      handleTodoDueChange(addDays(getDateService().now(), 1), {
-                                        label: 'Tomorrow',
-                                      });
-                                    } else {
-                                      // fallback: open custom date modal with parsed date prefilled
-                                      try {
-                                        const dateStr = d.replace(/^\D+/g, '');
-                                        const parsed = new Date(dateStr);
-                                        if (!isNaN(parsed.getTime())) {
-                                          setSelectedDate(parsed);
-                                          setClearDateFlag(false);
-                                        }
-                                      } catch (e) {
-                                        // Use today as fallback
-                                        setSelectedDate(getDateService().now());
-                                      }
-                                      setDateModalTarget('todo_deadline');
-                                      store.setUI({ showDateModal: true });
+                                    }, 100);
+                                    if (ideaId) {
+                                      updateNote(ideaId, { archived: true });
+                                      eventBus.emit('ItemUpdated', { id: ideaId });
                                     }
                                   }}
-                                  title={
-                                    d === '__token:today'
-                                      ? 'Set due: Today'
-                                      : d === '__token:tomorrow'
-                                        ? 'Set due: Tomorrow'
-                                        : d
-                                  }
-                                />
-                              ))}
-                            </Box>
-                            {/* Tag row hidden at Level-1; lands in Phase 3 */}
-                          </View>
-                        </ScrollView>
-                      </Reanimated.View>
-                    )}
-                  </View>
-
-                  <Modal visible={storeUI.showDateModal && dateModalTarget !== 'todo_time' && dateModalTarget !== 'event_time'} transparent animationType="fade">
-                    <Pressable
-                      style={{
-                        flex: 1,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        backgroundColor: 'rgba(0,0,0,0.4)',
-                      }}
-                      onPress={() => {
-                        // Close modal when tapping outside
-                        store.setUI({ showDateModal: false });
-                        setDateModalTarget(null);
-                        setShowTimePicker(false);
-                        setClearDateFlag(false);
-                        setSelectedTimePreset(null);
-                        setShowCustomTimePicker(false);
-                      }}
-                    >
-                      <Pressable
-                        onPress={(e) => e.stopPropagation()}
-                        style={{
-                          width: '92%',
-                          maxWidth: 400,
-                          maxHeight: '85%',
-                          alignSelf: 'center',
-                          backgroundColor: '#FFFFFF',
-                          paddingHorizontal: 12,
-                          paddingTop: 20,
-                          paddingBottom: 16,
-                          borderRadius: 20,
-                          borderWidth: 1,
-                          borderColor: '#E0E0E0',
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 8 },
-                          shadowOpacity: 0.15,
-                          shadowRadius: 24,
-                          elevation: 8,
-                        }}
-                      >
-                        <ScrollView
-                          showsVerticalScrollIndicator={false}
-                          bounces={true}
-                          contentContainerStyle={{
-                            paddingBottom: 32,
-                            paddingTop: 4,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              fontSize: 18,
-                              fontWeight: '600',
-                              color: '#222222',
-                              marginBottom: 16,
-                            }}
-                          >
-                            {dateModalTarget === 'todo_deadline' && 'Set deadline'}
-                            {dateModalTarget === 'todo_dodate' && 'Set do date'}
-                            {dateModalTarget === 'note_event' && 'Set event date'}
-                            {dateModalTarget === 'note_end_date' && 'Set end date'}
-                            {dateModalTarget === 'reminder' && 'Set reminder'}
-                          </Text>
-                          <Box mt={1}>
-                            <Box row gap={2} style={{ flexWrap: 'wrap' }}>
-                              <Pressable
-                                onPress={() => {
-                                  const today = getDateService().now();
-                                  if (dateModalTarget === 'reminder') {
-                                    store.setReminderAt(today.toISOString());
-                                    store.setUI({ showDateModal: false });
-                                    setDateModalTarget(null);
-                                  } else {
-                                    handleDateConfirm(today);
-                                  }
-                                }}
-                                style={({ pressed }) => ({
-                                  paddingHorizontal: 14,
-                                  paddingVertical: 7,
-                                  borderRadius: 18,
-                                  backgroundColor: pressed
-                                    ? '#F5F5F5'
-                                    : clearDateFlag === false &&
-                                        getDateService().toLocalDate(selectedDate) ===
-                                          getDateService().today()
-                                      ? '#F0F4F1'
-                                      : '#FAFAFA',
-                                  borderWidth: 1,
-                                  borderColor:
-                                    clearDateFlag === false &&
-                                    getDateService().toLocalDate(selectedDate) ===
-                                      getDateService().today()
-                                      ? tokens.colors.primary
-                                      : '#E0E0E0',
-                                })}
-                              >
-                                <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
-                                  Today
-                                </Text>
-                              </Pressable>
-                              <Pressable
-                                onPress={() => {
-                                  const tomorrow = addDays(getDateService().now(), 1);
-                                  if (dateModalTarget === 'reminder') {
-                                    store.setReminderAt(tomorrow.toISOString());
-                                    store.setUI({ showDateModal: false });
-                                    setDateModalTarget(null);
-                                  } else {
-                                    handleDateConfirm(tomorrow);
-                                  }
-                                }}
-                                style={({ pressed }) => ({
-                                  paddingHorizontal: 14,
-                                  paddingVertical: 7,
-                                  borderRadius: 18,
-                                  backgroundColor: pressed
-                                    ? '#F5F5F5'
-                                    : clearDateFlag === false &&
-                                        getDateService().toLocalDate(selectedDate) ===
-                                          getDateService().tomorrow()
-                                      ? '#F0F4F1'
-                                      : '#FAFAFA',
-                                  borderWidth: 1,
-                                  borderColor:
-                                    clearDateFlag === false &&
-                                    getDateService().toLocalDate(selectedDate) ===
-                                      getDateService().tomorrow()
-                                      ? tokens.colors.primary
-                                      : '#E0E0E0',
-                                })}
-                              >
-                                <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
-                                  Tomorrow
-                                </Text>
-                              </Pressable>
-                              <Pressable
-                                onPress={() => {
-                                  setClearDateFlag(true);
-                                  setShowTimePicker(false);
-                                  setSelectedTimePreset(null);
-                                  setShowCustomTimePicker(false);
-                                  if (dateModalTarget === 'reminder') {
-                                    store.setReminderAt(null);
-                                    store.setUI({ showDateModal: false });
-                                    setDateModalTarget(null);
-                                  }
-                                }}
-                                style={({ pressed }) => ({
-                                  paddingHorizontal: 14,
-                                  paddingVertical: 7,
-                                  borderRadius: 18,
-                                  backgroundColor: pressed
-                                    ? '#F5F5F5'
-                                    : clearDateFlag
-                                      ? '#F0F4F1'
-                                      : '#FAFAFA',
-                                  borderWidth: 1,
-                                  borderColor: clearDateFlag ? tokens.colors.primary : '#E0E0E0',
-                                })}
-                              >
-                                <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
-                                  Clear
-                                </Text>
-                              </Pressable>
-                            </Box>
-                          </Box>
-
-                          {/* Date Picker */}
-                          {!clearDateFlag && (
-                            <Box mt={3} mb={4}>
-                              <DateTimePicker
-                                value={selectedDate}
-                                mode="date"
-                                display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                                onChange={(event, date) => {
-                                  if (date) {
-                                    if (isSameDay(selectedDate, date)) {
-                                      handleDateConfirm(date);
-                                    } else {
-                                      setSelectedDate(date);
-                                      setClearDateFlag(false);
-                                    }
-                                  }
-                                }}
-                                themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
-                                accentColor="#2E5540"
-                              />
-                            </Box>
+                                  style={({ pressed }) => ({
+                                    flex: 1,
+                                    backgroundColor: pressed ? '#EAEAE8' : '#F5F5F3',
+                                    borderRadius: 8,
+                                    paddingVertical: 12,
+                                    paddingHorizontal: 16,
+                                    minHeight: 44,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexDirection: 'row',
+                                    gap: 6,
+                                  })}
+                                >
+                                  <Text style={{ fontSize: 15 }}>🔄</Text>
+                                  <Text style={{ fontSize: 15, fontWeight: '500', color: '#333' }}>
+                                    Habit
+                                  </Text>
+                                </Pressable>
+                              </View>
+                            </View>
                           )}
 
-
-
-                          {/* Action buttons - now inside ScrollView */}
-                          <Box row style={{ gap: 12, marginTop: 12 }}>
-                            <Button
-                              variant="ghost"
+                          {/* Event-type: linked items */}
+                          {isViewMode && isEventNote && fullEntity?.space_id && (
+                            <StaticRow
+                              icon={Link2}
+                              label="Linked items"
+                              right={<ChevronRight size={14} color="#A09A90" />}
                               onPress={() => {
-                                store.setUI({ showDateModal: false });
-                                setDateModalTarget(null);
-                                setShowTimePicker(false);
-                                setClearDateFlag(false);
-                                setSelectedTimePreset(null);
-                                setShowCustomTimePicker(false);
+                                /* LinkedItemsSection is rendered above */
                               }}
-                              title="Cancel"
                             />
-                            <Box flex={1} />
-                            <Button
-                              variant="primary"
-                              onPress={() => {
-                                try {
-                                  if (clearDateFlag) {
-                                    // Clear logic
-                                    if (dateModalTarget === 'reminder') {
-                                      store.setReminderAt(null);
-                                    } else if (dateModalTarget === 'todo_deadline') {
-                                      store.setTodoTargetDate(null);
-                                      showDueToast('Deadline cleared');
-                                    } else if (dateModalTarget === 'todo_dodate') {
-                                      store.setTodoScheduledDate(null);
-                                      store.setTodoDue({ due_at: null, due_day: null, due_time: null });
-                                      showDueToast('Do date cleared');
-                                    } else if (dateModalTarget === 'note_event') {
-                                      store.setLogTargetDate(null);
-                                      showDueToast('Event date cleared');
-                                    } else if (dateModalTarget === 'note_end_date') {
-                                      store.setLogEndDate(null);
-                                      showDueToast('End date cleared');
-                                    }
-                                  } else {
-                                    handleDateConfirm(selectedDate);
-                                    return; // handleDateConfirm already resets and closes
-                                  }
-                                  // Reset and close
-                                  store.setUI({ showDateModal: false });
-                                  setDateModalTarget(null);
-                                  setShowTimePicker(false);
-                                  setClearDateFlag(false);
-                                  setSelectedTimePreset(null);
-                                  setShowCustomTimePicker(false);
-                                } catch (e) {
-                                  console.error('[DatePicker] Error setting date:', e);
-                                }
-                              }}
-                              title="Set"
-                            />
-                          </Box>
-                        </ScrollView>
-                      </Pressable>
-                    </Pressable>
-                  </Modal>
+                          )}
 
-                  {/* Native time picker modal */}
-                  <Modal
-                    visible={storeUI.showDateModal && (dateModalTarget === 'todo_time' || dateModalTarget === 'event_time')}
-                    transparent
-                    animationType="fade"
-                  >
-                    <Pressable
-                      style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}
-                      onPress={() => { store.setUI({ showDateModal: false }); setDateModalTarget(null); }}
-                    >
-                      <Pressable onPress={(e) => e.stopPropagation()}>
-                        <View style={{
-                          backgroundColor: '#F5F2EB', borderTopLeftRadius: 16,
-                          borderTopRightRadius: 16, paddingBottom: 34, paddingTop: 16,
-                        }}>
-                          <View style={{
-                            flexDirection: 'row', justifyContent: 'space-between',
-                            alignItems: 'center', paddingHorizontal: 20, marginBottom: 12,
-                          }}>
-                            <Pressable onPress={() => { store.setUI({ showDateModal: false }); setDateModalTarget(null); }}>
-                              <Text style={{ fontSize: 15, color: '#6B665C' }}>Cancel</Text>
-                            </Pressable>
-                            <Pressable
-                              onPress={() => {
-                                const hours = selectedTime.getHours();
-                                const mins = selectedTime.getMinutes();
-                                const timeStr = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-                                if (dateModalTarget === 'todo_time') {
-                                  store.setTodoDue({ due_time: timeStr });
-                                } else if (dateModalTarget === 'event_time') {
-                                  store.setLogEventTime(timeStr);
-                                }
-                                store.setUI({ showDateModal: false });
-                                setDateModalTarget(null);
-                              }}
-                              style={{
-                                backgroundColor: '#2D4A3E', paddingHorizontal: 24,
-                                paddingVertical: 8, borderRadius: 10,
-                              }}
-                            >
-                              <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>Set</Text>
-                            </Pressable>
-                          </View>
-                          <DateTimePicker
-                            value={selectedTime}
-                            mode="time"
-                            display="spinner"
-                            onChange={(_, date) => { if (date) setSelectedTime(date); }}
-                            minuteInterval={5}
-                            style={{ height: 180 }}
-                          />
-                        </View>
-                      </Pressable>
-                    </Pressable>
-                  </Modal>
-
-                  {/* Time Estimate Modal - Hybrid Grid + Stepper */}
-                  <Modal visible={storeUI.showTimeEstimateModal} transparent animationType="fade">
-                    <Pressable
-                      style={{
-                        flex: 1,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        backgroundColor: 'rgba(0,0,0,0.4)',
-                      }}
-                      onPress={() => store.setUI({ showTimeEstimateModal: false })}
-                    >
-                      <Pressable
-                        onPress={(e) => e.stopPropagation()}
-                        style={{
-                          width: '92%',
-                          maxWidth: 340,
-                          alignSelf: 'center',
-                          backgroundColor: '#FFFFFF',
-                          paddingHorizontal: 20,
-                          paddingTop: 20,
-                          paddingBottom: 24,
-                          borderRadius: 20,
-                          borderWidth: 1,
-                          borderColor: '#E0E0E0',
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 8 },
-                          shadowOpacity: 0.15,
-                          shadowRadius: 24,
-                          elevation: 8,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontSize: 18,
-                            fontWeight: '600',
-                            color: '#222222',
-                            marginBottom: 16,
-                            textAlign: 'center',
-                          }}
-                        >
-                          How long will this take?
-                        </Text>
-
-                        {/* Quick Select Grid */}
-                        <View style={styles.timeEstimateGrid}>
-                          {TIME_ESTIMATE_QUICK_OPTIONS.map((minutes) => (
-                            <Pressable
-                              key={minutes}
-                              style={[
-                                styles.timeEstimateOption,
-                                timeEstimateValue === minutes && styles.timeEstimateOptionSelected,
-                              ]}
-                              onPress={() => setTimeEstimateValue(minutes)}
-                            >
-                              <Text
-                                style={[
-                                  styles.timeEstimateOptionText,
-                                  timeEstimateValue === minutes &&
-                                    styles.timeEstimateOptionTextSelected,
-                                ]}
-                              >
-                                {formatTimeEstimate(minutes)}
-                              </Text>
-                            </Pressable>
-                          ))}
-                        </View>
-
-                        {/* Stepper for custom values */}
-                        <View style={{ alignItems: 'center', marginBottom: 20 }}>
-                          <Text style={{ fontSize: 13, color: '#666666', marginBottom: 8 }}>
-                            Custom
-                          </Text>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
-                            <Pressable
-                              style={{
-                                width: 44,
-                                height: 44,
-                                borderRadius: 22,
-                                backgroundColor: '#F5F5F5',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                                opacity: timeEstimateValue <= TIME_ESTIMATE_MIN ? 0.5 : 1,
-                              }}
-                              onPress={() =>
-                                setTimeEstimateValue(
-                                  Math.max(TIME_ESTIMATE_MIN, timeEstimateValue - TIME_ESTIMATE_STEP),
-                                )
-                              }
-                              disabled={timeEstimateValue <= TIME_ESTIMATE_MIN}
-                            >
-                              <Minus
-                                size={20}
-                                color={
-                                  timeEstimateValue <= TIME_ESTIMATE_MIN ? '#CCCCCC' : tokens.colors.primary
-                                }
-                              />
-                            </Pressable>
-
-                            <View style={{ minWidth: 80, alignItems: 'center' }}>
-                              <Text
-                                style={{
-                                  fontSize: 20,
-                                  fontWeight: '600',
-                                  color: !TIME_ESTIMATE_QUICK_OPTIONS.includes(
-                                    timeEstimateValue as (typeof TIME_ESTIMATE_QUICK_OPTIONS)[number],
-                                  )
-                                    ? tokens.colors.primary
-                                    : '#333333',
-                                }}
-                              >
-                                {formatTimeEstimate(timeEstimateValue)}
-                              </Text>
-                            </View>
-
-                            <Pressable
-                              style={{
-                                width: 44,
-                                height: 44,
-                                borderRadius: 22,
-                                backgroundColor: '#F5F5F5',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                                opacity: timeEstimateValue >= TIME_ESTIMATE_MAX ? 0.5 : 1,
-                              }}
-                              onPress={() =>
-                                setTimeEstimateValue(
-                                  Math.min(TIME_ESTIMATE_MAX, timeEstimateValue + TIME_ESTIMATE_STEP),
-                                )
-                              }
-                              disabled={timeEstimateValue >= TIME_ESTIMATE_MAX}
-                            >
-                              <Plus
-                                size={20}
-                                color={
-                                  timeEstimateValue >= TIME_ESTIMATE_MAX ? '#CCCCCC' : tokens.colors.primary
-                                }
-                              />
-                            </Pressable>
-                          </View>
-                          <Text style={{ fontSize: 12, color: '#999999', marginTop: 4 }}>
-                            5 min – 4 hrs
-                          </Text>
-                        </View>
-
-                        {/* Action buttons */}
-                        <View
-                          style={{
-                            flexDirection: 'row',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Pressable
-                            style={{ paddingVertical: 12, paddingHorizontal: 16 }}
-                            onPress={() => {
-                              if (baseType === 'habit') {
-                                store.setHabitTimeEstimate(null);
-                              } else {
-                                store.setTodoTimeEstimate(null);
-                              }
-                              store.setUI({ showTimeEstimateModal: false });
-                            }}
-                          >
-                            <Text style={{ fontSize: 14, color: '#666666' }}>Clear</Text>
-                          </Pressable>
-
-                          <Pressable
-                            style={{
-                              backgroundColor: tokens.colors.primary,
-                              paddingVertical: 12,
-                              paddingHorizontal: 24,
-                              borderRadius: 8,
-                            }}
-                            onPress={() => {
-                              if (baseType === 'habit') {
-                                store.setHabitTimeEstimate(timeEstimateValue);
-                              } else {
-                                store.setTodoTimeEstimate(timeEstimateValue);
-                              }
-                              store.setUI({ showTimeEstimateModal: false });
-                            }}
-                          >
-                            <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
-                              Save
-                            </Text>
-                          </Pressable>
-                        </View>
-                      </Pressable>
-                    </Pressable>
-                  </Modal>
-
-                  {/* Time Window Modal */}
-                  <Modal visible={storeUI.showTimeWindowModal} transparent animationType="fade">
-                    <Pressable
-                      style={{
-                        flex: 1,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        backgroundColor: 'rgba(0,0,0,0.4)',
-                      }}
-                      onPress={() => store.setUI({ showTimeWindowModal: false })}
-                    >
-                      <Pressable
-                        onPress={(e) => e.stopPropagation()}
-                        style={{
-                          width: '92%',
-                          maxWidth: 400,
-                          alignSelf: 'center',
-                          backgroundColor: '#FFFFFF',
-                          paddingHorizontal: 20,
-                          paddingTop: 20,
-                          paddingBottom: 24,
-                          borderRadius: 20,
-                          borderWidth: 1,
-                          borderColor: '#E0E0E0',
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 8 },
-                          shadowOpacity: 0.15,
-                          shadowRadius: 24,
-                          elevation: 8,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontSize: 18,
-                            fontWeight: '600',
-                            color: '#222222',
-                            marginBottom: 16,
-                          }}
-                        >
-                          Preferred time of day
-                        </Text>
-                        <View style={styles.timeEstimateGrid}>
-                          {TIME_WINDOW_OPTIONS.map((option) => {
-                            const isSelected =
-                              baseType === 'todo'
-                                ? state.todo.time_window === option.value
-                                : state.habit.time_window === option.value;
-                            return (
-                              <Pressable
-                                key={option.value ?? 'null'}
-                                style={[
-                                  styles.timeEstimateOption,
-                                  isSelected && styles.timeEstimateOptionSelected,
-                                ]}
-                                onPress={() => {
-                                  if (baseType === 'todo') {
-                                    store.setTodoTimeWindow(option.value);
-                                  } else {
-                                    store.setHabitTimeWindow(option.value);
-                                  }
-                                  store.setUI({ showTimeWindowModal: false });
-                                }}
-                              >
-                                <Text
-                                  style={[
-                                    styles.timeEstimateOptionText,
-                                    isSelected && styles.timeEstimateOptionTextSelected,
-                                  ]}
+                          {currentEntityId && (
+                            <StaticRow
+                              icon={MessageCircle}
+                              label="Chat with Gremly"
+                              iconColor="#2E5540"
+                              right={
+                                <View
+                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
                                 >
-                                  {option.label}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      </Pressable>
-                    </Pressable>
-                  </Modal>
+                                  <Image
+                                    source={require('../../assets/buttonforHP.png')}
+                                    style={{ width: 22, height: 22, borderRadius: 11 }}
+                                    resizeMode="cover"
+                                  />
+                                  <ChevronRight size={14} color="#2E5540" />
+                                </View>
+                              }
+                              onPress={() => store.setUI({ showEntityChat: true })}
+                            />
+                          )}
 
+                          {mode === 'edit' && (initialEntity as any)?.id && (
+                            <StaticRow
+                              icon={Trash2}
+                              label="Delete log"
+                              iconColor="#D9534F"
+                              borderBottom={false}
+                              onPress={() => {
+                                Alert.alert('Delete this log?', "This can't be undone.", [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  {
+                                    text: 'Delete',
+                                    style: 'destructive',
+                                    onPress: async () => {
+                                      try {
+                                        const itemId = (initialEntity as any).id;
+                                        const itemSpaceId =
+                                          (initialEntity as any).space_id ??
+                                          state.spaceId ??
+                                          initialSpaceId;
+                                        await deleteNote(itemId);
+                                        eventBus.emit('entity:deleted', {
+                                          id: itemId,
+                                          type: 'note',
+                                          spaceId: itemSpaceId,
+                                        });
+                                        onClose();
+                                      } catch (err) {
+                                        console.error('[UnifiedOverlayV2] Delete log failed:', err);
+                                        Alert.alert(
+                                          'Error',
+                                          'Failed to delete log. Please try again.',
+                                        );
+                                      }
+                                    },
+                                  },
+                                ]);
+                              }}
+                            />
+                          )}
+                        </>
+                      )}
 
-                  {/* Habit Start Date Picker Modal */}
-                  <Modal visible={storeUI.showHabitStartDatePicker} transparent animationType="fade">
-                    <Pressable
-                      style={{
-                        flex: 1,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        backgroundColor: 'rgba(0,0,0,0.4)',
-                      }}
-                      onPress={() => store.setUI({ showHabitStartDatePicker: false })}
-                    >
-                      <Pressable
-                        onPress={(e) => e.stopPropagation()}
-                        style={{
-                          width: '92%',
-                          maxWidth: 400,
-                          alignSelf: 'center',
-                          backgroundColor: '#FFFFFF',
-                          paddingHorizontal: 20,
-                          paddingTop: 20,
-                          paddingBottom: 24,
-                          borderRadius: 20,
-                          borderWidth: 1,
-                          borderColor: '#E0E0E0',
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 8 },
-                          shadowOpacity: 0.15,
-                          shadowRadius: 24,
-                          elevation: 8,
-                        }}
+                      {/* Mentions / Dates chips (inline suggestions) */}
+                      <Box
+                        mt={3}
+                        row
+                        gap={2}
+                        style={{ flexWrap: 'wrap', marginTop: tokenSpacing.md }}
                       >
-                        <Text
-                          style={{
-                            fontSize: 18,
-                            fontWeight: '600',
-                            color: '#222222',
-                            marginBottom: 16,
-                          }}
-                        >
-                          When do you want to start?
-                        </Text>
-                        <DateTimePicker
-                          value={
-                            state.habit.start_date
-                              ? parseISO(state.habit.start_date)
-                              : getDateService().now()
-                          }
-                          mode="date"
-                          display="spinner"
-                          onChange={(event, date) => {
-                            if (event.type === 'set' && date) {
-                              store.setHabitStartDate(format(date, 'yyyy-MM-dd'));
+                        {(state.detected?.mentions || []).map((m) => (
+                          <Chip key={m} label={`@${m}`} />
+                        ))}
+                        {(state.detected?.dates || []).map((d) => (
+                          <Button
+                            key={d}
+                            size="sm"
+                            variant="ghost"
+                            onPress={() => {
+                              if (d === '__token:today') {
+                                handleTodoDueChange(getDateService().now(), {
+                                  label: 'Today',
+                                });
+                              } else if (d === '__token:tomorrow') {
+                                handleTodoDueChange(addDays(getDateService().now(), 1), {
+                                  label: 'Tomorrow',
+                                });
+                              } else {
+                                // fallback: open custom date modal with parsed date prefilled
+                                try {
+                                  const dateStr = d.replace(/^\D+/g, '');
+                                  const parsed = new Date(dateStr);
+                                  if (!isNaN(parsed.getTime())) {
+                                    setSelectedDate(parsed);
+                                    setClearDateFlag(false);
+                                  }
+                                } catch (e) {
+                                  // Use today as fallback
+                                  setSelectedDate(getDateService().now());
+                                }
+                                setDateModalTarget('todo_deadline');
+                                store.setUI({ showDateModal: true });
+                              }
+                            }}
+                            title={
+                              d === '__token:today'
+                                ? 'Set due: Today'
+                                : d === '__token:tomorrow'
+                                  ? 'Set due: Tomorrow'
+                                  : d
                             }
-                            store.setUI({ showHabitStartDatePicker: false });
-                          }}
-                        />
-                        <View
-                          style={{
-                            flexDirection: 'row',
-                            justifyContent: 'space-between',
-                            marginTop: 16,
-                          }}
-                        >
-                          <Pressable
-                            onPress={() => {
-                              store.setHabitStartDate(null);
-                              store.setUI({ showHabitStartDatePicker: false });
-                            }}
-                            style={{ paddingVertical: 8, paddingHorizontal: 12 }}
-                          >
-                            <Text style={{ color: '#888888', fontSize: 14 }}>Leave TBD</Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => {
-                              store.setHabitStartDate(format(getDateService().now(), 'yyyy-MM-dd'));
-                              store.setUI({ showHabitStartDatePicker: false });
-                            }}
-                            style={{
-                              paddingVertical: 8,
-                              paddingHorizontal: 16,
-                              backgroundColor: lightTokens.colors.moss,
-                              borderRadius: 8,
-                            }}
-                          >
-                            <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>
-                              Start Today
-                            </Text>
-                          </Pressable>
-                        </View>
-                      </Pressable>
-                    </Pressable>
-                  </Modal>
+                          />
+                        ))}
+                      </Box>
+                      {/* Tag row hidden at Level-1; lands in Phase 3 */}
+                    </View>
+                  </ScrollView>
+                </Reanimated.View>
+              )}
+            </View>
 
-                  {/* Habit End Date Picker Modal */}
-                  <Modal visible={storeUI.showHabitEndDatePicker} transparent animationType="fade">
-                    <Pressable
+            <Modal
+              visible={
+                storeUI.showDateModal &&
+                dateModalTarget !== 'todo_time' &&
+                dateModalTarget !== 'event_time'
+              }
+              transparent
+              animationType="fade"
+            >
+              <Pressable
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: 'rgba(0,0,0,0.4)',
+                }}
+                onPress={() => {
+                  // Close modal when tapping outside
+                  store.setUI({ showDateModal: false });
+                  setDateModalTarget(null);
+                  setShowTimePicker(false);
+                  setClearDateFlag(false);
+                  setSelectedTimePreset(null);
+                  setShowCustomTimePicker(false);
+                }}
+              >
+                <Pressable
+                  onPress={(e) => e.stopPropagation()}
+                  style={{
+                    width: '92%',
+                    maxWidth: 400,
+                    maxHeight: '85%',
+                    alignSelf: 'center',
+                    backgroundColor: '#FFFFFF',
+                    paddingHorizontal: 12,
+                    paddingTop: 20,
+                    paddingBottom: 16,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: '#E0E0E0',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: 0.15,
+                    shadowRadius: 24,
+                    elevation: 8,
+                  }}
+                >
+                  <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    bounces={true}
+                    contentContainerStyle={{
+                      paddingBottom: 32,
+                      paddingTop: 4,
+                    }}
+                  >
+                    <Text
                       style={{
-                        flex: 1,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        backgroundColor: 'rgba(0,0,0,0.4)',
+                        fontSize: 18,
+                        fontWeight: '600',
+                        color: '#222222',
+                        marginBottom: 16,
                       }}
-                      onPress={() => store.setUI({ showHabitEndDatePicker: false })}
                     >
-                      <Pressable
-                        onPress={(e) => e.stopPropagation()}
-                        style={{
-                          width: '92%',
-                          maxWidth: 400,
-                          alignSelf: 'center',
-                          backgroundColor: '#FFFFFF',
-                          paddingHorizontal: 20,
-                          paddingTop: 20,
-                          paddingBottom: 24,
-                          borderRadius: 20,
-                          borderWidth: 1,
-                          borderColor: '#E0E0E0',
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 8 },
-                          shadowOpacity: 0.15,
-                          shadowRadius: 24,
-                          elevation: 8,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontSize: 18,
-                            fontWeight: '600',
-                            color: '#222222',
-                            marginBottom: 16,
-                          }}
-                        >
-                          Set an end date (optional)
-                        </Text>
-                        <DateTimePicker
-                          value={
-                            state.habit.end_date
-                              ? parseISO(state.habit.end_date)
-                              : addDays(getDateService().now(), 30)
-                          }
-                          mode="date"
-                          display="spinner"
-                          minimumDate={
-                            state.habit.start_date
-                              ? parseISO(state.habit.start_date)
-                              : getDateService().now()
-                          }
-                          onChange={(event, date) => {
-                            if (event.type === 'set' && date) {
-                              store.setHabitEndDate(format(date, 'yyyy-MM-dd'));
-                            }
-                            store.setUI({ showHabitEndDatePicker: false });
-                          }}
-                        />
-                        <View
-                          style={{
-                            flexDirection: 'row',
-                            justifyContent: 'space-between',
-                            marginTop: 16,
-                          }}
-                        >
-                          <Pressable
-                            onPress={() => {
-                              store.setHabitEndDate(null);
-                              store.setUI({ showHabitEndDatePicker: false });
-                            }}
-                            style={{ paddingVertical: 8, paddingHorizontal: 12 }}
-                          >
-                            <Text style={{ color: '#888888', fontSize: 14 }}>No end date</Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => store.setUI({ showHabitEndDatePicker: false })}
-                            style={{
-                              paddingVertical: 8,
-                              paddingHorizontal: 16,
-                              backgroundColor: lightTokens.colors.moss,
-                              borderRadius: 8,
-                            }}
-                          >
-                            <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>
-                              Done
-                            </Text>
-                          </Pressable>
-                        </View>
-                      </Pressable>
-                    </Pressable>
-                  </Modal>
-
-                  {/* Space Selector Modal for To-Do Details */}
-                  <Modal visible={storeUI.showSpaceModal} transparent animationType="fade">
-                    <Pressable
-                      style={{
-                        flex: 1,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        backgroundColor: 'rgba(0,0,0,0.4)',
-                      }}
-                      onPress={() => store.setUI({ showSpaceModal: false })}
-                    >
-                      <Pressable
-                        onPress={(e) => e.stopPropagation()}
-                        style={{
-                          width: '85%',
-                          maxWidth: 350,
-                          backgroundColor: '#FFFFFF',
-                          padding: 20,
-                          borderRadius: 16,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 4 },
-                          shadowOpacity: 0.1,
-                          shadowRadius: 12,
-                          elevation: 5,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            fontSize: 18,
-                            fontWeight: '600',
-                            color: '#111827',
-                            marginBottom: 16,
-                          }}
-                        >
-                          Select Space
-                        </Text>
-
-                        {/* Clear selection option */}
+                      {dateModalTarget === 'todo_deadline' && 'Set deadline'}
+                      {dateModalTarget === 'todo_dodate' && 'Set do date'}
+                      {dateModalTarget === 'note_event' && 'Set event date'}
+                      {dateModalTarget === 'note_end_date' && 'Set end date'}
+                      {dateModalTarget === 'reminder' && 'Set reminder'}
+                    </Text>
+                    <Box mt={1}>
+                      <Box row gap={2} style={{ flexWrap: 'wrap' }}>
                         <Pressable
                           onPress={() => {
-                            store.setSpaceId(null);
-                            store.setUI({ showSpaceModal: false });
+                            const today = getDateService().now();
+                            if (dateModalTarget === 'reminder') {
+                              store.setReminderAt(today.toISOString());
+                              store.setUI({ showDateModal: false });
+                              setDateModalTarget(null);
+                            } else {
+                              handleDateConfirm(today);
+                            }
                           }}
                           style={({ pressed }) => ({
-                            paddingVertical: 12,
-                            paddingHorizontal: 12,
-                            borderRadius: 8,
+                            paddingHorizontal: 14,
+                            paddingVertical: 7,
+                            borderRadius: 18,
                             backgroundColor: pressed
-                              ? '#F3F4F6'
-                              : state.spaceId === null
+                              ? '#F5F5F5'
+                              : clearDateFlag === false &&
+                                  getDateService().toLocalDate(selectedDate) ===
+                                    getDateService().today()
                                 ? '#F0F4F1'
-                                : 'transparent',
-                            marginBottom: 8,
+                                : '#FAFAFA',
+                            borderWidth: 1,
+                            borderColor:
+                              clearDateFlag === false &&
+                              getDateService().toLocalDate(selectedDate) ===
+                                getDateService().today()
+                                ? tokens.colors.primary
+                                : '#E0E0E0',
                           })}
                         >
-                          <Text style={{ fontSize: 15, color: '#374151' }}>None</Text>
+                          <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
+                            Today
+                          </Text>
                         </Pressable>
-
-                        {/* Space options */}
-                        <ScrollView style={{ maxHeight: 300 }}>
-                          {spaces.map((space) => (
-                            <Pressable
-                              key={space.id}
-                              onPress={() => {
-                                store.setSpaceId(space.id);
-                                store.setUI({ showSpaceModal: false });
-                              }}
-                              style={({ pressed }) => ({
-                                paddingVertical: 12,
-                                paddingHorizontal: 12,
-                                borderRadius: 8,
-                                backgroundColor: pressed
-                                  ? '#F3F4F6'
-                                  : state.spaceId === space.id
-                                    ? '#F0F4F1'
-                                    : 'transparent',
-                                marginBottom: 8,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                              })}
-                            >
-                              {space.icon && (
-                                <Text style={{ fontSize: 16, marginRight: 10 }}>{space.icon}</Text>
-                              )}
-                              <Text style={{ fontSize: 15, color: '#374151' }}>{space.name}</Text>
-                            </Pressable>
-                          ))}
-                        </ScrollView>
-                      </Pressable>
-                    </Pressable>
-                  </Modal>
-
-                  {/* Reminders Management Modal – powered by SetRemindersModal */}
-                  <SetRemindersModal
-                    visible={showRemindersModal}
-                    onClose={() => setShowRemindersModal(false)}
-                    reminders={itemReminders}
-                    onSave={(updated) => {
-                      setItemReminders(updated);
-                      setShowRemindersModal(false);
-                    }}
-                    itemType={baseType === 'habit' ? 'habit' : 'todo'}
-                  />
-
-                  {/* Save bar (fixed within the sheet) */}
-                  {/* Inline save error / retry bar (Phase 9) */}
-                  {saveError ? (
-                    <Box
-                      px={4}
-                      py={2}
-                      style={{
-                        backgroundColor: '#fce8e6',
-                        borderTopWidth: StyleSheet.hairlineWidth,
-                      }}
-                    >
-                      <Box row style={{ alignItems: 'center' }}>
-                        <Text style={{ color: '#7a2719', flex: 1 }}>{saveError}</Text>
-                        <Button
-                          variant="ghost"
-                          size="sm"
+                        <Pressable
                           onPress={() => {
-                            // Retry invokes save again
-                            setSaveError(null);
-                            // call onSave again
-                            // eslint-disable-next-line @typescript-eslint/no-floating-promises
-                            onSave();
+                            const tomorrow = addDays(getDateService().now(), 1);
+                            if (dateModalTarget === 'reminder') {
+                              store.setReminderAt(tomorrow.toISOString());
+                              store.setUI({ showDateModal: false });
+                              setDateModalTarget(null);
+                            } else {
+                              handleDateConfirm(tomorrow);
+                            }
                           }}
-                          title="Retry"
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onPress={() => setSaveError(null)}
-                          title="Dismiss"
-                        />
+                          style={({ pressed }) => ({
+                            paddingHorizontal: 14,
+                            paddingVertical: 7,
+                            borderRadius: 18,
+                            backgroundColor: pressed
+                              ? '#F5F5F5'
+                              : clearDateFlag === false &&
+                                  getDateService().toLocalDate(selectedDate) ===
+                                    getDateService().tomorrow()
+                                ? '#F0F4F1'
+                                : '#FAFAFA',
+                            borderWidth: 1,
+                            borderColor:
+                              clearDateFlag === false &&
+                              getDateService().toLocalDate(selectedDate) ===
+                                getDateService().tomorrow()
+                                ? tokens.colors.primary
+                                : '#E0E0E0',
+                          })}
+                        >
+                          <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
+                            Tomorrow
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => {
+                            setClearDateFlag(true);
+                            setShowTimePicker(false);
+                            setSelectedTimePreset(null);
+                            setShowCustomTimePicker(false);
+                            if (dateModalTarget === 'reminder') {
+                              store.setReminderAt(null);
+                              store.setUI({ showDateModal: false });
+                              setDateModalTarget(null);
+                            }
+                          }}
+                          style={({ pressed }) => ({
+                            paddingHorizontal: 14,
+                            paddingVertical: 7,
+                            borderRadius: 18,
+                            backgroundColor: pressed
+                              ? '#F5F5F5'
+                              : clearDateFlag
+                                ? '#F0F4F1'
+                                : '#FAFAFA',
+                            borderWidth: 1,
+                            borderColor: clearDateFlag ? tokens.colors.primary : '#E0E0E0',
+                          })}
+                        >
+                          <Text style={{ fontSize: 13, fontWeight: '500', color: '#222222' }}>
+                            Clear
+                          </Text>
+                        </Pressable>
                       </Box>
                     </Box>
-                  ) : isOffline ? (
-                    <Box px={4} py={1}>
-                      <Text variant="subtle">You're offline — Save will keep the draft.</Text>
-                    </Box>
-                  ) : null}
 
-                  {/* Persistent footer — Cancel / Save */}
-                  {!isViewMode && (
-                    <View style={{
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      paddingHorizontal: 20,
-                      paddingVertical: 12,
-                      paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
-                      borderTopWidth: 0.5,
-                      borderTopColor: '#D5D0C8',
+                    {/* Date Picker */}
+                    {!clearDateFlag && (
+                      <Box mt={3} mb={4}>
+                        <DateTimePicker
+                          value={selectedDate}
+                          mode="date"
+                          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                          onChange={(event, date) => {
+                            if (date) {
+                              if (isSameDay(selectedDate, date)) {
+                                handleDateConfirm(date);
+                              } else {
+                                setSelectedDate(date);
+                                setClearDateFlag(false);
+                              }
+                            }
+                          }}
+                          themeVariant={colorMode === 'dark' ? 'dark' : 'light'}
+                          accentColor="#2E5540"
+                        />
+                      </Box>
+                    )}
+
+                    {/* Action buttons - now inside ScrollView */}
+                    <Box row style={{ gap: 12, marginTop: 12 }}>
+                      <Button
+                        variant="ghost"
+                        onPress={() => {
+                          store.setUI({ showDateModal: false });
+                          setDateModalTarget(null);
+                          setShowTimePicker(false);
+                          setClearDateFlag(false);
+                          setSelectedTimePreset(null);
+                          setShowCustomTimePicker(false);
+                        }}
+                        title="Cancel"
+                      />
+                      <Box flex={1} />
+                      <Button
+                        variant="primary"
+                        onPress={() => {
+                          try {
+                            if (clearDateFlag) {
+                              // Clear logic
+                              if (dateModalTarget === 'reminder') {
+                                store.setReminderAt(null);
+                              } else if (dateModalTarget === 'todo_deadline') {
+                                store.setTodoTargetDate(null);
+                                showDueToast('Deadline cleared');
+                              } else if (dateModalTarget === 'todo_dodate') {
+                                store.setTodoScheduledDate(null);
+                                store.setTodoDue({ due_at: null, due_day: null, due_time: null });
+                                showDueToast('Do date cleared');
+                              } else if (dateModalTarget === 'note_event') {
+                                store.setLogTargetDate(null);
+                                showDueToast('Event date cleared');
+                              } else if (dateModalTarget === 'note_end_date') {
+                                store.setLogEndDate(null);
+                                showDueToast('End date cleared');
+                              }
+                            } else {
+                              handleDateConfirm(selectedDate);
+                              return; // handleDateConfirm already resets and closes
+                            }
+                            // Reset and close
+                            store.setUI({ showDateModal: false });
+                            setDateModalTarget(null);
+                            setShowTimePicker(false);
+                            setClearDateFlag(false);
+                            setSelectedTimePreset(null);
+                            setShowCustomTimePicker(false);
+                          } catch (e) {
+                            console.error('[DatePicker] Error setting date:', e);
+                          }
+                        }}
+                        title="Set"
+                      />
+                    </Box>
+                  </ScrollView>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            {/* Native time picker modal */}
+            <Modal
+              visible={
+                storeUI.showDateModal &&
+                (dateModalTarget === 'todo_time' || dateModalTarget === 'event_time')
+              }
+              transparent
+              animationType="fade"
+            >
+              <Pressable
+                style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}
+                onPress={() => {
+                  store.setUI({ showDateModal: false });
+                  setDateModalTarget(null);
+                }}
+              >
+                <Pressable onPress={(e) => e.stopPropagation()}>
+                  <View
+                    style={{
                       backgroundColor: '#F5F2EB',
-                    }}>
+                      borderTopLeftRadius: 16,
+                      borderTopRightRadius: 16,
+                      paddingBottom: 34,
+                      paddingTop: 16,
+                    }}
+                  >
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        paddingHorizontal: 20,
+                        marginBottom: 12,
+                      }}
+                    >
                       <Pressable
-                        onPress={handleCancel}
-                        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, minHeight: 44, justifyContent: 'center' })}
-                        accessibilityRole="button"
-                        accessibilityLabel="Cancel"
+                        onPress={() => {
+                          store.setUI({ showDateModal: false });
+                          setDateModalTarget(null);
+                        }}
                       >
                         <Text style={{ fontSize: 15, color: '#6B665C' }}>Cancel</Text>
                       </Pressable>
                       <Pressable
-                        onPress={onSave}
-                        disabled={storeUI.saving || !canSave}
-                        accessibilityRole="button"
-                        accessibilityLabel={storeUI.saving ? 'Saving' : 'Save'}
-                        style={({ pressed }) => ({
-                          backgroundColor: (storeUI.saving || !canSave) ? 'rgba(45,74,62,0.35)' : '#2D4A3E',
-                          paddingHorizontal: 28,
-                          paddingVertical: 10,
-                          borderRadius: 20,
-                          minHeight: 44,
-                          justifyContent: 'center',
-                          opacity: pressed ? 0.85 : 1,
-                        })}
+                        onPress={() => {
+                          const hours = selectedTime.getHours();
+                          const mins = selectedTime.getMinutes();
+                          const timeStr = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+                          if (dateModalTarget === 'todo_time') {
+                            store.setTodoDue({ due_time: timeStr });
+                          } else if (dateModalTarget === 'event_time') {
+                            store.setLogEventTime(timeStr);
+                          }
+                          store.setUI({ showDateModal: false });
+                          setDateModalTarget(null);
+                        }}
+                        style={{
+                          backgroundColor: '#2D4A3E',
+                          paddingHorizontal: 24,
+                          paddingVertical: 8,
+                          borderRadius: 10,
+                        }}
                       >
-                        <Text style={{ fontSize: 15, fontWeight: '600', color: (storeUI.saving || !canSave) ? 'rgba(255,255,255,0.6)' : '#FFFFFF' }}>
-                          {storeUI.saving ? 'Saving...' : isLockedIn ? 'Lock It In →' : 'Save'}
+                        <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
+                          Set
                         </Text>
                       </Pressable>
                     </View>
-                  )}
+                    <DateTimePicker
+                      value={selectedTime}
+                      mode="time"
+                      display="spinner"
+                      onChange={(_, date) => {
+                        if (date) setSelectedTime(date);
+                      }}
+                      minuteInterval={5}
+                      style={{ height: 180 }}
+                    />
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
 
-                  {/* View mode footer */}
-                  {isViewMode && (
-                    <View style={{
+            {/* Time Estimate Modal - Hybrid Grid + Stepper */}
+            <Modal visible={storeUI.showTimeEstimateModal} transparent animationType="fade">
+              <Pressable
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: 'rgba(0,0,0,0.4)',
+                }}
+                onPress={() => store.setUI({ showTimeEstimateModal: false })}
+              >
+                <Pressable
+                  onPress={(e) => e.stopPropagation()}
+                  style={{
+                    width: '92%',
+                    maxWidth: 340,
+                    alignSelf: 'center',
+                    backgroundColor: '#FFFFFF',
+                    paddingHorizontal: 20,
+                    paddingTop: 20,
+                    paddingBottom: 24,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: '#E0E0E0',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: 0.15,
+                    shadowRadius: 24,
+                    elevation: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 18,
+                      fontWeight: '600',
+                      color: '#222222',
+                      marginBottom: 16,
+                      textAlign: 'center',
+                    }}
+                  >
+                    How long will this take?
+                  </Text>
+
+                  {/* Quick Select Grid */}
+                  <View style={styles.timeEstimateGrid}>
+                    {TIME_ESTIMATE_QUICK_OPTIONS.map((minutes) => (
+                      <Pressable
+                        key={minutes}
+                        style={[
+                          styles.timeEstimateOption,
+                          timeEstimateValue === minutes && styles.timeEstimateOptionSelected,
+                        ]}
+                        onPress={() => setTimeEstimateValue(minutes)}
+                      >
+                        <Text
+                          style={[
+                            styles.timeEstimateOptionText,
+                            timeEstimateValue === minutes && styles.timeEstimateOptionTextSelected,
+                          ]}
+                        >
+                          {formatTimeEstimate(minutes)}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {/* Stepper for custom values */}
+                  <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                    <Text style={{ fontSize: 13, color: '#666666', marginBottom: 8 }}>Custom</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                      <Pressable
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 22,
+                          backgroundColor: '#F5F5F5',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          opacity: timeEstimateValue <= TIME_ESTIMATE_MIN ? 0.5 : 1,
+                        }}
+                        onPress={() =>
+                          setTimeEstimateValue(
+                            Math.max(TIME_ESTIMATE_MIN, timeEstimateValue - TIME_ESTIMATE_STEP),
+                          )
+                        }
+                        disabled={timeEstimateValue <= TIME_ESTIMATE_MIN}
+                      >
+                        <Minus
+                          size={20}
+                          color={
+                            timeEstimateValue <= TIME_ESTIMATE_MIN
+                              ? '#CCCCCC'
+                              : tokens.colors.primary
+                          }
+                        />
+                      </Pressable>
+
+                      <View style={{ minWidth: 80, alignItems: 'center' }}>
+                        <Text
+                          style={{
+                            fontSize: 20,
+                            fontWeight: '600',
+                            color: !TIME_ESTIMATE_QUICK_OPTIONS.includes(
+                              timeEstimateValue as (typeof TIME_ESTIMATE_QUICK_OPTIONS)[number],
+                            )
+                              ? tokens.colors.primary
+                              : '#333333',
+                          }}
+                        >
+                          {formatTimeEstimate(timeEstimateValue)}
+                        </Text>
+                      </View>
+
+                      <Pressable
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 22,
+                          backgroundColor: '#F5F5F5',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          opacity: timeEstimateValue >= TIME_ESTIMATE_MAX ? 0.5 : 1,
+                        }}
+                        onPress={() =>
+                          setTimeEstimateValue(
+                            Math.min(TIME_ESTIMATE_MAX, timeEstimateValue + TIME_ESTIMATE_STEP),
+                          )
+                        }
+                        disabled={timeEstimateValue >= TIME_ESTIMATE_MAX}
+                      >
+                        <Plus
+                          size={20}
+                          color={
+                            timeEstimateValue >= TIME_ESTIMATE_MAX
+                              ? '#CCCCCC'
+                              : tokens.colors.primary
+                          }
+                        />
+                      </Pressable>
+                    </View>
+                    <Text style={{ fontSize: 12, color: '#999999', marginTop: 4 }}>
+                      5 min – 4 hrs
+                    </Text>
+                  </View>
+
+                  {/* Action buttons */}
+                  <View
+                    style={{
                       flexDirection: 'row',
                       justifyContent: 'space-between',
                       alignItems: 'center',
-                      paddingHorizontal: 20,
-                      paddingVertical: 12,
-                      paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
-                      borderTopWidth: 0.5,
-                      borderTopColor: '#D5D0C8',
-                      backgroundColor: '#F5F2EB',
-                    }}>
-                      <Pressable
-                        onPress={handleCancel}
-                        style={{ minHeight: 44, justifyContent: 'center' }}
-                        accessibilityRole="button"
-                        accessibilityLabel="Close"
-                      >
-                        <Text style={{ fontSize: 15, color: '#6B665C' }}>Close</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setDisplayMode('edit')}
-                        accessibilityRole="button"
-                        accessibilityLabel="Edit"
-                        style={{
-                          flexDirection: 'row', alignItems: 'center', gap: 4,
-                          borderWidth: 0.5, borderColor: '#D5D0C8',
-                          paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
-                          minHeight: 44,
-                        }}
-                      >
-                        <Pencil size={14} color="#2E5540" />
-                        <Text style={{ fontSize: 14, fontWeight: '500', color: '#2E5540' }}>Edit</Text>
-                      </Pressable>
-                    </View>
-                  )}
-
-                  {/* Expanded editor — full-screen overlay */}
-                  {isExpandedEditor && (
-                    <View style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      zIndex: 50,
-                      backgroundColor: '#FFFFFF',
-                    }}>
-                      <OverlayExpandedEditor
-                        baseType={baseType}
-                        effectiveLogSubtype={effectiveLogSubtype}
-                        text={currentText}
-                        onChangeText={(t) => store.setBody(t)}
-                        colorMode={colorMode}
-                        isLog={isLog}
-                        onCollapse={() => {
-                          LayoutAnimation.configureNext(
-                            LayoutAnimation.Presets.easeInEaseOut,
-                          );
-                          setIsExpandedEditor(false);
-                        }}
-                        journalDateTime={
-                          effectiveLogSubtype === 'journal'
-                            ? getDateService().now()
-                            : undefined
+                    }}
+                  >
+                    <Pressable
+                      style={{ paddingVertical: 12, paddingHorizontal: 16 }}
+                      onPress={() => {
+                        if (baseType === 'habit') {
+                          store.setHabitTimeEstimate(null);
+                        } else {
+                          store.setTodoTimeEstimate(null);
                         }
-                        isChecklistMode={isChecklistMode}
-                        onToggleChecklistMode={() => {
-                          const newMode = !state.isChecklistMode;
-                          store.setChecklistMode(newMode);
-                          if (!newMode && checklistItems && checklistItems.length > 0) {
-                            setUserClearedChecklist(true);
-                            setChecklistItems(null);
-                          }
-                        }}
-                      />
-                    </View>
-                  )}
+                        store.setUI({ showTimeEstimateModal: false });
+                      }}
+                    >
+                      <Text style={{ fontSize: 14, color: '#666666' }}>Clear</Text>
+                    </Pressable>
 
+                    <Pressable
+                      style={{
+                        backgroundColor: tokens.colors.primary,
+                        paddingVertical: 12,
+                        paddingHorizontal: 24,
+                        borderRadius: 8,
+                      }}
+                      onPress={() => {
+                        if (baseType === 'habit') {
+                          store.setHabitTimeEstimate(timeEstimateValue);
+                        } else {
+                          store.setTodoTimeEstimate(timeEstimateValue);
+                        }
+                        store.setUI({ showTimeEstimateModal: false });
+                      }}
+                    >
+                      <Text style={{ fontSize: 15, fontWeight: '600', color: '#FFFFFF' }}>
+                        Save
+                      </Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            {/* Time Window Modal */}
+            <Modal visible={storeUI.showTimeWindowModal} transparent animationType="fade">
+              <Pressable
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: 'rgba(0,0,0,0.4)',
+                }}
+                onPress={() => store.setUI({ showTimeWindowModal: false })}
+              >
+                <Pressable
+                  onPress={(e) => e.stopPropagation()}
+                  style={{
+                    width: '92%',
+                    maxWidth: 400,
+                    alignSelf: 'center',
+                    backgroundColor: '#FFFFFF',
+                    paddingHorizontal: 20,
+                    paddingTop: 20,
+                    paddingBottom: 24,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: '#E0E0E0',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: 0.15,
+                    shadowRadius: 24,
+                    elevation: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 18,
+                      fontWeight: '600',
+                      color: '#222222',
+                      marginBottom: 16,
+                    }}
+                  >
+                    Preferred time of day
+                  </Text>
+                  <View style={styles.timeEstimateGrid}>
+                    {TIME_WINDOW_OPTIONS.map((option) => {
+                      const isSelected =
+                        baseType === 'todo'
+                          ? state.todo.time_window === option.value
+                          : state.habit.time_window === option.value;
+                      return (
+                        <Pressable
+                          key={option.value ?? 'null'}
+                          style={[
+                            styles.timeEstimateOption,
+                            isSelected && styles.timeEstimateOptionSelected,
+                          ]}
+                          onPress={() => {
+                            if (baseType === 'todo') {
+                              store.setTodoTimeWindow(option.value);
+                            } else {
+                              store.setHabitTimeWindow(option.value);
+                            }
+                            store.setUI({ showTimeWindowModal: false });
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.timeEstimateOptionText,
+                              isSelected && styles.timeEstimateOptionTextSelected,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            {/* Habit Start Date Picker Modal */}
+            <Modal visible={storeUI.showHabitStartDatePicker} transparent animationType="fade">
+              <Pressable
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: 'rgba(0,0,0,0.4)',
+                }}
+                onPress={() => store.setUI({ showHabitStartDatePicker: false })}
+              >
+                <Pressable
+                  onPress={(e) => e.stopPropagation()}
+                  style={{
+                    width: '92%',
+                    maxWidth: 400,
+                    alignSelf: 'center',
+                    backgroundColor: '#FFFFFF',
+                    paddingHorizontal: 20,
+                    paddingTop: 20,
+                    paddingBottom: 24,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: '#E0E0E0',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: 0.15,
+                    shadowRadius: 24,
+                    elevation: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 18,
+                      fontWeight: '600',
+                      color: '#222222',
+                      marginBottom: 16,
+                    }}
+                  >
+                    When do you want to start?
+                  </Text>
+                  <DateTimePicker
+                    value={
+                      state.habit.start_date
+                        ? parseISO(state.habit.start_date)
+                        : getDateService().now()
+                    }
+                    mode="date"
+                    display="spinner"
+                    onChange={(event, date) => {
+                      if (event.type === 'set' && date) {
+                        store.setHabitStartDate(format(date, 'yyyy-MM-dd'));
+                      }
+                      store.setUI({ showHabitStartDatePicker: false });
+                    }}
+                  />
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      marginTop: 16,
+                    }}
+                  >
+                    <Pressable
+                      onPress={() => {
+                        store.setHabitStartDate(null);
+                        store.setUI({ showHabitStartDatePicker: false });
+                      }}
+                      style={{ paddingVertical: 8, paddingHorizontal: 12 }}
+                    >
+                      <Text style={{ color: '#888888', fontSize: 14 }}>Leave TBD</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        store.setHabitStartDate(format(getDateService().now(), 'yyyy-MM-dd'));
+                        store.setUI({ showHabitStartDatePicker: false });
+                      }}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 16,
+                        backgroundColor: lightTokens.colors.moss,
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>
+                        Start Today
+                      </Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            {/* Habit End Date Picker Modal */}
+            <Modal visible={storeUI.showHabitEndDatePicker} transparent animationType="fade">
+              <Pressable
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: 'rgba(0,0,0,0.4)',
+                }}
+                onPress={() => store.setUI({ showHabitEndDatePicker: false })}
+              >
+                <Pressable
+                  onPress={(e) => e.stopPropagation()}
+                  style={{
+                    width: '92%',
+                    maxWidth: 400,
+                    alignSelf: 'center',
+                    backgroundColor: '#FFFFFF',
+                    paddingHorizontal: 20,
+                    paddingTop: 20,
+                    paddingBottom: 24,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: '#E0E0E0',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: 0.15,
+                    shadowRadius: 24,
+                    elevation: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 18,
+                      fontWeight: '600',
+                      color: '#222222',
+                      marginBottom: 16,
+                    }}
+                  >
+                    Set an end date (optional)
+                  </Text>
+                  <DateTimePicker
+                    value={
+                      state.habit.end_date
+                        ? parseISO(state.habit.end_date)
+                        : addDays(getDateService().now(), 30)
+                    }
+                    mode="date"
+                    display="spinner"
+                    minimumDate={
+                      state.habit.start_date
+                        ? parseISO(state.habit.start_date)
+                        : getDateService().now()
+                    }
+                    onChange={(event, date) => {
+                      if (event.type === 'set' && date) {
+                        store.setHabitEndDate(format(date, 'yyyy-MM-dd'));
+                      }
+                      store.setUI({ showHabitEndDatePicker: false });
+                    }}
+                  />
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      marginTop: 16,
+                    }}
+                  >
+                    <Pressable
+                      onPress={() => {
+                        store.setHabitEndDate(null);
+                        store.setUI({ showHabitEndDatePicker: false });
+                      }}
+                      style={{ paddingVertical: 8, paddingHorizontal: 12 }}
+                    >
+                      <Text style={{ color: '#888888', fontSize: 14 }}>No end date</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => store.setUI({ showHabitEndDatePicker: false })}
+                      style={{
+                        paddingVertical: 8,
+                        paddingHorizontal: 16,
+                        backgroundColor: lightTokens.colors.moss,
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>
+                        Done
+                      </Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            {/* Space Selector Modal for To-Do Details */}
+            <Modal visible={storeUI.showSpaceModal} transparent animationType="fade">
+              <Pressable
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: 'rgba(0,0,0,0.4)',
+                }}
+                onPress={() => store.setUI({ showSpaceModal: false })}
+              >
+                <Pressable
+                  onPress={(e) => e.stopPropagation()}
+                  style={{
+                    width: '85%',
+                    maxWidth: 350,
+                    backgroundColor: '#FFFFFF',
+                    padding: 20,
+                    borderRadius: 16,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 12,
+                    elevation: 5,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 18,
+                      fontWeight: '600',
+                      color: '#111827',
+                      marginBottom: 16,
+                    }}
+                  >
+                    Select Space
+                  </Text>
+
+                  {/* Clear selection option */}
+                  <Pressable
+                    onPress={() => {
+                      store.setSpaceId(null);
+                      store.setUI({ showSpaceModal: false });
+                    }}
+                    style={({ pressed }) => ({
+                      paddingVertical: 12,
+                      paddingHorizontal: 12,
+                      borderRadius: 8,
+                      backgroundColor: pressed
+                        ? '#F3F4F6'
+                        : state.spaceId === null
+                          ? '#F0F4F1'
+                          : 'transparent',
+                      marginBottom: 8,
+                    })}
+                  >
+                    <Text style={{ fontSize: 15, color: '#374151' }}>None</Text>
+                  </Pressable>
+
+                  {/* Space options */}
+                  <ScrollView style={{ maxHeight: 300 }}>
+                    {spaces.map((space) => (
+                      <Pressable
+                        key={space.id}
+                        onPress={() => {
+                          store.setSpaceId(space.id);
+                          store.setUI({ showSpaceModal: false });
+                        }}
+                        style={({ pressed }) => ({
+                          paddingVertical: 12,
+                          paddingHorizontal: 12,
+                          borderRadius: 8,
+                          backgroundColor: pressed
+                            ? '#F3F4F6'
+                            : state.spaceId === space.id
+                              ? '#F0F4F1'
+                              : 'transparent',
+                          marginBottom: 8,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                        })}
+                      >
+                        {space.icon && (
+                          <Text style={{ fontSize: 16, marginRight: 10 }}>{space.icon}</Text>
+                        )}
+                        <Text style={{ fontSize: 15, color: '#374151' }}>{space.name}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            {/* Reminders Management Modal – powered by SetRemindersModal */}
+            <SetRemindersModal
+              visible={showRemindersModal}
+              onClose={() => setShowRemindersModal(false)}
+              reminders={itemReminders}
+              onSave={(updated) => {
+                setItemReminders(updated);
+                setShowRemindersModal(false);
+              }}
+              itemType={baseType === 'habit' ? 'habit' : 'todo'}
+            />
+
+            {/* Save bar (fixed within the sheet) */}
+            {/* Inline save error / retry bar (Phase 9) */}
+            {saveError ? (
+              <Box
+                px={4}
+                py={2}
+                style={{
+                  backgroundColor: '#fce8e6',
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                }}
+              >
+                <Box row style={{ alignItems: 'center' }}>
+                  <Text style={{ color: '#7a2719', flex: 1 }}>{saveError}</Text>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => {
+                      // Retry invokes save again
+                      setSaveError(null);
+                      // call onSave again
+                      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+                      onSave();
+                    }}
+                    title="Retry"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => setSaveError(null)}
+                    title="Dismiss"
+                  />
+                </Box>
+              </Box>
+            ) : isOffline ? (
+              <Box px={4} py={1}>
+                <Text variant="subtle">You're offline — Save will keep the draft.</Text>
+              </Box>
+            ) : null}
+
+            {/* Persistent footer — Cancel / Save */}
+            {!isViewMode && (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingHorizontal: 20,
+                  paddingVertical: 12,
+                  paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
+                  borderTopWidth: 0.5,
+                  borderTopColor: '#D5D0C8',
+                  backgroundColor: '#F5F2EB',
+                }}
+              >
+                <Pressable
+                  onPress={handleCancel}
+                  style={({ pressed }) => ({
+                    opacity: pressed ? 0.6 : 1,
+                    minHeight: 44,
+                    justifyContent: 'center',
+                  })}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel"
+                >
+                  <Text style={{ fontSize: 15, color: '#6B665C' }}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={onSave}
+                  disabled={storeUI.saving || !canSave}
+                  accessibilityRole="button"
+                  accessibilityLabel={storeUI.saving ? 'Saving' : 'Save'}
+                  style={({ pressed }) => ({
+                    backgroundColor: storeUI.saving || !canSave ? 'rgba(45,74,62,0.35)' : '#2D4A3E',
+                    paddingHorizontal: 28,
+                    paddingVertical: 10,
+                    borderRadius: 20,
+                    minHeight: 44,
+                    justifyContent: 'center',
+                    opacity: pressed ? 0.85 : 1,
+                  })}
+                >
+                  <Text
+                    style={{
+                      fontSize: 15,
+                      fontWeight: '600',
+                      color: storeUI.saving || !canSave ? 'rgba(255,255,255,0.6)' : '#FFFFFF',
+                    }}
+                  >
+                    {storeUI.saving ? 'Saving...' : isLockedIn ? 'Lock It In →' : 'Save'}
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* View mode footer */}
+            {isViewMode && (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingHorizontal: 20,
+                  paddingVertical: 12,
+                  paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
+                  borderTopWidth: 0.5,
+                  borderTopColor: '#D5D0C8',
+                  backgroundColor: '#F5F2EB',
+                }}
+              >
+                <Pressable
+                  onPress={handleCancel}
+                  style={{ minHeight: 44, justifyContent: 'center' }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                >
+                  <Text style={{ fontSize: 15, color: '#6B665C' }}>Close</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setDisplayMode('edit')}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit"
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    borderWidth: 0.5,
+                    borderColor: '#D5D0C8',
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 20,
+                    minHeight: 44,
+                  }}
+                >
+                  <Pencil size={14} color="#2E5540" />
+                  <Text style={{ fontSize: 14, fontWeight: '500', color: '#2E5540' }}>Edit</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* Expanded editor — full-screen overlay */}
+            {isExpandedEditor && (
+              <View
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 50,
+                  backgroundColor: '#FFFFFF',
+                }}
+              >
+                <OverlayExpandedEditor
+                  baseType={baseType}
+                  effectiveLogSubtype={effectiveLogSubtype}
+                  text={currentText}
+                  onChangeText={(t) => store.setBody(t)}
+                  colorMode={colorMode}
+                  isLog={isLog}
+                  onCollapse={() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setIsExpandedEditor(false);
+                  }}
+                  journalDateTime={
+                    effectiveLogSubtype === 'journal' ? getDateService().now() : undefined
+                  }
+                  isChecklistMode={isChecklistMode}
+                  onToggleChecklistMode={() => {
+                    const newMode = !state.isChecklistMode;
+                    store.setChecklistMode(newMode);
+                    if (!newMode && checklistItems && checklistItems.length > 0) {
+                      setUserClearedChecklist(true);
+                      setChecklistItems(null);
+                    }
+                  }}
+                />
+              </View>
+            )}
           </RNAnimated.View>
         </SafeAreaView>
 
@@ -5957,7 +6531,11 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
 
       {/* Entity Chat Screen - full screen overlay on top of current overlay */}
       {storeUI.showEntityChat && currentEntityId && (
-        <Modal visible={storeUI.showEntityChat} animationType="slide" presentationStyle="fullScreen">
+        <Modal
+          visible={storeUI.showEntityChat}
+          animationType="slide"
+          presentationStyle="fullScreen"
+        >
           <EntityChatScreen
             entityId={currentEntityId}
             entityType={entityTypeForChat}
@@ -6095,4 +6673,3 @@ function buildCreateOrUpdateInput({
     origin: 'catchall' as const,
   };
 }
-

@@ -115,7 +115,15 @@ export interface OverlayUI {
   showClarificationPopup: boolean;
 
   // Date modal internals (will move into DatePickerModal in Phase 3)
-  dateModalTarget: 'todo_deadline' | 'todo_dodate' | 'note_event' | 'note_end_date' | 'reminder' | 'todo_time' | 'event_time' | null;
+  dateModalTarget:
+    | 'todo_deadline'
+    | 'todo_dodate'
+    | 'note_event'
+    | 'note_end_date'
+    | 'reminder'
+    | 'todo_time'
+    | 'event_time'
+    | null;
   selectedDate: Date;
   selectedTime: Date;
   showTimePicker: boolean;
@@ -179,8 +187,8 @@ const INITIAL_UI: OverlayUI = {
   showImageModal: false,
   showClarificationPopup: false,
   dateModalTarget: null,
-  selectedDate: new Date(),
-  selectedTime: new Date(),
+  selectedDate: getDateService().now(),
+  selectedTime: getDateService().now(),
   showTimePicker: false,
   clearDateFlag: false,
   selectedTimePreset: null,
@@ -330,244 +338,332 @@ export const useOverlayDraft = create<OverlayDraftStore>()(
 
     // ── Draft field setters ────────────────────────────────────────────
 
-    setBaseType: (type) => set((s) => {
-      if (!s.draft || s.draft.baseType === type) return;
-      const prev = s.draft.baseType;
-      const currentText =
-        prev === 'log' ? s.draft.log.body :
-        prev === 'todo' ? s.draft.todo.details :
-        s.draft.habit.notes;
+    setBaseType: (type) =>
+      set((s) => {
+        if (!s.draft || s.draft.baseType === type) return;
+        const prev = s.draft.baseType;
+        const currentText =
+          prev === 'log'
+            ? s.draft.log.body
+            : prev === 'todo'
+              ? s.draft.todo.details
+              : s.draft.habit.notes;
 
-      s.draft.baseType = type;
+        s.draft.baseType = type;
 
-      // Copy text to new type if target field is empty
-      if (type === 'log' && !s.draft.log.body) {
-        s.draft.log.body = currentText;
-        s.draft.log.kind = classifyLogKind(currentText);
-      } else if (type === 'todo' && !s.draft.todo.details) {
-        s.draft.todo.details = currentText;
-      } else if (type === 'habit' && !s.draft.habit.notes) {
-        s.draft.habit.notes = currentText;
-      }
+        // Copy text to new type if target field is empty
+        if (type === 'log' && !s.draft.log.body) {
+          s.draft.log.body = currentText;
+          s.draft.log.kind = classifyLogKind(currentText);
+        } else if (type === 'todo' && !s.draft.todo.details) {
+          s.draft.todo.details = currentText;
+        } else if (type === 'habit' && !s.draft.habit.notes) {
+          s.draft.habit.notes = currentText;
+        }
 
-      // Copy user-edited title to new type
-      if (s.draft.userEditedTitle && s.draft.compactTitle) {
-        if (type === 'todo') s.draft.todo.title = s.draft.compactTitle;
-        else if (type === 'habit') s.draft.habit.title = s.draft.compactTitle;
-        else if (type === 'log') s.draft.log.title = s.draft.compactTitle;
-      }
-    }),
+        // Copy user-edited title to new type
+        if (s.draft.userEditedTitle && s.draft.compactTitle) {
+          if (type === 'todo') s.draft.todo.title = s.draft.compactTitle;
+          else if (type === 'habit') s.draft.habit.title = s.draft.compactTitle;
+          else if (type === 'log') s.draft.log.title = s.draft.compactTitle;
+        }
+      }),
 
-    setTitle: (title) => set((s) => {
-      if (!s.draft) return;
-      s.draft.compactTitle = title;
-      s.draft.userEditedTitle = true;
-      // Sync to entity-specific title
-      if (s.draft.baseType === 'todo') s.draft.todo.title = title;
-      else if (s.draft.baseType === 'habit') s.draft.habit.title = title;
-      else s.draft.log.title = title;
-    }),
+    setTitle: (title) =>
+      set((s) => {
+        if (!s.draft) return;
+        s.draft.compactTitle = title;
+        s.draft.userEditedTitle = true;
+        // Sync to entity-specific title
+        if (s.draft.baseType === 'todo') s.draft.todo.title = title;
+        else if (s.draft.baseType === 'habit') s.draft.habit.title = title;
+        else s.draft.log.title = title;
+      }),
 
-    setBody: (text) => set((s) => {
-      if (!s.draft) return;
-      if (s.draft.baseType === 'log') {
-        s.draft.log.body = text;
-        s.draft.log.kind = classifyLogKind(text);
-      } else if (s.draft.baseType === 'todo') {
-        s.draft.todo.details = text;
-      } else {
-        s.draft.habit.notes = text;
-      }
-    }),
+    setBody: (text) =>
+      set((s) => {
+        if (!s.draft) return;
+        if (s.draft.baseType === 'log') {
+          s.draft.log.body = text;
+          s.draft.log.kind = classifyLogKind(text);
+        } else if (s.draft.baseType === 'todo') {
+          s.draft.todo.details = text;
+        } else {
+          s.draft.habit.notes = text;
+        }
+      }),
 
-    setTags: (tags) => set((s) => {
-      if (!s.draft) return;
-      s.draft.tags = Array.from(new Set(tags));
-      s.draft.tagsDirty = true;
-    }),
+    setTags: (tags) =>
+      set((s) => {
+        if (!s.draft) return;
+        s.draft.tags = Array.from(new Set(tags));
+        s.draft.tagsDirty = true;
+      }),
 
-    addTag: (tag) => set((s) => {
-      if (!s.draft || s.draft.tags.includes(tag)) return;
-      s.draft.tags.push(tag);
-      s.draft.tagsDirty = true;
-    }),
+    addTag: (tag) =>
+      set((s) => {
+        if (!s.draft || s.draft.tags.includes(tag)) return;
+        s.draft.tags.push(tag);
+        s.draft.tagsDirty = true;
+      }),
 
-    removeTag: (tag) => set((s) => {
-      if (!s.draft) return;
-      s.draft.tags = s.draft.tags.filter((t) => t !== tag);
-      s.draft.tagsDirty = true;
-    }),
+    removeTag: (tag) =>
+      set((s) => {
+        if (!s.draft) return;
+        s.draft.tags = s.draft.tags.filter((t) => t !== tag);
+        s.draft.tagsDirty = true;
+      }),
 
-    setTagsDirty: () => set((s) => { if (s.draft) s.draft.tagsDirty = true; }),
+    setTagsDirty: () =>
+      set((s) => {
+        if (s.draft) s.draft.tagsDirty = true;
+      }),
 
-    setSpaceId: (id) => set((s) => { if (s.draft) s.draft.spaceId = id; }),
-    setMood: (mood) => set((s) => { if (s.draft) s.draft.mood = mood; }),
-    setMoods: (moods) => set((s) => { if (s.draft) s.draft.moods = moods; }),
-    setFormat: (fmt) => set((s) => { if (s.draft) s.draft.format = fmt; }),
-    setReminderAt: (when) => set((s) => { if (s.draft) s.draft.reminderAt = when; }),
-    setItemReminders: (reminders) => set((s) => { if (s.draft) s.draft.itemReminders = reminders; }),
+    setSpaceId: (id) =>
+      set((s) => {
+        if (s.draft) s.draft.spaceId = id;
+      }),
+    setMood: (mood) =>
+      set((s) => {
+        if (s.draft) s.draft.mood = mood;
+      }),
+    setMoods: (moods) =>
+      set((s) => {
+        if (s.draft) s.draft.moods = moods;
+      }),
+    setFormat: (fmt) =>
+      set((s) => {
+        if (s.draft) s.draft.format = fmt;
+      }),
+    setReminderAt: (when) =>
+      set((s) => {
+        if (s.draft) s.draft.reminderAt = when;
+      }),
+    setItemReminders: (reminders) =>
+      set((s) => {
+        if (s.draft) s.draft.itemReminders = reminders;
+      }),
 
-    setCommitment: (on) => set((s) => {
-      if (!s.draft) return;
-      s.draft.commitment = on;
-      if (on && !s.draft.commitmentStartedAt) {
-        s.draft.commitmentStartedAt = getDateService().now().toISOString();
-      }
-    }),
+    setCommitment: (on) =>
+      set((s) => {
+        if (!s.draft) return;
+        s.draft.commitment = on;
+        if (on && !s.draft.commitmentStartedAt) {
+          s.draft.commitmentStartedAt = getDateService().now().toISOString();
+        }
+      }),
 
-    setCommitmentNote: (note) => set((s) => { if (s.draft) s.draft.commitmentNote = note; }),
-    setLogSubtypeOverride: (value) => set((s) => { if (s.draft) s.draft.logSubtypeOverride = value; }),
-    setLogIsPrivate: (value) => set((s) => { if (s.draft) s.draft.logIsPrivate = value; }),
-    setChecklistMode: (enabled) => set((s) => { if (s.draft) s.draft.isChecklistMode = enabled; }),
-    setLinkedEventId: (id) => set((s) => { if (s.draft) s.draft.linkedEventId = id; }),
-    setPerson: (person) => set((s) => { if (s.draft) s.draft.person = person; }),
+    setCommitmentNote: (note) =>
+      set((s) => {
+        if (s.draft) s.draft.commitmentNote = note;
+      }),
+    setLogSubtypeOverride: (value) =>
+      set((s) => {
+        if (s.draft) s.draft.logSubtypeOverride = value;
+      }),
+    setLogIsPrivate: (value) =>
+      set((s) => {
+        if (s.draft) s.draft.logIsPrivate = value;
+      }),
+    setChecklistMode: (enabled) =>
+      set((s) => {
+        if (s.draft) s.draft.isChecklistMode = enabled;
+      }),
+    setLinkedEventId: (id) =>
+      set((s) => {
+        if (s.draft) s.draft.linkedEventId = id;
+      }),
+    setPerson: (person) =>
+      set((s) => {
+        if (s.draft) s.draft.person = person;
+      }),
 
-    setCompactTitle: (title) => set((s) => {
-      if (!s.draft) return;
-      s.draft.compactTitle = title;
-      s.draft.compactTitleSource = title;
-      s.draft.userEditedTitle = true;
-      // Sync to entity-specific title field
-      if (s.draft.baseType === 'todo') s.draft.todo.title = title;
-      else if (s.draft.baseType === 'habit') s.draft.habit.title = title;
-      else if (s.draft.baseType === 'log') s.draft.log.title = title;
-    }),
+    setCompactTitle: (title) =>
+      set((s) => {
+        if (!s.draft) return;
+        s.draft.compactTitle = title;
+        s.draft.compactTitleSource = title;
+        s.draft.userEditedTitle = true;
+        // Sync to entity-specific title field
+        if (s.draft.baseType === 'todo') s.draft.todo.title = title;
+        else if (s.draft.baseType === 'habit') s.draft.habit.title = title;
+        else if (s.draft.baseType === 'log') s.draft.log.title = title;
+      }),
 
-    setPhotos: (photos) => set((s) => { if (s.draft) s.draft.photos = photos; }),
-    setPhotoUri: (uri) => set((s) => { if (s.draft) s.draft.photoUri = uri; }),
-    setFavorite: (fav) => set((s) => { if (s.draft) s.draft.isFavorite = fav; }),
-    setChecklistItems: (items) => set((s) => { if (s.draft) s.draft.checklistItems = items; }),
-    setUserClearedChecklist: (cleared) => set((s) => { if (s.draft) s.draft.userClearedChecklist = cleared; }),
+    setPhotos: (photos) =>
+      set((s) => {
+        if (s.draft) s.draft.photos = photos;
+      }),
+    setPhotoUri: (uri) =>
+      set((s) => {
+        if (s.draft) s.draft.photoUri = uri;
+      }),
+    setFavorite: (fav) =>
+      set((s) => {
+        if (s.draft) s.draft.isFavorite = fav;
+      }),
+    setChecklistItems: (items) =>
+      set((s) => {
+        if (s.draft) s.draft.checklistItems = items;
+      }),
+    setUserClearedChecklist: (cleared) =>
+      set((s) => {
+        if (s.draft) s.draft.userClearedChecklist = cleared;
+      }),
 
     // ── Todo-specific ─────────────────────────────────────────────────
 
-    setTodoDue: (fields) => set((s) => {
-      if (!s.draft) return;
-      // Only update provided fields — undefined means "don't touch"
-      if (fields.due_at !== undefined) s.draft.todo.due_at = fields.due_at;
-      if (fields.due_day !== undefined) s.draft.todo.due_day = fields.due_day;
-      if (fields.due_time !== undefined) s.draft.todo.due_time = fields.due_time;
-    }),
+    setTodoDue: (fields) =>
+      set((s) => {
+        if (!s.draft) return;
+        // Only update provided fields — undefined means "don't touch"
+        if (fields.due_at !== undefined) s.draft.todo.due_at = fields.due_at;
+        if (fields.due_day !== undefined) s.draft.todo.due_day = fields.due_day;
+        if (fields.due_time !== undefined) s.draft.todo.due_time = fields.due_time;
+      }),
 
-    setTodoTimeEstimate: (minutes) => set((s) => {
-      if (s.draft) s.draft.todo.time_estimate_minutes = minutes;
-    }),
+    setTodoTimeEstimate: (minutes) =>
+      set((s) => {
+        if (s.draft) s.draft.todo.time_estimate_minutes = minutes;
+      }),
 
-    setTodoTimeWindow: (window) => set((s) => {
-      if (s.draft) s.draft.todo.time_window = window;
-    }),
+    setTodoTimeWindow: (window) =>
+      set((s) => {
+        if (s.draft) s.draft.todo.time_window = window;
+      }),
 
-    setTodoTargetDate: (date) => set((s) => {
-      if (s.draft) s.draft.todo.target_date = date;
-    }),
+    setTodoTargetDate: (date) =>
+      set((s) => {
+        if (s.draft) s.draft.todo.target_date = date;
+      }),
 
-    setTodoScheduledDate: (date) => set((s) => {
-      if (s.draft) s.draft.todo.scheduled_date = date;
-    }),
+    setTodoScheduledDate: (date) =>
+      set((s) => {
+        if (s.draft) s.draft.todo.scheduled_date = date;
+      }),
 
     // ── Habit-specific ────────────────────────────────────────────────
 
-    setHabitFrequency: (json) => set((s) => {
-      if (!s.draft) return;
-      s.draft.habit.frequency_json = json;
-      // Derive schedule from frequency_json
-      if (json?.type === 'simple') {
-        const val = json.value;
-        s.draft.habit.schedule = val === 'daily' ? 'daily' : val === 'weekly' ? 'weekly' : 'custom';
-      } else {
-        s.draft.habit.schedule = 'custom';
-      }
-    }),
+    setHabitFrequency: (json) =>
+      set((s) => {
+        if (!s.draft) return;
+        s.draft.habit.frequency_json = json;
+        // Derive schedule from frequency_json
+        if (json?.type === 'simple') {
+          const val = json.value;
+          s.draft.habit.schedule =
+            val === 'daily' ? 'daily' : val === 'weekly' ? 'weekly' : 'custom';
+        } else {
+          s.draft.habit.schedule = 'custom';
+        }
+      }),
 
-    setHabitSubtype: (subtype) => set((s) => {
-      if (s.draft) s.draft.habit.subtype = subtype;
-    }),
+    setHabitSubtype: (subtype) =>
+      set((s) => {
+        if (s.draft) s.draft.habit.subtype = subtype;
+      }),
 
-    setHabitStartDate: (date) => set((s) => {
-      if (s.draft) s.draft.habit.start_date = date;
-    }),
+    setHabitStartDate: (date) =>
+      set((s) => {
+        if (s.draft) s.draft.habit.start_date = date;
+      }),
 
-    setHabitEndDate: (date) => set((s) => {
-      if (s.draft) s.draft.habit.end_date = date;
-    }),
+    setHabitEndDate: (date) =>
+      set((s) => {
+        if (s.draft) s.draft.habit.end_date = date;
+      }),
 
-    setHabitTimeWindow: (window) => set((s) => {
-      if (s.draft) s.draft.habit.time_window = window;
-    }),
+    setHabitTimeWindow: (window) =>
+      set((s) => {
+        if (s.draft) s.draft.habit.time_window = window;
+      }),
 
-    setHabitTimeEstimate: (minutes) => set((s) => {
-      if (s.draft) s.draft.habit.time_estimate_minutes = minutes;
-    }),
+    setHabitTimeEstimate: (minutes) =>
+      set((s) => {
+        if (s.draft) s.draft.habit.time_estimate_minutes = minutes;
+      }),
 
     // ── Log-specific ──────────────────────────────────────────────────
 
-    setLogTargetDate: (date) => set((s) => {
-      if (s.draft) s.draft.log.target_date = date;
-    }),
+    setLogTargetDate: (date) =>
+      set((s) => {
+        if (s.draft) s.draft.log.target_date = date;
+      }),
 
-    setLogEndDate: (date) => set((s) => {
-      if (s.draft) s.draft.log.end_date = date;
-    }),
+    setLogEndDate: (date) =>
+      set((s) => {
+        if (s.draft) s.draft.log.end_date = date;
+      }),
 
-    setLogEventTime: (time) => set((s) => {
-      if (s.draft) s.draft.log.event_time = time;
-    }),
+    setLogEventTime: (time) =>
+      set((s) => {
+        if (s.draft) s.draft.log.event_time = time;
+      }),
 
     // ── Atomic schedule update (fixes Bug #3) ─────────────────────────
 
-    applySchedule: (changes) => set((s) => {
-      if (!s.draft) return;
+    applySchedule: (changes) =>
+      set((s) => {
+        if (!s.draft) return;
 
-      if (s.draft.baseType === 'todo') {
-        if (changes.scheduledDate !== undefined) s.draft.todo.scheduled_date = changes.scheduledDate;
-        if (changes.targetDate !== undefined) s.draft.todo.target_date = changes.targetDate;
-        if (changes.dueDay !== undefined) s.draft.todo.due_day = changes.dueDay;
-        if (changes.dueTime !== undefined) s.draft.todo.due_time = changes.dueTime;
-        if (changes.timeWindow !== undefined) s.draft.todo.time_window = changes.timeWindow;
-        if (changes.timeEstimateMinutes !== undefined) s.draft.todo.time_estimate_minutes = changes.timeEstimateMinutes;
-        // Sync due_day to scheduled_date for backwards compat
-        if (changes.dueDay !== undefined) s.draft.todo.due_at = null;
-      }
-
-      if (s.draft.baseType === 'habit') {
-        if (changes.frequencyJson !== undefined) {
-          s.draft.habit.frequency_json = changes.frequencyJson;
-          // Derive schedule
-          const fj = changes.frequencyJson;
-          if (fj?.type === 'simple') {
-            s.draft.habit.schedule = fj.value === 'daily' ? 'daily' : fj.value === 'weekly' ? 'weekly' : 'custom';
-          } else {
-            s.draft.habit.schedule = changes.schedule ?? 'custom';
-          }
+        if (s.draft.baseType === 'todo') {
+          if (changes.scheduledDate !== undefined)
+            s.draft.todo.scheduled_date = changes.scheduledDate;
+          if (changes.targetDate !== undefined) s.draft.todo.target_date = changes.targetDate;
+          if (changes.dueDay !== undefined) s.draft.todo.due_day = changes.dueDay;
+          if (changes.dueTime !== undefined) s.draft.todo.due_time = changes.dueTime;
+          if (changes.timeWindow !== undefined) s.draft.todo.time_window = changes.timeWindow;
+          if (changes.timeEstimateMinutes !== undefined)
+            s.draft.todo.time_estimate_minutes = changes.timeEstimateMinutes;
+          // Sync due_day to scheduled_date for backwards compat
+          if (changes.dueDay !== undefined) s.draft.todo.due_at = null;
         }
-        if (changes.startDate !== undefined) s.draft.habit.start_date = changes.startDate;
-        if (changes.endDate !== undefined) s.draft.habit.end_date = changes.endDate;
-        if (changes.timeWindow !== undefined) s.draft.habit.time_window = changes.timeWindow;
-        if (changes.timeEstimateMinutes !== undefined) s.draft.habit.time_estimate_minutes = changes.timeEstimateMinutes;
-      }
-    }),
+
+        if (s.draft.baseType === 'habit') {
+          if (changes.frequencyJson !== undefined) {
+            s.draft.habit.frequency_json = changes.frequencyJson;
+            // Derive schedule
+            const fj = changes.frequencyJson;
+            if (fj?.type === 'simple') {
+              s.draft.habit.schedule =
+                fj.value === 'daily' ? 'daily' : fj.value === 'weekly' ? 'weekly' : 'custom';
+            } else {
+              s.draft.habit.schedule = changes.schedule ?? 'custom';
+            }
+          }
+          if (changes.startDate !== undefined) s.draft.habit.start_date = changes.startDate;
+          if (changes.endDate !== undefined) s.draft.habit.end_date = changes.endDate;
+          if (changes.timeWindow !== undefined) s.draft.habit.time_window = changes.timeWindow;
+          if (changes.timeEstimateMinutes !== undefined)
+            s.draft.habit.time_estimate_minutes = changes.timeEstimateMinutes;
+        }
+      }),
 
     // ── UI setters ────────────────────────────────────────────────────
 
-    setUI: (patch) => set((s) => {
-      Object.assign(s.ui, patch);
-    }),
+    setUI: (patch) =>
+      set((s) => {
+        Object.assign(s.ui, patch);
+      }),
 
-    toggleUI: (key) => set((s) => {
-      const current = s.ui[key];
-      if (typeof current === 'boolean') {
-        (s.ui as any)[key] = !current;
-      }
-    }),
+    toggleUI: (key) =>
+      set((s) => {
+        const current = s.ui[key];
+        if (typeof current === 'boolean') {
+          (s.ui as any)[key] = !current;
+        }
+      }),
 
-    resetUI: () => set((s) => {
-      s.ui = { ...INITIAL_UI };
-    }),
+    resetUI: () =>
+      set((s) => {
+        s.ui = { ...INITIAL_UI };
+      }),
 
-    patchDraft: (partial) => set((s) => {
-      if (s.draft) Object.assign(s.draft, partial);
-    }),
-  }))
+    patchDraft: (partial) =>
+      set((s) => {
+        if (s.draft) Object.assign(s.draft, partial);
+      }),
+  })),
 );
 
 // ─── Selectors (for component reads) ──────────────────────────────────────
