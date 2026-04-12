@@ -41,7 +41,7 @@ describe('useWakeOnInput', () => {
     const { result, rerender } = renderHook(() => useWakeOnInput(), { wrapper });
     const first = result.current;
 
-    rerender();
+    rerender(undefined);
     expect(result.current).toBe(first);
   });
 

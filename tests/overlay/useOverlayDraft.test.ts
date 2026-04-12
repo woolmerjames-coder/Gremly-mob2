@@ -139,8 +139,8 @@ describe('useOverlayDraft', () => {
     });
 
     it('setMood updates mood', () => {
-      useOverlayDraft.getState().setMood('positive');
-      expect(useOverlayDraft.getState().draft?.mood).toBe('positive');
+      useOverlayDraft.getState().setMood('pos');
+      expect(useOverlayDraft.getState().draft?.mood).toBe('pos');
     });
 
     it('setSpaceId updates spaceId', () => {
