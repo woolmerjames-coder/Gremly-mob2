@@ -168,7 +168,7 @@ export async function fetchRecentActivityDelta(userId, env) {
     const threeDaysAgo = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
     const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
-    const [recentNotes, recentTodos, recentHabitProgress] = await Promise.all([
+    const [recentNotes, recentTodos, recentHabitProgress, recentEventRows] = await Promise.all([
       // Recent drops (notes created in last 72h, non-events)
       fetch(
         `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=neq.event&archived=eq.false&created_at=gte.${threeDaysAgo}&select=title,subtype,mood,created_at,space_id&order=created_at.desc&limit=10`,
@@ -192,12 +192,21 @@ export async function fetchRecentActivityDelta(userId, env) {
       )
         .then((r) => r.json())
         .catch(() => []),
+
+      // Recent calendar events (last 72h)
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&archived=eq.false&target_date=gte.${threeDaysAgo.split('T')[0]}&select=title,target_date,event_time,location,space_id&order=target_date.desc&limit=10`,
+        { headers },
+      )
+        .then((r) => r.json())
+        .catch(() => []),
     ]);
 
     const delta = {
       recentDrops: Array.isArray(recentNotes) ? recentNotes : [],
       recentCompletions: Array.isArray(recentTodos) ? recentTodos : [],
       recentHabitActivity: Array.isArray(recentHabitProgress) ? recentHabitProgress : [],
+      recentEvents: Array.isArray(recentEventRows) ? recentEventRows : [],
     };
 
     if (env.CONTEXT_CACHE) {
@@ -205,7 +214,7 @@ export async function fetchRecentActivityDelta(userId, env) {
     }
 
     console.log(
-      `[ChatProjection] Recent delta loaded for ${userId.slice(0, 8)}: ${delta.recentDrops.length} drops, ${delta.recentCompletions.length} completions`,
+      `[ChatProjection] Recent delta loaded for ${userId.slice(0, 8)}: ${delta.recentDrops.length} drops, ${delta.recentCompletions.length} completions, ${delta.recentEvents.length} events`,
     );
     return delta;
   } catch (error) {
@@ -366,6 +375,14 @@ function formatRecentDelta(delta) {
   if (!delta) return '';
 
   const parts = [];
+
+  if (delta.recentEvents?.length > 0) {
+    parts.push('=== RECENT EVENTS (last 72h) ===');
+    for (const e of delta.recentEvents.slice(0, 6)) {
+      const loc = e.location ? ` (${e.location})` : '';
+      parts.push(`  ${e.target_date}: ${e.title}${loc}`);
+    }
+  }
 
   if (delta.recentDrops.length > 0) {
     parts.push('=== RECENT ACTIVITY (last 24-72h) ===');
