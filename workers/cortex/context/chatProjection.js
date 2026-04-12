@@ -653,8 +653,8 @@ export async function fetchTemporalAnchors(userId, timezone, env) {
       })
       .filter((a) => {
         if (a.daysAway === null) return true; // unknown — always keep
-        if (a.date_confidence === 'exact') return a.daysAway >= -1;
-        if (a.date_confidence === 'approximate') return a.daysAway >= -3;
+        if (a.date_confidence === 'exact') return a.daysAway >= -7;
+        if (a.date_confidence === 'approximate') return a.daysAway >= -7;
         return true; // unknown confidence — keep
       });
 
@@ -681,8 +681,8 @@ export function formatTemporalAnchors(anchors, _todayStr) {
   if (!anchors || anchors.length === 0) return '';
 
   const lines = [
-    '=== UPCOMING EVENTS & DEADLINES (from conversations) ===',
-    'Note: Dates marked "approximate" are estimates, not confirmed. Dates marked "unknown" have no confirmed date. Never state approximate or unknown dates as fact. Use hedging language for approximate dates (e.g. "around", "roughly"). For unknown dates, consider naturally asking when it is.',
+    '=== EVENTS & DEADLINES (from conversations) ===',
+    'Note: Dates marked "approximate" are estimates, not confirmed. Dates marked "unknown" have no confirmed date. Never state approximate or unknown dates as fact. Use hedging language for approximate dates (e.g. "around", "roughly"). For unknown dates, consider naturally asking when it is. Past events (negative days) have already happened — refer to them in past tense, not as upcoming.',
     '',
   ];
 
