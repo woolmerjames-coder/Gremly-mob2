@@ -168,17 +168,18 @@ const dcoDispatcher = inngest.createFunction(
       };
       const patchBody = JSON.stringify({ status: 'passed', updated_at: new Date().toISOString() });
 
-      // Exact-confidence anchors: mark passed if resolved_date < today
+      // Exact-confidence anchors: mark passed with 7-day buffer
+      const exactBufferDate = utcDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
       const exactRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.exact&resolved_date=lt.${today}`,
+        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.exact&resolved_date=lt.${exactBufferDate}`,
         { method: 'PATCH', headers, body: patchBody },
       );
       const exactCount = exactRes.ok ? (await exactRes.json()).length : 0;
 
-      // Approximate-confidence anchors: mark passed with 3-day buffer
-      const bufferDate = utcDate(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+      // Approximate-confidence anchors: mark passed with 7-day buffer
+      const approxBufferDate = utcDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
       const approxRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.approximate&date_range_end=lt.${bufferDate}`,
+        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.approximate&date_range_end=lt.${approxBufferDate}`,
         { method: 'PATCH', headers, body: patchBody },
       );
       const approxCount = approxRes.ok ? (await approxRes.json()).length : 0;
