@@ -793,7 +793,7 @@ export function formatRecentChatSummaries(summaries) {
 
   const lines = [
     '=== RECENT CONVERSATIONS (other chats with this user) ===',
-    "These are summaries of other recent conversations. Use this context to maintain continuity — the user shouldn't have to repeat themselves across chats. But don't reference these chats explicitly unless the user brings them up.",
+    "These are summaries of other recent conversations. Use this context to maintain continuity — the user shouldn't have to repeat themselves across chats. When the user asks about their week, recent experiences, or what's been going on, draw from these summaries — they capture decisions, emotional signals, and context that other data sources miss. Don't reference them unprompted in unrelated topics.",
     '',
   ];
 
