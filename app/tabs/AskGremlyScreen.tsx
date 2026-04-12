@@ -33,6 +33,8 @@ import * as Haptics from 'expo-haptics';
 import { Clock, SquarePen, ChevronLeft, Bookmark } from 'lucide-react-native';
 import { useRoute } from '@react-navigation/native';
 import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
+import { useWakeOnInput } from '../../hooks/useWakeOnInput';
+import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
@@ -55,9 +57,11 @@ export default function AskGremlyScreen() {
   const wordBufferRef = useRef<string[]>([]);
   const wordFlushIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  const wakeOnInput = useWakeOnInput();
   const [activeChat, setActiveChat] = useState<SpaceChat | null>(null);
   const [sending, setSending] = useState(false);
   const [saveSheetVisible, setSaveSheetVisible] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [savingChat, setSavingChat] = useState(false);
   const [greeting, setGreeting] = useState<string>("What's on your mind?");
 
@@ -421,11 +425,12 @@ export default function AskGremlyScreen() {
               onPress={() => setSaveSheetVisible(true)}
               style={{ position: 'absolute', top: -30, right: 105, zIndex: 11 }}
             />
-            <Pressable style={styles.mascot}>
+            <Pressable style={styles.mascot} onPress={() => setShowHelp(true)}>
               <MascotLottie ref={mascotRef} />
             </Pressable>
             <ChatComposer
               onSend={handleSend}
+              onChangeText={() => wakeOnInput()}
               disabled={sending}
               placeholder={inConversation ? 'Type a message...' : 'Ask Gremly anything...'}
               initialText={prefillPrompt || undefined}
@@ -585,6 +590,7 @@ export default function AskGremlyScreen() {
           }
         }}
       />
+      <GremlyHelpCard visible={showHelp} onDismiss={() => setShowHelp(false)} screen="askgremly" />
     </SafeAreaView>
   );
 }

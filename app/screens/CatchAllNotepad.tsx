@@ -117,6 +117,7 @@ import { getFrequencyDisplayLabel } from '../../lib/habits/frequencyUtils';
 import type { CortexAction, CortexContext, CortexResponse } from '../../lib/cortex/cortexDecide';
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
+import { useWakeOnInput } from '../../hooks/useWakeOnInput';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
 import { deriveCompactTitle } from '../../lib/text/compactTitle';
@@ -8504,8 +8505,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return () => clearTimeout(timeout);
   }, [timingChips, pendingTodoId, logMetrics, handleTimingSelection]);
 
+  const wakeOnInput = useWakeOnInput();
+
   const handleChangeText = useCallback(
     (value: string) => {
+      wakeOnInput();
       let nextValue = value;
 
       if (nextValue.length > MAX_INPUT_CHARACTERS) {
@@ -8564,7 +8568,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         }
       }
     },
-    [listStyle],
+    [listStyle, wakeOnInput],
   );
 
   // Mind Drop: robust submit with retry + fallbacks

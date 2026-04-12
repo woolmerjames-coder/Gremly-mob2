@@ -20,6 +20,7 @@ import { lightTokens } from '../../design/tokens';
 
 interface ChatComposerProps {
   onSend: (text: string) => void;
+  onChangeText?: (text: string) => void;
   placeholder?: string;
   disabled?: boolean;
   testID?: string;
@@ -28,6 +29,7 @@ interface ChatComposerProps {
 
 export function ChatComposer({
   onSend,
+  onChangeText: onChangeTextProp,
   placeholder = 'Type a message...',
   disabled = false,
   testID,
@@ -83,6 +85,7 @@ export function ChatComposer({
       return;
     }
     setText(newText);
+    onChangeTextProp?.(newText);
   };
 
   const canSend = text.trim().length > 0 && !disabled;

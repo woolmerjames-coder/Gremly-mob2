@@ -52,7 +52,8 @@ type ScreenType =
   | 'sweep-habits'
   | 'spaces'
   | 'space-detail'
-  | 'hub';
+  | 'hub'
+  | 'askgremly';
 
 interface GremlyHelpCardProps {
   visible: boolean;
@@ -206,6 +207,23 @@ const HELP_CONTENT: Record<ScreenType, HelpContent> = {
       {
         icon: <Settings size={ICON_SIZE} color={ICON_COLOR} />,
         text: 'Adjust notifications, preferences, and account',
+      },
+    ],
+  },
+  askgremly: {
+    title: 'Ask Gremly',
+    steps: [
+      {
+        icon: <MessageCircle size={ICON_SIZE} color={ICON_COLOR} />,
+        text: 'Ask anything \u2014 plans, decisions, ideas, or just chat',
+      },
+      {
+        icon: <Sparkles size={ICON_SIZE} color={ICON_COLOR} />,
+        text: 'Gremly knows your world and gives personal answers',
+      },
+      {
+        icon: <ArrowDownToLine size={ICON_SIZE} color={ICON_COLOR} />,
+        text: 'Save items from any chat as drops into your system',
       },
     ],
   },
