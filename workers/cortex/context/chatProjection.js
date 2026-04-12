@@ -462,13 +462,13 @@ export async function buildChatContext(userId, lane, opts, env) {
       if (summariesStr) parts.push(summariesStr);
     }
 
-    // 4. Life Map threads (tiered by lane relevance)
-    const lifeMapStr = formatLifeMapForChat(lifeMap, lane, opts);
-    if (lifeMapStr) parts.push(lifeMapStr);
-
-    // 5. Recent activity delta
+    // 4. Recent activity delta (last 72h — drops, completions, events)
     const deltaStr = formatRecentDelta(recentDelta);
     if (deltaStr) parts.push(deltaStr);
+
+    // 5. Life Map threads (tiered by lane relevance — background context)
+    const lifeMapStr = formatLifeMapForChat(lifeMap, lane, opts);
+    if (lifeMapStr) parts.push(lifeMapStr);
 
     const result = parts.join('\n\n');
 
