@@ -6322,6 +6322,35 @@ function buildWorldPicture(snapshot) {
     parts.push('  No events today.');
   }
 
+  // ── Section 3b: Past events earlier this week (Monday → yesterday) ──
+  parts.push('\n=== EVENTS EARLIER THIS WEEK ===');
+  const dow = target.getUTCDay(); // 0=Sun, 1=Mon, …, 6=Sat
+  const mondayOffset = (dow + 6) % 7; // 0 for Mon, 1 for Tue, …, 6 for Sun
+  const mondayDate = new Date(target);
+  mondayDate.setUTCDate(target.getUTCDate() - mondayOffset);
+  const weekStartStr = formatDateOnly(mondayDate);
+
+  const pastEvents = (raw.calendarEvents || [])
+    .filter((e) => {
+      const d = e.target_date;
+      return d >= weekStartStr && d < targetDate;
+    })
+    .sort((a, b) => (a.target_date < b.target_date ? -1 : a.target_date > b.target_date ? 1 : 0))
+    .slice(0, 15);
+
+  if (pastEvents.length > 0) {
+    for (const e of pastEvents) {
+      const daysAgo = Math.ceil((target - new Date(e.target_date + 'T00:00:00Z')) / 86400000);
+      const space = computed.spaceMap[e.space_id] ? ` [${computed.spaceMap[e.space_id]}]` : '';
+      const synced = e.external_source ? ' {synced calendar}' : ' {key date}';
+      const time = e.event_time ? ` at ${e.event_time}` : '';
+      const loc = e.location ? ` (${e.location})` : '';
+      parts.push(`  ${e.target_date} (${daysAgo}d ago): ${e.title}${time}${loc}${space}${synced}`);
+    }
+  } else {
+    parts.push('  No earlier events this week.');
+  }
+
   // ── Section 4: Upcoming events (next 7 days) — label recurring/routine ──
   parts.push('\n=== UPCOMING EVENTS (next 7 days) ===');
   if (calendar.upcomingEvents.length > 0) {
@@ -6569,6 +6598,15 @@ today_focus: 1-3 concrete things that specifically matter TODAY. Not general the
 
 named_anchors: People, places, trips, or projects explicitly mentioned in today's data. Only proper nouns actually present in the data. Never invent.
 
+JOB 3 — WEEK RECAP
+Scan ALL data sources in the world picture — calendar events (including the "Events Earlier This Week" section), journals, chat conversation summaries, completed todos, habit progress, drops — for concrete things that happened since Monday of the current week.
+
+Produce date-indexed entries capturing what specifically happened each day. Focus on concrete specifics: events attended, meaningful task completions, emotional moments from journals, key decisions from chat conversations, notable habit streaks or breaks. Each entry should be a short factual statement tied to a specific date.
+
+Pick the MOST MEANINGFUL entries, not an exhaustive list. Cap at 8-10 entries for the whole week.
+
+Also produce a week_mood_arc: a single sentence describing how the user's emotional state shifted across the week, based on journal moods, chat emotional signals, and any other sentiment data. If insufficient emotional data exists, return null.
+
 CRITICAL:
 - lead_story and secondary MUST use exact domain and thread names from the Life Map.
 - "detail" adds COLOR to the headline — a short, specific note (max 1 sentence, max 80 chars) that gives context the headline can't. Written in second person — "you" not "the user". Must NOT repeat the same information as lead_story. Instead, surface what makes today different: a feeling, a tension, a countdown, a contrast. If the headline says "island transition today", the detail should NOT say "travel day with a flight" — it should say something the headline missed.
@@ -6612,7 +6650,14 @@ OUTPUT — return ONLY this JSON:
     "day_type": "event_day|work_day|milestone_day|routine_day|quiet_day|transition_day",
     "today_focus": ["specific item 1", "specific item 2", "specific item 3"],
     "named_anchors": [{"label": "Name", "type": "person|trip|project|event|place", "source": "life_map|drop|calendar"}]
-  }
+  },
+  "week_recap": [
+    {
+      "date": "YYYY-MM-DD",
+      "event": "short factual statement of what happened"
+    }
+  ],
+  "week_mood_arc": "single sentence about emotional trajectory this week, or null"
 }`;
 
   const userMessage = worldPictureText;
