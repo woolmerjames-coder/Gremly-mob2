@@ -5,8 +5,8 @@
  * swipeable pages. Page 1 shows help steps for the current screen.
  * Page 2 shows Gremly age and ritual progress (drops + sweeps).
  *
- * The card supports 8 screen types:
- * minddrop, today, organize, sweep, sweep-habits, spaces, space-detail, hub
+ * The card supports 9 screen types:
+ * minddrop, today, organize, sweep, sweep-habits, spaces, space-detail, hub, askgremly
  */
 
 import React from 'react';
@@ -89,6 +89,7 @@ const SCREEN_TYPES = [
   'spaces',
   'space-detail',
   'hub',
+  'askgremly',
 ] as const;
 
 const EXPECTED_TITLES: Record<string, string> = {
@@ -100,6 +101,7 @@ const EXPECTED_TITLES: Record<string, string> = {
   spaces: 'Spaces',
   'space-detail': 'Inside a Space',
   hub: 'Hub',
+  askgremly: 'Ask Gremly',
 };
 
 describe('GremlyHelpCard', () => {
@@ -128,7 +130,7 @@ describe('GremlyHelpCard', () => {
     });
   });
 
-  describe('screen types — all 8 render correct titles', () => {
+  describe('screen types — all 9 render correct titles', () => {
     SCREEN_TYPES.forEach((screen) => {
       it(`renders title "${EXPECTED_TITLES[screen]}" for screen="${screen}"`, () => {
         const { getByText } = render(
