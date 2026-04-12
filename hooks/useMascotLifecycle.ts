@@ -66,7 +66,6 @@ export function useMascotLifecycle(): MascotLifecycle {
   const waveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const sleepWindowIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const sequenceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const wasSleepingRef = useRef(false);
 
   // ─── Clear helpers ───────────────────────────────────────────────────────
 
@@ -137,51 +136,43 @@ export function useMascotLifecycle(): MascotLifecycle {
 
   const resetInactivity = useCallback(() => {
     const currentMode = modeRef.current;
+    const today = getDateService().today();
+    const isFirstOpenToday = lastActiveDate !== today;
 
     if (currentMode === 'sleeping') {
-      wakeUp();
+      // Update active date on first intentional interaction
+      useGremlyStore.setState({ lastActiveDate: today });
+
+      if (isFirstOpenToday) {
+        playMorningSequence(); // wake → pause → wave → idle
+      } else {
+        wakeUp(); // just wake, no wave
+      }
     } else if (currentMode === 'fallingAsleep') {
-      idle();
+      idle(); // cancel the falling asleep
     }
 
     startInactivityTimer();
-  }, [wakeUp, idle, startInactivityTimer]);
+  }, [wakeUp, idle, playMorningSequence, startInactivityTimer, lastActiveDate]);
 
   // ─── App foreground / background ─────────────────────────────────────────
 
   const handleAppOpen = useCallback(() => {
     const currentHour = getDateService().getHour();
     const today = getDateService().today();
+    const inSleepWindow = isInSleepWindow(currentHour, bedtimeHour, wakeHour);
+    const isFirstOpenToday = lastActiveDate !== today;
 
-    if (isInSleepWindow(currentHour, bedtimeHour, wakeHour)) {
-      // Within sleep window — show sleeping, wait for user interaction
+    if (inSleepWindow || isFirstOpenToday) {
+      // Show sleeping — wait for intentional interaction to wake
       goSleep();
-      wasSleepingRef.current = true;
       return;
     }
 
-    wasSleepingRef.current = false;
-    const isFirstOpenToday = lastActiveDate !== today;
-
-    // Persist today's date
-    useGremlyStore.setState({ lastActiveDate: today });
-
-    if (isFirstOpenToday) {
-      playMorningSequence();
-    } else {
-      playReturnSequence();
-    }
-
+    // Outside sleep window, already opened today — just wave
+    playReturnSequence();
     startInactivityTimer();
-  }, [
-    bedtimeHour,
-    wakeHour,
-    lastActiveDate,
-    goSleep,
-    playMorningSequence,
-    playReturnSequence,
-    startInactivityTimer,
-  ]);
+  }, [bedtimeHour, wakeHour, lastActiveDate, goSleep, playReturnSequence, startInactivityTimer]);
 
   // ─── AppState listener ───────────────────────────────────────────────────
 

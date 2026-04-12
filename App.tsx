@@ -548,7 +548,7 @@ export default function App() {
   }
 
   return (
-    <View style={{ flex: 1 }} onLayout={onLayoutRootView} onTouchStart={resetInactivity}>
+    <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
           <DsToggleProvider>
@@ -563,7 +563,10 @@ export default function App() {
                             <NavigationContainer
                               ref={navigationRef}
                               theme={scheme === 'dark' ? DarkTheme : DefaultTheme}
-                              onStateChange={() => Keyboard.dismiss()}
+                              onStateChange={() => {
+                                Keyboard.dismiss();
+                                resetInactivity();
+                              }}
                             >
                               <RootNavigator />
                               <OverlayHost />
