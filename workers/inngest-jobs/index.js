@@ -328,7 +328,7 @@ const generateSingleUserDco = inngest.createFunction(
       });
 
       // Step 6: Assemble backward-compatible DCO
-      const dco = assembleDcoFromFocus(flashResult.daily_focus, headline, snapshot);
+      const dco = assembleDcoFromFocus(flashResult.daily_focus, headline, snapshot, flashResult);
 
       // Step 7: Store updated Life Map + DCO to Supabase
       await step.run('store-results', async () => {
@@ -398,6 +398,7 @@ const generateSingleUserDco = inngest.createFunction(
         life_moment: dco.life_moment,
         tone: dco.tone,
         day_type: dco.day_type,
+        week_recap_count: dco.week_recap?.length || 0,
       };
     } catch (error) {
       console.error(`[DCO] Failed for user ${userId}:`, error);
@@ -6793,7 +6794,7 @@ function mergeLifeMapUpdates(lifeMap, threadUpdates) {
  * The dco column in user_daily_state keeps working for all existing consumers.
  * New fields (lead_story, daily_focus) are additive.
  */
-function assembleDcoFromFocus(dailyFocus, headline, snapshot) {
+function assembleDcoFromFocus(dailyFocus, headline, snapshot, flashResult) {
   const { computed, calendar } = snapshot;
 
   // Derive life_moment from lead story
@@ -6860,6 +6861,10 @@ function assembleDcoFromFocus(dailyFocus, headline, snapshot) {
     // NEW fields (additive)
     lead_story: dailyFocus.lead_story,
     daily_focus: dailyFocus,
+
+    // Week recap (from JOB 3)
+    week_recap: flashResult?.week_recap || [],
+    week_mood_arc: flashResult?.week_mood_arc || null,
 
     // Metadata
     user_id: snapshot.userId,
@@ -7177,7 +7182,12 @@ export default {
               snapshot,
               env,
             );
-            const dco = assembleDcoFromFocus(flashResult.daily_focus, headline, snapshot);
+            const dco = assembleDcoFromFocus(
+              flashResult.daily_focus,
+              headline,
+              snapshot,
+              flashResult,
+            );
 
             const now = new Date();
             const todayLocal = getUserLocalDate(u.timezone);
