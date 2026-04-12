@@ -175,7 +175,6 @@ export function TagsRow({
       >
         {chips.map((chip) => {
           const active = chip.active;
-          const textColor = colorMode === 'dark' ? palette.charcoal : '#666666';
           const provenance = chip.provenance;
 
           return (
@@ -184,7 +183,7 @@ export function TagsRow({
               style={[
                 styles.chip,
                 {
-                  backgroundColor: active ? '#F5F7F5' : 'transparent',
+                  backgroundColor: active ? 'rgba(46,85,64,0.08)' : 'transparent',
                 },
               ]}
             >
@@ -195,7 +194,7 @@ export function TagsRow({
                     style={[
                       styles.chipLabel,
                       {
-                        color: textColor,
+                        color: '#2E5540',
                         fontWeight: '500',
                       },
                     ]}
@@ -237,7 +236,7 @@ export function TagsRow({
                       style={[
                         styles.chipLabel,
                         {
-                          color: textColor,
+                          color: '#2E5540',
                           fontWeight: '400',
                         },
                       ]}
@@ -351,14 +350,13 @@ const styles = StyleSheet.create({
     paddingRight: tokenSpacing.base,
   },
   chip: {
-    // whisper-like pill: soft background, no harsh border
     borderWidth: 0,
-    backgroundColor: '#F5F7F5',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    backgroundColor: 'rgba(46,85,64,0.08)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     marginRight: tokenSpacing.sm,
-    minHeight: 32,
+    minHeight: 0,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -369,11 +367,11 @@ const styles = StyleSheet.create({
   chipLabel: {
     fontSize: 12,
     lineHeight: 16,
-    color: '#666666',
+    color: '#2E5540',
   },
   tagRemove: {
     fontSize: 14,
-    color: '#AAAAAA',
+    color: '#2E5540',
     marginLeft: 4,
     fontWeight: '400',
   },

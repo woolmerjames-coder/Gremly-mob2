@@ -17,7 +17,7 @@
 /* eslint-disable react-hooks/immutability */
 // Reanimated shared values require .value mutation - this is the correct pattern
 
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { View, StyleSheet, TouchableOpacity, Pressable, Dimensions } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -28,17 +28,21 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Video, ResizeMode } from 'expo-av';
+import LottieView, { type AnimationObject } from 'lottie-react-native';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { triggerLight } from '../../lib/haptics';
 import * as Haptics from 'expo-haptics';
+import { recolorLottieJson } from '../../lib/constants/gremlyPalettes';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Celebration video (looping dancing gremlin)
+// Celebration Lottie sources (colored only — gremly is fully fed at age-up)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const CELEBRATION_VIDEO = require('../../assets/mascot/gremly_celebration_loop.mp4');
+const DANCE_CELEB_GREEN = require('../../assets/lottie/character2_D_CELEB_B.json');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const PARTY_CELEB_GREEN = require('../../assets/lottie/character3_P_CELEB_B.json');
 
 interface AgeUpCelebrationModalProps {
   visible: boolean;
@@ -230,6 +234,26 @@ export default function AgeUpCelebrationModal({
   const hasAnimatedInRef = useRef(false);
   const hapticCleanupRef = useRef<(() => void) | null>(null);
 
+  const gremlyColor = useGremlyStore((s) => s.gremlyColor);
+
+  // Pick celebration animation: party for age 1, dance for age 2, random thereafter
+  const [randomIsParty] = useState(() => Math.random() > 0.5);
+  const [isPartyCeleb, celebSource] = useMemo(() => {
+    let isParty: boolean;
+    let source: AnimationObject;
+    if (newAge === 1) {
+      isParty = true;
+      source = PARTY_CELEB_GREEN;
+    } else if (newAge === 2) {
+      isParty = false;
+      source = DANCE_CELEB_GREEN;
+    } else {
+      isParty = randomIsParty;
+      source = isParty ? PARTY_CELEB_GREEN : DANCE_CELEB_GREEN;
+    }
+    return [isParty, recolorLottieJson(source, gremlyColor) as AnimationObject] as const;
+  }, [newAge, gremlyColor, randomIsParty]);
+
   // Animation shared values
   const backdropOpacity = useSharedValue(0);
   const cardTranslateY = useSharedValue(SCREEN_HEIGHT);
@@ -349,15 +373,14 @@ export default function AgeUpCelebrationModal({
                   {getMilestoneTitle(newAge, isTierTransition, tierName)}
                 </Text>
 
-                {/* Celebration Video - UNCHANGED */}
+                {/* Celebration Lottie */}
                 <View style={styles.mascotContainer}>
-                  <Video
-                    source={CELEBRATION_VIDEO}
-                    style={styles.mascotVideo}
-                    resizeMode={ResizeMode.CONTAIN}
-                    shouldPlay={visible}
-                    isLooping
-                    isMuted
+                  <LottieView
+                    source={celebSource}
+                    autoPlay={visible}
+                    loop={true}
+                    style={styles.mascotLottie}
+                    renderMode="SOFTWARE"
                   />
                 </View>
 
@@ -434,9 +457,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'center',
   },
-  mascotVideo: {
-    width: 160,
-    height: 160,
+  mascotLottie: {
+    width: 140,
+    height: 163,
   },
   nowAge: {
     fontSize: 28,

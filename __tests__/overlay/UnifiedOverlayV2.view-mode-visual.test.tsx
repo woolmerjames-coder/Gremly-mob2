@@ -188,7 +188,7 @@ describe('UnifiedOverlayV2 - View Mode Visual', () => {
   });
 
   describe('Edit button interaction', () => {
-    it('pressing Edit button calls openEdit with correct record', () => {
+    it('pressing Edit button toggles to edit mode inline', () => {
       const onClose = jest.fn();
       const { getAllByLabelText } = render(
         <UnifiedOverlayV2
@@ -199,16 +199,11 @@ describe('UnifiedOverlayV2 - View Mode Visual', () => {
         />,
       );
 
-      // Use first Edit button (footer Edit button)
       const editButtons = getAllByLabelText('Edit');
       fireEvent.press(editButtons[0]);
 
-      expect(mockOpenEdit).toHaveBeenCalledTimes(1);
-      expect(mockOpenEdit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          record: expect.objectContaining({ id: 'test-todo-123' }),
-        }),
-      );
+      // openEdit should NOT be called — inline toggle via setDisplayMode('edit')
+      expect(mockOpenEdit).not.toHaveBeenCalled();
     });
   });
 
@@ -268,16 +263,14 @@ describe('UnifiedOverlayV2 - View Mode Visual', () => {
       expect(allEditButtons).toBeNull();
     });
 
-    it('shows type selector pills in create mode', () => {
+    it('shows type pill in create mode', () => {
       const onClose = jest.fn();
-      const { getByText } = render(
+      const { getByTestId } = render(
         <UnifiedOverlayV2 visible={true} mode="create" onClose={onClose} />,
       );
 
-      // Type selector should be visible and interactable in create mode
-      expect(getByText('Note')).toBeTruthy();
-      expect(getByText('To-Do')).toBeTruthy();
-      expect(getByText('Habit')).toBeTruthy();
+      // Type pill should be visible and tappable in create mode
+      expect(getByTestId('type-pill')).toBeTruthy();
     });
   });
 });

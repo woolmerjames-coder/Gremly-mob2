@@ -146,8 +146,11 @@ export default function SetRemindersModal({
 
   // ─── Inline edit helpers ───────────────────────────────────────────────
 
-  const commitEdit = useCallback(
-    (id: string) => {
+  // Pure helper: build the updated reminders array with the current edit applied.
+  // Used by both commitEdit (to update local state) and handleSave (to pass the
+  // synchronously-computed list to onSave, avoiding a stale-closure bug).
+  const buildRemindersWithEdit = useCallback(
+    (id: string): ItemReminder[] => {
       const time = padTime(editDate.getHours(), editDate.getMinutes());
       const y = editDate.getFullYear();
       const m = String(editDate.getMonth() + 1).padStart(2, '0');
@@ -163,13 +166,19 @@ export default function SetRemindersModal({
 
       if (id === 'new') {
         updated.id = makeId();
-        setLocalReminders((prev) => [...prev, updated]);
-      } else {
-        setLocalReminders((prev) => prev.map((r) => (r.id === id ? updated : r)));
+        return [...localReminders, updated];
       }
+      return localReminders.map((r) => (r.id === id ? updated : r));
+    },
+    [editDate, editFrequency, editDaysOfWeek, localReminders],
+  );
+
+  const commitEdit = useCallback(
+    (id: string) => {
+      setLocalReminders(buildRemindersWithEdit(id));
       setExpandedId(null);
     },
-    [editDate, editFrequency, editDaysOfWeek],
+    [buildRemindersWithEdit],
   );
 
   const toggleExpand = useCallback(
@@ -288,13 +297,14 @@ export default function SetRemindersModal({
   }, []);
 
   const handleSave = useCallback(() => {
-    // If still editing, commit first
-    if (expandedId) {
-      commitEdit(expandedId);
-    }
-    onSave(localReminders);
+    // Compute final list synchronously — if the editor is open, fold in the
+    // pending edit so we don't pass stale state to onSave.
+    const finalReminders = expandedId
+      ? buildRemindersWithEdit(expandedId)
+      : localReminders;
+    onSave(finalReminders);
     onClose();
-  }, [localReminders, onSave, onClose, expandedId, commitEdit]);
+  }, [localReminders, onSave, onClose, expandedId, buildRemindersWithEdit]);
 
   // ─── Inline edit section renderer ──────────────────────────────────────
 

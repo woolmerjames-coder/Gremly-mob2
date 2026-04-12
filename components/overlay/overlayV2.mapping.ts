@@ -1,4 +1,3 @@
-import type { V2State, BaseType } from './overlayV2.state';
 import { TAG_STOP_WORDS } from '../../lib/tags/constants';
 
 // Common filler words that we discard from AI tag suggestions so only meaningful tags persist.
@@ -76,15 +75,6 @@ const ALLOWED_TAGS = new Set(
 const SYNONYM_RULES: Array<{ pattern: RegExp; tag: string }> = [
   { pattern: /\b(run(?:ning)?|jog(?:ging)?|route)\b/i, tag: 'running' },
 ];
-
-function coerceIsoTimestamp(value: string | null | undefined): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const ms = Date.parse(trimmed);
-  if (Number.isNaN(ms)) return null;
-  return new Date(ms).toISOString();
-}
 
 function matchSynonym(candidate: string): string | null {
   for (const rule of SYNONYM_RULES) {
@@ -309,150 +299,6 @@ export function sanitizeSuggestedTags(text: string, aiTags: string[]): string[] 
   }
 
   return result;
-}
-
-export function toCreateOrUpdateInput(
-  baseType: BaseType,
-  s: V2State,
-  spaceIdProp: string | null,
-  existingEntity?: any,
-) {
-  const textForTags = (() => {
-    const logText = `${s.log.title ?? ''}\n${s.log.body ?? ''}`;
-    if (baseType === 'log') return logText;
-
-    if (baseType === 'todo') {
-      const todoDetails = s.todo.details || s.log.body || '';
-      return `${s.todo.title ?? ''}\n${todoDetails}`;
-    }
-
-    return `${s.habit.title ?? ''}\n${s.habit.notes ?? ''}`;
-  })();
-  const normalizeMetaValues = (values: string[] | undefined | null): string[] => {
-    if (!Array.isArray(values)) return [];
-    const normalized = values
-      .map((value) => (typeof value === 'string' ? value.trim().toLowerCase() : ''))
-      .filter(Boolean);
-    return Array.from(new Set(normalized));
-  };
-  const normalizedStickyMeta = normalizeMetaValues(s.stickyTags);
-  const normalizedTombstonesMeta = normalizeMetaValues(s.tagTombstones);
-
-  const manualStickyKeys = normalizedStickyMeta
-    .map((value) => {
-      if (!value) return null;
-      if (value.startsWith('#') || value.startsWith('@') || value.startsWith('*')) {
-        const stripped = value.replace(/^[#@*]+/, '');
-        return stripped || null;
-      }
-      return value;
-    })
-    .filter((value): value is string => !!value);
-
-  const sanitized = sanitizeSuggestedTags(textForTags ?? '', Array.isArray(s.tags) ? s.tags : []);
-  const combined = new Map<string, string>();
-  sanitized.forEach((tag) => {
-    const key = tag.toLowerCase();
-    if (!combined.has(key)) combined.set(key, tag);
-  });
-  manualStickyKeys.forEach((tag) => {
-    const key = tag.toLowerCase();
-    if (!combined.has(key)) combined.set(key, tag);
-  });
-
-  const combinedTags = Array.from(combined.values());
-  const tagsForSave =
-    baseType === 'log'
-      ? combinedTags
-      : combinedTags.filter((tag) => {
-          const normalized = tag.startsWith('#') ? tag.slice(1) : tag;
-          return normalized !== 'journal';
-        });
-
-  // Preserve existing views and tags_meta if available
-  const preservedViews = existingEntity?.views ?? {};
-  const existingTagsMeta = existingEntity?.tags_meta ?? { sticky: [], tombstones: [] };
-
-  // Only override tags_meta if we have new sticky/tombstone data, otherwise preserve existing
-  const tagsMeta = {
-    sticky:
-      normalizedStickyMeta.length > 0 ? normalizedStickyMeta : (existingTagsMeta.sticky ?? []),
-    tombstones:
-      normalizedTombstonesMeta.length > 0
-        ? normalizedTombstonesMeta
-        : (existingTagsMeta.tombstones ?? []),
-  };
-
-  if (baseType === 'todo') {
-    const derivedTitle = s.todo.title || s.todo.details.split(/\r?\n/)[0] || 'Untitled';
-
-    // GREMLY TODO DATE MODEL:
-    // Use due_day (YYYY-MM-DD) as the canonical source of truth.
-    // Do NOT use due_at for Mind Drop / Today logic - it causes UTC timezone drift.
-    const dueDay = s.todo.due_day ?? null;
-    const dueTime = s.todo.due_time ?? null;
-
-    // Set undefined_due based on whether a due date is set
-    const undefinedDue = dueDay === null;
-
-    return {
-      type: 'todo' as const,
-      title: derivedTitle,
-      name: derivedTitle,
-      details: s.todo.details || null,
-      // due_at is intentionally null - we use due_day for all-day todos
-      due_at: null,
-      due_day: dueDay,
-      due_date: dueDay, // Mirror due_day for backward compatibility
-      due_time: dueTime,
-      undefined_due: undefinedDue,
-      space_id: s.spaceId ?? spaceIdProp ?? null,
-      origin: 'catchall' as const,
-      tags: [...tagsForSave],
-      tags_meta: tagsMeta,
-      views: preservedViews,
-      reminders: (s as any).itemReminders ?? null,
-    };
-  }
-  if (baseType === 'habit') {
-    return {
-      type: 'habit' as const,
-      title: s.habit.title || s.habit.notes.split(/\r?\n/)[0] || 'Untitled',
-      notes: s.habit.notes || null,
-      frequency: s.habit.schedule ?? 'custom',
-      space_id: s.spaceId ?? spaceIdProp ?? null,
-      origin: 'catchall' as const,
-      tags: [...tagsForSave],
-      tags_meta: tagsMeta,
-      views: preservedViews,
-      reminders: (s as any).itemReminders ?? null,
-    };
-  }
-
-  // note
-  const base: any = {
-    type: 'note' as const,
-    subtype: 'catchall' as const,
-    title: s.log.title || s.log.body.split(/\r?\n/)[0] || 'Untitled note',
-    body: s.log.body,
-    space_id: s.spaceId ?? spaceIdProp ?? null,
-    origin: 'catchall' as const,
-    tags: [...tagsForSave],
-    tags_meta: tagsMeta,
-    views: preservedViews,
-  };
-
-  const moodPatch = sanitized.includes('journal') ? { mood: s.mood ?? 'neu' } : { mood: null };
-
-  let fmtVal: any = null;
-  if (sanitized.includes('list')) fmtVal = 'checkboxes';
-  else if (s.format) fmtVal = s.format;
-  const fmtPatch = fmtVal ? { fmt: fmtVal } : {};
-
-  const reminderIso = coerceIsoTimestamp(s.reminderAt);
-  const datePatch = reminderIso ? { date: reminderIso } : {};
-
-  return { ...base, ...moodPatch, ...fmtPatch, ...datePatch };
 }
 
 export async function linkSelectedPerson(repo: any, entityId?: string, personId?: string) {

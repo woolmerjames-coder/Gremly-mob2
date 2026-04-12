@@ -2,7 +2,6 @@ import React from 'react';
 import { env } from '../../lib/env';
 import { UnifiedOverlayV2 } from './UnifiedOverlayV2';
 import { UnifiedCreateOverlay } from './UnifiedCreateOverlay';
-import { ManualAddOverlay } from '../ManualAddOverlay';
 import type { UnifiedCreateOverlayProps } from './UnifiedCreateOverlay';
 
 /**
@@ -14,13 +13,8 @@ export function OverlayComponent(props: UnifiedCreateOverlayProps) {
   // Prefer the new V2 overlay when feature gate enabled
   if (env.features?.overlayV2) return <UnifiedOverlayV2 {...props} />;
 
-  // Fall back to the current unified overlay when configured
-  if (process.env.EXPO_PUBLIC_UNIFIED_OVERLAY !== 'off') {
-    return <UnifiedCreateOverlay {...props} />;
-  }
-
-  // Legacy/manual fallback
-  return <ManualAddOverlay {...(props as any)} />;
+  // Fall back to the current unified overlay
+  return <UnifiedCreateOverlay {...props} />;
 }
 
 export default OverlayComponent;

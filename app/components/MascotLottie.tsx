@@ -20,6 +20,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { recolorLottieJson, GREMLY_PALETTES } from '../../lib/constants/gremlyPalettes';
+import type { AnimationMode } from '../../lib/types';
+import { useMascotMode } from '../../contexts/MascotModeContext';
 
 // Lottie sources: 3 animations × 2 colorways (source props NEVER change at runtime)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -34,6 +36,30 @@ const DROP_GREEN = require('../../assets/lottie/character2_B.json');
 const FED_GREY = require('../../assets/lottie/character3_A.json');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const FED_GREEN = require('../../assets/lottie/character3_B.json');
+
+// NEW — Waving (grey + colored, gauge-visible)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const WAVING_GREY = require('../../assets/lottie/character1_WAVING_A.json');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const WAVING_GREEN = require('../../assets/lottie/character1_WAVING_B.json');
+
+// NEW — Falling asleep (grey + colored, gauge-visible)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const FALL_ASLEEP_GREY = require('../../assets/lottie/character4_F_ASLEEP_A.json');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const FALL_ASLEEP_GREEN = require('../../assets/lottie/character4_F_ASLEEP_B.json');
+
+// NEW — Sleeping loop (grey + colored, gauge-visible)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const SLEEPING_GREY = require('../../assets/lottie/character5_SLEEPING_A.json');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const SLEEPING_GREEN = require('../../assets/lottie/character5_SLEEPING_B.json');
+
+// NEW — Waking up (grey + colored, gauge-visible)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const WAKE_UP_GREY = require('../../assets/lottie/character6_W_UP_A.json');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const WAKE_UP_GREEN = require('../../assets/lottie/character6_W_UP_B.json');
 
 const MASCOT_WIDTH = 95;
 const MASCOT_HEIGHT = 111;
@@ -75,36 +101,52 @@ function gaugeToFill(gaugeValue: number): number {
   return EDGE_FILL_RANGE + middleProgress * middleFillRange;
 }
 
-type AnimationMode = 'idle' | 'drop' | 'fed';
-
+/** @deprecated Use the `mode` prop instead of the imperative handle. */
 export type MascotLottieHandle = {
   celebrate: () => void;
   celebrateFed: () => void;
 };
 
 type Props = {
+  /** Controlled animation mode – when supplied the component is fully controlled. */
+  mode?: AnimationMode;
   style?: ViewStyle;
   showFullColor?: boolean;
   drainAnimation?: boolean;
   drainVisible?: boolean;
+  animationOverride?: AnimationMode;
 };
 
 const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
-  ({ style, showFullColor = false, drainAnimation = false, drainVisible = false }, ref) => {
-    const [mode, setMode] = useState<AnimationMode>('idle');
+  (
+    {
+      mode: modeProp,
+      style,
+      showFullColor = false,
+      drainAnimation = false,
+      drainVisible = false,
+      animationOverride,
+    },
+    ref,
+  ) => {
+    // Context-provided mode as fallback when no explicit prop is passed
+    const { mode: contextMode } = useMascotMode();
+    // Internal state only used by the deprecated imperative handle
+    const [imperativeMode, setImperativeMode] = useState<AnimationMode>('idle');
     const isCelebratingRef = useRef(false);
+    // Imperative mode wins during active celebrations; otherwise prop > context
+    // The ref avoids async-state race conditions during celebrate —
+    // setImperativeMode (state) always accompanies ref writes, forcing a re-render.
+    /* eslint-disable react-hooks/refs */
+    const mode: AnimationMode = isCelebratingRef.current
+      ? imperativeMode
+      : (modeProp ?? contextMode ?? 'idle');
+    /* eslint-enable react-hooks/refs */
     const fedPlayCountRef = useRef(0);
     const reduceMotion = useReducedMotion();
 
-    // Refs for green LottieViews
-    const greenIdleRef = useRef<LottieView>(null);
-    const greenDropRef = useRef<LottieView>(null);
+    // Only fed needs a ref (for 2× replay via reset+play)
     const greenFedRef = useRef<LottieView>(null);
-
-    // Refs for grey LottieViews
-    const greyIdleRef = useRef<LottieView>(null);
-    const greyDropRef = useRef<LottieView>(null);
-    const greyFedRef = useRef<LottieView>(null);
 
     // Store subscriptions
     const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
@@ -134,6 +176,22 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
       () => getCachedRecolor(FED_GREEN, 'fed', gremlyColor),
       [gremlyColor],
     );
+    const wavingColored = useMemo(
+      () => getCachedRecolor(WAVING_GREEN, 'waving', gremlyColor),
+      [gremlyColor],
+    );
+    const fallAsleepColored = useMemo(
+      () => getCachedRecolor(FALL_ASLEEP_GREEN, 'fallAsleep', gremlyColor),
+      [gremlyColor],
+    );
+    const sleepingColored = useMemo(
+      () => getCachedRecolor(SLEEPING_GREEN, 'sleeping', gremlyColor),
+      [gremlyColor],
+    );
+    const wakeUpColored = useMemo(
+      () => getCachedRecolor(WAKE_UP_GREEN, 'wakeUp', gremlyColor),
+      [gremlyColor],
+    );
 
     // Drain animation (onboarding step 3): starts full, drains to empty on visibility
     const drainHeight = useSharedValue(MASCOT_HEIGHT);
@@ -159,10 +217,15 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
     const fillHeight = useSharedValue(FILL_OFFSET_BOTTOM + initialFill * FILL_RANGE);
 
     const isFedShared = useSharedValue(isFedToday ? 1 : 0);
+    const isFedAnimating = useSharedValue(0);
 
     useEffect(() => {
       isFedShared.value = isFedToday ? 1 : 0;
     }, [isFedToday]);
+
+    useEffect(() => {
+      isFedAnimating.value = mode === 'fed' ? 1 : 0;
+    }, [mode]);
 
     useEffect(() => {
       const clampedValue = Math.min(Math.max(feedingGaugeValue, 0), 1);
@@ -179,66 +242,80 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
     const clipAnimatedStyle = useAnimatedStyle(() => ({
       height: showFullColor
         ? MASCOT_HEIGHT
-        : isFedShared.value === 1
+        : isFedShared.value === 1 || isFedAnimating.value === 1
           ? MASCOT_HEIGHT
           : fillHeight.value,
     }));
 
-    // Play one-shot animations when mode changes
-    useEffect(() => {
-      if (mode === 'drop') {
-        greenDropRef.current?.reset();
-        greenDropRef.current?.play();
-        greyDropRef.current?.reset();
-        greyDropRef.current?.play();
-      } else if (mode === 'fed') {
-        greenFedRef.current?.reset();
-        greenFedRef.current?.play();
-        greyFedRef.current?.reset();
-        greyFedRef.current?.play();
-      }
-    }, [mode]);
-
+    /** @deprecated Use the mode prop instead. */
     const celebrate = useCallback(() => {
       if (isCelebratingRef.current) return;
       isCelebratingRef.current = true;
-      setMode('drop');
+      setImperativeMode('drop');
     }, []);
 
+    /** @deprecated Use the mode prop instead. */
     const celebrateFed = useCallback(() => {
       if (isCelebratingRef.current) return;
       isCelebratingRef.current = true;
       fedPlayCountRef.current = 0;
-      setMode('fed');
+      setImperativeMode('fed');
     }, []);
 
     const handleDropFinish = useCallback(() => {
-      if (mode !== 'drop') return;
       isCelebratingRef.current = false;
-      setMode('idle');
-    }, [mode]);
+      setImperativeMode('idle');
+    }, []);
 
     const handleFedFinish = useCallback(() => {
-      if (mode !== 'fed') return;
       fedPlayCountRef.current += 1;
       if (fedPlayCountRef.current < 2) {
-        // Replay: reset and play without changing mode or source
+        // Replay via ref (grey layer is hidden during fed)
         greenFedRef.current?.reset();
         greenFedRef.current?.play();
-        greyFedRef.current?.reset();
-        greyFedRef.current?.play();
       } else {
         isCelebratingRef.current = false;
-        setMode('idle');
+        setImperativeMode('idle');
       }
-    }, [mode]);
+    }, []);
+
+    const onDropFinish = useCallback(
+      (isCancelled: boolean) => {
+        if (!isCancelled) handleDropFinish();
+      },
+      [handleDropFinish],
+    );
+
+    const onFedFinish = useCallback(
+      (isCancelled: boolean) => {
+        if (!isCancelled) handleFedFinish();
+      },
+      [handleFedFinish],
+    );
 
     useImperativeHandle(ref, () => ({ celebrate, celebrateFed }), [celebrate, celebrateFed]);
 
-    const isActive = (m: AnimationMode) => mode === m;
-
     // ─── Simplified render for onboarding (showFullColor) ───
     if (showFullColor && !drainAnimation) {
+      if (animationOverride === 'waving') {
+        return (
+          <View
+            style={[styles.wrapper, style]}
+            accessible={false}
+            importantForAccessibility="no-hide-descendants"
+            accessibilityElementsHidden={true}
+          >
+            <LottieView
+              source={getCachedRecolor(WAVING_GREEN, 'waving', gremlyColor)}
+              autoPlay={!reduceMotion}
+              loop={!reduceMotion}
+              speed={0.5}
+              renderMode="SOFTWARE"
+              style={styles.lottie}
+            />
+          </View>
+        );
+      }
       return (
         <View
           style={[styles.wrapper, style]}
@@ -253,7 +330,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
               autoPlay={!reduceMotion}
               loop={!reduceMotion}
               speed={0.5}
-              renderMode="HARDWARE"
+              renderMode="SOFTWARE"
               style={[
                 styles.lottie,
                 { position: 'absolute', opacity: gremlyColor === variant.id ? 1 : 0 },
@@ -279,7 +356,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
             autoPlay={!reduceMotion}
             loop={!reduceMotion}
             speed={0.5}
-            renderMode="HARDWARE"
+            renderMode="SOFTWARE"
             style={styles.lottie}
           />
           {/* Colored layer clipped by drain */}
@@ -289,7 +366,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
               autoPlay={!reduceMotion}
               loop={!reduceMotion}
               speed={0.5}
-              renderMode="HARDWARE"
+              renderMode="SOFTWARE"
               style={styles.lottieGreen}
             />
           </Animated.View>
@@ -304,70 +381,134 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
         importantForAccessibility="no-hide-descendants"
         accessibilityElementsHidden={true}
       >
-        {/* ─── GREY LAYER (bottom, hidden when fed or showFullColor) ─── */}
-        {!isFedToday && !showFullColor && (
+        {/* ─── GREY LAYER (one LottieView per mode, conditionally mounted) ─── */}
+        {!isFedToday && mode !== 'fed' && !showFullColor && (
           <View style={styles.greyContainer}>
-            <LottieView
-              ref={greyIdleRef}
-              source={IDLE_GREY}
-              autoPlay={!reduceMotion}
-              loop={!reduceMotion}
-              renderMode="HARDWARE"
-              cacheComposition
-              style={[styles.lottie, { opacity: isActive('idle') ? 1 : 0 }]}
-            />
-            <LottieView
-              ref={greyDropRef}
-              source={DROP_GREY}
-              autoPlay={false}
-              loop={false}
-              renderMode="HARDWARE"
-              cacheComposition
-              style={[styles.lottie, { opacity: isActive('drop') ? 1 : 0 }]}
-            />
-            <LottieView
-              ref={greyFedRef}
-              source={FED_GREY}
-              autoPlay={false}
-              loop={false}
-              renderMode="HARDWARE"
-              cacheComposition
-              style={[styles.lottie, { opacity: isActive('fed') ? 1 : 0 }]}
-            />
+            {mode === 'idle' && (
+              <LottieView
+                source={IDLE_GREY}
+                autoPlay={!reduceMotion}
+                loop
+                renderMode="SOFTWARE"
+                style={styles.lottie}
+              />
+            )}
+            {mode === 'drop' && (
+              <LottieView
+                source={DROP_GREY}
+                autoPlay={!reduceMotion}
+                loop={false}
+                renderMode="SOFTWARE"
+                style={styles.lottie}
+              />
+            )}
+            {mode === 'waving' && (
+              <LottieView
+                source={WAVING_GREY}
+                autoPlay={!reduceMotion}
+                loop={false}
+                renderMode="SOFTWARE"
+                style={styles.lottie}
+              />
+            )}
+            {mode === 'fallingAsleep' && (
+              <LottieView
+                source={FALL_ASLEEP_GREY}
+                autoPlay={!reduceMotion}
+                loop={false}
+                renderMode="SOFTWARE"
+                style={styles.lottie}
+              />
+            )}
+            {mode === 'sleeping' && (
+              <LottieView
+                source={SLEEPING_GREY}
+                autoPlay={!reduceMotion}
+                loop
+                renderMode="SOFTWARE"
+                style={styles.lottie}
+              />
+            )}
+            {mode === 'wakingUp' && (
+              <LottieView
+                source={WAKE_UP_GREY}
+                autoPlay={!reduceMotion}
+                loop={false}
+                renderMode="SOFTWARE"
+                style={styles.lottie}
+              />
+            )}
           </View>
         )}
 
-        {/* ─── GREEN LAYER (top, clipped from bottom up) ─── */}
+        {/* ─── GREEN LAYER (one LottieView per mode, clipped from bottom up) ─── */}
         <Animated.View style={[styles.clipContainer, clipAnimatedStyle]}>
-          <LottieView
-            ref={greenIdleRef}
-            source={idleColored}
-            autoPlay={!reduceMotion}
-            loop={!reduceMotion}
-            renderMode="HARDWARE"
-            cacheComposition
-            style={[styles.lottieGreen, { opacity: isActive('idle') ? 1 : 0 }]}
-          />
-          <LottieView
-            ref={greenDropRef}
-            source={dropColored}
-            autoPlay={false}
-            loop={false}
-            onAnimationFinish={handleDropFinish}
-            renderMode="HARDWARE"
-            cacheComposition
-            style={[styles.lottieGreen, { opacity: isActive('drop') ? 1 : 0 }]}
-          />
-          <LottieView
-            ref={greenFedRef}
-            source={fedColored}
-            autoPlay={false}
-            loop={false}
-            onAnimationFinish={handleFedFinish}
-            renderMode="HARDWARE"
-            cacheComposition
-            style={[styles.lottieGreen, { opacity: isActive('fed') ? 1 : 0 }]}
-          />
+          {mode === 'idle' && (
+            <LottieView
+              source={idleColored}
+              autoPlay={!reduceMotion}
+              loop
+              renderMode="SOFTWARE"
+              style={styles.lottieGreen}
+            />
+          )}
+          {mode === 'drop' && (
+            <LottieView
+              source={dropColored}
+              autoPlay={!reduceMotion}
+              loop={false}
+              renderMode="SOFTWARE"
+              style={styles.lottieGreen}
+              onAnimationFinish={onDropFinish}
+            />
+          )}
+          {mode === 'fed' && (
+            <LottieView
+              ref={greenFedRef}
+              source={fedColored}
+              autoPlay={!reduceMotion}
+              loop={false}
+              renderMode="SOFTWARE"
+              style={styles.lottieGreen}
+              onAnimationFinish={onFedFinish}
+            />
+          )}
+          {mode === 'waving' && (
+            <LottieView
+              source={wavingColored}
+              autoPlay={!reduceMotion}
+              loop={false}
+              renderMode="SOFTWARE"
+              style={styles.lottieGreen}
+            />
+          )}
+          {mode === 'fallingAsleep' && (
+            <LottieView
+              source={fallAsleepColored}
+              autoPlay={!reduceMotion}
+              loop={false}
+              renderMode="SOFTWARE"
+              style={styles.lottieGreen}
+            />
+          )}
+          {mode === 'sleeping' && (
+            <LottieView
+              source={sleepingColored}
+              autoPlay={!reduceMotion}
+              loop
+              renderMode="SOFTWARE"
+              style={styles.lottieGreen}
+            />
+          )}
+          {mode === 'wakingUp' && (
+            <LottieView
+              source={wakeUpColored}
+              autoPlay={!reduceMotion}
+              loop={false}
+              renderMode="SOFTWARE"
+              style={styles.lottieGreen}
+            />
+          )}
         </Animated.View>
       </View>
     );

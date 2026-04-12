@@ -1,16 +1,18 @@
 import React from 'react';
-import { View, TextInput, Pressable, StyleSheet, useColorScheme, Dimensions } from 'react-native';
-import { ChevronDown, CheckSquare } from 'lucide-react-native';
+import { View, TextInput, Pressable, StyleSheet, useColorScheme } from 'react-native';
+import {
+  ArrowLeft,
+  Bold,
+  Italic,
+  List,
+  ListOrdered,
+  AlignLeft,
+  CheckSquare,
+} from 'lucide-react-native';
 import { Text } from '../../ui';
-import { format } from 'date-fns';
-import { getDateService } from '../../lib/date';
-import { lightTokens, darkTokens } from '../../design/tokens';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BaseType } from './overlayV2.state';
 import { ChecklistInput } from './ChecklistInput';
-
-// Max height for text area: 40% of screen height
-const SCREEN_HEIGHT = Dimensions.get('window').height;
-const TEXT_AREA_MAX_HEIGHT = Math.round(SCREEN_HEIGHT * 0.4);
 
 export type OverlayExpandedEditorProps = {
   baseType: BaseType; // 'log' | 'todo' | 'habit'
@@ -28,250 +30,167 @@ export type OverlayExpandedEditorProps = {
   onToggleChecklistMode: () => void;
 };
 
-/**
- * OverlayExpandedEditor - A full-height text editor for the overlay.
- * Provides a larger editing area with collapse functionality.
- *
- * Log subtype selection is handled via the existing chip in UnifiedOverlayV2,
- * not inside this component. We use effectiveLogSubtype for styling/UX tweaks only.
- */
 export function OverlayExpandedEditor({
-  baseType,
-  effectiveLogSubtype,
   text,
   onChangeText,
   colorMode,
-  isLog,
   onCollapse,
-  journalDateTime,
   isChecklistMode,
   onToggleChecklistMode,
 }: OverlayExpandedEditorProps) {
-  // Derive label from baseType - Note: 'list' subtype is legacy, checklist mode is separate
-  const getLabel = (): string => {
-    if (baseType === 'todo') return 'To-Do';
-    if (baseType === 'habit') return 'Habit';
-    if (isLog && effectiveLogSubtype) {
-      if (effectiveLogSubtype === 'journal') return 'Journal';
-      if (effectiveLogSubtype === 'idea') return 'Idea';
-      // 'list' subtype is legacy - display as 'Note' since checklist is now a separate toggle
-    }
-    return 'Note';
-  };
+  const insets = useSafeAreaInsets();
 
-  const isDark = colorMode === 'dark';
-  const tokens = isDark ? darkTokens : lightTokens;
-
-  const isJournalMode = baseType === 'log' && effectiveLogSubtype === 'journal';
-
-  // Current date/time for header
-  const currentDateTime = journalDateTime ?? getDateService().now();
-
-  // Format date/time - more expansive for journal, compact for others
-  const formatDateTime = (date: Date, isJournal: boolean): string => {
-    if (isJournal) {
-      // Journal: "Wednesday • December 3 • 2:30 PM"
-      return format(date, 'EEEE • MMMM d • h:mm a');
-    }
-    // Standard: "Dec 3, 2:30 PM"
-    return format(date, 'MMM d, h:mm a');
-  };
+  const toolbarButtons: Array<{ key: string; Icon: typeof Bold; label: string; active?: boolean }> = [
+    { key: 'bold', Icon: Bold, label: 'Bold' },
+    { key: 'italic', Icon: Italic, label: 'Italic' },
+    { key: 'bullet', Icon: List, label: 'Bullet list' },
+    { key: 'numbered', Icon: ListOrdered, label: 'Numbered list' },
+    { key: 'checklist', Icon: CheckSquare, label: 'Checklist', active: isChecklistMode },
+    { key: 'align', Icon: AlignLeft, label: 'Alignment' },
+  ];
 
   return (
-    <View style={styles.container}>
-      {/* Header row with collapse button and label */}
-      <View style={styles.headerRow}>
+    <View style={[styles.overlay, { paddingTop: insets.top }]}>
+      {/* Header */}
+      <View style={styles.header}>
         <Pressable
           onPress={onCollapse}
-          style={({ pressed }) => [
-            styles.collapseButton,
-            {
-              backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(46, 85, 64, 0.08)',
-              opacity: pressed ? 0.7 : 1,
-            },
-          ]}
-          accessibilityLabel="Collapse editor"
+          style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.6 }]}
+          accessibilityLabel="Back"
           accessibilityRole="button"
+          hitSlop={8}
         >
-          <ChevronDown size={20} color={isDark ? '#FFFFFF' : '#2E5540'} />
+          <ArrowLeft size={20} color="#6B665C" />
+          <Text style={styles.backText}>Back</Text>
         </Pressable>
-        <View style={styles.headerTextContainer}>
-          <View style={styles.headerTitleRow}>
-            <Text style={[styles.headerLabel, { color: isDark ? tokens.colors.text : '#2E5540' }]}>
-              {getLabel()}
-            </Text>
-            {/* Future: Journal "inspire me" icon placeholder */}
-            {/* {isJournalMode && (
-              <Pressable
-                onPress={() => {}}
-                style={styles.inspireButton}
-                accessibilityLabel="Get writing prompt"
-              >
-                <Sparkles size={16} color={isDark ? '#7C9885' : '#2E5540'} />
-              </Pressable>
-            )} */}
-          </View>
-          {/* Date/time line - shown for all types, emphasized for journal */}
-          <Text
-            style={[
-              isJournalMode ? styles.journalDateTime : styles.standardDateTime,
-              {
-                color: isJournalMode
-                  ? isDark
-                    ? 'rgba(255,255,255,0.85)'
-                    : 'rgba(46, 85, 64, 0.9)'
-                  : isDark
-                    ? 'rgba(255,255,255,0.5)'
-                    : 'rgba(46, 85, 64, 0.6)',
-              },
-            ]}
-          >
-            {formatDateTime(currentDateTime, isJournalMode)}
-          </Text>
-        </View>
-      </View>
 
-      {/* Toolbar area with checklist toggle */}
-      <View style={styles.toolbar}>
         <Pressable
-          onPress={onToggleChecklistMode}
-          style={({ pressed }) => [
-            styles.toolbarButton,
-            {
-              backgroundColor: isChecklistMode
-                ? isDark
-                  ? 'rgba(124, 152, 133, 0.3)'
-                  : 'rgba(46, 85, 64, 0.12)'
-                : 'transparent',
-              opacity: pressed ? 0.7 : 1,
-            },
-          ]}
-          accessibilityLabel={isChecklistMode ? 'Disable checklist mode' : 'Enable checklist mode'}
+          onPress={onCollapse}
+          style={({ pressed }) => [styles.doneButton, pressed && { opacity: 0.85 }]}
+          accessibilityLabel="Done"
           accessibilityRole="button"
+          hitSlop={8}
         >
-          <CheckSquare
-            size={18}
-            color={
-              isChecklistMode
-                ? isDark
-                  ? '#7C9885'
-                  : '#2E5540'
-                : isDark
-                  ? 'rgba(255,255,255,0.5)'
-                  : 'rgba(46, 85, 64, 0.4)'
-            }
-          />
+          <Text style={styles.doneText}>Done</Text>
         </Pressable>
       </View>
 
-      {/* Main editor area - checklist or plain text */}
-      {/* Container with maxHeight to prevent overflow */}
-      <View style={styles.textAreaContainer}>
-        {isChecklistMode ? (
-          <ChecklistInput text={text} onChangeText={onChangeText} colorMode={colorMode} expanded />
-        ) : (
-          <TextInput
-            value={text}
-            onChangeText={onChangeText}
-            placeholder="Add notes..."
-            placeholderTextColor={tokens.colors.subtle}
-            multiline
-            scrollEnabled
-            textAlignVertical="top"
-            autoFocus
-            style={[
-              styles.textArea,
-              {
-                color: tokens.colors.text,
-                backgroundColor: isDark ? darkTokens.colors.deep : '#FAFAFA',
-                borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#EEEEEE',
-              },
+      {/* Formatting toolbar */}
+      <View style={styles.toolbar}>
+        {toolbarButtons.map(({ key, Icon, label, active }) => (
+          <Pressable
+            key={key}
+            onPress={key === 'checklist' ? onToggleChecklistMode : undefined}
+            style={({ pressed }) => [
+              styles.toolbarButton,
+              active && styles.toolbarButtonActive,
+              pressed && { opacity: 0.6 },
             ]}
-            accessibilityLabel="Expanded content input"
-          />
-        )}
+            accessibilityLabel={label}
+            accessibilityRole="button"
+          >
+            <Icon
+              size={18}
+              color={active ? '#2E5540' : '#6B665C'}
+            />
+          </Pressable>
+        ))}
       </View>
+
+      {/* Body */}
+      {isChecklistMode ? (
+        <View style={styles.bodyContainer}>
+          <ChecklistInput text={text} onChangeText={onChangeText} colorMode={colorMode} expanded />
+        </View>
+      ) : (
+        <TextInput
+          value={text}
+          onChangeText={onChangeText}
+          placeholder="Start writing..."
+          placeholderTextColor="#B5AFA5"
+          multiline
+          scrollEnabled
+          textAlignVertical="top"
+          autoFocus
+          style={styles.textInput}
+          accessibilityLabel="Expanded content input"
+        />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    // Don't use flex: 1 - let content determine size within parent constraints
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 30,
+    backgroundColor: '#FFFFFF',
   },
-  headerRow: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    gap: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
-  collapseButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  backButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
+    minHeight: 44,
+  },
+  backText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#6B665C',
+  },
+  doneButton: {
+    backgroundColor: '#2E5540',
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 999,
+    minHeight: 44,
     justifyContent: 'center',
   },
-  headerTextContainer: {
-    flex: 1,
-    gap: 4,
-  },
-  headerTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  // Journal mode: larger, bolder date for reflective feel
-  journalDateTime: {
+  doneText: {
     fontSize: 14,
     fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  // Standard mode: subtle, smaller date
-  standardDateTime: {
-    fontSize: 12,
-    fontWeight: '400',
-  },
-  // Placeholder for future inspire button
-  inspireButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
+    color: '#FFFFFF',
   },
   toolbar: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 8,
-    minHeight: 32,
+    gap: 4,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E8E4DC',
   },
   toolbarButton: {
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Container to constrain text area height
-  textAreaContainer: {
-    maxHeight: TEXT_AREA_MAX_HEIGHT,
-    minHeight: 150,
+  toolbarButtonActive: {
+    backgroundColor: 'rgba(46, 85, 64, 0.10)',
   },
-  textArea: {
+  bodyContainer: {
     flex: 1,
-    minHeight: 150,
-    maxHeight: TEXT_AREA_MAX_HEIGHT,
-    fontSize: 16,
-    lineHeight: 24,
-    paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 16,
-    borderWidth: 1,
+    paddingTop: 16,
+  },
+  textInput: {
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 28,
+    color: '#1A1A1A',
+    paddingHorizontal: 16,
+    paddingTop: 16,
     textAlignVertical: 'top',
   },
 });

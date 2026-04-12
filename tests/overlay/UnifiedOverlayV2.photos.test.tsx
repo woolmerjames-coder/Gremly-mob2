@@ -166,9 +166,9 @@ describe('Photo Drop - Create Mode', () => {
       const addPhotoButton = queryByLabelText('Add another photo');
       expect(addPhotoButton).toBeNull();
 
-      // Should have 5 "View photo" buttons
+      // PhotoStrip renders up to 4 visible thumbnails
       const viewPhotoButtons = queryAllByLabelText(/View photo \d/);
-      expect(viewPhotoButtons.length).toBe(5);
+      expect(viewPhotoButtons.length).toBe(4);
     });
   });
 });
@@ -288,9 +288,9 @@ describe('Photo rendering', () => {
       const viewPhotoButtons = queryAllByLabelText(/View photo \d/);
       expect(viewPhotoButtons.length).toBe(3);
 
-      // Should have 3 remove photo buttons
-      const removePhotoButtons = queryAllByLabelText(/Remove photo \d/);
-      expect(removePhotoButtons.length).toBe(3);
+      // Should have "Add another photo" button (< 5 photos)
+      const addPhotoButton = queryAllByLabelText('Add another photo');
+      expect(addPhotoButton.length).toBe(1);
     });
   });
 

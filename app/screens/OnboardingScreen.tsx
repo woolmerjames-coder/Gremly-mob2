@@ -9,7 +9,6 @@ import React, { useState, useRef, useCallback } from 'react';
 import {
   View,
   StyleSheet,
-  Image,
   Pressable,
   Dimensions,
   FlatList,
@@ -26,9 +25,6 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { GREMLY_PALETTES } from '../../lib/constants/gremlyPalettes';
 import MascotLottie from '../components/MascotLottie';
 
-// Mascot images
-import GREMLY_MASCOT from '../../assets/mascot/gremly-mascot.png';
-
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface OnboardingStep {
@@ -37,7 +33,6 @@ interface OnboardingStep {
   body: string;
   subtext: string;
   type: 'mascot' | 'icon' | 'color-picker' | 'drain';
-  mascot?: any;
 }
 
 const ONBOARDING_STEPS: OnboardingStep[] = [
@@ -47,7 +42,6 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
     body: 'I help you get things out of your head and into a system that actually works.',
     subtext: 'The more we work together, the more we both grow.',
     type: 'mascot',
-    mascot: GREMLY_MASCOT,
   },
   {
     id: 'color',
@@ -97,13 +91,20 @@ function OnboardingStepView({
     <View style={styles.stepContainer}>
       {/* Visual element */}
       <View style={styles.visualContainer}>
-        {step.type === 'mascot' && step.mascot && (
-          <Image
-            source={step.mascot}
-            style={styles.mascotImage}
-            resizeMode="contain"
-            accessibilityLabel="Gremly mascot"
-          />
+        {step.type === 'mascot' && (
+          <View
+            style={{
+              minHeight: 200,
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'visible',
+              marginBottom: -16,
+            }}
+          >
+            <View style={{ transform: [{ scale: 2 }] }}>
+              <MascotLottie showFullColor animationOverride="waving" />
+            </View>
+          </View>
         )}
         {step.type === 'color-picker' && (
           <View
@@ -417,12 +418,9 @@ const styles = StyleSheet.create({
     paddingBottom: 100, // Space for bottom controls
   },
   visualContainer: {
-    marginBottom: 32,
+    marginBottom: 12,
   },
-  mascotImage: {
-    width: 160,
-    height: 160,
-  },
+
   title: {
     fontFamily: 'PlusJakartaSans-Bold',
     fontSize: 28,

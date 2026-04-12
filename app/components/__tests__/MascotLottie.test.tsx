@@ -86,9 +86,9 @@ describe('MascotLottie', () => {
   it('renders multiple LottieView instances', () => {
     const { toJSON } = render(<MascotLottie ref={ref} />);
     const json = JSON.stringify(toJSON());
-    // Count testID:"lottie-view" occurrences (6 LottieViews: grey(idle,drop,fed) + green(idle,drop,fed))
+    // Count testID:"lottie-view" occurrences (2 LottieViews: 1 grey + 1 colored for active mode)
     const matches = json.match(/lottie-view/g) || [];
-    expect(matches.length).toBeGreaterThanOrEqual(5);
+    expect(matches.length).toBeGreaterThanOrEqual(2);
   });
 
   it('exposes celebrate and celebrateFed via ref', () => {

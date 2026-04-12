@@ -607,6 +607,15 @@ interface GremlyState {
   /** Active Lottie color palette id */
   gremlyColor: string;
   setGremlyColor: (colorId: string) => Promise<void>;
+  /** Hour (0-23) when mascot sleep window starts. Default midnight (0). */
+  bedtimeHour: number;
+  setBedtimeHour: (hour: number) => Promise<void>;
+  /** Hour (0-23) when mascot sleep window ends. Default 6 AM. */
+  wakeHour: number;
+  setWakeHour: (hour: number) => Promise<void>;
+  /** ISO date string of last app-open day, used for first-open-of-day detection */
+  lastActiveDate: string | null;
+  setLastActiveDate: (date: string) => void;
   /** User profile (stored in cortex_preferences.identity JSONB) */
   userName: string | null;
   userPronouns: string | null;
@@ -1141,6 +1150,9 @@ const initialState = {
   pendingGraduation: false,
   postGraduationMessageShown: false,
   gremlyColor: 'forest',
+  bedtimeHour: 0,
+  wakeHour: 6,
+  lastActiveDate: null as string | null,
   userName: null as string | null,
   userPronouns: null as string | null,
   trainingDropStep: 0,
@@ -1281,7 +1293,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color, bedtime_hour, wake_hour',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1468,6 +1480,8 @@ export const useGremlyStore = create<GremlyState>()(
               hasSeenTrainingMeterAutoOpen:
                 (cortexPrefs?.has_seen_training_meter_auto_open as boolean) ?? false,
               gremlyColor: (cortexPrefs?.gremly_color as string) ?? 'forest',
+              bedtimeHour: (cortexPrefs?.bedtime_hour as number) ?? 0,
+              wakeHour: (cortexPrefs?.wake_hour as number) ?? 6,
               userName: (profileIdentity?.name as string) ?? null,
               userPronouns: (profileIdentity?.pronouns as string) ?? null,
               userTimezone: timezone,
@@ -1916,6 +1930,46 @@ export const useGremlyStore = create<GremlyState>()(
           if (error) {
             console.error('[GremlyStore] setGremlyColor failed:', error);
           }
+        },
+
+        setBedtimeHour: async (hour: number) => {
+          const userId = get().userId;
+          if (!userId) return;
+
+          set({ bedtimeHour: hour });
+
+          const { error } = await supabase
+            .from('cortex_preferences')
+            .upsert(
+              { owner_id: userId, bedtime_hour: hour, updated_at: nowTimestamp() },
+              { onConflict: 'owner_id' },
+            );
+
+          if (error) {
+            console.error('[GremlyStore] setBedtimeHour failed:', error);
+          }
+        },
+
+        setWakeHour: async (hour: number) => {
+          const userId = get().userId;
+          if (!userId) return;
+
+          set({ wakeHour: hour });
+
+          const { error } = await supabase
+            .from('cortex_preferences')
+            .upsert(
+              { owner_id: userId, wake_hour: hour, updated_at: nowTimestamp() },
+              { onConflict: 'owner_id' },
+            );
+
+          if (error) {
+            console.error('[GremlyStore] setWakeHour failed:', error);
+          }
+        },
+
+        setLastActiveDate: (date: string) => {
+          set({ lastActiveDate: date });
         },
 
         setUserProfile: async (name, pronouns) => {
@@ -5058,7 +5112,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color',
+                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color, bedtime_hour, wake_hour',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -5131,6 +5185,8 @@ export const useGremlyStore = create<GremlyState>()(
                   (cp.has_seen_training_meter_auto_open as boolean) ??
                   get().hasSeenTrainingMeterAutoOpen,
                 gremlyColor: (cp.gremly_color as string) ?? get().gremlyColor,
+                bedtimeHour: (cp.bedtime_hour as number) ?? get().bedtimeHour,
+                wakeHour: (cp.wake_hour as number) ?? get().wakeHour,
               });
 
               // Fetch identity from user_profiles
@@ -9850,6 +9906,9 @@ export const useGremlyStore = create<GremlyState>()(
           hasSeenEntityChatHighlight: state.hasSeenEntityChatHighlight,
           hasSeenTrainingMeterAutoOpen: state.hasSeenTrainingMeterAutoOpen,
           gremlyColor: state.gremlyColor,
+          bedtimeHour: state.bedtimeHour,
+          wakeHour: state.wakeHour,
+          lastActiveDate: state.lastActiveDate,
           userName: state.userName,
           userPronouns: state.userPronouns,
         }),

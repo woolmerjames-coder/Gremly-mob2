@@ -32,34 +32,9 @@ export function Mascot({ state, size = 64 }: MascotProps) {
 }
 
 /**
- * Lottie-based animated mascot
- * Attempts to load JSON animations from assets/mascot/
- * Currently commented out until Lottie integration is complete
+ * Lottie-based animated mascot (unused placeholder)
  */
 function LottieMascot({ state, size }: { state: MascotState; size: number }) {
-  // Note: This will require lottie-react-native installation and asset setup
-  // For now, we'll fall back to static until Lottie is installed and configured
-
-  // Uncomment when lottie-react-native is installed and assets are available:
-  // const LottieView = require('lottie-react-native').default;
-  //
-  // const animationSource = getLottieSource(state);
-  // if (!animationSource) {
-  //   return <StaticMascot state={state} size={size} />;
-  // }
-  //
-  // return (
-  //   <View style={[styles.container, { width: size, height: size }]}>
-  //     <LottieView
-  //       source={animationSource}
-  //       autoPlay={true}
-  //       loop={state === 'idle' || state === 'thinking' || state === 'rest'}
-  //       style={styles.lottie}
-  //     />
-  //   </View>
-  // );
-
-  // Fallback to static for now
   return <StaticMascot state={state} size={size} />;
 }
 
@@ -89,49 +64,21 @@ function getStaticEmoji(state: MascotState): string {
   switch (state) {
     case 'idle':
       return '😌'; // Calm, peaceful
-    case 'thinking':
-      return '🤔'; // Thoughtful
-    case 'replying':
-      return '😊'; // Friendly response
-    case 'playful':
-      return '😉'; // Wink for chit-chat
-    case 'celebration':
-      return '🎉'; // Small celebration
-    case 'rest':
-      return '😴'; // Low motion/rest
+    case 'drop':
+      return '🎉'; // Celebrate drop
+    case 'fed':
+      return '😊'; // Fed / happy
+    case 'waving':
+      return '👋'; // Waving hello
+    case 'fallingAsleep':
+    case 'sleeping':
+      return '😴'; // Sleeping
+    case 'wakingUp':
+      return '🥱'; // Waking up
     default:
       return '😌'; // Default to calm
   }
 }
-
-/**
- * Get Lottie animation source for state
- * Returns null if asset is missing
- * Currently unused - will be enabled when Lottie assets are added
- */
-// function getLottieSource(state: MascotState) {
-//   try {
-//     switch (state) {
-//       case 'idle':
-//         return require('../../assets/mascot/idle.json');
-//       case 'thinking':
-//         return require('../../assets/mascot/thinking.json');
-//       case 'replying':
-//         return require('../../assets/mascot/replying.json');
-//       case 'playful':
-//         return require('../../assets/mascot/playful.json');
-//       case 'celebration':
-//         return require('../../assets/mascot/celebration.json');
-//       case 'rest':
-//         return require('../../assets/mascot/rest.json');
-//       default:
-//         return require('../../assets/mascot/idle.json');
-//     }
-//   } catch (error) {
-//     // Asset not found, return null for fallback
-//     return null;
-//   }
-// }
 
 const styles = StyleSheet.create({
   container: {

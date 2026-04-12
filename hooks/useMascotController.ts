@@ -1,28 +1,35 @@
 /**
- * useMascotController Hook - Phase 10.6
+ * useMascotController Hook
  *
- * Manages mascot emotional state transitions with minimal side effects.
- * Provides calm, brand-aligned animation triggers for chat interactions.
+ * Unified mascot animation state machine.
+ * Drives AnimationMode transitions with timeout-based auto-return.
  */
 
 import { useState, useCallback, useRef } from 'react';
-import type { MascotState } from '../lib/types';
+import type { AnimationMode } from '../lib/types';
 
 export interface MascotController {
-  state: MascotState;
-  thinking: () => void;
-  replying: () => void;
-  playful: () => void;
+  mode: AnimationMode;
+  /** Trigger the drop one-shot (≈800 ms auto-return) */
   celebrate: () => void;
-  rest: () => void;
+  /** Trigger the fed one-shot (≈800 ms auto-return) */
+  celebrateFed: () => void;
+  /** Waving greeting (≈5 000 ms auto-return) */
+  wave: () => void;
+  /** Transition to fallingAsleep, then auto-advance to sleeping after 5 500 ms */
+  fallAsleep: () => void;
+  /** Jump straight to sleeping (no auto-return) */
+  sleep: () => void;
+  /** Wake up animation (≈5 500 ms auto-return to idle) */
+  wakeUp: () => void;
+  /** Return to idle immediately */
   idle: () => void;
 }
 
 export function useMascotController(): MascotController {
-  const [state, setState] = useState<MascotState>('idle');
+  const [mode, setMode] = useState<AnimationMode>('idle');
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Helper to clear existing timeouts
   const clearExistingTimeout = useCallback(() => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -30,15 +37,15 @@ export function useMascotController(): MascotController {
     }
   }, []);
 
-  // Set state with optional auto-return to idle
-  const setStateWithTimeout = useCallback(
-    (newState: MascotState, duration?: number) => {
+  /** Set mode with optional auto-transition (defaults to 'idle' if no `next` given). */
+  const setModeWithTimeout = useCallback(
+    (next: AnimationMode, duration?: number, after: AnimationMode = 'idle') => {
       clearExistingTimeout();
-      setState(newState);
+      setMode(next);
 
       if (duration) {
         timeoutRef.current = setTimeout(() => {
-          setState('idle');
+          setMode(after);
           timeoutRef.current = null;
         }, duration);
       }
@@ -46,44 +53,45 @@ export function useMascotController(): MascotController {
     [clearExistingTimeout],
   );
 
-  const thinking = useCallback(() => {
-    setStateWithTimeout('thinking');
-  }, [setStateWithTimeout]);
-
-  const replying = useCallback(() => {
-    // Micro-bounce on assistant message (≈250ms)
-    setStateWithTimeout('replying', 250);
-  }, [setStateWithTimeout]);
-
-  const playful = useCallback(() => {
-    // Slight wink when in chit-chat mode (≈600ms)
-    setStateWithTimeout('playful', 600);
-  }, [setStateWithTimeout]);
-
   const celebrate = useCallback(() => {
-    // Small cheer pose for "Saved ✅" events (≈800ms)
-    setStateWithTimeout('celebration', 800);
-  }, [setStateWithTimeout]);
+    setModeWithTimeout('drop', 800);
+  }, [setModeWithTimeout]);
 
-  const rest = useCallback(() => {
-    // Low-motion idle for reduced motion mode
+  const celebrateFed = useCallback(() => {
+    setModeWithTimeout('fed', 800);
+  }, [setModeWithTimeout]);
+
+  const wave = useCallback(() => {
+    setModeWithTimeout('waving', 5000);
+  }, [setModeWithTimeout]);
+
+  const fallAsleep = useCallback(() => {
+    // fallingAsleep → auto-advance to sleeping after 5 500 ms
+    setModeWithTimeout('fallingAsleep', 5500, 'sleeping');
+  }, [setModeWithTimeout]);
+
+  const sleep = useCallback(() => {
     clearExistingTimeout();
-    setState('rest');
+    setMode('sleeping');
   }, [clearExistingTimeout]);
 
+  const wakeUp = useCallback(() => {
+    setModeWithTimeout('wakingUp', 5500);
+  }, [setModeWithTimeout]);
+
   const idle = useCallback(() => {
-    // Return to default calm state
     clearExistingTimeout();
-    setState('idle');
+    setMode('idle');
   }, [clearExistingTimeout]);
 
   return {
-    state,
-    thinking,
-    replying,
-    playful,
+    mode,
     celebrate,
-    rest,
+    celebrateFed,
+    wave,
+    fallAsleep,
+    sleep,
+    wakeUp,
     idle,
   };
 }

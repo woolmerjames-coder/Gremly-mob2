@@ -5,7 +5,7 @@
  * when opening for edit.
  */
 
-import { buildDraftPayloadFromEntity } from '../../components/overlay/UnifiedOverlayV2';
+import { buildDraftPayloadFromEntity } from '../../components/overlay/overlayHydration';
 
 describe('buildDraftPayloadFromEntity - Todo roundtrip', () => {
   it('should populate todo.title and todo.details from name and body', () => {
