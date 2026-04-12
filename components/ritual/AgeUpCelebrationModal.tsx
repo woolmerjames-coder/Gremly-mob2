@@ -378,9 +378,9 @@ export default function AgeUpCelebrationModal({
                   <LottieView
                     source={celebSource}
                     autoPlay={visible}
-                    loop={!isPartyCeleb}
+                    loop={true}
                     style={styles.mascotLottie}
-                    renderMode="HARDWARE"
+                    renderMode="SOFTWARE"
                   />
                 </View>
 

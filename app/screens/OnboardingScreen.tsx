@@ -94,10 +94,11 @@ function OnboardingStepView({
         {step.type === 'mascot' && (
           <View
             style={{
-              minHeight: 240,
+              minHeight: 200,
               alignItems: 'center',
               justifyContent: 'center',
               overflow: 'visible',
+              marginBottom: -16,
             }}
           >
             <View style={{ transform: [{ scale: 2 }] }}>
@@ -417,7 +418,7 @@ const styles = StyleSheet.create({
     paddingBottom: 100, // Space for bottom controls
   },
   visualContainer: {
-    marginBottom: 32,
+    marginBottom: 12,
   },
 
   title: {
