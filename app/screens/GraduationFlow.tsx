@@ -274,7 +274,7 @@ function ReportBeat({ onAdvance }: { onAdvance: () => void }) {
     const start = trainingStartedAt ? new Date(trainingStartedAt) : getDateService().now();
     const end = getDateService().now();
     const fmt = (d: Date) => format(d, 'MMM d');
-    return `${fmt(start)} – ${fmt(end)}`;
+    return `${fmt(start)} - ${fmt(end)}`;
   }, [trainingStartedAt]);
 
   // Build cards: intro + summary content
