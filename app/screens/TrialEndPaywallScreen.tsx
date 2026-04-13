@@ -13,6 +13,7 @@ import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import MascotLottie from '../components/MascotLottie';
 import * as WebBrowser from 'expo-web-browser';
+import { useSubscriptionStatus } from '../../lib/subscriptions/useSubscriptionStatus';
 import {
   fetchOfferings,
   purchasePackage,
@@ -32,6 +33,7 @@ export default function TrialEndPaywallScreen() {
   const todayDropsCount = useGremlyStore((s) => s.todayDropsCount); // TODO: replace with lifetime total_drops when available
   const gremlyAge = useGremlyStore((s) => s.gremlyAge);
   const setIsSubscribed = useGremlyStore((s) => s.setIsSubscribed);
+  const { isTrialActive } = useSubscriptionStatus();
 
   // Fetch offerings from RevenueCat
   const [monthlyPkg, setMonthlyPkg] = useState<PurchasesPackage | null>(null);
@@ -234,9 +236,11 @@ export default function TrialEndPaywallScreen() {
           <Text style={styles.restoreText}>Restore purchase</Text>
         </Pressable>
 
-        <Pressable onPress={handleNotNow} accessibilityRole="button">
-          <Text style={styles.notNowText}>Not now</Text>
-        </Pressable>
+        {isTrialActive && (
+          <Pressable onPress={handleNotNow} accessibilityRole="button">
+            <Text style={styles.notNowText}>Not now</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );

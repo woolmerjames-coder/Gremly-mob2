@@ -50,6 +50,7 @@ import { useDayRollover } from './lib/today/hooks/useDayRollover';
 import { useTimezoneSync } from './hooks/useTimezoneSync';
 import { useMascotLifecycle } from './hooks/useMascotLifecycle';
 import { MascotModeProvider } from './contexts/MascotModeContext';
+import { OfflineBanner } from './app/components/OfflineBanner';
 
 // Prevent the splash screen from auto-hiding before app is ready
 SplashScreen.preventAutoHideAsync();
@@ -581,6 +582,7 @@ export default function App() {
                                   resetInactivity();
                                 }}
                               >
+                                <OfflineBanner />
                                 <RootNavigator />
                                 <OverlayHost />
                               </NavigationContainer>
