@@ -12,6 +12,7 @@ import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import MascotLottie from '../components/MascotLottie';
+import * as WebBrowser from 'expo-web-browser';
 
 type Plan = 'monthly' | 'annual';
 
@@ -129,6 +130,31 @@ export default function TrialEndPaywallScreen() {
         <Text style={styles.reassurance}>
           Cancel anytime. Your Gremly and all your data will be waiting if you come back.
         </Text>
+
+        {/* Apple-required subscription disclosure */}
+        <Text style={styles.disclosure}>
+          Payment will be charged to your Apple ID account at confirmation of purchase. Subscription
+          automatically renews unless canceled at least 24 hours before the end of the current
+          period. Your account will be charged for renewal within 24 hours prior to the end of the
+          current period. You can manage and cancel your subscriptions by going to your App Store
+          account settings after purchase. Any unused portion of a free trial period will be
+          forfeited when you purchase a subscription.
+        </Text>
+        <View style={styles.legalLinks}>
+          <Text
+            style={styles.legalLink}
+            onPress={() => WebBrowser.openBrowserAsync('https://www.gremly.app/privacy-policy')}
+          >
+            Privacy Policy
+          </Text>
+          <Text style={styles.legalSeparator}>|</Text>
+          <Text
+            style={styles.legalLink}
+            onPress={() => WebBrowser.openBrowserAsync('https://www.gremly.app/terms-of-service')}
+          >
+            Terms of Service
+          </Text>
+        </View>
       </ScrollView>
 
       {/* Bottom CTA pinned */}
@@ -280,6 +306,33 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 12,
     paddingHorizontal: 8,
+  },
+  disclosure: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: '#B0B8B0',
+    textAlign: 'center',
+    marginTop: 16,
+    paddingHorizontal: 12,
+    lineHeight: 16,
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  legalLink: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: '#B0B8B0',
+    textDecorationLine: 'underline',
+  },
+  legalSeparator: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: '#B0B8B0',
   },
 
   // Bottom CTA
