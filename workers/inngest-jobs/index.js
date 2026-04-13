@@ -2678,7 +2678,7 @@ RULES:
 
 1. SPACES ARE DOMAINS. Every user-created Space becomes a domain with source "space". The user's active spaces are: ${spaceList}. Use the exact space names and IDs.
 
-2. AI-DETECTED DOMAINS are for clearly positive/neutral themes that span multiple data points across 7+ days with no existing Space fit. Do NOT create AI-detected domains for sensitive health conditions, substance use, or mental health unless the user has an explicit Space for it. Keep AI-detected domains to 0-2 maximum.
+2. AI-DETECTED DOMAINS are for clearly positive/neutral themes that span multiple data points across 7+ days with no existing Space fit. Do NOT create AI-detected domains for sensitive personal topics unless the user has an explicit Space for it. Keep AI-detected domains to 0-2 maximum.
 
 3. THREAD CREATION THRESHOLDS:
    - A topic needs 3+ data points across 2+ distinct days to become a thread

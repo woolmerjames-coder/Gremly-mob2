@@ -1,6 +1,6 @@
 /**
  * LoginScreen - Google Sign-In entry point
- * Clean, ADHD-friendly single-action login
+ * Clean, simple single-action login
  */
 
 import React, { useState } from 'react';

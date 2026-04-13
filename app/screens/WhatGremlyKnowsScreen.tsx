@@ -125,22 +125,12 @@ export default function WhatGremlyKnowsScreen() {
       fields.push({ key: 'location', label: 'Location', value: `Lives in ${identity.location}` });
     if (identity.partner)
       fields.push({ key: 'partner', label: 'Partner', value: `Partner: ${identity.partner}` });
-    if (identity.conditions?.length) {
-      fields.push({
-        key: 'conditions',
-        label: 'Conditions',
-        value: identity.conditions.join(', '),
-      });
-    }
     return fields;
   }, [identity]);
 
   const handleEditIdentity = useCallback(
     (field: string) => {
-      const currentValue =
-        field === 'conditions'
-          ? (identity.conditions || []).join(', ')
-          : (identity[field as keyof typeof identity] as string) || '';
+      const currentValue = (identity[field as keyof typeof identity] as string) || '';
       setEditingIdentityField(field);
       setEditingIdentityValue(currentValue);
     },
@@ -150,19 +140,7 @@ export default function WhatGremlyKnowsScreen() {
   const handleSaveIdentity = useCallback(async () => {
     if (!editingIdentityField) return;
     const value = editingIdentityValue.trim();
-    if (editingIdentityField === 'conditions') {
-      await editIdentityFact(
-        'conditions',
-        value
-          ? value
-              .split(',')
-              .map((s: string) => s.trim())
-              .filter(Boolean)
-          : null,
-      );
-    } else {
-      await editIdentityFact(editingIdentityField, value || null);
-    }
+    await editIdentityFact(editingIdentityField, value || null);
     setEditingIdentityField(null);
     setEditingIdentityValue('');
   }, [editingIdentityField, editingIdentityValue, editIdentityFact]);
@@ -191,7 +169,6 @@ export default function WhatGremlyKnowsScreen() {
     { key: 'age', label: 'Age' },
     { key: 'location', label: 'Location' },
     { key: 'partner', label: 'Partner' },
-    { key: 'conditions', label: 'Health condition' },
   ];
 
   const [showAddIdentityPicker, setShowAddIdentityPicker] = useState(false);
