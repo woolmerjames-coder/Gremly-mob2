@@ -5,7 +5,9 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react';
-import { View, TextInput, Pressable, StyleSheet, Keyboard } from 'react-native';
+import { TextInput, Pressable, StyleSheet, View } from 'react-native';
+import Animated, { useAnimatedKeyboard, useAnimatedStyle } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus, Send } from 'lucide-react-native';
 import { getDateService } from '../../lib/date';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
@@ -26,6 +28,18 @@ export default function CalendarInputBar({ selectedDate }: CalendarInputBarProps
   const inputRef = useRef<TextInput>(null);
   const { submit, isSubmitting } = useMindDropSubmit();
 
+  // useAnimatedKeyboard requires android:windowSoftInputMode="adjustNothing".
+  // Set "softwareKeyboardLayoutMode": "pan" in app.json expo.android for Expo.
+  const keyboard = useAnimatedKeyboard();
+  const { bottom: safeBottom } = useSafeAreaInsets();
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    paddingBottom:
+      keyboard.height.value > 0
+        ? 8 // keyboard covers the home indicator, just need small padding
+        : safeBottom + 8, // respect home indicator when keyboard closed
+  }));
+
   const dayName = dayNameFromDate(selectedDate);
   const isToday = selectedDate === getDateService().today();
   const placeholder = isToday ? 'Add to today...' : `Add to ${dayName}...`;
@@ -35,7 +49,7 @@ export default function CalendarInputBar({ selectedDate }: CalendarInputBarProps
     if (!trimmed || isSubmitting) return;
 
     setText('');
-    Keyboard.dismiss();
+    // Keep keyboard open for rapid-fire entry
 
     console.log('[PrefillDate:1-CalInput] Submitting with prefillDate:', selectedDate);
     await submit(trimmed, {
@@ -45,7 +59,7 @@ export default function CalendarInputBar({ selectedDate }: CalendarInputBarProps
   }, [text, isSubmitting, submit, selectedDate]);
 
   return (
-    <View style={styles.wrapper}>
+    <Animated.View style={[styles.wrapper, animatedStyle]}>
       <View style={styles.row}>
         <View style={styles.iconWrap}>
           <Plus size={20} color="#999" />
@@ -59,7 +73,7 @@ export default function CalendarInputBar({ selectedDate }: CalendarInputBarProps
           placeholder={placeholder}
           placeholderTextColor="#B0ACA6"
           returnKeyType="send"
-          blurOnSubmit
+          blurOnSubmit={false}
           onSubmitEditing={handleSubmit}
         />
 
@@ -74,7 +88,7 @@ export default function CalendarInputBar({ selectedDate }: CalendarInputBarProps
           </Pressable>
         )}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -82,7 +96,8 @@ const styles = StyleSheet.create({
   wrapper: {
     backgroundColor: '#fff',
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingTop: 8,
+    // paddingBottom is controlled by animatedStyle (keyboard + safe area)
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.06,

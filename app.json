@@ -59,6 +59,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.gremly.mob2",
+      "softwareKeyboardLayoutMode": "pan",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
