@@ -137,7 +137,7 @@ export function useTodayInteractions(options: UseTodayInteractionsOptions = {}) 
    * Fetches full record from DB to ensure all fields (like due_day) are available
    */
   const openEntityOverlay = useCallback(
-    async (item: { id: string; type: string } & Partial<AppRecord>) => {
+    async (item: { id: string; type: string } & Partial<Omit<AppRecord, 'type'>>) => {
       try {
         // Fetch the full record to ensure all fields (due_day, etc.) are available
         const fullRecord = await repo.getById(item.id);

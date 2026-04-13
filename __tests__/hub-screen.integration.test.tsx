@@ -846,7 +846,7 @@ describe('HubScreen - Journal View Data Filtering', () => {
     await waitFor(() => {
       expect(getByTestId('journal-analyze-modal')).toBeTruthy();
       expect(queryByText('Journal Insights')).toBeTruthy();
-      expect(queryByText(/This is a reflection, not a diagnosis/i)).toBeTruthy();
+      expect(queryByText(/This is a reflection based on what you've shared/i)).toBeTruthy();
     });
   });
 

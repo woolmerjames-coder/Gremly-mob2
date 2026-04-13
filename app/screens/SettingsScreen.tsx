@@ -92,7 +92,7 @@ export default function SettingsScreen() {
     if (isSubscribed) {
       Linking.openURL('https://apps.apple.com/account/subscriptions');
     } else {
-      navigation.navigate('TrialEndPaywall' as never, { source: 'settings' } as never);
+      (navigation as any).navigate('TrialEndPaywall', { source: 'settings' });
     }
   };
 

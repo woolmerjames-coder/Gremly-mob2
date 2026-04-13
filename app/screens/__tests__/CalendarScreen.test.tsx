@@ -15,6 +15,7 @@ jest.mock('@react-navigation/native', () => ({
     goBack: mockGoBack,
     addListener: jest.fn(() => jest.fn()),
   }),
+  useFocusEffect: jest.fn((cb) => cb()),
 }));
 
 // Mock safe area context
@@ -122,18 +123,19 @@ jest.mock('../../../lib/date', () => ({
 const mockCalendarEvents: never[] = [];
 const mockTodos: never[] = [];
 const mockHabits: never[] = [];
-jest.mock('../../../lib/store/useGremlyStore', () => ({
-  useGremlyStore: (selector: (state: unknown) => unknown) => {
-    const state = {
-      calendarEvents: mockCalendarEvents,
-      todos: mockTodos,
-      habits: mockHabits,
-      habitProgress: [],
-      calendarConnections: [],
-    };
-    return selector(state);
-  },
-}));
+jest.mock('../../../lib/store/useGremlyStore', () => {
+  const state = {
+    calendarEvents: mockCalendarEvents,
+    todos: mockTodos,
+    habits: mockHabits,
+    habitProgress: [],
+    calendarConnections: [],
+    refreshCalendarConnections: jest.fn(),
+  };
+  const useGremlyStore = (selector: (state: unknown) => unknown) => selector(state);
+  useGremlyStore.getState = () => state;
+  return { useGremlyStore };
+});
 
 import CalendarScreen from '../CalendarScreen';
 
