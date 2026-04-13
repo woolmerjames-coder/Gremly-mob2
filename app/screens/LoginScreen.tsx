@@ -1,6 +1,6 @@
 /**
  * LoginScreen - Google Sign-In entry point
- * Clean, ADHD-friendly single-action login
+ * Clean, simple single-action login
  */
 
 import React, { useState } from 'react';
@@ -15,6 +15,7 @@ import {
   Platform,
 } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import * as WebBrowser from 'expo-web-browser';
 import { useAuth } from '../../providers/AuthProvider';
 
 const COLORS = {
@@ -112,7 +113,20 @@ export default function LoginScreen() {
           )}
 
           <Text style={styles.disclaimer}>
-            By continuing, you agree to our Terms of Service and Privacy Policy
+            By continuing, you agree to our{' '}
+            <Text
+              style={styles.link}
+              onPress={() => WebBrowser.openBrowserAsync('https://www.gremly.app/terms-of-service')}
+            >
+              Terms of Service
+            </Text>
+            {' and '}
+            <Text
+              style={styles.link}
+              onPress={() => WebBrowser.openBrowserAsync('https://www.gremly.app/privacy-policy')}
+            >
+              Privacy Policy
+            </Text>
           </Text>
 
           {__DEV__ && (
@@ -223,6 +237,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 20,
     paddingHorizontal: 20,
+  },
+  link: {
+    textDecorationLine: 'underline',
   },
   devButton: {
     marginTop: 24,

@@ -69,6 +69,6 @@ describe('DevTools', () => {
   it('navigates to TrialEndPaywall when Show Paywall is pressed', () => {
     const { getByTestId } = render(<DevTools />);
     fireEvent.press(getByTestId('show-paywall-button'));
-    expect(mockNavigate).toHaveBeenCalledWith('TrialEndPaywall');
+    expect(mockNavigate).toHaveBeenCalledWith('TrialEndPaywall', { source: 'settings' });
   });
 });

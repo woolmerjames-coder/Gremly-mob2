@@ -324,7 +324,7 @@ export const selectUrgentFrequencyHabits = createSelector(
 /**
  * Determine if a habit is "due" or "available" today.
  *
- * Philosophy (ADHD-friendly):
+ * Philosophy (calm by design):
  * - Scheduled habits: specific days_active array defines when it shows
  * - Flexible habits: show as available anytime they haven't hit weekly/monthly target
  * - No "overdue" shame - just "available to log"

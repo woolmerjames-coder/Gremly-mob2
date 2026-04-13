@@ -58,7 +58,7 @@ describe('TrialIntroScreen', () => {
 
   it('renders the trial note', () => {
     const { getByText } = render(<TrialIntroScreen />);
-    expect(getByText('Your free trial — no card needed')).toBeTruthy();
+    expect(getByText('Your free trial - no card needed')).toBeTruthy();
   });
 
   it('renders all 3 feature rows', () => {

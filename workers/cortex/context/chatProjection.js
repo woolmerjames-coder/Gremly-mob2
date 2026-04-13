@@ -125,6 +125,8 @@ export async function getDailyFocusForChat(userId, env) {
       namedAnchors: dco?.named_anchors || dco?.daily_focus?.named_anchors || [],
       activeToday: dco?.active_today || null,
       briefHeadline: dco?.brief_headline || null,
+      weekRecap: dco?.week_recap || [],
+      weekMoodArc: dco?.week_mood_arc || null,
     };
 
     if (env.CONTEXT_CACHE) {
@@ -166,7 +168,7 @@ export async function fetchRecentActivityDelta(userId, env) {
     const threeDaysAgo = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
     const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
-    const [recentNotes, recentTodos, recentHabitProgress] = await Promise.all([
+    const [recentNotes, recentTodos, recentHabitProgress, recentEventRows] = await Promise.all([
       // Recent drops (notes created in last 72h, non-events)
       fetch(
         `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=neq.event&archived=eq.false&created_at=gte.${threeDaysAgo}&select=title,subtype,mood,created_at,space_id&order=created_at.desc&limit=10`,
@@ -190,12 +192,21 @@ export async function fetchRecentActivityDelta(userId, env) {
       )
         .then((r) => r.json())
         .catch(() => []),
+
+      // Recent calendar events (last 72h)
+      fetch(
+        `${env.SUPABASE_URL}/rest/v1/notes?owner_id=eq.${userId}&subtype=eq.event&archived=eq.false&target_date=gte.${threeDaysAgo.split('T')[0]}&select=title,target_date,event_time,location,space_id&order=target_date.desc&limit=10`,
+        { headers },
+      )
+        .then((r) => r.json())
+        .catch(() => []),
     ]);
 
     const delta = {
       recentDrops: Array.isArray(recentNotes) ? recentNotes : [],
       recentCompletions: Array.isArray(recentTodos) ? recentTodos : [],
       recentHabitActivity: Array.isArray(recentHabitProgress) ? recentHabitProgress : [],
+      recentEvents: Array.isArray(recentEventRows) ? recentEventRows : [],
     };
 
     if (env.CONTEXT_CACHE) {
@@ -203,7 +214,7 @@ export async function fetchRecentActivityDelta(userId, env) {
     }
 
     console.log(
-      `[ChatProjection] Recent delta loaded for ${userId.slice(0, 8)}: ${delta.recentDrops.length} drops, ${delta.recentCompletions.length} completions`,
+      `[ChatProjection] Recent delta loaded for ${userId.slice(0, 8)}: ${delta.recentDrops.length} drops, ${delta.recentCompletions.length} completions, ${delta.recentEvents.length} events`,
     );
     return delta;
   } catch (error) {
@@ -241,6 +252,24 @@ function formatDailyFocusForChat(focus) {
   const people = (focus.namedAnchors || []).filter((a) => a.type === 'person').map((a) => a.label);
   if (people.length > 0) {
     parts.push(`Named people: ${people.join(', ')}`);
+  }
+
+  // Week recap — concrete events from earlier this week
+  if (focus.weekRecap && focus.weekRecap.length > 0) {
+    parts.push('');
+    parts.push('=== THIS WEEK SO FAR ===');
+    const sorted = [...focus.weekRecap].sort((a, b) =>
+      a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
+    );
+    for (const entry of sorted) {
+      parts.push(`  ${entry.date}: ${entry.event}`);
+    }
+    if (focus.weekMoodArc) {
+      parts.push(`Mood this week: ${focus.weekMoodArc}`);
+    }
+    parts.push(
+      "Reference this when the user asks about their week, recent events, or what they've been up to. These are concrete things that happened.",
+    );
   }
 
   parts.push('');
@@ -347,6 +376,14 @@ function formatRecentDelta(delta) {
 
   const parts = [];
 
+  if (delta.recentEvents?.length > 0) {
+    parts.push('=== RECENT EVENTS (last 72h) ===');
+    for (const e of delta.recentEvents.slice(0, 6)) {
+      const loc = e.location ? ` (${e.location})` : '';
+      parts.push(`  ${e.target_date}: ${e.title}${loc}`);
+    }
+  }
+
   if (delta.recentDrops.length > 0) {
     parts.push('=== RECENT ACTIVITY (last 24-72h) ===');
     for (const d of delta.recentDrops.slice(0, 6)) {
@@ -425,13 +462,13 @@ export async function buildChatContext(userId, lane, opts, env) {
       if (summariesStr) parts.push(summariesStr);
     }
 
-    // 4. Life Map threads (tiered by lane relevance)
-    const lifeMapStr = formatLifeMapForChat(lifeMap, lane, opts);
-    if (lifeMapStr) parts.push(lifeMapStr);
-
-    // 5. Recent activity delta
+    // 4. Recent activity delta (last 72h — drops, completions, events)
     const deltaStr = formatRecentDelta(recentDelta);
     if (deltaStr) parts.push(deltaStr);
+
+    // 5. Life Map threads (tiered by lane relevance — background context)
+    const lifeMapStr = formatLifeMapForChat(lifeMap, lane, opts);
+    if (lifeMapStr) parts.push(lifeMapStr);
 
     const result = parts.join('\n\n');
 
@@ -633,8 +670,8 @@ export async function fetchTemporalAnchors(userId, timezone, env) {
       })
       .filter((a) => {
         if (a.daysAway === null) return true; // unknown — always keep
-        if (a.date_confidence === 'exact') return a.daysAway >= -1;
-        if (a.date_confidence === 'approximate') return a.daysAway >= -3;
+        if (a.date_confidence === 'exact') return a.daysAway >= -7;
+        if (a.date_confidence === 'approximate') return a.daysAway >= -7;
         return true; // unknown confidence — keep
       });
 
@@ -661,8 +698,8 @@ export function formatTemporalAnchors(anchors, _todayStr) {
   if (!anchors || anchors.length === 0) return '';
 
   const lines = [
-    '=== UPCOMING EVENTS & DEADLINES (from conversations) ===',
-    'Note: Dates marked "approximate" are estimates, not confirmed. Dates marked "unknown" have no confirmed date. Never state approximate or unknown dates as fact. Use hedging language for approximate dates (e.g. "around", "roughly"). For unknown dates, consider naturally asking when it is.',
+    '=== EVENTS & DEADLINES (from conversations) ===',
+    'Note: Dates marked "approximate" are estimates, not confirmed. Dates marked "unknown" have no confirmed date. Never state approximate or unknown dates as fact. Use hedging language for approximate dates (e.g. "around", "roughly"). For unknown dates, consider naturally asking when it is. Past events (negative days) have already happened — refer to them in past tense, not as upcoming.',
     '',
   ];
 
@@ -756,7 +793,7 @@ export function formatRecentChatSummaries(summaries) {
 
   const lines = [
     '=== RECENT CONVERSATIONS (other chats with this user) ===',
-    "These are summaries of other recent conversations. Use this context to maintain continuity — the user shouldn't have to repeat themselves across chats. But don't reference these chats explicitly unless the user brings them up.",
+    "These are summaries of other recent conversations. Use this context to maintain continuity — the user shouldn't have to repeat themselves across chats. When the user asks about their week, recent experiences, or what's been going on, draw from these summaries — they capture decisions, emotional signals, and context that other data sources miss. Don't reference them unprompted in unrelated topics.",
     '',
   ];
 

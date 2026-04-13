@@ -1735,7 +1735,7 @@ export default function HubScreen() {
             {/* Footer with disclaimer */}
             <View style={hubV1Styles.analyzeModalFooter}>
               <Text style={hubV1Styles.analyzeModalDisclaimer}>
-                This is a reflection, not a diagnosis. If something doesn't feel right, ignore it.
+                This is a reflection based on what you've shared. Take what resonates.
               </Text>
             </View>
           </View>

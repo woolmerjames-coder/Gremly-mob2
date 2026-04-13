@@ -1351,7 +1351,7 @@ New screens/routes needed:
 - Time-of-day aware: morning, afternoon, evening, night
 - Message deduplication (last 4)
 - Duration: base 3000ms + 50ms/char, max 6000ms
-- Personality-driven, ADHD-friendly tone
+- Personality-driven, calm tone
 
 **"First daily open" detection**: Not explicitly found as a dedicated hook. The speech system has a `greeting` category that fires contextually, but no `isFirstOpenToday` boolean.
 

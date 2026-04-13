@@ -1,5 +1,5 @@
 /**
- * TrialIntroScreen — Shown after onboarding, before Training Challenge begins.
+ * TrialIntroScreen - Shown after onboarding, before Training Challenge begins.
  */
 
 import React, { useCallback } from 'react';
@@ -114,7 +114,7 @@ export default function TrialIntroScreen() {
         <Text style={styles.subtitle}>Feed your Gremly 7 days in a row</Text>
 
         {/* Trial note */}
-        <Text style={styles.trialNote}>Your free trial — no card needed</Text>
+        <Text style={styles.trialNote}>Your free trial - no card needed</Text>
 
         {/* Feature rows */}
         <View style={styles.featureList}>

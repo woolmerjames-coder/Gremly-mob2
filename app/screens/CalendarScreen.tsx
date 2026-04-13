@@ -5,11 +5,18 @@
  * day-timeline layout powered by CalendarService.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Link } from 'lucide-react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  runOnJS,
+} from 'react-native-reanimated';
 import { getDateService } from '../../lib/date';
 import { useCalendarEvents } from '../../lib/calendar/useCalendarService';
 import type { CalendarItem } from '../../lib/calendar/CalendarService';
@@ -29,6 +36,13 @@ export default function CalendarScreen() {
   const calendarConnections = useGremlyStore((s) => s.calendarConnections);
   const hasCalendarConnected = calendarConnections?.some((c) => c.isConnected) ?? false;
 
+  // Refresh calendar connections on focus (not persisted, so starts as [])
+  useFocusEffect(
+    useCallback(() => {
+      useGremlyStore.getState().refreshCalendarConnections();
+    }, []),
+  );
+
   const items = useCalendarEvents(selectedDate, {
     includeTodos: true,
     includeHabits: true,
@@ -45,6 +59,40 @@ export default function CalendarScreen() {
     },
     [overlayController],
   );
+
+  // Horizontal swipe gesture for day navigation
+  const translationX = useSharedValue(0);
+  const selectedDateRef = useRef(selectedDate);
+  selectedDateRef.current = selectedDate;
+
+  const advanceDay = useCallback(
+    (delta: number) => {
+      const next = getDateService().addDays(selectedDateRef.current, delta);
+      handleDateSelect(next);
+    },
+    [handleDateSelect],
+  );
+
+  const panGesture = Gesture.Pan()
+    .activeOffsetX([-20, 20])
+    .failOffsetY([-10, 10])
+    .onStart(() => {
+      translationX.value = 0;
+    })
+    .onUpdate((e) => {
+      translationX.value = e.translationX;
+    })
+    .onEnd((e) => {
+      const triggered = Math.abs(e.translationX) > 50 || Math.abs(e.velocityX) > 500;
+      if (triggered) {
+        runOnJS(advanceDay)(e.translationX > 0 ? -1 : 1);
+      }
+      translationX.value = withTiming(0, { duration: 200 });
+    });
+
+  const slideStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translationX.value }],
+  }));
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -63,12 +111,16 @@ export default function CalendarScreen() {
         </Pressable>
       )}
       <View style={styles.timeline}>
-        <DayTimeline
-          selectedDate={selectedDate}
-          events={items}
-          onEventPress={handleEventPress}
-          onDateSelect={handleDateSelect}
-        />
+        <GestureDetector gesture={panGesture}>
+          <Animated.View style={[{ flex: 1 }, slideStyle]}>
+            <DayTimeline
+              selectedDate={selectedDate}
+              events={items}
+              onEventPress={handleEventPress}
+              onDateSelect={handleDateSelect}
+            />
+          </Animated.View>
+        </GestureDetector>
       </View>
       <CalendarInputBar selectedDate={selectedDate} />
     </SafeAreaView>

@@ -604,6 +604,10 @@ interface GremlyState {
   pendingGraduation: boolean;
   /** Whether the post-graduation speech has already fired */
   postGraduationMessageShown: boolean;
+  /** Whether user has an active RevenueCat subscription */
+  isSubscribed: boolean;
+  /** Update subscription status */
+  setIsSubscribed: (subscribed: boolean) => void;
   /** Active Lottie color palette id */
   gremlyColor: string;
   setGremlyColor: (colorId: string) => Promise<void>;
@@ -1149,6 +1153,7 @@ const initialState = {
   graduatedAt: null as string | null,
   pendingGraduation: false,
   postGraduationMessageShown: false,
+  isSubscribed: false,
   gremlyColor: 'forest',
   bedtimeHour: 0,
   wakeHour: 6,
@@ -1654,6 +1659,7 @@ export const useGremlyStore = create<GremlyState>()(
             graduatedAt: null,
             pendingGraduation: false,
             postGraduationMessageShown: false,
+            isSubscribed: false,
             gremlyColor: 'forest',
             userName: null,
             userPronouns: null,
@@ -1912,6 +1918,10 @@ export const useGremlyStore = create<GremlyState>()(
 
         markAgeCelebrationShown: () => {
           set({ todayAgeCelebrationShownAt: nowTimestamp() });
+        },
+
+        setIsSubscribed: (subscribed: boolean) => {
+          set({ isSubscribed: subscribed });
         },
 
         setGremlyColor: async (colorId: string) => {

@@ -1,7 +1,7 @@
 /**
  * AnimatedDropCard - Calm arrival animation for Mind Drop cards
  *
- * Cards gently settle into place with smooth, ADHD-friendly animations:
+ * Cards gently settle into place with smooth, gentle animations:
  * 1. Card slides up + fades in (280ms)
  * 2. Title shows in "draft" state (dimmed shimmer) with raw input
  * 3. When AI title arrives, crossfade to full opacity

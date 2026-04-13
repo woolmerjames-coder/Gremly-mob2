@@ -8,7 +8,7 @@
  */
 
 import React, { useLayoutEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Alert, ActivityIndicator, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import {
@@ -19,6 +19,7 @@ import {
   CalendarDays,
   Brain,
   Palette,
+  Crown,
 } from 'lucide-react-native';
 import { colors, spacing, borderRadius } from '../../design/tokens';
 import { BRAND } from '../../design/brand';
@@ -26,6 +27,7 @@ import { generateWeeklySummary } from '../../lib/weeklySummary';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useCurrentWeekSummary } from '../../lib/store/selectors';
 import { GREMLY_PALETTES, getPaletteById } from '../../lib/constants/gremlyPalettes';
+import { useSubscriptionStatus } from '../../lib/subscriptions/useSubscriptionStatus';
 
 type SettingsRow = {
   key: string;
@@ -44,6 +46,7 @@ export default function SettingsScreen() {
   const gremlyColor = useGremlyStore((s) => s.gremlyColor);
   const setGremlyColor = useGremlyStore((s) => s.setGremlyColor);
   const currentPalette = getPaletteById(gremlyColor) ?? GREMLY_PALETTES[0];
+  const { isSubscribed, isTrialActive } = useSubscriptionStatus();
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -79,7 +82,28 @@ export default function SettingsScreen() {
     Alert.alert('Weekly Summary Data', `${count} summaries in store. Check console for details.`);
   };
 
+  const premiumSubtitle = isSubscribed
+    ? 'Active'
+    : isTrialActive
+      ? '7-day Training Challenge active'
+      : 'Upgrade to continue';
+
+  const handlePremiumPress = () => {
+    if (isSubscribed) {
+      Linking.openURL('https://apps.apple.com/account/subscriptions');
+    } else {
+      (navigation as any).navigate('TrialEndPaywall', { source: 'settings' });
+    }
+  };
+
   const rows: SettingsRow[] = [
+    {
+      key: 'premium',
+      icon: <Crown size={ICON_SIZE} color={BRAND.colors.mossGreen} />,
+      title: 'Gremly Premium',
+      subtitle: premiumSubtitle,
+      route: '',
+    },
     {
       key: 'rituals',
       icon: <Bell size={ICON_SIZE} color={BRAND.colors.mossGreen} />,
@@ -139,7 +163,9 @@ export default function SettingsScreen() {
               pressed && styles.rowPressed,
             ]}
             onPress={() => {
-              if (row.key === 'gremly-color') {
+              if (row.key === 'premium') {
+                handlePremiumPress();
+              } else if (row.key === 'gremly-color') {
                 Alert.alert('Choose a color', '', [
                   ...GREMLY_PALETTES.map((p) => ({
                     text: p.name,

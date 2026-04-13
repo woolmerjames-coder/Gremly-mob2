@@ -87,6 +87,9 @@ const raw = {
   CALENDAR_WORKER_URL: process.env.EXPO_PUBLIC_CALENDAR_WORKER_URL,
   AZURE_CLIENT_ID: process.env.EXPO_PUBLIC_AZURE_CLIENT_ID,
   GOOGLE_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? '',
+
+  // RevenueCat subscription management
+  REVENUECAT_API_KEY: process.env.EXPO_PUBLIC_REVENUECAT_API_KEY,
 };
 
 /**
@@ -233,6 +236,9 @@ export const env = {
   calendarWorkerUrl: raw.CALENDAR_WORKER_URL || null,
   azureClientId: raw.AZURE_CLIENT_ID || null,
   googleClientId: raw.GOOGLE_CLIENT_ID,
+
+  // RevenueCat
+  revenueCatApiKey: raw.REVENUECAT_API_KEY || null,
 } as const;
 
 // Type exports for convenience

@@ -40,6 +40,7 @@ jest.mock('lucide-react-native', () => {
     CalendarDays: (props: any) => <View testID="icon-calendar" {...props} />,
     Brain: (props: any) => <View testID="icon-brain" {...props} />,
     Palette: (props: any) => <View testID="icon-palette" {...props} />,
+    Crown: (props: any) => <View testID="icon-crown" {...props} />,
   };
 });
 
@@ -58,12 +59,25 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
       gremlyColor: 'forest',
       setGremlyColor: jest.fn(),
       weeklySummaries: [],
+      isSubscribed: false,
+      setIsSubscribed: jest.fn(),
     };
     return selector(state);
   };
   mockStore.getState = () => ({ weeklySummaries: [] });
   return { useGremlyStore: mockStore };
 });
+
+// Mock subscription status
+jest.mock('../../../lib/subscriptions/useSubscriptionStatus', () => ({
+  useSubscriptionStatus: () => ({
+    isSubscribed: false,
+    isTrialActive: true,
+    isExpired: false,
+    isLoading: false,
+    refresh: jest.fn(),
+  }),
+}));
 
 // Mock weekly summary + selectors
 jest.mock('../../../lib/weeklySummary', () => ({ generateWeeklySummary: jest.fn() }));
@@ -86,8 +100,9 @@ describe('SettingsScreen', () => {
       expect(getByText('Settings')).toBeTruthy();
     });
 
-    it('renders all 5 menu rows', () => {
+    it('renders all 6 menu rows', () => {
       const { getByText } = render(<SettingsScreen />);
+      expect(getByText('Gremly Premium')).toBeTruthy();
       expect(getByText('Rituals')).toBeTruthy();
       expect(getByText('Time Blocks')).toBeTruthy();
       expect(getByText('Calendar Connections')).toBeTruthy();
@@ -97,6 +112,7 @@ describe('SettingsScreen', () => {
 
     it('renders subtitles for each row', () => {
       const { getByText } = render(<SettingsScreen />);
+      expect(getByText('7-day Training Challenge active')).toBeTruthy();
       expect(getByText('Morning Brief, Evening Sweep, Day Boundary')).toBeTruthy();
       expect(getByText('Morning, Afternoon, Evening ranges')).toBeTruthy();
       expect(getByText('Outlook, Google, Calendar links')).toBeTruthy();

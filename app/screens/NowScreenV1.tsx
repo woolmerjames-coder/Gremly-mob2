@@ -73,6 +73,7 @@ import { useActionToast } from '../../src/hooks/useActionToast';
 import { getTodayEmptyState, getTodayEmptyStateContent } from '../../lib/today/getTodayEmptyState';
 import type { LogItem } from '../../lib/notes/useRecentLogs';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
+import { useTodayInteractions } from '../../lib/today/useTodayInteractions';
 
 import type {
   NowLockedItem,
@@ -608,6 +609,7 @@ export default function NowScreenV1() {
 
   const overwhelm = useOverwhelmFlow();
   const overlayController = useUnifiedOverlayController();
+  const { openEntityOverlay } = useTodayInteractions();
 
   // Handle notification tap to open Morning Brief, Evening Sweep, or Weekly Summary
   useEffect(() => {
@@ -645,13 +647,11 @@ export default function NowScreenV1() {
       'notification:open_item',
       (payload: { itemId: string; itemType: string }) => {
         console.log('[NowScreenV1] Opening item from reminder notification', payload);
-        overlayController.openEdit({
-          record: { id: payload.itemId, type: payload.itemType } as any,
-        });
+        openEntityOverlay({ id: payload.itemId, type: payload.itemType });
       },
     );
     return () => unsubscribe();
-  }, [overlayController]);
+  }, [openEntityOverlay]);
 
   const [isProgressVisible, setProgressVisible] = useState(false);
   const [isQuickAddVisible, setQuickAddVisible] = useState(false);
@@ -679,11 +679,9 @@ export default function NowScreenV1() {
   // Handle item press - open overlay (uses overlayController)
   const handlePressItem = useCallback(
     (item: NowLockedItem | NowActiveItem | NowFutureItem) => {
-      overlayController.openEdit({
-        record: { id: item.id, type: item.type } as any,
-      });
+      openEntityOverlay({ id: item.id, type: item.type });
     },
-    [overlayController],
+    [openEntityOverlay],
   );
 
   // Handle toggle complete - use store mutations directly
@@ -782,11 +780,9 @@ export default function NowScreenV1() {
   const handleOpenFullEvent = useCallback(
     (eventId: string) => {
       setQuickActionEvent(null);
-      overlayController.openEdit({
-        record: { id: eventId, type: 'note' } as any,
-      });
+      openEntityOverlay({ id: eventId, type: 'note' });
     },
-    [overlayController],
+    [openEntityOverlay],
   );
 
   const handleLinkTodo = useCallback((eventId: string, todoId: string) => {
@@ -904,12 +900,9 @@ export default function NowScreenV1() {
   const handleSelectLog = useCallback(
     (log: LogItem) => {
       setNotesVisible(false);
-      // Open overlay to edit this note
-      overlayController.openEdit({
-        record: { id: log.id, type: 'note' } as any,
-      });
+      openEntityOverlay({ id: log.id, type: 'note' });
     },
-    [overlayController],
+    [openEntityOverlay],
   );
 
   // Handle selecting a journal from YourNotesPopup
@@ -1033,11 +1026,8 @@ export default function NowScreenV1() {
         onUndoItem={handleUndoCompletedItem}
         onItemPress={(item) => {
           setProgressVisible(false);
-          // Map journal type to note for overlay
           const overlayType = item.type === 'journal' ? 'note' : item.type;
-          overlayController.openEdit({
-            record: { id: item.id, type: overlayType } as any,
-          });
+          openEntityOverlay({ id: item.id, type: overlayType });
         }}
       />
 

@@ -1,10 +1,11 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { View, StyleSheet, Text } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../providers/AuthProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { useDropRecovery } from '../hooks/useDropRecovery';
+import { useSubscriptionStatus } from '../lib/subscriptions/useSubscriptionStatus';
 
 import LoginScreen from '../app/screens/LoginScreen';
 import TabNavigator from './TabNavigator';
@@ -59,18 +60,11 @@ function HabitBuilderWrapper({ navigation, route }: any) {
   );
 }
 
-// Placeholder until Phase 6 builds the screen
-const GraduationFlowPlaceholder = () => (
-  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-    <Text>Graduation Flow - Coming Soon</Text>
-  </View>
-);
-
 export type RootStackParamList = {
   Login: undefined;
   Onboarding: undefined;
   TrialIntro: undefined;
-  TrialEndPaywall: undefined;
+  TrialEndPaywall: { source?: 'settings' | 'expiry' } | undefined;
   TrainingIntro: undefined; // kept for type compat, screen removed
   Tabs: undefined;
   DSPreview: undefined;
@@ -106,7 +100,6 @@ export type RootStackParamList = {
   MorningBrief: { targetDate?: string } | undefined;
   WeeklySummary: { weekStartDate?: string } | undefined;
   WeeklySummaryV2: { weekStartDate?: string } | undefined;
-  GraduationFlow: undefined;
   SweepTest: undefined; // DEV only
   HubScreen: undefined;
 };
@@ -116,7 +109,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function RootNavigator() {
   const { user, loading } = useAuth();
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
-  const isInitialized = useGremlyStore((s) => s.isInitialized);
+  const { isExpired } = useSubscriptionStatus();
 
   // Wait for MMKV hydration so onboardingCompletedAt is available from persisted state
   const [hasHydrated, setHasHydrated] = useState(useGremlyStore.persist.hasHydrated());
@@ -142,11 +135,12 @@ export default function RootNavigator() {
     }
   }, [isReady]);
 
-  // Determine initial route based on onboarding and training status
+  // Determine initial route based on onboarding, training, and subscription status
   const initialRouteName = useMemo(() => {
     if (!onboardingCompletedAt) return 'Onboarding';
+    if (isExpired) return 'TrialEndPaywall';
     return 'Tabs';
-  }, [onboardingCompletedAt]);
+  }, [onboardingCompletedAt, isExpired]);
 
   if (!isReady) {
     return <View style={styles.splashHolder} />;
@@ -313,15 +307,6 @@ export default function RootNavigator() {
             options={{
               headerShown: false,
               presentation: 'card',
-            }}
-          />
-          <Stack.Screen
-            name="GraduationFlow"
-            component={GraduationFlowPlaceholder}
-            options={{
-              headerShown: false,
-              gestureEnabled: false,
-              presentation: 'fullScreenModal',
             }}
           />
           <Stack.Screen

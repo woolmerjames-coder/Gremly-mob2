@@ -168,17 +168,18 @@ const dcoDispatcher = inngest.createFunction(
       };
       const patchBody = JSON.stringify({ status: 'passed', updated_at: new Date().toISOString() });
 
-      // Exact-confidence anchors: mark passed if resolved_date < today
+      // Exact-confidence anchors: mark passed with 7-day buffer
+      const exactBufferDate = utcDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
       const exactRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.exact&resolved_date=lt.${today}`,
+        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.exact&resolved_date=lt.${exactBufferDate}`,
         { method: 'PATCH', headers, body: patchBody },
       );
       const exactCount = exactRes.ok ? (await exactRes.json()).length : 0;
 
-      // Approximate-confidence anchors: mark passed with 3-day buffer
-      const bufferDate = utcDate(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+      // Approximate-confidence anchors: mark passed with 7-day buffer
+      const approxBufferDate = utcDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
       const approxRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.approximate&date_range_end=lt.${bufferDate}`,
+        `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?status=eq.active&date_confidence=eq.approximate&date_range_end=lt.${approxBufferDate}`,
         { method: 'PATCH', headers, body: patchBody },
       );
       const approxCount = approxRes.ok ? (await approxRes.json()).length : 0;
@@ -328,7 +329,7 @@ const generateSingleUserDco = inngest.createFunction(
       });
 
       // Step 6: Assemble backward-compatible DCO
-      const dco = assembleDcoFromFocus(flashResult.daily_focus, headline, snapshot);
+      const dco = assembleDcoFromFocus(flashResult.daily_focus, headline, snapshot, flashResult);
 
       // Step 7: Store updated Life Map + DCO to Supabase
       await step.run('store-results', async () => {
@@ -398,6 +399,7 @@ const generateSingleUserDco = inngest.createFunction(
         life_moment: dco.life_moment,
         tone: dco.tone,
         day_type: dco.day_type,
+        week_recap_count: dco.week_recap?.length || 0,
       };
     } catch (error) {
       console.error(`[DCO] Failed for user ${userId}:`, error);
@@ -1613,7 +1615,6 @@ Rules:
         /\b(male|female|non-?binary)\b/i, // gender mentions
         /\b(he|she|they)\/(him|her|them)\b/i, // pronouns
         /\blives?\s+in\b/i, // location (now in identity)
-        /\bhas\s+(ADHD|ADD|anxiety|depression|OCD|autism|ASD)\b/i, // conditions (now in identity)
       ];
 
       extractedFacts = mergedFacts.filter(
@@ -1639,8 +1640,6 @@ Rules:
         if (updatedIdentity.age) identityParts.push(`Age: ${updatedIdentity.age}`);
         if (updatedIdentity.location) identityParts.push(`Location: ${updatedIdentity.location}`);
         if (updatedIdentity.partner) identityParts.push(`Partner: ${updatedIdentity.partner}`);
-        if (updatedIdentity.conditions?.length > 0)
-          identityParts.push(`Conditions: ${updatedIdentity.conditions.join(', ')}`);
         identitySection = `IDENTITY: ${identityParts.join('. ')}.\n\n`;
       }
 
@@ -1899,7 +1898,6 @@ const backfillIdentity = inngest.createFunction(
             /\b(male|female|non-?binary)\b/i,
             /\b(he|she|they)\/(him|her|them)\b/i,
             /\blives?\s+in\b/i,
-            /\bhas\s+(ADHD|ADD|anxiety|depression|OCD|autism|ASD)\b/i,
           ];
           const cleanedFacts = facts.filter((f) => !identityPatterns.some((p) => p.test(f)));
 
@@ -2009,8 +2007,6 @@ async function synthesizeUserProfile(userId, env) {
       if (identity.age) identityParts.push(`Age: ${identity.age}`);
       if (identity.location) identityParts.push(`Location: ${identity.location}`);
       if (identity.partner) identityParts.push(`Partner: ${identity.partner}`);
-      if (identity.conditions?.length > 0)
-        identityParts.push(`Conditions: ${identity.conditions.join(', ')}`);
       profileText = `IDENTITY: ${identityParts.join('. ')}.\n\n`;
     }
 
@@ -2131,13 +2127,11 @@ Extract ONLY these categories (leave null if not mentioned):
 - age: Their age or age range
 - partner: Partner/spouse name and relationship type (partner, husband, wife, etc.)
 - location: City/neighborhood they live in
-- conditions: Array of health conditions, neurodivergence, or similar (e.g., ["ADHD", "anxiety"])
 
 RULES:
 - Only include facts they EXPLICITLY stated or VERY strongly implied
 - If gender is stated (e.g., "as a man", "my boyfriend and I", "34 year old male"), always set pronouns to match
 - If they mention a partner by name, include the name AND relationship word they used
-- For conditions, only include diagnosed or self-identified conditions, not temporary states
 - If a field has an existing value and nothing in the messages contradicts it, KEEP the existing value
 - Output as a JSON object with the fields above. Use null for unknown fields.
 - Do NOT include situational facts like current projects, jobs, or weekly activities
@@ -2209,7 +2203,7 @@ async function extractFacts(messages, apiKey) {
   const prompt = `Extract personal facts about this user from their messages. Look for:
 - Job, career, work situation
 - Relationships, family
-- Health conditions or challenges (physical, mental)
+- Interests and hobbies
 - Goals and aspirations
 - Location or living situation
 - Hobbies and interests
@@ -2222,7 +2216,7 @@ RULES:
 - Only include facts they explicitly stated or strongly implied
 - Be specific (e.g., "works at an ad agency" not "has a job")
 - Ignore generic requests/questions that don't reveal personal info
-- Output as a JSON array of strings, e.g., ["works in tech", "has ADHD", "lives in LA"]
+- Output as a JSON array of strings, e.g., ["works in tech", "has a dog", "lives in LA"]
 - If no personal facts found, output empty array: []
 
 Output ONLY the JSON array, no explanation.`;
@@ -2684,7 +2678,7 @@ RULES:
 
 1. SPACES ARE DOMAINS. Every user-created Space becomes a domain with source "space". The user's active spaces are: ${spaceList}. Use the exact space names and IDs.
 
-2. AI-DETECTED DOMAINS are for clearly positive/neutral themes that span multiple data points across 7+ days with no existing Space fit. Do NOT create AI-detected domains for sensitive health conditions, substance use, or mental health unless the user has an explicit Space for it. Keep AI-detected domains to 0-2 maximum.
+2. AI-DETECTED DOMAINS are for clearly positive/neutral themes that span multiple data points across 7+ days with no existing Space fit. Do NOT create AI-detected domains for sensitive personal topics unless the user has an explicit Space for it. Keep AI-detected domains to 0-2 maximum.
 
 3. THREAD CREATION THRESHOLDS:
    - A topic needs 3+ data points across 2+ distinct days to become a thread
@@ -6322,6 +6316,35 @@ function buildWorldPicture(snapshot) {
     parts.push('  No events today.');
   }
 
+  // ── Section 3b: Past events earlier this week (Monday → yesterday) ──
+  parts.push('\n=== EVENTS EARLIER THIS WEEK ===');
+  const dow = target.getUTCDay(); // 0=Sun, 1=Mon, …, 6=Sat
+  const mondayOffset = (dow + 6) % 7; // 0 for Mon, 1 for Tue, …, 6 for Sun
+  const mondayDate = new Date(target);
+  mondayDate.setUTCDate(target.getUTCDate() - mondayOffset);
+  const weekStartStr = formatDateOnly(mondayDate);
+
+  const pastEvents = (raw.calendarEvents || [])
+    .filter((e) => {
+      const d = e.target_date;
+      return d >= weekStartStr && d < targetDate;
+    })
+    .sort((a, b) => (a.target_date < b.target_date ? -1 : a.target_date > b.target_date ? 1 : 0))
+    .slice(0, 15);
+
+  if (pastEvents.length > 0) {
+    for (const e of pastEvents) {
+      const daysAgo = Math.ceil((target - new Date(e.target_date + 'T00:00:00Z')) / 86400000);
+      const space = computed.spaceMap[e.space_id] ? ` [${computed.spaceMap[e.space_id]}]` : '';
+      const synced = e.external_source ? ' {synced calendar}' : ' {key date}';
+      const time = e.event_time ? ` at ${e.event_time}` : '';
+      const loc = e.location ? ` (${e.location})` : '';
+      parts.push(`  ${e.target_date} (${daysAgo}d ago): ${e.title}${time}${loc}${space}${synced}`);
+    }
+  } else {
+    parts.push('  No earlier events this week.');
+  }
+
   // ── Section 4: Upcoming events (next 7 days) — label recurring/routine ──
   parts.push('\n=== UPCOMING EVENTS (next 7 days) ===');
   if (calendar.upcomingEvents.length > 0) {
@@ -6569,6 +6592,15 @@ today_focus: 1-3 concrete things that specifically matter TODAY. Not general the
 
 named_anchors: People, places, trips, or projects explicitly mentioned in today's data. Only proper nouns actually present in the data. Never invent.
 
+JOB 3 — WEEK RECAP
+Scan ALL data sources in the world picture — calendar events (including the "Events Earlier This Week" section), journals, chat conversation summaries, completed todos, habit progress, drops — for concrete things that happened since Monday of the current week.
+
+Produce date-indexed entries capturing what specifically happened each day. Focus on concrete specifics: events attended, meaningful task completions, emotional moments from journals, key decisions from chat conversations, notable habit streaks or breaks. Each entry should be a short factual statement tied to a specific date.
+
+Pick the MOST MEANINGFUL entries, not an exhaustive list. Cap at 8-10 entries for the whole week.
+
+Also produce a week_mood_arc: a single sentence describing how the user's emotional state shifted across the week, based on journal moods, chat emotional signals, and any other sentiment data. If insufficient emotional data exists, return null.
+
 CRITICAL:
 - lead_story and secondary MUST use exact domain and thread names from the Life Map.
 - "detail" adds COLOR to the headline — a short, specific note (max 1 sentence, max 80 chars) that gives context the headline can't. Written in second person — "you" not "the user". Must NOT repeat the same information as lead_story. Instead, surface what makes today different: a feeling, a tension, a countdown, a contrast. If the headline says "island transition today", the detail should NOT say "travel day with a flight" — it should say something the headline missed.
@@ -6612,7 +6644,14 @@ OUTPUT — return ONLY this JSON:
     "day_type": "event_day|work_day|milestone_day|routine_day|quiet_day|transition_day",
     "today_focus": ["specific item 1", "specific item 2", "specific item 3"],
     "named_anchors": [{"label": "Name", "type": "person|trip|project|event|place", "source": "life_map|drop|calendar"}]
-  }
+  },
+  "week_recap": [
+    {
+      "date": "YYYY-MM-DD",
+      "event": "short factual statement of what happened"
+    }
+  ],
+  "week_mood_arc": "single sentence about emotional trajectory this week, or null"
 }`;
 
   const userMessage = worldPictureText;
@@ -6748,7 +6787,7 @@ function mergeLifeMapUpdates(lifeMap, threadUpdates) {
  * The dco column in user_daily_state keeps working for all existing consumers.
  * New fields (lead_story, daily_focus) are additive.
  */
-function assembleDcoFromFocus(dailyFocus, headline, snapshot) {
+function assembleDcoFromFocus(dailyFocus, headline, snapshot, flashResult) {
   const { computed, calendar } = snapshot;
 
   // Derive life_moment from lead story
@@ -6815,6 +6854,10 @@ function assembleDcoFromFocus(dailyFocus, headline, snapshot) {
     // NEW fields (additive)
     lead_story: dailyFocus.lead_story,
     daily_focus: dailyFocus,
+
+    // Week recap (from JOB 3)
+    week_recap: flashResult?.week_recap || [],
+    week_mood_arc: flashResult?.week_mood_arc || null,
 
     // Metadata
     user_id: snapshot.userId,
@@ -7132,7 +7175,12 @@ export default {
               snapshot,
               env,
             );
-            const dco = assembleDcoFromFocus(flashResult.daily_focus, headline, snapshot);
+            const dco = assembleDcoFromFocus(
+              flashResult.daily_focus,
+              headline,
+              snapshot,
+              flashResult,
+            );
 
             const now = new Date();
             const todayLocal = getUserLocalDate(u.timezone);

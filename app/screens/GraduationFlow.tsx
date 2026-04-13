@@ -1,5 +1,5 @@
 /**
- * GraduationFlow — 4-beat graduation ceremony
+ * GraduationFlow - 4-beat graduation ceremony
  *
  * Renders as a full-screen overlay when pendingGraduation is true.
  * Beat 1: Celebration (confetti + mascot)
@@ -274,7 +274,7 @@ function ReportBeat({ onAdvance }: { onAdvance: () => void }) {
     const start = trainingStartedAt ? new Date(trainingStartedAt) : getDateService().now();
     const end = getDateService().now();
     const fmt = (d: Date) => format(d, 'MMM d');
-    return `${fmt(start)} – ${fmt(end)}`;
+    return `${fmt(start)} - ${fmt(end)}`;
   }, [trainingStartedAt]);
 
   // Build cards: intro + summary content
@@ -430,8 +430,11 @@ function HookBeat({ onDismiss }: { onDismiss: () => void }) {
   useEffect(() => {
     if (!trainingStartedAt) return;
     const started = new Date(trainingStartedAt).getTime();
-    const trialEnd = started + 14 * 24 * 60 * 60 * 1000; // 14-day trial
-    const remaining = Math.max(0, Math.ceil((trialEnd - getDateService().now().getTime()) / (1000 * 60 * 60 * 24)));
+    const trialEnd = started + 8 * 24 * 60 * 60 * 1000; // 8-day trial (7 challenge + 1 grace)
+    const remaining = Math.max(
+      0,
+      Math.ceil((trialEnd - getDateService().now().getTime()) / (1000 * 60 * 60 * 24)),
+    );
     setTrialDaysLeft(remaining);
   }, [trainingStartedAt]);
 

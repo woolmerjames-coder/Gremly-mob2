@@ -53,7 +53,7 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
   {
     id: 'start',
     title: 'Feed me your thoughts every day',
-    body: "Every drop fills your gremlin back up. Tasks, thoughts, feelings — I'll sort it all out.",
+    body: "Every drop fills your gremlin back up. Tasks, thoughts, feelings - I'll sort it all out.",
     subtext: 'Tap any card to chat with me along the way.',
     type: 'drain',
   },
@@ -173,7 +173,7 @@ function OnboardingStepView({
       {step.body ? (
         <Text style={styles.body}>
           {step.id === 'start' && nameInput.trim()
-            ? `Every drop fills me back up, ${nameInput.trim()}. Tasks, thoughts, feelings — I'll sort it all out.`
+            ? `Every drop fills me back up, ${nameInput.trim()}. Tasks, thoughts, feelings - I'll sort it all out.`
             : step.body}
         </Text>
       ) : null}

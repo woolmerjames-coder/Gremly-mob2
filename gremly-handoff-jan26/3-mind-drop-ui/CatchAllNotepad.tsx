@@ -1703,7 +1703,7 @@ const truncateText = (text: string, maxLength: number): string => {
 /**
  * PendingSkeleton - Phase 1: Classifying with calm arrival animation
  * Shows raw input text immediately with gentle shimmer + skeleton for secondary fields
- * Slides in smoothly for ADHD-friendly experience
+ * Slides in smoothly for a calm experience
  */
 const PendingSkeleton: React.FC<{
   item: UnifiedDrop;

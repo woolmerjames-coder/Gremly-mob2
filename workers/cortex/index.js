@@ -2541,7 +2541,7 @@ You sound like a smart friend who actually listens — not a life coach, not a c
 === PRODUCT PHILOSOPHY ===
 These principles shape everything you do:
 - No shame-based tracking: Rolling windows, not streaks. Never guilt someone about gaps.
-- ADHD-friendly by design: Small actions beat big plans. Lower friction, not higher expectations.
+- Calm by design: Small actions beat big plans. Lower friction, not higher expectations.
 - Capture first, organize later: Mind Drop exists so thoughts don't get lost. Don't add complexity.
 - Meet people where they are: Not everyone wants a system. Some just want to get one thing done.
 
@@ -2641,15 +2641,14 @@ Someone feeling down or struggling:
 - First: acknowledge and be present. Let them feel heard.
 - Don't immediately jump to crisis resources — they might just be venting.
 - Be warm and direct: "That sounds really hard. Want to talk about what's going on?"
-- Only mention crisis resources (988 Suicide & Crisis Lifeline) if there are clearer signals: explicit self-harm mention, hopelessness about the future, or wanting to hurt themselves.
+- If someone seems to be in crisis, say: "That sounds really serious. Please reach out to someone you trust or call 988."
 - Don't abandon them — stay warm and available.
 
-Mental health (ADHD, anxiety, depression, etc.):
-- Be curious and help them explore. They might want to feel understood, not diagnosed.
-- Don't immediately push them to a doctor — that can feel dismissive.
-- You can discuss symptoms, coping strategies, what things feel like.
-- Only suggest professional help if they ask, or it's clearly affecting their life.
-- Never diagnose anything yourself.
+Heavy or difficult emotions:
+- Be warm and present. Let them feel heard without rushing to fix.
+- Don't label what they're experiencing — reflect, don't diagnose.
+- Don't push them toward professionals unless they ask or something feels urgent.
+- You're a companion, not a counselor. That's a feature, not a limitation.
 
 Medical questions:
 - Simple stuff (OTC meds, common ailments): be helpful and practical.
@@ -2705,7 +2704,7 @@ function makeWebSearchTool(timezone) {
 DEFAULT TO SEARCHING. If there is ANY chance that current, specific information would improve your answer, search first. The cost of an unnecessary search is near zero. The cost of giving generic advice when specific information exists is high.
 
 ALWAYS search for:
-- Health, fitness, supplements, medications, medical information
+- Health, fitness, supplements, medications, nutrition
 - Product recommendations or comparisons
 - How-to guides, tutorials, best practices
 - Current events, recent news, things that change over time
@@ -3600,7 +3599,7 @@ CRITICAL: Re-read the ENTIRE conversation before generating tips. Your tips must
 
 Rules:
 - **2-3 tips max**, each 1-2 sentences
-- Pick the 2-3 most relevant from: habit stacking, first-day plan, ADHD-friendly friction reduction, realistic obstacle handling, or something specific to THEIR situation
+- Pick the 2-3 most relevant from: habit stacking, first-day plan, gentle friction reduction, realistic obstacle handling, or something specific to THEIR situation
 - Use **web_search** if real research would help — but tailor the search query to their specific context, not generic terms
 - Format with **bold** label + short sentence. Total under 100 words.
 - Each tip must cover a DIFFERENT strategy. Never repeat the same concept with different wording. If you can only think of two genuinely distinct tips, give two — never pad with a rephrased duplicate.
@@ -6523,7 +6522,7 @@ ${formatGaps(blocks.evening?.gaps)}`;
         // === Static system prompt (cached) ===
         const ORGANIZE_SYSTEM_PROMPT = `You are a task scheduler for a productivity app called Gremly. Your job is to place tasks into time blocks to create a calm, focused, achievable day.
 
-You are scheduling for real humans who may have ADHD or executive function challenges. This means:
+You are scheduling for real humans. This means:
 - Overscheduling causes anxiety and paralysis. Leave breathing room.
 - Transitions between very different tasks are cognitively expensive.
 - Starting the day with a quick win builds momentum.
@@ -10228,7 +10227,7 @@ Analyze these entries and return a JSON object with these four sections:
 4. "suggestion" - A single gentle, actionable suggestion. Object:
    { "text": "the suggestion (2-3 sentences max)", "type": "reflect" | "try" | "continue" }
    "reflect" = think about something, "try" = experiment with something new, "continue" = keep doing something good.
-   NEVER suggest therapy, medication, or professional help. NEVER be prescriptive about emotions.
+   Keep reflections grounded in what the user shared. Offer observations and gentle questions, not prescriptions or referrals.
    Frame as an invitation, not advice. Use "you might..." or "it could be interesting to..." language.
 
 === RULES ===
@@ -11584,20 +11583,42 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       ...(existing.dismissed_extractions || []),
                     ];
 
-                    // Fetch the rolling summary to give extraction context about earlier conversation
-                    const summaryRes = await fetch(
-                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
-                      {
-                        headers: {
-                          apikey: env.SUPABASE_SERVICE_KEY,
-                          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-                        },
-                      },
-                    );
+                    // Fetch rolling summary + active todos/habits in parallel for dedup
+                    const supaHeaders = {
+                      apikey: env.SUPABASE_SERVICE_KEY,
+                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                    };
+                    const [summaryRes, todosRes, habitsRes] = await Promise.all([
+                      fetch(
+                        `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                        { headers: supaHeaders },
+                      ),
+                      fetch(
+                        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${body.userId}&completed_at=is.null&select=title&limit=50`,
+                        { headers: supaHeaders },
+                      ),
+                      fetch(
+                        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${body.userId}&archived_at=is.null&select=title,frequency&limit=30`,
+                        { headers: supaHeaders },
+                      ),
+                    ]);
                     const summaryData = summaryRes.ok
                       ? await summaryRes.json().catch(() => [])
                       : [];
                     const runningSummary = summaryData?.[0]?.running_summary || null;
+                    const todosData = todosRes.ok ? await todosRes.json().catch(() => []) : [];
+                    const habitsData = habitsRes.ok ? await habitsRes.json().catch(() => []) : [];
+
+                    const existingLines = [
+                      ...todosData.map((t) => `- [todo] ${t.title}`),
+                      ...habitsData.map(
+                        (h) => `- [habit] ${h.title}${h.frequency ? ` (${h.frequency})` : ''}`,
+                      ),
+                    ];
+                    const existingItemsBlock =
+                      existingLines.length > 0
+                        ? `\nITEMS ALREADY TRACKED IN THE USER'S SYSTEM (do NOT re-extract these or close paraphrases):\n${existingLines.join('\n')}\n`
+                        : '';
 
                     const allMsgs = [
                       ...messages.filter((m) => m.role !== 'system'),
@@ -11623,13 +11644,13 @@ CONVERSATION:
 ${conversationText}
 
 ${handledIds.length > 0 ? 'ALREADY HANDLED (skip these): ' + handledIds.join(', ') : ''}
-
+${existingItemsBlock}
 Extract ONLY items where the user showed clear commitment or intent:
 TODO: Actions the user committed to (concrete verb + object). NOT AI suggestions the user didn't affirm.
 HABIT: Only with explicit frequency or stop/quit intent + trackable behavior.
 NOTE: Ideas the user was excited about, decisions reached, recommendations they engaged with.
 EVENT: Upcoming dates, deadlines, exams, appointments, trips, or time-bound milestones the user mentioned. Extract these even without exact dates. Capturing that something is coming up is valuable context for other conversations.
-DO NOT EXTRACT: explorations, emotional processing, unaffirmed AI suggestions, small talk.
+DO NOT EXTRACT: explorations, emotional processing, unaffirmed AI suggestions, small talk, or items that match or closely paraphrase something already tracked in the system above.
 
 TEMPORAL METADATA (EVENT items only — set all to null for todo/habit/note):
 - date_text: The user's exact words about timing, preserved verbatim (e.g. "next Thursday", "sometime in June", "before the end of the semester")
