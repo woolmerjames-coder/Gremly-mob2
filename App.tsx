@@ -142,9 +142,11 @@ export default function App() {
 
   // Ensure notification categories (action buttons) are registered on every launch
   useEffect(() => {
-    import('./src/utils/notifications').then(({ ensureNotificationCategories }) => {
-      ensureNotificationCategories();
-    });
+    import('./src/utils/notifications')
+      .then(({ ensureNotificationCategories }) => {
+        ensureNotificationCategories();
+      })
+      .catch((err) => console.error('Notification categories error:', err));
   }, []);
 
   // Subscribe to age-up celebration events
