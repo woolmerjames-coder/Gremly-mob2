@@ -3564,40 +3564,20 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
               {isViewMode && (
                 <View style={{ flex: 1 }}>
                   {baseType === 'habit' && (fullEntity || initialEntity?.id) ? (
-                    <>
-                      <HabitViewMode
-                        habit={
-                          (fullEntity ||
-                            storeHabits.find((h) => h.id === (initialEntity as any)?.id)) as any
-                        }
-                        habitProgress={habitProgressForView}
-                        spaceName={spaces.find((s) => s.id === state.spaceId)?.name}
-                        onLogToday={handleLogHabitToday}
-                        onLogDate={handleLogHabitDate}
-                        onRemoveDate={handleRemoveHabitDate}
-                        onUpdateWhy={handleUpdateHabitWhy}
-                        onChatWithGremly={handleOpenHabitChat}
-                        onLogSlip={handleLogHabitToday}
-                      />
-                      {currentEntityId && (
-                        <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
-                          <StaticRow
-                            icon={BarChart3}
-                            label="Check progress"
-                            iconColor="#2E5540"
-                            right={<ChevronRight size={14} color="#2E5540" />}
-                            onPress={() => {
-                              onClose();
-                              setTimeout(() => {
-                                overlayNavigation.navigate('HabitDetail', {
-                                  habitId: currentEntityId,
-                                });
-                              }, 100);
-                            }}
-                          />
-                        </View>
-                      )}
-                    </>
+                    <HabitViewMode
+                      habit={
+                        (fullEntity ||
+                          storeHabits.find((h) => h.id === (initialEntity as any)?.id)) as any
+                      }
+                      habitProgress={habitProgressForView}
+                      spaceName={spaces.find((s) => s.id === state.spaceId)?.name}
+                      onLogToday={handleLogHabitToday}
+                      onLogDate={handleLogHabitDate}
+                      onRemoveDate={handleRemoveHabitDate}
+                      onUpdateWhy={handleUpdateHabitWhy}
+                      onChatWithGremly={handleOpenHabitChat}
+                      onLogSlip={handleLogHabitToday}
+                    />
                   ) : (
                     renderViewModeContent()
                   )}
@@ -4890,7 +4870,14 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
                               label="View progress"
                               iconColor="#2E5540"
                               right={<ChevronRight size={14} color="#2E5540" />}
-                              onPress={() => store.setUI({ displayMode: 'view' })}
+                              onPress={() => {
+                                onClose();
+                                setTimeout(() => {
+                                  overlayNavigation.navigate('HabitDetail', {
+                                    habitId: currentEntityId,
+                                  });
+                                }, 100);
+                              }}
                             />
                           )}
 
