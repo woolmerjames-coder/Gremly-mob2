@@ -11583,20 +11583,42 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                       ...(existing.dismissed_extractions || []),
                     ];
 
-                    // Fetch the rolling summary to give extraction context about earlier conversation
-                    const summaryRes = await fetch(
-                      `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
-                      {
-                        headers: {
-                          apikey: env.SUPABASE_SERVICE_KEY,
-                          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-                        },
-                      },
-                    );
+                    // Fetch rolling summary + active todos/habits in parallel for dedup
+                    const supaHeaders = {
+                      apikey: env.SUPABASE_SERVICE_KEY,
+                      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+                    };
+                    const [summaryRes, todosRes, habitsRes] = await Promise.all([
+                      fetch(
+                        `${env.SUPABASE_URL}/rest/v1/space_chats?id=eq.${body.chatId}&select=running_summary`,
+                        { headers: supaHeaders },
+                      ),
+                      fetch(
+                        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${body.userId}&completed_at=is.null&select=title&limit=50`,
+                        { headers: supaHeaders },
+                      ),
+                      fetch(
+                        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${body.userId}&archived_at=is.null&select=title,frequency&limit=30`,
+                        { headers: supaHeaders },
+                      ),
+                    ]);
                     const summaryData = summaryRes.ok
                       ? await summaryRes.json().catch(() => [])
                       : [];
                     const runningSummary = summaryData?.[0]?.running_summary || null;
+                    const todosData = todosRes.ok ? await todosRes.json().catch(() => []) : [];
+                    const habitsData = habitsRes.ok ? await habitsRes.json().catch(() => []) : [];
+
+                    const existingLines = [
+                      ...todosData.map((t) => `- [todo] ${t.title}`),
+                      ...habitsData.map(
+                        (h) => `- [habit] ${h.title}${h.frequency ? ` (${h.frequency})` : ''}`,
+                      ),
+                    ];
+                    const existingItemsBlock =
+                      existingLines.length > 0
+                        ? `\nITEMS ALREADY TRACKED IN THE USER'S SYSTEM (do NOT re-extract these or close paraphrases):\n${existingLines.join('\n')}\n`
+                        : '';
 
                     const allMsgs = [
                       ...messages.filter((m) => m.role !== 'system'),
@@ -11622,13 +11644,13 @@ CONVERSATION:
 ${conversationText}
 
 ${handledIds.length > 0 ? 'ALREADY HANDLED (skip these): ' + handledIds.join(', ') : ''}
-
+${existingItemsBlock}
 Extract ONLY items where the user showed clear commitment or intent:
 TODO: Actions the user committed to (concrete verb + object). NOT AI suggestions the user didn't affirm.
 HABIT: Only with explicit frequency or stop/quit intent + trackable behavior.
 NOTE: Ideas the user was excited about, decisions reached, recommendations they engaged with.
 EVENT: Upcoming dates, deadlines, exams, appointments, trips, or time-bound milestones the user mentioned. Extract these even without exact dates. Capturing that something is coming up is valuable context for other conversations.
-DO NOT EXTRACT: explorations, emotional processing, unaffirmed AI suggestions, small talk.
+DO NOT EXTRACT: explorations, emotional processing, unaffirmed AI suggestions, small talk, or items that match or closely paraphrase something already tracked in the system above.
 
 TEMPORAL METADATA (EVENT items only — set all to null for todo/habit/note):
 - date_text: The user's exact words about timing, preserved verbatim (e.g. "next Thursday", "sometime in June", "before the end of the semester")
