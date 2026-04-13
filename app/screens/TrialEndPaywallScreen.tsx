@@ -1,5 +1,5 @@
 /**
- * TrialEndPaywallScreen — Shown when the user's 8-day trial has expired
+ * TrialEndPaywallScreen - Shown when the user's 8-day trial has expired
  * and they have no active subscription.
  */
 
@@ -39,7 +39,7 @@ export default function TrialEndPaywallScreen() {
   }, [navigation]);
 
   const subscribeLabel =
-    selectedPlan === 'annual' ? 'Subscribe — $69.99/year' : 'Subscribe — $9.99/month';
+    selectedPlan === 'annual' ? 'Subscribe - $69.99/year' : 'Subscribe - $9.99/month';
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -58,7 +58,7 @@ export default function TrialEndPaywallScreen() {
 
         {/* Subtitle */}
         <Text style={styles.subtitle}>
-          Your free trial has ended — here's what we built together
+          Your free trial has ended - here's what we built together
         </Text>
 
         {/* Stats row */}

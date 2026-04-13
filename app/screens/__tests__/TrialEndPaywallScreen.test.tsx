@@ -41,7 +41,7 @@ describe('TrialEndPaywallScreen', () => {
 
   it('renders the subtitle', () => {
     const { getByText } = render(<TrialEndPaywallScreen />);
-    expect(getByText("Your free trial has ended — here's what we built together")).toBeTruthy();
+    expect(getByText("Your free trial has ended - here's what we built together")).toBeTruthy();
   });
 
   it('renders stat cards with store values', () => {
@@ -55,13 +55,13 @@ describe('TrialEndPaywallScreen', () => {
     const { getByRole } = render(<TrialEndPaywallScreen />);
     // The subscribe button should show annual price by default
     const { getByText } = render(<TrialEndPaywallScreen />);
-    expect(getByText('Subscribe — $69.99/year')).toBeTruthy();
+    expect(getByText('Subscribe - $69.99/year')).toBeTruthy();
   });
 
   it('switches to monthly plan when monthly card is pressed', () => {
     const { getByText, getAllByText } = render(<TrialEndPaywallScreen />);
     fireEvent.press(getByText('Monthly'));
-    expect(getByText('Subscribe — $9.99/month')).toBeTruthy();
+    expect(getByText('Subscribe - $9.99/month')).toBeTruthy();
   });
 
   it('renders Save 42% badge', () => {
@@ -97,7 +97,7 @@ describe('TrialEndPaywallScreen', () => {
   it('resets navigation to Tabs when Subscribe is pressed', async () => {
     const { CommonActions } = require('@react-navigation/native');
     const { getByText } = render(<TrialEndPaywallScreen />);
-    fireEvent.press(getByText('Subscribe — $69.99/year'));
+    fireEvent.press(getByText('Subscribe - $69.99/year'));
 
     await new Promise((r) => setTimeout(r, 0));
     expect(mockDispatch).toHaveBeenCalled();
