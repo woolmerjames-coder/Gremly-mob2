@@ -64,7 +64,7 @@ export type RootStackParamList = {
   Login: undefined;
   Onboarding: undefined;
   TrialIntro: undefined;
-  TrialEndPaywall: undefined;
+  TrialEndPaywall: { source?: 'settings' | 'expiry' } | undefined;
   TrainingIntro: undefined; // kept for type compat, screen removed
   Tabs: undefined;
   DSPreview: undefined;
