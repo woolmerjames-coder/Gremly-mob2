@@ -1615,7 +1615,6 @@ Rules:
         /\b(male|female|non-?binary)\b/i, // gender mentions
         /\b(he|she|they)\/(him|her|them)\b/i, // pronouns
         /\blives?\s+in\b/i, // location (now in identity)
-        /\bhas\s+(ADHD|ADD|anxiety|depression|OCD|autism|ASD)\b/i, // conditions (now in identity)
       ];
 
       extractedFacts = mergedFacts.filter(
@@ -1641,8 +1640,6 @@ Rules:
         if (updatedIdentity.age) identityParts.push(`Age: ${updatedIdentity.age}`);
         if (updatedIdentity.location) identityParts.push(`Location: ${updatedIdentity.location}`);
         if (updatedIdentity.partner) identityParts.push(`Partner: ${updatedIdentity.partner}`);
-        if (updatedIdentity.conditions?.length > 0)
-          identityParts.push(`Conditions: ${updatedIdentity.conditions.join(', ')}`);
         identitySection = `IDENTITY: ${identityParts.join('. ')}.\n\n`;
       }
 
@@ -1901,7 +1898,6 @@ const backfillIdentity = inngest.createFunction(
             /\b(male|female|non-?binary)\b/i,
             /\b(he|she|they)\/(him|her|them)\b/i,
             /\blives?\s+in\b/i,
-            /\bhas\s+(ADHD|ADD|anxiety|depression|OCD|autism|ASD)\b/i,
           ];
           const cleanedFacts = facts.filter((f) => !identityPatterns.some((p) => p.test(f)));
 
@@ -2011,8 +2007,6 @@ async function synthesizeUserProfile(userId, env) {
       if (identity.age) identityParts.push(`Age: ${identity.age}`);
       if (identity.location) identityParts.push(`Location: ${identity.location}`);
       if (identity.partner) identityParts.push(`Partner: ${identity.partner}`);
-      if (identity.conditions?.length > 0)
-        identityParts.push(`Conditions: ${identity.conditions.join(', ')}`);
       profileText = `IDENTITY: ${identityParts.join('. ')}.\n\n`;
     }
 
@@ -2133,13 +2127,11 @@ Extract ONLY these categories (leave null if not mentioned):
 - age: Their age or age range
 - partner: Partner/spouse name and relationship type (partner, husband, wife, etc.)
 - location: City/neighborhood they live in
-- conditions: Array of health conditions, neurodivergence, or similar (e.g., ["ADHD", "anxiety"])
 
 RULES:
 - Only include facts they EXPLICITLY stated or VERY strongly implied
 - If gender is stated (e.g., "as a man", "my boyfriend and I", "34 year old male"), always set pronouns to match
 - If they mention a partner by name, include the name AND relationship word they used
-- For conditions, only include diagnosed or self-identified conditions, not temporary states
 - If a field has an existing value and nothing in the messages contradicts it, KEEP the existing value
 - Output as a JSON object with the fields above. Use null for unknown fields.
 - Do NOT include situational facts like current projects, jobs, or weekly activities
@@ -2211,7 +2203,7 @@ async function extractFacts(messages, apiKey) {
   const prompt = `Extract personal facts about this user from their messages. Look for:
 - Job, career, work situation
 - Relationships, family
-- Health conditions or challenges (physical, mental)
+- Interests and hobbies
 - Goals and aspirations
 - Location or living situation
 - Hobbies and interests
@@ -2224,7 +2216,7 @@ RULES:
 - Only include facts they explicitly stated or strongly implied
 - Be specific (e.g., "works at an ad agency" not "has a job")
 - Ignore generic requests/questions that don't reveal personal info
-- Output as a JSON array of strings, e.g., ["works in tech", "has ADHD", "lives in LA"]
+- Output as a JSON array of strings, e.g., ["works in tech", "has a dog", "lives in LA"]
 - If no personal facts found, output empty array: []
 
 Output ONLY the JSON array, no explanation.`;
