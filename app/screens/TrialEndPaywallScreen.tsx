@@ -3,8 +3,8 @@
  * and they have no active subscription.
  */
 
-import React, { useState, useCallback } from 'react';
-import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
+import React, { useState, useCallback, useEffect } from 'react';
+import { View, Pressable, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -13,6 +13,12 @@ import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import MascotLottie from '../components/MascotLottie';
 import * as WebBrowser from 'expo-web-browser';
+import {
+  fetchOfferings,
+  purchasePackage,
+  restorePurchases,
+} from '../../lib/subscriptions/purchases';
+import type { PurchasesPackage } from 'react-native-purchases';
 
 type Plan = 'monthly' | 'annual';
 
@@ -20,20 +26,72 @@ export default function TrialEndPaywallScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const [selectedPlan, setSelectedPlan] = useState<Plan>('annual');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
   const todayDropsCount = useGremlyStore((s) => s.todayDropsCount); // TODO: replace with lifetime total_drops when available
   const gremlyAge = useGremlyStore((s) => s.gremlyAge);
+  const setIsSubscribed = useGremlyStore((s) => s.setIsSubscribed);
+
+  // Fetch offerings from RevenueCat
+  const [monthlyPkg, setMonthlyPkg] = useState<PurchasesPackage | null>(null);
+  const [annualPkg, setAnnualPkg] = useState<PurchasesPackage | null>(null);
+
+  useEffect(() => {
+    fetchOfferings().then((offerings) => {
+      if (!offerings?.current) return;
+      const monthly = offerings.current.availablePackages.find(
+        (p) => p.product.identifier === 'com.gremly.mob2.monthly',
+      );
+      const annual = offerings.current.availablePackages.find(
+        (p) => p.product.identifier === 'com.gremly.mob2.annual',
+      );
+      if (monthly) setMonthlyPkg(monthly);
+      if (annual) setAnnualPkg(annual);
+    });
+  }, []);
 
   const handleSubscribe = useCallback(async () => {
-    console.log('[Paywall] Subscribe pressed: plan=' + selectedPlan);
-    // TODO: RevenueCat Purchases.purchasePackage() goes here
-    navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Tabs' }] }));
-  }, [navigation, selectedPlan]);
+    const pkg = selectedPlan === 'annual' ? annualPkg : monthlyPkg;
+    if (!pkg) {
+      Alert.alert('Not available', 'This plan is not available right now. Please try again later.');
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      const result = await purchasePackage(pkg);
+      if (result.success) {
+        setIsSubscribed(true);
+        navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Tabs' }] }));
+      } else if (result.cancelled) {
+        // User cancelled - do nothing
+      }
+    } catch (err) {
+      Alert.alert('Purchase failed', 'Something went wrong. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [navigation, selectedPlan, annualPkg, monthlyPkg, setIsSubscribed]);
 
-  const handleRestore = useCallback(() => {
-    console.log('[Paywall] Restore pressed');
-  }, []);
+  const handleRestore = useCallback(async () => {
+    setIsProcessing(true);
+    try {
+      const result = await restorePurchases();
+      if (result.success) {
+        setIsSubscribed(true);
+        navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Tabs' }] }));
+      } else {
+        Alert.alert(
+          'No subscription found',
+          'We could not find an active subscription to restore.',
+        );
+      }
+    } catch (err) {
+      Alert.alert('Restore failed', 'Something went wrong. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [navigation, setIsSubscribed]);
 
   const handleNotNow = useCallback(() => {
     navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Tabs' }] }));
@@ -160,14 +218,19 @@ export default function TrialEndPaywallScreen() {
       {/* Bottom CTA pinned */}
       <View style={[styles.bottomContainer, { paddingBottom: Math.max(insets.bottom, 24) }]}>
         <Pressable
-          style={styles.subscribeButton}
+          style={[styles.subscribeButton, isProcessing && { opacity: 0.6 }]}
           onPress={handleSubscribe}
+          disabled={isProcessing}
           accessibilityRole="button"
         >
-          <Text style={styles.subscribeButtonText}>{subscribeLabel}</Text>
+          {isProcessing ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.subscribeButtonText}>{subscribeLabel}</Text>
+          )}
         </Pressable>
 
-        <Pressable onPress={handleRestore} accessibilityRole="button">
+        <Pressable onPress={handleRestore} disabled={isProcessing} accessibilityRole="button">
           <Text style={styles.restoreText}>Restore purchase</Text>
         </Pressable>
 

@@ -21,6 +21,7 @@ import { FLAGS } from '../config/flags';
 import { nowTimestamp } from '../lib/date/DateService';
 import useDayBoundaryWatcher from '../lib/today/hooks/useDayBoundaryWatcher';
 import { registerForPushNotifications, savePushToken } from '../src/utils/notifications';
+import { loginUser, logoutUser } from '../lib/subscriptions/purchases';
 import type { Session, User } from '@supabase/supabase-js';
 
 // Configure Google Sign-In on module load
@@ -192,6 +193,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               console.log('[AuthProvider] Push notification registration failed:', pushError);
               // Don't block sign-in on notification failure
             }
+            // Identify user to RevenueCat for subscription tracking
+            loginUser(newSession.user.id).catch((e) =>
+              console.log('[AuthProvider] RevenueCat login failed:', e),
+            );
           }
           break;
         case 'SIGNED_OUT':
@@ -398,6 +403,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         console.log('[AuthProvider] Google sign-out error (ignored):', e);
       }
+      logoutUser().catch((e) => console.log('[AuthProvider] RevenueCat logout failed:', e));
       if (FLAGS.REPO_BACKEND === 'memory') {
         setUser(null);
         setSession(null);

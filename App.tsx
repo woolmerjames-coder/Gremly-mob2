@@ -35,6 +35,7 @@ import { useGremlyStore } from './lib/store/useGremlyStore';
 import { scheduleQuickReminder } from './lib/notifications/itemReminderService';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import NotificationQuickActionSheet from './components/notifications/NotificationQuickActionSheet';
+import { configurePurchases } from './lib/subscriptions/purchases';
 // Navigation type imports available if needed:
 // import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 // import type { RootStackParamList } from './navigation/RootNavigator';
@@ -120,6 +121,11 @@ export default function App() {
   // Start offline sync
   useEffect(() => {
     initOfflineSync();
+  }, []);
+
+  // Initialize RevenueCat SDK
+  useEffect(() => {
+    configurePurchases();
   }, []);
 
   // Start the drop pipeline queue runner

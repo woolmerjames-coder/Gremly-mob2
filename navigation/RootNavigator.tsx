@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../providers/AuthProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { useDropRecovery } from '../hooks/useDropRecovery';
+import { useSubscriptionStatus } from '../lib/subscriptions/useSubscriptionStatus';
 
 import LoginScreen from '../app/screens/LoginScreen';
 import TabNavigator from './TabNavigator';
@@ -117,6 +118,7 @@ export default function RootNavigator() {
   const { user, loading } = useAuth();
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
   const isInitialized = useGremlyStore((s) => s.isInitialized);
+  const { isExpired } = useSubscriptionStatus();
 
   // Wait for MMKV hydration so onboardingCompletedAt is available from persisted state
   const [hasHydrated, setHasHydrated] = useState(useGremlyStore.persist.hasHydrated());
@@ -142,11 +144,12 @@ export default function RootNavigator() {
     }
   }, [isReady]);
 
-  // Determine initial route based on onboarding and training status
+  // Determine initial route based on onboarding, training, and subscription status
   const initialRouteName = useMemo(() => {
     if (!onboardingCompletedAt) return 'Onboarding';
+    if (isExpired) return 'TrialEndPaywall';
     return 'Tabs';
-  }, [onboardingCompletedAt]);
+  }, [onboardingCompletedAt, isExpired]);
 
   if (!isReady) {
     return <View style={styles.splashHolder} />;
