@@ -20,7 +20,7 @@
       "buildNumber": "9",
       "usesAppleSignIn": true,
       "entitlements": {
-        "com.apple.developer.in-app-payments": true
+        "com.apple.developer.in-app-payments": ["merchant.com.gremly.mob2"]
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
