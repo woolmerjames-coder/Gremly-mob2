@@ -12,7 +12,7 @@
  */
 
 import type { QueuedDrop, DropPhase } from './dropQueue';
-import { saveDrop, getQueue } from './dropQueue';
+import { saveDrop, getQueue, updateDrop } from './dropQueue';
 import { detectMulti } from './detectMulti';
 import { runPhase1 } from './phase1';
 import type { MindDropBucket, LogSubtype, Phase1Result } from './types';
@@ -373,26 +373,18 @@ function fireClarificationInBackground(
           }),
         );
 
-        // Try to update pending drop
-        const pendingDrop = useGremlyStore.getState().pendingDrops.get(localId);
-        if (pendingDrop) {
-          useGremlyStore.getState().updatePendingDropEnrichment(localId, {
-            clarification_question: result.clarification_question,
-            clarification_options: clarificationOptions,
+        // Try queue first (drop still processing), then entity (already synced)
+        void updateDrop(localId, {
+          clarificationQuestion: result.clarification_question,
+          clarificationOptions: clarificationOptions,
+        }).catch(() => {
+          // Drop not in queue — may already be synced, try entity
+          useGremlyStore.getState().updateEntityClarificationByDropId(localId, {
+            question: result.clarification_question,
+            options: clarificationOptions,
           });
-          console.log('[DropPhases] Phase 1.5 pushed options to pending drop', { localId });
-        } else {
-          // Pending drop already synced — update entity
-          const updated = await useGremlyStore
-            .getState()
-            .updateEntityClarificationByDropId(localId, {
-              question: result.clarification_question,
-              options: clarificationOptions,
-            });
-          if (updated) {
-            console.log('[DropPhases] Phase 1.5 pushed options to synced entity', { localId });
-          }
-        }
+        });
+        console.log('[DropPhases] Phase 1.5 pushed options to drop', { localId });
       }
     })
     .catch((err) => {
@@ -583,16 +575,6 @@ export async function handleMultiDetected(drop: QueuedDrop): Promise<QueuedDrop>
     })),
   });
 
-  // Update Zustand with classified segments so the multi card shows correct data
-  useGremlyStore.getState().updatePendingDropEnrichment(drop.localId, {
-    isMulti: true,
-    multiSegments: classifiedSegments as any,
-    multiSummary: drop.multiSummary,
-    dominantBucket: drop.dominantBucket as any,
-    dominantSubtype: drop.dominantSubtype as any,
-    status: 'enriching',
-  });
-
   // Advance directly to enriched — skip titled phase (multi drops don't need their own title)
   // handleEnriched will call syncMultiDropToSupabase which creates ONE note with multi_items
   return {
@@ -690,15 +672,16 @@ export async function handleEnriched(drop: QueuedDrop): Promise<QueuedDrop> {
       }
     : null;
 
-  // Read latest clarification data from Zustand — Phase 1.5 background
+  // Read latest clarification data from queue — Phase 1.5 background
   // may have populated these after the pipeline's QueuedDrop was saved
   if (drop.needsClarification && !drop.isMulti) {
-    const pending = useGremlyStore.getState().pendingDrops.get(drop.localId);
-    if (pending?.clarification_question) {
+    const queue = await getQueue();
+    const latest = queue.find((d) => d.localId === drop.localId);
+    if (latest?.clarificationQuestion) {
       drop = {
         ...drop,
-        clarificationQuestion: pending.clarification_question,
-        clarificationOptions: pending.clarification_options as any,
+        clarificationQuestion: latest.clarificationQuestion,
+        clarificationOptions: latest.clarificationOptions as any,
       };
     }
   }
