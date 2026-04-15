@@ -4932,8 +4932,8 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          // Re-fetch all data (same as initialize but doesn't reset isInitialized)
-          set({ isLoading: true });
+          // Background sync — never set isLoading since user already has cached data.
+          // Loading indicators should only show during cold init (no cached data).
 
           try {
             const [
@@ -4994,7 +4994,6 @@ export const useGremlyStore = create<GremlyState>()(
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
               weeklySummaries: (weeklySummariesRes.data ?? []) as WeeklySummary[],
-              isLoading: false,
               lastSyncedAt: getDateService().now(),
             });
 
@@ -5077,7 +5076,7 @@ export const useGremlyStore = create<GremlyState>()(
             get().refreshRitualProgress();
           } catch (error) {
             console.error('[GremlyStore] refreshFromServer failed:', error);
-            set({ isLoading: false });
+            // No isLoading to reset — background sync never sets it
           }
         },
 
