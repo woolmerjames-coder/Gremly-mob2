@@ -639,18 +639,21 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
     const staggerDelay = index * 80;
 
     // Kind badge label - Multi takes precedence
+    // Returns null while classification is still in progress (shimmer placeholder)
     const kindLabel = isMulti
       ? 'Multi'
-      : item.kind === 'todo'
-        ? 'Todo'
-        : item.kind === 'habit'
-          ? 'Habit'
-          : item.kind === 'note' && item.noteSubtype === 'event'
-            ? 'Event'
-            : 'Note';
+      : !item.views?.bucket_confirmed
+        ? null
+        : item.kind === 'todo'
+          ? 'Todo'
+          : item.kind === 'habit'
+            ? 'Habit'
+            : item.kind === 'note' && item.noteSubtype === 'event'
+              ? 'Event'
+              : 'Note';
 
     const a11yLabel = useMemo(() => {
-      const parts: string[] = [displayTitle, kindLabel];
+      const parts: (string | null)[] = [displayTitle, kindLabel];
       if (item.confirmationMessage) parts.push(item.confirmationMessage);
       if (item.kind === 'todo' && (item.dueDate || item.dueDay)) {
         const due = formatDueDate(item.dueDate || item.dueDay);
@@ -701,15 +704,27 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
               </Animated.Text>
               <View style={parentStyles.recentTopRight}>
                 {item.kind === 'note' && item.isPrivate && <Lock size={12} color="#777" />}
-                <RNText
-                  style={[
-                    parentStyles.recentCategoryPill,
-                    parentStyles[badgeStyleKey],
-                    isMulti && localStyles.multiBadge,
-                  ]}
-                >
-                  {kindLabel}
-                </RNText>
+                {kindLabel === null ? (
+                  <Animated.View
+                    style={{
+                      width: 40,
+                      height: 18,
+                      borderRadius: 9,
+                      backgroundColor: '#e0e0e0',
+                      opacity: 0.6,
+                    }}
+                  />
+                ) : (
+                  <RNText
+                    style={[
+                      parentStyles.recentCategoryPill,
+                      parentStyles[badgeStyleKey],
+                      isMulti && localStyles.multiBadge,
+                    ]}
+                  >
+                    {kindLabel}
+                  </RNText>
+                )}
               </View>
             </View>
 
