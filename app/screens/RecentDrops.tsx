@@ -1637,22 +1637,6 @@ const RevealingCard: React.FC<{
 };
 
 /**
- * Helper component to trigger callback after delay
- * Used when there's no context meta to reveal
- */
-const DelayedCallback: React.FC<{
-  delay: number;
-  onComplete: () => void;
-}> = ({ delay, onComplete }) => {
-  console.log('[RENDER_CHECK] DelayedCallback rendered');
-  React.useEffect(() => {
-    const timeout = setTimeout(onComplete, delay);
-    return () => clearTimeout(timeout);
-  }, [delay, onComplete]);
-  return null;
-};
-
-/**
  * Pulsing animation hook for Gremly icon on multi-entity cards
  */
 const useGremlyPulse = () => {
