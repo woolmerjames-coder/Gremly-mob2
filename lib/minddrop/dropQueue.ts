@@ -53,7 +53,59 @@ async function withQueueLock<T>(fn: () => Promise<T>): Promise<T> {
  */
 function syncQueueToZustand(queue: QueuedDrop[]): void {
   const active = queue.filter((d) => d.phase !== 'complete');
-  useGremlyStore.setState({ queueItems: active });
+
+  useGremlyStore.setState((state) => {
+    const oldByLocalId = new Map(state.queueItems.map((d) => [d.localId, d]));
+
+    const newItems = active.map((drop) => {
+      const old = oldByLocalId.get(drop.localId);
+      if (!old) return drop;
+
+      // Compare visual-relevant fields only.
+      // If none changed, return the OLD reference so React skips re-render.
+      if (
+        old.phase === drop.phase &&
+        old.bucket === drop.bucket &&
+        old.subtype === drop.subtype &&
+        old.smartTitle === drop.smartTitle &&
+        old.confirmationMessage === drop.confirmationMessage &&
+        old.timeEstimateMinutes === drop.timeEstimateMinutes &&
+        old.extractedDate === drop.extractedDate &&
+        old.extractedFrequency === drop.extractedFrequency &&
+        old.targetDate === drop.targetDate &&
+        old.scheduledDate === drop.scheduledDate &&
+        old.eventTime === drop.eventTime &&
+        old.needsClarification === drop.needsClarification &&
+        old.clarificationQuestion === drop.clarificationQuestion &&
+        old.isMulti === drop.isMulti &&
+        old.multiSummary === drop.multiSummary &&
+        arraysEqual(old.tags, drop.tags) &&
+        arraysEqual(old.people, drop.people) &&
+        arraysEqual(old.mood, drop.mood) &&
+        arraysEqual(old.extractedDays, drop.extractedDays)
+      ) {
+        return old;
+      }
+
+      return drop;
+    });
+
+    // Also preserve the array reference itself if nothing changed at all
+    if (
+      newItems.length === state.queueItems.length &&
+      newItems.every((item, i) => item === state.queueItems[i])
+    ) {
+      return state; // No change — don't trigger any subscribers
+    }
+
+    return { queueItems: newItems };
+  });
+}
+
+function arraysEqual(a?: any[] | null, b?: any[] | null): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((v, i) => v === b[i]);
 }
 
 /**
