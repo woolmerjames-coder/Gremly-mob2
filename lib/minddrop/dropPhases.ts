@@ -393,21 +393,6 @@ function fireClarificationInBackground(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Degraded classification fallback
-// ──────────────────────────────────────────────────────────────────────────────
-
-const DEGRADED_FALLBACK: Phase1Result = {
-  bucket: 'log',
-  subtype: 'general',
-  habitSubtype: null,
-  confidence: 0.5,
-  source: 'heuristic-fallback',
-  is_multi: false,
-  classificationDegraded: true,
-  classificationSource: 'client-fallback',
-};
-
-// ──────────────────────────────────────────────────────────────────────────────
 // Phase Handlers (exported)
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -420,10 +405,14 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
       : Promise.resolve({ is_multi: false }),
     withTimeout(
       runPhase1(drop.text, { hasAttachments: false, hasUserSelectedDate: !!drop.prefillDate }),
-      8000,
-      DEGRADED_FALLBACK,
+      15000,
+      null,
     ),
   ]);
+
+  if (phase1Result === null) {
+    throw new Error('Classification timeout');
+  }
 
   console.log('[DropPhases] handleQueued complete', {
     localId: drop.localId,
