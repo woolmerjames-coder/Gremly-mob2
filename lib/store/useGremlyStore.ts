@@ -37,6 +37,7 @@ import {
   GAUGE_WEIGHTS,
 } from '../constants/soulDocument';
 import type { Milestone } from '../schemas';
+import type { QueuedDrop } from '../minddrop/dropQueue';
 import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
@@ -501,6 +502,7 @@ interface GremlyState {
   generalChatRunningSummary: string | null;
   milestones: Milestone[];
   pendingDrops: Map<string, PendingDrop>;
+  queueItems: QueuedDrop[];
 
   // ═══════════════════════════════════════════════════════════════════
   // SPACE SUGGESTIONS STATE
@@ -1171,6 +1173,7 @@ const initialState = {
   todayFeedingAgeUpShownAt: null as string | null,
   feedingHistory: [] as Array<{ date: string; isFed: boolean }>,
   pendingDrops: new Map<string, PendingDrop>(),
+  queueItems: [] as QueuedDrop[],
   // Calendar integration
   calendarConnections: [] as CalendarConnectionStatus[],
   calendarEvents: {} as Record<string, CalendarEvent[]>,

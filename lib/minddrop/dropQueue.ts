@@ -6,6 +6,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useGremlyStore } from '../store/useGremlyStore';
 import { generateDropId } from './ids';
 import type { MindDropBucket, LogSubtype } from './types';
 import type { HabitSubtype } from '../types';
@@ -39,6 +40,29 @@ async function withQueueLock<T>(fn: () => Promise<T>): Promise<T> {
   } finally {
     release!();
   }
+}
+
+// ============================================================================
+// Zustand sync
+// ============================================================================
+
+/**
+ * After every AsyncStorage write, push active queue items to Zustand.
+ * Active = not yet complete (still processing or failed-retryable).
+ * This is the ONLY path that updates queueItems.
+ */
+function syncQueueToZustand(queue: QueuedDrop[]): void {
+  const active = queue.filter((d) => d.phase !== 'complete');
+  useGremlyStore.setState({ queueItems: active });
+}
+
+/**
+ * Read the durable queue from AsyncStorage and set queueItems in Zustand.
+ * Called on app start and every foreground event.
+ */
+export async function loadQueueIntoZustand(): Promise<void> {
+  const queue = await getQueue();
+  syncQueueToZustand(queue);
 }
 
 // ============================================================================
@@ -364,6 +388,7 @@ export async function enqueue(
 
     queue.push(queuedDrop);
     await saveQueue(queue);
+    syncQueueToZustand(queue);
 
     console.log(
       `[DropQueue] Enqueued drop ${queuedDrop.localId} (source: ${queuedDrop.source}, text: "${queuedDrop.text.slice(0, 50)}...")`,
@@ -387,6 +412,7 @@ async function _updateDropUnsafe(localId: string, updates: Partial<QueuedDrop>):
 
   queue[index] = { ...queue[index], ...updates };
   await saveQueue(queue);
+  syncQueueToZustand(queue);
 
   console.log(`[DropQueue] Updated drop ${localId} with:`, Object.keys(updates).join(', '));
 }
@@ -414,6 +440,7 @@ export async function saveDrop(localId: string, drop: QueuedDrop): Promise<void>
     }
 
     await saveQueue(queue);
+    syncQueueToZustand(queue);
   });
 }
 
@@ -467,6 +494,7 @@ export async function migrateDropPhases(): Promise<number> {
 
     if (migrated > 0) {
       await saveQueue(queue);
+      syncQueueToZustand(queue);
       console.log(`[DropQueue] Migrated ${migrated} drops to phase-based pipeline`);
     }
 
@@ -535,6 +563,7 @@ export async function dequeue(localId: string): Promise<void> {
 
     queue.splice(index, 1);
     await saveQueue(queue);
+    syncQueueToZustand(queue);
 
     console.log(`[DropQueue] Dequeued drop ${localId}`);
   });
@@ -554,6 +583,7 @@ export async function cleanupSynced(): Promise<number> {
 
     if (removedCount > 0) {
       await saveQueue(filtered);
+      syncQueueToZustand(filtered);
       console.log(`[DropQueue] Cleaned up ${removedCount} synced drops`);
     } else {
       console.log('[DropQueue] No synced drops to clean up');
