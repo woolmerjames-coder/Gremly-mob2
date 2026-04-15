@@ -57,7 +57,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Text } from '../../ui/Text';
 import { Icon } from '../../design-system/Icon';
-import { useGremlyStore, type PendingDrop } from '../../lib/store/useGremlyStore';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import type { QueuedDrop } from '../../lib/minddrop/dropQueue';
 import celebrationController from '../features/celebration/CelebrationController';
 import { selectBriefHeadline } from '../../lib/store/selectors';
 import {
@@ -3469,19 +3470,10 @@ const RecentDrops: React.FC<{
   const archiveNote = useGremlyStore((s) => s.archiveNote);
   const repo = useRepo();
 
-  // Pending drops from Zustand (optimistic queue system)
-  const pendingDropsMap = useGremlyStore((s) => s.pendingDrops);
+  // Queue items from Zustand (driven by dropQueue.ts syncQueueToZustand)
+  const queueItems = useGremlyStore((s) => s.queueItems);
 
-  // DEBUG: Track when pendingDropsMap reference changes
-  React.useEffect(() => {
-    console.log('🔴 [CatchAllNotepad] pendingDropsMap CHANGED', {
-      size: pendingDropsMap.size,
-      keys: Array.from(pendingDropsMap.keys()),
-      timestamp: getDateService().now().getTime(),
-    });
-  }, [pendingDropsMap]);
-
-  // Configure smooth layout animation when pending drops content changes
+  // Configure smooth layout animation when queue items content changes
   // This prevents jolt when Phase 1 data (smart titles) arrive for segments
   // BUT we skip animation when:
   // - Drops are just being removed (promoted to entity)
@@ -3490,7 +3482,7 @@ const RecentDrops: React.FC<{
   const prevPendingDropsCountRef = React.useRef<number>(0);
   const prevMultiIdsRef = React.useRef<Set<string>>(new Set());
   React.useLayoutEffect(() => {
-    const currentDrops = Array.from(pendingDropsMap.values());
+    const currentDrops = queueItems.filter((d) => d.phase !== 'complete' && d.phase !== 'failed');
     const currentCount = currentDrops.length;
 
     // Track which drops are multi
@@ -3504,15 +3496,11 @@ const RecentDrops: React.FC<{
     const version = currentDrops
       .map(
         (d) =>
-          `${d.localId}:${d.multiSegments?.length ?? 0}:${d.multiSegments?.[0]?.smartTitle ?? ''}`,
+          `${d.localId}:${d.multiSegments?.length ?? 0}:${d.multiSegments?.[0]?.smart_title ?? ''}`,
       )
       .join('|');
 
     // Only animate if:
-    // 1. Version changed (content changed)
-    // 2. Not initial mount
-    // 3. Count didn't decrease (drop wasn't removed/promoted)
-    // 4. No drop just became multi (bounce handles that transition)
     const contentChanged = version !== prevPendingDropsVersionRef.current;
     const notInitialMount = prevPendingDropsVersionRef.current !== '';
     const notRemoval = currentCount >= prevPendingDropsCountRef.current;
@@ -3532,7 +3520,7 @@ const RecentDrops: React.FC<{
     prevPendingDropsVersionRef.current = version;
     prevPendingDropsCountRef.current = currentCount;
     prevMultiIdsRef.current = currentMultiIds;
-  }, [pendingDropsMap]);
+  }, [queueItems]);
 
   // Synchronous lookups from store
   const getItemById = React.useCallback(
@@ -3599,66 +3587,53 @@ const RecentDrops: React.FC<{
     setActiveModalItem(item);
   }, []);
 
-  // Transform pending drops from Zustand Map to UnifiedDrop array
+  // Transform queue items to UnifiedDrop array
   const pendingItems = React.useMemo((): UnifiedDrop[] => {
-    const drops = Array.from(pendingDropsMap.values());
-
-    console.log('🟡 [pendingItems] useMemo running', {
-      dropCount: drops.length,
-      drops: drops.map((d) => ({
-        localId: d.localId,
-        status: d.status,
-        minddrop_stage: (d as any).minddrop_stage,
-        hasSmartTitle: !!d.smartTitle,
-      })),
-    });
-
-    return drops
-      .map((drop: PendingDrop): UnifiedDrop => {
-        // Map bucket to kind
+    return queueItems
+      .filter((drop) => drop.phase !== 'complete' && drop.phase !== 'failed')
+      .map((drop): UnifiedDrop => {
         const kind: 'todo' | 'habit' | 'note' =
           drop.bucket === 'todo' ? 'todo' : drop.bucket === 'habit' ? 'habit' : 'note';
 
-        // Map subtype for notes
-        const noteSubtype = kind === 'note' ? (drop.subtype ?? 'catchall') : undefined;
+        const noteSubtype =
+          kind === 'note'
+            ? drop.subtype === 'journal'
+              ? 'journal'
+              : drop.subtype === 'idea'
+                ? 'idea'
+                : drop.subtype === 'event'
+                  ? 'event'
+                  : 'catchall'
+            : undefined;
 
-        // Determine visual stage based on status and enrichment fields
-        // - pending: no classification yet → show PendingSkeleton
-        // - enriching: classified but Phase 2 in progress → show EnrichingSkeleton
-        // - streaming: Phase 1 done, show title/confirmation with typewriter, chips wait for Phase 2
-        // - enriched: Phase 2 complete → all data ready
-        //
-        // CRITICAL: Only report 'enriched' when status === 'enriched' (Phase 2 done)
-        // This ensures chips don't animate until all chip data is available
         const hasEnrichmentFields = !!drop.smartTitle || !!drop.confirmationMessage;
-        // Priority: If drop has explicit minddrop_stage set (from Phase 1.5a), use it
-        // Otherwise derive from status
-        const minddropStage =
-          (drop as any).minddrop_stage === 'streaming'
-            ? 'streaming' // Phase 1.5a explicitly set this - show typewriter immediately
-            : drop.status === 'pending'
-              ? 'pending'
-              : drop.status === 'classifying'
-                ? 'classifying' // Multi-drop: Phase 1 running
-                : drop.status === 'classified' && hasEnrichmentFields
-                  ? 'streaming' // Phase 1.5a done - show typewriter, chips wait for Phase 2
-                  : drop.status === 'classified'
-                    ? 'enriching' // Phase 1 done, waiting for Phase 1.5a/2
-                    : drop.status === 'enriching' && hasEnrichmentFields
-                      ? 'streaming' // Legacy fallback
-                      : drop.status === 'enriching'
-                        ? 'enriching'
-                        : drop.status === 'enriched' || drop.status === 'synced'
-                          ? 'enriched' // Phase 2 FULLY complete - NOW chips can animate
-                          : drop.status === 'enrichment_failed'
-                            ? 'enrichment_failed'
-                            : 'pending';
 
-        // For multi-drops, use the summary as the title
+        const minddropStage =
+          !drop.phase || drop.phase === 'queued'
+            ? 'pending'
+            : drop.phase === 'classified' && hasEnrichmentFields
+              ? 'streaming'
+              : drop.phase === 'classified'
+                ? 'enriching'
+                : drop.phase === 'titled'
+                  ? 'streaming'
+                  : drop.phase === 'enriched'
+                    ? 'enriched'
+                    : drop.phase === 'multi_detected'
+                      ? 'classifying'
+                      : drop.phase === 'multi_awaiting'
+                        ? 'enriching'
+                        : drop.phase === 'failed'
+                          ? 'enrichment_failed'
+                          : 'pending';
+
+        const bucketConfirmed = !!drop.bucket && drop.phase !== 'queued';
+
         const displayTitle =
           drop.isMulti && drop.multiSummary
             ? drop.multiSummary
-            : drop.smartTitle || drop.text.substring(0, 60) + (drop.text.length > 60 ? '…' : '');
+            : drop.smartTitle ||
+              drop.text.substring(0, 60) + (drop.text.length > 60 ? '\u2026' : '');
 
         return {
           id: drop.localId,
@@ -3670,79 +3645,43 @@ const RecentDrops: React.FC<{
           noteSubtype,
           tags: drop.tags || [],
           labels: [],
-          // Map extracted date to due_date/due_day for deadline chip
           due_date: drop.extractedDate ?? null,
           due_day: drop.extractedDate?.split('T')[0] ?? null,
           views: {
-            ai_pending:
-              drop.status !== 'synced' &&
-              drop.status !== 'enriched' &&
-              drop.status !== 'enrichment_failed',
+            ai_pending: true,
             minddrop_stage: minddropStage,
             confirmation_message: drop.confirmationMessage,
-            people: drop.people, // Include people for chip rendering
-            // Flag for Row3Chips: only animate chips when Phase 2 is FULLY complete
-            // This is separate from minddrop_stage which triggers Row 1-2 typewriter earlier
-            chip_data_ready:
-              drop.status === 'enriched' ||
-              drop.status === 'synced' ||
-              drop.status === 'enrichment_failed',
-            // Flag for badge animation - true when Phase 1 confirms the bucket
-            bucket_confirmed: drop.status !== 'pending' && drop.status !== 'classifying',
-            // Multi-drop data for UI rendering
+            people: drop.people,
+            chip_data_ready: drop.phase === 'enriched',
+            bucket_confirmed: bucketConfirmed,
             is_multi: drop.isMulti,
             multi_segments: drop.multiSegments,
             multi_summary: drop.multiSummary,
-            // Clarification fields (Phase 1.5 - MUST be in views for Row3Chips)
-            needs_clarification: drop.needs_clarification,
-            clarification_type: drop.clarification_type,
-            clarification_question: drop.clarification_question,
-            clarification_options: drop.clarification_options,
-            clarification_resolved: drop.clarification_resolved,
-            // Processing state for shimmer animation during reclassify/Phase 2
-            clarification_processing: drop.clarification_processing,
+            needs_clarification: drop.needsClarification,
+            clarification_type: drop.clarificationType,
+            clarification_question: drop.clarificationQuestion,
+            clarification_options: drop.clarificationOptions,
+            clarification_resolved: false,
           },
           time_estimate_minutes: drop.timeEstimateMinutes ?? null,
-          frequency: drop.extractedFrequency ?? null, // For habits: "3x/week", "daily", etc.
-          days_active: drop.extractedDays ?? null, // For habits: day numbers for scheduling
-          mood: drop.mood ? (drop.mood as unknown as Mood[]) : null, // For journals: mood chips
+          frequency: drop.extractedFrequency ?? null,
+          days_active: drop.extractedDays ?? null,
+          mood: drop.mood ? (drop.mood as any) : null,
           is_multi: drop.isMulti,
-          // Top-level clarification fields for direct access
-          needs_clarification: drop.needs_clarification,
-          clarification_resolved: drop.clarification_resolved,
-          clarification_question: drop.clarification_question ?? undefined,
-          clarification_options: drop.clarification_options ?? undefined,
-          clarification_type: drop.clarification_type ?? undefined,
-          // Multi-drop fields (from Phase 0/1, before entity creation)
-          multi_items: drop.multiSegments?.map((seg, idx) => {
-            // Debug: Log segment data including Phase 1 titles (disabled to reduce Metro noise)
-            // if (idx === 0) {
-            //   console.log('🟡 [pendingItems] Mapping multiSegments', {
-            //     segmentCount: drop.multiSegments?.length,
-            //     firstSeg: {
-            //       text: seg.text?.substring(0, 20),
-            //       smartTitle: seg.smartTitle,
-            //       confirmationMessage: seg.confirmationMessage?.substring(0, 30),
-            //     },
-            //   });
-            // }
-            return {
-              text: seg.text,
-              bucket: seg.bucket,
-              subtype: seg.subtype ?? null,
-              habitSubtype: null,
-              // Use smartTitle from Phase 1 if available, fall back to truncated text
-              preview_title: seg.smartTitle || seg.text.substring(0, 40),
-              // Pass Phase 1 data for entity creation during split
-              smart_title: seg.smartTitle ?? null,
-              confirmation_message: seg.confirmationMessage ?? null,
-            } satisfies MultiDropItem;
-          }),
+          multi_items: drop.multiSegments?.map((seg) => ({
+            text: seg.text,
+            bucket: seg.bucket,
+            subtype: seg.subtype ?? null,
+            habitSubtype: null,
+            preview_title: seg.smart_title || seg.text.substring(0, 40),
+            smart_title: seg.smart_title ?? null,
+            confirmation_message: seg.confirmation_message ?? null,
+          })),
           multi_summary_title: drop.multiSummary,
         };
       })
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }, [pendingDropsMap]);
+  }, [queueItems]);
 
   // Get drop_ids of all pending items to filter out duplicates from real items
   const pendingDropIds = React.useMemo(() => {
@@ -4698,16 +4637,43 @@ const RecentDrops: React.FC<{
     }) => {
       console.log('[RecentDrops] Retrying enrichment', { localId: payload.localId });
 
+      // Queued drops retry via the pipeline (saveDrop → syncQueueToZustand)
+      const isInQueue = queueItems.some((d) => d.localId === payload.localId);
+      if (isInQueue) return;
+
       // 1. Set card back to enriching state (shows shimmer)
-      const pendingDrop = pendingDropsMap.get(payload.localId);
-      if (pendingDrop) {
-        // Pending drop path — update via Zustand
-        useGremlyStore.getState().updatePendingDropEnrichment(payload.localId, {
-          status: 'enriching',
-          minddrop_stage: 'enriching',
-        });
-      } else {
-        // Already-synced entity path — update local items
+      setItems((prev) =>
+        prev.map((item) =>
+          item.drop_id === payload.localId || item.id === payload.localId
+            ? {
+                ...item,
+                views: {
+                  ...item.views,
+                  minddrop_stage: 'enriching',
+                  ai_pending: true,
+                  ai_failed: false,
+                },
+              }
+            : item,
+        ),
+      );
+
+      // 2. Re-run Phase 2 for synced entity
+      try {
+        const bucket = payload.bucket as 'todo' | 'habit' | 'log';
+        const subtype = payload.subtype as any;
+        const entityId = payload.localId;
+        const item = items.find((i) => i.id === entityId || i.drop_id === entityId);
+        if (item) {
+          const result = await runPhase2(entityId, payload.text, bucket, subtype, repo);
+          if (result) {
+            setItems((prev) =>
+              prev.map((i) => (i.id === entityId ? applyEnrichmentToItem(i, result) : i)),
+            );
+          }
+        }
+      } catch (err) {
+        console.warn('[RecentDrops] Retry enrichment failed', { error: String(err) });
         setItems((prev) =>
           prev.map((item) =>
             item.drop_id === payload.localId || item.id === payload.localId
@@ -4715,122 +4681,20 @@ const RecentDrops: React.FC<{
                   ...item,
                   views: {
                     ...item.views,
-                    minddrop_stage: 'enriching',
-                    ai_pending: true,
-                    ai_failed: false,
+                    minddrop_stage: 'enrichment_failed',
+                    ai_pending: false,
+                    ai_failed: true,
                   },
                 }
               : item,
           ),
         );
       }
-
-      // 2. Re-run Phase 2
-      try {
-        const bucket = payload.bucket as 'todo' | 'habit' | 'log';
-        const subtype = payload.subtype as any;
-
-        if (pendingDrop) {
-          // Re-run enrichment for pending drops via cortex directly
-          const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
-          const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
-          const dateService = (await import('../../lib/date/DateService')).dateService;
-          const currentDate = dateService.today();
-          const tz = getDateService().getTimezone();
-          const dayOfWeek = new Intl.DateTimeFormat('en-US', {
-            weekday: 'long',
-            timeZone: tz,
-          }).format(getDateService().now());
-          const timezone = tz;
-
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 20000);
-
-          const res = await fetch(cortexUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${anonKey}`,
-            },
-            body: JSON.stringify({
-              type: 'enrich-phase2',
-              text: payload.text,
-              bucket,
-              subtype,
-              currentDate,
-              dayOfWeek,
-              timezone,
-            }),
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeout);
-
-          if (res.ok) {
-            const json = await res.json();
-            useGremlyStore.getState().updatePendingDropEnrichment(payload.localId, {
-              status: 'enriched',
-              minddrop_stage: 'enriched',
-              tags: Array.isArray(json.tags) ? json.tags : [],
-              timeEstimateMinutes: json.time_estimate_minutes ?? null,
-              timeWindow: json.time_window ?? null,
-              extractedDate: json.extracted_date ?? null,
-              extractedFrequency: json.extracted_frequency ?? null,
-              extractedDays: json.extracted_days ?? null,
-              people: Array.isArray(json.people) ? json.people : [],
-              mood: json.mood ?? null,
-              target_date: json.target_date ?? null,
-              scheduled_date: json.scheduled_date ?? null,
-              event_time: json.event_time ?? null,
-            });
-            console.log('[RecentDrops] Retry enrichment succeeded', { localId: payload.localId });
-          } else {
-            throw new Error(`API returned ${res.status}`);
-          }
-        } else {
-          // Synced entity — find it and run phase2.ts
-          const entityId = payload.localId;
-          const item = items.find((i) => i.id === entityId || i.drop_id === entityId);
-          if (item) {
-            const result = await runPhase2(entityId, payload.text, bucket, subtype, repo);
-            if (result) {
-              setItems((prev) =>
-                prev.map((i) => (i.id === entityId ? applyEnrichmentToItem(i, result) : i)),
-              );
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('[RecentDrops] Retry enrichment failed', { error: String(err) });
-        // Set back to failed state so retry button reappears
-        if (pendingDrop) {
-          useGremlyStore.getState().updatePendingDropEnrichment(payload.localId, {
-            status: 'enrichment_failed',
-            minddrop_stage: 'enrichment_failed',
-          });
-        } else {
-          setItems((prev) =>
-            prev.map((item) =>
-              item.drop_id === payload.localId || item.id === payload.localId
-                ? {
-                    ...item,
-                    views: {
-                      ...item.views,
-                      minddrop_stage: 'enrichment_failed',
-                      ai_pending: false,
-                      ai_failed: true,
-                    },
-                  }
-                : item,
-            ),
-          );
-        }
-      }
     };
 
     const unsub = eventBus.on('drop:retry_enrichment', handleRetry);
     return () => unsub();
-  }, [pendingDropsMap, items, repo]);
+  }, [queueItems, items, repo]);
 
   const handleEdit = React.useCallback(
     async (id: string, kind: UnifiedDrop['kind'], _unsorted?: boolean) => {
