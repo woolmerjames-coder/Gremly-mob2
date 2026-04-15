@@ -83,6 +83,11 @@ const STORE_EVENT_SOURCE = 'gremly-store';
 // Module-level unsubscribe function for cleanup
 let eventBusUnsubscribe: (() => void) | null = null;
 
+// ── Calendar fetch deduplication ──
+// Prevents concurrent fetchCalendarEventsForRange calls from interleaving
+// their set() calls, which causes duplicate events.
+let calendarFetchInFlight: Promise<void> | null = null;
+
 /**
  * Check if a habit is currently locked in based on commitment_until date.
  * A habit is locked in if commitment_until is set and >= today's date.
@@ -5779,92 +5784,117 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         fetchCalendarEventsForRange: async (startDate: string, endDate: string) => {
-          console.log(
-            '[GremlyStore] fetchCalendarEventsForRange called:',
-            startDate,
-            'to',
-            endDate,
-          );
-          set({ calendarLoading: true });
-
-          try {
-            const events = await calendarClient.getEvents(startDate, endDate);
-            console.log(
-              '[GremlyStore] calendarClient.getEvents returned:',
-              events.length,
-              'events',
-            );
-
-            // Group events by date (YYYY-MM-DD from startAt)
-            // Start fresh for the fetched range but keep events outside it
-            const prev = get().calendarEvents;
-            const eventsByDate: Record<string, CalendarEvent[]> = {};
-
-            // Keep only events whose date key falls OUTSIDE the fetched range
-            for (const [dateKey, dateEvents] of Object.entries(prev)) {
-              if (dateKey < startDate || dateKey > endDate) {
-                eventsByDate[dateKey] = dateEvents;
-              }
+          // ── Single-flight: if a fetch is in progress, await it instead of duplicating ──
+          if (calendarFetchInFlight) {
+            console.log('[GremlyStore] Calendar fetch already in flight, awaiting existing');
+            try {
+              await calendarFetchInFlight;
+            } catch {
+              // Original caller handles its own errors
             }
+            return;
+          }
 
-            for (const event of events) {
-              if (event.isAllDay) {
-                // All-day events: use the date portion of the ISO string directly
-                // to avoid UTC→local timezone shift (e.g. "2026-02-18T00:00:00Z"
-                // becomes Feb 17 in PST when parsed via new Date()).
-                const startStr = event.startAt.split('T')[0]; // "YYYY-MM-DD"
-                const endStr = event.endAt.split('T')[0]; // "YYYY-MM-DD" (exclusive)
+          const fetchPromise = (async () => {
+            console.log('[GremlyStore] fetchCalendarEventsForRange:', startDate, 'to', endDate);
+            set({ calendarLoading: true });
 
-                // Add the event to every date from start to end (exclusive)
-                const cursor = new Date(startStr + 'T12:00:00'); // noon avoids DST edge
-                const endDate = new Date(endStr + 'T12:00:00');
-                while (cursor < endDate) {
-                  const dateKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
-                  const existing = eventsByDate[dateKey] || [];
-                  const alreadyExists = existing.some((e) => e.id === event.id);
-                  if (!alreadyExists) {
-                    eventsByDate[dateKey] = [...existing, event];
-                  }
-                  cursor.setDate(cursor.getDate() + 1);
+            try {
+              const events = await calendarClient.getEvents(startDate, endDate);
+              console.log(
+                '[GremlyStore] calendarClient.getEvents returned:',
+                events.length,
+                'events',
+              );
+
+              // ── Build date-keyed map with proper dedup ──
+              const eventsByDate: Record<string, CalendarEvent[]> = {};
+              const dateService = getDateService();
+
+              // Keep events outside the fetched range from previous state
+              const prev = get().calendarEvents;
+              for (const [dateKey, dateEvents] of Object.entries(prev)) {
+                if (dateKey < startDate || dateKey > endDate) {
+                  eventsByDate[dateKey] = dateEvents;
                 }
-              } else {
-                // Timed events: group by local start date
-                const eventDate = new Date(event.startAt);
-                const dateKey = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
-                console.log(
-                  '[GremlyStore] Event:',
-                  event.title,
-                  'startAt:',
-                  event.startAt,
-                  '-> dateKey:',
-                  dateKey,
-                );
+              }
 
-                const existing = eventsByDate[dateKey] || [];
-                const alreadyExists = existing.some((e) => e.id === event.id);
-                if (!alreadyExists) {
+              // Global dedup by providerEventId — prevents the same event
+              // from being added multiple times across date slots
+              const seenProviderIds = new Set<string>();
+
+              for (const event of events) {
+                // Skip if we've already processed this provider event
+                if (seenProviderIds.has(event.providerEventId)) continue;
+                seenProviderIds.add(event.providerEventId);
+
+                if (event.isAllDay) {
+                  // All-day events: span across dates using string math
+                  // (avoids DST issues from Date object mutation)
+                  const startStr = event.startAt.split('T')[0]; // "YYYY-MM-DD"
+                  const endStr = event.endAt.split('T')[0]; // "YYYY-MM-DD" (exclusive)
+
+                  // Add the event to every date from start to end (exclusive)
+                  let cursor = startStr;
+                  while (cursor < endStr) {
+                    const existing = eventsByDate[cursor] || [];
+                    eventsByDate[cursor] = [...existing, event];
+                    cursor = dateService.addDays(cursor, 1);
+                  }
+                } else {
+                  // Timed events: use DateService for consistent local date extraction
+                  const dateKey = dateService.extractLocalDate(event.startAt);
+                  if (!dateKey) {
+                    console.warn(
+                      '[GremlyStore] Could not extract date from event:',
+                      event.title,
+                      event.startAt,
+                    );
+                    continue;
+                  }
+
+                  console.log(
+                    '[GremlyStore] Event:',
+                    event.title,
+                    'startAt:',
+                    event.startAt,
+                    '-> dateKey:',
+                    dateKey,
+                  );
+
+                  const existing = eventsByDate[dateKey] || [];
                   eventsByDate[dateKey] = [...existing, event];
                 }
               }
-            }
 
-            console.log('[GremlyStore] eventsByDate keys:', Object.keys(eventsByDate));
-            set({
-              calendarEvents: eventsByDate,
-              calendarLoading: false,
-              calendarLastFetched: nowTimestamp(),
-            });
+              console.log('[GremlyStore] eventsByDate keys:', Object.keys(eventsByDate));
 
-            // Auto-normalize external events into Note entities
-            try {
-              const syncResult = await get().syncCalendarEventsToNotes();
-              console.log('[GremlyStore] Calendar sync result:', syncResult);
-            } catch (syncError) {
-              console.error('[GremlyStore] Calendar sync-to-notes failed:', syncError);
+              // ── Atomic state update ──
+              set({
+                calendarEvents: eventsByDate,
+                calendarLoading: false,
+                calendarLastFetched: nowTimestamp(),
+              });
+
+              // Auto-normalize external events into Note entities
+              try {
+                const syncResult = await get().syncCalendarEventsToNotes();
+                console.log('[GremlyStore] Calendar sync result:', syncResult);
+              } catch (syncError) {
+                console.error('[GremlyStore] Calendar sync-to-notes failed:', syncError);
+              }
+            } catch (error) {
+              console.error('[GremlyStore] fetchCalendarEventsForRange failed:', error);
+              set({ calendarLoading: false });
             }
-          } catch (error) {
-            console.error('[GremlyStore] fetchCalendarEventsForRange failed:', error);
-            set({ calendarLoading: false });
+          })();
+
+          // Register the in-flight promise so concurrent calls coalesce
+          calendarFetchInFlight = fetchPromise;
+          try {
+            await fetchPromise;
+          } finally {
+            calendarFetchInFlight = null;
           }
         },
 
