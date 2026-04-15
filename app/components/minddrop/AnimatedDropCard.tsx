@@ -706,13 +706,16 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
                 {item.kind === 'note' && item.isPrivate && <Lock size={12} color="#777" />}
                 {kindLabel === null ? (
                   <Animated.View
-                    style={{
-                      width: 40,
-                      height: 18,
-                      borderRadius: 9,
-                      backgroundColor: '#e0e0e0',
-                      opacity: 0.6,
-                    }}
+                    style={[
+                      parentStyles.recentCategoryPill,
+                      {
+                        width: 36,
+                        height: 16,
+                        borderRadius: 4,
+                        backgroundColor: '#E8E8E8',
+                        opacity: 0.6,
+                      },
+                    ]}
                   />
                 ) : (
                   <RNText
