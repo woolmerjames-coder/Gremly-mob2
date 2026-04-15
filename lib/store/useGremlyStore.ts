@@ -1089,6 +1089,15 @@ export const useGremlyStore = create<GremlyState>()(
                 );
               });
 
+            // Prefetch calendar events in parallel with server refresh
+            const calTodayStr = getDateService().today();
+            const calWeekEnd = getDateService().addDays(calTodayStr, 7);
+            get()
+              .fetchCalendarEventsForRange(calTodayStr, calWeekEnd)
+              .catch((err) => {
+                console.warn('[GremlyStore] Background calendar prefetch failed:', err);
+              });
+
             // Still subscribe to EventBus
             if (eventBusUnsubscribe) {
               eventBusUnsubscribe();
@@ -1368,6 +1377,15 @@ export const useGremlyStore = create<GremlyState>()(
                   }
                 });
             }
+
+            // Prefetch calendar events after cold init
+            const calTodayStrCold = getDateService().today();
+            const calWeekEndCold = getDateService().addDays(calTodayStrCold, 7);
+            get()
+              .fetchCalendarEventsForRange(calTodayStrCold, calWeekEndCold)
+              .catch((err) => {
+                console.warn('[GremlyStore] Calendar prefetch after cold init failed:', err);
+              });
 
             // Load hidden calendar events from AsyncStorage (local-only persistence)
             const hiddenEvents = await loadHiddenEventsFromStorage();
@@ -9446,6 +9464,9 @@ export const useGremlyStore = create<GremlyState>()(
           lastActiveDate: state.lastActiveDate,
           userName: state.userName,
           userPronouns: state.userPronouns,
+          // Calendar cache — survives app restart for instant display
+          calendarEvents: state.calendarEvents,
+          calendarLastFetched: state.calendarLastFetched,
         }),
 
         // Merge persisted state with fresh initial state
@@ -9492,6 +9513,9 @@ export const useGremlyStore = create<GremlyState>()(
             todayDropsCount: isSameRitualDay ? persistedState.todayDropsCount : 0,
             todaySweepsCount: isSameRitualDay ? persistedState.todaySweepsCount : 0,
             todayRitualCompletedAt: isSameRitualDay ? persistedState.todayRitualCompletedAt : null,
+            // Calendar: keep cached events if same day, clear if new day
+            calendarEvents: isSameRitualDay ? (persistedState.calendarEvents ?? {}) : {},
+            calendarLastFetched: isSameRitualDay ? persistedState.calendarLastFetched : null,
             // Always reset transient state
             pendingGaugePreviews: 0,
             trainingReadiness: 0,
