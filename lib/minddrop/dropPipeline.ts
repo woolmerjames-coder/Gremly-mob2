@@ -17,10 +17,10 @@ import {
   saveDrop,
   dequeue,
   migrateDropPhases,
+  loadQueueIntoZustand,
 } from './dropQueue';
 import { getPhaseHandler } from './dropPhases';
 import { useGremlyStore } from '../store/useGremlyStore';
-import type { PendingDrop } from '../store/useGremlyStore';
 import { runPhase1 } from './phase1';
 import { supabase } from '../supabase/client';
 import { nowTimestamp, getDateService } from '../date/DateService';
@@ -51,124 +51,14 @@ let lastQueueEmpty = false;
 let lastEnqueueTime = 0;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Phase → UI State Mapping
-// ──────────────────────────────────────────────────────────────────────────────
-
-function phaseToUIStatus(phase: DropPhase): PendingDrop['status'] {
-  switch (phase) {
-    case 'queued':
-      return 'classifying';
-    case 'classified':
-      return 'classified';
-    case 'titled':
-      return 'enriching';
-    case 'enriched':
-      return 'enriched';
-    case 'syncing':
-      return 'syncing';
-    case 'complete':
-      return 'synced';
-    case 'failed':
-      return 'failed';
-    case 'multi_detected':
-      return 'classifying';
-    case 'multi_awaiting':
-      return 'enriching';
-    default:
-      return 'pending';
-  }
-}
-
-function phaseToUIStage(phase: DropPhase): PendingDrop['minddrop_stage'] {
-  switch (phase) {
-    case 'queued':
-      return 'classifying';
-    case 'classified':
-      return 'classifying';
-    case 'titled':
-      return 'streaming'; // triggers card reveal animation
-    case 'enriched':
-      return 'enriched';
-    case 'syncing':
-      return 'enriched';
-    case 'complete':
-      return 'enriched';
-    case 'failed':
-      return 'enrichment_failed';
-    case 'multi_detected':
-      return 'classifying';
-    case 'multi_awaiting':
-      return 'enriching';
-    default:
-      return 'pending';
-  }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// syncDropToZustand — Push pipeline state to UI
-// ──────────────────────────────────────────────────────────────────────────────
-
-function syncDropToZustand(drop: QueuedDrop): void {
-  const phase = drop.phase || 'queued';
-  const uiStatus = phaseToUIStatus(phase);
-  const uiStage = phaseToUIStage(phase);
-
-  // Check if this pending drop exists in Zustand
-  const exists = useGremlyStore.getState().pendingDrops.has(drop.localId);
-  if (!exists) {
-    // Drop was already promoted or removed — skip Zustand update
-    console.warn(
-      '[Pipeline] syncDropToZustand: pending drop missing from store — card may appear stuck',
-      {
-        localId: drop.localId,
-        phase: drop.phase || 'unknown',
-      },
-    );
-    return;
-  }
-
-  useGremlyStore.getState().updatePendingDropEnrichment(drop.localId, {
-    status: uiStatus,
-    minddrop_stage: uiStage,
-    bucket: drop.bucket,
-    subtype: drop.subtype,
-    smartTitle: drop.smartTitle,
-    confirmationMessage: drop.confirmationMessage ?? undefined,
-    tags: drop.tags,
-    timeEstimateMinutes: drop.timeEstimateMinutes,
-    timeWindow: drop.timeWindow,
-    extractedDate: drop.extractedDate,
-    extractedFrequency: drop.extractedFrequency,
-    extractedDays: drop.extractedDays,
-    people: drop.people,
-    mood: drop.mood,
-    target_date: drop.targetDate,
-    scheduled_date: drop.scheduledDate,
-    event_time: drop.eventTime,
-    date_type_ambiguous: drop.dateTypeAmbiguous,
-    needs_clarification: drop.needsClarification,
-    ambiguity_reason: drop.ambiguityReason,
-    plausible_interpretations: drop.plausibleInterpretations as any,
-    isMulti: drop.isMulti,
-    multiSegments: drop.multiSegments,
-    multiSummary: drop.multiSummary,
-    dominantBucket: drop.dominantBucket as any,
-    dominantSubtype: drop.dominantSubtype as any,
-    _retryable: phase === 'failed',
-  });
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
 // handleComplete — Terminal handler
 // ──────────────────────────────────────────────────────────────────────────────
 
 async function handleComplete(drop: QueuedDrop): Promise<void> {
-  // 1. Promote pending drop to entity in Zustand
-  if (drop.supabaseId) {
-    useGremlyStore.getState().promotePendingDropToEntity(drop.localId, drop.supabaseId);
-  }
+  // Queue item is removed by dequeue() below, which updates queueItems in Zustand.
+  // The real entity was already added to todos/habits/notes by syncDropToSupabase.
 
-  // 2. Remove from AsyncStorage queue
+  // Remove from AsyncStorage queue (also updates queueItems via syncQueueToZustand)
   await dequeue(drop.localId);
 
   // 3. Increment drop count for gauge / ritual progress
@@ -306,7 +196,6 @@ async function processOne(drop: QueuedDrop): Promise<void> {
       updated.retryCount = 0;
       updated.lastError = null;
       await saveDrop(updated.localId, updated);
-      syncDropToZustand(updated);
 
       console.log('[Pipeline] Phase advanced', {
         localId: updated.localId,
@@ -354,7 +243,6 @@ async function processOne(drop: QueuedDrop): Promise<void> {
         lastError: errorMsg,
       };
       await saveDrop(failedDrop.localId, failedDrop);
-      syncDropToZustand(failedDrop);
 
       console.error('[Pipeline] Drop failed permanently', {
         localId: drop.localId,
@@ -371,8 +259,6 @@ async function processOne(drop: QueuedDrop): Promise<void> {
         lastAttemptAt: getDateService().now().toISOString(),
       };
       await saveDrop(retryDrop.localId, retryDrop);
-      // Update Zustand to keep UI in sync (same phase, but shows error info)
-      syncDropToZustand(retryDrop);
     }
   } finally {
     processing.delete(drop.localId);
@@ -456,6 +342,7 @@ export async function startQueueRunner(): Promise<void> {
 
   // Migrate existing drops (one-time, idempotent)
   await migrateDropPhases();
+  await loadQueueIntoZustand();
 
   // Initial sweep
   await tick();
@@ -522,7 +409,6 @@ export async function retryDrop(localId: string): Promise<void> {
   };
 
   await saveDrop(retriedDrop.localId, retriedDrop);
-  syncDropToZustand(retriedDrop);
 
   console.log('[Pipeline] Drop retried', { localId, resumePhase });
 
