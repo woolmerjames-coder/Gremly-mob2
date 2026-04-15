@@ -334,149 +334,8 @@ export interface HabitProgressRow {
   occurrence_index: number | null;
 }
 
-// --- Pending Drop Types (for optimistic Mind Drop queue) ---
-
-/** Segment info for multi-entity drops */
-export interface PendingDropSegment {
-  text: string;
-  bucket: 'todo' | 'habit' | 'log';
-  subtype?: 'journal' | 'idea' | 'event' | 'general' | null;
-  likelyBucket?: string; // From Phase 0 (before Phase 1 confirmation)
-  likelySubtype?: string; // From Phase 0
-  confirmed?: boolean; // True after Phase 1 confirms the bucket
-  /** Smart title from Phase 1 (properly formatted title) */
-  smartTitle?: string | null;
-  /** Confirmation message from Phase 1 */
-  confirmationMessage?: string | null;
-}
-
-export interface PendingDrop {
-  localId: string;
-  text: string;
-  spaceId: string | null;
-  source?: 'today' | 'space' | 'minddrop' | 'photo';
-  createdAt: string;
-  bucket?: 'todo' | 'habit' | 'log';
-  subtype?: 'journal' | 'idea' | 'event' | 'general' | null;
-  smartTitle?: string;
-  tags?: string[];
-  confirmationMessage?: string | null;
-  timeEstimateMinutes?: number | null;
-  timeWindow?: 'morning' | 'day' | 'evening' | null;
-  extractedDate?: string | null; // For todos: extracted due date
-  extractedFrequency?: string | null; // For habits: "3x/week", "daily", etc.
-  extractedDays?: number[] | null; // For habits: [1, 3, 5] = Mon, Wed, Fri
-  people?: string[]; // Extracted people names for chip display
-  mood?: string[] | null; // For journals: extracted mood tags
-  status:
-    | 'pending'
-    | 'classifying'
-    | 'classified'
-    | 'enriching'
-    | 'enriched'
-    | 'enrichment_failed'
-    | 'syncing'
-    | 'synced'
-    | 'failed';
-  isMulti?: boolean;
-  // Multi-drop fields (populated by Phase 0)
-  multiSegments?: PendingDropSegment[];
-  multiSummary?: string; // Summary title for the multi-card
-  dominantBucket?: 'todo' | 'habit' | 'log';
-  dominantSubtype?: 'journal' | 'idea' | 'event' | 'general' | null;
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Phase 1: Ambiguity Detection (triggers Phase 1.5 in background)
-  // ═══════════════════════════════════════════════════════════════════
-
-  /** True if AI returned is_ambiguous in Phase 1 - shows clarify badge immediately */
-  needs_clarification?: boolean;
-
-  /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
-  ambiguity_reason?: string | null;
-
-  /** Preparse-derived plausible interpretations (seeds Phase 1.5 options) */
-  plausible_interpretations?: Array<{
-    bucket: string | null;
-    subtype: string | null;
-    habitSubtype: string | null;
-    dateField: string | null;
-  }> | null;
-
-  /** Set to true when user resolves the clarification */
-  clarification_resolved?: boolean;
-
-  /** Set to true while processing clarification (triggers card loading animation) */
-  clarification_processing?: boolean;
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Phase 1.5: Clarification Options (populated asynchronously)
-  // ═══════════════════════════════════════════════════════════════════
-
-  /** Type of clarification needed - 'bucket' blocks Phase 2 */
-  clarification_type?:
-    | 'bucket'
-    | 'habit_or_todo'
-    | 'date_type'
-    | 'detail'
-    | 'intent'
-    | 'action'
-    | null;
-
-  /** Question to show user */
-  clarification_question?: string | null;
-
-  /** Options array with id, label, and action payload */
-  clarification_options?: Array<{
-    id: string;
-    label: string;
-    action: {
-      bucket?: 'todo' | 'habit' | 'log';
-      subtype?: string;
-      habitSubtype?: string;
-      target_date?: boolean;
-      scheduled_date?: boolean;
-    };
-  }> | null;
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Date Intelligence (Phase 2)
-  // ═══════════════════════════════════════════════════════════════════
-
-  /** External deadline date extracted by AI */
-  target_date?: string | null;
-
-  /** Scheduled work date extracted by AI */
-  scheduled_date?: string | null;
-
-  /** For notes classified as events - the event time */
-  event_time?: string | null;
-
-  /** True if AI couldn't determine date meaning */
-  date_type_ambiguous?: boolean;
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Phase 1.5a: Visual Stage (set explicitly to trigger animations)
-  // ═══════════════════════════════════════════════════════════════════
-
-  /** Visual stage for animations - set by Phase 1.5a to trigger typewriter */
-  minddrop_stage?:
-    | 'pending'
-    | 'classifying'
-    | 'streaming'
-    | 'enriching'
-    | 'enriched'
-    | 'enrichment_failed';
-
-  /** True if this drop was captured while offline. Used for UI messaging. */
-  _offlineCapture?: boolean;
-
-  /** True while retrying a degraded classification. Shows "still thinking" message. */
-  _retryingClassification?: boolean;
-
-  /** True when processing failed but drop can be retried. Keeps card visible. */
-  _retryable?: boolean;
-}
+// @deprecated — PendingDrop is no longer used at runtime. Tests should migrate to QueuedDrop from dropQueue.ts.
+export type PendingDrop = Record<string, any>;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STORE INTERFACE
@@ -501,7 +360,6 @@ interface GremlyState {
   generalChatAutoTitle: string | null;
   generalChatRunningSummary: string | null;
   milestones: Milestone[];
-  pendingDrops: Map<string, PendingDrop>;
   queueItems: QueuedDrop[];
 
   // ═══════════════════════════════════════════════════════════════════
@@ -875,23 +733,8 @@ interface GremlyState {
   recoverStuckMindDrops: () => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
-  // PENDING DROP ACTIONS (for optimistic Mind Drop queue)
+  // MULTI-DROP + CLARIFICATION ACTIONS
   // ═══════════════════════════════════════════════════════════════════
-  addPendingDrop: (drop: PendingDrop) => void;
-  updatePendingDropClassification: (
-    localId: string,
-    classification: {
-      bucket: 'todo' | 'habit' | 'log';
-      subtype: 'journal' | 'idea' | 'event' | 'general' | null;
-    },
-  ) => void;
-  updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => void;
-  /** Atomically update a specific segment in a multi-drop (avoids race conditions in parallel updates) */
-  updateMultiSegment: (
-    localId: string,
-    segmentIndex: number,
-    updates: Partial<PendingDropSegment>,
-  ) => void;
   /** Split a multi-drop into separate pending drops for each selected segment */
   splitMultiDrop: (localId: string, items: import('../minddrop/types').MultiDropItem[]) => void;
   /** Resolve a multi-drop as a single entity (keep as-is) */
@@ -904,8 +747,6 @@ interface GremlyState {
       options: Array<{ id: string; label: string; action: Record<string, unknown> }>;
     },
   ) => Promise<boolean>;
-  promotePendingDropToEntity: (localId: string, supabaseId: string) => void;
-  removePendingDrop: (localId: string) => void;
   resolvePendingDropClarification: (
     localId: string,
     optionId: string,
@@ -1172,7 +1013,6 @@ const initialState = {
   todayFedCelebrationShownAt: null as string | null,
   todayFeedingAgeUpShownAt: null as string | null,
   feedingHistory: [] as Array<{ date: string; isFed: boolean }>,
-  pendingDrops: new Map<string, PendingDrop>(),
   queueItems: [] as QueuedDrop[],
   // Calendar integration
   calendarConnections: [] as CalendarConnectionStatus[],
@@ -7147,113 +6987,6 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
-        // ═══════════════════════════════════════════════════════════════════
-        // PENDING DROP ACTIONS (for optimistic Mind Drop queue)
-        // ═══════════════════════════════════════════════════════════════════
-
-        addPendingDrop: (drop: PendingDrop) => {
-          set((state) => {
-            const newPending = new Map(state.pendingDrops);
-            newPending.set(drop.localId, drop);
-            return { pendingDrops: newPending };
-          });
-          console.log('[GremlyStore] Added pending drop', { localId: drop.localId });
-        },
-
-        updatePendingDropClassification: (
-          localId: string,
-          classification: {
-            bucket: 'todo' | 'habit' | 'log';
-            subtype: 'journal' | 'idea' | 'event' | 'general' | null;
-          },
-        ) => {
-          set((state) => {
-            const drop = state.pendingDrops.get(localId);
-            if (!drop) return state;
-
-            const updated: PendingDrop = {
-              ...drop,
-              ...classification,
-              status: 'classified' as const,
-            };
-            const newPending = new Map(state.pendingDrops);
-            newPending.set(localId, updated);
-            return { pendingDrops: newPending };
-          });
-          console.log('[GremlyStore] Updated pending drop classification', {
-            localId,
-            ...classification,
-          });
-        },
-
-        updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => {
-          console.log('🟢 [GremlyStore] updatePendingDropEnrichment called', {
-            localId,
-            enrichmentKeys: Object.keys(enrichment),
-            hasMinddropStage: 'minddrop_stage' in enrichment,
-            minddropStageValue: (enrichment as any).minddrop_stage,
-          });
-
-          set((state) => {
-            const drop = state.pendingDrops.get(localId);
-            if (!drop) {
-              console.warn('[GremlyStore] updatePendingDropEnrichment: drop not found', {
-                localId,
-              });
-              return state;
-            }
-
-            const updated: PendingDrop = { ...drop, ...enrichment };
-
-            console.log('🟢 [GremlyStore] After spread, updated drop has:', {
-              localId,
-              hasMinddropStage: 'minddrop_stage' in updated,
-              minddropStageValue: (updated as any).minddrop_stage,
-              status: updated.status,
-            });
-
-            const newPending = new Map(state.pendingDrops);
-            newPending.set(localId, updated);
-
-            return { pendingDrops: newPending };
-          });
-        },
-
-        updateMultiSegment: (
-          localId: string,
-          segmentIndex: number,
-          updates: Partial<PendingDropSegment>,
-        ) => {
-          set((state) => {
-            const drop = state.pendingDrops.get(localId);
-            if (!drop) {
-              console.warn('[GremlyStore] updateMultiSegment: drop not found', {
-                localId,
-                segmentIndex,
-              });
-              return state;
-            }
-            if (!drop.multiSegments || segmentIndex >= drop.multiSegments.length) {
-              console.warn('[GremlyStore] updateMultiSegment: invalid segment index', {
-                localId,
-                segmentIndex,
-                segmentCount: drop.multiSegments?.length ?? 0,
-              });
-              return state;
-            }
-
-            // Atomic read-modify-write: read multiSegments INSIDE the set() function
-            const updatedSegments = [...drop.multiSegments];
-            updatedSegments[segmentIndex] = { ...updatedSegments[segmentIndex], ...updates };
-
-            const updated: PendingDrop = { ...drop, multiSegments: updatedSegments };
-            const newPending = new Map(state.pendingDrops);
-            newPending.set(localId, updated);
-
-            return { pendingDrops: newPending };
-          });
-        },
-
         /**
          * Split a multi-drop note into separate entities for each selected segment.
          * The original multi-drop note is archived and individual entities are created.
@@ -7466,216 +7199,8 @@ export const useGremlyStore = create<GremlyState>()(
           return true;
         },
 
-        promotePendingDropToEntity: (localId: string, supabaseId: string) => {
-          set((state) => {
-            const pendingDrop = state.pendingDrops.get(localId);
-            const newPending = new Map(state.pendingDrops);
-            newPending.delete(localId);
-
-            // Transfer clarification data to the local entity if Phase 1.5 completed
-            if (pendingDrop?.clarification_question && pendingDrop?.clarification_options?.length) {
-              // Find and update the entity in the appropriate array
-              const bucket = pendingDrop.bucket || 'log';
-              const clarificationData = {
-                clarification_question: pendingDrop.clarification_question,
-                clarification_options: pendingDrop.clarification_options,
-              };
-
-              if (bucket === 'todo') {
-                return {
-                  pendingDrops: newPending,
-                  todos: state.todos.map((t) =>
-                    t.id === supabaseId ? { ...t, ...clarificationData } : t,
-                  ),
-                };
-              } else if (bucket === 'habit') {
-                return {
-                  pendingDrops: newPending,
-                  habits: state.habits.map((h) =>
-                    h.id === supabaseId ? { ...h, ...clarificationData } : h,
-                  ),
-                };
-              } else {
-                return {
-                  pendingDrops: newPending,
-                  notes: state.notes.map((n) =>
-                    n.id === supabaseId ? { ...n, ...clarificationData } : n,
-                  ),
-                };
-              }
-            }
-
-            return { pendingDrops: newPending };
-          });
-          console.log('[GremlyStore] Promoted pending drop to entity', { localId, supabaseId });
-        },
-
-        removePendingDrop: (localId: string) => {
-          set((state) => {
-            const newPending = new Map(state.pendingDrops);
-            newPending.delete(localId);
-            return { pendingDrops: newPending };
-          });
-          console.log('[GremlyStore] Removed pending drop', { localId });
-        },
-
         resolvePendingDropClarification: async (localId, optionId, isFreeText = false) => {
           const state = get();
-
-          // ─────────────────────────────────────────────────────────────────────
-          // PENDING DROPS: Items still in Mind Drop queue (not yet synced)
-          // For pending drops, we update the local state and let the processor
-          // handle the actual entity creation with the correct bucket
-          // ─────────────────────────────────────────────────────────────────────
-          const pendingDrop = state.pendingDrops.get(localId);
-
-          if (pendingDrop && (isFreeText || pendingDrop.clarification_options)) {
-            // Determine the selected label based on whether it's free text or a predefined option
-            let selectedLabel: string;
-            if (isFreeText) {
-              // User typed their own explanation - use it directly
-              selectedLabel = optionId;
-              console.log(
-                '[GremlyStore] Using free text as selectedLabel:',
-                selectedLabel.substring(0, 50),
-              );
-            } else {
-              // User selected a predefined option - look up the label
-              const selectedOption = pendingDrop.clarification_options?.find(
-                (opt) => opt.id === optionId,
-              );
-              if (!selectedOption) {
-                console.warn('[GremlyStore] Pending drop option not found:', { localId, optionId });
-                return;
-              }
-              selectedLabel = selectedOption.label;
-            }
-
-            console.log('[GremlyStore] Resolving pending drop clarification', {
-              localId,
-              optionId: isFreeText ? '(free text)' : optionId,
-              selectedLabel: selectedLabel.substring(0, 50),
-            });
-
-            // Set processing state BEFORE API calls to trigger card loading animation
-            set((s) => {
-              const pendingDrops = new Map(s.pendingDrops);
-              const drop = pendingDrops.get(localId);
-              if (drop) {
-                pendingDrops.set(localId, {
-                  ...drop,
-                  clarification_processing: true,
-                });
-              }
-              return { pendingDrops };
-            });
-            console.log(
-              '[GremlyStore] Set clarification_processing: true for pending drop:',
-              localId,
-            );
-
-            // Get bucket/subtype from the selected option (if not free text)
-            const selectedOption = isFreeText
-              ? null
-              : pendingDrop.clarification_options?.find((opt) => opt.id === optionId);
-            const selectedBucket = selectedOption?.action?.bucket || null;
-            const selectedSubtype = selectedOption?.action?.subtype || null;
-            const selectedHabitSubtype = selectedOption?.action?.habitSubtype || null;
-
-            // Call reclassify endpoint to get bucket, dates, time estimate
-            try {
-              const cortexUrl = env.cortexUrl;
-              if (cortexUrl) {
-                const reclassifyResponse = await fetch(cortexUrl, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    type: 'reclassify-after-clarification',
-                    text: pendingDrop.text || pendingDrop.smartTitle || '',
-                    selectedLabel: selectedLabel,
-                    selectedBucket: selectedBucket,
-                    selectedSubtype: selectedSubtype,
-                    selectedHabitSubtype: selectedHabitSubtype,
-                    currentDate: getDateService().today(),
-                    targetBucket: pendingDrop.bucket, // Hint for time estimation
-                  }),
-                });
-
-                if (reclassifyResponse.ok) {
-                  const result = await reclassifyResponse.json();
-                  console.log('[GremlyStore] Pending drop reclassify result', {
-                    localId,
-                    newBucket: result.bucket,
-                    newTitle: result.smart_title,
-                    targetDate: result.target_date,
-                    scheduledDate: result.scheduled_date,
-                    timeEstimate: result.time_estimate_minutes,
-                    dateTypeAmbiguous: result.date_type_ambiguous,
-                    latency_ms: result.latency_ms,
-                  });
-
-                  // Check if date type is ambiguous
-                  // For MVP, we default ambiguous dates to target_date (deadline/event)
-                  // The Sweep can then prompt "When do you want to work on this?" to resolve
-                  if (result.date_type_ambiguous && result.target_date) {
-                    console.log(
-                      '[GremlyStore] Pending drop date type ambiguous, defaulting to target_date:',
-                      result.target_date,
-                    );
-                  }
-
-                  // Update the pending drop with reclassified data
-                  set((s) => {
-                    const pendingDrops = new Map(s.pendingDrops);
-                    const drop = pendingDrops.get(localId);
-                    if (!drop) return s;
-
-                    const updatedDrop: PendingDrop = {
-                      ...drop,
-                      bucket: result.bucket || drop.bucket,
-                      subtype: result.subtype || drop.subtype,
-                      smartTitle: result.smart_title || drop.smartTitle,
-                      confirmationMessage: result.confirmation_message || drop.confirmationMessage,
-                      timeEstimateMinutes: result.time_estimate_minutes ?? drop.timeEstimateMinutes,
-                      // Date intelligence
-                      target_date: result.target_date || null,
-                      scheduled_date: result.scheduled_date || null,
-                      // Mark clarification as resolved
-                      clarification_resolved: true,
-                      needs_clarification: false,
-                    };
-
-                    pendingDrops.set(localId, updatedDrop);
-                    return { pendingDrops };
-                  });
-                  return;
-                }
-              }
-            } catch (error) {
-              console.log('[GremlyStore] Pending drop reclassify failed:', error);
-            }
-
-            // Fallback: just mark as resolved without reclassifying
-            set((s) => {
-              const pendingDrops = new Map(s.pendingDrops);
-              const drop = pendingDrops.get(localId);
-              if (!drop) return s;
-
-              const updatedDrop: PendingDrop = {
-                ...drop,
-                clarification_resolved: true,
-                needs_clarification: false,
-              };
-
-              pendingDrops.set(localId, updatedDrop);
-              console.log('[GremlyStore] Pending drop clarification resolved (fallback)', {
-                localId,
-              });
-
-              return { pendingDrops };
-            });
-            return;
-          }
 
           // ─────────────────────────────────────────────────────────────────────
           // SYNCED ENTITIES: Items already in Supabase (todo, habit, or note)
@@ -9878,7 +9403,6 @@ export const useGremlyStore = create<GremlyState>()(
           tags: state.tags,
           habitProgress: state.habitProgress,
           milestones: state.milestones,
-          pendingDrops: state.pendingDrops,
           userId: state.userId,
           lastSweepCompletedAt: state.lastSweepCompletedAt,
           sweepStreak: state.sweepStreak,
