@@ -1005,7 +1005,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
   }, [visible, needsClarification, clarificationQuestion]);
 
   // Clarification: handle option selection
-  const resolvePendingDropClarification = useGremlyStore((s) => s.resolvePendingDropClarification);
+  const resolveEntityClarification = useGremlyStore((s) => s.resolveEntityClarification);
   const resolveSkippedClarification = useGremlyStore((s) => s.resolveSkippedClarification);
   const handleClarificationSelect = useCallback(
     async (optionId: string) => {
@@ -1022,7 +1022,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
       setClarificationLoading(true);
 
       try {
-        await resolvePendingDropClarification(entityId, optionId);
+        await resolveEntityClarification(entityId, optionId);
 
         // Haptic feedback
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1057,7 +1057,7 @@ export function UnifiedOverlayV2(props: UnifiedCreateOverlayProps) {
         setShowClarificationPopup(false);
       }
     },
-    [fullEntity?.id, propsEntity?.id, initialEntity?.id, resolvePendingDropClarification, onClose],
+    [fullEntity?.id, propsEntity?.id, initialEntity?.id, resolveEntityClarification, onClose],
   );
 
   // Clarification: handle skip

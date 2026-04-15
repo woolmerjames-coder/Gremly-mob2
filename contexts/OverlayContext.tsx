@@ -122,7 +122,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get store actions for resolving clarification
-  const resolvePendingDropClarification = useGremlyStore((s) => s.resolvePendingDropClarification);
+  const resolveEntityClarification = useGremlyStore((s) => s.resolveEntityClarification);
   const resolveSkippedClarification = useGremlyStore((s) => s.resolveSkippedClarification);
 
   // Subscribe to entities to get fresh clarification data when Phase 1.5 completes
@@ -287,18 +287,16 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       // Fire and forget - don't await
       // The popup shows instant success and dismisses itself
       // The card shows processing animation and updates progressively
-      resolvePendingDropClarification(
-        clarificationPopup.entityId,
-        selectionValue,
-        isFreeText,
-      ).catch((error) => {
-        console.error('[GlobalOverlay] Clarification resolution failed:', error);
-      });
+      resolveEntityClarification(clarificationPopup.entityId, selectionValue, isFreeText).catch(
+        (error) => {
+          console.error('[GlobalOverlay] Clarification resolution failed:', error);
+        },
+      );
 
       // Note: Popup dismisses itself after showing "Great, on it"
       // We don't close it here anymore
     },
-    [clarificationPopup.entityId, resolvePendingDropClarification],
+    [clarificationPopup.entityId, resolveEntityClarification],
   );
 
   const handleClarificationSkip = useCallback(() => {

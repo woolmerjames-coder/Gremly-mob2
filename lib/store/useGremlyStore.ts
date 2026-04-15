@@ -747,7 +747,7 @@ interface GremlyState {
       options: Array<{ id: string; label: string; action: Record<string, unknown> }>;
     },
   ) => Promise<boolean>;
-  resolvePendingDropClarification: (
+  resolveEntityClarification: (
     localId: string,
     optionId: string,
     isFreeText?: boolean,
@@ -7199,7 +7199,7 @@ export const useGremlyStore = create<GremlyState>()(
           return true;
         },
 
-        resolvePendingDropClarification: async (localId, optionId, isFreeText = false) => {
+        resolveEntityClarification: async (localId, optionId, isFreeText = false) => {
           const state = get();
 
           // ─────────────────────────────────────────────────────────────────────
@@ -7227,7 +7227,7 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           if (!entity || !entityType) {
-            console.warn('[GremlyStore] resolvePendingDropClarification: Entity not found', {
+            console.warn('[GremlyStore] resolveEntityClarification: Entity not found', {
               entityId,
             });
             return;
@@ -7261,18 +7261,15 @@ export const useGremlyStore = create<GremlyState>()(
           } else {
             // User selected a predefined option - look up the label
             if (!clarificationOptions) {
-              console.warn(
-                '[GremlyStore] resolvePendingDropClarification: No clarification options',
-                {
-                  entityId,
-                },
-              );
+              console.warn('[GremlyStore] resolveEntityClarification: No clarification options', {
+                entityId,
+              });
               return;
             }
 
             const selectedOption = clarificationOptions.find((opt) => opt.id === optionId);
             if (!selectedOption) {
-              console.warn('[GremlyStore] resolvePendingDropClarification: Option not found', {
+              console.warn('[GremlyStore] resolveEntityClarification: Option not found', {
                 entityId,
                 optionId,
               });
