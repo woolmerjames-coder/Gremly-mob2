@@ -215,6 +215,7 @@ const ShimmerBar: React.FC<{
   height?: number;
   style?: any;
 }> = ({ width, height = 14, style }) => {
+  console.log('[RENDER_CHECK] ShimmerBar rendered');
   const shimmerPosition = React.useMemo(() => new Animated.Value(0), []);
 
   React.useEffect(() => {
@@ -463,12 +464,13 @@ export const markDropAsRecentlyPromoted = (dropId: string) => {
  * - isPending=true: Apply depth emergence animation (scale + opacity)
  * - isPending=false: Apply slide-down animation via Reanimated Layout
  */
-const UnifiedCardWrapper: React.FC<{
+const UnifiedCardWrapper = React.memo<{
   itemId: string;
   dropId?: string | null;
   isPending: boolean;
   children: React.ReactNode;
-}> = ({ itemId, dropId, isPending, children }) => {
+}>(({ itemId, dropId, isPending, children }) => {
+  console.log('[RENDER_CHECK] UnifiedCardWrapper rendered');
   // DEBUG: Track wrapper mount/unmount (disabled to reduce Metro noise)
   // React.useEffect(() => {
   //   console.log('[DEBUG:Wrapper] UnifiedCardWrapper MOUNTED:', { itemId, dropId, isPending });
@@ -564,13 +566,15 @@ const UnifiedCardWrapper: React.FC<{
 
   // Default: plain View (pending after animation, or real before Layout enabled)
   return <View>{children}</View>;
-};
+});
+UnifiedCardWrapper.displayName = 'UnifiedCardWrapper';
 
 /**
  * ClarifyBadge - Static badge for items needing clarification
  * Shows in the top-right badge position, replacing the bucket badge.
  */
 const ClarifyBadge: React.FC = () => {
+  console.log('[RENDER_CHECK] ClarifyBadge rendered');
   return (
     <View
       style={{
@@ -618,6 +622,7 @@ const AnimatedChipsTransition: React.FC<{
   children: React.ReactNode;
   onAnimationComplete?: () => void;
 }> = ({ trackingId, hasRealData, children, onAnimationComplete }) => {
+  console.log('[RENDER_CHECK] AnimatedChipsTransition rendered');
   // Check if this drop has already animated using module-level Set
   // This persists across pending→entity transition (drop_id stays the same)
   const alreadyAnimated = chipAnimatedIds.has(trackingId);
@@ -733,6 +738,7 @@ const AnimatedBadgeTransition: React.FC<{
   bucketConfirmed: boolean;
   children: React.ReactNode;
 }> = ({ trackingId, bucketConfirmed, children }) => {
+  console.log('[RENDER_CHECK] AnimatedBadgeTransition rendered');
   const alreadyAnimated = badgeAnimatedIds.has(trackingId);
 
   const [animValues] = React.useState(() => ({
@@ -826,6 +832,7 @@ const Row3Chips: React.FC<{
   isMulti?: boolean;
   onChipAnimationComplete?: () => void;
 }> = ({ item, effectiveKind, styles, isMulti = false, onChipAnimationComplete }) => {
+  console.log('[RENDER_CHECK] Row3Chips rendered');
   // Compute derived state once
   const isJournal =
     item.kind === 'note' && (item.noteSubtype === 'journal' || item.canonical_type === 'journal');
@@ -1179,6 +1186,7 @@ const PendingSkeleton: React.FC<{
   c: any;
   index?: number; // For stagger delay
 }> = ({ item, effectiveKind, badgeStyleKey, styles, c, index = 0 }) => {
+  console.log('[RENDER_CHECK] PendingSkeleton rendered');
   const [dots, setDots] = React.useState('');
   const trackingId = item.drop_id || item.id;
   const bucketConfirmed = item.views?.bucket_confirmed === true;
@@ -1311,6 +1319,7 @@ const EnrichingSkeleton: React.FC<{
   c: any;
   index?: number; // For stagger delay
 }> = ({ item, effectiveKind, badgeStyleKey, styles, c, index = 0 }) => {
+  console.log('[RENDER_CHECK] EnrichingSkeleton rendered');
   const trackingId = item.drop_id || item.id;
   const bucketConfirmed = item.views?.bucket_confirmed === true;
 
@@ -1460,6 +1469,7 @@ const RevealingCard: React.FC<{
   isPending,
   onRevealComplete,
 }) => {
+  console.log('[RENDER_CHECK] RevealingCard rendered');
   // CRITICAL: Use drop_id for tracking - persists across pending→entity transition
   const trackingId = item.drop_id || item.id;
 
@@ -1634,6 +1644,7 @@ const DelayedCallback: React.FC<{
   delay: number;
   onComplete: () => void;
 }> = ({ delay, onComplete }) => {
+  console.log('[RENDER_CHECK] DelayedCallback rendered');
   React.useEffect(() => {
     const timeout = setTimeout(onComplete, delay);
     return () => clearTimeout(timeout);
@@ -1756,6 +1767,7 @@ const AnimatedMindDropCard = React.memo<{
     onOpenModal,
     openClarificationPopup,
   }) => {
+    console.log('[RENDER_CHECK] AnimatedMindDropCard COMPLETE rendered');
     // Capture render time in a ref (initialized once on mount)
     // This avoids calling Date.now() multiple times during render
     // eslint-disable-next-line react-hooks/purity -- Date.now() in useRef initializer is safe (runs once per mount)
@@ -1864,6 +1876,15 @@ const AnimatedMindDropCard = React.memo<{
     // Falls back to item.id for items without drop_id
     const trackingId = item.drop_id || item.id;
 
+    // High-water mark: prevent visual state from going backwards
+    // Uses useState (not ref) because it drives render output — React Compiler safe
+    const [highWaterMark, setHighWaterMark] = React.useState<MindDropVisualState>('pending');
+
+    // Reset high-water mark when card identity changes
+    React.useEffect(() => {
+      setHighWaterMark('pending');
+    }, [item.id]);
+
     // Local state to track revealing phase
     const [isRevealing, setIsRevealing] = React.useState(false);
     const [revealComplete, setRevealComplete] = React.useState(() => {
@@ -1954,7 +1975,7 @@ const AnimatedMindDropCard = React.memo<{
       });
     }
 
-    const visualState: MindDropVisualState =
+    let visualState: MindDropVisualState =
       itemVisualState === 'enriching' || itemVisualState === 'pending'
         ? itemVisualState // Always show skeleton when processing
         : shouldReveal
@@ -1962,6 +1983,24 @@ const AnimatedMindDropCard = React.memo<{
           : revealComplete
             ? 'complete' // Only complete AFTER reveal animation finishes
             : itemVisualState;
+
+    // Enforce forward-only visual state progression (high-water mark)
+    // Prevents e.g. 'revealing' → 'enriching' when Phase 2 data arrives
+    const STATE_ORDER: MindDropVisualState[] = ['pending', 'enriching', 'revealing', 'complete'];
+    const currentIndex = STATE_ORDER.indexOf(visualState);
+    const highIndex = STATE_ORDER.indexOf(highWaterMark);
+    if (currentIndex >= 0 && highIndex >= 0 && currentIndex < highIndex) {
+      visualState = highWaterMark;
+    }
+
+    // Advance high-water mark when visual state progresses forward
+    React.useEffect(() => {
+      const ci = STATE_ORDER.indexOf(visualState);
+      const hi = STATE_ORDER.indexOf(highWaterMark);
+      if (ci >= 0 && ci > hi) {
+        setHighWaterMark(visualState);
+      }
+    }, [visualState, highWaterMark]);
 
     // MULTI-DROP EARLY RETURN: Show multi-card immediately, even during pending/enriching
     // Multi-drops have enough info from Phase 0 to render the multi-card shape
@@ -2488,9 +2527,11 @@ const RecentDrops: React.FC<{
         // If the QueuedDrop reference is the same, reuse the old UnifiedDrop
         const cached = prevDropMappingRef.current.get(drop);
         if (cached) {
+          console.log('[CACHE] Hit for:', drop.localId);
           newMapping.set(drop, cached);
           return cached;
         }
+        console.log('[CACHE] Miss for:', drop.localId);
 
         // QueuedDrop changed — create new UnifiedDrop
         const kind: 'todo' | 'habit' | 'note' =
@@ -2601,6 +2642,24 @@ const RecentDrops: React.FC<{
     if (pendingDropIds.size === 0) return items;
     return items.filter((item) => !item.drop_id || !pendingDropIds.has(item.drop_id));
   }, [items, pendingDropIds]);
+
+  // Memoized combined list: merge pending + real items, sort, deduplicate.
+  // Uses original object references (no spread) so React.memo on cards stays effective.
+  const { combinedItems, pendingIdSet } = React.useMemo(() => {
+    const pending = new Set(pendingItems.map((p) => p.drop_id || p.id));
+    const merged = [...pendingItems, ...filteredItems].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+    // Defensive deduplication: prefer first occurrence (pending before real)
+    const seen = new Set<string>();
+    const deduped = merged.filter((item) => {
+      const key = item.drop_id || `${item.kind}:${item.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return { combinedItems: deduped, pendingIdSet: pending };
+  }, [pendingItems, filteredItems]);
 
   // Keep modal item synced with latest version from items/pendingItems
   // (in case Phase 1 updates segments while modal is open)
@@ -4351,87 +4410,55 @@ const RecentDrops: React.FC<{
               {/* Combined list: pending items first, then real items (sorted by created_at) */}
               {/* Using a single loop ensures React maintains component identity when */}
               {/* a pending item is promoted to a real item (prevents modal from closing) */}
-              {(() => {
-                // Combine pending and real items, mark which list they're from
-                const combined = [
-                  ...pendingItems.map((item) => ({ ...item, _isPendingList: true as const })),
-                  ...filteredItems.map((item) => ({ ...item, _isPendingList: false as const })),
-                ].sort(
-                  (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+              {combinedItems.map((item) => {
+                const itemIsPending = pendingIdSet.has(item.drop_id || item.id);
+                const effectiveKind = item.optimisticKind ?? item.kind;
+                const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
+                const showLegacyUnsortedBadge =
+                  !canonicalTypesOn && effectiveKind === 'note' && (item as any).unsorted;
+                const badgeStyleKey =
+                  effectiveKind === 'todo'
+                    ? 'badge_todo'
+                    : effectiveKind === 'habit'
+                      ? 'badge_habit'
+                      : 'badge_note';
+
+                // Get visual state for pending/failed/final rendering
+                const visualState = getMindDropVisualState(item);
+                const isPending = itemIsPending || visualState === 'pending';
+
+                // Use drop_id for key to maintain component identity across pending→real transition
+                const stableKey = item.drop_id || `${item.kind}:${item.id}`;
+
+                // Use UnifiedCardWrapper for BOTH pending and real items
+                // This prevents remounting when transitioning (preserves modal state)
+                return (
+                  <UnifiedCardWrapper
+                    key={stableKey}
+                    itemId={item.id}
+                    dropId={item.drop_id}
+                    isPending={itemIsPending}
+                  >
+                    <AnimatedMindDropCard
+                      item={item}
+                      isPending={isPending}
+                      effectiveKind={effectiveKind}
+                      displayKind={displayKind}
+                      showLegacyUnsortedBadge={itemIsPending ? undefined : showLegacyUnsortedBadge}
+                      badgeStyleKey={badgeStyleKey}
+                      c={c}
+                      styles={styles}
+                      mode={themeMode}
+                      handleEdit={itemIsPending ? NOOP_EDIT : handleEdit}
+                      handleDelete={itemIsPending ? NOOP_DELETE : handleDelete}
+                      onKeepAsNote={handleKeepAsNote}
+                      onSplitSelected={handleSplitSelected}
+                      onOpenModal={handleOpenModal}
+                      openClarificationPopup={overlay.openClarificationPopup}
+                    />
+                  </UnifiedCardWrapper>
                 );
-
-                // Defensive deduplication: ensure no duplicate keys (drop_id or kind:id)
-                const seenKeys = new Set<string>();
-                const allItems = combined.filter((item) => {
-                  const key = item.drop_id || `${item.kind}:${item.id}`;
-                  if (seenKeys.has(key)) {
-                    // Skip duplicate - prefer first occurrence (pending items come first)
-                    return false;
-                  }
-                  seenKeys.add(key);
-                  return true;
-                });
-
-                return allItems.map((item) => {
-                  const effectiveKind = item.optimisticKind ?? item.kind;
-                  const displayKind = getDisplayKindForDrop(item, canonicalTypesOn);
-                  const showLegacyUnsortedBadge =
-                    !canonicalTypesOn && effectiveKind === 'note' && (item as any).unsorted;
-                  const badgeStyleKey =
-                    effectiveKind === 'todo'
-                      ? 'badge_todo'
-                      : effectiveKind === 'habit'
-                        ? 'badge_habit'
-                        : 'badge_note';
-
-                  // Get visual state for pending/failed/final rendering
-                  const visualState = getMindDropVisualState(item);
-                  const isPending = item._isPendingList || visualState === 'pending';
-
-                  // Use drop_id for key to maintain component identity across pending→real transition
-                  const stableKey = item.drop_id || `${item.kind}:${item.id}`;
-
-                  // DEBUG: Log each item render with key info (disabled to reduce Metro noise)
-                  // console.log('[DEBUG:Render] Item in list:', {
-                  //   stableKey,
-                  //   itemId: item.id,
-                  //   dropId: item.drop_id,
-                  //   isPendingList: item._isPendingList,
-                  //   kind: item.kind,
-                  // });
-
-                  // Use UnifiedCardWrapper for BOTH pending and real items
-                  // This prevents remounting when transitioning (preserves modal state)
-                  return (
-                    <UnifiedCardWrapper
-                      key={stableKey}
-                      itemId={item.id}
-                      dropId={item.drop_id}
-                      isPending={item._isPendingList}
-                    >
-                      <AnimatedMindDropCard
-                        item={item}
-                        isPending={isPending}
-                        effectiveKind={effectiveKind}
-                        displayKind={displayKind}
-                        showLegacyUnsortedBadge={
-                          item._isPendingList ? undefined : showLegacyUnsortedBadge
-                        }
-                        badgeStyleKey={badgeStyleKey}
-                        c={c}
-                        styles={styles}
-                        mode={themeMode}
-                        handleEdit={item._isPendingList ? NOOP_EDIT : handleEdit}
-                        handleDelete={item._isPendingList ? NOOP_DELETE : handleDelete}
-                        onKeepAsNote={handleKeepAsNote}
-                        onSplitSelected={handleSplitSelected}
-                        onOpenModal={handleOpenModal}
-                        openClarificationPopup={overlay.openClarificationPopup}
-                      />
-                    </UnifiedCardWrapper>
-                  );
-                });
-              })()}
+              })}
             </AppScrollView>
           )}
         </View>

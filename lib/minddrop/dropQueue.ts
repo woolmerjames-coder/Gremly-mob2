@@ -59,11 +59,14 @@ function syncQueueToZustand(queue: QueuedDrop[]): void {
 
     const newItems = active.map((drop) => {
       const old = oldByLocalId.get(drop.localId);
-      if (!old) return drop;
+      if (!old) {
+        console.log('[STABILITY] New drop, no old ref:', drop.localId);
+        return drop;
+      }
 
       // Compare visual-relevant fields only.
       // If none changed, return the OLD reference so React skips re-render.
-      if (
+      const fieldsMatch =
         old.phase === drop.phase &&
         old.bucket === drop.bucket &&
         old.subtype === drop.subtype &&
@@ -82,30 +85,47 @@ function syncQueueToZustand(queue: QueuedDrop[]): void {
         arraysEqual(old.tags, drop.tags) &&
         arraysEqual(old.people, drop.people) &&
         arraysEqual(old.mood, drop.mood) &&
-        arraysEqual(old.extractedDays, drop.extractedDays)
-      ) {
+        arraysEqual(old.extractedDays, drop.extractedDays);
+
+      if (fieldsMatch) {
+        console.log('[STABILITY] Reusing old ref for:', drop.localId);
         return old;
       }
 
+      console.log('[STABILITY] Fields changed for:', drop.localId, {
+        phase: old.phase !== drop.phase ? `${old.phase} → ${drop.phase}` : 'same',
+        bucket: old.bucket !== drop.bucket ? `${old.bucket} → ${drop.bucket}` : 'same',
+        smartTitle: old.smartTitle !== drop.smartTitle ? 'changed' : 'same',
+        confirmationMessage:
+          old.confirmationMessage !== drop.confirmationMessage ? 'changed' : 'same',
+        tags: old.tags === drop.tags ? 'same ref' : 'diff ref',
+      });
       return drop;
     });
 
     // Also preserve the array reference itself if nothing changed at all
-    if (
+    const arrayUnchanged =
       newItems.length === state.queueItems.length &&
-      newItems.every((item, i) => item === state.queueItems[i])
-    ) {
+      newItems.every((item, i) => item === state.queueItems[i]);
+
+    if (arrayUnchanged) {
+      console.log('[STABILITY] Array unchanged, returning same state');
       return state; // No change — don't trigger any subscribers
     }
 
+    console.log('[STABILITY] Array changed, updating queueItems');
     return { queueItems: newItems };
   });
 }
 
 function arraysEqual(a?: any[] | null, b?: any[] | null): boolean {
-  if (a === b) return true;
-  if (!a || !b || a.length !== b.length) return false;
-  return a.every((v, i) => v === b[i]);
+  // Treat undefined/null/[] as equivalent
+  const aEmpty = !a || a.length === 0;
+  const bEmpty = !b || b.length === 0;
+  if (aEmpty && bEmpty) return true;
+  if (aEmpty !== bEmpty) return false;
+  if (a!.length !== b!.length) return false;
+  return a!.every((v, i) => v === b![i]);
 }
 
 /**
