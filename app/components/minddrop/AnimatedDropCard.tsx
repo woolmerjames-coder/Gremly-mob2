@@ -232,6 +232,15 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
     const { isConnected } = useNetworkStatus();
     const queuedDrop = useGremlyStore((s) => s.queueItems.find((d) => d.localId === item.id));
     const isRetrying = false; // Pipeline handles retries now
+
+    // Track animated content to prevent replaying animations on re-render
+    const animatedContentRef = useRef({ title: '', confirmation: '' });
+
+    // Reset when the card is used for a different drop
+    useEffect(() => {
+      animatedContentRef.current = { title: '', confirmation: '' };
+    }, [item.id]);
+
     const offlineMessage = getOfflineStatusMessage(
       false, // offline capture no longer tracked on QueuedDrop
       queuedDrop?.phase === 'complete',
@@ -241,6 +250,26 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
     // Determine if AI title is ready (different from raw text)
     const isAITitleReady =
       !!item.title && item.title !== item.text && item.title.length < item.text.length * 0.8; // AI titles are usually shorter
+
+    // Content guards: only animate if content actually changed
+    // Uses state (not refs during render) to satisfy React Compiler rules
+    const [shouldAnimateTitle, setShouldAnimateTitle] = useState(false);
+    const [shouldAnimateConfirmation, setShouldAnimateConfirmation] = useState(false);
+
+    useEffect(() => {
+      const titleChanged = item.title !== animatedContentRef.current.title;
+      setShouldAnimateTitle(titleChanged && isAITitleReady);
+      if (isAITitleReady && item.title) {
+        animatedContentRef.current.title = item.title;
+      }
+
+      const confirmationChanged =
+        (item.confirmationMessage || '') !== animatedContentRef.current.confirmation;
+      setShouldAnimateConfirmation(confirmationChanged && !!item.confirmationMessage);
+      if (item.confirmationMessage) {
+        animatedContentRef.current.confirmation = item.confirmationMessage;
+      }
+    }, [item.title, item.confirmationMessage, isAITitleReady]);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Shimmer animation for draft state
@@ -259,10 +288,14 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
           -1,
           true,
         );
-      } else {
-        // Stop shimmer, fade to full opacity
+      } else if (shouldAnimateTitle) {
+        // Title just arrived — fade to full opacity
         cancelAnimation(shimmerOpacity);
         shimmerOpacity.value = withTiming(1, { duration: 300 });
+      } else {
+        // No animation needed — snap to full opacity
+        cancelAnimation(shimmerOpacity);
+        shimmerOpacity.value = 1;
       }
 
       return () => {
@@ -282,10 +315,13 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
     const hasConfirmation = !!item.confirmationMessage;
 
     useEffect(() => {
-      if (hasConfirmation) {
+      if (shouldAnimateConfirmation) {
         confirmationOpacity.value = withDelay(200, withTiming(1, { duration: 400 }));
+      } else if (hasConfirmation) {
+        // Content unchanged on re-render — show at full opacity immediately
+        confirmationOpacity.value = 1;
       }
-    }, [hasConfirmation]);
+    }, [shouldAnimateConfirmation, hasConfirmation]);
 
     const confirmationStyle = useAnimatedStyle(() => ({
       opacity: confirmationOpacity.value,
@@ -739,13 +775,17 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
                 Hmm, still thinking…
               </RNText>
             ) : item.confirmationMessage ? (
-              <Animated.View style={confirmationStyle}>
-                <TypewriterText
-                  text={item.confirmationMessage}
-                  style={parentStyles.recentConfirmation}
-                  characterDelay={25}
-                />
-              </Animated.View>
+              shouldAnimateConfirmation ? (
+                <Animated.View style={confirmationStyle}>
+                  <TypewriterText
+                    text={item.confirmationMessage}
+                    style={parentStyles.recentConfirmation}
+                    characterDelay={25}
+                  />
+                </Animated.View>
+              ) : (
+                <RNText style={parentStyles.recentConfirmation}>{item.confirmationMessage}</RNText>
+              )
             ) : (
               !item.isEnriched &&
               item.isPending && (

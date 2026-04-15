@@ -3588,10 +3588,27 @@ const RecentDrops: React.FC<{
   }, []);
 
   // Transform queue items to UnifiedDrop array
+  // Uses a ref-based cache keyed by QueuedDrop object reference to preserve
+  // UnifiedDrop references for unchanged drops (prevents unnecessary re-renders)
+  const prevDropMappingRef = React.useRef<Map<QueuedDrop, UnifiedDrop>>(new Map());
+
   const pendingItems = React.useMemo((): UnifiedDrop[] => {
-    return queueItems
-      .filter((drop) => drop.phase !== 'complete' && drop.phase !== 'failed')
+    const activeDrops = queueItems.filter(
+      (drop) => drop.phase !== 'complete' && drop.phase !== 'failed',
+    );
+
+    const newMapping = new Map<QueuedDrop, UnifiedDrop>();
+
+    const result = activeDrops
       .map((drop): UnifiedDrop => {
+        // If the QueuedDrop reference is the same, reuse the old UnifiedDrop
+        const cached = prevDropMappingRef.current.get(drop);
+        if (cached) {
+          newMapping.set(drop, cached);
+          return cached;
+        }
+
+        // QueuedDrop changed — create new UnifiedDrop
         const kind: 'todo' | 'habit' | 'note' =
           drop.bucket === 'todo' ? 'todo' : drop.bucket === 'habit' ? 'habit' : 'note';
 
@@ -3635,7 +3652,7 @@ const RecentDrops: React.FC<{
             : drop.smartTitle ||
               drop.text.substring(0, 60) + (drop.text.length > 60 ? '\u2026' : '');
 
-        return {
+        const unified: UnifiedDrop = {
           id: drop.localId,
           kind,
           title: displayTitle,
@@ -3679,8 +3696,14 @@ const RecentDrops: React.FC<{
           })),
           multi_summary_title: drop.multiSummary,
         };
+
+        newMapping.set(drop, unified);
+        return unified;
       })
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    prevDropMappingRef.current = newMapping;
+    return result;
   }, [queueItems]);
 
   // Get drop_ids of all pending items to filter out duplicates from real items
