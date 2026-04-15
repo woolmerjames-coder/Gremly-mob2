@@ -86,7 +86,6 @@ import Reanimated, {
 import { supabase } from '../../lib/supabase/client';
 import { logCatchallDecision } from '../../lib/telemetry/catchallLogger';
 import { organizedToastSummary, type OrganizedDetail } from '../../lib/ui/toast/copy';
-import { startCatchallTrace, step, end } from '../../lib/diagnostics/catchallDebug';
 import type { AppRecord, LogSubtype, NoteSubtype } from '../../lib/types';
 import type { CortexResponse } from '../../lib/cortex/cortexDecide';
 import { persistedToCanonical } from '../../lib/cortex/canonicalMap';

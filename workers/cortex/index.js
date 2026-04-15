@@ -427,7 +427,15 @@ function scoreTodo(p, hasUserSelectedDate = false) {
   if (p.boundary_type === 'one_time') c++;
   if (!p.is_ongoing_practice) c++;
 
-  if (p.is_ongoing_practice || p.struct_completion === 'recurring') {
+  const recurrenceSignals = [
+    p.is_ongoing_practice,
+    p.has_routine_anchor,
+    p.struct_completion === 'recurring' && !p.is_single_instance,
+    p.has_explicit_multiplicity,
+    p.frequency_present,
+  ].filter(Boolean).length;
+
+  if (recurrenceSignals >= 2) {
     return Math.min(mapScore(c), 0.5);
   }
   return mapScore(c);
@@ -955,13 +963,7 @@ const STRUCTURAL_PARSE_PROMPT = `Parse the structural components of this text. R
   = "processing". Thinking out loud or wondering = "exploring". 
   ("directing" / "capturing" / "processing" / "exploring")
 
-- completion: If the user follows through on this text, will they be 
-  DONE — finished, nothing more to do, the action is complete — or 
-  will they need to do it again on a future occasion? Return "done" 
-  when the action has a natural endpoint after which it does not need 
-  repeating. Return "recurring" when the action is meant to happen 
-  again. Return "unclear" when the text genuinely could mean either. 
-  ("done" / "recurring" / "unclear")
+- completion: Based ONLY on what this text says, is the user committing to a recurring pattern or setting up a one-time action? Return "done" when the text describes a single action to perform, even if the underlying activity is something that could theoretically be repeated in the future. Return "recurring" ONLY when the text contains explicit frequency, schedule, or repetition language indicating the user intends this to happen more than once. The absence of frequency or schedule language means "done". Return "unclear" when genuinely ambiguous. ("done" / "recurring" / "unclear")
 
 - novelty: Is the PRIMARY SUBJECT of this text something that 
   does not currently exist? Not the actions or feelings mentioned, 
