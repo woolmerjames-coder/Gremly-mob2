@@ -9422,6 +9422,8 @@ export const useGremlyStore = create<GremlyState>()(
           isFedToday: state.isFedToday,
           feedingContributions: state.feedingContributions,
           feedingGaugeLastUpdatedAt: state.feedingGaugeLastUpdatedAt,
+          todayFedCelebrationShownAt: state.todayFedCelebrationShownAt,
+          todayFeedingAgeUpShownAt: state.todayFeedingAgeUpShownAt,
           fedDaysCount: state.fedDaysCount,
           currentTierName: state.currentTierName,
           unfedStreakDays: state.unfedStreakDays,
@@ -9455,6 +9457,15 @@ export const useGremlyStore = create<GremlyState>()(
               persistedState?.onboardingCompletedAt,
             );
           if (!persistedState) return currentState;
+
+          // Day-aware hydration: keep cached gauge values on same-day
+          // re-opens, only reset on day boundaries (Soul Document v8)
+          const dayBoundaryHour = persistedState.dayBoundaryHour ?? 4;
+          const currentRitualDay = getRitualDay(dayBoundaryHour);
+          const isSameRitualDay =
+            persistedState.todayRitualDay != null &&
+            persistedState.todayRitualDay === currentRitualDay;
+
           return {
             ...currentState,
             ...persistedState,
@@ -9462,19 +9473,28 @@ export const useGremlyStore = create<GremlyState>()(
             isLoading: false,
             isInitialized: false,
             lastSyncedAt: null,
-            // Always use fresh date on app start, never restore stale date from storage
+            // Always use fresh date on app start
             currentDate: getDateService().today(),
-            // Always reset daily gauge state on hydration (Soul Document v8)
-            // These are daily values that initialize() will populate from Supabase.
-            // Stale MMKV values cause false fed status and wrong gauge display.
-            feedingGaugeValue: 0,
-            isFedToday: false,
-            feedingContributions: [],
-            feedingGaugeLastUpdatedAt: null,
-            todayFedCelebrationShownAt: null,
-            todayFeedingAgeUpShownAt: null,
+            // Day-aware gauge state: preserve on same-day, reset on day boundary.
+            // On day boundary, initialize() will re-populate from Supabase.
+            feedingGaugeValue: isSameRitualDay ? persistedState.feedingGaugeValue : 0,
+            isFedToday: isSameRitualDay ? persistedState.isFedToday : false,
+            feedingContributions: isSameRitualDay ? persistedState.feedingContributions : [],
+            feedingGaugeLastUpdatedAt: isSameRitualDay
+              ? persistedState.feedingGaugeLastUpdatedAt
+              : null,
+            todayFedCelebrationShownAt: isSameRitualDay
+              ? persistedState.todayFedCelebrationShownAt
+              : null,
+            todayFeedingAgeUpShownAt: isSameRitualDay
+              ? persistedState.todayFeedingAgeUpShownAt
+              : null,
+            // Day-aware daily counters
+            todayDropsCount: isSameRitualDay ? persistedState.todayDropsCount : 0,
+            todaySweepsCount: isSameRitualDay ? persistedState.todaySweepsCount : 0,
+            todayRitualCompletedAt: isSameRitualDay ? persistedState.todayRitualCompletedAt : null,
+            // Always reset transient state
             pendingGaugePreviews: 0,
-            // Training readiness is refreshed from server in initialize()
             trainingReadiness: 0,
             pendingGraduation: false,
           };
