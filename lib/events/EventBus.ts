@@ -119,6 +119,14 @@ export type EventMap = {
     bucket: string;
     subtype: string | null;
   };
+  // Reclassification moved entity to a different table
+  'entity:bucket_changed': {
+    oldId: string;
+    newId: string;
+    oldTable: string;
+    newTable: string;
+    newBucket: string;
+  };
 };
 
 type Handler<T> = (payload: T) => void;
