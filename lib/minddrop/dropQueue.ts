@@ -594,6 +594,52 @@ export async function cleanupSynced(): Promise<number> {
 }
 
 /**
+ * Resolve a clarification on a queued drop.
+ * Called when the user taps a clarification option.
+ * Updates the QueuedDrop in AsyncStorage + Zustand, then triggers re-processing.
+ */
+export async function resolveClarification(
+  localId: string,
+  resolution: {
+    bucket?: 'todo' | 'habit' | 'log';
+    subtype?: string | null;
+    habitSubtype?: string | null;
+    targetDate?: boolean;
+    scheduledDate?: boolean;
+  },
+): Promise<boolean> {
+  return withQueueLock(async () => {
+    const queue = await getQueue();
+    const index = queue.findIndex((d) => d.localId === localId);
+
+    if (index === -1) return false;
+
+    const drop = queue[index];
+
+    // Apply the resolution
+    const resolved: QueuedDrop = {
+      ...drop,
+      bucket: resolution.bucket || drop.bucket,
+      subtype: (resolution.subtype as any) || drop.subtype,
+      habitSubtype: (resolution.habitSubtype as any) || drop.habitSubtype,
+      needsClarification: false,
+      clarificationQuestion: null,
+      clarificationOptions: null,
+      // Reset to 'classified' phase so Phase 1.5a and Phase 2 re-run with new bucket
+      phase: 'classified',
+      retryCount: 0,
+      lastError: null,
+    };
+
+    queue[index] = resolved;
+    await saveQueue(queue);
+    syncQueueToZustand(queue);
+
+    return true;
+  });
+}
+
+/**
  * Get all drops that need processing.
  * Includes: queued, classifying, enriching, syncing, or failed with retryCount < 3
  */
