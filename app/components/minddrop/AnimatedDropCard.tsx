@@ -230,11 +230,11 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
     console.log('[AnimatedDropCard:RENDER]', item.id, item.kind, item.is_multi);
 
     const { isConnected } = useNetworkStatus();
-    const pendingDrop = useGremlyStore((s) => s.pendingDrops.get(item.id));
-    const isRetrying = pendingDrop?._retryingClassification === true;
+    const queuedDrop = useGremlyStore((s) => s.queueItems.find((d) => d.localId === item.id));
+    const isRetrying = false; // Pipeline handles retries now
     const offlineMessage = getOfflineStatusMessage(
-      pendingDrop?._offlineCapture,
-      pendingDrop?.status === 'synced',
+      false, // offline capture no longer tracked on QueuedDrop
+      queuedDrop?.phase === 'complete',
       isConnected,
     );
 

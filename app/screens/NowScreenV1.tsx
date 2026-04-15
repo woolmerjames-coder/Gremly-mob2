@@ -663,8 +663,7 @@ export default function NowScreenV1() {
   const [quickActionEvent, setQuickActionEvent] = useState<Note | null>(null);
   const [linkTodoForEventId, setLinkTodoForEventId] = useState<string | null>(null);
 
-  // Pending drops from store - shows loading cards while pipeline runs
-  // These persist until promotePendingDropToEntity removes them
+  // Pending drops from queue - shows loading cards while pipeline runs
   const todayPendingDrops = useTodayPendingDrops();
 
   // Toast for quick add feedback
@@ -1319,7 +1318,7 @@ type TodayFocusListProps = {
   hasAnyTodayWork: boolean;
   onPressItem?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   onToggleComplete?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
-  pendingDrops?: Array<{ localId: string; text: string; smartTitle?: string; status: string }>;
+  pendingDrops?: Array<{ localId: string; text: string; smartTitle?: string; phase?: string }>;
   overdueTodos: SweepCandidate[];
   recentDrops: SweepCandidate[];
   onAddToToday: (item: SweepCandidate) => void;

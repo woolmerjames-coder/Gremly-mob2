@@ -3872,7 +3872,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Track if multi-split step was shown
   const [multiSplitComplete, setMultiSplitComplete] = useState(false);
 
-  // Get unresolved multi-drops from NOTES (not pendingDrops - they're promoted before sweep starts)
+  // Get unresolved multi-drops from NOTES (not queueItems - they're promoted before sweep starts)
   // Multi-drops are stored as notes with views.is_multi=true and views.minddrop_stage='multi_pending'
   const notes = useGremlyStore((state) => state.notes);
   const unresolvedMultiDrops = useMemo(() => {
