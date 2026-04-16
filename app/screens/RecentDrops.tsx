@@ -1271,11 +1271,6 @@ const PendingSkeleton: React.FC<{
         </View>
       </View>
 
-      {/* Row 2: Confirmation skeleton shimmer */}
-      <View>
-        <ShimmerBar width="45%" height={14} />
-      </View>
-
       {/* Row 3: Empty chip row (no placeholders) + Organizing indicator */}
       <View style={styles.recentMetaRow}>
         <View style={{ minHeight: 20 }} />
@@ -1429,11 +1424,6 @@ const EnrichingSkeleton: React.FC<{
             </Text>
           </AnimatedBadgeTransition>
         </View>
-      </View>
-
-      {/* Row 2: Confirmation shimmer */}
-      <View>
-        <ShimmerBar width="40%" height={14} />
       </View>
 
       {/* Row 3: Empty chip row (no placeholders) + timestamp */}
@@ -1609,23 +1599,7 @@ const RevealingCard: React.FC<{
         </View>
       </View>
 
-      {/* Row 2: Confirmation message */}
-      <View style={{ position: 'relative' }}>
-        {/* Shimmer layer (fades out) */}
-        <Animated.View style={{ opacity: shimmerOpacity, position: 'absolute', left: 0, right: 0 }}>
-          <ShimmerBar width="40%" height={14} />
-        </Animated.View>
-        {/* Text layer (fades in, typewriter) */}
-        <Animated.View style={{ opacity: textOpacity }}>
-          <TypewriterText
-            text={confirmationText}
-            style={styles.recentConfirmation}
-            duration={300}
-            delay={150}
-            onComplete={handleLine2Done}
-          />
-        </Animated.View>
-      </View>
+      {/* Row 2: Confirmation message (moved to speech bubble) */}
 
       {/* Row 3: Chips (use Row3Chips with AnimatedChipsTransition) + timestamp */}
       <View style={styles.recentMetaRow}>
@@ -2208,13 +2182,7 @@ const AnimatedMindDropCard = React.memo<{
                 Gremly has a question, tap to clarify
               </Text>
             </View>
-          ) : (
-            (() => {
-              const confirmationMsg = getConfirmationMessage(effectiveKind, item);
-              // Always show static text in CompleteCard - TypewriterText is only used in RevealingCard
-              return <Text style={styles.recentConfirmation}>{confirmationMsg}</Text>;
-            })()
-          )}
+          ) : null}
 
           {/* Row 3: Contextual info + time estimate (left) | photo icon + timestamp (right) */}
           {/* Hide chips when card needs clarification - show only timestamp */}

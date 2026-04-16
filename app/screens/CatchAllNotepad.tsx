@@ -2969,26 +2969,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             onDropCountsChange={handleDropCountsChange}
             initiallyOpen={true}
           />
+          {/* Permanent fade — cards dissolve into page background approaching input area */}
+          <LinearGradient
+            colors={['transparent', '#F9F6F1']}
+            style={styles.cardFadeScrim}
+            pointerEvents="none"
+          />
         </Animated.View>
 
         {/* Fixed bottom section: input + chips + button + stats */}
         <View style={[styles.fixedTopSection, keyboardVisible && { paddingBottom: 12 }]}>
           <View style={styles.inputBlock}>
-            {/* Gradient scrim — dims cards behind speech bubble */}
-            {gremlySpeech && (
-              <Reanimated.View
-                style={[styles.speechScrim, { height: SCRIM_HEIGHT }]}
-                entering={FadeIn.duration(300)}
-                exiting={FadeOut.duration(200)}
-                pointerEvents="none"
-              >
-                <LinearGradient
-                  colors={['transparent', 'rgba(249, 246, 241, 0.92)']}
-                  locations={[0, 0.7]}
-                  style={StyleSheet.absoluteFill}
-                />
-              </Reanimated.View>
-            )}
             {/* Gremly speech - positioned above input, to left of Gremly */}
             {gremlySpeech && (
               <Reanimated.View
@@ -3467,6 +3458,13 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       flex: 1, // Takes remaining space, enables scrolling
       overflow: 'hidden', // Clip content so cards don't extend behind fixed input
     },
+    cardFadeScrim: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: SCRIM_HEIGHT,
+    },
     // Fixed section at bottom containing input, chips, button (non-scrolling)
     fixedTopSection: {
       // No flex: this section sizes to its content
@@ -3577,13 +3575,6 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       left: 0,
       right: 110, // Leave space for Gremly on the right
       zIndex: 15,
-    },
-    speechScrim: {
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      zIndex: 10,
     },
     gremlyMessageBackdrop: {
       backgroundColor: '#FFFFFF',
