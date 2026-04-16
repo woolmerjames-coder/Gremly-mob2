@@ -3126,6 +3126,12 @@ export default {
           .join(' ');
       }
 
+      function sentenceCase(s) {
+        const t = String(s || '').trim();
+        if (!t) return '';
+        return t[0].toUpperCase() + t.slice(1);
+      }
+
       function stripLeadingMeta(title) {
         let t = String(title || '').trim();
         if (!t) return '';
@@ -9119,26 +9125,29 @@ Rules:
 
 Today is ${currentDate} (${dayOfWeek}).
 
-=== SMART TITLE (3-7 words) ===
+=== SMART TITLE (4-8 words) ===
 
-Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN it happens or HOW OFTEN.
+Produce a clean, concise version of what the user actually said. The title should read like a thought the user would recognize as their own, not a label a system generated.
 
-**Title principles:**
+Title principles:
 
-1. **Extract the core subject matter** — The title should make sense in a list of items. What is this fundamentally about?
+1. Preserve the user's phrasing. Start from their actual words and clean them up rather than extracting a subject label. The title should sound like something the user would have written in their own notes, not a category heading a system would generate.
 
-2. **Strip temporal information** — Dates, times, time-of-day (morning, evening, night), and scheduling words belong in metadata, not titles. They become stale.
+2. Sentence case only. Capitalize the first word. Capitalize proper nouns (names of people, places, brands, apps). Everything else lowercase. Never Title Case.
 
-3. **Strip frequency information** — For habits, frequency is tracked separately. The title is just the activity.
+3. Minimum 4 words. If the user's input is very short, expand it into a natural phrase that still means the same thing. A short input should become a complete thought, not a command.
 
-4. **No meta-language** — The title IS the subject matter. Write it the way you'd label a folder — what it's about, not what the user should do with it.
-For journals, start with what happened or what it's about — not the act of reflecting. "Rough Conversation With Sarah" not "Reflecting on Conversation With Sarah". The user knows they're reflecting; the title should be the subject, not the activity.
+4. Strip temporal information. Dates, times, days of week, and scheduling words belong in metadata, not titles. They go stale.
 
-5. **Preserve question framing** — If the input is a question or dilemma, keep the question words in the title. The question IS the content.
+5. Strip frequency information. For habits, frequency is tracked separately. The title is just the activity.
 
-6. **No mood words in titles** — Emotional descriptors are captured as mood metadata for journals, not in titles.
+6. No meta-language. Don't start with "Remember to", "Need to", "Track", "Reflect on". The title is the thing itself.
 
-7. **Title case, 3-7 words**
+7. For journals, lead with what happened or what it's about. Not the act of journaling.
+
+8. Preserve question framing. If the input is a question, keep the question words. The question IS the content.
+
+9. No mood words in titles. Emotional descriptors are captured as mood metadata.
 
 === REACTION (5-12 words, max 70 characters) ===
 
@@ -9190,7 +9199,7 @@ You will sometimes receive a list of your recent reactions along with a structur
 Return ONLY valid JSON:
 
 {
-  "smart_title": "3-7 Word Title",
+  "smart_title": "4-8 word sentence case title",
   "confirmation_message": "5-12 word reaction, max 70 chars"
 }`;
 
@@ -9239,7 +9248,7 @@ Return ONLY valid JSON:
 
         if (!result.parsed) {
           return j({
-            smart_title: titleCase(text.substring(0, 50)),
+            smart_title: sentenceCase(text.substring(0, 50)),
             confirmation_message: null,
             latency_ms: latency,
           });
@@ -9254,7 +9263,7 @@ Return ONLY valid JSON:
           if (smartTitle.length < 3 || smartTitle.length > 60) {
             smartTitle = text.substring(0, 50).trim();
           }
-          smartTitle = titleCase(smartTitle);
+          smartTitle = sentenceCase(smartTitle);
         }
 
         // Extract confirmation message
