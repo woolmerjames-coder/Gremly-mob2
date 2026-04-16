@@ -103,7 +103,12 @@ async function callPhase1_5a(
   text: string,
   bucket: MindDropBucket,
   subtype: LogSubtype | null,
-): Promise<{ smart_title: string | null; confirmation_message: string | null } | null> {
+): Promise<{
+  smart_title: string | null;
+  card_note: string | null;
+  confirmation_message: string | null;
+  speech_message: string | null;
+} | null> {
   const cortexUrl = readCortexUrl();
   const anonKey = readSupabaseAnonKey();
   if (!cortexUrl || !anonKey) return null;
@@ -132,7 +137,9 @@ async function callPhase1_5a(
     const json = await res.json();
     const result = {
       smart_title: json.smart_title || null,
+      card_note: json.card_note || null,
       confirmation_message: json.confirmation_message || null,
+      speech_message: json.speech_message || null,
     };
 
     console.log('[Phase1.5a] Raw reaction:', {
@@ -489,7 +496,9 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
   }
 
   const smartTitle = result?.smart_title || drop.text.substring(0, 50);
+  const cardNote = result?.card_note || null;
   const confirmationMessage = result?.confirmation_message || null;
+  const speechMessage = result?.speech_message || result?.confirmation_message || null;
 
   // Determine follow-up signal for speech bubble
   const followUpSignal: 'multi' | 'clarify' | null = drop.needsClarification ? 'clarify' : null;
@@ -497,7 +506,7 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
   // Emit AI reaction for speech bubble
   eventBus.emit('drop:reaction_ready', {
     localId: drop.localId,
-    message: confirmationMessage,
+    message: speechMessage,
     followUp: followUpSignal,
   });
 
@@ -511,6 +520,7 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
     ...drop,
     phase: 'titled',
     smartTitle,
+    cardNote: cardNote ?? undefined,
     confirmationMessage: confirmationMessage ?? undefined,
     followUpSignal: followUpSignal ?? undefined,
     retryCount: 0,
@@ -526,8 +536,12 @@ export async function handleMultiDetected(drop: QueuedDrop): Promise<QueuedDrop>
   const classifiedSegments = await Promise.all(
     segments.map(async (seg: any) => {
       let phase1;
-      let phase15a: { smart_title: string | null; confirmation_message: string | null } | null =
-        null;
+      let phase15a: {
+        smart_title: string | null;
+        card_note: string | null;
+        confirmation_message: string | null;
+        speech_message: string | null;
+      } | null = null;
 
       try {
         phase1 = await withTimeout(runPhase1(seg.text, { hasAttachments: false }), 8000, {

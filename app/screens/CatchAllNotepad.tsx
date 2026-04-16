@@ -1456,6 +1456,22 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   useEffect(() => {
     const unsubscribe = eventBus.on('drop:reaction_ready', (payload) => {
       const { message, followUp } = payload;
+
+      // Training mode: combine reaction + training prompt in one bubble
+      const storeState = useGremlyStore.getState();
+      if (storeState.isTrainingMode && storeState.trainingDropStep >= 2) {
+        const trainingPrompt = getTrainingDropPrompt(storeState.trainingDropStep + 1);
+        if (trainingPrompt) {
+          const reactionText = message || '';
+          const combined = reactionText
+            ? reactionText + '\n\n' + trainingPrompt.message
+            : trainingPrompt.message;
+          setGremlySpeech({ message: combined, variant: 'default' });
+          return; // Skip all normal speech handling below
+        }
+        // If no training prompt (step 5+), fall through to normal handling
+      }
+
       console.log('[SpeechBubble] drop:reaction_ready received', {
         localId: payload.localId,
         message: message?.substring(0, 30),
@@ -2748,17 +2764,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           hasSeenFirstFedModal,
         });
 
-        // Read the UPDATED step from the store
-        const currentStep = useGremlyStore.getState().trainingDropStep;
-        // currentStep is now the step AFTER this drop
-        // We want the prompt that matches this new step + 1 (the NEXT prompt)
-        setTimeout(() => {
-          const prompt = getTrainingDropPrompt(currentStep + 1);
-          if (prompt) {
-            setGremlySpeech({ message: prompt.message, variant: 'default' });
-          }
-        }, 2000);
-
         // Still handle fed celebration if this drop crossed the threshold
         if (result.justCrossedFed) {
           if (!hasSeenFirstFedModal) {
@@ -4023,6 +4028,13 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       lineHeight: 20,
       fontFamily: 'Inter-Medium',
       flex: 1,
+    },
+    // Card note subtitle - session only
+    recentConfirmation: {
+      color: c.mutedText,
+      fontSize: 13,
+      lineHeight: 18,
+      fontFamily: 'Inter-Regular',
     },
     // Bottom row: Contextual info + timestamp
     recentMetaRow: {

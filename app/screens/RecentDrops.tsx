@@ -273,6 +273,9 @@ const ShimmerBar: React.FC<{
 // Track which items have already been animated in (persists across re-renders)
 const animatedInItemIds = new Set<string>();
 
+/** Tracks drop IDs from this app session for card_note display */
+const sessionDropIds = new Set<string>();
+
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -1549,7 +1552,12 @@ const RevealingCard: React.FC<{
         </View>
       </View>
 
-      {/* Row 2: Confirmation message (moved to speech bubble) */}
+      {/* Row 2: Card note (session only) */}
+      {sessionDropIds.has(item.drop_id || item.id) && item.views?.card_note ? (
+        <Text style={styles.recentConfirmation} numberOfLines={1}>
+          {item.views.card_note}
+        </Text>
+      ) : null}
 
       {/* Row 3: Chips (use Row3Chips with AnimatedChipsTransition) + timestamp */}
       <View style={styles.recentMetaRow}>
@@ -2073,8 +2081,16 @@ const AnimatedMindDropCard = React.memo<{
             </View>
           </View>
 
-          {/* Row 2: Confirmation message, multi hint, clarification hint, or retry */}
-          {isFailed ? (
+          {/* Row 2: Card note (session only), or status indicators */}
+          {!isFailed &&
+          !isMulti &&
+          !needsClarification &&
+          sessionDropIds.has(item.drop_id || item.id) &&
+          item.views?.card_note ? (
+            <Text style={styles.recentConfirmation} numberOfLines={1}>
+              {item.views.card_note}
+            </Text>
+          ) : isFailed ? (
             <Pressable
               onPress={() => {
                 // Emit retry event — RecentDrops will handle it
@@ -2495,6 +2511,7 @@ const RecentDrops: React.FC<{
             ai_pending: true,
             minddrop_stage: minddropStage,
             confirmation_message: drop.confirmationMessage,
+            card_note: drop.cardNote,
             people: drop.people,
             chip_data_ready: drop.phase === 'enriched',
             bucket_confirmed: bucketConfirmed,
@@ -2525,6 +2542,9 @@ const RecentDrops: React.FC<{
         };
 
         newMapping.set(drop, unified);
+        if (drop.cardNote) {
+          sessionDropIds.add(drop.localId);
+        }
         return unified;
       })
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());

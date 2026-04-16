@@ -9125,7 +9125,7 @@ Rules:
 
 Today is ${currentDate} (${dayOfWeek}).
 
-=== SMART TITLE (4-8 words) ===
+=== SMART TITLE (2-8 words) ===
 
 Produce a clean, concise version of what the user actually said. The title should read like a thought the user would recognize as their own, not a label a system generated.
 
@@ -9133,9 +9133,9 @@ Title principles:
 
 1. Preserve the user's phrasing. Start from their actual words and clean them up rather than extracting a subject label. The title should sound like something the user would have written in their own notes, not a category heading a system would generate.
 
-2. Sentence case only. Capitalize the first word. Capitalize proper nouns (names of people, places, brands, apps). Everything else lowercase. Never Title Case.
+2. Title case. Capitalize the first letter of each significant word. Keep articles, prepositions, and conjunctions lowercase unless they are the first word.
 
-3. Minimum 4 words. If the user's input is very short, expand it into a natural phrase that still means the same thing. A short input should become a complete thought, not a command.
+3. Sound natural. If the input is very short or reads like a command, rephrase it into how someone would naturally say it out loud. But NEVER add details, locations, people, reasons, or context the user did not include. You can restructure their words into a more natural phrase. You cannot invent information that was not in the input. If someone gives you two words, you can rephrase those two words more naturally but you cannot add a third concept they never mentioned.
 
 4. Strip temporal information. Dates, times, days of week, and scheduling words belong in metadata, not titles. They go stale.
 
@@ -9148,6 +9148,19 @@ Title principles:
 8. Preserve question framing. If the input is a question, keep the question words. The question IS the content.
 
 9. No mood words in titles. Emotional descriptors are captured as mood metadata.
+
+=== CARD NOTE (3-6 words) ===
+
+A warm, brief annotation about the item. This appears as a subtitle on the card in the user's list.
+
+Rules:
+- Written ABOUT the item, not TO the user
+- Should make the card feel personal when scanning a list
+- Think of it as a warm label, not a reaction or a comment
+- Captures the spirit or vibe of what was dropped
+- Never repeat or closely paraphrase the title
+- No task-management words, no meta-language
+- Title case, 3-6 words
 
 === REACTION (5-12 words, max 70 characters) ===
 
@@ -9199,7 +9212,8 @@ You will sometimes receive a list of your recent reactions along with a structur
 Return ONLY valid JSON:
 
 {
-  "smart_title": "4-8 word sentence case title",
+  "smart_title": "Title Case Title",
+  "card_note": "Warm Card Annotation",
   "confirmation_message": "5-12 word reaction, max 70 chars"
 }`;
 
@@ -9248,8 +9262,10 @@ Return ONLY valid JSON:
 
         if (!result.parsed) {
           return j({
-            smart_title: sentenceCase(text.substring(0, 50)),
+            smart_title: titleCase(text.substring(0, 50)),
+            card_note: null,
             confirmation_message: null,
+            speech_message: null,
             latency_ms: latency,
           });
         }
@@ -9263,7 +9279,25 @@ Return ONLY valid JSON:
           if (smartTitle.length < 3 || smartTitle.length > 60) {
             smartTitle = text.substring(0, 50).trim();
           }
-          smartTitle = sentenceCase(smartTitle);
+          smartTitle = titleCase(smartTitle);
+        }
+
+        // Extract and validate card_note
+        let cardNote = parsed.card_note || null;
+        if (cardNote) {
+          cardNote = String(cardNote).trim();
+          // Strip em dashes
+          cardNote = cardNote
+            .replace(/\u2014/g, ', ')
+            .replace(/\u2013/g, ', ')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+          if (cardNote.length < 3 || cardNote.length > 50) {
+            cardNote = null;
+          }
+          if (cardNote) {
+            cardNote = titleCase(cardNote);
+          }
         }
 
         // Extract confirmation message
@@ -9303,6 +9337,8 @@ Return ONLY valid JSON:
         });
 
         // Add natural confirmation signal, bucket-aware
+        const rawReaction = confirmationMessage;
+        let speechMessage = confirmationMessage;
         if (confirmationMessage) {
           const OPENERS = {
             todo: [
@@ -9374,18 +9410,23 @@ Return ONLY valid JSON:
           if (confirmationMessage.length > 70) {
             confirmationMessage = confirmationMessage.substring(0, 67) + '...';
           }
+          speechMessage = confirmationMessage;
         }
 
         console.log('[Phase1.5a] Final output', {
-          original: parsed.confirmation_message,
-          withOpener: confirmationMessage,
+          title: smartTitle?.substring(0, 30),
+          cardNote: cardNote?.substring(0, 30),
+          rawReaction: rawReaction?.substring(0, 30),
+          speechMessage: speechMessage?.substring(0, 40),
           bucket,
           subtype,
         });
 
         return j({
           smart_title: smartTitle,
-          confirmation_message: confirmationMessage,
+          card_note: cardNote,
+          confirmation_message: rawReaction,
+          speech_message: speechMessage,
           latency_ms: latency,
         });
       }

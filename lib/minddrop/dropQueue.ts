@@ -274,6 +274,9 @@ export interface QueuedDrop {
   /** Confirmation message to show user */
   confirmationMessage?: string | null;
 
+  /** AI-generated card note (warm subtitle) */
+  cardNote?: string | null;
+
   /** Follow-up signal for speech bubble (multi-detect or clarify) */
   followUpSignal?: 'multi' | 'clarify' | null;
 
