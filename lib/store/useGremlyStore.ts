@@ -506,8 +506,13 @@ interface GremlyState {
   /** Last 7 days of feeding history (ritual_day -> is_fed) */
   feedingHistory: Array<{ date: string; isFed: boolean }>;
 
+  /** Unified dedup tracker for all Gremly speech — AI reactions and pool messages */
+  recentSpeech: string[];
+
   // Ritual actions
   ensureCurrentRitualDay: () => string;
+  /** Track a speech message for dedup across AI reactions and pool messages */
+  pushRecentSpeech: (message: string) => void;
   incrementDropCount: () => Promise<{ dropsCount: number; didAgeUp: boolean; newAge: number }>;
   incrementSweepCount: () => Promise<{ sweepsCount: number; didAgeUp: boolean; newAge: number }>;
   markAgeCelebrationShown: () => void;
@@ -1018,6 +1023,7 @@ const initialState = {
   todayFedCelebrationShownAt: null as string | null,
   todayFeedingAgeUpShownAt: null as string | null,
   feedingHistory: [] as Array<{ date: string; isFed: boolean }>,
+  recentSpeech: [] as string[],
   queueItems: [] as QueuedDrop[],
   // Calendar integration
   calendarConnections: [] as CalendarConnectionStatus[],
@@ -1579,6 +1585,18 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         // ═══════════════════════════════════════════════════════════════════
+        // SPEECH DEDUP
+        // ═══════════════════════════════════════════════════════════════════
+
+        pushRecentSpeech: (message: string) => {
+          set((state) => {
+            const updated = [...state.recentSpeech, message];
+            if (updated.length > 5) updated.shift();
+            return { recentSpeech: updated };
+          });
+        },
+
+        // ═══════════════════════════════════════════════════════════════════
         // GREMLY AGE & RITUAL PROGRESS ACTIONS
         // ═══════════════════════════════════════════════════════════════════
 
@@ -1593,7 +1611,6 @@ export const useGremlyStore = create<GremlyState>()(
           const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
 
-          // Check if we've crossed the day boundary
           if (todayRitualDay && currentRitualDay !== todayRitualDay) {
             console.log('[GremlyStore] Day boundary crossed, resetting ritual progress');
 

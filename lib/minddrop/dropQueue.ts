@@ -274,6 +274,9 @@ export interface QueuedDrop {
   /** Confirmation message to show user */
   confirmationMessage?: string | null;
 
+  /** Follow-up signal for speech bubble (multi-detect or clarify) */
+  followUpSignal?: 'multi' | 'clarify' | null;
+
   /** Extracted mood(s) for journal entries */
   mood?: string[] | null;
 

@@ -127,6 +127,12 @@ export type EventMap = {
     newTable: string;
     newBucket: string;
   };
+  // Gremly speech bubble — AI reaction ready for display
+  'drop:reaction_ready': {
+    localId: string;
+    message: string | null;
+    followUp: 'multi' | 'clarify' | null;
+  };
 };
 
 type Handler<T> = (payload: T) => void;
