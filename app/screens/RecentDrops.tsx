@@ -1246,12 +1246,7 @@ const PendingSkeleton: React.FC<{
         .easing(ReanimatedEasing.out(ReanimatedEasing.cubic))}
       exiting={FadeOut.duration(100)}
       layout={Layout.duration(200)}
-      style={[
-        styles.recentCard,
-        {
-          justifyContent: 'space-between',
-        },
-      ]}
+      style={[styles.recentCard]}
     >
       {/* Row 1: Title (raw text with shimmer) + Kind badge */}
       <View style={styles.recentTopRow}>
@@ -1272,7 +1267,7 @@ const PendingSkeleton: React.FC<{
 
       {/* Row 3: Empty chip row (no placeholders) + Organizing indicator */}
       <View style={styles.recentMetaRow}>
-        <View style={{ minHeight: 20 }} />
+        <View />
         <Text
           style={[styles.recentMetaTime, { fontStyle: 'italic', color: '#6B7280', minWidth: 75 }]}
         >
@@ -1398,7 +1393,6 @@ const EnrichingSkeleton: React.FC<{
       style={[
         styles.recentCard,
         {
-          justifyContent: 'space-between',
           borderWidth: 1.5,
           borderColor: animatedBorderColor,
         },
@@ -1427,7 +1421,7 @@ const EnrichingSkeleton: React.FC<{
 
       {/* Row 3: Empty chip row (no placeholders) + timestamp */}
       <View style={styles.recentMetaRow}>
-        <View style={{ minHeight: 20 }} />
+        <View />
         <Text style={styles.recentMetaTime}>{relativeTime(item.created_at)}</Text>
       </View>
     </Animated.View>
@@ -1547,7 +1541,6 @@ const RevealingCard: React.FC<{
       style={[
         styles.recentCard,
         {
-          justifyContent: 'space-between',
           transform: [{ scale: settleScale }],
         },
       ]}

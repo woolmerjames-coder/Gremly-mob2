@@ -4,21 +4,17 @@
  */
 import { pickRandom } from './gremlySpeech';
 
-const MULTI_MESSAGES = [
-  'That one had layers — I split it up for you!',
-  'Two-for-one! I separated those out.',
-  'I caught a combo — check your cards!',
-  'Multiple things detected — I split them up.',
-  'Nice bundle! I broke it into pieces.',
-];
-
-const CLARIFY_MESSAGES = [
-  "Hmm, I wasn't sure about that one — can you clarify?",
-  'Quick question about your last drop…',
-  'I need a tiny bit more context on that one.',
-  'Not quite sure what you meant — mind clarifying?',
-  'One sec — could you help me understand that?',
-];
+const FOLLOW_UP_MESSAGES = {
+  multi: [
+    "Looks like there's a few things in here. Tap the card and I can split or keep as one.",
+    "I think there's more than one thing here. Tap the card to sort it out.",
+    "There might be a couple things bundled up. Tap the card and we'll figure it out.",
+  ],
+  clarify: [
+    'I want to make sure I filed this right. Tap the card when you have a sec.',
+    "Not totally sure what you meant. Tap the card and I'll sort it.",
+  ],
+} as const;
 
 /**
  * Returns a speech-bubble message for the given follow-up signal,
@@ -30,6 +26,6 @@ export function getFollowUpMessage(
   recentSpeech: string[],
 ): string | null {
   if (!signal) return null;
-  const pool = signal === 'multi' ? MULTI_MESSAGES : CLARIFY_MESSAGES;
-  return pickRandom(pool, recentSpeech);
+  const pool = FOLLOW_UP_MESSAGES[signal];
+  return pickRandom([...pool], recentSpeech);
 }

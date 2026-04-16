@@ -168,7 +168,7 @@ const THINKING_MICROCOPY = [
 
 const AnimatedMicrocopyText = Animated.createAnimatedComponent(Text);
 
-const SCRIM_HEIGHT = Math.min(Dimensions.get('window').height * 0.22, 220);
+const SCRIM_HEIGHT = Math.min(Dimensions.get('window').height * 0.12, 120);
 
 const TYPEWRITER_CHAR_DELAY_MS = 28;
 
@@ -184,9 +184,9 @@ const START_HEIGHT = 64; // compact starting height
  * Shorter than gremlySpeech.ts's version — reactions are quick beats, not greetings.
  */
 function calculateSpeechDuration(message: string): number {
-  const base = 3000;
-  const perChar = 40;
-  const max = 6000;
+  const base = 4000;
+  const perChar = 45;
+  const max = 8000;
   return Math.min(base + message.length * perChar, max);
 }
 const MIN_HEIGHT = START_HEIGHT;
@@ -1412,7 +1412,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     if (hasShownGreetingRef.current) return;
 
     // Don't show greeting during Day 1 guided drops - prompts handle it
-    if (isTrainingMode && trainingDropStep >= 1 && trainingDropStep <= 5) {
+    if (isTrainingMode && trainingDropStep >= 1 && trainingDropStep <= 4) {
       hasShownGreetingRef.current = true;
       const prompt = getTrainingDropPrompt(trainingDropStep + 1);
       if (prompt) {
@@ -1456,6 +1456,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   useEffect(() => {
     const unsubscribe = eventBus.on('drop:reaction_ready', (payload) => {
       const { message, followUp } = payload;
+      console.log('[SpeechBubble] drop:reaction_ready received', {
+        localId: payload.localId,
+        message: message?.substring(0, 30),
+        followUp,
+      });
 
       // Cancel any pending follow-up from a previous drop
       if (followUpTimeoutRef.current) {
@@ -1463,14 +1468,17 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         followUpTimeoutRef.current = null;
       }
 
-      // Resolve beat 1: AI reaction or pool fallback
+      // Resolve beat 1: AI reaction — only fall back to pool when there's no follow-up
+      // (multi/clarify drops should NOT show a generic pool message)
       const reactionMessage =
         message ||
-        (() => {
-          const ctx = buildSpeechContext('post_drop');
-          const fallback = getGremlySpeech(ctx);
-          return fallback?.message || null;
-        })();
+        (!followUp
+          ? (() => {
+              const ctx = buildSpeechContext('post_drop');
+              const fallback = getGremlySpeech(ctx);
+              return fallback?.message || null;
+            })()
+          : null);
 
       const recentSpeech = useGremlyStore.getState().recentSpeech;
 
@@ -1485,8 +1493,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         const followUpMsg = getFollowUpMessage(followUp, recentSpeech);
         const first = reactionFirst ? reactionMessage : followUpMsg;
         const second = reactionFirst ? followUpMsg : reactionMessage;
-        const firstDuration = reactionFirst ? calculateSpeechDuration(reactionMessage) : 5000;
-        const secondDuration = reactionFirst ? 5000 : calculateSpeechDuration(reactionMessage);
+        const firstDuration = reactionFirst
+          ? calculateSpeechDuration(reactionMessage)
+          : followUpMsg
+            ? calculateSpeechDuration(followUpMsg)
+            : 5000;
+        const secondDuration = reactionFirst
+          ? followUpMsg
+            ? calculateSpeechDuration(followUpMsg)
+            : 5000
+          : calculateSpeechDuration(reactionMessage);
 
         if (first) showGremlySpeech(first, firstDuration);
         useGremlyStore.getState().pushRecentSpeech(reactionMessage);
@@ -1498,7 +1514,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       } else if (!reactionMessage && followUp) {
         // No reaction (e.g. multi parent) — just follow-up
         const followUpMsg = getFollowUpMessage(followUp, recentSpeech);
-        if (followUpMsg) showGremlySpeech(followUpMsg, 5000);
+        if (followUpMsg) showGremlySpeech(followUpMsg, calculateSpeechDuration(followUpMsg));
       }
       // If both null, no speech (shouldn't happen but safe)
     });
@@ -2713,7 +2729,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       }
     } else if (result.createdDetails?.length > 0) {
       // During Day 1 training: skip generic speech, show training prompt instead
-      if (isTrainingMode && trainingDropStep >= 1 && trainingDropStep < 4) {
+      if (isTrainingMode && trainingDropStep >= 1 && trainingDropStep <= 4) {
         advanceTrainingDropStep(); // synchronous, updates store immediately
         mascotRef.current?.celebrate();
 
@@ -2971,7 +2987,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           />
           {/* Permanent fade — cards dissolve into page background approaching input area */}
           <LinearGradient
-            colors={['transparent', '#F9F6F1']}
+            colors={['rgba(249, 246, 241, 0)', 'rgba(249, 246, 241, 1)']}
             style={styles.cardFadeScrim}
             pointerEvents="none"
           />
@@ -3966,7 +3982,7 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
     recentCard: {
       backgroundColor: '#FDFCFA',
       borderRadius: 12,
-      minHeight: 88,
+      minHeight: 56,
       paddingTop: 8,
       paddingBottom: 8,
       paddingHorizontal: 16,
@@ -3977,7 +3993,8 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       shadowRadius: 10,
       shadowOffset: { width: 0, height: 3 },
       elevation: 2,
-      justifyContent: 'space-between',
+      justifyContent: 'flex-start',
+      gap: 2,
     },
     // Top row: Title (left) + Chip (right)
     recentTopRow: {
@@ -4000,13 +4017,6 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       lineHeight: 20,
       fontFamily: 'Inter-Medium',
       flex: 1,
-    },
-    // Confirmation message - Gremly's voice
-    recentConfirmation: {
-      fontSize: 13,
-      lineHeight: 16,
-      fontFamily: 'Inter-Italic',
-      color: c.mossGreen,
     },
     // Bottom row: Contextual info + timestamp
     recentMetaRow: {

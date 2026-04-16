@@ -416,6 +416,7 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
   // Multi path
   if ((multiResult as any).is_multi && (multiResult as any).segments?.length > 1) {
     // Emit multi follow-up for speech bubble (no AI reaction for multi parent)
+    console.log('[SpeechBubble] Emitting drop:reaction_ready for multi', { localId: drop.localId });
     eventBus.emit('drop:reaction_ready', {
       localId: drop.localId,
       message: null,
