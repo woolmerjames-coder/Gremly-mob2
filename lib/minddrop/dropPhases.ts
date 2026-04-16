@@ -19,6 +19,7 @@ import type { MindDropBucket, LogSubtype, Phase1Result } from './types';
 import type { Phase2MetadataResult } from './dropSync';
 import { syncDropToSupabase, syncMultiDropToSupabase } from './dropSync';
 import { useGremlyStore } from '../store/useGremlyStore';
+import { eventBus } from '../events/EventBus';
 import { dateService, getDateService } from '../date/DateService';
 import { env, getEnv } from '../env';
 
@@ -79,17 +80,8 @@ function mightBeMulti(text: string): boolean {
   );
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Recent reactions tracker
-// ──────────────────────────────────────────────────────────────────────────────
-
-const recentReactions: string[] = [];
-const MAX_RECENT_REACTIONS = 5;
-
-function pushReaction(msg: string) {
-  recentReactions.push(msg);
-  if (recentReactions.length > MAX_RECENT_REACTIONS) recentReactions.shift();
-}
+// Dedup tracking is now unified in the Zustand store (recentSpeech).
+// See useGremlyStore.pushRecentSpeech().
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Temporal extraction (for Phase 1.5 background)
@@ -128,7 +120,7 @@ async function callPhase1_5a(
         text,
         bucket,
         subtype,
-        recentReactions: [...recentReactions],
+        recentReactions: [...useGremlyStore.getState().recentSpeech],
       }),
     });
 
@@ -144,7 +136,7 @@ async function callPhase1_5a(
     };
 
     if (result.confirmation_message) {
-      pushReaction(result.confirmation_message);
+      useGremlyStore.getState().pushRecentSpeech(result.confirmation_message);
     }
 
     return result;
@@ -423,6 +415,13 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
 
   // Multi path
   if ((multiResult as any).is_multi && (multiResult as any).segments?.length > 1) {
+    // Emit multi follow-up for speech bubble (no AI reaction for multi parent)
+    eventBus.emit('drop:reaction_ready', {
+      localId: drop.localId,
+      message: null,
+      followUp: 'multi',
+    });
+
     return {
       ...drop,
       phase: 'multi_detected',
@@ -486,6 +485,16 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
   const smartTitle = result?.smart_title || drop.text.substring(0, 50);
   const confirmationMessage = result?.confirmation_message || null;
 
+  // Determine follow-up signal for speech bubble
+  const followUpSignal: 'multi' | 'clarify' | null = drop.needsClarification ? 'clarify' : null;
+
+  // Emit AI reaction for speech bubble
+  eventBus.emit('drop:reaction_ready', {
+    localId: drop.localId,
+    message: confirmationMessage,
+    followUp: followUpSignal,
+  });
+
   console.log('[DropPhases] handleClassified complete', {
     localId: drop.localId,
     hasTitle: !!result?.smart_title,
@@ -497,6 +506,7 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
     phase: 'titled',
     smartTitle,
     confirmationMessage: confirmationMessage ?? undefined,
+    followUpSignal: followUpSignal ?? undefined,
     retryCount: 0,
     lastError: null,
   };
