@@ -47,6 +47,7 @@ import {
   Keyboard,
   PanResponder,
   PanResponderGestureState,
+  Dimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
@@ -109,6 +110,8 @@ import {
   getFedCelebrationSpeech,
   type SpeechContext,
 } from '../../lib/speech/gremlySpeech';
+import { getFollowUpMessage } from '../../lib/speech/followUpMessages';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   appendLineageToWhyString,
   convertUnsortedToHabit,
@@ -165,6 +168,8 @@ const THINKING_MICROCOPY = [
 
 const AnimatedMicrocopyText = Animated.createAnimatedComponent(Text);
 
+const SCRIM_HEIGHT = Math.min(Dimensions.get('window').height * 0.22, 220);
+
 const TYPEWRITER_CHAR_DELAY_MS = 28;
 
 // Auto-grow constants: aligned for deterministic behavior
@@ -173,6 +178,17 @@ const INPUT_VERTICAL_PADDING = 20; // paddingTop + paddingBottom
 const MAX_LINES = 8;
 
 const START_HEIGHT = 64; // compact starting height
+
+/**
+ * Calculate how long a speech bubble should stay visible.
+ * Shorter than gremlySpeech.ts's version — reactions are quick beats, not greetings.
+ */
+function calculateSpeechDuration(message: string): number {
+  const base = 3000;
+  const perChar = 40;
+  const max = 6000;
+  return Math.min(base + message.length * perChar, max);
+}
 const MIN_HEIGHT = START_HEIGHT;
 
 const MAX_HEIGHT = LINE_HEIGHT * MAX_LINES + INPUT_VERTICAL_PADDING + 8; // 24*8 + 24 + 8 = 224
@@ -1271,6 +1287,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const [showTrainingMeter, setShowTrainingMeter] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const gremlySpeechTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const followUpTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSpeechRef = useRef<string | null>(null);
   const hasShownGreetingRef = useRef(false);
   const lastSpeechTimeRef = useRef<number | null>(null);
@@ -1286,11 +1303,14 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return () => clearTimeout(timeout);
   }, [showPhotoTextNudge]);
 
-  // Cleanup gremlySpeech timeout on unmount
+  // Cleanup speech timeouts on unmount
   useEffect(() => {
     return () => {
       if (gremlySpeechTimeoutRef.current) {
         clearTimeout(gremlySpeechTimeoutRef.current);
+      }
+      if (followUpTimeoutRef.current) {
+        clearTimeout(followUpTimeoutRef.current);
       }
     };
   }, []);
@@ -1431,6 +1451,65 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     isTrainingMode,
     trainingDropStep,
   ]);
+
+  // Subscribe to AI reaction events from the pipeline (speech bubble)
+  useEffect(() => {
+    const unsubscribe = eventBus.on('drop:reaction_ready', (payload) => {
+      const { message, followUp } = payload;
+
+      // Cancel any pending follow-up from a previous drop
+      if (followUpTimeoutRef.current) {
+        clearTimeout(followUpTimeoutRef.current);
+        followUpTimeoutRef.current = null;
+      }
+
+      // Resolve beat 1: AI reaction or pool fallback
+      const reactionMessage =
+        message ||
+        (() => {
+          const ctx = buildSpeechContext('post_drop');
+          const fallback = getGremlySpeech(ctx);
+          return fallback?.message || null;
+        })();
+
+      const recentSpeech = useGremlyStore.getState().recentSpeech;
+
+      if (reactionMessage && !followUp) {
+        // Single beat — just the reaction
+        const duration = calculateSpeechDuration(reactionMessage);
+        showGremlySpeech(reactionMessage, duration);
+        useGremlyStore.getState().pushRecentSpeech(reactionMessage);
+      } else if (reactionMessage && followUp) {
+        // Two beats — vary the order so it doesn't feel templated
+        const reactionFirst = Math.random() < 0.5;
+        const followUpMsg = getFollowUpMessage(followUp, recentSpeech);
+        const first = reactionFirst ? reactionMessage : followUpMsg;
+        const second = reactionFirst ? followUpMsg : reactionMessage;
+        const firstDuration = reactionFirst ? calculateSpeechDuration(reactionMessage) : 5000;
+        const secondDuration = reactionFirst ? 5000 : calculateSpeechDuration(reactionMessage);
+
+        if (first) showGremlySpeech(first, firstDuration);
+        useGremlyStore.getState().pushRecentSpeech(reactionMessage);
+
+        followUpTimeoutRef.current = setTimeout(() => {
+          followUpTimeoutRef.current = null;
+          if (second) showGremlySpeech(second, secondDuration);
+        }, firstDuration + 500);
+      } else if (!reactionMessage && followUp) {
+        // No reaction (e.g. multi parent) — just follow-up
+        const followUpMsg = getFollowUpMessage(followUp, recentSpeech);
+        if (followUpMsg) showGremlySpeech(followUpMsg, 5000);
+      }
+      // If both null, no speech (shouldn't happen but safe)
+    });
+
+    return () => {
+      unsubscribe();
+      if (followUpTimeoutRef.current) {
+        clearTimeout(followUpTimeoutRef.current);
+      }
+    };
+  }, [showGremlySpeech, buildSpeechContext]);
 
   // Return-visit speech: fire when user returns to MindDrop after visiting another tab
   useEffect(() => {
@@ -2689,57 +2768,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         useGremlyStore.setState({ todayFedCelebrationShownAt: nowTimestamp() });
       } else {
         mascotRef.current?.celebrate();
-
-        // Show speech based on classification result using full getGremlySpeech logic
-        try {
-          const detail = result.createdDetails[0];
-          const uiKind = detail.kind === 'note' ? 'log' : detail.kind;
-
-          // Get due date from created entity if available
-          let dueDate: string | null = null;
-          if (uiKind === 'todo' && result.created?.todos?.[0]) {
-            const createdTodo = getItemById(result.created.todos[0]);
-            dueDate = (createdTodo as any)?.due_date ?? (createdTodo as any)?.due_day ?? null;
-          }
-
-          const speechCtx: SpeechContext = {
-            moment: 'post_drop',
-            kind: uiKind,
-            logSubtype: (detail as any).noteSubtype || undefined,
-            dueDate,
-            dropsToday: actionableDropsToday + (uiKind === 'todo' || uiKind === 'habit' ? 1 : 0),
-            isFirstDrop: false,
-            hasPhotos: pendingPhotoUris.length > 0,
-            isReturningUser:
-              storeLastDropTime != null &&
-              getDateService().now().getTime() - storeLastDropTime > 24 * 60 * 60 * 1000,
-            error: null,
-            gaugeValue: useGremlyStore.getState().feedingGaugeValue,
-            isFedToday: useGremlyStore.getState().isFedToday,
-            timeSinceLastDrop: storeLastDropTime
-              ? getDateService().now().getTime() - storeLastDropTime
-              : null,
-            briefHeadline: null,
-            tone: dco?.tone ?? null,
-            overdueTodos: dco?.active_today?.overdue_todos ?? 0,
-            habitStreakRisk: dco?.active_today?.habit_streak_risk ?? [],
-            upcomingIn7d: dco?.active_today?.upcoming_in_7d ?? [],
-            daysSinceLastSweep: lastSweepCompletedAt
-              ? Math.floor(
-                  (getDateService().now().getTime() - new Date(lastSweepCompletedAt).getTime()) /
-                    (1000 * 60 * 60 * 24),
-                )
-              : null,
-            lastSpeechTime: lastSpeechTimeRef.current,
-          };
-          const speechResult = getGremlySpeech(speechCtx);
-          if (speechResult) {
-            lastSpeechRef.current = speechResult.message;
-            showGremlySpeech(speechResult.message, speechResult.duration);
-          }
-        } catch (speechErr) {
-          console.warn('[MindDrop] Speech generation failed, skipping:', speechErr);
-        }
+        // Post-drop speech is now handled by the drop:reaction_ready event listener
       }
     }
 
@@ -2945,6 +2974,21 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         {/* Fixed bottom section: input + chips + button + stats */}
         <View style={[styles.fixedTopSection, keyboardVisible && { paddingBottom: 12 }]}>
           <View style={styles.inputBlock}>
+            {/* Gradient scrim — dims cards behind speech bubble */}
+            {gremlySpeech && (
+              <Reanimated.View
+                style={[styles.speechScrim, { height: SCRIM_HEIGHT }]}
+                entering={FadeIn.duration(300)}
+                exiting={FadeOut.duration(200)}
+                pointerEvents="none"
+              >
+                <LinearGradient
+                  colors={['transparent', 'rgba(249, 246, 241, 0.92)']}
+                  locations={[0, 0.7]}
+                  style={StyleSheet.absoluteFill}
+                />
+              </Reanimated.View>
+            )}
             {/* Gremly speech - positioned above input, to left of Gremly */}
             {gremlySpeech && (
               <Reanimated.View
@@ -3534,20 +3578,27 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       right: 110, // Leave space for Gremly on the right
       zIndex: 15,
     },
+    speechScrim: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      zIndex: 10,
+    },
     gremlyMessageBackdrop: {
       backgroundColor: '#FFFFFF',
-      paddingHorizontal: 14,
-      paddingVertical: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
       borderRadius: 14,
       borderBottomRightRadius: 4,
       alignSelf: 'flex-end',
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.08,
-      shadowRadius: 8,
-      elevation: 3,
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
+      elevation: 4,
       borderWidth: 1,
-      borderColor: 'rgba(46, 85, 64, 0.08)',
+      borderColor: 'rgba(46, 85, 64, 0.10)',
     },
     gremlyMessage: {
       fontSize: 14,
