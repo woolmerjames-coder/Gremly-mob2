@@ -273,8 +273,8 @@ const ShimmerBar: React.FC<{
 // Track which items have already been animated in (persists across re-renders)
 const animatedInItemIds = new Set<string>();
 
-/** Tracks drop IDs from this app session for card_note display */
-const sessionDropIds = new Set<string>();
+/** Stores card_notes by drop ID for session-only display */
+const sessionCardNotes = new Map<string, string>();
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -1553,9 +1553,9 @@ const RevealingCard: React.FC<{
       </View>
 
       {/* Row 2: Card note (session only) */}
-      {sessionDropIds.has(item.drop_id || item.id) && item.views?.card_note ? (
+      {sessionCardNotes.get(item.drop_id || item.id) ? (
         <Text style={styles.recentConfirmation} numberOfLines={1}>
-          {item.views.card_note}
+          {sessionCardNotes.get(item.drop_id || item.id)}
         </Text>
       ) : null}
 
@@ -2085,10 +2085,9 @@ const AnimatedMindDropCard = React.memo<{
           {!isFailed &&
           !isMulti &&
           !needsClarification &&
-          sessionDropIds.has(item.drop_id || item.id) &&
-          item.views?.card_note ? (
+          sessionCardNotes.get(item.drop_id || item.id) ? (
             <Text style={styles.recentConfirmation} numberOfLines={1}>
-              {item.views.card_note}
+              {sessionCardNotes.get(item.drop_id || item.id)}
             </Text>
           ) : isFailed ? (
             <Pressable
@@ -2543,12 +2542,12 @@ const RecentDrops: React.FC<{
 
         newMapping.set(drop, unified);
         if (drop.cardNote) {
-          sessionDropIds.add(drop.localId);
+          sessionCardNotes.set(drop.localId, drop.cardNote);
         }
         console.log('[card_note:3] Unified views:', {
           card_note: drop.cardNote,
           localId: drop.localId,
-          inSession: sessionDropIds.has(drop.localId),
+          inSession: sessionCardNotes.has(drop.localId),
         });
         return unified;
       })
