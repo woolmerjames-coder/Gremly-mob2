@@ -1482,6 +1482,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
       const recentSpeech = useGremlyStore.getState().recentSpeech;
 
+      console.log('[Speech] Displaying reaction:', {
+        message: reactionMessage,
+        followUp,
+        wasPoolFallback: !message,
+      });
+
       if (reactionMessage && !followUp) {
         // Single beat — just the reaction
         const duration = calculateSpeechDuration(reactionMessage);

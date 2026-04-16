@@ -135,6 +135,11 @@ async function callPhase1_5a(
       confirmation_message: json.confirmation_message || null,
     };
 
+    console.log('[Phase1.5a] Raw reaction:', {
+      text: text.substring(0, 40),
+      confirmation_message: result.confirmation_message,
+    });
+
     if (result.confirmation_message) {
       useGremlyStore.getState().pushRecentSpeech(result.confirmation_message);
     }
