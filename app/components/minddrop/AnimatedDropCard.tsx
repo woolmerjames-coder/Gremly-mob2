@@ -234,11 +234,11 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
     const isRetrying = false; // Pipeline handles retries now
 
     // Track animated content to prevent replaying animations on re-render
-    const animatedContentRef = useRef({ title: '', confirmation: '' });
+    const animatedContentRef = useRef({ title: '' });
 
     // Reset when the card is used for a different drop
     useEffect(() => {
-      animatedContentRef.current = { title: '', confirmation: '' };
+      animatedContentRef.current = { title: '' };
     }, [item.id]);
 
     const offlineMessage = getOfflineStatusMessage(
@@ -254,7 +254,6 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
     // Content guards: only animate if content actually changed
     // Uses state (not refs during render) to satisfy React Compiler rules
     const [shouldAnimateTitle, setShouldAnimateTitle] = useState(false);
-    const [shouldAnimateConfirmation, setShouldAnimateConfirmation] = useState(false);
 
     useEffect(() => {
       const titleChanged = item.title !== animatedContentRef.current.title;
@@ -262,14 +261,7 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
       if (isAITitleReady && item.title) {
         animatedContentRef.current.title = item.title;
       }
-
-      const confirmationChanged =
-        (item.confirmationMessage || '') !== animatedContentRef.current.confirmation;
-      setShouldAnimateConfirmation(confirmationChanged && !!item.confirmationMessage);
-      if (item.confirmationMessage) {
-        animatedContentRef.current.confirmation = item.confirmationMessage;
-      }
-    }, [item.title, item.confirmationMessage, isAITitleReady]);
+    }, [item.title, isAITitleReady]);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Shimmer animation for draft state
@@ -305,26 +297,6 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
 
     const titleAnimatedStyle = useAnimatedStyle(() => ({
       opacity: shimmerOpacity.value,
-    }));
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Confirmation message fade in
-    // ─────────────────────────────────────────────────────────────────────────
-
-    const confirmationOpacity = useSharedValue(0);
-    const hasConfirmation = !!item.confirmationMessage;
-
-    useEffect(() => {
-      if (shouldAnimateConfirmation) {
-        confirmationOpacity.value = withDelay(200, withTiming(1, { duration: 400 }));
-      } else if (hasConfirmation) {
-        // Content unchanged on re-render — show at full opacity immediately
-        confirmationOpacity.value = 1;
-      }
-    }, [shouldAnimateConfirmation, hasConfirmation]);
-
-    const confirmationStyle = useAnimatedStyle(() => ({
-      opacity: confirmationOpacity.value,
     }));
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -401,19 +373,14 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
       }
     }, [multiItemsCount, item.id]);
 
-    // Also track when confirmation message or title changes (Phase 1 updates)
+    // Also track when title changes (Phase 1 updates)
     const prevTitleRef = useRef(item.title);
-    const prevConfirmRef = useRef(item.confirmationMessage);
 
     useEffect(() => {
-      if (
-        item.title !== prevTitleRef.current ||
-        item.confirmationMessage !== prevConfirmRef.current
-      ) {
+      if (item.title !== prevTitleRef.current) {
         console.log('[MultiDrop] 📝 Card content updated', {
           id: item.id,
           titleChanged: item.title !== prevTitleRef.current,
-          confirmChanged: item.confirmationMessage !== prevConfirmRef.current,
         });
         // Smooth any resulting layout changes
         LayoutAnimation.configureNext({
@@ -424,9 +391,8 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
           },
         });
         prevTitleRef.current = item.title;
-        prevConfirmRef.current = item.confirmationMessage;
       }
-    }, [item.title, item.confirmationMessage, item.id]);
+    }, [item.title, item.id]);
 
     // DEBUG: Log multi status for notes
     if (item.kind === 'note') {
@@ -690,7 +656,6 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
 
     const a11yLabel = useMemo(() => {
       const parts: (string | null)[] = [displayTitle, kindLabel];
-      if (item.confirmationMessage) parts.push(item.confirmationMessage);
       if (item.kind === 'todo' && (item.dueDate || item.dueDay)) {
         const due = formatDueDate(item.dueDate || item.dueDay);
         if (due) parts.push(due);
@@ -767,33 +732,14 @@ export const AnimatedDropCard: React.FC<AnimatedDropCardProps> = React.memo(
               </View>
             </View>
 
-            {/* Row 2: Confirmation message or skeleton */}
+            {/* Row 2: Status indicators (confirmation message moved to speech bubble) */}
             {isMulti ? (
               <RNText style={localStyles.multiHint}>Tap to decide what to do</RNText>
             ) : isRetrying ? (
               <RNText style={{ fontSize: 13, color: '#6a7484', fontStyle: 'italic', marginTop: 2 }}>
                 Hmm, still thinking…
               </RNText>
-            ) : item.confirmationMessage ? (
-              shouldAnimateConfirmation ? (
-                <Animated.View style={confirmationStyle}>
-                  <TypewriterText
-                    text={item.confirmationMessage}
-                    style={parentStyles.recentConfirmation}
-                    characterDelay={25}
-                  />
-                </Animated.View>
-              ) : (
-                <RNText style={parentStyles.recentConfirmation}>{item.confirmationMessage}</RNText>
-              )
-            ) : (
-              !item.isEnriched &&
-              item.isPending && (
-                <View style={localStyles.confirmationSkeleton}>
-                  <ShimmerPlaceholder width="60%" height={14} borderRadius={4} />
-                </View>
-              )
-            )}
+            ) : null}
 
             {/* Offline status message */}
             {offlineMessage && (
