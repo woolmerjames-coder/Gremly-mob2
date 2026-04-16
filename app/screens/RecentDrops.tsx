@@ -62,7 +62,6 @@ import { getDateService, nowTimestamp } from '../../lib/date/DateService';
 import {
   truncateText,
   relativeTime,
-  getConfirmationMessage,
   formatTime12h,
   formatTimeEstimate,
   formatStartDate,
@@ -1463,38 +1462,16 @@ const RevealingCard: React.FC<{
   // CRITICAL: Use drop_id for tracking - persists across pending→entity transition
   const trackingId = item.drop_id || item.id;
 
-  // Track completion of each line
+  // Track completion of title typewriter
   const [line1Done, setLine1Done] = React.useState(false);
-  const [line2Done, setLine2Done] = React.useState(false);
 
   // CRITICAL: Capture initial values so they don't change during animation
   // This prevents Phase 2 updates from restarting the typewriter animation
   // Using useState initializer to freeze on first render (only runs once)
   const [titleText] = React.useState(() => item.title || item.text || '—');
 
-  // For confirmation text: freeze it UNLESS the item needs clarification
-  // Clarification cards should show the tap prompt immediately, not the AI confirmation
-  const [frozenConfirmationText] = React.useState(() =>
-    getConfirmationMessage(effectiveKind, item),
-  );
-
-  // Check if this item needs clarification (reactive - responds to item updates)
-  const needsClarification =
-    (item.needs_clarification || item.views?.needs_clarification) &&
-    !item.clarification_resolved &&
-    !item.views?.clarification_resolved;
-
-  // Use reactive confirmation while pending (Phase 1.5 may still set clarification)
-  // Once synced (!isPending), use frozen for normal cards or reactive for clarification
-  const confirmationText = isPending
-    ? getConfirmationMessage(effectiveKind, item) // Reactive while processing - Phase 1.5 may update
-    : needsClarification
-      ? getConfirmationMessage(effectiveKind, item) // Reactive for clarification cards
-      : frozenConfirmationText; // Frozen for complete non-clarification cards
-
-  // Memoize callbacks to prevent re-renders
+  // Memoize callback to prevent re-renders
   const handleLine1Done = React.useCallback(() => setLine1Done(true), []);
-  const handleLine2Done = React.useCallback(() => setLine2Done(true), []);
 
   // Row 1 & 2: Shimmer fade-out / text fade-in (starts immediately)
   const shimmerOpacity = React.useMemo(() => new Animated.Value(1), []);
@@ -1520,10 +1497,10 @@ const RevealingCard: React.FC<{
     ]).start();
   }, [shimmerOpacity, textOpacity]);
 
-  // Trigger settle animation when Row 1 & 2 typewriter complete
+  // Trigger settle animation when title typewriter completes
   // Row 3 chips have their own animation via AnimatedChipsTransition
   React.useEffect(() => {
-    if (line1Done && line2Done) {
+    if (line1Done) {
       // Subtle pulse: scale up slightly, glow, then settle
       Animated.sequence([
         Animated.parallel([
@@ -1556,7 +1533,7 @@ const RevealingCard: React.FC<{
         onRevealComplete();
       });
     }
-  }, [line1Done, line2Done, settleScale, settleShadow, onRevealComplete]);
+  }, [line1Done, settleScale, settleShadow, onRevealComplete]);
 
   // Animated shadow for settle effect
   const animatedShadowOpacity = settleShadow.interpolate({
@@ -1735,7 +1712,7 @@ const AnimatedMindDropCard = React.memo<{
     const isMulti = item.is_multi === true || item.views?.is_multi === true;
 
     // Check if item needs clarification (for special styling)
-    // Use truthy check (not strict ===) to match getConfirmationMessage
+    // Use truthy check (not strict ===) to match confirmation behavior
     const needsClarification =
       (item.views?.needs_clarification || item.needs_clarification) &&
       !item.clarification_resolved &&

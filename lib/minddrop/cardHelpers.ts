@@ -25,50 +25,6 @@ export function relativeTime(iso: string): string {
   return getDateService().formatForChip(getDateService().toLocalDate(d));
 }
 
-export function getConfirmationMessage(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string {
-  // Check for clarification status first - override all other messages
-  const needsClarification =
-    item.needs_clarification || (item.views as Record<string, unknown>)?.needs_clarification;
-  const clarificationResolved =
-    item.clarification_resolved || (item.views as Record<string, unknown>)?.clarification_resolved;
-
-  if (needsClarification && !clarificationResolved) {
-    // Tap-encouraging messages for ambiguous drops
-    const tapPromptMessages = [
-      'Quick question — tap me',
-      'Need your input — tap here',
-      'One quick thing — tap me',
-      'Help me understand — tap here',
-      'Tap to help me sort this out',
-    ];
-    // Use item ID to pick consistently (not random on every render)
-    const idChar = item.id?.charCodeAt(0) || 0;
-    return tapPromptMessages[idChar % tapPromptMessages.length];
-  }
-
-  // Use AI-generated confirmation if available
-  if (item.views?.confirmation_message) {
-    return item.views.confirmation_message;
-  }
-
-  // Fall back to templates
-  if (kind === 'todo') {
-    if (item.due_date || item.due_day) {
-      return `Scheduled for ${formatDue({ dueDay: item.due_day, dueIso: item.due_date })}.`;
-    }
-    return 'Added to your list.';
-  }
-  if (kind === 'habit') {
-    return "Let's build this together.";
-  }
-  // Notes/Logs
-  const subtype = item.noteSubtype || item.canonical_type || 'log';
-  if (subtype === 'journal') return 'Thoughts captured.';
-  if (subtype === 'idea') return 'Interesting — saved for later.';
-  if (subtype === 'list') return 'List saved.';
-  return 'Noted.';
-}
-
 /** Format "14:00" → "2PM", "09:30" → "9:30AM" */
 export function formatTime12h(time: string): string {
   const [h, m] = time.split(':').map(Number);
