@@ -9142,15 +9142,12 @@ For journals, start with what happened or what it's about — not the act of ref
 
 === REACTION (5-12 words, max 70 characters) ===
 
-WHAT THIS IS: You're Gremly, a small green creature who lives in a productivity app. When someone drops a thought, task, or idea into MindDrop, you react in a speech bubble above the input. Your reaction must do two things: (1) confirm you received the drop, and (2) react to the specific content. A brief confirmation opener followed by a specific reaction is the ideal shape.
+WHAT THIS IS: You're Gremly, a small green creature who lives in a productivity app. When someone drops a thought, task, or idea into MindDrop, you react in a speech bubble above the input. React specifically to what the user said.
 
-PROCESS — follow these three steps every time:
+PROCESS - follow these two steps every time:
 
-1. Open with a 1-3 word confirmation that you received the drop. Keep it casual and natural. Vary it every time.
-2. Find ONE specific detail from their input: a person's name, the actual activity, a place, the subject matter. Lock onto it.
-3. React to that detail. A quick take, a playful observation, a one-liner that shows you caught what they said.
-
-Your output is: [confirmation] + [specific reaction]. Two parts, one sentence or two short ones.
+1. Find ONE specific detail from their input: a person's name, the actual activity, a place, the subject matter. Lock onto it.
+2. React to that detail. A quick take, a playful observation, a one-liner that shows you caught what they said.
 
 TONE BY BUCKET:
 
@@ -9288,6 +9285,89 @@ Return ONLY valid JSON:
           fallbackReason: result.fallbackReason,
           latency_ms: latency,
         });
+
+        // Add natural confirmation signal, bucket-aware
+        if (confirmationMessage) {
+          const OPENERS = {
+            todo: [
+              'Got it.',
+              'On it.',
+              "I've got this.",
+              "I'm on it.",
+              "Won't forget.",
+              "It's on my list.",
+              'Say less.',
+            ],
+            habit: [
+              'Got it.',
+              "I'll be watching.",
+              "I'm on it.",
+              'Tracking.',
+              'Say less.',
+              "I've got this.",
+            ],
+            log_journal: [
+              'Safe with me.',
+              'I hear you.',
+              'Got it.',
+              'Yours is safe.',
+              "I've got this.",
+              "That's between us.",
+            ],
+            log_idea: [
+              'Got it.',
+              'Stored away.',
+              'Holding onto this.',
+              "I've got this.",
+              'Tucked away.',
+              'Say less.',
+            ],
+            log_event: ['Got it.', "Won't miss it.", "I'm on it.", "I've got this.", 'Say less.'],
+            general: ['Got it.', 'Safe with me.', "I've got this.", 'On it.', 'Say less.'],
+          };
+
+          // Pick the right pool
+          const poolKey =
+            bucket === 'todo'
+              ? 'todo'
+              : bucket === 'habit'
+                ? 'habit'
+                : bucket === 'log' && subtype === 'journal'
+                  ? 'log_journal'
+                  : bucket === 'log' && subtype === 'idea'
+                    ? 'log_idea'
+                    : bucket === 'log' && subtype === 'event'
+                      ? 'log_event'
+                      : 'general';
+
+          const pool = OPENERS[poolKey] || OPENERS.general;
+
+          // Avoid repeating recent openers
+          const recentOpenerWords = (recentReactions || [])
+            .map((r) => {
+              const firstSentence = r.split(/[.!]/)[0]?.trim();
+              return firstSentence && firstSentence.split(' ').length <= 4 ? firstSentence : null;
+            })
+            .filter(Boolean);
+
+          const available = pool.filter((o) => !recentOpenerWords.includes(o.replace(/[.!]$/, '')));
+          const opener =
+            available.length > 0
+              ? available[Math.floor(Math.random() * available.length)]
+              : pool[Math.floor(Math.random() * pool.length)];
+
+          // Randomly place at start or end for variety
+          if (Math.random() < 0.45) {
+            confirmationMessage = confirmationMessage + ' ' + opener;
+          } else {
+            confirmationMessage = opener + ' ' + confirmationMessage;
+          }
+
+          // Re-check length
+          if (confirmationMessage.length > 70) {
+            confirmationMessage = confirmationMessage.substring(0, 67) + '...';
+          }
+        }
 
         return j({
           smart_title: smartTitle,
