@@ -9270,6 +9270,13 @@ Return ONLY valid JSON:
           // Strip leading "Ooh" / "Oh" openers
           confirmationMessage = confirmationMessage.replace(/^(?:Ooh|Oh)[,!]?\s*/i, '').trim();
 
+          // Strip em dashes (replace with comma or period)
+          confirmationMessage = confirmationMessage
+            .replace(/\u2014/g, ', ')
+            .replace(/\u2013/g, ', ')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+
           // Validate length
           if (confirmationMessage.length < 3) {
             confirmationMessage = null;
@@ -9296,16 +9303,8 @@ Return ONLY valid JSON:
               "I'm on it.",
               "Won't forget.",
               "It's on my list.",
-              'Say less.',
             ],
-            habit: [
-              'Got it.',
-              "I'll be watching.",
-              "I'm on it.",
-              'Tracking.',
-              'Say less.',
-              "I've got this.",
-            ],
+            habit: ['Got it.', "I'll be watching.", "I'm on it.", 'Tracking.', "I've got this."],
             log_journal: [
               'Safe with me.',
               'I hear you.',
@@ -9320,10 +9319,9 @@ Return ONLY valid JSON:
               'Holding onto this.',
               "I've got this.",
               'Tucked away.',
-              'Say less.',
             ],
-            log_event: ['Got it.', "Won't miss it.", "I'm on it.", "I've got this.", 'Say less.'],
-            general: ['Got it.', 'Safe with me.', "I've got this.", 'On it.', 'Say less.'],
+            log_event: ['Got it.', "Won't miss it.", "I'm on it.", "I've got this."],
+            general: ['Got it.', 'Safe with me.', "I've got this.", 'On it.'],
           };
 
           // Pick the right pool
@@ -9368,6 +9366,13 @@ Return ONLY valid JSON:
             confirmationMessage = confirmationMessage.substring(0, 67) + '...';
           }
         }
+
+        console.log('[Phase1.5a] Final output', {
+          original: parsed.confirmation_message,
+          withOpener: confirmationMessage,
+          bucket,
+          subtype,
+        });
 
         return j({
           smart_title: smartTitle,

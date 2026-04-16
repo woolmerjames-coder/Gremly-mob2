@@ -175,30 +175,27 @@ export function getContextualMeta(
     return getFrequencyDisplayLabel(item.cadence, item.target_per_period, item.frequency);
   }
 
-  // Notes/Logs - check for event date first, then show subtype
+  // Notes/Logs - subtype is now shown in the badge pill,
+  // so only return date-based context here
   if (item.target_date) {
-    // Note with target date (event) - show as "Event · [date]"
-    return `Event · ${formatDateForChip(item.target_date)}`;
+    return formatDateForChip(item.target_date);
   }
 
-  const subtype = item.noteSubtype || item.canonical_type || 'log';
-  if (subtype === 'journal') return 'Journal';
-  if (subtype === 'idea') return 'Idea';
-  if (subtype === 'list') return 'List';
-  if (subtype === 'reference') return 'Reference';
-  if (subtype === 'event') return 'Event';
-  return 'General Note';
+  return null;
 }
 
 /**
- * Get display kind for category chip - parent category only
- * Subtype (Idea, Journal, etc.) is shown via getContextualMeta in the meta row
+ * Get display kind for category chip - shows specific subtype for notes
  */
-export function getDisplayKindForChip(kind: 'note' | 'todo' | 'habit', _item: UnifiedDrop): string {
+export function getDisplayKindForChip(kind: 'note' | 'todo' | 'habit', item: UnifiedDrop): string {
   if (kind === 'todo') return 'Todo';
   if (kind === 'habit') return 'Habit';
 
-  // For notes, always show "Note" as the parent category
+  // For notes, show specific subtype in the badge
+  const subtype = item.noteSubtype || item.canonical_type;
+  if (subtype === 'journal') return 'Journal';
+  if (subtype === 'idea') return 'Idea';
+  if (subtype === 'event') return 'Event';
   return 'Note';
 }
 

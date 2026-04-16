@@ -4062,6 +4062,18 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       backgroundColor: c.sageTint,
       color: '#556B63',
     },
+    badge_journal: {
+      backgroundColor: 'rgba(180, 160, 130, 0.12)',
+      color: '#8B7355',
+    },
+    badge_idea: {
+      backgroundColor: 'rgba(200, 170, 80, 0.12)',
+      color: '#9A7B2F',
+    },
+    badge_event: {
+      backgroundColor: 'rgba(120, 150, 200, 0.12)',
+      color: '#5A7BA8',
+    },
     badge_todo: {
       backgroundColor: '#E6F0FF',
       color: '#2E5540',

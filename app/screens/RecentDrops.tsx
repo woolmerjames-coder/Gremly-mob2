@@ -925,58 +925,38 @@ const Row3Chips: React.FC<{
       );
     }
 
-    // Journal: show type + mood chips
-    if (isJournal && contextMeta) {
+    // Journal: show mood chips only (subtype now in badge)
+    if (isJournal) {
+      if (!hasMoods) return null;
       return (
         <>
-          <View style={styles.moodChip}>
-            <Text style={styles.moodChipText}>{contextMeta}</Text>
-          </View>
-          {hasMoods && (
-            <>
-              {item.mood!.slice(0, 2).map((m: Mood, idx: number) => (
-                <React.Fragment key={m}>
-                  {idx === 0 && <Text style={styles.journalSeparator}> </Text>}
-                  <Text style={styles.journalSubtypeLabel}>{MOOD_CONFIG[m]?.label}</Text>
-                  {idx < Math.min(item.mood!.length, 2) - 1 && (
-                    <Text style={styles.journalSeparator}>·</Text>
-                  )}
-                </React.Fragment>
-              ))}
-              {item.mood!.length > 2 && (
-                <Text style={styles.moodOverflow}> +{item.mood!.length - 2}</Text>
+          {item.mood!.slice(0, 2).map((m: Mood, idx: number) => (
+            <React.Fragment key={m}>
+              <Text style={styles.journalSubtypeLabel}>{MOOD_CONFIG[m]?.label}</Text>
+              {idx < Math.min(item.mood!.length, 2) - 1 && (
+                <Text style={styles.journalSeparator}>·</Text>
               )}
-            </>
+            </React.Fragment>
+          ))}
+          {item.mood!.length > 2 && (
+            <Text style={styles.moodOverflow}> +{item.mood!.length - 2}</Text>
           )}
         </>
       );
     }
 
-    // Idea: show type chip
-    if (isIdea && contextMeta) {
-      return (
-        <View style={styles.moodChip}>
-          <Text style={styles.moodChipText}>{contextMeta}</Text>
-        </View>
-      );
-    }
-
-    // Event: show type chip
+    // Event with target date: show date chip (subtype now in badge)
     if (isEvent && contextMeta) {
       return (
-        <View style={styles.moodChip}>
-          <Text style={styles.moodChipText}>{contextMeta}</Text>
+        <View style={styles.recentContextPillContainer}>
+          <Text style={styles.recentContextPill}>{contextMeta}</Text>
         </View>
       );
     }
 
-    // General note: show type chip
-    if (isGeneralNote && contextMeta) {
-      return (
-        <View style={styles.moodChip}>
-          <Text style={styles.moodChipText}>{contextMeta}</Text>
-        </View>
-      );
+    // Idea / General note: subtype now in badge, no chip needed
+    if (isIdea || isGeneralNote || isEvent) {
+      return null;
     }
 
     // Todo/Habit: show context pill (deadline/frequency)
@@ -4343,7 +4323,13 @@ const RecentDrops: React.FC<{
                     ? 'badge_todo'
                     : effectiveKind === 'habit'
                       ? 'badge_habit'
-                      : 'badge_note';
+                      : item.noteSubtype === 'journal' || item.canonical_type === 'journal'
+                        ? 'badge_journal'
+                        : item.noteSubtype === 'idea' || item.canonical_type === 'idea'
+                          ? 'badge_idea'
+                          : item.noteSubtype === 'event' || item.views?.subtype === 'event'
+                            ? 'badge_event'
+                            : 'badge_note';
 
                 // Get visual state for pending/failed/final rendering
                 const visualState = getMindDropVisualState(item);
