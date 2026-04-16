@@ -1409,6 +1409,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Show a contextual greeting on mount (or first-visit onboarding speech)
   useEffect(() => {
+    console.log('[Greeting] useEffect fired', {
+      hasShown: hasShownGreetingRef.current,
+      isTrainingMode,
+      trainingDropStep,
+      firstDropCompletedAt,
+    });
     // Only show greeting once (mount)
     if (hasShownGreetingRef.current) return;
 
@@ -1424,6 +1430,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     // Delay slightly so the animation is visible
     const timer = setTimeout(() => {
+      console.log('[Greeting] Timer fired', {
+        hasShown: hasShownGreetingRef.current,
+        firstDropCompletedAt,
+      });
       if (hasShownGreetingRef.current) return;
       hasShownGreetingRef.current = true;
       if (!firstDropCompletedAt) {

@@ -9151,15 +9151,16 @@ Title principles:
 
 === CARD NOTE (3-6 words) ===
 
-A warm, brief annotation about the item. This appears as a subtitle on the card in the user's list.
+A short, personality-driven label for the card. This sits as a subtitle under the title in the user's drop list.
 
 Rules:
-- Written ABOUT the item, not TO the user
-- Should make the card feel personal when scanning a list
-- Think of it as a warm label, not a reaction or a comment
-- Captures the spirit or vibe of what was dropped
-- Never repeat or closely paraphrase the title
-- No task-management words, no meta-language
+- Same voice as the reaction: cheeky, warm, friend-like
+- Written ABOUT the item, as if labelling it with attitude
+- Should make the user smile when scanning their list
+- Must be DIFFERENT from both the title and the reaction
+- Never inspirational, never a motivational poster
+- Never generic. Must reference something specific from the input
+- No task-management words
 - Title case, 3-6 words
 
 === REACTION (5-12 words, max 70 characters) ===
