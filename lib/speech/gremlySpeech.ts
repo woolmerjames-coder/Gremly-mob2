@@ -55,16 +55,32 @@ export type SpeechContext = {
 type TimeOfDay = 'morning' | 'afternoon' | 'evening' | 'night';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Module-level state for avoiding repetition
+// Unified dedup via Zustand store
 // ─────────────────────────────────────────────────────────────────────────────
 
-const recentMessages: string[] = [];
-const MAX_RECENT = 4;
+import { useGremlyStore } from '../store/useGremlyStore';
 
+/**
+ * Read recent speech from the unified Zustand store.
+ * Used as the `exclude` parameter for pickRandom to avoid repetition.
+ */
+function getRecentMessages(): string[] {
+  try {
+    return useGremlyStore.getState().recentSpeech;
+  } catch {
+    // Store not yet initialized (e.g. during tests)
+    return [];
+  }
+}
+
+/**
+ * Track a message in the unified store for cross-system dedup.
+ */
 function trackMessage(message: string): void {
-  recentMessages.push(message);
-  if (recentMessages.length > MAX_RECENT) {
-    recentMessages.shift();
+  try {
+    useGremlyStore.getState().pushRecentSpeech(message);
+  } catch {
+    // Store not yet initialized
   }
 }
 
@@ -390,7 +406,7 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
   // Priority 1: Errors
   if (ctx.error) {
     const errorPool = SPEECH_POOLS.ERRORS[ctx.error] || SPEECH_POOLS.ERRORS.generic;
-    message = pickRandom(errorPool, recentMessages);
+    message = pickRandom(errorPool, getRecentMessages());
   }
 
   // Priority 2: Milestones (3, 5, 10, every 5 after)
@@ -401,7 +417,7 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
       milestonePool = SPEECH_POOLS.MILESTONES.every5after;
     }
     if (milestonePool) {
-      message = pickRandom(milestonePool, recentMessages);
+      message = pickRandom(milestonePool, getRecentMessages());
       if (message.includes('{count}')) {
         message = message.replace('{count}', String(count));
       }
@@ -410,17 +426,17 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
 
   // Priority 3: Photo drops
   if (!message && ctx.hasPhotos) {
-    message = pickRandom(SPEECH_POOLS.PHOTO.with_text, recentMessages);
+    message = pickRandom(SPEECH_POOLS.PHOTO.with_text, getRecentMessages());
   }
 
   // Priority 4: First drop ever
   if (!message && ctx.isFirstDrop) {
-    message = pickRandom(SPEECH_POOLS.FIRST_DROP, recentMessages);
+    message = pickRandom(SPEECH_POOLS.FIRST_DROP, getRecentMessages());
   }
 
   // Priority 5: Returning user (>24h)
   if (!message && ctx.isReturningUser) {
-    message = pickRandom(SPEECH_POOLS.RETURNING_USER, recentMessages);
+    message = pickRandom(SPEECH_POOLS.RETURNING_USER, getRecentMessages());
   }
 
   // Priority 6: Rapid-fire (fast successive drops)
@@ -432,7 +448,7 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
     ctx.dropsToday >= 3 &&
     Math.random() < 0.4
   ) {
-    message = pickRandom(SPEECH_POOLS.RAPID_FIRE, recentMessages);
+    message = pickRandom(SPEECH_POOLS.RAPID_FIRE, getRecentMessages());
   }
 
   // Priority 7: Gauge post-drop callout (nearly fed)
@@ -447,14 +463,14 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
       ctx.gaugeValue >= 0.9
         ? SPEECH_POOLS.GAUGE_POST_DROP.very_high
         : SPEECH_POOLS.GAUGE_POST_DROP.high;
-    message = pickRandom(gaugePool, recentMessages);
+    message = pickRandom(gaugePool, getRecentMessages());
   }
 
   // Priority 8: Brand reinforcement
   if (!message && !isStretched) {
     const brandChance = ctx.tone === 'celebratory' ? 0.35 : 0.2;
     if (Math.random() < brandChance) {
-      message = pickRandom(SPEECH_POOLS.BRAND, recentMessages);
+      message = pickRandom(SPEECH_POOLS.BRAND, getRecentMessages());
     }
   }
 
@@ -480,7 +496,7 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
       pool = SPEECH_POOLS.SUCCESS.general;
     }
 
-    message = pickRandom(pool, recentMessages);
+    message = pickRandom(pool, getRecentMessages());
 
     // Replace {date} placeholder
     if (message.includes('{date}') && ctx.dueDate) {
@@ -506,7 +522,7 @@ export function getGremlySpeech(ctx: SpeechContext): { message: string; duration
 export function getGreetingSpeech(): { message: string; duration: number } {
   const timeOfDay = getTimeOfDay();
   const pool = SPEECH_POOLS.GREETINGS[timeOfDay];
-  const message = pickRandom(pool, recentMessages);
+  const message = pickRandom(pool, getRecentMessages());
   trackMessage(message);
   return {
     message,
@@ -551,7 +567,7 @@ export function getGreetingSpeechV2(ctx: SpeechContext): { message: string; dura
 
   // Priority 2: Upcoming events this week
   if (!message && ctx.upcomingIn7d.length > 0) {
-    const template = pickRandom(SPEECH_POOLS.UPCOMING, recentMessages);
+    const template = pickRandom(SPEECH_POOLS.UPCOMING, getRecentMessages());
     const first = ctx.upcomingIn7d[0];
     const eventName = typeof first === 'string' ? first : first.title;
     message = template.replace('{eventName}', eventName);
@@ -559,20 +575,20 @@ export function getGreetingSpeechV2(ctx: SpeechContext): { message: string; dura
 
   // Priority 3: Gauge nearly fed
   if (!message && !ctx.isFedToday && ctx.gaugeValue >= 0.6) {
-    message = pickRandom(SPEECH_POOLS.GAUGE_GREETING, recentMessages);
+    message = pickRandom(SPEECH_POOLS.GAUGE_GREETING, getRecentMessages());
   }
 
   // Priority 4: Sweep nudge
   if (!message && ctx.daysSinceLastSweep != null && ctx.daysSinceLastSweep >= 3) {
     const sweepPool =
       ctx.daysSinceLastSweep >= 7 ? SPEECH_POOLS.SWEEP_NUDGE.long : SPEECH_POOLS.SWEEP_NUDGE.short;
-    message = pickRandom(sweepPool, recentMessages);
+    message = pickRandom(sweepPool, getRecentMessages());
   }
 
   // Fallback: time-of-day greeting
   if (!message) {
     const timeOfDay = getTimeOfDay();
-    message = pickRandom(SPEECH_POOLS.GREETINGS[timeOfDay], recentMessages);
+    message = pickRandom(SPEECH_POOLS.GREETINGS[timeOfDay], getRecentMessages());
   }
 
   trackMessage(message);
@@ -600,12 +616,12 @@ export function getReturnSpeech(ctx: SpeechContext): { message: string; duration
 
   // Priority 1: Gauge progress
   if (!ctx.isFedToday && ctx.gaugeValue >= 0.5) {
-    message = pickRandom(SPEECH_POOLS.RETURN.gauge_progress, recentMessages);
+    message = pickRandom(SPEECH_POOLS.RETURN.gauge_progress, getRecentMessages());
   }
 
   // Priority 2: Upcoming event reminder
   if (!message && ctx.upcomingIn7d.length > 0) {
-    const template = pickRandom(SPEECH_POOLS.RETURN.upcoming, recentMessages);
+    const template = pickRandom(SPEECH_POOLS.RETURN.upcoming, getRecentMessages());
     const first = ctx.upcomingIn7d[0];
     const eventName = typeof first === 'string' ? first : first.title;
     message = template.replace('{eventName}', eventName);
@@ -613,7 +629,7 @@ export function getReturnSpeech(ctx: SpeechContext): { message: string; duration
 
   // Priority 3: Sweep nudge
   if (!message && ctx.daysSinceLastSweep != null && ctx.daysSinceLastSweep >= 3) {
-    message = pickRandom(SPEECH_POOLS.RETURN.sweep_nudge, recentMessages);
+    message = pickRandom(SPEECH_POOLS.RETURN.sweep_nudge, getRecentMessages());
   }
 
   // Priority 4: Time shift (different time of day than last visit)
@@ -621,7 +637,7 @@ export function getReturnSpeech(ctx: SpeechContext): { message: string; duration
     const timeOfDay = getTimeOfDay();
     const timeShiftPool = (SPEECH_POOLS.RETURN.time_shift as Record<string, string[]>)[timeOfDay];
     if (timeShiftPool) {
-      message = pickRandom(timeShiftPool, recentMessages);
+      message = pickRandom(timeShiftPool, getRecentMessages());
     }
   }
 
@@ -635,7 +651,7 @@ export function getReturnSpeech(ctx: SpeechContext): { message: string; duration
 }
 
 export function getEmptyStateSpeech(): { message: string; duration: number } {
-  const message = pickRandom(SPEECH_POOLS.EMPTY_STATE, recentMessages);
+  const message = pickRandom(SPEECH_POOLS.EMPTY_STATE, getRecentMessages());
   trackMessage(message);
   return {
     message,
@@ -657,7 +673,7 @@ export function getMorningBriefSpeech(event: 'prompt' | 'complete' | 'skip'): {
   duration: number;
 } {
   const pool = SPEECH_POOLS.MORNING_BRIEF[event];
-  const message = pickRandom(pool, recentMessages);
+  const message = pickRandom(pool, getRecentMessages());
   trackMessage(message);
   return {
     message,
@@ -678,7 +694,7 @@ export function getFedCelebrationSpeech(fedDaysCount: number): {
         ? 'days_remaining_1'
         : 'days_remaining_0';
   const pool = SPEECH_POOLS.FED_CELEBRATION[key];
-  const message = pickRandom(pool, recentMessages);
+  const message = pickRandom(pool, getRecentMessages());
   trackMessage(message);
   return {
     message,
@@ -692,7 +708,7 @@ export function getPostAgeUpSpeech(newAge: number): {
   duration: number;
   variant: 'celebration';
 } {
-  const template = pickRandom(SPEECH_POOLS.POST_AGE_UP, recentMessages);
+  const template = pickRandom(SPEECH_POOLS.POST_AGE_UP, getRecentMessages());
   const message = template.replace(/\{age\}/g, String(newAge));
   trackMessage(message);
   return {
