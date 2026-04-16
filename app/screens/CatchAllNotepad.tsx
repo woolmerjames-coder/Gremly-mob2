@@ -1468,14 +1468,30 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const unsubscribe = eventBus.on('drop:reaction_ready', (payload) => {
       const { message, followUp } = payload;
 
-      // Training mode: stash the reaction, let handleSubmit display it
+      // Training mode: handle speech for guided drops
       const storeState = useGremlyStore.getState();
       if (
         storeState.isTrainingMode &&
         storeState.trainingDropStep >= 1 &&
-        storeState.trainingDropStep <= 5
+        storeState.trainingDropStep <= 4
       ) {
-        pendingTrainingReactionRef.current = message || null;
+        if (storeState.trainingDropStep === 1) {
+          // Step 1: stash for gauge modal dismiss handler
+          pendingTrainingReactionRef.current = message || null;
+        } else {
+          // Steps 2-4: combine and show directly
+          const trainingPrompt = getTrainingDropPrompt(storeState.trainingDropStep + 1);
+          if (trainingPrompt) {
+            const reaction = message || '';
+            const combined = reaction
+              ? reaction + '\n\n' + trainingPrompt.message
+              : trainingPrompt.message;
+            setGremlySpeech({
+              message: combined,
+              variant: 'default',
+            });
+          }
+        }
         return;
       }
 
@@ -2781,18 +2797,6 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // Mark fed celebration as shown so store path doesn't double-fire
           useGremlyStore.setState({ todayFedCelebrationShownAt: nowTimestamp() });
         }
-
-        // Show training prompt (with stashed AI reaction if available)
-        const currentStep = useGremlyStore.getState().trainingDropStep;
-        setTimeout(() => {
-          const prompt = getTrainingDropPrompt(currentStep + 1);
-          if (prompt) {
-            const reaction = pendingTrainingReactionRef.current;
-            pendingTrainingReactionRef.current = null;
-            const combined = reaction ? reaction + '\n\n' + prompt.message : prompt.message;
-            setGremlySpeech({ message: combined, variant: 'default' });
-          }
-        }, 1500);
 
         // Skip all generic speech below
       } else if (result.justCrossedFed) {
