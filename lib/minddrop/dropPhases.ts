@@ -135,6 +135,10 @@ async function callPhase1_5a(
     }
 
     const json = await res.json();
+    console.log('[card_note:1] Worker returned:', {
+      card_note: json.card_note,
+      speech_message: json.speech_message,
+    });
     const result = {
       smart_title: json.smart_title || null,
       card_note: json.card_note || null,
@@ -514,6 +518,11 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
     localId: drop.localId,
     hasTitle: !!result?.smart_title,
     hasMessage: !!confirmationMessage,
+  });
+
+  console.log('[card_note:2] Stored on drop:', {
+    cardNote: cardNote,
+    localId: drop.localId,
   });
 
   return {

@@ -1295,6 +1295,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const timingAskedRef = useRef<string | null>(null); // Track submission ID to avoid re-asking
   // Photo drop: Track if current submission has photos (for classification default to log-general)
   const currentSubmissionHasPhotosRef = useRef(false);
+  const pendingTrainingReactionRef = useRef<string | null>(null);
 
   // Auto-dismiss photo text nudge after 5 seconds
   useEffect(() => {
@@ -1457,19 +1458,15 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     const unsubscribe = eventBus.on('drop:reaction_ready', (payload) => {
       const { message, followUp } = payload;
 
-      // Training mode: combine reaction + training prompt in one bubble
+      // Training mode: stash the reaction, let handleSubmit display it
       const storeState = useGremlyStore.getState();
-      if (storeState.isTrainingMode && storeState.trainingDropStep >= 2) {
-        const trainingPrompt = getTrainingDropPrompt(storeState.trainingDropStep + 1);
-        if (trainingPrompt) {
-          const reactionText = message || '';
-          const combined = reactionText
-            ? reactionText + '\n\n' + trainingPrompt.message
-            : trainingPrompt.message;
-          setGremlySpeech({ message: combined, variant: 'default' });
-          return; // Skip all normal speech handling below
-        }
-        // If no training prompt (step 5+), fall through to normal handling
+      if (
+        storeState.isTrainingMode &&
+        storeState.trainingDropStep >= 1 &&
+        storeState.trainingDropStep <= 5
+      ) {
+        pendingTrainingReactionRef.current = message || null;
+        return;
       }
 
       console.log('[SpeechBubble] drop:reaction_ready received', {
@@ -2774,6 +2771,18 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           // Mark fed celebration as shown so store path doesn't double-fire
           useGremlyStore.setState({ todayFedCelebrationShownAt: nowTimestamp() });
         }
+
+        // Show training prompt (with stashed AI reaction if available)
+        const currentStep = useGremlyStore.getState().trainingDropStep;
+        setTimeout(() => {
+          const prompt = getTrainingDropPrompt(currentStep + 1);
+          if (prompt) {
+            const reaction = pendingTrainingReactionRef.current;
+            pendingTrainingReactionRef.current = null;
+            const combined = reaction ? reaction + '\n\n' + prompt.message : prompt.message;
+            setGremlySpeech({ message: combined, variant: 'default' });
+          }
+        }, 1500);
 
         // Skip all generic speech below
       } else if (result.justCrossedFed) {

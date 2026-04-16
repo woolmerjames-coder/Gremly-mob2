@@ -2545,6 +2545,11 @@ const RecentDrops: React.FC<{
         if (drop.cardNote) {
           sessionDropIds.add(drop.localId);
         }
+        console.log('[card_note:3] Unified views:', {
+          card_note: drop.cardNote,
+          localId: drop.localId,
+          inSession: sessionDropIds.has(drop.localId),
+        });
         return unified;
       })
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
