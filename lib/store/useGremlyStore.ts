@@ -1,3 +1,19 @@
+/**
+ * DEPRECATED LIFECYCLE COLUMNS — DO NOT ADD NEW REFERENCES
+ *
+ * The following columns/fields are deprecated and will be removed in Phase 5:
+ * - `is_training_mode` / `isTrainingMode`   → use `useNeedsMindDropTutorial()` selector
+ * - `training_started_at` / `trainingStartedAt` → use `useTrialStartedAt()` selector
+ *
+ * Lingering references in this file only are intentional — the store is the
+ * single place where these deprecated columns are still read from Supabase
+ * (for backward compatibility) and mirrored into their replacements via the
+ * dual-write trigger on cortex_preferences.
+ *
+ * All consumer code (screens, components, workers) should use the selectors
+ * from `lib/store/lifecycleSelectors.ts`.
+ */
+
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { persist, createJSONStorage } from 'zustand/middleware';
