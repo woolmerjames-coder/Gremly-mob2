@@ -1,3 +1,10 @@
+// SEMANTIC NOTE — `isInHabitBuildingPhase` in this worker:
+// True = user has NOT yet received their first weekly summary (new, pre-first-cycle).
+// This is NOT the in-app 5-drop MindDrop tutorial.
+// This is NOT `challenge_completed_at` (that's Phase 4 paywall gating).
+// Users in habit-building receive simpler copy + extra midday nudge.
+// Users with any weekly_summary row are "seasoned" — full contextual notifications.
+
 /**
  * Gremly Notification Worker v4
  *
@@ -179,15 +186,18 @@ export default {
       const headers = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` };
       const now = new Date();
 
-      const [prefsRes, cortexRes, tokenRes] = await Promise.all([
+      const [prefsRes, cortexRes, tokenRes, summaryRes] = await Promise.all([
         fetch(`${supabaseUrl}/rest/v1/notification_preferences?user_id=eq.${userId}&select=*`, {
           headers,
         }),
         fetch(
-          `${supabaseUrl}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=is_training_mode,training_started_at,graduated_at`,
+          `${supabaseUrl}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=graduated_at,is_tester,trial_started_at`,
           { headers },
         ),
         fetch(`${supabaseUrl}/rest/v1/push_tokens?user_id=eq.${userId}&select=token`, { headers }),
+        fetch(`${supabaseUrl}/rest/v1/weekly_summaries?user_id=eq.${userId}&select=id&limit=1`, {
+          headers,
+        }),
       ]);
 
       const prefs = prefsRes.ok ? await prefsRes.json() : [];
@@ -200,6 +210,8 @@ export default {
       const cortexData = cortexRes.ok ? await cortexRes.json() : [];
       const cortex = cortexData[0];
       const tokenData = tokenRes.ok ? await tokenRes.json() : [];
+      const summaryData = summaryRes.ok ? await summaryRes.json() : [];
+      const hasReceivedWeeklySummary = summaryData.length > 0;
       const hasToken = tokenData.length > 0;
 
       const timezone = pref.timezone || 'UTC';
@@ -245,8 +257,10 @@ export default {
         };
       }
 
-      const isTraining = cortex?.is_training_mode === true;
-      if (isTraining) {
+      // True = user has not yet received their first weekly summary (new / pre-first-cycle).
+      // Not related to the in-app 5-drop tutorial; not related to challenge_completed_at.
+      const isInHabitBuildingPhase = !hasReceivedWeeklySummary;
+      if (isInHabitBuildingPhase) {
         windows.midday = {
           enabled: true,
           targetTime: '12:30',
@@ -261,7 +275,7 @@ export default {
         timezone,
         todayDate: todayInUserTz,
         hasToken,
-        isTraining,
+        isInHabitBuildingPhase,
         cortex,
         dco: dco ? { tone: dco.tone, headline: dco.brief_headline } : null,
         todayActivity: ritual || {
@@ -338,23 +352,16 @@ async function sendScheduledNotifications(env) {
 
   const prefs = await prefsResponse.json();
 
-  // Get training mode status for each user
-  const cortexResponse = await fetch(
-    `${supabaseUrl}/rest/v1/cortex_preferences?select=owner_id,is_training_mode`,
-    {
-      headers: {
-        apikey: supabaseKey,
-        Authorization: `Bearer ${supabaseKey}`,
-      },
-    },
-  );
+  // Fetch distinct user_ids who have received at least one weekly summary
+  const summariesResponse = await fetch(`${supabaseUrl}/rest/v1/weekly_summaries?select=user_id`, {
+    headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+  });
+  const summaries = summariesResponse.ok ? await summariesResponse.json() : [];
 
-  const cortexPrefs = cortexResponse.ok ? await cortexResponse.json() : [];
-
-  // Create a map of user_id -> is_training_mode
-  const trainingMap = {};
-  for (const cp of cortexPrefs) {
-    trainingMap[cp.owner_id] = cp.is_training_mode === true;
+  // Build set: user_id -> true if they have received a weekly summary ("seasoned")
+  const seasonedUserIds = new Set(summaries.map((s) => s.user_id));
+  function isUserInHabitBuildingPhase(userId) {
+    return !seasonedUserIds.has(userId);
   }
 
   // Get push tokens
@@ -386,7 +393,7 @@ async function sendScheduledNotifications(env) {
     if (!token) continue;
 
     const timezone = pref.timezone || 'UTC';
-    const isTraining = trainingMap[pref.user_id] || false;
+    const isInHabitBuildingPhase = isUserInHabitBuildingPhase(pref.user_id);
     const userTime = getTimeInTimezone(now, timezone);
 
     // Check morning notification
@@ -399,9 +406,9 @@ async function sendScheduledNotifications(env) {
           token: token,
           type: 'morning',
           timezone: timezone,
-          isTraining: isTraining,
-          title: isTraining ? 'Gremly' : 'Good morning',
-          body: isTraining
+          isInHabitBuildingPhase: isInHabitBuildingPhase,
+          title: isInHabitBuildingPhase ? 'Gremly' : 'Good morning',
+          body: isInHabitBuildingPhase
             ? 'Morning. Got anything on your mind? Drop it before the day takes over.'
             : 'Your Morning Brief is waiting.',
         });
@@ -424,7 +431,7 @@ async function sendScheduledNotifications(env) {
           // Don't push — user is intentionally disengaged
         } else {
           let eveningBody;
-          if (isTraining) {
+          if (isInHabitBuildingPhase) {
             eveningBody = 'Time to sweep. A couple minutes and your brain is clear for tonight.';
           } else if (tone === 'recovering') {
             eveningBody = 'Quick check-in whenever you are ready.';
@@ -436,16 +443,16 @@ async function sendScheduledNotifications(env) {
             user_id: pref.user_id,
             token: token,
             type: 'evening',
-            isTraining: isTraining,
-            title: isTraining ? 'Evening sweep' : 'Sweep before sleep',
+            isInHabitBuildingPhase: isInHabitBuildingPhase,
+            title: isInHabitBuildingPhase ? 'Evening sweep' : 'Sweep before sleep',
             body: eveningBody,
           });
         }
       }
     }
 
-    // Midday notification (training mode only, 12:00-12:59)
-    if (isTraining) {
+    // Midday notification (habit-building phase only, 12:00-12:59)
+    if (isInHabitBuildingPhase) {
       const middayHour = 12;
       const middayMin = 30; // center of the window
       if (isWithinWindow(userTime.hour, userTime.minute, middayHour, middayMin, 30)) {
@@ -454,7 +461,7 @@ async function sendScheduledNotifications(env) {
           token: token,
           type: 'midday',
           timezone: timezone,
-          isTraining: true,
+          isInHabitBuildingPhase: true,
         });
       }
     }
@@ -471,7 +478,7 @@ async function sendScheduledNotifications(env) {
           token: token,
           type: 'afternoon',
           timezone: timezone,
-          isTraining: isTraining,
+          isInHabitBuildingPhase: isInHabitBuildingPhase,
           last_app_active_at: pref.last_app_active_at,
         });
       }
@@ -616,8 +623,8 @@ async function sendScheduledNotifications(env) {
           }
         }
 
-        // Training mode: simpler afternoon nudge focused on drops
-        if (user.isTraining) {
+        // Habit-building phase: simpler afternoon nudge focused on drops
+        if (user.isInHabitBuildingPhase) {
           await sendExpoPush(
             user.token,
             'Gremly',
@@ -629,7 +636,7 @@ async function sendScheduledNotifications(env) {
             },
           );
           sent++;
-          console.log(`[Notifications] Training afternoon sent to ${user.user_id}`);
+          console.log(`[Notifications] Habit-building afternoon sent to ${user.user_id}`);
           continue; // Skip the normal afternoon context logic
         }
 
