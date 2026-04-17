@@ -102,6 +102,8 @@ export function isHabitLockedIn(habit: Habit): boolean {
 // MMKV Storage Engine (synchronous — hydrates before first render)
 // ═══════════════════════════════════════════════════════════════════
 
+const STORE_SCHEMA_VERSION = 2; // bump this any time persisted shape changes
+
 const mmkv = createMMKV({ id: 'gremly-store' });
 
 const mmkvStorage = {
@@ -9508,6 +9510,36 @@ export const useGremlyStore = create<GremlyState>()(
             return value;
           },
         }),
+
+        version: STORE_SCHEMA_VERSION,
+
+        migrate: (persistedState: any, version: number) => {
+          if (!persistedState) return persistedState;
+
+          // Migration from v0/v1 (no version or version 1) to v2:
+          // Phase 2 moved lifecycle state out of the main partialize.
+          // Strip stale lifecycle fields so they don't override fresh Supabase data.
+          if (version < 2) {
+            console.log('[GremlyStore] Migrating persisted state from v' + version + ' to v2');
+            const {
+              onboardingCompletedAt,
+              firstDropCompletedAt,
+              isTrainingMode,
+              trainingStartedAt,
+              graduatedAt,
+              trainingDropStep,
+              pendingGraduation,
+              postGraduationMessageShown,
+              ...rest
+            } = persistedState;
+            return {
+              ...rest,
+              lifecycleCache: null, // force fresh fetch from Supabase on next init
+            };
+          }
+
+          return persistedState;
+        },
 
         // Only persist data, not transient UI state
         partialize: (state: GremlyState) => ({
