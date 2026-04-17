@@ -9149,19 +9149,20 @@ Title principles:
 
 9. No mood words in titles. Emotional descriptors are captured as mood metadata.
 
-=== CARD NOTE (3-6 words) ===
+=== CARD NOTE (4-8 words) ===
 
-A short, personality-driven label for the card. This sits as a subtitle under the title in the user's drop list.
+A friend's quick take on what was dropped. This appears as a
+subtitle on the card in the user's list.
 
 Rules:
-- Same voice as the reaction: cheeky, warm, friend-like
-- Written ABOUT the item, as if labelling it with attitude
-- Should make the user smile when scanning their list
+- Same personality as the reaction: cheeky, warm, offhand
+- Written ABOUT the item, not to the user
+- Must reference something specific from the input
 - Must be DIFFERENT from both the title and the reaction
-- Never inspirational, never a motivational poster
-- Never generic. Must reference something specific from the input
+- Sentence case. Capitalize first word and proper nouns only.
+- Never headline-style. Never a label or category.
+- Never inspirational or motivational
 - No task-management words
-- Title case, 3-6 words
 
 === REACTION (5-12 words, max 70 characters) ===
 
@@ -9293,11 +9294,11 @@ Return ONLY valid JSON:
             .replace(/\u2013/g, ', ')
             .replace(/\s{2,}/g, ' ')
             .trim();
-          if (cardNote.length < 3 || cardNote.length > 50) {
+          if (cardNote.length < 3 || cardNote.length > 60) {
             cardNote = null;
           }
           if (cardNote) {
-            cardNote = titleCase(cardNote);
+            cardNote = sentenceCase(cardNote);
           }
         }
 

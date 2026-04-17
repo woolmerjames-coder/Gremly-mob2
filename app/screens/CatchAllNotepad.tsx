@@ -1409,16 +1409,9 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Show a contextual greeting on mount (or first-visit onboarding speech)
   useEffect(() => {
-    console.log('[Greeting] useEffect fired', {
-      hasShown: hasShownGreetingRef.current,
-      isTrainingMode,
-      trainingDropStep,
-      firstDropCompletedAt,
-    });
-    // Only show greeting once (mount)
     if (hasShownGreetingRef.current) return;
 
-    // Don't show greeting during Day 1 guided drops - prompts handle it
+    // During Day 1 guided drops, prompts handle speech
     if (isTrainingMode && trainingDropStep >= 1 && trainingDropStep <= 4) {
       hasShownGreetingRef.current = true;
       const prompt = getTrainingDropPrompt(trainingDropStep + 1);
@@ -1428,30 +1421,24 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       return;
     }
 
-    // Delay slightly so the animation is visible
-    const timer = setTimeout(() => {
-      console.log('[Greeting] Timer fired', {
-        hasShown: hasShownGreetingRef.current,
-        firstDropCompletedAt,
-      });
-      if (hasShownGreetingRef.current) return;
+    // First visit: show after 500ms, lock ref immediately to
+    // prevent hydration-driven re-fires from restarting the timer
+    if (!firstDropCompletedAt) {
       hasShownGreetingRef.current = true;
-      if (!firstDropCompletedAt) {
+      const timer = setTimeout(() => {
         const speech = getFirstVisitSpeech();
         setGremlySpeech({ message: speech.message, variant: 'default' });
-        // Don't auto-dismiss — keep it visible until user interacts
-      } else if (isTrainingMode) {
-        const ctx = buildSpeechContext('greeting');
-        const greeting = getGreetingSpeechV2(ctx);
-        if (greeting) {
-          showGremlySpeech(greeting.message, greeting.duration);
-        }
-      } else {
-        const ctx = buildSpeechContext('greeting');
-        const greeting = getGreetingSpeechV2(ctx);
-        if (greeting) {
-          showGremlySpeech(greeting.message, greeting.duration);
-        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+
+    // Returning user: same pattern
+    hasShownGreetingRef.current = true;
+    const timer = setTimeout(() => {
+      const ctx = buildSpeechContext('greeting');
+      const greeting = getGreetingSpeechV2(ctx);
+      if (greeting) {
+        showGremlySpeech(greeting.message, greeting.duration);
       }
     }, 500);
     return () => clearTimeout(timer);
@@ -1466,7 +1453,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Subscribe to AI reaction events from the pipeline (speech bubble)
   useEffect(() => {
     const unsubscribe = eventBus.on('drop:reaction_ready', (payload) => {
-      const { message, followUp } = payload;
+      const { message, rawReaction, followUp } = payload;
 
       // Training mode: handle speech for guided drops
       const storeState = useGremlyStore.getState();
@@ -1476,13 +1463,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         storeState.trainingDropStep <= 4
       ) {
         if (storeState.trainingDropStep === 1) {
-          // Step 1: stash for gauge modal dismiss handler
-          pendingTrainingReactionRef.current = message || null;
+          // Step 1: stash RAW reaction for gauge modal dismiss
+          pendingTrainingReactionRef.current = rawReaction || null;
         } else {
-          // Steps 2-4: combine and show directly
+          // Steps 2-4: combine RAW reaction + training prompt
           const trainingPrompt = getTrainingDropPrompt(storeState.trainingDropStep + 1);
           if (trainingPrompt) {
-            const reaction = message || '';
+            const reaction = rawReaction || '';
             const combined = reaction
               ? reaction + '\n\n' + trainingPrompt.message
               : trainingPrompt.message;
@@ -3269,6 +3256,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     recentDropsOpacity,
     isInputFocused,
     keyboardVisible,
+    gremlySpeech,
   ]);
 
   const content = MIND_DROP_V2 ? (
@@ -3308,15 +3296,12 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         onDismiss={() => {
           setShowGaugeModal(false);
           markGaugeExplanationSeen();
-          // Show the next drop prompt (step 2) after modal dismisses.
-          // trainingDropStep is 1 here (first drop done), but we want
-          // the prompt that guides toward the second drop.
           const nextPrompt = getTrainingDropPrompt(2);
           if (nextPrompt) {
-            setTimeout(
-              () => setGremlySpeech({ message: nextPrompt.message, variant: 'default' }),
-              300,
-            );
+            const reaction = pendingTrainingReactionRef.current;
+            pendingTrainingReactionRef.current = null;
+            const combined = reaction ? reaction + '\n\n' + nextPrompt.message : nextPrompt.message;
+            setTimeout(() => setGremlySpeech({ message: combined, variant: 'default' }), 300);
           }
         }}
       />

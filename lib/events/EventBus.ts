@@ -131,6 +131,7 @@ export type EventMap = {
   'drop:reaction_ready': {
     localId: string;
     message: string | null;
+    rawReaction: string | null;
     followUp: 'multi' | 'clarify' | null;
   };
 };

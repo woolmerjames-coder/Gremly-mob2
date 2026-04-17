@@ -436,6 +436,7 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
     eventBus.emit('drop:reaction_ready', {
       localId: drop.localId,
       message: null,
+      rawReaction: null,
       followUp: 'multi',
     });
 
@@ -503,6 +504,7 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
   const cardNote = result?.card_note || null;
   const confirmationMessage = result?.confirmation_message || null;
   const speechMessage = result?.speech_message || result?.confirmation_message || null;
+  const rawReaction = result?.confirmation_message || null;
 
   // Determine follow-up signal for speech bubble
   const followUpSignal: 'multi' | 'clarify' | null = drop.needsClarification ? 'clarify' : null;
@@ -511,6 +513,7 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
   eventBus.emit('drop:reaction_ready', {
     localId: drop.localId,
     message: speechMessage,
+    rawReaction: rawReaction,
     followUp: followUpSignal,
   });
 
