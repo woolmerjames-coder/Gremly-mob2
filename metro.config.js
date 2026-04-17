@@ -1,5 +1,6 @@
 // Learn more: https://docs.expo.dev/guides/customizing-metro/
 const { getDefaultConfig } = require('expo/metro-config');
+const { withSentryConfig } = require('@sentry/react-native/metro');
 
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
@@ -21,4 +22,4 @@ config.resolver = {
 config.cacheStores = [];
 config.fileMapCacheDirectory = './.metro-cache';
 
-module.exports = config;
+module.exports = withSentryConfig(config);
