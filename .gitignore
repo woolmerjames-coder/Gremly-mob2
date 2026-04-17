@@ -72,5 +72,4 @@ onboarding-files.zip
 .claude/
 app/screens/.WeeklySummaryV2Screen.tsx.swp
 
-sentry.properties
 .env.local

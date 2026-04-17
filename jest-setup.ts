@@ -89,6 +89,7 @@ jest.mock('@sentry/react-native', () => ({
   addBreadcrumb: jest.fn(),
   mobileReplayIntegration: jest.fn(() => ({})),
   reactNativeTracingIntegration: jest.fn(() => ({})),
+  getGlobalScope: jest.fn(() => ({ setTag: jest.fn() })),
 }));
 
 // Mock expo-constants to avoid expo-modules-core EventEmitter issues
