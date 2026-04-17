@@ -56,6 +56,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Text } from '../../ui/Text';
 import { Icon } from '../../design-system/Icon';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useNeedsMindDropTutorial, useTrainingDropStep } from '../../lib/store/lifecycleSelectors';
 
 import celebrationController from '../features/celebration/CelebrationController';
 import { selectBriefHeadline } from '../../lib/store/selectors';
@@ -1101,8 +1102,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const markFirstDropComplete = useGremlyStore((s) => s.markFirstDropComplete);
 
   // Training mode state
-  const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
-  const trainingDropStep = useGremlyStore((s) => s.trainingDropStep);
+  const isTrainingMode = useNeedsMindDropTutorial();
+  const trainingDropStep = useTrainingDropStep();
   const hasSeenGaugeExplanation = useGremlyStore((s) => s.hasSeenGaugeExplanation);
   const hasSeenFirstFedModal = useGremlyStore((s) => s.hasSeenFirstFedModal);
   const hasSeenSweepUnlockModal = useGremlyStore((s) => s.hasSeenSweepUnlockModal);

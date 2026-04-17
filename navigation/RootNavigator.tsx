@@ -4,6 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../providers/AuthProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
+import { useNeedsOnboarding } from '../lib/store/lifecycleSelectors';
 import { useDropRecovery } from '../hooks/useDropRecovery';
 import { useSubscriptionStatus } from '../lib/subscriptions/useSubscriptionStatus';
 
@@ -109,7 +110,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function RootNavigator() {
   const { user, loading } = useAuth();
   const isInitialized = useGremlyStore((s) => s.isInitialized);
-  const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
+  const needsOnboarding = useNeedsOnboarding();
   const { isExpired } = useSubscriptionStatus();
 
   // Wait for MMKV hydration so onboardingCompletedAt is available from persisted state
@@ -138,10 +139,10 @@ export default function RootNavigator() {
 
   // Determine initial route based on onboarding, training, and subscription status
   const initialRouteName = useMemo(() => {
-    if (!onboardingCompletedAt) return 'Onboarding';
+    if (needsOnboarding) return 'Onboarding';
     if (isExpired) return 'TrialEndPaywall';
     return 'Tabs';
-  }, [onboardingCompletedAt, isExpired]);
+  }, [needsOnboarding, isExpired]);
 
   if (!isReady) {
     return <View style={styles.splashHolder} />;
