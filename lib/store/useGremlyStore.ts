@@ -1099,21 +1099,33 @@ export const useGremlyStore = create<GremlyState>()(
         // ═══════════════════════════════════════════════════════════════════
 
         initialize: async (userId: string) => {
-          // Already fully initialized for this user — just background refresh
+          // Fast path: already initialized for this user, verify cache is fresh
           if (get().isInitialized && get().userId === userId) {
-            get()
-              .refreshFromServer()
-              .catch((err) => {
-                console.warn('[GremlyStore] Background refresh failed:', err);
-              });
-            return;
+            const cache = get().lifecycleCache;
+            const cacheAge = cache?.cachedAt
+              ? getDateService().now().getTime() - new Date(cache.cachedAt).getTime()
+              : Infinity;
+            const cacheIsFresh = cache?.cachedForUserId === userId && cacheAge < 5 * 60 * 1000;
+
+            if (cacheIsFresh) {
+              // Non-blocking refresh
+              get()
+                .refreshFromServer()
+                .catch((err) => {
+                  console.warn('[GremlyStore] Background refresh failed:', err);
+                });
+              return;
+            }
+            // Cache stale or wrong user — fall through to full re-init
           }
 
           // If we have persisted data for this user, render immediately
           // and sync fresh data in background
           const hasPersistedData = get().userId === userId && get().todos.length > 0;
+          const cache = get().lifecycleCache;
+          const cacheMatchesUser = cache?.cachedForUserId === userId;
 
-          if (hasPersistedData) {
+          if (hasPersistedData && cacheMatchesUser) {
             console.log('[GremlyStore] ✅ Rendering from cached data, syncing in background');
             set({ isInitialized: true, userId });
 
@@ -1530,6 +1542,7 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           set({
+            lifecycleCache: null,
             todos: [],
             habits: [],
             notes: [],
@@ -1557,7 +1570,6 @@ export const useGremlyStore = create<GremlyState>()(
             gremlyAge: 0,
             gremlyAgeLastIncrementedAt: null,
             dayBoundaryHour: 0,
-            onboardingCompletedAt: null,
             accountCreatedAt: null,
             demoSweepCompletedAt: null,
             todayRitualDay: null,
@@ -1574,16 +1586,10 @@ export const useGremlyStore = create<GremlyState>()(
             lastFedAt: null,
             sockCount: 0,
             aiMode: 'encouragement' as AIMode,
-            isTrainingMode: true,
-            trainingStartedAt: null,
-            graduatedAt: null,
-            pendingGraduation: false,
-            postGraduationMessageShown: false,
             isSubscribed: false,
             gremlyColor: 'forest',
             userName: null,
             userPronouns: null,
-            trainingDropStep: 0,
             trainingReadiness: 0,
             hasSeenGaugeExplanation: false,
             hasSeenFirstFedModal: false,
