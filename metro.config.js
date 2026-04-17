@@ -1,8 +1,3 @@
-// NOTE: Sentry bundling is handled by the @sentry/react-native/expo config plugin
-// declared in app.json. Do NOT manually wire createSentryMetroSerializer here —
-// it breaks EAS builds on newer Expo SDKs. If Sentry debug IDs aren't working,
-// verify the plugin is in app.json's plugins array.
-
 // Learn more: https://docs.expo.dev/guides/customizing-metro/
 const { getDefaultConfig } = require('expo/metro-config');
 

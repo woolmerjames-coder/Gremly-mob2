@@ -22,7 +22,6 @@ import { nowTimestamp } from '../lib/date/DateService';
 import useDayBoundaryWatcher from '../lib/today/hooks/useDayBoundaryWatcher';
 import { registerForPushNotifications, savePushToken } from '../src/utils/notifications';
 import { loginUser, logoutUser } from '../lib/subscriptions/purchases';
-import * as Sentry from '@sentry/react-native';
 import type { Session, User } from '@supabase/supabase-js';
 
 // Configure Google Sign-In on module load
@@ -198,12 +197,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             loginUser(newSession.user.id).catch((e) =>
               console.log('[AuthProvider] RevenueCat login failed:', e),
             );
-            // Tag Sentry events with the authenticated user
-            Sentry.setUser({ id: newSession.user.id });
           }
           break;
         case 'SIGNED_OUT':
-          Sentry.setUser(null);
           setUser(null);
           setSession(null);
           break;

@@ -1,6 +1,5 @@
 import 'react-native-gesture-handler'; // must be first
 import 'react-native-url-polyfill/auto'; // URL polyfill for React Native
-import * as Sentry from '@sentry/react-native';
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -53,13 +52,6 @@ import { useTimezoneSync } from './hooks/useTimezoneSync';
 import { useMascotLifecycle } from './hooks/useMascotLifecycle';
 import { MascotModeProvider } from './contexts/MascotModeContext';
 import { OfflineBanner } from './app/components/OfflineBanner';
-
-// Initialise Sentry error tracking
-Sentry.init({
-  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN ?? '',
-  enabled: !__DEV__,
-  tracesSampleRate: 0,
-});
 
 // Prevent the splash screen from auto-hiding before app is ready
 SplashScreen.preventAutoHideAsync();
@@ -778,7 +770,7 @@ function App() {
   );
 }
 
-export default Sentry.wrap(App);
+export default App;
 
 /*
  * ============================================================================
