@@ -1070,7 +1070,7 @@ export function getProviders(tier, env) {
         },
         fallback: {
           provider: 'gemini',
-          model: 'gemini-3.1-flash-lite-preview',
+          model: 'gemini-3-flash-preview',
           apiKey: env.GOOGLE_API_KEY || env.GEMINI_API_KEY,
           thinkingLevel: 'minimal',
         },

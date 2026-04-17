@@ -122,7 +122,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get store actions for resolving clarification
-  const resolvePendingDropClarification = useGremlyStore((s) => s.resolvePendingDropClarification);
+  const resolveEntityClarification = useGremlyStore((s) => s.resolveEntityClarification);
   const resolveSkippedClarification = useGremlyStore((s) => s.resolveSkippedClarification);
 
   // Subscribe to entities to get fresh clarification data when Phase 1.5 completes
@@ -130,8 +130,8 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const notes = useGremlyStore((s) => s.notes);
   const todos = useGremlyStore((s) => s.todos);
   const habits = useGremlyStore((s) => s.habits);
-  // Also subscribe to pendingDrops - Phase 1.5 updates here before sync completes
-  const pendingDrops = useGremlyStore((s) => s.pendingDrops);
+  // Also subscribe to queueItems - Phase 1.5 updates here before sync completes
+  const queueItems = useGremlyStore((s) => s.queueItems);
 
   // Derive the actual question/options from the entity if popup state is stale
   // This ensures we always show the latest data, even if Phase 1.5 completed after popup opened
@@ -200,17 +200,17 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    // THIRD: Entity synced but Phase 1.5 completed AFTER sync - check pendingDrops by drop_id
-    // The synced entity has a drop_id that equals the pending drop's localId
+    // THIRD: Entity synced but Phase 1.5 completed AFTER sync - check queueItems by drop_id
+    // The synced entity has a drop_id that equals the queued drop's localId
     const entityDropId = (entity as Record<string, unknown>).drop_id as string | undefined;
     if (entityDropId) {
-      const pendingDrop = pendingDrops.get(entityDropId);
-      if (pendingDrop) {
-        const pendingQuestion = (pendingDrop as any).clarification_question;
-        const pendingOptions = (pendingDrop as any).clarification_options;
+      const queuedDrop = queueItems.find((d) => d.localId === entityDropId);
+      if (queuedDrop) {
+        const pendingQuestion = queuedDrop.clarificationQuestion;
+        const pendingOptions = queuedDrop.clarificationOptions;
 
         if (pendingQuestion && Array.isArray(pendingOptions) && pendingOptions.length >= 2) {
-          console.log('[GlobalOverlay] Using Phase 1.5 data from pendingDrop via entity.drop_id', {
+          console.log('[GlobalOverlay] Using Phase 1.5 data from queuedDrop via entity.drop_id', {
             dropId: entityDropId,
             question: String(pendingQuestion).substring(0, 30),
             optionsCount: pendingOptions.length,
@@ -235,7 +235,7 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
     clarificationPopup.entityType,
     clarificationPopup.question,
     clarificationPopup.options,
-    pendingDrops,
+    queueItems,
     notes,
     todos,
     habits,
@@ -287,18 +287,16 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
       // Fire and forget - don't await
       // The popup shows instant success and dismisses itself
       // The card shows processing animation and updates progressively
-      resolvePendingDropClarification(
-        clarificationPopup.entityId,
-        selectionValue,
-        isFreeText,
-      ).catch((error) => {
-        console.error('[GlobalOverlay] Clarification resolution failed:', error);
-      });
+      resolveEntityClarification(clarificationPopup.entityId, selectionValue, isFreeText).catch(
+        (error) => {
+          console.error('[GlobalOverlay] Clarification resolution failed:', error);
+        },
+      );
 
       // Note: Popup dismisses itself after showing "Great, on it"
       // We don't close it here anymore
     },
-    [clarificationPopup.entityId, resolvePendingDropClarification],
+    [clarificationPopup.entityId, resolveEntityClarification],
   );
 
   const handleClarificationSkip = useCallback(() => {

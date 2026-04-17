@@ -42,30 +42,20 @@ describe('runPhase1', () => {
     jest.useRealTimers();
   });
 
-  describe('timeout handling', () => {
-    test('returns fallback result if API times out', async () => {
-      // Mock fetch to hang forever (never resolve)
-      mockFetch.mockImplementation(
-        () =>
-          new Promise(() => {
-            // Never resolves
-          }),
-      );
+  describe('error fallback', () => {
+    test('returns fallback with api-error classificationSource on fetch rejection', async () => {
+      // Timeout is now handled by dropPhases.ts withTimeout(15s), not phase1.
+      // Phase1 only produces fallback on actual API errors.
+      mockFetch.mockRejectedValue(new Error('Network error'));
 
-      // Start the phase1 call
-      const resultPromise = runPhase1('buy milk', {});
+      const result = await runPhase1('buy milk', {});
 
-      // Advance timers past the 8 second timeout (PHASE1_TIMEOUT_MS = 8000)
-      jest.advanceTimersByTime(8500);
-
-      const result = await resultPromise;
-
-      // Should return fallback (new architecture returns log/general on timeout)
       expect(result.source).toBe('heuristic-fallback');
-      expect(result.bucket).toBe('log'); // Fallback is now log/general
+      expect(result.bucket).toBe('log');
       expect(result.subtype).toBe('general');
       expect(result.confidence).toBe(0.5);
-    }, 15000); // Increase test timeout to allow for timer advancement
+      expect(result.classificationSource).toBe('api-error');
+    });
   });
 
   describe('API confirmation', () => {
@@ -398,18 +388,10 @@ describe('runPhase1', () => {
     });
 
     test('fallback has is_multi: false', async () => {
-      // Mock fetch to hang forever (timeout)
-      mockFetch.mockImplementation(
-        () =>
-          new Promise(() => {
-            // Never resolves
-          }),
-      );
+      // Simulate API error (timeout is now handled by dropPhases.ts, not phase1)
+      mockFetch.mockRejectedValue(new Error('Network error'));
 
-      const resultPromise = runPhase1('buy milk', {});
-      jest.advanceTimersByTime(8500); // Updated timeout to 8000ms
-
-      const result = await resultPromise;
+      const result = await runPhase1('buy milk', {});
 
       expect(result.is_multi).toBe(false);
       expect(result.source).toBe('heuristic-fallback');

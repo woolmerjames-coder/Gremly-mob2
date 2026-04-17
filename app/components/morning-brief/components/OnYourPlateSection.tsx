@@ -15,7 +15,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { AnimatedTaskItem, type TaskItemData } from './TaskItem';
-import type { PendingDrop } from '../../../../lib/store/useGremlyStore';
+import type { QueuedDrop } from '../../../../lib/minddrop/dropQueue';
 
 // Colors matching CalendarScreen exactly
 const COLORS = {
@@ -38,7 +38,7 @@ interface OnYourPlateSectionProps {
   onTaskPress: (task: TaskItemData) => void;
   onTimePress?: (task: TaskItemData) => void;
   onAddPress: () => void;
-  pendingDrops?: PendingDrop[];
+  pendingDrops?: QueuedDrop[];
   // Prioritization mode props
   isPrioritizing?: boolean;
   /** When true, show all tasks regardless of selection state */
@@ -55,7 +55,7 @@ interface OnYourPlateSectionProps {
  * PendingDropRow - Shows a processing task with loading animation
  * Matches the visual style of TaskItem but with loading state
  */
-function PendingDropRow({ drop }: { drop: PendingDrop }) {
+function PendingDropRow({ drop }: { drop: QueuedDrop }) {
   const [dots, setDots] = useState('');
 
   // Animated dots for loading state

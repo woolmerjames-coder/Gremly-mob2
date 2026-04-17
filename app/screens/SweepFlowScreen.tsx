@@ -1489,9 +1489,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
   const archiveNote = useGremlyStore((state) => state.archiveNote);
   const _updateHabit = useGremlyStore((state) => state.updateHabit);
   const archiveHabit = useGremlyStore((state) => state.archiveHabit);
-  const resolvePendingDropClarification = useGremlyStore(
-    (state) => state.resolvePendingDropClarification,
-  );
+  const resolveEntityClarification = useGremlyStore((state) => state.resolveEntityClarification);
 
   // Use store data for overlay lookups
   const todos = useGremlyStore((state) => state.todos);
@@ -2916,7 +2914,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
       setIsSubmittingClarification(true);
       try {
         // Call the store function to resolve clarification
-        await resolvePendingDropClarification(candidate.id, optionId);
+        await resolveEntityClarification(candidate.id, optionId);
 
         // Show success briefly
         setClarificationSuccess('Got it!');
@@ -2940,7 +2938,7 @@ function SweepDecisionStep({ onFinished, onClose, initialCardIndex }: DecisionSt
         setIsSubmittingClarification(false);
       }
     },
-    [candidatesWithMeta, currentIndex, resolvePendingDropClarification],
+    [candidatesWithMeta, currentIndex, resolveEntityClarification],
   );
 
   /**
@@ -3872,7 +3870,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
   // Track if multi-split step was shown
   const [multiSplitComplete, setMultiSplitComplete] = useState(false);
 
-  // Get unresolved multi-drops from NOTES (not pendingDrops - they're promoted before sweep starts)
+  // Get unresolved multi-drops from NOTES (not queueItems - they're promoted before sweep starts)
   // Multi-drops are stored as notes with views.is_multi=true and views.minddrop_stage='multi_pending'
   const notes = useGremlyStore((state) => state.notes);
   const unresolvedMultiDrops = useMemo(() => {

@@ -2217,23 +2217,19 @@ export const useSweepIntroStatsFromStore = (lastSweepCompletedAt: string | null)
 // PENDING DROPS SELECTORS (optimistic UI for quick-add)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import type { PendingDrop } from './useGremlyStore';
+import type { QueuedDrop } from '../minddrop/dropQueue';
 
 /**
  * Get pending drops for Today's Focus (source: 'today')
  * Shows optimistic loading cards while drops are processing
  * Uses useShallow to prevent infinite re-renders from new array references
  */
-export function useTodayPendingDrops(): PendingDrop[] {
+export function useTodayPendingDrops(): QueuedDrop[] {
   return useGremlyStore(
     useShallow((state) => {
-      const drops: PendingDrop[] = [];
-      state.pendingDrops.forEach((drop) => {
-        if (drop.source === 'today') {
-          drops.push(drop);
-        }
-      });
-      return drops;
+      return state.queueItems.filter(
+        (d) => d.source === 'today' && d.phase !== 'complete' && d.phase !== 'failed',
+      );
     }),
   );
 }
@@ -2243,17 +2239,13 @@ export function useTodayPendingDrops(): PendingDrop[] {
  * Shows optimistic loading cards while drops are processing
  * Uses useShallow to prevent infinite re-renders from new array references
  */
-export function useSpacePendingDrops(spaceId: string | null): PendingDrop[] {
+export function useSpacePendingDrops(spaceId: string | null): QueuedDrop[] {
   return useGremlyStore(
     useShallow((state) => {
       if (!spaceId) return [];
-      const drops: PendingDrop[] = [];
-      state.pendingDrops.forEach((drop) => {
-        if (drop.spaceId === spaceId) {
-          drops.push(drop);
-        }
-      });
-      return drops;
+      return state.queueItems.filter(
+        (d) => d.spaceId === spaceId && d.phase !== 'complete' && d.phase !== 'failed',
+      );
     }),
   );
 }

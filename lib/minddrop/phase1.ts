@@ -32,8 +32,6 @@ export interface ClassifyContext {
 
 // --- Helpers ---
 
-const PHASE1_TIMEOUT_MS = 8000;
-
 const safeGetEnv = typeof getEnv === 'function' ? getEnv : undefined;
 
 const readCortexUrl = (): string => {
@@ -115,11 +113,6 @@ export async function runPhase1(
     };
   }
 
-  // Create timeout promise
-  const timeoutPromise = new Promise<null>((resolve) => {
-    setTimeout(() => resolve(null), PHASE1_TIMEOUT_MS);
-  });
-
   // Create API call promise
   const apiPromise = (async () => {
     try {
@@ -150,16 +143,16 @@ export async function runPhase1(
     }
   })();
 
-  // Race API call against timeout
-  const apiResult = await Promise.race([apiPromise, timeoutPromise]);
+  const apiResult = await apiPromise;
 
   if (FEATURE_FLAGS.HEURISTIC_LOGGING_ENABLED) {
     console.log('[Phase1:DEBUG] Raw API response:', JSON.stringify(apiResult, null, 2));
   }
 
-  // If API failed or timed out, return fallback
+  // If API call failed (network error or non-ok status), return fallback.
+  // Timeouts are handled by dropPhases.ts withTimeout(15000).
   if (!apiResult) {
-    console.log('[Phase1] Using fallback (timeout or error)');
+    console.log('[Phase1] API call failed');
     return {
       bucket: 'log',
       subtype: 'general',
@@ -169,7 +162,7 @@ export async function runPhase1(
       is_multi: false,
       reminder_intent: false,
       classificationDegraded: true,
-      classificationSource: 'client-fallback',
+      classificationSource: 'api-error',
     };
   }
 

@@ -41,6 +41,8 @@ jest.mock('../../store/useGremlyStore', () => ({
     getState: () => ({
       userId: 'user-1',
       pendingDrops: new Map(),
+      recentSpeech: [],
+      pushRecentSpeech: jest.fn(),
     }),
   },
 }));
@@ -57,10 +59,17 @@ jest.mock('../../env', () => ({
   },
 }));
 
-import { withTimeout, getPhaseHandler, handleQueued, handleEnriched } from '../dropPhases';
+import {
+  withTimeout,
+  getPhaseHandler,
+  handleQueued,
+  handleClassified,
+  handleEnriched,
+} from '../dropPhases';
 import { runPhase1 } from '../phase1';
 import { detectMulti } from '../detectMulti';
 import { syncDropToSupabase, syncMultiDropToSupabase } from '../dropSync';
+import { eventBus } from '../../events/EventBus';
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -303,5 +312,196 @@ describe('handleEnriched', () => {
         extracted_date: '2026-03-31',
       }),
     );
+  });
+});
+
+// ── handleQueued: drop:reaction_ready emission ───────────────────
+
+describe('handleQueued — drop:reaction_ready emission', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    eventBus.clear();
+    (runPhase1 as jest.Mock).mockResolvedValue({
+      bucket: 'todo',
+      subtype: null,
+      habitSubtype: null,
+      confidence: 0.95,
+      source: 'ai',
+    });
+  });
+
+  it('emits drop:reaction_ready with null message/rawReaction and multi followUp for multi drops', async () => {
+    (detectMulti as jest.Mock).mockResolvedValue({
+      is_multi: true,
+      segments: [
+        { text: 'Buy milk', bucket: 'todo', subtype: null },
+        { text: 'Feeling good', bucket: 'log', subtype: 'catchall' },
+      ],
+      dominant_bucket: 'log',
+    });
+
+    const handler = jest.fn();
+    eventBus.on('drop:reaction_ready', handler);
+
+    const drop = makeDrop({ text: 'Buy milk, feeling good' });
+    await handleQueued(drop);
+
+    expect(handler).toHaveBeenCalledWith({
+      localId: 'test-drop-1',
+      message: null,
+      rawReaction: null,
+      followUp: 'multi',
+    });
+  });
+});
+
+// ── handleClassified — drop:reaction_ready emission ──────────────
+
+describe('handleClassified — drop:reaction_ready emission', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    eventBus.clear();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('emits drop:reaction_ready with rawReaction from confirmation_message', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          smart_title: 'Walk Bella',
+          card_note: 'Good pup time',
+          confirmation_message: 'Bella time!',
+          speech_message: 'Nice one! Bella time!',
+        }),
+    });
+
+    const handler = jest.fn();
+    eventBus.on('drop:reaction_ready', handler);
+
+    const drop = makeDrop({
+      phase: 'classified',
+      bucket: 'todo',
+      text: 'Walk the dog Bella',
+      needsClarification: false,
+    });
+    await handleClassified(drop);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith({
+      localId: 'test-drop-1',
+      message: 'Nice one! Bella time!',
+      rawReaction: 'Bella time!',
+      followUp: null,
+    });
+  });
+
+  it('sets rawReaction to confirmation_message even when speech_message differs', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          smart_title: 'Test Title',
+          card_note: null,
+          confirmation_message: 'Raw reaction here',
+          speech_message: 'Decorated opener + Raw reaction here',
+        }),
+    });
+
+    const handler = jest.fn();
+    eventBus.on('drop:reaction_ready', handler);
+
+    const drop = makeDrop({
+      phase: 'classified',
+      bucket: 'todo',
+      text: 'Test',
+      needsClarification: false,
+    });
+    await handleClassified(drop);
+
+    const payload = handler.mock.calls[0][0];
+    expect(payload.message).toBe('Decorated opener + Raw reaction here');
+    expect(payload.rawReaction).toBe('Raw reaction here');
+  });
+
+  it('sets rawReaction to null when no confirmation_message', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          smart_title: 'Test Title',
+          card_note: null,
+          confirmation_message: null,
+          speech_message: null,
+        }),
+    });
+
+    const handler = jest.fn();
+    eventBus.on('drop:reaction_ready', handler);
+
+    const drop = makeDrop({
+      phase: 'classified',
+      bucket: 'todo',
+      text: 'Test',
+      needsClarification: false,
+    });
+    await handleClassified(drop);
+
+    const payload = handler.mock.calls[0][0];
+    expect(payload.message).toBeNull();
+    expect(payload.rawReaction).toBeNull();
+  });
+
+  it('sets followUp to clarify when drop needs clarification', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          smart_title: 'Ambiguous Thing',
+          card_note: null,
+          confirmation_message: 'Got it',
+          speech_message: 'Got it',
+        }),
+    });
+
+    const handler = jest.fn();
+    eventBus.on('drop:reaction_ready', handler);
+
+    const drop = makeDrop({
+      phase: 'classified',
+      bucket: 'todo',
+      text: 'Do the thing',
+      needsClarification: true,
+    });
+    await handleClassified(drop);
+
+    const payload = handler.mock.calls[0][0];
+    expect(payload.followUp).toBe('clarify');
+  });
+
+  it('falls back to raw text title when Phase 1.5a times out', async () => {
+    global.fetch = jest
+      .fn()
+      .mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ ok: true, json: () => ({}) }), 10000),
+          ),
+      );
+
+    const drop = makeDrop({
+      phase: 'classified',
+      bucket: 'todo',
+      text: 'Buy groceries for the week ahead',
+      needsClarification: false,
+    });
+    const result = await handleClassified(drop);
+
+    expect(result.smartTitle).toBe('Buy groceries for the week ahead');
   });
 });

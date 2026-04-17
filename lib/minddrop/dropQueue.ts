@@ -6,6 +6,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useGremlyStore } from '../store/useGremlyStore';
 import { generateDropId } from './ids';
 import type { MindDropBucket, LogSubtype } from './types';
 import type { HabitSubtype } from '../types';
@@ -39,6 +40,101 @@ async function withQueueLock<T>(fn: () => Promise<T>): Promise<T> {
   } finally {
     release!();
   }
+}
+
+// ============================================================================
+// Zustand sync
+// ============================================================================
+
+/**
+ * After every AsyncStorage write, push active queue items to Zustand.
+ * Active = not yet complete (still processing or failed-retryable).
+ * This is the ONLY path that updates queueItems.
+ */
+function syncQueueToZustand(queue: QueuedDrop[]): void {
+  const active = queue.filter((d) => d.phase !== 'complete');
+
+  useGremlyStore.setState((state) => {
+    const oldByLocalId = new Map(state.queueItems.map((d) => [d.localId, d]));
+
+    const newItems = active.map((drop) => {
+      const old = oldByLocalId.get(drop.localId);
+      if (!old) {
+        console.log('[STABILITY] New drop, no old ref:', drop.localId);
+        return drop;
+      }
+
+      // Compare visual-relevant fields only.
+      // If none changed, return the OLD reference so React skips re-render.
+      const fieldsMatch =
+        old.phase === drop.phase &&
+        old.bucket === drop.bucket &&
+        old.subtype === drop.subtype &&
+        old.smartTitle === drop.smartTitle &&
+        old.confirmationMessage === drop.confirmationMessage &&
+        old.timeEstimateMinutes === drop.timeEstimateMinutes &&
+        old.extractedDate === drop.extractedDate &&
+        old.extractedFrequency === drop.extractedFrequency &&
+        old.targetDate === drop.targetDate &&
+        old.scheduledDate === drop.scheduledDate &&
+        old.eventTime === drop.eventTime &&
+        old.needsClarification === drop.needsClarification &&
+        old.clarificationQuestion === drop.clarificationQuestion &&
+        old.isMulti === drop.isMulti &&
+        old.multiSummary === drop.multiSummary &&
+        arraysEqual(old.tags, drop.tags) &&
+        arraysEqual(old.people, drop.people) &&
+        arraysEqual(old.mood, drop.mood) &&
+        arraysEqual(old.extractedDays, drop.extractedDays);
+
+      if (fieldsMatch) {
+        console.log('[STABILITY] Reusing old ref for:', drop.localId);
+        return old;
+      }
+
+      console.log('[STABILITY] Fields changed for:', drop.localId, {
+        phase: old.phase !== drop.phase ? `${old.phase} → ${drop.phase}` : 'same',
+        bucket: old.bucket !== drop.bucket ? `${old.bucket} → ${drop.bucket}` : 'same',
+        smartTitle: old.smartTitle !== drop.smartTitle ? 'changed' : 'same',
+        confirmationMessage:
+          old.confirmationMessage !== drop.confirmationMessage ? 'changed' : 'same',
+        tags: old.tags === drop.tags ? 'same ref' : 'diff ref',
+      });
+      return drop;
+    });
+
+    // Also preserve the array reference itself if nothing changed at all
+    const arrayUnchanged =
+      newItems.length === state.queueItems.length &&
+      newItems.every((item, i) => item === state.queueItems[i]);
+
+    if (arrayUnchanged) {
+      console.log('[STABILITY] Array unchanged, returning same state');
+      return state; // No change — don't trigger any subscribers
+    }
+
+    console.log('[STABILITY] Array changed, updating queueItems');
+    return { queueItems: newItems };
+  });
+}
+
+function arraysEqual(a?: any[] | null, b?: any[] | null): boolean {
+  // Treat undefined/null/[] as equivalent
+  const aEmpty = !a || a.length === 0;
+  const bEmpty = !b || b.length === 0;
+  if (aEmpty && bEmpty) return true;
+  if (aEmpty !== bEmpty) return false;
+  if (a!.length !== b!.length) return false;
+  return a!.every((v, i) => v === b![i]);
+}
+
+/**
+ * Read the durable queue from AsyncStorage and set queueItems in Zustand.
+ * Called on app start and every foreground event.
+ */
+export async function loadQueueIntoZustand(): Promise<void> {
+  const queue = await getQueue();
+  syncQueueToZustand(queue);
 }
 
 // ============================================================================
@@ -177,6 +273,12 @@ export interface QueuedDrop {
 
   /** Confirmation message to show user */
   confirmationMessage?: string | null;
+
+  /** AI-generated card note (warm subtitle) */
+  cardNote?: string | null;
+
+  /** Follow-up signal for speech bubble (multi-detect or clarify) */
+  followUpSignal?: 'multi' | 'clarify' | null;
 
   /** Extracted mood(s) for journal entries */
   mood?: string[] | null;
@@ -364,6 +466,7 @@ export async function enqueue(
 
     queue.push(queuedDrop);
     await saveQueue(queue);
+    syncQueueToZustand(queue);
 
     console.log(
       `[DropQueue] Enqueued drop ${queuedDrop.localId} (source: ${queuedDrop.source}, text: "${queuedDrop.text.slice(0, 50)}...")`,
@@ -387,6 +490,7 @@ async function _updateDropUnsafe(localId: string, updates: Partial<QueuedDrop>):
 
   queue[index] = { ...queue[index], ...updates };
   await saveQueue(queue);
+  syncQueueToZustand(queue);
 
   console.log(`[DropQueue] Updated drop ${localId} with:`, Object.keys(updates).join(', '));
 }
@@ -414,6 +518,7 @@ export async function saveDrop(localId: string, drop: QueuedDrop): Promise<void>
     }
 
     await saveQueue(queue);
+    syncQueueToZustand(queue);
   });
 }
 
@@ -467,6 +572,7 @@ export async function migrateDropPhases(): Promise<number> {
 
     if (migrated > 0) {
       await saveQueue(queue);
+      syncQueueToZustand(queue);
       console.log(`[DropQueue] Migrated ${migrated} drops to phase-based pipeline`);
     }
 
@@ -535,6 +641,7 @@ export async function dequeue(localId: string): Promise<void> {
 
     queue.splice(index, 1);
     await saveQueue(queue);
+    syncQueueToZustand(queue);
 
     console.log(`[DropQueue] Dequeued drop ${localId}`);
   });
@@ -554,12 +661,59 @@ export async function cleanupSynced(): Promise<number> {
 
     if (removedCount > 0) {
       await saveQueue(filtered);
+      syncQueueToZustand(filtered);
       console.log(`[DropQueue] Cleaned up ${removedCount} synced drops`);
     } else {
       console.log('[DropQueue] No synced drops to clean up');
     }
 
     return removedCount;
+  });
+}
+
+/**
+ * Resolve a clarification on a queued drop.
+ * Called when the user taps a clarification option.
+ * Updates the QueuedDrop in AsyncStorage + Zustand, then triggers re-processing.
+ */
+export async function resolveClarification(
+  localId: string,
+  resolution: {
+    bucket?: 'todo' | 'habit' | 'log';
+    subtype?: string | null;
+    habitSubtype?: string | null;
+    targetDate?: boolean;
+    scheduledDate?: boolean;
+  },
+): Promise<boolean> {
+  return withQueueLock(async () => {
+    const queue = await getQueue();
+    const index = queue.findIndex((d) => d.localId === localId);
+
+    if (index === -1) return false;
+
+    const drop = queue[index];
+
+    // Apply the resolution
+    const resolved: QueuedDrop = {
+      ...drop,
+      bucket: resolution.bucket || drop.bucket,
+      subtype: (resolution.subtype as any) || drop.subtype,
+      habitSubtype: (resolution.habitSubtype as any) || drop.habitSubtype,
+      needsClarification: false,
+      clarificationQuestion: null,
+      clarificationOptions: null,
+      // Reset to 'classified' phase so Phase 1.5a and Phase 2 re-run with new bucket
+      phase: 'classified',
+      retryCount: 0,
+      lastError: null,
+    };
+
+    queue[index] = resolved;
+    await saveQueue(queue);
+    syncQueueToZustand(queue);
+
+    return true;
   });
 }
 

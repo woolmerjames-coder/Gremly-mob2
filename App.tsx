@@ -46,6 +46,7 @@ import { GlobalEventPopup } from './components/calendar/GlobalEventPopup';
 import { GlobalEventTimePicker } from './components/calendar/GlobalEventTimePicker';
 import { initOfflineSync } from './lib/network/offlineSync';
 import { startQueueRunner, stopQueueRunner } from './lib/minddrop/dropPipeline';
+import { loadQueueIntoZustand } from './lib/minddrop/dropQueue';
 import { useDayRollover } from './lib/today/hooks/useDayRollover';
 import { useTimezoneSync } from './hooks/useTimezoneSync';
 import { useMascotLifecycle } from './hooks/useMascotLifecycle';
@@ -135,6 +136,7 @@ export default function App() {
 
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
+        void loadQueueIntoZustand();
         void startQueueRunner();
       } else {
         stopQueueRunner();

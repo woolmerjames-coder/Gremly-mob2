@@ -17,10 +17,10 @@ import {
   saveDrop,
   dequeue,
   migrateDropPhases,
+  loadQueueIntoZustand,
 } from './dropQueue';
 import { getPhaseHandler } from './dropPhases';
 import { useGremlyStore } from '../store/useGremlyStore';
-import type { PendingDrop } from '../store/useGremlyStore';
 import { runPhase1 } from './phase1';
 import { supabase } from '../supabase/client';
 import { nowTimestamp, getDateService } from '../date/DateService';
@@ -51,124 +51,14 @@ let lastQueueEmpty = false;
 let lastEnqueueTime = 0;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Phase → UI State Mapping
-// ──────────────────────────────────────────────────────────────────────────────
-
-function phaseToUIStatus(phase: DropPhase): PendingDrop['status'] {
-  switch (phase) {
-    case 'queued':
-      return 'classifying';
-    case 'classified':
-      return 'classified';
-    case 'titled':
-      return 'enriching';
-    case 'enriched':
-      return 'enriched';
-    case 'syncing':
-      return 'syncing';
-    case 'complete':
-      return 'synced';
-    case 'failed':
-      return 'failed';
-    case 'multi_detected':
-      return 'classifying';
-    case 'multi_awaiting':
-      return 'enriching';
-    default:
-      return 'pending';
-  }
-}
-
-function phaseToUIStage(phase: DropPhase): PendingDrop['minddrop_stage'] {
-  switch (phase) {
-    case 'queued':
-      return 'classifying';
-    case 'classified':
-      return 'classifying';
-    case 'titled':
-      return 'streaming'; // triggers card reveal animation
-    case 'enriched':
-      return 'enriched';
-    case 'syncing':
-      return 'enriched';
-    case 'complete':
-      return 'enriched';
-    case 'failed':
-      return 'enrichment_failed';
-    case 'multi_detected':
-      return 'classifying';
-    case 'multi_awaiting':
-      return 'enriching';
-    default:
-      return 'pending';
-  }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// syncDropToZustand — Push pipeline state to UI
-// ──────────────────────────────────────────────────────────────────────────────
-
-function syncDropToZustand(drop: QueuedDrop): void {
-  const phase = drop.phase || 'queued';
-  const uiStatus = phaseToUIStatus(phase);
-  const uiStage = phaseToUIStage(phase);
-
-  // Check if this pending drop exists in Zustand
-  const exists = useGremlyStore.getState().pendingDrops.has(drop.localId);
-  if (!exists) {
-    // Drop was already promoted or removed — skip Zustand update
-    console.warn(
-      '[Pipeline] syncDropToZustand: pending drop missing from store — card may appear stuck',
-      {
-        localId: drop.localId,
-        phase: drop.phase || 'unknown',
-      },
-    );
-    return;
-  }
-
-  useGremlyStore.getState().updatePendingDropEnrichment(drop.localId, {
-    status: uiStatus,
-    minddrop_stage: uiStage,
-    bucket: drop.bucket,
-    subtype: drop.subtype,
-    smartTitle: drop.smartTitle,
-    confirmationMessage: drop.confirmationMessage ?? undefined,
-    tags: drop.tags,
-    timeEstimateMinutes: drop.timeEstimateMinutes,
-    timeWindow: drop.timeWindow,
-    extractedDate: drop.extractedDate,
-    extractedFrequency: drop.extractedFrequency,
-    extractedDays: drop.extractedDays,
-    people: drop.people,
-    mood: drop.mood,
-    target_date: drop.targetDate,
-    scheduled_date: drop.scheduledDate,
-    event_time: drop.eventTime,
-    date_type_ambiguous: drop.dateTypeAmbiguous,
-    needs_clarification: drop.needsClarification,
-    ambiguity_reason: drop.ambiguityReason,
-    plausible_interpretations: drop.plausibleInterpretations as any,
-    isMulti: drop.isMulti,
-    multiSegments: drop.multiSegments,
-    multiSummary: drop.multiSummary,
-    dominantBucket: drop.dominantBucket as any,
-    dominantSubtype: drop.dominantSubtype as any,
-    _retryable: phase === 'failed',
-  });
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
 // handleComplete — Terminal handler
 // ──────────────────────────────────────────────────────────────────────────────
 
 async function handleComplete(drop: QueuedDrop): Promise<void> {
-  // 1. Promote pending drop to entity in Zustand
-  if (drop.supabaseId) {
-    useGremlyStore.getState().promotePendingDropToEntity(drop.localId, drop.supabaseId);
-  }
+  // Queue item is removed by dequeue() below, which updates queueItems in Zustand.
+  // The real entity was already added to todos/habits/notes by syncDropToSupabase.
 
-  // 2. Remove from AsyncStorage queue
+  // Remove from AsyncStorage queue (also updates queueItems via syncQueueToZustand)
   await dequeue(drop.localId);
 
   // 3. Increment drop count for gauge / ritual progress
@@ -306,7 +196,6 @@ async function processOne(drop: QueuedDrop): Promise<void> {
       updated.retryCount = 0;
       updated.lastError = null;
       await saveDrop(updated.localId, updated);
-      syncDropToZustand(updated);
 
       console.log('[Pipeline] Phase advanced', {
         localId: updated.localId,
@@ -354,7 +243,6 @@ async function processOne(drop: QueuedDrop): Promise<void> {
         lastError: errorMsg,
       };
       await saveDrop(failedDrop.localId, failedDrop);
-      syncDropToZustand(failedDrop);
 
       console.error('[Pipeline] Drop failed permanently', {
         localId: drop.localId,
@@ -371,8 +259,6 @@ async function processOne(drop: QueuedDrop): Promise<void> {
         lastAttemptAt: getDateService().now().toISOString(),
       };
       await saveDrop(retryDrop.localId, retryDrop);
-      // Update Zustand to keep UI in sync (same phase, but shows error info)
-      syncDropToZustand(retryDrop);
     }
   } finally {
     processing.delete(drop.localId);
@@ -456,6 +342,7 @@ export async function startQueueRunner(): Promise<void> {
 
   // Migrate existing drops (one-time, idempotent)
   await migrateDropPhases();
+  await loadQueueIntoZustand();
 
   // Initial sweep
   await tick();
@@ -522,7 +409,6 @@ export async function retryDrop(localId: string): Promise<void> {
   };
 
   await saveDrop(retriedDrop.localId, retriedDrop);
-  syncDropToZustand(retriedDrop);
 
   console.log('[Pipeline] Drop retried', { localId, resumePhase });
 
@@ -625,48 +511,144 @@ export async function reclassifyDegradedEntities(): Promise<void> {
 
         reclassified++;
       } else {
-        // Bucket changed — clear the flag and record what it should be.
-        // Moving entities between tables is complex; log for now.
-        console.warn('[Reclassify] Bucket would change — clearing flag but not moving entity', {
+        // Bucket changed — move entity to the correct table
+        console.log('[Reclassify] Bucket changed, moving entity', {
           id: entity.id,
-          currentBucket,
-          newBucket,
-          newSubtype: result.subtype,
+          from: `${entity.table} (${currentBucket})`,
+          to: `${newBucket}`,
         });
 
-        await supabase
-          .from(entity.table)
-          .update({
+        // Skip if user has edited the entity (don't overwrite their changes)
+        const created = new Date(
+          (entity as any).created_at || (entity as any).createdAt || 0,
+        ).getTime();
+        const updated = new Date(
+          (entity as any).updated_at || (entity as any).updatedAt || 0,
+        ).getTime();
+        if (updated - created > 60000) {
+          console.log('[Reclassify] Entity was user-edited, skipping move', { id: entity.id });
+          // Just clear the degraded flag
+          await supabase
+            .from(entity.table)
+            .update({
+              views: {
+                ...(entity.views as any),
+                ai_degraded: false,
+                classification_source: result.source,
+              },
+              updated_at: nowTimestamp(),
+            })
+            .eq('id', entity.id);
+          reclassified++;
+          continue;
+        }
+
+        try {
+          const newTable =
+            newBucket === 'todo' ? 'todos' : newBucket === 'habit' ? 'habits' : 'notes';
+          const title = (entity as any).title || (entity as any).name || '';
+          const body = (entity as any).body || (entity as any).notes || '';
+          const ownerId = (entity as any).owner_id;
+          const dropId = (entity as any).drop_id;
+          const tags = (entity as any).tags || [];
+          const spaceId = (entity as any).space_id || null;
+
+          // Build base payload for new table
+          let newPayload: Record<string, any> = {
+            owner_id: ownerId,
+            drop_id: dropId,
+            space_id: spaceId,
+            tags,
             views: {
               ...(entity.views as any),
               ai_degraded: false,
-              reclassified_bucket: newBucket,
-              reclassified_subtype: result.subtype,
               classification_source: result.source,
             },
             updated_at: nowTimestamp(),
-          })
-          .eq('id', entity.id);
+          };
 
-        const storeKey = entity.table;
-        useGremlyStore.setState((state) => ({
-          [storeKey]: (state[storeKey] as any[]).map((item: any) =>
-            item.id === entity.id
-              ? {
-                  ...item,
-                  views: {
-                    ...item.views,
-                    ai_degraded: false,
-                    reclassified_bucket: newBucket,
-                    reclassified_subtype: result.subtype,
-                    classification_source: result.source,
-                  },
-                }
-              : item,
-          ),
-        }));
+          if (newTable === 'todos') {
+            newPayload = {
+              ...newPayload,
+              name: title,
+              body,
+              origin: 'catchall',
+              energy_type: 'administrative',
+            };
+          } else if (newTable === 'habits') {
+            newPayload = {
+              ...newPayload,
+              name: title,
+              title,
+              notes: body,
+              origin: 'catchall',
+              subtype: result.habitSubtype || 'start_habit',
+              frequency: 'daily',
+              cadence: 'daily',
+              target_per_period: 1,
+              time_window: 'day',
+              energy_type: 'administrative',
+            };
+          } else {
+            newPayload = {
+              ...newPayload,
+              title,
+              body,
+              subtype: result.subtype || 'catchall',
+              origin: 'catchall',
+            };
+          }
 
-        reclassified++;
+          // Insert into new table
+          const { data: newEntity, error: insertErr } = await supabase
+            .from(newTable)
+            .insert(newPayload)
+            .select()
+            .single();
+
+          if (insertErr) {
+            console.error('[Reclassify] Insert failed', { error: insertErr });
+            continue;
+          }
+
+          // Delete from old table
+          await supabase.from(entity.table).delete().eq('id', entity.id);
+
+          // Update Zustand
+          const oldStoreKey = entity.table;
+          const newStoreKey = newTable;
+          useGremlyStore.setState((state) => {
+            const oldItems = (state[oldStoreKey] as any[]).filter(
+              (item: any) => item.id !== entity.id,
+            );
+            const newItems = [
+              ...(state[newStoreKey] as any[]),
+              {
+                ...newEntity,
+                type: newBucket === 'todo' ? 'todo' : newBucket === 'habit' ? 'habit' : 'note',
+              },
+            ];
+            return { [oldStoreKey]: oldItems, [newStoreKey]: newItems };
+          });
+
+          // Emit event for UI update
+          eventBus.emit('entity:bucket_changed', {
+            oldId: entity.id,
+            newId: newEntity.id,
+            oldTable: entity.table,
+            newTable,
+            newBucket,
+          });
+
+          reclassified++;
+          console.log('[Reclassify] Moved entity', {
+            oldId: entity.id,
+            newId: newEntity.id,
+            to: newTable,
+          });
+        } catch (moveErr) {
+          console.error('[Reclassify] Move failed', { id: entity.id, error: String(moveErr) });
+        }
       }
 
       // Small delay between entities to avoid API spam

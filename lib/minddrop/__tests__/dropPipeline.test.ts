@@ -20,6 +20,7 @@ jest.mock('../dropQueue', () => ({
   saveDrop: jest.fn().mockResolvedValue(undefined),
   dequeue: jest.fn().mockResolvedValue(undefined),
   migrateDropPhases: jest.fn().mockResolvedValue(0),
+  loadQueueIntoZustand: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../dropPhases', () => ({
   getPhaseHandler: jest.fn().mockReturnValue(null),

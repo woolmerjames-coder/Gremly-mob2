@@ -88,7 +88,6 @@ export function useMindDropSubmit(): {
   isSubmitting: boolean;
 } {
   const spaces = useGremlyStore((s) => s.spaces);
-  const addPendingDrop = useGremlyStore((s) => s.addPendingDrop);
   const incrementDropCount = useGremlyStore((s) => s.incrementDropCount);
   const previewGaugeDrop = useGremlyStore((s) => s.previewGaugeDrop);
 
@@ -215,18 +214,7 @@ export function useMindDropSubmit(): {
           textPreview: entityText.substring(0, 30),
         });
 
-        // 1b. Add to Zustand pending drops (UI shows card immediately)
-        addPendingDrop({
-          localId: queuedDrop.localId,
-          text: entityText,
-          spaceId: resolvedSpaceId,
-          source: context.source,
-          createdAt: queuedDrop.createdAt,
-          bucket, // Heuristic prediction for immediate UI
-          subtype: subtypeHint,
-          status: 'pending',
-          _offlineCapture: !networkStatus.isConnected,
-        });
+        // Card now appears via enqueue() -> syncQueueToZustand()
 
         // Instantly preview gauge fill (Soul Document v8: fill rises with the bounce)
         const gaugePreview = previewGaugeDrop();
@@ -249,9 +237,6 @@ export function useMindDropSubmit(): {
         // - Errors: automatic retry with backoff (3 attempts per phase)
         // - Timeouts: per-phase timeouts prevent hangs (6-15s depending on phase)
         if (!networkStatus.isConnected) {
-          useGremlyStore.getState().updatePendingDropEnrichment(queuedDrop.localId, {
-            _offlineCapture: true,
-          });
           console.log('[MindDrop:Submit] Offline — drop queued for later processing', {
             localId: queuedDrop.localId,
           });
@@ -287,7 +272,7 @@ export function useMindDropSubmit(): {
         };
       }
     },
-    [spaces, addPendingDrop, incrementDropCount, previewGaugeDrop],
+    [spaces, incrementDropCount, previewGaugeDrop],
   );
 
   return { submit, isSubmitting };

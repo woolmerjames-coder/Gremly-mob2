@@ -119,6 +119,21 @@ export type EventMap = {
     bucket: string;
     subtype: string | null;
   };
+  // Reclassification moved entity to a different table
+  'entity:bucket_changed': {
+    oldId: string;
+    newId: string;
+    oldTable: string;
+    newTable: string;
+    newBucket: string;
+  };
+  // Gremly speech bubble — AI reaction ready for display
+  'drop:reaction_ready': {
+    localId: string;
+    message: string | null;
+    rawReaction: string | null;
+    followUp: 'multi' | 'clarify' | null;
+  };
 };
 
 type Handler<T> = (payload: T) => void;

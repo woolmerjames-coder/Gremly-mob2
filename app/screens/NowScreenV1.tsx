@@ -347,9 +347,23 @@ export default function NowScreenV1() {
   const [showDayPicker, setShowDayPicker] = useState(false);
 
   // Fetch calendar events on mount (today + 7 days)
+  // Skip if initialize() already prefetched recently (within 60 seconds)
   useEffect(() => {
-    console.log('[NowScreen] Calendar useEffect, isInitialized:', isInitialized);
     if (!isInitialized) return;
+
+    const lastFetched = useGremlyStore.getState().calendarLastFetched;
+    if (lastFetched) {
+      const elapsed = getDateService().now().getTime() - new Date(lastFetched).getTime();
+      if (elapsed < 60_000) {
+        console.log(
+          '[NowScreen] Calendar fresh (fetched',
+          Math.round(elapsed / 1000),
+          's ago), skipping refetch',
+        );
+        return;
+      }
+    }
+
     const dateService = getDateService();
     const weekFromNow = dateService.addDays(todayStr, 7);
     console.log('[NowScreen] Fetching calendar:', todayStr, 'to', weekFromNow);
@@ -663,8 +677,7 @@ export default function NowScreenV1() {
   const [quickActionEvent, setQuickActionEvent] = useState<Note | null>(null);
   const [linkTodoForEventId, setLinkTodoForEventId] = useState<string | null>(null);
 
-  // Pending drops from store - shows loading cards while pipeline runs
-  // These persist until promotePendingDropToEntity removes them
+  // Pending drops from queue - shows loading cards while pipeline runs
   const todayPendingDrops = useTodayPendingDrops();
 
   // Toast for quick add feedback
@@ -1319,7 +1332,7 @@ type TodayFocusListProps = {
   hasAnyTodayWork: boolean;
   onPressItem?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
   onToggleComplete?: (item: NowLockedItem | NowActiveItem | NowFutureItem) => void;
-  pendingDrops?: Array<{ localId: string; text: string; smartTitle?: string; status: string }>;
+  pendingDrops?: Array<{ localId: string; text: string; smartTitle?: string; phase?: string }>;
   overdueTodos: SweepCandidate[];
   recentDrops: SweepCandidate[];
   onAddToToday: (item: SweepCandidate) => void;

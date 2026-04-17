@@ -3,9 +3,9 @@
  *
  * Tests the optimistic queue-based submission flow:
  * 1. Enqueue to AsyncStorage for crash safety
- * 2. Add pending drop to Zustand for optimistic UI
- * 3. Online: process in background via processDrop
- * 4. Offline: queue only, mark _offlineCapture
+ * 2. Card appears via enqueue → syncQueueToZustand (no direct addPendingDrop)
+ * 3. triggerProcessing() kicks off background pipeline
+ * 4. Offline: pipeline handles offline internally (no _offlineCapture flag from hook)
  */
 
 import { renderHook, act } from '@testing-library/react-native';
@@ -144,20 +144,19 @@ describe('useMindDropSubmit — current architecture', () => {
     });
   });
 
-  it('adds pending drop to Zustand for optimistic UI', async () => {
+  it('optimistic UI via enqueue → syncQueueToZustand (no direct addPendingDrop)', async () => {
     const { result } = renderHook(() => useMindDropSubmit());
 
     await act(async () => {
       await result.current.submit('test drop', { source: 'minddrop' });
     });
 
-    expect(mockAddPendingDrop).toHaveBeenCalledTimes(1);
-    expect(mockAddPendingDrop.mock.calls[0][0]).toMatchObject({
-      localId: 'drop-123',
+    // After refactor: card appears via enqueue() → syncQueueToZustand(), not addPendingDrop
+    expect(mockAddPendingDrop).not.toHaveBeenCalled();
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+    expect(mockEnqueue.mock.calls[0][0]).toMatchObject({
       text: 'test drop',
       source: 'minddrop',
-      bucket: 'todo',
-      status: 'pending',
     });
   });
 
@@ -214,7 +213,7 @@ describe('useMindDropSubmit — current architecture', () => {
     expect(mockTriggerProcessing).toHaveBeenCalledTimes(1);
   });
 
-  it('sets _offlineCapture flag in pending drop when offline', async () => {
+  it('does not set _offlineCapture flag directly when offline (pipeline handles it)', async () => {
     mockNetworkStatus.isConnected = false;
 
     const { result } = renderHook(() => useMindDropSubmit());
@@ -223,10 +222,11 @@ describe('useMindDropSubmit — current architecture', () => {
       await result.current.submit('offline drop', { source: 'minddrop' });
     });
 
-    expect(mockAddPendingDrop.mock.calls[0][0]._offlineCapture).toBe(true);
+    // After refactor: hook no longer sets _offlineCapture — pipeline handles offline internally
+    expect(mockAddPendingDrop).not.toHaveBeenCalled();
   });
 
-  it('calls updatePendingDropEnrichment when offline', async () => {
+  it('does not call updatePendingDropEnrichment when offline (pipeline handles it)', async () => {
     mockNetworkStatus.isConnected = false;
 
     const { result } = renderHook(() => useMindDropSubmit());
@@ -235,9 +235,8 @@ describe('useMindDropSubmit — current architecture', () => {
       await result.current.submit('offline drop', { source: 'minddrop' });
     });
 
-    expect(mockUpdatePendingDropEnrichment).toHaveBeenCalledWith('drop-123', {
-      _offlineCapture: true,
-    });
+    // After refactor: hook delegates offline handling to the pipeline
+    expect(mockUpdatePendingDropEnrichment).not.toHaveBeenCalled();
   });
 
   it('uses provided dropId from context when available', async () => {

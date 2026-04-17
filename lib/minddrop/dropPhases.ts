@@ -12,13 +12,14 @@
  */
 
 import type { QueuedDrop, DropPhase } from './dropQueue';
-import { saveDrop, getQueue } from './dropQueue';
+import { saveDrop, getQueue, updateDrop } from './dropQueue';
 import { detectMulti } from './detectMulti';
 import { runPhase1 } from './phase1';
 import type { MindDropBucket, LogSubtype, Phase1Result } from './types';
 import type { Phase2MetadataResult } from './dropSync';
 import { syncDropToSupabase, syncMultiDropToSupabase } from './dropSync';
 import { useGremlyStore } from '../store/useGremlyStore';
+import { eventBus } from '../events/EventBus';
 import { dateService, getDateService } from '../date/DateService';
 import { env, getEnv } from '../env';
 
@@ -79,17 +80,8 @@ function mightBeMulti(text: string): boolean {
   );
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Recent reactions tracker
-// ──────────────────────────────────────────────────────────────────────────────
-
-const recentReactions: string[] = [];
-const MAX_RECENT_REACTIONS = 5;
-
-function pushReaction(msg: string) {
-  recentReactions.push(msg);
-  if (recentReactions.length > MAX_RECENT_REACTIONS) recentReactions.shift();
-}
+// Dedup tracking is now unified in the Zustand store (recentSpeech).
+// See useGremlyStore.pushRecentSpeech().
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Temporal extraction (for Phase 1.5 background)
@@ -111,7 +103,12 @@ async function callPhase1_5a(
   text: string,
   bucket: MindDropBucket,
   subtype: LogSubtype | null,
-): Promise<{ smart_title: string | null; confirmation_message: string | null } | null> {
+): Promise<{
+  smart_title: string | null;
+  card_note: string | null;
+  confirmation_message: string | null;
+  speech_message: string | null;
+} | null> {
   const cortexUrl = readCortexUrl();
   const anonKey = readSupabaseAnonKey();
   if (!cortexUrl || !anonKey) return null;
@@ -128,7 +125,7 @@ async function callPhase1_5a(
         text,
         bucket,
         subtype,
-        recentReactions: [...recentReactions],
+        recentReactions: [...useGremlyStore.getState().recentSpeech],
       }),
     });
 
@@ -138,13 +135,24 @@ async function callPhase1_5a(
     }
 
     const json = await res.json();
+    console.log('[card_note:1] Worker returned:', {
+      card_note: json.card_note,
+      speech_message: json.speech_message,
+    });
     const result = {
       smart_title: json.smart_title || null,
+      card_note: json.card_note || null,
       confirmation_message: json.confirmation_message || null,
+      speech_message: json.speech_message || null,
     };
 
+    console.log('[Phase1.5a] Raw reaction:', {
+      text: text.substring(0, 40),
+      confirmation_message: result.confirmation_message,
+    });
+
     if (result.confirmation_message) {
-      pushReaction(result.confirmation_message);
+      useGremlyStore.getState().pushRecentSpeech(result.confirmation_message);
     }
 
     return result;
@@ -373,47 +381,24 @@ function fireClarificationInBackground(
           }),
         );
 
-        // Try to update pending drop
-        const pendingDrop = useGremlyStore.getState().pendingDrops.get(localId);
-        if (pendingDrop) {
-          useGremlyStore.getState().updatePendingDropEnrichment(localId, {
-            clarification_question: result.clarification_question,
-            clarification_options: clarificationOptions,
+        // Try queue first (drop still processing), then entity (already synced)
+        void updateDrop(localId, {
+          clarificationQuestion: result.clarification_question,
+          clarificationOptions: clarificationOptions,
+        }).catch(() => {
+          // Drop not in queue — may already be synced, try entity
+          useGremlyStore.getState().updateEntityClarificationByDropId(localId, {
+            question: result.clarification_question,
+            options: clarificationOptions,
           });
-          console.log('[DropPhases] Phase 1.5 pushed options to pending drop', { localId });
-        } else {
-          // Pending drop already synced — update entity
-          const updated = await useGremlyStore
-            .getState()
-            .updateEntityClarificationByDropId(localId, {
-              question: result.clarification_question,
-              options: clarificationOptions,
-            });
-          if (updated) {
-            console.log('[DropPhases] Phase 1.5 pushed options to synced entity', { localId });
-          }
-        }
+        });
+        console.log('[DropPhases] Phase 1.5 pushed options to drop', { localId });
       }
     })
     .catch((err) => {
       console.log('[DropPhases] Phase 1.5 background error', { localId, error: String(err) });
     });
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Degraded classification fallback
-// ──────────────────────────────────────────────────────────────────────────────
-
-const DEGRADED_FALLBACK: Phase1Result = {
-  bucket: 'log',
-  subtype: 'general',
-  habitSubtype: null,
-  confidence: 0.5,
-  source: 'heuristic-fallback',
-  is_multi: false,
-  classificationDegraded: true,
-  classificationSource: 'client-fallback',
-};
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Phase Handlers (exported)
@@ -428,10 +413,14 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
       : Promise.resolve({ is_multi: false }),
     withTimeout(
       runPhase1(drop.text, { hasAttachments: false, hasUserSelectedDate: !!drop.prefillDate }),
-      8000,
-      DEGRADED_FALLBACK,
+      15000,
+      null,
     ),
   ]);
+
+  if (phase1Result === null) {
+    throw new Error('Classification timeout');
+  }
 
   console.log('[DropPhases] handleQueued complete', {
     localId: drop.localId,
@@ -442,6 +431,15 @@ export async function handleQueued(drop: QueuedDrop): Promise<QueuedDrop> {
 
   // Multi path
   if ((multiResult as any).is_multi && (multiResult as any).segments?.length > 1) {
+    // Emit multi follow-up for speech bubble (no AI reaction for multi parent)
+    console.log('[SpeechBubble] Emitting drop:reaction_ready for multi', { localId: drop.localId });
+    eventBus.emit('drop:reaction_ready', {
+      localId: drop.localId,
+      message: null,
+      rawReaction: null,
+      followUp: 'multi',
+    });
+
     return {
       ...drop,
       phase: 'multi_detected',
@@ -503,7 +501,21 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
   }
 
   const smartTitle = result?.smart_title || drop.text.substring(0, 50);
+  const cardNote = result?.card_note || null;
   const confirmationMessage = result?.confirmation_message || null;
+  const speechMessage = result?.speech_message || result?.confirmation_message || null;
+  const rawReaction = result?.confirmation_message || null;
+
+  // Determine follow-up signal for speech bubble
+  const followUpSignal: 'multi' | 'clarify' | null = drop.needsClarification ? 'clarify' : null;
+
+  // Emit AI reaction for speech bubble
+  eventBus.emit('drop:reaction_ready', {
+    localId: drop.localId,
+    message: speechMessage,
+    rawReaction: rawReaction,
+    followUp: followUpSignal,
+  });
 
   console.log('[DropPhases] handleClassified complete', {
     localId: drop.localId,
@@ -511,11 +523,18 @@ export async function handleClassified(drop: QueuedDrop): Promise<QueuedDrop> {
     hasMessage: !!confirmationMessage,
   });
 
+  console.log('[card_note:2] Stored on drop:', {
+    cardNote: cardNote,
+    localId: drop.localId,
+  });
+
   return {
     ...drop,
     phase: 'titled',
     smartTitle,
+    cardNote: cardNote ?? undefined,
     confirmationMessage: confirmationMessage ?? undefined,
+    followUpSignal: followUpSignal ?? undefined,
     retryCount: 0,
     lastError: null,
   };
@@ -529,8 +548,12 @@ export async function handleMultiDetected(drop: QueuedDrop): Promise<QueuedDrop>
   const classifiedSegments = await Promise.all(
     segments.map(async (seg: any) => {
       let phase1;
-      let phase15a: { smart_title: string | null; confirmation_message: string | null } | null =
-        null;
+      let phase15a: {
+        smart_title: string | null;
+        card_note: string | null;
+        confirmation_message: string | null;
+        speech_message: string | null;
+      } | null = null;
 
       try {
         phase1 = await withTimeout(runPhase1(seg.text, { hasAttachments: false }), 8000, {
@@ -581,16 +604,6 @@ export async function handleMultiDetected(drop: QueuedDrop): Promise<QueuedDrop>
       bucket: s.bucket,
       smart_title: s.smart_title,
     })),
-  });
-
-  // Update Zustand with classified segments so the multi card shows correct data
-  useGremlyStore.getState().updatePendingDropEnrichment(drop.localId, {
-    isMulti: true,
-    multiSegments: classifiedSegments as any,
-    multiSummary: drop.multiSummary,
-    dominantBucket: drop.dominantBucket as any,
-    dominantSubtype: drop.dominantSubtype as any,
-    status: 'enriching',
   });
 
   // Advance directly to enriched — skip titled phase (multi drops don't need their own title)
@@ -690,15 +703,16 @@ export async function handleEnriched(drop: QueuedDrop): Promise<QueuedDrop> {
       }
     : null;
 
-  // Read latest clarification data from Zustand — Phase 1.5 background
+  // Read latest clarification data from queue — Phase 1.5 background
   // may have populated these after the pipeline's QueuedDrop was saved
   if (drop.needsClarification && !drop.isMulti) {
-    const pending = useGremlyStore.getState().pendingDrops.get(drop.localId);
-    if (pending?.clarification_question) {
+    const queue = await getQueue();
+    const latest = queue.find((d) => d.localId === drop.localId);
+    if (latest?.clarificationQuestion) {
       drop = {
         ...drop,
-        clarificationQuestion: pending.clarification_question,
-        clarificationOptions: pending.clarification_options as any,
+        clarificationQuestion: latest.clarificationQuestion,
+        clarificationOptions: latest.clarificationOptions as any,
       };
     }
   }

@@ -187,6 +187,82 @@ describe('EventBus', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
+  // drop:reaction_ready event (speech bubble)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('drop:reaction_ready event', () => {
+    it('fires with full payload including rawReaction', () => {
+      const handler = jest.fn();
+      eventBus.on('drop:reaction_ready', handler);
+
+      eventBus.emit('drop:reaction_ready', {
+        localId: 'drop-1',
+        message: 'Nice one! Bella time!',
+        rawReaction: 'Bella time!',
+        followUp: null,
+      });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith({
+        localId: 'drop-1',
+        message: 'Nice one! Bella time!',
+        rawReaction: 'Bella time!',
+        followUp: null,
+      });
+    });
+
+    it('fires with null message/rawReaction for multi path', () => {
+      const handler = jest.fn();
+      eventBus.on('drop:reaction_ready', handler);
+
+      eventBus.emit('drop:reaction_ready', {
+        localId: 'drop-2',
+        message: null,
+        rawReaction: null,
+        followUp: 'multi',
+      });
+
+      expect(handler).toHaveBeenCalledWith({
+        localId: 'drop-2',
+        message: null,
+        rawReaction: null,
+        followUp: 'multi',
+      });
+    });
+
+    it('fires with clarify followUp', () => {
+      const handler = jest.fn();
+      eventBus.on('drop:reaction_ready', handler);
+
+      eventBus.emit('drop:reaction_ready', {
+        localId: 'drop-3',
+        message: 'Hmm, tell me more',
+        rawReaction: 'Tell me more',
+        followUp: 'clarify',
+      });
+
+      expect(handler).toHaveBeenCalledWith(
+        expect.objectContaining({ followUp: 'clarify', rawReaction: 'Tell me more' }),
+      );
+    });
+
+    it('unsubscribe stops delivery', () => {
+      const handler = jest.fn();
+      const unsub = eventBus.on('drop:reaction_ready', handler);
+
+      unsub();
+      eventBus.emit('drop:reaction_ready', {
+        localId: 'drop-4',
+        message: 'test',
+        rawReaction: 'test',
+        followUp: null,
+      });
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Notification open flow events (morning, evening, weekly_summary)
   // ─────────────────────────────────────────────────────────────────────────
 

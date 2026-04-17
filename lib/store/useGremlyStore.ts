@@ -37,6 +37,7 @@ import {
   GAUGE_WEIGHTS,
 } from '../constants/soulDocument';
 import type { Milestone } from '../schemas';
+import type { QueuedDrop } from '../minddrop/dropQueue';
 import { eventBus } from '../events';
 import { parseHabitFrequency } from '../sweep/habitHelpers';
 import { getDateService } from '../date';
@@ -81,6 +82,11 @@ const STORE_EVENT_SOURCE = 'gremly-store';
 
 // Module-level unsubscribe function for cleanup
 let eventBusUnsubscribe: (() => void) | null = null;
+
+// ── Calendar fetch deduplication ──
+// Prevents concurrent fetchCalendarEventsForRange calls from interleaving
+// their set() calls, which causes duplicate events.
+let calendarFetchInFlight: Promise<void> | null = null;
 
 /**
  * Check if a habit is currently locked in based on commitment_until date.
@@ -333,149 +339,8 @@ export interface HabitProgressRow {
   occurrence_index: number | null;
 }
 
-// --- Pending Drop Types (for optimistic Mind Drop queue) ---
-
-/** Segment info for multi-entity drops */
-export interface PendingDropSegment {
-  text: string;
-  bucket: 'todo' | 'habit' | 'log';
-  subtype?: 'journal' | 'idea' | 'event' | 'general' | null;
-  likelyBucket?: string; // From Phase 0 (before Phase 1 confirmation)
-  likelySubtype?: string; // From Phase 0
-  confirmed?: boolean; // True after Phase 1 confirms the bucket
-  /** Smart title from Phase 1 (properly formatted title) */
-  smartTitle?: string | null;
-  /** Confirmation message from Phase 1 */
-  confirmationMessage?: string | null;
-}
-
-export interface PendingDrop {
-  localId: string;
-  text: string;
-  spaceId: string | null;
-  source?: 'today' | 'space' | 'minddrop' | 'photo';
-  createdAt: string;
-  bucket?: 'todo' | 'habit' | 'log';
-  subtype?: 'journal' | 'idea' | 'event' | 'general' | null;
-  smartTitle?: string;
-  tags?: string[];
-  confirmationMessage?: string | null;
-  timeEstimateMinutes?: number | null;
-  timeWindow?: 'morning' | 'day' | 'evening' | null;
-  extractedDate?: string | null; // For todos: extracted due date
-  extractedFrequency?: string | null; // For habits: "3x/week", "daily", etc.
-  extractedDays?: number[] | null; // For habits: [1, 3, 5] = Mon, Wed, Fri
-  people?: string[]; // Extracted people names for chip display
-  mood?: string[] | null; // For journals: extracted mood tags
-  status:
-    | 'pending'
-    | 'classifying'
-    | 'classified'
-    | 'enriching'
-    | 'enriched'
-    | 'enrichment_failed'
-    | 'syncing'
-    | 'synced'
-    | 'failed';
-  isMulti?: boolean;
-  // Multi-drop fields (populated by Phase 0)
-  multiSegments?: PendingDropSegment[];
-  multiSummary?: string; // Summary title for the multi-card
-  dominantBucket?: 'todo' | 'habit' | 'log';
-  dominantSubtype?: 'journal' | 'idea' | 'event' | 'general' | null;
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Phase 1: Ambiguity Detection (triggers Phase 1.5 in background)
-  // ═══════════════════════════════════════════════════════════════════
-
-  /** True if AI returned is_ambiguous in Phase 1 - shows clarify badge immediately */
-  needs_clarification?: boolean;
-
-  /** Reason for ambiguity (passed to Phase 1.5 for question generation) */
-  ambiguity_reason?: string | null;
-
-  /** Preparse-derived plausible interpretations (seeds Phase 1.5 options) */
-  plausible_interpretations?: Array<{
-    bucket: string | null;
-    subtype: string | null;
-    habitSubtype: string | null;
-    dateField: string | null;
-  }> | null;
-
-  /** Set to true when user resolves the clarification */
-  clarification_resolved?: boolean;
-
-  /** Set to true while processing clarification (triggers card loading animation) */
-  clarification_processing?: boolean;
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Phase 1.5: Clarification Options (populated asynchronously)
-  // ═══════════════════════════════════════════════════════════════════
-
-  /** Type of clarification needed - 'bucket' blocks Phase 2 */
-  clarification_type?:
-    | 'bucket'
-    | 'habit_or_todo'
-    | 'date_type'
-    | 'detail'
-    | 'intent'
-    | 'action'
-    | null;
-
-  /** Question to show user */
-  clarification_question?: string | null;
-
-  /** Options array with id, label, and action payload */
-  clarification_options?: Array<{
-    id: string;
-    label: string;
-    action: {
-      bucket?: 'todo' | 'habit' | 'log';
-      subtype?: string;
-      habitSubtype?: string;
-      target_date?: boolean;
-      scheduled_date?: boolean;
-    };
-  }> | null;
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Date Intelligence (Phase 2)
-  // ═══════════════════════════════════════════════════════════════════
-
-  /** External deadline date extracted by AI */
-  target_date?: string | null;
-
-  /** Scheduled work date extracted by AI */
-  scheduled_date?: string | null;
-
-  /** For notes classified as events - the event time */
-  event_time?: string | null;
-
-  /** True if AI couldn't determine date meaning */
-  date_type_ambiguous?: boolean;
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Phase 1.5a: Visual Stage (set explicitly to trigger animations)
-  // ═══════════════════════════════════════════════════════════════════
-
-  /** Visual stage for animations - set by Phase 1.5a to trigger typewriter */
-  minddrop_stage?:
-    | 'pending'
-    | 'classifying'
-    | 'streaming'
-    | 'enriching'
-    | 'enriched'
-    | 'enrichment_failed';
-
-  /** True if this drop was captured while offline. Used for UI messaging. */
-  _offlineCapture?: boolean;
-
-  /** True while retrying a degraded classification. Shows "still thinking" message. */
-  _retryingClassification?: boolean;
-
-  /** True when processing failed but drop can be retried. Keeps card visible. */
-  _retryable?: boolean;
-}
+// @deprecated — PendingDrop is no longer used at runtime. Tests should migrate to QueuedDrop from dropQueue.ts.
+export type PendingDrop = Record<string, any>;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STORE INTERFACE
@@ -500,7 +365,7 @@ interface GremlyState {
   generalChatAutoTitle: string | null;
   generalChatRunningSummary: string | null;
   milestones: Milestone[];
-  pendingDrops: Map<string, PendingDrop>;
+  queueItems: QueuedDrop[];
 
   // ═══════════════════════════════════════════════════════════════════
   // SPACE SUGGESTIONS STATE
@@ -641,8 +506,13 @@ interface GremlyState {
   /** Last 7 days of feeding history (ritual_day -> is_fed) */
   feedingHistory: Array<{ date: string; isFed: boolean }>;
 
+  /** Unified dedup tracker for all Gremly speech — AI reactions and pool messages */
+  recentSpeech: string[];
+
   // Ritual actions
   ensureCurrentRitualDay: () => string;
+  /** Track a speech message for dedup across AI reactions and pool messages */
+  pushRecentSpeech: (message: string) => void;
   incrementDropCount: () => Promise<{ dropsCount: number; didAgeUp: boolean; newAge: number }>;
   incrementSweepCount: () => Promise<{ sweepsCount: number; didAgeUp: boolean; newAge: number }>;
   markAgeCelebrationShown: () => void;
@@ -873,23 +743,8 @@ interface GremlyState {
   recoverStuckMindDrops: () => Promise<void>;
 
   // ═══════════════════════════════════════════════════════════════════
-  // PENDING DROP ACTIONS (for optimistic Mind Drop queue)
+  // MULTI-DROP + CLARIFICATION ACTIONS
   // ═══════════════════════════════════════════════════════════════════
-  addPendingDrop: (drop: PendingDrop) => void;
-  updatePendingDropClassification: (
-    localId: string,
-    classification: {
-      bucket: 'todo' | 'habit' | 'log';
-      subtype: 'journal' | 'idea' | 'event' | 'general' | null;
-    },
-  ) => void;
-  updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => void;
-  /** Atomically update a specific segment in a multi-drop (avoids race conditions in parallel updates) */
-  updateMultiSegment: (
-    localId: string,
-    segmentIndex: number,
-    updates: Partial<PendingDropSegment>,
-  ) => void;
   /** Split a multi-drop into separate pending drops for each selected segment */
   splitMultiDrop: (localId: string, items: import('../minddrop/types').MultiDropItem[]) => void;
   /** Resolve a multi-drop as a single entity (keep as-is) */
@@ -902,9 +757,7 @@ interface GremlyState {
       options: Array<{ id: string; label: string; action: Record<string, unknown> }>;
     },
   ) => Promise<boolean>;
-  promotePendingDropToEntity: (localId: string, supabaseId: string) => void;
-  removePendingDrop: (localId: string) => void;
-  resolvePendingDropClarification: (
+  resolveEntityClarification: (
     localId: string,
     optionId: string,
     isFreeText?: boolean,
@@ -1170,7 +1023,8 @@ const initialState = {
   todayFedCelebrationShownAt: null as string | null,
   todayFeedingAgeUpShownAt: null as string | null,
   feedingHistory: [] as Array<{ date: string; isFed: boolean }>,
-  pendingDrops: new Map<string, PendingDrop>(),
+  recentSpeech: [] as string[],
+  queueItems: [] as QueuedDrop[],
   // Calendar integration
   calendarConnections: [] as CalendarConnectionStatus[],
   calendarEvents: {} as Record<string, CalendarEvent[]>,
@@ -1244,6 +1098,15 @@ export const useGremlyStore = create<GremlyState>()(
                   '[GremlyStore] Background sync failed (cached data still usable):',
                   err,
                 );
+              });
+
+            // Prefetch calendar events in parallel with server refresh
+            const calTodayStr = getDateService().today();
+            const calWeekEnd = getDateService().addDays(calTodayStr, 7);
+            get()
+              .fetchCalendarEventsForRange(calTodayStr, calWeekEnd)
+              .catch((err) => {
+                console.warn('[GremlyStore] Background calendar prefetch failed:', err);
               });
 
             // Still subscribe to EventBus
@@ -1526,6 +1389,15 @@ export const useGremlyStore = create<GremlyState>()(
                 });
             }
 
+            // Prefetch calendar events after cold init
+            const calTodayStrCold = getDateService().today();
+            const calWeekEndCold = getDateService().addDays(calTodayStrCold, 7);
+            get()
+              .fetchCalendarEventsForRange(calTodayStrCold, calWeekEndCold)
+              .catch((err) => {
+                console.warn('[GremlyStore] Calendar prefetch after cold init failed:', err);
+              });
+
             // Load hidden calendar events from AsyncStorage (local-only persistence)
             const hiddenEvents = await loadHiddenEventsFromStorage();
             if (Object.keys(hiddenEvents).length > 0) {
@@ -1713,6 +1585,18 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         // ═══════════════════════════════════════════════════════════════════
+        // SPEECH DEDUP
+        // ═══════════════════════════════════════════════════════════════════
+
+        pushRecentSpeech: (message: string) => {
+          set((state) => {
+            const updated = [...state.recentSpeech, message];
+            if (updated.length > 5) updated.shift();
+            return { recentSpeech: updated };
+          });
+        },
+
+        // ═══════════════════════════════════════════════════════════════════
         // GREMLY AGE & RITUAL PROGRESS ACTIONS
         // ═══════════════════════════════════════════════════════════════════
 
@@ -1727,7 +1611,6 @@ export const useGremlyStore = create<GremlyState>()(
           const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const currentRitualDay = getRitualDay(dayBoundaryHour, timezone);
 
-          // Check if we've crossed the day boundary
           if (todayRitualDay && currentRitualDay !== todayRitualDay) {
             console.log('[GremlyStore] Day boundary crossed, resetting ritual progress');
 
@@ -5089,8 +4972,8 @@ export const useGremlyStore = create<GremlyState>()(
           const userId = get().userId;
           if (!userId) return;
 
-          // Re-fetch all data (same as initialize but doesn't reset isInitialized)
-          set({ isLoading: true });
+          // Background sync — never set isLoading since user already has cached data.
+          // Loading indicators should only show during cold init (no cached data).
 
           try {
             const [
@@ -5151,7 +5034,6 @@ export const useGremlyStore = create<GremlyState>()(
               spaceChats: chatsRes.data ?? [],
               milestones: milestonesRes.data ?? [],
               weeklySummaries: (weeklySummariesRes.data ?? []) as WeeklySummary[],
-              isLoading: false,
               lastSyncedAt: getDateService().now(),
             });
 
@@ -5234,7 +5116,7 @@ export const useGremlyStore = create<GremlyState>()(
             get().refreshRitualProgress();
           } catch (error) {
             console.error('[GremlyStore] refreshFromServer failed:', error);
-            set({ isLoading: false });
+            // No isLoading to reset — background sync never sets it
           }
         },
 
@@ -5919,92 +5801,117 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         fetchCalendarEventsForRange: async (startDate: string, endDate: string) => {
-          console.log(
-            '[GremlyStore] fetchCalendarEventsForRange called:',
-            startDate,
-            'to',
-            endDate,
-          );
-          set({ calendarLoading: true });
-
-          try {
-            const events = await calendarClient.getEvents(startDate, endDate);
-            console.log(
-              '[GremlyStore] calendarClient.getEvents returned:',
-              events.length,
-              'events',
-            );
-
-            // Group events by date (YYYY-MM-DD from startAt)
-            // Start fresh for the fetched range but keep events outside it
-            const prev = get().calendarEvents;
-            const eventsByDate: Record<string, CalendarEvent[]> = {};
-
-            // Keep only events whose date key falls OUTSIDE the fetched range
-            for (const [dateKey, dateEvents] of Object.entries(prev)) {
-              if (dateKey < startDate || dateKey > endDate) {
-                eventsByDate[dateKey] = dateEvents;
-              }
+          // ── Single-flight: if a fetch is in progress, await it instead of duplicating ──
+          if (calendarFetchInFlight) {
+            console.log('[GremlyStore] Calendar fetch already in flight, awaiting existing');
+            try {
+              await calendarFetchInFlight;
+            } catch {
+              // Original caller handles its own errors
             }
+            return;
+          }
 
-            for (const event of events) {
-              if (event.isAllDay) {
-                // All-day events: use the date portion of the ISO string directly
-                // to avoid UTC→local timezone shift (e.g. "2026-02-18T00:00:00Z"
-                // becomes Feb 17 in PST when parsed via new Date()).
-                const startStr = event.startAt.split('T')[0]; // "YYYY-MM-DD"
-                const endStr = event.endAt.split('T')[0]; // "YYYY-MM-DD" (exclusive)
+          const fetchPromise = (async () => {
+            console.log('[GremlyStore] fetchCalendarEventsForRange:', startDate, 'to', endDate);
+            set({ calendarLoading: true });
 
-                // Add the event to every date from start to end (exclusive)
-                const cursor = new Date(startStr + 'T12:00:00'); // noon avoids DST edge
-                const endDate = new Date(endStr + 'T12:00:00');
-                while (cursor < endDate) {
-                  const dateKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
-                  const existing = eventsByDate[dateKey] || [];
-                  const alreadyExists = existing.some((e) => e.id === event.id);
-                  if (!alreadyExists) {
-                    eventsByDate[dateKey] = [...existing, event];
-                  }
-                  cursor.setDate(cursor.getDate() + 1);
+            try {
+              const events = await calendarClient.getEvents(startDate, endDate);
+              console.log(
+                '[GremlyStore] calendarClient.getEvents returned:',
+                events.length,
+                'events',
+              );
+
+              // ── Build date-keyed map with proper dedup ──
+              const eventsByDate: Record<string, CalendarEvent[]> = {};
+              const dateService = getDateService();
+
+              // Keep events outside the fetched range from previous state
+              const prev = get().calendarEvents;
+              for (const [dateKey, dateEvents] of Object.entries(prev)) {
+                if (dateKey < startDate || dateKey > endDate) {
+                  eventsByDate[dateKey] = dateEvents;
                 }
-              } else {
-                // Timed events: group by local start date
-                const eventDate = new Date(event.startAt);
-                const dateKey = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}-${String(eventDate.getDate()).padStart(2, '0')}`;
-                console.log(
-                  '[GremlyStore] Event:',
-                  event.title,
-                  'startAt:',
-                  event.startAt,
-                  '-> dateKey:',
-                  dateKey,
-                );
+              }
 
-                const existing = eventsByDate[dateKey] || [];
-                const alreadyExists = existing.some((e) => e.id === event.id);
-                if (!alreadyExists) {
+              // Global dedup by providerEventId — prevents the same event
+              // from being added multiple times across date slots
+              const seenProviderIds = new Set<string>();
+
+              for (const event of events) {
+                // Skip if we've already processed this provider event
+                if (seenProviderIds.has(event.providerEventId)) continue;
+                seenProviderIds.add(event.providerEventId);
+
+                if (event.isAllDay) {
+                  // All-day events: span across dates using string math
+                  // (avoids DST issues from Date object mutation)
+                  const startStr = event.startAt.split('T')[0]; // "YYYY-MM-DD"
+                  const endStr = event.endAt.split('T')[0]; // "YYYY-MM-DD" (exclusive)
+
+                  // Add the event to every date from start to end (exclusive)
+                  let cursor = startStr;
+                  while (cursor < endStr) {
+                    const existing = eventsByDate[cursor] || [];
+                    eventsByDate[cursor] = [...existing, event];
+                    cursor = dateService.addDays(cursor, 1);
+                  }
+                } else {
+                  // Timed events: use DateService for consistent local date extraction
+                  const dateKey = dateService.extractLocalDate(event.startAt);
+                  if (!dateKey) {
+                    console.warn(
+                      '[GremlyStore] Could not extract date from event:',
+                      event.title,
+                      event.startAt,
+                    );
+                    continue;
+                  }
+
+                  console.log(
+                    '[GremlyStore] Event:',
+                    event.title,
+                    'startAt:',
+                    event.startAt,
+                    '-> dateKey:',
+                    dateKey,
+                  );
+
+                  const existing = eventsByDate[dateKey] || [];
                   eventsByDate[dateKey] = [...existing, event];
                 }
               }
-            }
 
-            console.log('[GremlyStore] eventsByDate keys:', Object.keys(eventsByDate));
-            set({
-              calendarEvents: eventsByDate,
-              calendarLoading: false,
-              calendarLastFetched: nowTimestamp(),
-            });
+              console.log('[GremlyStore] eventsByDate keys:', Object.keys(eventsByDate));
 
-            // Auto-normalize external events into Note entities
-            try {
-              const syncResult = await get().syncCalendarEventsToNotes();
-              console.log('[GremlyStore] Calendar sync result:', syncResult);
-            } catch (syncError) {
-              console.error('[GremlyStore] Calendar sync-to-notes failed:', syncError);
+              // ── Atomic state update ──
+              set({
+                calendarEvents: eventsByDate,
+                calendarLoading: false,
+                calendarLastFetched: nowTimestamp(),
+              });
+
+              // Auto-normalize external events into Note entities
+              try {
+                const syncResult = await get().syncCalendarEventsToNotes();
+                console.log('[GremlyStore] Calendar sync result:', syncResult);
+              } catch (syncError) {
+                console.error('[GremlyStore] Calendar sync-to-notes failed:', syncError);
+              }
+            } catch (error) {
+              console.error('[GremlyStore] fetchCalendarEventsForRange failed:', error);
+              set({ calendarLoading: false });
             }
-          } catch (error) {
-            console.error('[GremlyStore] fetchCalendarEventsForRange failed:', error);
-            set({ calendarLoading: false });
+          })();
+
+          // Register the in-flight promise so concurrent calls coalesce
+          calendarFetchInFlight = fetchPromise;
+          try {
+            await fetchPromise;
+          } finally {
+            calendarFetchInFlight = null;
           }
         },
 
@@ -7144,113 +7051,6 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
-        // ═══════════════════════════════════════════════════════════════════
-        // PENDING DROP ACTIONS (for optimistic Mind Drop queue)
-        // ═══════════════════════════════════════════════════════════════════
-
-        addPendingDrop: (drop: PendingDrop) => {
-          set((state) => {
-            const newPending = new Map(state.pendingDrops);
-            newPending.set(drop.localId, drop);
-            return { pendingDrops: newPending };
-          });
-          console.log('[GremlyStore] Added pending drop', { localId: drop.localId });
-        },
-
-        updatePendingDropClassification: (
-          localId: string,
-          classification: {
-            bucket: 'todo' | 'habit' | 'log';
-            subtype: 'journal' | 'idea' | 'event' | 'general' | null;
-          },
-        ) => {
-          set((state) => {
-            const drop = state.pendingDrops.get(localId);
-            if (!drop) return state;
-
-            const updated: PendingDrop = {
-              ...drop,
-              ...classification,
-              status: 'classified' as const,
-            };
-            const newPending = new Map(state.pendingDrops);
-            newPending.set(localId, updated);
-            return { pendingDrops: newPending };
-          });
-          console.log('[GremlyStore] Updated pending drop classification', {
-            localId,
-            ...classification,
-          });
-        },
-
-        updatePendingDropEnrichment: (localId: string, enrichment: Partial<PendingDrop>) => {
-          console.log('🟢 [GremlyStore] updatePendingDropEnrichment called', {
-            localId,
-            enrichmentKeys: Object.keys(enrichment),
-            hasMinddropStage: 'minddrop_stage' in enrichment,
-            minddropStageValue: (enrichment as any).minddrop_stage,
-          });
-
-          set((state) => {
-            const drop = state.pendingDrops.get(localId);
-            if (!drop) {
-              console.warn('[GremlyStore] updatePendingDropEnrichment: drop not found', {
-                localId,
-              });
-              return state;
-            }
-
-            const updated: PendingDrop = { ...drop, ...enrichment };
-
-            console.log('🟢 [GremlyStore] After spread, updated drop has:', {
-              localId,
-              hasMinddropStage: 'minddrop_stage' in updated,
-              minddropStageValue: (updated as any).minddrop_stage,
-              status: updated.status,
-            });
-
-            const newPending = new Map(state.pendingDrops);
-            newPending.set(localId, updated);
-
-            return { pendingDrops: newPending };
-          });
-        },
-
-        updateMultiSegment: (
-          localId: string,
-          segmentIndex: number,
-          updates: Partial<PendingDropSegment>,
-        ) => {
-          set((state) => {
-            const drop = state.pendingDrops.get(localId);
-            if (!drop) {
-              console.warn('[GremlyStore] updateMultiSegment: drop not found', {
-                localId,
-                segmentIndex,
-              });
-              return state;
-            }
-            if (!drop.multiSegments || segmentIndex >= drop.multiSegments.length) {
-              console.warn('[GremlyStore] updateMultiSegment: invalid segment index', {
-                localId,
-                segmentIndex,
-                segmentCount: drop.multiSegments?.length ?? 0,
-              });
-              return state;
-            }
-
-            // Atomic read-modify-write: read multiSegments INSIDE the set() function
-            const updatedSegments = [...drop.multiSegments];
-            updatedSegments[segmentIndex] = { ...updatedSegments[segmentIndex], ...updates };
-
-            const updated: PendingDrop = { ...drop, multiSegments: updatedSegments };
-            const newPending = new Map(state.pendingDrops);
-            newPending.set(localId, updated);
-
-            return { pendingDrops: newPending };
-          });
-        },
-
         /**
          * Split a multi-drop note into separate entities for each selected segment.
          * The original multi-drop note is archived and individual entities are created.
@@ -7463,216 +7263,8 @@ export const useGremlyStore = create<GremlyState>()(
           return true;
         },
 
-        promotePendingDropToEntity: (localId: string, supabaseId: string) => {
-          set((state) => {
-            const pendingDrop = state.pendingDrops.get(localId);
-            const newPending = new Map(state.pendingDrops);
-            newPending.delete(localId);
-
-            // Transfer clarification data to the local entity if Phase 1.5 completed
-            if (pendingDrop?.clarification_question && pendingDrop?.clarification_options?.length) {
-              // Find and update the entity in the appropriate array
-              const bucket = pendingDrop.bucket || 'log';
-              const clarificationData = {
-                clarification_question: pendingDrop.clarification_question,
-                clarification_options: pendingDrop.clarification_options,
-              };
-
-              if (bucket === 'todo') {
-                return {
-                  pendingDrops: newPending,
-                  todos: state.todos.map((t) =>
-                    t.id === supabaseId ? { ...t, ...clarificationData } : t,
-                  ),
-                };
-              } else if (bucket === 'habit') {
-                return {
-                  pendingDrops: newPending,
-                  habits: state.habits.map((h) =>
-                    h.id === supabaseId ? { ...h, ...clarificationData } : h,
-                  ),
-                };
-              } else {
-                return {
-                  pendingDrops: newPending,
-                  notes: state.notes.map((n) =>
-                    n.id === supabaseId ? { ...n, ...clarificationData } : n,
-                  ),
-                };
-              }
-            }
-
-            return { pendingDrops: newPending };
-          });
-          console.log('[GremlyStore] Promoted pending drop to entity', { localId, supabaseId });
-        },
-
-        removePendingDrop: (localId: string) => {
-          set((state) => {
-            const newPending = new Map(state.pendingDrops);
-            newPending.delete(localId);
-            return { pendingDrops: newPending };
-          });
-          console.log('[GremlyStore] Removed pending drop', { localId });
-        },
-
-        resolvePendingDropClarification: async (localId, optionId, isFreeText = false) => {
+        resolveEntityClarification: async (localId, optionId, isFreeText = false) => {
           const state = get();
-
-          // ─────────────────────────────────────────────────────────────────────
-          // PENDING DROPS: Items still in Mind Drop queue (not yet synced)
-          // For pending drops, we update the local state and let the processor
-          // handle the actual entity creation with the correct bucket
-          // ─────────────────────────────────────────────────────────────────────
-          const pendingDrop = state.pendingDrops.get(localId);
-
-          if (pendingDrop && (isFreeText || pendingDrop.clarification_options)) {
-            // Determine the selected label based on whether it's free text or a predefined option
-            let selectedLabel: string;
-            if (isFreeText) {
-              // User typed their own explanation - use it directly
-              selectedLabel = optionId;
-              console.log(
-                '[GremlyStore] Using free text as selectedLabel:',
-                selectedLabel.substring(0, 50),
-              );
-            } else {
-              // User selected a predefined option - look up the label
-              const selectedOption = pendingDrop.clarification_options?.find(
-                (opt) => opt.id === optionId,
-              );
-              if (!selectedOption) {
-                console.warn('[GremlyStore] Pending drop option not found:', { localId, optionId });
-                return;
-              }
-              selectedLabel = selectedOption.label;
-            }
-
-            console.log('[GremlyStore] Resolving pending drop clarification', {
-              localId,
-              optionId: isFreeText ? '(free text)' : optionId,
-              selectedLabel: selectedLabel.substring(0, 50),
-            });
-
-            // Set processing state BEFORE API calls to trigger card loading animation
-            set((s) => {
-              const pendingDrops = new Map(s.pendingDrops);
-              const drop = pendingDrops.get(localId);
-              if (drop) {
-                pendingDrops.set(localId, {
-                  ...drop,
-                  clarification_processing: true,
-                });
-              }
-              return { pendingDrops };
-            });
-            console.log(
-              '[GremlyStore] Set clarification_processing: true for pending drop:',
-              localId,
-            );
-
-            // Get bucket/subtype from the selected option (if not free text)
-            const selectedOption = isFreeText
-              ? null
-              : pendingDrop.clarification_options?.find((opt) => opt.id === optionId);
-            const selectedBucket = selectedOption?.action?.bucket || null;
-            const selectedSubtype = selectedOption?.action?.subtype || null;
-            const selectedHabitSubtype = selectedOption?.action?.habitSubtype || null;
-
-            // Call reclassify endpoint to get bucket, dates, time estimate
-            try {
-              const cortexUrl = env.cortexUrl;
-              if (cortexUrl) {
-                const reclassifyResponse = await fetch(cortexUrl, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    type: 'reclassify-after-clarification',
-                    text: pendingDrop.text || pendingDrop.smartTitle || '',
-                    selectedLabel: selectedLabel,
-                    selectedBucket: selectedBucket,
-                    selectedSubtype: selectedSubtype,
-                    selectedHabitSubtype: selectedHabitSubtype,
-                    currentDate: getDateService().today(),
-                    targetBucket: pendingDrop.bucket, // Hint for time estimation
-                  }),
-                });
-
-                if (reclassifyResponse.ok) {
-                  const result = await reclassifyResponse.json();
-                  console.log('[GremlyStore] Pending drop reclassify result', {
-                    localId,
-                    newBucket: result.bucket,
-                    newTitle: result.smart_title,
-                    targetDate: result.target_date,
-                    scheduledDate: result.scheduled_date,
-                    timeEstimate: result.time_estimate_minutes,
-                    dateTypeAmbiguous: result.date_type_ambiguous,
-                    latency_ms: result.latency_ms,
-                  });
-
-                  // Check if date type is ambiguous
-                  // For MVP, we default ambiguous dates to target_date (deadline/event)
-                  // The Sweep can then prompt "When do you want to work on this?" to resolve
-                  if (result.date_type_ambiguous && result.target_date) {
-                    console.log(
-                      '[GremlyStore] Pending drop date type ambiguous, defaulting to target_date:',
-                      result.target_date,
-                    );
-                  }
-
-                  // Update the pending drop with reclassified data
-                  set((s) => {
-                    const pendingDrops = new Map(s.pendingDrops);
-                    const drop = pendingDrops.get(localId);
-                    if (!drop) return s;
-
-                    const updatedDrop: PendingDrop = {
-                      ...drop,
-                      bucket: result.bucket || drop.bucket,
-                      subtype: result.subtype || drop.subtype,
-                      smartTitle: result.smart_title || drop.smartTitle,
-                      confirmationMessage: result.confirmation_message || drop.confirmationMessage,
-                      timeEstimateMinutes: result.time_estimate_minutes ?? drop.timeEstimateMinutes,
-                      // Date intelligence
-                      target_date: result.target_date || null,
-                      scheduled_date: result.scheduled_date || null,
-                      // Mark clarification as resolved
-                      clarification_resolved: true,
-                      needs_clarification: false,
-                    };
-
-                    pendingDrops.set(localId, updatedDrop);
-                    return { pendingDrops };
-                  });
-                  return;
-                }
-              }
-            } catch (error) {
-              console.log('[GremlyStore] Pending drop reclassify failed:', error);
-            }
-
-            // Fallback: just mark as resolved without reclassifying
-            set((s) => {
-              const pendingDrops = new Map(s.pendingDrops);
-              const drop = pendingDrops.get(localId);
-              if (!drop) return s;
-
-              const updatedDrop: PendingDrop = {
-                ...drop,
-                clarification_resolved: true,
-                needs_clarification: false,
-              };
-
-              pendingDrops.set(localId, updatedDrop);
-              console.log('[GremlyStore] Pending drop clarification resolved (fallback)', {
-                localId,
-              });
-
-              return { pendingDrops };
-            });
-            return;
-          }
 
           // ─────────────────────────────────────────────────────────────────────
           // SYNCED ENTITIES: Items already in Supabase (todo, habit, or note)
@@ -7699,7 +7291,7 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           if (!entity || !entityType) {
-            console.warn('[GremlyStore] resolvePendingDropClarification: Entity not found', {
+            console.warn('[GremlyStore] resolveEntityClarification: Entity not found', {
               entityId,
             });
             return;
@@ -7733,18 +7325,15 @@ export const useGremlyStore = create<GremlyState>()(
           } else {
             // User selected a predefined option - look up the label
             if (!clarificationOptions) {
-              console.warn(
-                '[GremlyStore] resolvePendingDropClarification: No clarification options',
-                {
-                  entityId,
-                },
-              );
+              console.warn('[GremlyStore] resolveEntityClarification: No clarification options', {
+                entityId,
+              });
               return;
             }
 
             const selectedOption = clarificationOptions.find((opt) => opt.id === optionId);
             if (!selectedOption) {
-              console.warn('[GremlyStore] resolvePendingDropClarification: Option not found', {
+              console.warn('[GremlyStore] resolveEntityClarification: Option not found', {
                 entityId,
                 optionId,
               });
@@ -9875,7 +9464,6 @@ export const useGremlyStore = create<GremlyState>()(
           tags: state.tags,
           habitProgress: state.habitProgress,
           milestones: state.milestones,
-          pendingDrops: state.pendingDrops,
           userId: state.userId,
           lastSweepCompletedAt: state.lastSweepCompletedAt,
           sweepStreak: state.sweepStreak,
@@ -9898,6 +9486,8 @@ export const useGremlyStore = create<GremlyState>()(
           isFedToday: state.isFedToday,
           feedingContributions: state.feedingContributions,
           feedingGaugeLastUpdatedAt: state.feedingGaugeLastUpdatedAt,
+          todayFedCelebrationShownAt: state.todayFedCelebrationShownAt,
+          todayFeedingAgeUpShownAt: state.todayFeedingAgeUpShownAt,
           fedDaysCount: state.fedDaysCount,
           currentTierName: state.currentTierName,
           unfedStreakDays: state.unfedStreakDays,
@@ -9921,6 +9511,9 @@ export const useGremlyStore = create<GremlyState>()(
           lastActiveDate: state.lastActiveDate,
           userName: state.userName,
           userPronouns: state.userPronouns,
+          // Calendar cache — survives app restart for instant display
+          calendarEvents: state.calendarEvents,
+          calendarLastFetched: state.calendarLastFetched,
         }),
 
         // Merge persisted state with fresh initial state
@@ -9931,6 +9524,15 @@ export const useGremlyStore = create<GremlyState>()(
               persistedState?.onboardingCompletedAt,
             );
           if (!persistedState) return currentState;
+
+          // Day-aware hydration: keep cached gauge values on same-day
+          // re-opens, only reset on day boundaries (Soul Document v8)
+          const dayBoundaryHour = persistedState.dayBoundaryHour ?? 4;
+          const currentRitualDay = getRitualDay(dayBoundaryHour);
+          const isSameRitualDay =
+            persistedState.todayRitualDay != null &&
+            persistedState.todayRitualDay === currentRitualDay;
+
           return {
             ...currentState,
             ...persistedState,
@@ -9938,19 +9540,31 @@ export const useGremlyStore = create<GremlyState>()(
             isLoading: false,
             isInitialized: false,
             lastSyncedAt: null,
-            // Always use fresh date on app start, never restore stale date from storage
+            // Always use fresh date on app start
             currentDate: getDateService().today(),
-            // Always reset daily gauge state on hydration (Soul Document v8)
-            // These are daily values that initialize() will populate from Supabase.
-            // Stale MMKV values cause false fed status and wrong gauge display.
-            feedingGaugeValue: 0,
-            isFedToday: false,
-            feedingContributions: [],
-            feedingGaugeLastUpdatedAt: null,
-            todayFedCelebrationShownAt: null,
-            todayFeedingAgeUpShownAt: null,
+            // Day-aware gauge state: preserve on same-day, reset on day boundary.
+            // On day boundary, initialize() will re-populate from Supabase.
+            feedingGaugeValue: isSameRitualDay ? persistedState.feedingGaugeValue : 0,
+            isFedToday: isSameRitualDay ? persistedState.isFedToday : false,
+            feedingContributions: isSameRitualDay ? persistedState.feedingContributions : [],
+            feedingGaugeLastUpdatedAt: isSameRitualDay
+              ? persistedState.feedingGaugeLastUpdatedAt
+              : null,
+            todayFedCelebrationShownAt: isSameRitualDay
+              ? persistedState.todayFedCelebrationShownAt
+              : null,
+            todayFeedingAgeUpShownAt: isSameRitualDay
+              ? persistedState.todayFeedingAgeUpShownAt
+              : null,
+            // Day-aware daily counters
+            todayDropsCount: isSameRitualDay ? persistedState.todayDropsCount : 0,
+            todaySweepsCount: isSameRitualDay ? persistedState.todaySweepsCount : 0,
+            todayRitualCompletedAt: isSameRitualDay ? persistedState.todayRitualCompletedAt : null,
+            // Calendar: keep cached events if same day, clear if new day
+            calendarEvents: isSameRitualDay ? (persistedState.calendarEvents ?? {}) : {},
+            calendarLastFetched: isSameRitualDay ? persistedState.calendarLastFetched : null,
+            // Always reset transient state
             pendingGaugePreviews: 0,
-            // Training readiness is refreshed from server in initialize()
             trainingReadiness: 0,
             pendingGraduation: false,
           };

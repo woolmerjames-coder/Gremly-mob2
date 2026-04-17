@@ -427,7 +427,15 @@ function scoreTodo(p, hasUserSelectedDate = false) {
   if (p.boundary_type === 'one_time') c++;
   if (!p.is_ongoing_practice) c++;
 
-  if (p.is_ongoing_practice || p.struct_completion === 'recurring') {
+  const recurrenceSignals = [
+    p.is_ongoing_practice,
+    p.has_routine_anchor,
+    p.struct_completion === 'recurring' && !p.is_single_instance,
+    p.has_explicit_multiplicity,
+    p.frequency_present,
+  ].filter(Boolean).length;
+
+  if (recurrenceSignals >= 2) {
     return Math.min(mapScore(c), 0.5);
   }
   return mapScore(c);
@@ -955,13 +963,7 @@ const STRUCTURAL_PARSE_PROMPT = `Parse the structural components of this text. R
   = "processing". Thinking out loud or wondering = "exploring". 
   ("directing" / "capturing" / "processing" / "exploring")
 
-- completion: If the user follows through on this text, will they be 
-  DONE — finished, nothing more to do, the action is complete — or 
-  will they need to do it again on a future occasion? Return "done" 
-  when the action has a natural endpoint after which it does not need 
-  repeating. Return "recurring" when the action is meant to happen 
-  again. Return "unclear" when the text genuinely could mean either. 
-  ("done" / "recurring" / "unclear")
+- completion: Based ONLY on what this text says, is the user committing to a recurring pattern or setting up a one-time action? Return "done" when the text describes a single action to perform, even if the underlying activity is something that could theoretically be repeated in the future. Return "recurring" ONLY when the text contains explicit frequency, schedule, or repetition language indicating the user intends this to happen more than once. The absence of frequency or schedule language means "done". Return "unclear" when genuinely ambiguous. ("done" / "recurring" / "unclear")
 
 - novelty: Is the PRIMARY SUBJECT of this text something that 
   does not currently exist? Not the actions or feelings mentioned, 
@@ -3122,6 +3124,12 @@ export default {
             return lower;
           })
           .join(' ');
+      }
+
+      function sentenceCase(s) {
+        const t = String(s || '').trim();
+        if (!t) return '';
+        return t[0].toUpperCase() + t.slice(1);
       }
 
       function stripLeadingMeta(title) {
@@ -9117,68 +9125,98 @@ Rules:
 
 Today is ${currentDate} (${dayOfWeek}).
 
-=== SMART TITLE (3-7 words) ===
+=== SMART TITLE (2-8 words) ===
 
-Generate a title that captures the SUBJECT/TOPIC — what it IS, not WHEN it happens or HOW OFTEN.
+Produce a clean, concise version of what the user actually said. The title should read like a thought the user would recognize as their own, not a label a system generated.
 
-**Title principles:**
+Title principles:
 
-1. **Extract the core subject matter** — The title should make sense in a list of items. What is this fundamentally about?
+1. Preserve the user's phrasing. Start from their actual words and clean them up rather than extracting a subject label. The title should sound like something the user would have written in their own notes, not a category heading a system would generate.
 
-2. **Strip temporal information** — Dates, times, time-of-day (morning, evening, night), and scheduling words belong in metadata, not titles. They become stale.
+2. Title case. Capitalize the first letter of each significant word. Keep articles, prepositions, and conjunctions lowercase unless they are the first word.
 
-3. **Strip frequency information** — For habits, frequency is tracked separately. The title is just the activity.
+3. Sound natural. If the input is very short or reads like a command, rephrase it into how someone would naturally say it out loud. But NEVER add details, locations, people, reasons, or context the user did not include. You can restructure their words into a more natural phrase. You cannot invent information that was not in the input. If someone gives you two words, you can rephrase those two words more naturally but you cannot add a third concept they never mentioned.
 
-4. **No meta-language** — The title IS the subject matter. Write it the way you'd label a folder — what it's about, not what the user should do with it.
-For journals, start with what happened or what it's about — not the act of reflecting. "Rough Conversation With Sarah" not "Reflecting on Conversation With Sarah". The user knows they're reflecting; the title should be the subject, not the activity.
+4. Strip temporal information. Dates, times, days of week, and scheduling words belong in metadata, not titles. They go stale.
 
-5. **Preserve question framing** — If the input is a question or dilemma, keep the question words in the title. The question IS the content.
+5. Strip frequency information. For habits, frequency is tracked separately. The title is just the activity.
 
-6. **No mood words in titles** — Emotional descriptors are captured as mood metadata for journals, not in titles.
+6. No meta-language. Don't start with "Remember to", "Need to", "Track", "Reflect on". The title is the thing itself.
 
-7. **Title case, 3-7 words**
+7. For journals, lead with what happened or what it's about. Not the act of journaling.
 
-=== REACTION (4-8 words, max 50 characters) ===
+8. Preserve question framing. If the input is a question, keep the question words. The question IS the content.
 
-PERSONA: You're their upbeat, playful friend. You're genuinely happy they shared this and you react with warmth and a little humor. You don't do earnest speeches or therapize, but you're never dismissive either. You react like a friend who thinks what they're doing is cool — quick, fun, maybe a little cheeky.
+9. No mood words in titles. Emotional descriptors are captured as mood metadata.
 
-PROCESS — follow these two steps every time:
+=== CARD NOTE (4-8 words) ===
+
+A friend's quick take on what was dropped. This appears as a
+subtitle on the card in the user's list.
+
+Rules:
+- Same personality as the reaction: cheeky, warm, offhand
+- Written ABOUT the item, not to the user
+- Must reference something specific from the input
+- Must be DIFFERENT from both the title and the reaction
+- Sentence case. Capitalize first word and proper nouns only.
+- Never headline-style. Never a label or category.
+- Never inspirational or motivational
+- No task-management words
+
+=== REACTION (5-12 words, max 70 characters) ===
+
+WHAT THIS IS: You're Gremly, a small green creature who lives in a productivity app. When someone drops a thought, task, or idea into MindDrop, you react in a speech bubble above the input. React specifically to what the user said.
+
+PROCESS - follow these two steps every time:
+
 1. Find ONE specific detail from their input: a person's name, the actual activity, a place, the subject matter. Lock onto it.
-2. Pick an angle on that detail: a light observation, a playful consequence, a quick aside, or a question that shows you caught it. The angle should feel like it took you half a second to think of, not half an hour.
+2. React to that detail. A quick take, a playful observation, a one-liner that shows you caught what they said.
 
 TONE BY BUCKET:
-- TODOS: Playful. React to the real-world thing, not "the task."
-- HABITS: Playful belief. Root for the specific behavior, not the abstract concept of self-improvement.
-- JOURNALS: Shorthand empathy. Like a friend who gets it without turning it into A Moment.
-- IDEAS: Genuine curiosity about the specific idea.
-- GENERAL LOGS: React to the interesting detail. Name the specific thing.
+
+- TODOS: React to the real-world thing.
+- HABITS: Root for the specific behavior, not the abstract concept of self-improvement.
+- JOURNALS: Shorthand empathy. One sentence that shows you get it. Don't therapize.
+- IDEAS: Genuine curiosity about the specific idea. Ask a quick question or make an observation.
+- EVENTS: Acknowledge the thing happening.
+- GENERAL: React to whatever's interesting. Name the specific thing.
 
 VOICE:
+
 - Texting a friend, not writing a greeting card
-- Short. Offhand. Like you dashed it off
-- No exclamation marks
+- Short and offhand — like you thought of it in half a second
+- One exclamation mark is fine when it fits. Zero is also fine. Never two.
 - Cheeky when there's an opening, warm when there isn't
 
 HARD BANS — never do these:
-- The "That [noun phrase] really [verb/adjective]" structure (e.g., "That kind of effort really shows"). This is therapist-speak.
-- "[Gerund] [abstract noun] with [abstract noun]" (e.g., "Building strength with consistent effort"). This is a motivational poster.
-- Restating or paraphrasing the title. If your reaction just says what the title already says in different words, you failed.
-- Therapy words: "valid", "stands out", "is familiar", "is important", "takes courage"
-- Task-management language: "noted", "captured", "queued", "tracked", "on your list", "on your radar", "scheduled", "logged", "taking care of", "got it"
-- Ending with ", huh?" or ", right?" — it's a crutch, not wit.
 
-THE TEST: Read your reaction back. Does it sound like something a real person would actually text? If it sounds like a notification, a therapist, or a poster on a dentist's wall — rewrite it.
+- Task-management language: "noted", "captured", "queued", "tracked", "on your list", "on your radar", "scheduled", "logged", "taking care of"
+- Therapy-speak: "valid", "stands out", "is familiar", "is important", "takes courage"
+- The "That [noun] really [verb]" structure
+- "[Gerund] [abstract noun] with [abstract noun]"
+- Restating or paraphrasing the title in different words
+- Ending with ANY trailing filler word — "huh", "right", "yeah", "no", "eh", "tho", "though" — with or without commas, question marks, or periods. This applies regardless of punctuation.
+- Starting with "Ooh" or "Oh" — these are overused openers
+
+THE QUALITY TEST: Could this reaction ONLY be about this specific drop? If you could swap it onto a different drop and it would still make sense, it's too generic. Rewrite.
 
 VARIETY:
-You will sometimes receive a list of your recent reactions. Study their structures — the sentence shapes, the endings, the rhetorical moves. Then do something different. If the last three were statements, try a question. If they ended with wordplay, try a straight observation. If they were long, go shorter. Your job is to make each card feel like a fresh thought, not a template.
+You will sometimes receive a list of your recent reactions along with a structural summary. Use BOTH to avoid repetition:
+
+- Don't reuse the same sentence structures as recent reactions
+- If the structural summary shows three statements, try a question or exclamation
+- If endings are all nouns, try ending with a verb or adjective
+- Your job is to make each reaction feel like a fresh thought, not a template
 
 === OUTPUT FORMAT ===
 
 Return ONLY valid JSON:
 
 {
-  "smart_title": "3-7 Word Title",
-  "confirmation_message": "4-8 word reaction"
+  "smart_title": "Title Case Title",
+  "card_note": "Warm Card Annotation",
+  "confirmation_message": "5-12 word reaction, max 70 chars"
 }`;
 
         const t0 = Date.now();
@@ -9186,7 +9224,27 @@ Return ONLY valid JSON:
         const userMessage = (() => {
           let msg = `USER INPUT: "${text}"\nBUCKET: ${bucket}\nSUBTYPE: ${subtype || 'none'}`;
           if (recentReactions.length > 0) {
-            msg += `\n\nRECENT REACTIONS (your last ${recentReactions.length} — do NOT reuse these sentence structures, endings, or patterns):\n${recentReactions.map((r) => `- "${r}"`).join('\n')}`;
+            // Classify each recent reaction's structure for variety guidance
+            const structures = recentReactions.map((r) => {
+              const trimmed = r.replace(/[.?!,]+$/, '').trim();
+              const isQuestion = r.endsWith('?');
+              const isExclamation = r.endsWith('!');
+              const lastWord = trimmed.split(/\s+/).pop() || '';
+              const endingType = /(?:ing|ed|es|s)$/i.test(lastWord)
+                ? 'verb'
+                : /ly$/i.test(lastWord)
+                  ? 'adverb'
+                  : 'noun';
+              const type = isQuestion ? 'question' : isExclamation ? 'exclamation' : 'statement';
+              return { type, endingType };
+            });
+
+            const typeList = structures.map((s) => s.type).join(', ');
+            const endingList = structures.map((s) => s.endingType).join(', ');
+
+            msg += `\n\nRECENT REACTIONS (do NOT reuse sentence structures, endings, or patterns):`;
+            msg += `\n${recentReactions.map((r) => `- "${r}"`).join('\n')}`;
+            msg += `\nSTRUCTURAL SUMMARY: Last ${structures.length} types: ${typeList}. Last endings: ${endingList}.`;
           }
           return msg;
         })();
@@ -9207,7 +9265,9 @@ Return ONLY valid JSON:
         if (!result.parsed) {
           return j({
             smart_title: titleCase(text.substring(0, 50)),
+            card_note: null,
             confirmation_message: null,
+            speech_message: null,
             latency_ms: latency,
           });
         }
@@ -9224,14 +9284,49 @@ Return ONLY valid JSON:
           smartTitle = titleCase(smartTitle);
         }
 
+        // Extract and validate card_note
+        let cardNote = parsed.card_note || null;
+        if (cardNote) {
+          cardNote = String(cardNote).trim();
+          // Strip em dashes
+          cardNote = cardNote
+            .replace(/\u2014/g, ', ')
+            .replace(/\u2013/g, ', ')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+          if (cardNote.length < 3 || cardNote.length > 60) {
+            cardNote = null;
+          }
+          if (cardNote) {
+            cardNote = sentenceCase(cardNote);
+          }
+        }
+
         // Extract confirmation message
         let confirmationMessage = parsed.confirmation_message || null;
         if (confirmationMessage) {
           confirmationMessage = String(confirmationMessage).trim();
+
+          // Post-process: strip banned trailing filler words
+          confirmationMessage = confirmationMessage
+            .replace(/[,\s]+(?:huh|right|yeah|no|eh|tho|though)[.?!]?\s*$/i, '')
+            .trim();
+
+          // Strip leading "Ooh" / "Oh" openers
+          confirmationMessage = confirmationMessage.replace(/^(?:Ooh|Oh)[,!]?\s*/i, '').trim();
+
+          // Strip em dashes (replace with comma or period)
+          confirmationMessage = confirmationMessage
+            .replace(/\u2014/g, ', ')
+            .replace(/\u2013/g, ', ')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+
+          // Validate length
           if (confirmationMessage.length < 3) {
             confirmationMessage = null;
-          } else if (confirmationMessage.length > 50) {
-            confirmationMessage = confirmationMessage.substring(0, 47) + '...';
+          } else if (confirmationMessage.length > 70) {
+            confirmationMessage = confirmationMessage.substring(0, 67) + '...';
           }
         }
 
@@ -9243,9 +9338,97 @@ Return ONLY valid JSON:
           latency_ms: latency,
         });
 
+        // Add natural confirmation signal, bucket-aware
+        const rawReaction = confirmationMessage;
+        let speechMessage = confirmationMessage;
+        if (confirmationMessage) {
+          const OPENERS = {
+            todo: [
+              'Got it.',
+              'On it.',
+              "I've got this.",
+              "I'm on it.",
+              "Won't forget.",
+              "It's on my list.",
+            ],
+            habit: ['Got it.', "I'll be watching.", "I'm on it.", 'Tracking.', "I've got this."],
+            log_journal: [
+              'Safe with me.',
+              'I hear you.',
+              'Got it.',
+              'Yours is safe.',
+              "I've got this.",
+              "That's between us.",
+            ],
+            log_idea: [
+              'Got it.',
+              'Stored away.',
+              'Holding onto this.',
+              "I've got this.",
+              'Tucked away.',
+            ],
+            log_event: ['Got it.', "Won't miss it.", "I'm on it.", "I've got this."],
+            general: ['Got it.', 'Safe with me.', "I've got this.", 'On it.'],
+          };
+
+          // Pick the right pool
+          const poolKey =
+            bucket === 'todo'
+              ? 'todo'
+              : bucket === 'habit'
+                ? 'habit'
+                : bucket === 'log' && subtype === 'journal'
+                  ? 'log_journal'
+                  : bucket === 'log' && subtype === 'idea'
+                    ? 'log_idea'
+                    : bucket === 'log' && subtype === 'event'
+                      ? 'log_event'
+                      : 'general';
+
+          const pool = OPENERS[poolKey] || OPENERS.general;
+
+          // Avoid repeating recent openers
+          const recentOpenerWords = (recentReactions || [])
+            .map((r) => {
+              const firstSentence = r.split(/[.!]/)[0]?.trim();
+              return firstSentence && firstSentence.split(' ').length <= 4 ? firstSentence : null;
+            })
+            .filter(Boolean);
+
+          const available = pool.filter((o) => !recentOpenerWords.includes(o.replace(/[.!]$/, '')));
+          const opener =
+            available.length > 0
+              ? available[Math.floor(Math.random() * available.length)]
+              : pool[Math.floor(Math.random() * pool.length)];
+
+          // Randomly place at start or end for variety
+          if (Math.random() < 0.45) {
+            confirmationMessage = confirmationMessage + ' ' + opener;
+          } else {
+            confirmationMessage = opener + ' ' + confirmationMessage;
+          }
+
+          // Re-check length
+          if (confirmationMessage.length > 70) {
+            confirmationMessage = confirmationMessage.substring(0, 67) + '...';
+          }
+          speechMessage = confirmationMessage;
+        }
+
+        console.log('[Phase1.5a] Final output', {
+          title: smartTitle?.substring(0, 30),
+          cardNote: cardNote?.substring(0, 30),
+          rawReaction: rawReaction?.substring(0, 30),
+          speechMessage: speechMessage?.substring(0, 40),
+          bucket,
+          subtype,
+        });
+
         return j({
           smart_title: smartTitle,
-          confirmation_message: confirmationMessage,
+          card_note: cardNote,
+          confirmation_message: rawReaction,
+          speech_message: speechMessage,
           latency_ms: latency,
         });
       }
