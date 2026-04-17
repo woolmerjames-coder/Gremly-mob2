@@ -43,6 +43,7 @@ import Reanimated, { FadeIn } from 'react-native-reanimated';
 import { BreakHabitCard } from '../../../components/now/BreakHabitCard';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore, isHabitLockedIn } from '../../../lib/store/useGremlyStore';
+import { useNeedsMindDropTutorial } from '../../../lib/store/lifecycleSelectors';
 import { GAUGE_WEIGHTS } from '../../../lib/constants/soulDocument';
 import MascotLottie from '../MascotLottie';
 import { computeHabitStreak } from '../../../lib/habits/streakUtils';
@@ -236,7 +237,7 @@ export function MorningBriefSheet({
   const setBriefCompletedToday = useGremlyStore((s) => s.setBriefCompletedToday);
   const completeMorningBrief = useGremlyStore((s) => s.completeMorningBrief);
   const commitLockInItems = useGremlyStore((s) => s.commitLockInItems);
-  const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
+  const isTrainingMode = useNeedsMindDropTutorial();
   const habitProgress = useGremlyStore((s) => s.habitProgress);
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
   const isFedToday = useGremlyStore((s) => s.isFedToday);

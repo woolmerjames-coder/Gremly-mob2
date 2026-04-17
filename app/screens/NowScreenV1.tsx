@@ -50,6 +50,7 @@ import WeeklySummaryBanner from '../../components/WeeklySummaryBanner';
 import { useDailyAppOpen } from '../../lib/today/hooks/useDailyAppOpen';
 // Store and selectors
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useHasCompletedOnboarding } from '../../lib/store/lifecycleSelectors';
 import {
   useLockedItems,
   useActiveItems,
@@ -316,7 +317,7 @@ export default function NowScreenV1() {
   const isInitialized = useGremlyStore((state) => state.isInitialized);
   const gremlyAge = useGremlyStore((state) => state.gremlyAge);
   const firstTodayVisitCompletedAt = useGremlyStore((s) => s.firstTodayVisitCompletedAt);
-  const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
+  const hasCompletedOnboarding = useHasCompletedOnboarding();
   const markFirstTodayVisitComplete = useGremlyStore((s) => s.markFirstTodayVisitComplete);
 
   // Calendar integration
@@ -408,11 +409,11 @@ export default function NowScreenV1() {
 
   // Show first-visit bubble for new users
   useEffect(() => {
-    if (onboardingCompletedAt && !firstTodayVisitCompletedAt && isInitialized) {
+    if (hasCompletedOnboarding && !firstTodayVisitCompletedAt && isInitialized) {
       const timer = setTimeout(() => setShowFirstVisitBubble(true), 600);
       return () => clearTimeout(timer);
     }
-  }, [onboardingCompletedAt, firstTodayVisitCompletedAt, isInitialized]);
+  }, [hasCompletedOnboarding, firstTodayVisitCompletedAt, isInitialized]);
 
   // Today's items - from selectors (single source of truth)
   const rawLockedItems = useLockedItems();

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react-native';
 import { BRAND } from '../../../design/brand';
 import { useGremlyStore } from '../../../lib/store/useGremlyStore';
+import { useNeedsMindDropTutorial, useTrialStartedAt } from '../../../lib/store/lifecycleSelectors';
 import { supabase } from '../../../lib/supabase/client';
 import { getTrainingHints } from '../../../lib/training/trainingHints';
 import {
@@ -51,8 +52,8 @@ interface TrainingMeterProps {
 
 export default function TrainingMeter({ visible, onDismiss, onNavigate }: TrainingMeterProps) {
   const trainingReadiness = useGremlyStore((s) => s.trainingReadiness);
-  const trainingStartedAt = useGremlyStore((s) => s.trainingStartedAt);
-  const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
+  const trialStartedAt = useTrialStartedAt();
+  const isTrainingMode = useNeedsMindDropTutorial();
   const refreshTrainingReadiness = useGremlyStore((s) => s.refreshTrainingReadiness);
   const feedingHistory = useGremlyStore((s) => s.feedingHistory);
   const fetchFeedingHistory = useGremlyStore((s) => s.fetchFeedingHistory);
@@ -62,7 +63,7 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
   const [daysRemaining, setDaysRemaining] = useState(7);
 
   useEffect(() => {
-    if (!visible || !isTrainingMode || !trainingStartedAt) return;
+    if (!visible || !isTrainingMode || !trialStartedAt) return;
 
     // Refresh the readiness score
     refreshTrainingReadiness();
@@ -71,7 +72,7 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
     fetchFeedingHistory();
 
     // Compute days remaining
-    setDaysRemaining(getTrainingDaysRemaining(trainingStartedAt) ?? 0);
+    setDaysRemaining(getTrainingDaysRemaining(trialStartedAt) ?? 0);
 
     // Fetch raw data for hints
     const userId = useGremlyStore.getState().userId;
@@ -80,7 +81,7 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
     supabase
       .rpc('get_training_readiness', {
         p_owner_id: userId,
-        p_since: trainingStartedAt,
+        p_since: trialStartedAt,
       })
       .then(({ data, error }) => {
         if (error || !data) {
@@ -101,16 +102,16 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
         };
         setHints(getTrainingHints(trainingData));
       });
-  }, [visible, isTrainingMode, trainingStartedAt, refreshTrainingReadiness, fetchFeedingHistory]);
+  }, [visible, isTrainingMode, trialStartedAt, refreshTrainingReadiness, fetchFeedingHistory]);
 
   const readinessLabel = getReadinessLabel(trainingReadiness);
   const pct = Math.min(trainingReadiness, 100);
 
-  const startDay = trainingStartedAt
-    ? dateService.toLocalDate(new Date(trainingStartedAt))
+  const startDay = trialStartedAt
+    ? dateService.toLocalDate(new Date(trialStartedAt))
     : dateService.today();
 
-  const dayNumber = trainingStartedAt
+  const dayNumber = trialStartedAt
     ? Math.min(dateService.daysBetween(startDay, dateService.today()) + 1, 7)
     : 1;
 
@@ -139,9 +140,7 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
             const isPast = i + 1 < dayNumber;
             const isFuture = i + 1 > dayNumber;
 
-            const dayDate = trainingStartedAt
-              ? dateService.addDays(startDay, i)
-              : null;
+            const dayDate = trialStartedAt ? dateService.addDays(startDay, i) : null;
 
             const wasFull = isToday
               ? isFedToday
@@ -182,7 +181,10 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
                 >
                   {
                     ['S', 'M', 'T', 'W', 'T', 'F', 'S'][
-                      (dateService.fromLocalDate(dateService.addDays(startDay, i)) ?? dateService.now()).getDay()
+                      (
+                        dateService.fromLocalDate(dateService.addDays(startDay, i)) ??
+                        dateService.now()
+                      ).getDay()
                     ]
                   }
                 </Text>

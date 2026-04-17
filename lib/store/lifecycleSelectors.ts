@@ -23,3 +23,23 @@ export const useChallengeCompleted = () => useGremlyStore((s) => s.challengeComp
 
 /** Current training step (0-6). Only meaningful when useNeedsMindDropTutorial is true. */
 export const useTrainingDropStep = () => useGremlyStore((s) => s.trainingDropStep);
+
+/** User has completed the onboarding screens. */
+export const useHasCompletedOnboarding = () =>
+  useGremlyStore((s) => s.onboardingCompletedAt !== null);
+
+/** User has completed their first drop post-onboarding. */
+export const useHasCompletedFirstDrop = () =>
+  useGremlyStore((s) => s.firstDropCompletedAt !== null);
+
+/** Trial/free-period start timestamp. Null only for brand new users. */
+export const useTrialStartedAt = () => useGremlyStore((s) => s.trialStartedAt);
+
+/** Raw graduated_at timestamp, if any. Prefer useNeedsMindDropTutorial for gating. */
+export const useGraduatedAt = () => useGremlyStore((s) => s.graduatedAt);
+
+/** Challenge start timestamp. Null if user hasn't graduated the tutorial. */
+export const useChallengeStartedAt = () => useGremlyStore((s) => s.challengeStartedAt);
+
+/** Challenge completion timestamp. Null while in challenge. */
+export const useChallengeCompletedAt = () => useGremlyStore((s) => s.challengeCompletedAt);
