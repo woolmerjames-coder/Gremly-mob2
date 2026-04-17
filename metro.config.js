@@ -1,6 +1,10 @@
+// NOTE: Sentry bundling is handled by the @sentry/react-native/expo config plugin
+// declared in app.json. Do NOT manually wire createSentryMetroSerializer here —
+// it breaks EAS builds on newer Expo SDKs. If Sentry debug IDs aren't working,
+// verify the plugin is in app.json's plugins array.
+
 // Learn more: https://docs.expo.dev/guides/customizing-metro/
 const { getDefaultConfig } = require('expo/metro-config');
-const { withSentryConfig } = require('@sentry/react-native/metro');
 
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
@@ -18,8 +22,4 @@ config.resolver = {
   sourceExts: [...new Set([...config.resolver.sourceExts, 'svg'])],
 };
 
-// Use project-local cache to avoid system temp folder permission issues
-config.cacheStores = [];
-config.fileMapCacheDirectory = './.metro-cache';
-
-module.exports = withSentryConfig(config);
+module.exports = config;
