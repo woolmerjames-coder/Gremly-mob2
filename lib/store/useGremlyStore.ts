@@ -477,6 +477,20 @@ interface GremlyState {
   challengeStartedAt: string | null;
   /** ISO timestamp when challenge was completed */
   challengeCompletedAt: string | null;
+  /** Separate lifecycle cache — populated by initialize() after Supabase fetch */
+  lifecycleCache: {
+    onboardingCompletedAt: string | null;
+    firstDropCompletedAt: string | null;
+    isTrainingMode: boolean;
+    trainingDropStep: number;
+    graduatedAt: string | null;
+    isTester: boolean;
+    trialStartedAt: string | null;
+    challengeStartedAt: string | null;
+    challengeCompletedAt: string | null;
+    cachedAt: string;
+    cachedForUserId: string;
+  } | null;
   /** Whether user has an active RevenueCat subscription */
   isSubscribed: boolean;
   /** Update subscription status */
@@ -1018,6 +1032,7 @@ const initialState = {
   trialStartedAt: null as string | null,
   challengeStartedAt: null as string | null,
   challengeCompletedAt: null as string | null,
+  lifecycleCache: null as GremlyState['lifecycleCache'],
   isSubscribed: false,
   gremlyColor: 'forest',
   bedtimeHour: 0,
@@ -1373,6 +1388,23 @@ export const useGremlyStore = create<GremlyState>()(
               isInitialized: true,
               lastSyncedAt: getDateService().now(),
             });
+
+            // Snapshot lifecycle fields into separate cache for offline rehydration
+            set((state) => ({
+              lifecycleCache: {
+                onboardingCompletedAt: state.onboardingCompletedAt,
+                firstDropCompletedAt: state.firstDropCompletedAt,
+                isTrainingMode: state.isTrainingMode,
+                trainingDropStep: state.trainingDropStep,
+                graduatedAt: state.graduatedAt,
+                isTester: state.tsisTester,
+                trialStartedAt: state.trialStartedAt,
+                challengeStartedAt: state.challengeStartedAt,
+                challengeCompletedAt: state.challengeCompletedAt,
+                cachedAt: nowTimestamp(),
+                cachedForUserId: userId,
+              },
+            }));
 
             // Populate training progress from cumulative data
             if (get().isTrainingMode) {
@@ -9488,9 +9520,7 @@ export const useGremlyStore = create<GremlyState>()(
           gremlyAge: state.gremlyAge,
           gremlyAgeLastIncrementedAt: state.gremlyAgeLastIncrementedAt,
           dayBoundaryHour: state.dayBoundaryHour,
-          onboardingCompletedAt: state.onboardingCompletedAt,
           accountCreatedAt: state.accountCreatedAt,
-          firstDropCompletedAt: state.firstDropCompletedAt,
           demoSweepCompletedAt: state.demoSweepCompletedAt,
           firstTodayVisitCompletedAt: state.firstTodayVisitCompletedAt,
           todayRitualDay: state.todayRitualDay,
@@ -9510,12 +9540,6 @@ export const useGremlyStore = create<GremlyState>()(
           lastFedAt: state.lastFedAt,
           sockCount: state.sockCount,
           aiMode: state.aiMode,
-          isTrainingMode: state.isTrainingMode,
-          trainingStartedAt: state.trainingStartedAt,
-          graduatedAt: state.graduatedAt,
-          pendingGraduation: state.pendingGraduation,
-          postGraduationMessageShown: state.postGraduationMessageShown,
-          trainingDropStep: state.trainingDropStep,
           hasSeenGaugeExplanation: state.hasSeenGaugeExplanation,
           hasSeenFirstFedModal: state.hasSeenFirstFedModal,
           hasSeenSweepUnlockModal: state.hasSeenSweepUnlockModal,
@@ -9530,6 +9554,7 @@ export const useGremlyStore = create<GremlyState>()(
           // Calendar cache — survives app restart for instant display
           calendarEvents: state.calendarEvents,
           calendarLastFetched: state.calendarLastFetched,
+          lifecycleCache: state.lifecycleCache,
         }),
 
         // Merge persisted state with fresh initial state
@@ -9583,6 +9608,24 @@ export const useGremlyStore = create<GremlyState>()(
             pendingGaugePreviews: 0,
             trainingReadiness: 0,
             pendingGraduation: false,
+            // Lifecycle rehydration from separate cache (only if cache belongs to expected user)
+            ...(() => {
+              const cache = persistedState?.lifecycleCache;
+              if (cache && cache.cachedForUserId === persistedState?.userId) {
+                return {
+                  onboardingCompletedAt: cache.onboardingCompletedAt,
+                  firstDropCompletedAt: cache.firstDropCompletedAt,
+                  isTrainingMode: cache.isTrainingMode,
+                  trainingDropStep: cache.trainingDropStep,
+                  graduatedAt: cache.graduatedAt,
+                  tsisTester: cache.isTester,
+                  trialStartedAt: cache.trialStartedAt,
+                  challengeStartedAt: cache.challengeStartedAt,
+                  challengeCompletedAt: cache.challengeCompletedAt,
+                };
+              }
+              return {};
+            })(),
           };
         },
       },
