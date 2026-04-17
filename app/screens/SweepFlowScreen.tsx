@@ -64,6 +64,7 @@ import { triggerLight } from '../../lib/haptics';
 import { getDateService } from '../../lib/date';
 // Zustand store - used for all Sweep data operations
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useNeedsMindDropTutorial } from '../../lib/store/lifecycleSelectors';
 import {
   useActiveSpaces,
   useIsLoading,
@@ -397,7 +398,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const updateNote = useGremlyStore((state) => state.updateNote);
   const notes = useGremlyStore((state) => state.notes);
-  const isTrainingMode = useGremlyStore((state) => state.isTrainingMode);
+  const isTrainingMode = useNeedsMindDropTutorial();
   const overlay = useGlobalOverlay();
 
   // Get recent entries since last sweep

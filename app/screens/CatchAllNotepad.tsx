@@ -56,6 +56,13 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { Text } from '../../ui/Text';
 import { Icon } from '../../design-system/Icon';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import {
+  useNeedsMindDropTutorial,
+  useTrainingDropStep,
+  useHasCompletedOnboarding,
+  useHasCompletedFirstDrop,
+  useTrialStartedAt,
+} from '../../lib/store/lifecycleSelectors';
 
 import celebrationController from '../features/celebration/CelebrationController';
 import { selectBriefHeadline } from '../../lib/store/selectors';
@@ -1096,13 +1103,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const isFedToday = useGremlyStore((s) => s.isFedToday);
 
   // First drop tracking
-  const firstDropCompletedAt = useGremlyStore((s) => s.firstDropCompletedAt);
-  const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
+  const hasCompletedFirstDrop = useHasCompletedFirstDrop();
+  const hasCompletedOnboarding = useHasCompletedOnboarding();
   const markFirstDropComplete = useGremlyStore((s) => s.markFirstDropComplete);
 
   // Training mode state
-  const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
-  const trainingDropStep = useGremlyStore((s) => s.trainingDropStep);
+  const isTrainingMode = useNeedsMindDropTutorial();
+  const trainingDropStep = useTrainingDropStep();
   const hasSeenGaugeExplanation = useGremlyStore((s) => s.hasSeenGaugeExplanation);
   const hasSeenFirstFedModal = useGremlyStore((s) => s.hasSeenFirstFedModal);
   const hasSeenSweepUnlockModal = useGremlyStore((s) => s.hasSeenSweepUnlockModal);
@@ -1112,7 +1119,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   const markSweepUnlockModalSeen = useGremlyStore((s) => s.markSweepUnlockModalSeen);
   const hasSeenTrainingMeterAutoOpen = useGremlyStore((s) => s.hasSeenTrainingMeterAutoOpen);
   const markTrainingMeterAutoOpenSeen = useGremlyStore((s) => s.markTrainingMeterAutoOpenSeen);
-  const trainingStartedAt = useGremlyStore((s) => s.trainingStartedAt);
+  const trialStartedAt = useTrialStartedAt();
 
   // Derive drops-today and last-drop-time from store — survives tab switches
   const storeTodos = useGremlyStore((s) => s.todos);
@@ -1423,7 +1430,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     // First visit: show after 500ms, lock ref immediately to
     // prevent hydration-driven re-fires from restarting the timer
-    if (!firstDropCompletedAt) {
+    if (!hasCompletedFirstDrop) {
       hasShownGreetingRef.current = true;
       const timer = setTimeout(() => {
         const speech = getFirstVisitSpeech();
@@ -1444,7 +1451,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     return () => clearTimeout(timer);
   }, [
     showGremlySpeech,
-    firstDropCompletedAt,
+    hasCompletedFirstDrop,
     buildSpeechContext,
     isTrainingMode,
     trainingDropStep,
@@ -1583,11 +1590,11 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     if (!isTrainingMode) return;
     if (!hasSeenFirstFedModal) return; // hasn't finished Day 1 yet
     if (hasSeenTrainingMeterAutoOpen) return; // already shown
-    if (!trainingStartedAt) return;
+    if (!trialStartedAt) return;
 
     // Check if today is after training Day 1
     const ds = getDateService();
-    const startDay = ds.toLocalDate(new Date(trainingStartedAt));
+    const startDay = ds.toLocalDate(new Date(trialStartedAt));
     const todayDay = ds.today();
     const daysSinceStart = ds.daysBetween(startDay, todayDay);
     if (daysSinceStart < 1) return; // still Day 1
@@ -1603,7 +1610,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     isTrainingMode,
     hasSeenFirstFedModal,
     hasSeenTrainingMeterAutoOpen,
-    trainingStartedAt,
+    trialStartedAt,
     markTrainingMeterAutoOpenSeen,
   ]);
 
@@ -2741,7 +2748,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     setIsSubmitting(false);
 
     // First-drop override: show post-drop sweep prompt instead of normal speech
-    if (!firstDropCompletedAt) {
+    if (!hasCompletedFirstDrop) {
       mascotRef.current?.celebrate();
       markFirstDropComplete();
       if (isTrainingMode) advanceTrainingDropStep(); // synchronous, step goes 0 -> 1
@@ -2818,7 +2825,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     handleMindDropSubmit,
     showGremlySpeech,
     getItemById,
-    firstDropCompletedAt,
+    hasCompletedFirstDrop,
     isTrainingMode,
     trainingDropStep,
     hasSeenGaugeExplanation,
@@ -3035,7 +3042,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
                     text={gremlySpeech.message}
                     style={styles.gremlyMessage}
                     duration={1400}
-                    fadeIn={!firstDropCompletedAt}
+                    fadeIn={!hasCompletedFirstDrop}
                   />
                 </View>
               </Reanimated.View>

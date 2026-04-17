@@ -1,3 +1,19 @@
+/**
+ * DEPRECATED LIFECYCLE COLUMNS — DO NOT ADD NEW REFERENCES
+ *
+ * The following columns/fields are deprecated and will be removed in Phase 5:
+ * - `is_training_mode` / `isTrainingMode`   → use `useNeedsMindDropTutorial()` selector
+ * - `training_started_at` / `trainingStartedAt` → use `useTrialStartedAt()` selector
+ *
+ * Lingering references in this file only are intentional — the store is the
+ * single place where these deprecated columns are still read from Supabase
+ * (for backward compatibility) and mirrored into their replacements via the
+ * dual-write trigger on cortex_preferences.
+ *
+ * All consumer code (screens, components, workers) should use the selectors
+ * from `lib/store/lifecycleSelectors.ts`.
+ */
+
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { persist, createJSONStorage } from 'zustand/middleware';
@@ -101,6 +117,8 @@ export function isHabitLockedIn(habit: Habit): boolean {
 // ═══════════════════════════════════════════════════════════════════
 // MMKV Storage Engine (synchronous — hydrates before first render)
 // ═══════════════════════════════════════════════════════════════════
+
+const STORE_SCHEMA_VERSION = 2; // bump this any time persisted shape changes
 
 const mmkv = createMMKV({ id: 'gremly-store' });
 
@@ -469,6 +487,28 @@ interface GremlyState {
   pendingGraduation: boolean;
   /** Whether the post-graduation speech has already fired */
   postGraduationMessageShown: boolean;
+  /** Whether user is a tester (from cortex_preferences.is_tester) */
+  isTester: boolean;
+  /** ISO timestamp when trial period started */
+  trialStartedAt: string | null;
+  /** ISO timestamp when challenge started */
+  challengeStartedAt: string | null;
+  /** ISO timestamp when challenge was completed */
+  challengeCompletedAt: string | null;
+  /** Separate lifecycle cache — populated by initialize() after Supabase fetch */
+  lifecycleCache: {
+    onboardingCompletedAt: string | null;
+    firstDropCompletedAt: string | null;
+    isTrainingMode: boolean;
+    trainingDropStep: number;
+    graduatedAt: string | null;
+    isTester: boolean;
+    trialStartedAt: string | null;
+    challengeStartedAt: string | null;
+    challengeCompletedAt: string | null;
+    cachedAt: string;
+    cachedForUserId: string;
+  } | null;
   /** Whether user has an active RevenueCat subscription */
   isSubscribed: boolean;
   /** Update subscription status */
@@ -1006,6 +1046,11 @@ const initialState = {
   graduatedAt: null as string | null,
   pendingGraduation: false,
   postGraduationMessageShown: false,
+  isTester: false,
+  trialStartedAt: null as string | null,
+  challengeStartedAt: null as string | null,
+  challengeCompletedAt: null as string | null,
+  lifecycleCache: null as GremlyState['lifecycleCache'],
   isSubscribed: false,
   gremlyColor: 'forest',
   bedtimeHour: 0,
@@ -1072,52 +1117,79 @@ export const useGremlyStore = create<GremlyState>()(
         // ═══════════════════════════════════════════════════════════════════
 
         initialize: async (userId: string) => {
-          // Already fully initialized for this user — just background refresh
+          // Fast path: already initialized for this user, verify cache is fresh
           if (get().isInitialized && get().userId === userId) {
-            get()
-              .refreshFromServer()
-              .catch((err) => {
-                console.warn('[GremlyStore] Background refresh failed:', err);
-              });
-            return;
+            const cache = get().lifecycleCache;
+            const cacheAge = cache?.cachedAt
+              ? getDateService().now().getTime() - new Date(cache.cachedAt).getTime()
+              : Infinity;
+            const cacheIsFresh = cache?.cachedForUserId === userId && cacheAge < 5 * 60 * 1000;
+
+            if (cacheIsFresh) {
+              // Non-blocking refresh
+              get()
+                .refreshFromServer()
+                .catch((err) => {
+                  console.warn('[GremlyStore] Background refresh failed:', err);
+                });
+              return;
+            }
+            // Cache stale or wrong user — fall through to full re-init
           }
 
           // If we have persisted data for this user, render immediately
           // and sync fresh data in background
           const hasPersistedData = get().userId === userId && get().todos.length > 0;
+          const cache = get().lifecycleCache;
+          const cacheMatchesUser = cache?.cachedForUserId === userId;
 
-          if (hasPersistedData) {
-            console.log('[GremlyStore] ✅ Rendering from cached data, syncing in background');
-            set({ isInitialized: true, userId });
+          if (hasPersistedData && cacheMatchesUser) {
+            // Poison detection: if cache looks suspicious, force a full re-init from Supabase
+            const cacheLooksSuspicious =
+              cache !== null &&
+              cache.isTrainingMode === true &&
+              cache.graduatedAt === null &&
+              cache.firstDropCompletedAt === null &&
+              cache.onboardingCompletedAt !== null;
 
-            // Background sync — non-blocking, don't throw
-            get()
-              .refreshFromServer()
-              .catch((err) => {
-                console.warn(
-                  '[GremlyStore] Background sync failed (cached data still usable):',
-                  err,
-                );
-              });
+            if (cacheLooksSuspicious) {
+              console.warn(
+                '[GremlyStore] Suspicious lifecycle cache detected — forcing full re-init',
+              );
+              // Fall through to full blocking init below (do NOT take fast path)
+            } else {
+              console.log('[GremlyStore] ✅ Rendering from cached data, syncing in background');
+              set({ isInitialized: true, userId });
 
-            // Prefetch calendar events in parallel with server refresh
-            const calTodayStr = getDateService().today();
-            const calWeekEnd = getDateService().addDays(calTodayStr, 7);
-            get()
-              .fetchCalendarEventsForRange(calTodayStr, calWeekEnd)
-              .catch((err) => {
-                console.warn('[GremlyStore] Background calendar prefetch failed:', err);
-              });
+              // Background sync — non-blocking, don't throw
+              get()
+                .refreshFromServer()
+                .catch((err) => {
+                  console.warn(
+                    '[GremlyStore] Background sync failed (cached data still usable):',
+                    err,
+                  );
+                });
 
-            // Still subscribe to EventBus
-            if (eventBusUnsubscribe) {
-              eventBusUnsubscribe();
+              // Prefetch calendar events in parallel with server refresh
+              const calTodayStr = getDateService().today();
+              const calWeekEnd = getDateService().addDays(calTodayStr, 7);
+              get()
+                .fetchCalendarEventsForRange(calTodayStr, calWeekEnd)
+                .catch((err) => {
+                  console.warn('[GremlyStore] Background calendar prefetch failed:', err);
+                });
+
+              // Still subscribe to EventBus
+              if (eventBusUnsubscribe) {
+                eventBusUnsubscribe();
+              }
+              eventBusUnsubscribe = get().subscribeToEvents();
+
+              // Recover any stuck drops
+              get().recoverStuckMindDrops();
+              return;
             }
-            eventBusUnsubscribe = get().subscribeToEvents();
-
-            // Recover any stuck drops
-            get().recoverStuckMindDrops();
-            return;
           }
 
           // First time or different user — full blocking init
@@ -1161,7 +1233,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color, bedtime_hour, wake_hour',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color, bedtime_hour, wake_hour, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1337,6 +1409,10 @@ export const useGremlyStore = create<GremlyState>()(
               isTrainingMode: (cortexPrefs?.is_training_mode as boolean) ?? true,
               trainingStartedAt: (cortexPrefs?.training_started_at as string) ?? null,
               graduatedAt: (cortexPrefs?.graduated_at as string) ?? null,
+              isTester: (cortexPrefs?.is_tester as boolean) ?? false,
+              trialStartedAt: (cortexPrefs?.trial_started_at as string) ?? null,
+              challengeStartedAt: (cortexPrefs?.challenge_started_at as string) ?? null,
+              challengeCompletedAt: (cortexPrefs?.challenge_completed_at as string) ?? null,
               trainingDropStep: (cortexPrefs?.training_drop_step as number) ?? 0,
               hasSeenGaugeExplanation:
                 (cortexPrefs?.has_seen_gauge_explanation as boolean) ?? false,
@@ -1357,6 +1433,23 @@ export const useGremlyStore = create<GremlyState>()(
               isInitialized: true,
               lastSyncedAt: getDateService().now(),
             });
+
+            // Snapshot lifecycle fields into separate cache for offline rehydration
+            set((state) => ({
+              lifecycleCache: {
+                onboardingCompletedAt: state.onboardingCompletedAt,
+                firstDropCompletedAt: state.firstDropCompletedAt,
+                isTrainingMode: state.isTrainingMode,
+                trainingDropStep: state.trainingDropStep,
+                graduatedAt: state.graduatedAt,
+                isTester: state.isTester,
+                trialStartedAt: state.trialStartedAt,
+                challengeStartedAt: state.challengeStartedAt,
+                challengeCompletedAt: state.challengeCompletedAt,
+                cachedAt: nowTimestamp(),
+                cachedForUserId: userId,
+              },
+            }));
 
             // Populate training progress from cumulative data
             if (get().isTrainingMode) {
@@ -1482,6 +1575,7 @@ export const useGremlyStore = create<GremlyState>()(
           }
 
           set({
+            lifecycleCache: null,
             todos: [],
             habits: [],
             notes: [],
@@ -1509,7 +1603,6 @@ export const useGremlyStore = create<GremlyState>()(
             gremlyAge: 0,
             gremlyAgeLastIncrementedAt: null,
             dayBoundaryHour: 0,
-            onboardingCompletedAt: null,
             accountCreatedAt: null,
             demoSweepCompletedAt: null,
             todayRitualDay: null,
@@ -1526,16 +1619,10 @@ export const useGremlyStore = create<GremlyState>()(
             lastFedAt: null,
             sockCount: 0,
             aiMode: 'encouragement' as AIMode,
-            isTrainingMode: true,
-            trainingStartedAt: null,
-            graduatedAt: null,
-            pendingGraduation: false,
-            postGraduationMessageShown: false,
             isSubscribed: false,
             gremlyColor: 'forest',
             userName: null,
             userPronouns: null,
-            trainingDropStep: 0,
             trainingReadiness: 0,
             hasSeenGaugeExplanation: false,
             hasSeenFirstFedModal: false,
@@ -5094,6 +5181,23 @@ export const useGremlyStore = create<GremlyState>()(
                   userPronouns: (ident.pronouns as string) ?? get().userPronouns,
                 });
               }
+
+              // Update lifecycleCache so it stays in sync with Supabase
+              set((state) => ({
+                lifecycleCache: {
+                  onboardingCompletedAt: state.onboardingCompletedAt,
+                  firstDropCompletedAt: state.firstDropCompletedAt,
+                  isTrainingMode: state.isTrainingMode,
+                  trainingDropStep: state.trainingDropStep,
+                  graduatedAt: state.graduatedAt,
+                  isTester: state.isTester,
+                  trialStartedAt: state.trialStartedAt,
+                  challengeStartedAt: state.challengeStartedAt,
+                  challengeCompletedAt: state.challengeCompletedAt,
+                  cachedAt: nowTimestamp(),
+                  cachedForUserId: state.userId ?? 'unknown',
+                },
+              }));
 
               if (__DEV__) {
                 console.log('[GremlyStore] Cortex preferences reconciled from server', {
@@ -9455,6 +9559,36 @@ export const useGremlyStore = create<GremlyState>()(
           },
         }),
 
+        version: STORE_SCHEMA_VERSION,
+
+        migrate: (persistedState: any, version: number) => {
+          if (!persistedState) return persistedState;
+
+          // Migration from v0/v1 (no version or version 1) to v2:
+          // Phase 2 moved lifecycle state out of the main partialize.
+          // Strip stale lifecycle fields so they don't override fresh Supabase data.
+          if (version < 2) {
+            console.log('[GremlyStore] Migrating persisted state from v' + version + ' to v2');
+            const {
+              onboardingCompletedAt,
+              firstDropCompletedAt,
+              isTrainingMode,
+              trainingStartedAt,
+              graduatedAt,
+              trainingDropStep,
+              pendingGraduation,
+              postGraduationMessageShown,
+              ...rest
+            } = persistedState;
+            return {
+              ...rest,
+              lifecycleCache: null, // force fresh fetch from Supabase on next init
+            };
+          }
+
+          return persistedState;
+        },
+
         // Only persist data, not transient UI state
         partialize: (state: GremlyState) => ({
           todos: state.todos,
@@ -9472,9 +9606,7 @@ export const useGremlyStore = create<GremlyState>()(
           gremlyAge: state.gremlyAge,
           gremlyAgeLastIncrementedAt: state.gremlyAgeLastIncrementedAt,
           dayBoundaryHour: state.dayBoundaryHour,
-          onboardingCompletedAt: state.onboardingCompletedAt,
           accountCreatedAt: state.accountCreatedAt,
-          firstDropCompletedAt: state.firstDropCompletedAt,
           demoSweepCompletedAt: state.demoSweepCompletedAt,
           firstTodayVisitCompletedAt: state.firstTodayVisitCompletedAt,
           todayRitualDay: state.todayRitualDay,
@@ -9494,12 +9626,6 @@ export const useGremlyStore = create<GremlyState>()(
           lastFedAt: state.lastFedAt,
           sockCount: state.sockCount,
           aiMode: state.aiMode,
-          isTrainingMode: state.isTrainingMode,
-          trainingStartedAt: state.trainingStartedAt,
-          graduatedAt: state.graduatedAt,
-          pendingGraduation: state.pendingGraduation,
-          postGraduationMessageShown: state.postGraduationMessageShown,
-          trainingDropStep: state.trainingDropStep,
           hasSeenGaugeExplanation: state.hasSeenGaugeExplanation,
           hasSeenFirstFedModal: state.hasSeenFirstFedModal,
           hasSeenSweepUnlockModal: state.hasSeenSweepUnlockModal,
@@ -9514,6 +9640,7 @@ export const useGremlyStore = create<GremlyState>()(
           // Calendar cache — survives app restart for instant display
           calendarEvents: state.calendarEvents,
           calendarLastFetched: state.calendarLastFetched,
+          lifecycleCache: state.lifecycleCache,
         }),
 
         // Merge persisted state with fresh initial state
@@ -9567,6 +9694,24 @@ export const useGremlyStore = create<GremlyState>()(
             pendingGaugePreviews: 0,
             trainingReadiness: 0,
             pendingGraduation: false,
+            // Lifecycle rehydration from separate cache (only if cache belongs to expected user)
+            ...(() => {
+              const cache = persistedState?.lifecycleCache;
+              if (cache && cache.cachedForUserId === persistedState?.userId) {
+                return {
+                  onboardingCompletedAt: cache.onboardingCompletedAt,
+                  firstDropCompletedAt: cache.firstDropCompletedAt,
+                  isTrainingMode: cache.isTrainingMode,
+                  trainingDropStep: cache.trainingDropStep,
+                  graduatedAt: cache.graduatedAt,
+                  isTester: cache.isTester,
+                  trialStartedAt: cache.trialStartedAt,
+                  challengeStartedAt: cache.challengeStartedAt,
+                  challengeCompletedAt: cache.challengeCompletedAt,
+                };
+              }
+              return {};
+            })(),
           };
         },
       },

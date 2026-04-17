@@ -36,6 +36,7 @@ import { BRAND } from '../../design/brand';
 import { getDateService } from '../../lib/date';
 import { format } from 'date-fns';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useTrialStartedAt } from '../../lib/store/lifecycleSelectors';
 import { triggerSuccess } from '../../lib/haptics';
 import celebrationController from '../features/celebration/CelebrationController';
 import MascotLottie, { type MascotLottieHandle } from '../components/MascotLottie';
@@ -261,7 +262,7 @@ function GeneratingBeat({
 function ReportBeat({ onAdvance }: { onAdvance: () => void }) {
   const insets = useSafeAreaInsets();
   const weeklySummaries = useGremlyStore((s) => s.weeklySummaries);
-  const trainingStartedAt = useGremlyStore((s) => s.trainingStartedAt);
+  const trialStartedAt = useTrialStartedAt();
 
   // Use the most recent summary
   const summary = useMemo(() => {
@@ -271,11 +272,11 @@ function ReportBeat({ onAdvance }: { onAdvance: () => void }) {
 
   // Date range
   const dateRange = useMemo(() => {
-    const start = trainingStartedAt ? new Date(trainingStartedAt) : getDateService().now();
+    const start = trialStartedAt ? new Date(trialStartedAt) : getDateService().now();
     const end = getDateService().now();
     const fmt = (d: Date) => format(d, 'MMM d');
     return `${fmt(start)} - ${fmt(end)}`;
-  }, [trainingStartedAt]);
+  }, [trialStartedAt]);
 
   // Build cards: intro + summary content
   const cards = useMemo(() => {
@@ -423,20 +424,20 @@ const VALUE_PROPS = [
 function HookBeat({ onDismiss }: { onDismiss: () => void }) {
   const insets = useSafeAreaInsets();
   const [showDismissText, setShowDismissText] = useState(false);
-  const trainingStartedAt = useGremlyStore((s) => s.trainingStartedAt);
+  const trialStartedAt = useTrialStartedAt();
 
   // Calculate trial days remaining (if applicable)
   const [trialDaysLeft, setTrialDaysLeft] = useState(7);
   useEffect(() => {
-    if (!trainingStartedAt) return;
-    const started = new Date(trainingStartedAt).getTime();
+    if (!trialStartedAt) return;
+    const started = new Date(trialStartedAt).getTime();
     const trialEnd = started + 8 * 24 * 60 * 60 * 1000; // 8-day trial (7 challenge + 1 grace)
     const remaining = Math.max(
       0,
       Math.ceil((trialEnd - getDateService().now().getTime()) / (1000 * 60 * 60 * 24)),
     );
     setTrialDaysLeft(remaining);
-  }, [trainingStartedAt]);
+  }, [trialStartedAt]);
 
   const handleMaybeLater = useCallback(() => {
     if (showDismissText) {

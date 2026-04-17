@@ -40,7 +40,7 @@
         "NSPrivacyAccessedAPITypes": [
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
-            "NSPrivacyAccessedAPITypeReasons": ["C617.1"]
+            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
           },
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
@@ -79,7 +79,14 @@
           "color": "#BFD8C0"
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "gremly",
+          "project": "gremly-mobile"
+        }
+      ]
     ],
     "extra": {
       "EXPO_PUBLIC_MIND_DROP_V2": "process.env.EXPO_PUBLIC_MIND_DROP_V2",

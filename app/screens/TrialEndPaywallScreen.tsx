@@ -13,6 +13,7 @@ import type { RouteProp } from '@react-navigation/native';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useTrialStartedAt } from '../../lib/store/lifecycleSelectors';
 import MascotLottie from '../components/MascotLottie';
 import * as WebBrowser from 'expo-web-browser';
 import { useSubscriptionStatus } from '../../lib/subscriptions/useSubscriptionStatus';
@@ -38,7 +39,7 @@ export default function TrialEndPaywallScreen() {
   const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
   const todayDropsCount = useGremlyStore((s) => s.todayDropsCount);
   const gremlyAge = useGremlyStore((s) => s.gremlyAge);
-  const trainingStartedAt = useGremlyStore((s) => s.trainingStartedAt);
+  const trialStartedAt = useTrialStartedAt();
   const setIsSubscribed = useGremlyStore((s) => s.setIsSubscribed);
   const { isTrialActive } = useSubscriptionStatus();
 
@@ -46,11 +47,11 @@ export default function TrialEndPaywallScreen() {
   const isMidTrial = source === 'settings' && isTrialActive;
 
   const daysRemaining = useMemo(() => {
-    if (!trainingStartedAt) return 8;
-    const started = new Date(trainingStartedAt).getTime();
+    if (!trialStartedAt) return 8;
+    const started = new Date(trialStartedAt).getTime();
     const remaining = started + TRIAL_DURATION_MS - getDateService().now().getTime();
     return Math.max(0, Math.ceil(remaining / (24 * 60 * 60 * 1000)));
-  }, [trainingStartedAt]);
+  }, [trialStartedAt]);
 
   // Fetch offerings from RevenueCat
   const [monthlyPkg, setMonthlyPkg] = useState<PurchasesPackage | null>(null);

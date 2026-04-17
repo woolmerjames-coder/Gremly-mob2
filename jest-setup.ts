@@ -79,6 +79,17 @@ jest.mock('@react-native-community/netinfo', () => ({
 // Use real timers by default (tests can override with jest.useFakeTimers() if needed)
 jest.useRealTimers();
 
+// Mock @sentry/react-native (ESM package that Jest can't transform)
+jest.mock('@sentry/react-native', () => ({
+  init: jest.fn(),
+  wrap: jest.fn((component: unknown) => component),
+  setUser: jest.fn(),
+  captureException: jest.fn(),
+  captureMessage: jest.fn(),
+  addBreadcrumb: jest.fn(),
+  withScope: jest.fn(),
+}));
+
 // Mock expo-constants to avoid expo-modules-core EventEmitter issues
 jest.mock('expo-constants', () => ({
   appOwnership: 'standalone', // Default to standalone for tests

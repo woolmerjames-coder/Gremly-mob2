@@ -22,6 +22,7 @@ import {
 import { AppScrollView } from '../../components/common/AppScrollView';
 import { Text } from '../../ui/Text';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useHasCompletedFirstDrop } from '../../lib/store/lifecycleSelectors';
 import type { QueuedDrop } from '../../lib/minddrop/dropQueue';
 import type { UnifiedDrop } from '../../types/UnifiedDrop';
 import {
@@ -2298,7 +2299,7 @@ const RecentDrops: React.FC<{
   // console.log('[RecentDrops] 🔄 Render', { timestamp: Date.now() });
 
   // Direct store access - no adapter
-  const firstDropCompletedAt = useGremlyStore((s) => s.firstDropCompletedAt);
+  const hasCompletedFirstDrop = useHasCompletedFirstDrop();
   const deleteNote = useGremlyStore((s) => s.deleteNote);
   const deleteTodo = useGremlyStore((s) => s.deleteTodo);
   const deleteHabit = useGremlyStore((s) => s.deleteHabit);
@@ -4260,7 +4261,7 @@ const RecentDrops: React.FC<{
 
   // Determine what to show: empty state only when no today drops AND viewing 'today' filter
   const showingOlder = filter === 'older';
-  const showEmptyState = !hasTodayDrops && !showingOlder && !loading && !!firstDropCompletedAt;
+  const showEmptyState = !hasTodayDrops && !showingOlder && !loading && hasCompletedFirstDrop;
   const showDropsList = hasTodayDrops || showingOlder;
 
   // Handler for "Show older drops" link in empty state
@@ -4321,7 +4322,7 @@ const RecentDrops: React.FC<{
           {loading ? (
             <Text style={styles.recentEmpty}>Loading…</Text>
           ) : filteredItems.length === 0 && pendingItems.length === 0 ? (
-            firstDropCompletedAt ? (
+            hasCompletedFirstDrop ? (
               <View style={styles.recentEmptyContainer}>
                 <Text style={styles.recentEmptyPrimary}>
                   {filter === 'today' ? 'No drops today yet.' : 'No older drops.'}

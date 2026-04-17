@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useGremlyStore } from '../store/useGremlyStore';
+import { useTrialStartedAt } from '../store/lifecycleSelectors';
 import { getActiveEntitlement } from './purchases';
 import { getDateService } from '../date/DateService';
 
@@ -15,7 +16,7 @@ const TRIAL_DURATION_MS = 8 * 24 * 60 * 60 * 1000; // 8 days (7 challenge + 1 gr
 interface SubscriptionStatus {
   /** User has an active "Gremly Pro" entitlement */
   isSubscribed: boolean;
-  /** Trial period is still active (trainingStartedAt + 8 days > now) */
+  /** Trial period is still active (trialStartedAt + 8 days > now) */
   isTrialActive: boolean;
   /** Trial expired and no subscription - should show paywall */
   isExpired: boolean;
@@ -26,7 +27,7 @@ interface SubscriptionStatus {
 }
 
 export function useSubscriptionStatus(): SubscriptionStatus {
-  const trainingStartedAt = useGremlyStore((s) => s.trainingStartedAt);
+  const trialStartedAt = useTrialStartedAt();
   const isSubscribed = useGremlyStore((s) => s.isSubscribed);
   const setIsSubscribed = useGremlyStore((s) => s.setIsSubscribed);
   const [isLoading, setIsLoading] = useState(true);
@@ -47,8 +48,8 @@ export function useSubscriptionStatus(): SubscriptionStatus {
   }, [checkEntitlement]);
 
   const isTrialActive = (() => {
-    if (!trainingStartedAt) return true; // Not started yet, treat as in-trial
-    const started = new Date(trainingStartedAt).getTime();
+    if (!trialStartedAt) return true; // Not started yet, treat as in-trial
+    const started = new Date(trialStartedAt).getTime();
     return getDateService().now().getTime() < started + TRIAL_DURATION_MS;
   })();
 

@@ -34,6 +34,7 @@ import {
 } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useNeedsMindDropTutorial } from '../../lib/store/lifecycleSelectors';
 import { getTierForAge } from '../../lib/constants/soulDocument';
 
 import MascotLottie from '../../app/components/MascotLottie';
@@ -243,7 +244,7 @@ export default function GremlyHelpCard({
   const feedingGaugeValue = useGremlyStore((s) => s.feedingGaugeValue);
   const isFedToday = useGremlyStore((s) => s.isFedToday);
   const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
-  const isTrainingMode = useGremlyStore((s) => s.isTrainingMode);
+  const isTrainingMode = useNeedsMindDropTutorial();
   const feedingHistory = useGremlyStore((s) => s.feedingHistory);
   const fetchFeedingHistory = useGremlyStore((s) => s.fetchFeedingHistory);
 

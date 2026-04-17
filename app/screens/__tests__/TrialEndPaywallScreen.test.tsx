@@ -23,7 +23,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
       fedDaysCount: 5,
       todayDropsCount: 23,
       gremlyAge: 7,
-      trainingStartedAt: null,
+      trialStartedAt: null,
       isSubscribed: false,
       setIsSubscribed: jest.fn(),
     }),
