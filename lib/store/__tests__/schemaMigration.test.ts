@@ -10,8 +10,10 @@ describe('MMKV Schema Migration (v0/v1 → v2)', () => {
   // Extract the migrate function by importing the module - the migrate logic
   // is embedded in the persist config, so we test it as a pure function equivalent.
 
-  const migrateV0toV2 = (persistedState: Record<string, unknown>) => {
-    if (!persistedState) return persistedState;
+  const migrateV0toV2 = (
+    persistedState: Record<string, unknown>,
+  ): Record<string, unknown> & { lifecycleCache: null } => {
+    if (!persistedState) return persistedState as any;
 
     const {
       onboardingCompletedAt,
