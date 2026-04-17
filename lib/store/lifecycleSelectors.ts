@@ -12,7 +12,7 @@ export const useNeedsMindDropTutorial = () =>
   useGremlyStore((s) => s.isTrainingMode && !s.graduatedAt);
 
 /** User is flagged as internal/tester. Bypasses paywall and read-only mode only. */
-export const useIsTester = () => useGremlyStore((s) => s.tsisTester);
+export const useIsTester = () => useGremlyStore((s) => s.isTester);
 
 /** User has started the 7-fed-days challenge (i.e. completed tutorial). */
 export const useChallengeActive = () =>

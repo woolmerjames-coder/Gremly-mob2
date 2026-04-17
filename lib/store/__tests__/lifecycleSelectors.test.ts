@@ -18,7 +18,7 @@ beforeEach(() => {
     firstDropCompletedAt: null,
     isTrainingMode: true,
     graduatedAt: null,
-    tsisTester: false,
+    isTester: false,
     challengeStartedAt: null,
     challengeCompletedAt: null,
     trainingDropStep: 0,
@@ -68,14 +68,14 @@ describe('useNeedsMindDropTutorial (isTrainingMode && !graduatedAt)', () => {
   });
 });
 
-describe('useIsTester (tsisTester)', () => {
+describe('useIsTester (isTester)', () => {
   it('returns false by default', () => {
-    expect(getState().tsisTester).toBe(false);
+    expect(getState().isTester).toBe(false);
   });
 
   it('returns true when flagged', () => {
-    useGremlyStore.setState({ tsisTester: true });
-    expect(getState().tsisTester).toBe(true);
+    useGremlyStore.setState({ isTester: true });
+    expect(getState().isTester).toBe(true);
   });
 });
 

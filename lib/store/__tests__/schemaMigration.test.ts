@@ -110,7 +110,7 @@ describe('Lifecycle cache rehydration logic', () => {
         isTrainingMode: cache.isTrainingMode,
         trainingDropStep: cache.trainingDropStep,
         graduatedAt: cache.graduatedAt,
-        tsisTester: cache.isTester,
+        isTester: cache.isTester,
         trialStartedAt: cache.trialStartedAt,
         challengeStartedAt: cache.challengeStartedAt,
         challengeCompletedAt: cache.challengeCompletedAt,
@@ -145,7 +145,7 @@ describe('Lifecycle cache rehydration logic', () => {
       isTrainingMode: false,
       trainingDropStep: 5,
       graduatedAt: '2026-01-05T00:00:00Z',
-      tsisTester: true,
+      isTester: true,
       trialStartedAt: '2026-01-01T00:00:00Z',
       challengeStartedAt: '2026-01-05T00:00:00Z',
       challengeCompletedAt: '2026-01-12T00:00:00Z',
@@ -180,7 +180,7 @@ describe('Lifecycle cache rehydration logic', () => {
     expect(result).toEqual({});
   });
 
-  it('maps cache isTester to tsisTester', () => {
+  it('maps cache isTester to isTester', () => {
     const state = {
       userId: 'u1',
       lifecycleCache: {
@@ -199,6 +199,6 @@ describe('Lifecycle cache rehydration logic', () => {
     };
 
     const result = rehydrateFromCache(state);
-    expect(result.tsisTester).toBe(true);
+    expect(result.isTester).toBe(true);
   });
 });
