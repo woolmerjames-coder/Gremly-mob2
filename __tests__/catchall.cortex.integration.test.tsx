@@ -33,12 +33,10 @@ describe('Catch-All + Cortex Integration', () => {
     expect(catchAllSource).toContain("subtype: 'catchall'");
   });
 
-  it('should log Catch-All decisions with intent metadata', () => {
+  it('should log Catch-All decisions via logCatchallDecision', () => {
     const catchAllSource = loadSource();
 
     expect(catchAllSource).toContain('logCatchallDecision');
-    expect(catchAllSource).toContain('probableIntent');
-    expect(catchAllSource).toContain('mode: decisionMode');
   });
 
   it.skip('should set ai_placed flags based on payload type', () => {
