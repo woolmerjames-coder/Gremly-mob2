@@ -469,6 +469,14 @@ interface GremlyState {
   pendingGraduation: boolean;
   /** Whether the post-graduation speech has already fired */
   postGraduationMessageShown: boolean;
+  /** Whether user is a tester (from cortex_preferences.is_tester) */
+  tsisTester: boolean;
+  /** ISO timestamp when trial period started */
+  trialStartedAt: string | null;
+  /** ISO timestamp when challenge started */
+  challengeStartedAt: string | null;
+  /** ISO timestamp when challenge was completed */
+  challengeCompletedAt: string | null;
   /** Whether user has an active RevenueCat subscription */
   isSubscribed: boolean;
   /** Update subscription status */
@@ -1006,6 +1014,10 @@ const initialState = {
   graduatedAt: null as string | null,
   pendingGraduation: false,
   postGraduationMessageShown: false,
+  tsisTester: false,
+  trialStartedAt: null as string | null,
+  challengeStartedAt: null as string | null,
+  challengeCompletedAt: null as string | null,
   isSubscribed: false,
   gremlyColor: 'forest',
   bedtimeHour: 0,
@@ -1161,7 +1173,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color, bedtime_hour, wake_hour',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color, bedtime_hour, wake_hour, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1337,6 +1349,10 @@ export const useGremlyStore = create<GremlyState>()(
               isTrainingMode: (cortexPrefs?.is_training_mode as boolean) ?? true,
               trainingStartedAt: (cortexPrefs?.training_started_at as string) ?? null,
               graduatedAt: (cortexPrefs?.graduated_at as string) ?? null,
+              tsisTester: (cortexPrefs?.is_tester as boolean) ?? false,
+              trialStartedAt: (cortexPrefs?.trial_started_at as string) ?? null,
+              challengeStartedAt: (cortexPrefs?.challenge_started_at as string) ?? null,
+              challengeCompletedAt: (cortexPrefs?.challenge_completed_at as string) ?? null,
               trainingDropStep: (cortexPrefs?.training_drop_step as number) ?? 0,
               hasSeenGaugeExplanation:
                 (cortexPrefs?.has_seen_gauge_explanation as boolean) ?? false,
