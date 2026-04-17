@@ -108,6 +108,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function RootNavigator() {
   const { user, loading } = useAuth();
+  const isInitialized = useGremlyStore((s) => s.isInitialized);
   const onboardingCompletedAt = useGremlyStore((s) => s.onboardingCompletedAt);
   const { isExpired } = useSubscriptionStatus();
 
@@ -125,7 +126,7 @@ export default function RootNavigator() {
   // Recover any pending drops from previous session
   useDropRecovery();
 
-  const isReady = hasHydrated && !(loading && !user);
+  const isReady = hasHydrated && (!user || isInitialized) && !(loading && !user);
   const splashHidden = useRef(false);
 
   useEffect(() => {
