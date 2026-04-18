@@ -2697,13 +2697,24 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         finalizeGraduation: async () => {
-          const { userId, sockCount } = get();
+          const { userId, sockCount, graduatedAt } = get();
+
+          // Idempotency: don't re-run if already graduated
+          if (graduatedAt) {
+            if (__DEV__)
+              console.log(
+                '[GremlyStore] finalizeGraduation called but already graduated, skipping',
+              );
+            return;
+          }
+
           const now = nowTimestamp();
           const newSockCount = sockCount + 1;
 
           set({
             isTrainingMode: false,
             graduatedAt: now,
+            challengeStartedAt: now,
             pendingGraduation: false,
             postGraduationMessageShown: false,
             sockCount: newSockCount,
@@ -2715,6 +2726,7 @@ export const useGremlyStore = create<GremlyState>()(
               .update({
                 is_training_mode: false,
                 graduated_at: now,
+                challenge_started_at: now,
                 pending_graduation: false,
                 sock_count: newSockCount,
               })
@@ -2724,6 +2736,19 @@ export const useGremlyStore = create<GremlyState>()(
                   console.warn('[GremlyStore] Failed to persist finalizeGraduation:', error);
               });
           }
+
+          // Keep lifecycleCache in sync so next cold-start doesn't use stale data
+          set((state) => ({
+            lifecycleCache: state.lifecycleCache
+              ? {
+                  ...state.lifecycleCache,
+                  graduatedAt: now,
+                  challengeStartedAt: now,
+                  isTrainingMode: false,
+                  cachedAt: nowTimestamp(),
+                }
+              : null,
+          }));
 
           if (__DEV__) {
             console.log('[GremlyStore] Graduation finalized, sock_count:', newSockCount);
