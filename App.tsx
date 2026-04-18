@@ -52,6 +52,9 @@ import { useTimezoneSync } from './hooks/useTimezoneSync';
 import { useMascotLifecycle } from './hooks/useMascotLifecycle';
 import { MascotModeProvider } from './contexts/MascotModeContext';
 import { OfflineBanner } from './app/components/OfflineBanner';
+import { ReadOnlyBanner } from './app/components/ReadOnlyBanner';
+import ReadOnlyIntroSheet from './app/components/ReadOnlyIntroSheet';
+import { useIsReadOnly, useHasSeenReadonlyIntro } from './lib/store/lifecycleSelectors';
 import * as Sentry from '@sentry/react-native';
 
 Sentry.init({
@@ -115,6 +118,13 @@ function App() {
   const pendingGraduation = useGremlyStore((s) => s.pendingGraduation);
   const finalizeGraduation = useGremlyStore((s) => s.finalizeGraduation);
 
+  // Read-only intro sheet state
+  const isReadOnly = useIsReadOnly();
+  const hasSeenReadonlyIntro = useHasSeenReadonlyIntro();
+  const markReadonlyIntroSeen = useGremlyStore((s) => s.markReadonlyIntroSeen);
+  const isInitialized = useGremlyStore((s) => s.isInitialized);
+  const [showReadonlyIntro, setShowReadonlyIntro] = useState(false);
+
   // Age-up celebration state - rendered at root level to work over navigation modals
   const [ageUpState, setAgeUpState] = useState<{
     visible: boolean;
@@ -139,6 +149,28 @@ function App() {
     visible: boolean;
     context: 'reminder' | 'sweep';
   }>({ visible: false, context: 'reminder' });
+
+  // Show read-only intro sheet once after entering read-only state
+  useEffect(() => {
+    if (isInitialized && isReadOnly && !hasSeenReadonlyIntro) {
+      const timer = setTimeout(() => setShowReadonlyIntro(true), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [isInitialized, isReadOnly, hasSeenReadonlyIntro]);
+
+  const handleReadonlyIntroDismiss = useCallback(() => {
+    setShowReadonlyIntro(false);
+    void markReadonlyIntroSeen();
+  }, [markReadonlyIntroSeen]);
+
+  const handleReadonlyIntroSubscribe = useCallback(() => {
+    setShowReadonlyIntro(false);
+    void markReadonlyIntroSeen();
+    // Navigate to paywall after brief delay so sheet dismisses first
+    setTimeout(() => {
+      navigationRef.current?.navigate('TrialEndPaywall', { source: 'expiry' });
+    }, 300);
+  }, [markReadonlyIntroSeen]);
 
   // Start offline sync
   useEffect(() => {
@@ -605,6 +637,7 @@ function App() {
                                 }}
                               >
                                 <OfflineBanner />
+                                <ReadOnlyBanner />
                                 <RootNavigator />
                                 <OverlayHost />
                               </NavigationContainer>
@@ -785,6 +818,13 @@ function App() {
 
         {/* Graduation ceremony overlay */}
         <GraduationFlow visible={pendingGraduation} onComplete={finalizeGraduation} />
+
+        {/* One-time read-only intro sheet */}
+        <ReadOnlyIntroSheet
+          visible={showReadonlyIntro}
+          onDismiss={handleReadonlyIntroDismiss}
+          onSubscribe={handleReadonlyIntroSubscribe}
+        />
       </View>
     </ErrorBoundary>
   );

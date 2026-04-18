@@ -506,6 +506,7 @@ interface GremlyState {
     trialStartedAt: string | null;
     challengeStartedAt: string | null;
     challengeCompletedAt: string | null;
+    hasSeenReadonlyIntro: boolean;
     cachedAt: string;
     cachedForUserId: string;
   } | null;
@@ -539,6 +540,7 @@ interface GremlyState {
   hasSeenSweepUnlockModal: boolean;
   hasSeenEntityChatHighlight: boolean;
   hasSeenTrainingMeterAutoOpen: boolean;
+  hasSeenReadonlyIntro: boolean;
   /** Whether the fed celebration toast has been shown today (prevents duplicate) */
   todayFedCelebrationShownAt: string | null;
   /** Whether an age-up via feeding gauge has been celebrated today */
@@ -576,6 +578,7 @@ interface GremlyState {
   markSweepUnlockModalSeen: () => void;
   markEntityChatHighlightSeen: () => void;
   markTrainingMeterAutoOpenSeen: () => void;
+  markReadonlyIntroSeen: () => Promise<void>;
 
   // Feeding gauge actions (Soul Document v8)
   addGaugeContribution: (
@@ -1067,6 +1070,7 @@ const initialState = {
   hasSeenSweepUnlockModal: false,
   hasSeenEntityChatHighlight: false,
   hasSeenTrainingMeterAutoOpen: false,
+  hasSeenReadonlyIntro: false,
   todayFedCelebrationShownAt: null as string | null,
   todayFeedingAgeUpShownAt: null as string | null,
   feedingHistory: [] as Array<{ date: string; isFed: boolean }>,
@@ -1235,7 +1239,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1455,6 +1459,7 @@ export const useGremlyStore = create<GremlyState>()(
                 (cortexPrefs?.has_seen_entity_chat_highlight as boolean) ?? false,
               hasSeenTrainingMeterAutoOpen:
                 (cortexPrefs?.has_seen_training_meter_auto_open as boolean) ?? false,
+              hasSeenReadonlyIntro: (cortexPrefs?.has_seen_readonly_intro as boolean) ?? false,
               gremlyColor: (cortexPrefs?.gremly_color as string) ?? 'forest',
               userName: (profileIdentity?.name as string) ?? null,
               userPronouns: (profileIdentity?.pronouns as string) ?? null,
@@ -1476,6 +1481,7 @@ export const useGremlyStore = create<GremlyState>()(
                 trialStartedAt: state.trialStartedAt,
                 challengeStartedAt: state.challengeStartedAt,
                 challengeCompletedAt: state.challengeCompletedAt,
+                hasSeenReadonlyIntro: state.hasSeenReadonlyIntro,
                 cachedAt: nowTimestamp(),
                 cachedForUserId: userId,
               },
@@ -1659,6 +1665,7 @@ export const useGremlyStore = create<GremlyState>()(
             hasSeenSweepUnlockModal: false,
             hasSeenEntityChatHighlight: false,
             hasSeenTrainingMeterAutoOpen: false,
+            hasSeenReadonlyIntro: false,
             todayFedCelebrationShownAt: null,
             todayFeedingAgeUpShownAt: null,
           });
@@ -2705,6 +2712,41 @@ export const useGremlyStore = create<GremlyState>()(
                   );
               });
           }
+        },
+
+        markReadonlyIntroSeen: async () => {
+          const { userId } = get();
+          if (!userId) return;
+
+          set({ hasSeenReadonlyIntro: true });
+
+          const { error } = await supabase
+            .from('cortex_preferences')
+            .update({ has_seen_readonly_intro: true })
+            .eq('owner_id', userId);
+
+          if (error) {
+            console.error('[GremlyStore] Failed to persist has_seen_readonly_intro:', error);
+            try {
+              const SentryMod = await import('@sentry/react-native');
+              SentryMod.captureException(new Error('Failed to persist has_seen_readonly_intro'), {
+                extra: { error: JSON.stringify(error) },
+              });
+            } catch {
+              /* Sentry not available */
+            }
+            return;
+          }
+
+          set((state) => ({
+            lifecycleCache: state.lifecycleCache
+              ? {
+                  ...state.lifecycleCache,
+                  hasSeenReadonlyIntro: true,
+                  cachedAt: nowTimestamp(),
+                }
+              : null,
+          }));
         },
 
         finalizeGraduation: async () => {
@@ -5284,7 +5326,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color',
+                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -5377,6 +5419,8 @@ export const useGremlyStore = create<GremlyState>()(
                 hasSeenTrainingMeterAutoOpen:
                   (cp.has_seen_training_meter_auto_open as boolean) ??
                   get().hasSeenTrainingMeterAutoOpen,
+                hasSeenReadonlyIntro:
+                  (cp.has_seen_readonly_intro as boolean) ?? get().hasSeenReadonlyIntro,
                 gremlyColor: (cp.gremly_color as string) ?? get().gremlyColor,
               });
 
@@ -5424,6 +5468,7 @@ export const useGremlyStore = create<GremlyState>()(
                   trialStartedAt: state.trialStartedAt,
                   challengeStartedAt: state.challengeStartedAt,
                   challengeCompletedAt: state.challengeCompletedAt,
+                  hasSeenReadonlyIntro: state.hasSeenReadonlyIntro,
                   cachedAt: nowTimestamp(),
                   cachedForUserId: state.userId ?? 'unknown',
                 },
@@ -9856,6 +9901,7 @@ export const useGremlyStore = create<GremlyState>()(
           hasSeenSweepUnlockModal: state.hasSeenSweepUnlockModal,
           hasSeenEntityChatHighlight: state.hasSeenEntityChatHighlight,
           hasSeenTrainingMeterAutoOpen: state.hasSeenTrainingMeterAutoOpen,
+          hasSeenReadonlyIntro: state.hasSeenReadonlyIntro,
           gremlyColor: state.gremlyColor,
           bedtimeHour: state.bedtimeHour,
           wakeHour: state.wakeHour,
@@ -9933,6 +9979,7 @@ export const useGremlyStore = create<GremlyState>()(
                   trialStartedAt: cache.trialStartedAt,
                   challengeStartedAt: cache.challengeStartedAt,
                   challengeCompletedAt: cache.challengeCompletedAt,
+                  hasSeenReadonlyIntro: cache.hasSeenReadonlyIntro,
                 };
               }
               return {};
