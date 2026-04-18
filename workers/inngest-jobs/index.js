@@ -1803,6 +1803,107 @@ const bootstrapSingleUserLifeMap = inngest.createFunction(
   },
 );
 
+// ───────────────────────────────────────────────────────────────────
+// Challenge Completion Orchestrator
+//
+// Fired when a user hits their 7th fed day.
+// Sequence:
+//   1. Bootstrap the Life Map (builds from 7 days of data)
+//   2. Wait for bootstrap to complete
+//   3. Fire weekly summary (now against a populated Life Map)
+//
+// The weekly summary worker handles its own push notification.
+// ───────────────────────────────────────────────────────────────────
+
+const handleChallengeCompletion = inngest.createFunction(
+  {
+    id: 'handle-challenge-completion',
+    name: 'Handle Challenge Completion',
+    concurrency: { limit: 10 },
+    retries: 3,
+  },
+  { event: 'app/challenge.completed' },
+  async ({ event, step, env }) => {
+    const { user_id: userId, completed_at, timezone } = event.data;
+
+    if (!userId) {
+      return { skipped: true, reason: 'missing_user_id' };
+    }
+
+    // Step 1: Check if Life Map already exists.
+    const lifeMapExists = await step.run('check-life-map-exists', async () => {
+      const response = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_life_map?user_id=eq.${userId}&select=user_id&limit=1`,
+        {
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+        },
+      );
+      if (!response.ok) return false;
+      const rows = await response.json();
+      return rows.length > 0;
+    });
+
+    // Step 2: Bootstrap Life Map if needed.
+    if (!lifeMapExists) {
+      await step.invoke('bootstrap-life-map', {
+        function: bootstrapSingleUserLifeMap,
+        data: { user_id: userId },
+      });
+    }
+
+    // Step 3: Compute week_key (Monday of current week in user's timezone)
+    const weekKey = await step.run('compute-week-key', () => {
+      const now = new Date();
+      const userTz = timezone || 'UTC';
+      const dateInTz = new Intl.DateTimeFormat('en-CA', { timeZone: userTz }).format(now);
+      const d = new Date(dateInTz + 'T00:00:00Z');
+      const dayOfWeek = d.getUTCDay(); // 0 = Sunday, 1 = Monday, ...
+      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      d.setUTCDate(d.getUTCDate() - daysFromMonday);
+      return formatDateOnly(d);
+    });
+
+    // Step 4: Fetch user's push token for weekly summary push notification
+    const pushToken = await step.run('fetch-push-token', async () => {
+      const response = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/push_tokens?user_id=eq.${userId}&select=token&limit=1`,
+        {
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+        },
+      );
+      if (!response.ok) return null;
+      const rows = await response.json();
+      return rows[0]?.token ?? null;
+    });
+
+    // Step 5: Fire the weekly summary generation.
+    // weekly-summary-v2-worker has its own idempotency check (user_id + week_key).
+    await step.sendEvent('trigger-weekly-summary', {
+      name: 'app/weekly-summary-v2.run',
+      data: {
+        user_id: userId,
+        timezone: timezone || 'UTC',
+        push_token: pushToken,
+        week_key: weekKey,
+      },
+    });
+
+    return {
+      success: true,
+      userId,
+      completed_at,
+      bootstrapped_life_map: !lifeMapExists,
+      week_key: weekKey,
+    };
+  },
+);
+
 // ============================================================================
 // DCO data fetching
 // ============================================================================
@@ -7066,6 +7167,7 @@ const inngestHandler = serve({
     dcoDispatcher,
     generateSingleUserDco,
     bootstrapSingleUserLifeMap,
+    handleChallengeCompletion,
     testUnifiedAnalyst,
     testLifeMapRebuild,
     testWeeklySummaryV2,
@@ -7273,6 +7375,49 @@ export default {
         { error: 'Deprecated – old DCO pipeline removed. Use Life Map pipeline.' },
         410,
       );
+    }
+
+    // Custom API endpoint: challenge completion — dispatches Life Map bootstrap + weekly summary
+    if (url.pathname === '/api/challenge-completed' && request.method === 'POST') {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const { user_id, completed_at, timezone } = body;
+
+        if (!user_id) {
+          return corsResponse({ error: 'user_id is required' }, 400);
+        }
+
+        console.log(`[API] challenge-completed: dispatching Inngest job for ${user_id}`);
+
+        const inngestRes = await fetch('https://inn.gs/e/' + env.INNGEST_EVENT_KEY, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'app/challenge.completed',
+            data: {
+              user_id,
+              completed_at: completed_at || new Date().toISOString(),
+              timezone: timezone || 'UTC',
+            },
+          }),
+        });
+
+        if (!inngestRes.ok) {
+          const errText = await inngestRes.text().catch(() => '');
+          throw new Error(
+            `Failed to send Inngest event: ${inngestRes.status} ${errText.slice(0, 200)}`,
+          );
+        }
+
+        return corsResponse({
+          success: true,
+          user_id,
+          message: 'Challenge completion orchestration dispatched.',
+        });
+      } catch (err) {
+        console.error('[API] challenge-completed error:', err);
+        return corsResponse({ error: err.message || String(err) }, 500);
+      }
     }
 
     // Custom API endpoint: bootstrap Life Map for a user (one-time, dispatched via Inngest)

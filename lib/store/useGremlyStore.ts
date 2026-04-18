@@ -582,6 +582,8 @@ interface GremlyState {
     source: string,
     value: number,
   ) => Promise<{ newValue: number; justFed: boolean }>;
+  /** Check if user just hit 7 cumulative fed days since challenge start; if so, complete the challenge. */
+  checkChallengeCompletionOnFedFlip: () => Promise<void>;
   completeSweepSession: (cardsProcessed: number, didJournal: boolean) => Promise<void>;
   completeMorningBrief: () => Promise<void>;
   commitLockInItems: (count: number) => Promise<void>;
@@ -2274,6 +2276,15 @@ export const useGremlyStore = create<GremlyState>()(
               set({ pendingGaugePreviews: currentPending - 1 });
             }
 
+            // Check challenge completion on every fed flip
+            if (justFed) {
+              get()
+                .checkChallengeCompletionOnFedFlip()
+                .catch((err) =>
+                  console.warn('[GremlyStore] checkChallengeCompletionOnFedFlip error:', err),
+                );
+            }
+
             // Fed celebration: only fire if the UI hasn't already shown one
             // (CatchAllNotepad and SweepFlowScreen fire from optimistic preview)
             if (justFed && !get().todayFedCelebrationShownAt) {
@@ -2752,6 +2763,118 @@ export const useGremlyStore = create<GremlyState>()(
 
           if (__DEV__) {
             console.log('[GremlyStore] Graduation finalized, sock_count:', newSockCount);
+          }
+        },
+
+        checkChallengeCompletionOnFedFlip: async () => {
+          const { userId, challengeStartedAt, challengeCompletedAt } = get();
+
+          if (!userId) return;
+          if (!challengeStartedAt) return; // User hasn't graduated tutorial
+          if (challengeCompletedAt) return; // Already complete, no-op
+
+          // Count cumulative fed days since challenge started
+          const { count, error } = await supabase
+            .from('daily_ritual_progress')
+            .select('*', { count: 'exact', head: true })
+            .eq('owner_id', userId)
+            .eq('is_fed', true)
+            .gte('ritual_day', challengeStartedAt.split('T')[0]);
+
+          if (error) {
+            console.error(
+              '[GremlyStore] Failed to check fed day count for challenge completion:',
+              error,
+            );
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const Sentry = require('@sentry/react-native');
+              Sentry.captureException(new Error('checkChallengeCompletionOnFedFlip count failed'), {
+                extra: { error: JSON.stringify(error) },
+              });
+            } catch {
+              /* Sentry not available */
+            }
+            return;
+          }
+
+          if ((count ?? 0) < 7) return; // Not yet at 7 fed days
+
+          // User just hit their 7th fed day. Complete the challenge.
+          const now = nowTimestamp();
+
+          // Optimistic local update
+          set({ challengeCompletedAt: now });
+
+          // Update lifecycleCache
+          set((state) => ({
+            lifecycleCache: state.lifecycleCache
+              ? {
+                  ...state.lifecycleCache,
+                  challengeCompletedAt: now,
+                  cachedAt: nowTimestamp(),
+                }
+              : null,
+          }));
+
+          // Persist to Supabase
+          const { error: updateError } = await supabase
+            .from('cortex_preferences')
+            .update({ challenge_completed_at: now })
+            .eq('owner_id', userId);
+
+          if (updateError) {
+            console.error('[GremlyStore] Failed to persist challenge_completed_at:', updateError);
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const Sentry = require('@sentry/react-native');
+              Sentry.captureException(new Error('Failed to persist challenge_completed_at'), {
+                extra: { error: JSON.stringify(updateError) },
+              });
+            } catch {
+              /* Sentry not available */
+            }
+            // Local state already updated — server will eventually sync via initialize
+            // Do not emit event if server persist failed
+            return;
+          }
+
+          // Fire challenge-completed event via the Cloudflare Worker
+          try {
+            const workerUrl = env.cortexUrl;
+            if (!workerUrl) {
+              console.warn(
+                '[GremlyStore] No cortexUrl configured, skipping challenge.completed event',
+              );
+              return;
+            }
+
+            const response = await fetch(`${workerUrl}/api/challenge-completed`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                user_id: userId,
+                completed_at: now,
+                timezone:
+                  get().userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`challenge-completed POST failed: ${response.status}`);
+            }
+
+            if (__DEV__) console.log('[GremlyStore] \u2705 challenge.completed event emitted');
+          } catch (err) {
+            console.error('[GremlyStore] Failed to emit challenge.completed event:', err);
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const Sentry = require('@sentry/react-native');
+              Sentry.captureException(err);
+            } catch {
+              /* Sentry not available */
+            }
+            // Local + server state are consistent — just the orchestration didn't fire.
           }
         },
 
