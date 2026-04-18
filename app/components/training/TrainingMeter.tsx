@@ -37,7 +37,14 @@ const ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string
   Sun,
 };
 
-function getHeaderText(daysRemaining: number): string {
+function getHeaderText(daysRemaining: number, isInChallengeVariant: boolean): string {
+  if (isInChallengeVariant) {
+    if (daysRemaining > 5) return "You're building the habit";
+    if (daysRemaining > 2) return 'Keep feeding your Gremly';
+    if (daysRemaining > 0) return 'Almost there';
+    return 'Finish strong';
+  }
+  // Pre-graduation (tutorial) variant
   if (daysRemaining > 5) return "I'm learning how your brain works";
   if (daysRemaining > 2) return "I'm getting smarter every day";
   if (daysRemaining > 0) return 'Almost trained';
@@ -54,6 +61,8 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
   const trainingReadiness = useGremlyStore((s) => s.trainingReadiness);
   const trialStartedAt = useTrialStartedAt();
   const isTrainingMode = useNeedsMindDropTutorial();
+  const graduatedAt = useGremlyStore((s) => s.graduatedAt);
+  const isInChallengeVariant = graduatedAt !== null;
   const refreshTrainingReadiness = useGremlyStore((s) => s.refreshTrainingReadiness);
   const feedingHistory = useGremlyStore((s) => s.feedingHistory);
   const fetchFeedingHistory = useGremlyStore((s) => s.fetchFeedingHistory);
@@ -63,46 +72,54 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
   const [daysRemaining, setDaysRemaining] = useState(7);
 
   useEffect(() => {
-    if (!visible || !isTrainingMode || !trialStartedAt) return;
+    if (!visible || !trialStartedAt) return;
 
-    // Refresh the readiness score
-    refreshTrainingReadiness();
-
-    // Fetch feeding history for day tracker
+    // Fetch feeding history for day tracker (needed for both variants)
     fetchFeedingHistory();
 
-    // Compute days remaining
+    // Compute days remaining (same for both)
     setDaysRemaining(getTrainingDaysRemaining(trialStartedAt) ?? 0);
 
-    // Fetch raw data for hints
-    const userId = useGremlyStore.getState().userId;
-    if (!userId) return;
+    // Only fetch training readiness + hints for tutorial users;
+    // challenge users use the fed-days tracker instead
+    if (!isInChallengeVariant) {
+      refreshTrainingReadiness();
 
-    supabase
-      .rpc('get_training_readiness', {
-        p_owner_id: userId,
-        p_since: trialStartedAt,
-      })
-      .then(({ data, error }) => {
-        if (error || !data) {
-          setHints([]);
-          return;
-        }
-        const metrics = data as Record<string, number>;
-        const trainingData: UserTrainingData = {
-          totalDrops: metrics.total_drops ?? 0,
-          daysWithDrops: metrics.days_with_drops ?? 0,
-          totalSweeps: metrics.total_sweeps ?? 0,
-          entityTypeCount: metrics.entity_types ?? 0,
-          journalCount: metrics.journal_count ?? 0,
-          entityChatCount: metrics.entity_chat_count ?? 0,
-          briefCount: metrics.brief_count ?? 0,
-          todosCount: metrics.todos_count ?? 0,
-          calendarConnected: false,
-        };
-        setHints(getTrainingHints(trainingData));
-      });
-  }, [visible, isTrainingMode, trialStartedAt, refreshTrainingReadiness, fetchFeedingHistory]);
+      const userId = useGremlyStore.getState().userId;
+      if (!userId) return;
+
+      supabase
+        .rpc('get_training_readiness', {
+          p_owner_id: userId,
+          p_since: trialStartedAt,
+        })
+        .then(({ data, error }) => {
+          if (error || !data) {
+            setHints([]);
+            return;
+          }
+          const metrics = data as Record<string, number>;
+          const trainingData: UserTrainingData = {
+            totalDrops: metrics.total_drops ?? 0,
+            daysWithDrops: metrics.days_with_drops ?? 0,
+            totalSweeps: metrics.total_sweeps ?? 0,
+            entityTypeCount: metrics.entity_types ?? 0,
+            journalCount: metrics.journal_count ?? 0,
+            entityChatCount: metrics.entity_chat_count ?? 0,
+            briefCount: metrics.brief_count ?? 0,
+            todosCount: metrics.todos_count ?? 0,
+            calendarConnected: false,
+          };
+          setHints(getTrainingHints(trainingData));
+        });
+    }
+  }, [
+    visible,
+    isInChallengeVariant,
+    trialStartedAt,
+    refreshTrainingReadiness,
+    fetchFeedingHistory,
+  ]);
 
   const readinessLabel = getReadinessLabel(trainingReadiness);
   const pct = Math.min(trainingReadiness, 100);
@@ -128,7 +145,7 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
         </View>
 
         {/* Header */}
-        <Text style={styles.headerTitle}>{getHeaderText(daysRemaining)}</Text>
+        <Text style={styles.headerTitle}>{getHeaderText(daysRemaining, isInChallengeVariant)}</Text>
 
         {/* Day counter */}
         <Text style={styles.dayCounter}>Day {dayNumber} of 7-day challenge</Text>
@@ -204,14 +221,23 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
         </View>
 
         {/* Readiness label */}
-        {trainingReadiness > 60 && <Text style={styles.readinessLabel}>{readinessLabel}</Text>}
+        {!isInChallengeVariant && trainingReadiness > 60 && (
+          <Text style={styles.readinessLabel}>{readinessLabel}</Text>
+        )}
 
         {/* Divider */}
         <View style={styles.divider} />
 
         {/* Hints section */}
-        <Text style={styles.sectionTitle}>What to do next</Text>
-        {hints.length > 0 ? (
+        <Text style={styles.sectionTitle}>
+          {isInChallengeVariant ? 'How to keep going' : 'What to do next'}
+        </Text>
+        {isInChallengeVariant ? (
+          <Text style={styles.emptyHints}>
+            Drop thoughts throughout the day and do an Evening Sweep. Aim to fill your gauge by
+            bedtime.
+          </Text>
+        ) : hints.length > 0 ? (
           hints.map((hint, i) => {
             const IconComponent = ICON_MAP[hint.icon];
             return (
@@ -236,7 +262,6 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
         ) : (
           <Text style={styles.emptyHints}>You're doing great. Keep dropping and sweeping.</Text>
         )}
-
         {/* Divider */}
         <View style={styles.divider} />
 
@@ -244,10 +269,16 @@ export default function TrainingMeter({ visible, onDismiss, onNavigate }: Traini
         <View style={styles.rewardCard}>
           <View style={styles.rewardHeader}>
             <Sparkles size={16} color={c.charcoalInk} />
-            <Text style={styles.rewardTitle}>See what Gremly learned about you</Text>
+            <Text style={styles.rewardTitle}>
+              {isInChallengeVariant
+                ? 'Your first weekly summary'
+                : 'See what Gremly learned about you'}
+            </Text>
           </View>
           <Text style={styles.rewardBody}>
-            Complete the challenge and Gremly shows you what it figured out about you.
+            {isInChallengeVariant
+              ? 'Feed your Gremly for 7 days and get your first weekly summary \u2014 a reflection on what you did, how you felt, and what matters.'
+              : 'Complete the challenge and Gremly shows you what it figured out about you.'}
           </Text>
         </View>
       </View>

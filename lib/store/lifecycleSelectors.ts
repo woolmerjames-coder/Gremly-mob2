@@ -21,6 +21,10 @@ export const useChallengeActive = () =>
 /** User has completed the 7-fed-days challenge. Drives mascot-sheet pre/post. */
 export const useChallengeCompleted = () => useGremlyStore((s) => s.challengeCompletedAt !== null);
 
+/** User has graduated the tutorial but hasn't completed the 7-fed-days challenge yet. */
+export const useIsInChallenge = () =>
+  useGremlyStore((s) => s.graduatedAt !== null && s.challengeCompletedAt === null);
+
 /** Current training step (0-6). Only meaningful when useNeedsMindDropTutorial is true. */
 export const useTrainingDropStep = () => useGremlyStore((s) => s.trainingDropStep);
 

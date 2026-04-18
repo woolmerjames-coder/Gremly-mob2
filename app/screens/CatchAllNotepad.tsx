@@ -62,6 +62,8 @@ import {
   useHasCompletedOnboarding,
   useHasCompletedFirstDrop,
   useTrialStartedAt,
+  useIsInChallenge,
+  useChallengeCompleted,
 } from '../../lib/store/lifecycleSelectors';
 
 import celebrationController from '../features/celebration/CelebrationController';
@@ -1109,6 +1111,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Training mode state
   const isTrainingMode = useNeedsMindDropTutorial();
+  const isInChallenge = useIsInChallenge();
+  const challengeCompleted = useChallengeCompleted();
   const trainingDropStep = useTrainingDropStep();
   const hasSeenGaugeExplanation = useGremlyStore((s) => s.hasSeenGaugeExplanation);
   const hasSeenFirstFedModal = useGremlyStore((s) => s.hasSeenFirstFedModal);
@@ -3051,8 +3055,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             <Pressable
               onPress={() => {
                 if (isTrainingMode) {
+                  // Pre-graduation: show tutorial variant of TrainingMeter
+                  setShowTrainingMeter(true);
+                } else if (isInChallenge) {
+                  // Graduated but still in 7-fed-days challenge: show challenge variant
                   setShowTrainingMeter(true);
                 } else {
+                  // Seasoned (challenge complete): show help card
                   setHelpInitialPage(undefined);
                   setShowHelp(true);
                 }
