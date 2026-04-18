@@ -1233,7 +1233,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color, bedtime_hour, wake_hour, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1279,19 +1279,49 @@ export const useGremlyStore = create<GremlyState>()(
               console.warn('[GremlyStore] milestones fetch error:', milestonesRes.error);
             if (dailyBriefRes.error)
               console.warn('[GremlyStore] daily_briefs fetch error:', dailyBriefRes.error);
-            if (cortexPrefsRes.error && cortexPrefsRes.error.code !== 'PGRST116')
-              console.warn('[GremlyStore] cortex_preferences fetch error:', cortexPrefsRes.error);
+            if (cortexPrefsRes.error && cortexPrefsRes.error.code !== 'PGRST116') {
+              console.error(
+                '[GremlyStore] initialize aborted — cortex_preferences fetch failed:',
+                cortexPrefsRes.error,
+              );
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const Sentry = require('@sentry/react-native');
+                Sentry.captureException(new Error('initialize cortex_preferences fetch failed'), {
+                  extra: { error: JSON.stringify(cortexPrefsRes.error) },
+                });
+              } catch {
+                /* Sentry not available */
+              }
+              set({ isLoading: false, isInitialized: false });
+              return;
+            }
             if (sweepEventsCountRes.error)
               console.warn('[GremlyStore] sweep events count error:', sweepEventsCountRes.error);
             if (weeklySummariesRes.error)
               console.warn('[GremlyStore] weekly_summaries fetch error:', weeklySummariesRes.error);
 
             // Fetch identity from user_profiles
-            const { data: userProfile } = await supabase
+            const { data: userProfile, error: userProfileError } = await supabase
               .from('user_profiles')
               .select('identity')
               .eq('user_id', userId)
               .maybeSingle();
+            if (userProfileError) {
+              console.error(
+                '[GremlyStore] user_profiles fetch failed (non-fatal):',
+                userProfileError,
+              );
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const Sentry = require('@sentry/react-native');
+                Sentry.captureException(new Error('user_profiles identity fetch failed'), {
+                  extra: { error: JSON.stringify(userProfileError), context: 'initialize' },
+                });
+              } catch {
+                /* Sentry not available */
+              }
+            }
             const profileIdentity = (userProfile?.identity as Record<string, unknown>) ?? {};
 
             // Extract sweep preferences (handle columns that may not exist in TypeScript types)
@@ -1424,8 +1454,6 @@ export const useGremlyStore = create<GremlyState>()(
               hasSeenTrainingMeterAutoOpen:
                 (cortexPrefs?.has_seen_training_meter_auto_open as boolean) ?? false,
               gremlyColor: (cortexPrefs?.gremly_color as string) ?? 'forest',
-              bedtimeHour: (cortexPrefs?.bedtime_hour as number) ?? 0,
-              wakeHour: (cortexPrefs?.wake_hour as number) ?? 6,
               userName: (profileIdentity?.name as string) ?? null,
               userPronouns: (profileIdentity?.pronouns as string) ?? null,
               userTimezone: timezone,
@@ -1956,11 +1984,27 @@ export const useGremlyStore = create<GremlyState>()(
           set({ userName: name, userPronouns: pronouns });
           const userId = get().userId;
           if (!userId) return;
-          const { data: existing } = await supabase
+          const { data: existing, error: selectError } = await supabase
             .from('user_profiles')
             .select('identity')
             .eq('user_id', userId)
             .maybeSingle();
+          if (selectError) {
+            console.error(
+              '[GremlyStore] setUserProfile aborted — identity fetch failed:',
+              selectError,
+            );
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const Sentry = require('@sentry/react-native');
+              Sentry.captureException(new Error('setUserProfile identity fetch failed'), {
+                extra: { error: JSON.stringify(selectError) },
+              });
+            } catch {
+              /* Sentry not available */
+            }
+            return; // do NOT proceed to upsert — would wipe existing identity
+          }
           const currentIdentity = (existing?.identity as Record<string, unknown>) ?? {};
           const merged = { ...currentIdentity, name, pronouns, source: 'onboarding' };
           const { error } = await supabase
@@ -5092,11 +5136,33 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color, bedtime_hour, wake_hour',
+                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
             ]);
+
+            // Check cortex_preferences error — skip prefs reconciliation but continue entity updates
+            let skipCortexPrefs = false;
+            if (cortexPrefsRes.error) {
+              console.error(
+                '[GremlyStore] refreshFromServer — cortex_preferences fetch failed, skipping prefs reconciliation:',
+                cortexPrefsRes.error,
+              );
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const Sentry = require('@sentry/react-native');
+                Sentry.captureException(
+                  new Error('refreshFromServer cortex_preferences fetch failed'),
+                  {
+                    extra: { error: JSON.stringify(cortexPrefsRes.error) },
+                  },
+                );
+              } catch {
+                /* Sentry not available */
+              }
+              skipCortexPrefs = true;
+            }
 
             set({
               // Add type field since DB doesn't store it
@@ -5129,7 +5195,7 @@ export const useGremlyStore = create<GremlyState>()(
             // Reconcile cortex_preferences (gremly age, fed days, tier, etc.)
             // These aren't fetched by refreshRitualProgress, so they need
             // explicit reconciliation from the server.
-            if (cortexPrefsRes.data) {
+            if (!skipCortexPrefs && cortexPrefsRes.data) {
               const cp = cortexPrefsRes.data as Record<string, unknown>;
               set({
                 gremlyAge: (cp.gremly_age as number) ?? get().gremlyAge,
@@ -5164,16 +5230,32 @@ export const useGremlyStore = create<GremlyState>()(
                   (cp.has_seen_training_meter_auto_open as boolean) ??
                   get().hasSeenTrainingMeterAutoOpen,
                 gremlyColor: (cp.gremly_color as string) ?? get().gremlyColor,
-                bedtimeHour: (cp.bedtime_hour as number) ?? get().bedtimeHour,
-                wakeHour: (cp.wake_hour as number) ?? get().wakeHour,
               });
 
               // Fetch identity from user_profiles
-              const { data: userProfileData } = await supabase
+              const { data: userProfileData, error: userProfileRefreshError } = await supabase
                 .from('user_profiles')
                 .select('identity')
                 .eq('user_id', userId)
                 .maybeSingle();
+              if (userProfileRefreshError) {
+                console.error(
+                  '[GremlyStore] user_profiles fetch failed (non-fatal):',
+                  userProfileRefreshError,
+                );
+                try {
+                  // eslint-disable-next-line @typescript-eslint/no-var-requires
+                  const Sentry = require('@sentry/react-native');
+                  Sentry.captureException(new Error('user_profiles identity fetch failed'), {
+                    extra: {
+                      error: JSON.stringify(userProfileRefreshError),
+                      context: 'refreshFromServer',
+                    },
+                  });
+                } catch {
+                  /* Sentry not available */
+                }
+              }
               if (userProfileData?.identity) {
                 const ident = userProfileData.identity as Record<string, unknown>;
                 set({
@@ -5206,11 +5288,6 @@ export const useGremlyStore = create<GremlyState>()(
                   currentTier: cp.current_tier,
                 });
               }
-            } else if (cortexPrefsRes.error && cortexPrefsRes.error.code !== 'PGRST116') {
-              console.warn(
-                '[GremlyStore] cortex_preferences fetch in refreshFromServer failed:',
-                cortexPrefsRes.error,
-              );
             }
 
             // Fetch DCO after server refresh (cached hydration path skips cold init)
