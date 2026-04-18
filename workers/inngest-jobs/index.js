@@ -1819,7 +1819,7 @@ const handleChallengeCompletion = inngest.createFunction(
   {
     id: 'handle-challenge-completion',
     name: 'Handle Challenge Completion',
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
     retries: 3,
   },
   { event: 'app/challenge.completed' },
