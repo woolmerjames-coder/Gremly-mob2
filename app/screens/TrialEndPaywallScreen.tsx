@@ -4,7 +4,7 @@
  * 2. Post-trial (source: 'expiry') - forced after trial expiration
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Pressable, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
@@ -13,11 +13,9 @@ import type { RouteProp } from '@react-navigation/native';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { useTrialStartedAt } from '../../lib/store/lifecycleSelectors';
 import MascotLottie from '../components/MascotLottie';
 import * as WebBrowser from 'expo-web-browser';
 import { useSubscriptionStatus } from '../../lib/subscriptions/useSubscriptionStatus';
-import { getDateService } from '../../lib/date/DateService';
 import {
   fetchOfferings,
   purchasePackage,
@@ -26,8 +24,6 @@ import {
 import type { PurchasesPackage } from 'react-native-purchases';
 
 type Plan = 'monthly' | 'annual';
-
-const TRIAL_DURATION_MS = 8 * 24 * 60 * 60 * 1000;
 
 export default function TrialEndPaywallScreen() {
   const insets = useSafeAreaInsets();
@@ -39,19 +35,12 @@ export default function TrialEndPaywallScreen() {
   const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
   const todayDropsCount = useGremlyStore((s) => s.todayDropsCount);
   const gremlyAge = useGremlyStore((s) => s.gremlyAge);
-  const trialStartedAt = useTrialStartedAt();
   const setIsSubscribed = useGremlyStore((s) => s.setIsSubscribed);
-  const { isTrialActive } = useSubscriptionStatus();
+  const { isTrialActive, daysUntilTrialCeiling } = useSubscriptionStatus();
+  const daysRemaining = daysUntilTrialCeiling;
 
   const source = route.params?.source ?? (isTrialActive ? 'settings' : 'expiry');
   const isMidTrial = source === 'settings' && isTrialActive;
-
-  const daysRemaining = useMemo(() => {
-    if (!trialStartedAt) return 8;
-    const started = new Date(trialStartedAt).getTime();
-    const remaining = started + TRIAL_DURATION_MS - getDateService().now().getTime();
-    return Math.max(0, Math.ceil(remaining / (24 * 60 * 60 * 1000)));
-  }, [trialStartedAt]);
 
   // Fetch offerings from RevenueCat
   const [monthlyPkg, setMonthlyPkg] = useState<PurchasesPackage | null>(null);
@@ -154,8 +143,7 @@ export default function TrialEndPaywallScreen() {
         {/* Trial remaining (mid-trial only) */}
         {isMidTrial && (
           <Text style={styles.trialRemaining}>
-            You have {daysRemaining} {daysRemaining === 1 ? 'day' : 'days'} left in your Training
-            Challenge
+            {daysRemaining} {daysRemaining === 1 ? 'day' : 'days'} of free access remaining
           </Text>
         )}
 

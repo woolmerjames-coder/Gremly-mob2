@@ -43,3 +43,11 @@ export const useChallengeStartedAt = () => useGremlyStore((s) => s.challengeStar
 
 /** Challenge completion timestamp. Null while in challenge. */
 export const useChallengeCompletedAt = () => useGremlyStore((s) => s.challengeCompletedAt);
+
+// Re-export access selectors from useSubscriptionStatus (defined there to avoid circular imports)
+export {
+  useHasAccess,
+  useIsReadOnly,
+  useCanCreate,
+  useCanChat,
+} from '../subscriptions/useSubscriptionStatus';
