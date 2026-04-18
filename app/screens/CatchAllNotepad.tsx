@@ -64,6 +64,7 @@ import {
   useTrialStartedAt,
   useIsInChallenge,
   useChallengeCompleted,
+  useCanCreate,
 } from '../../lib/store/lifecycleSelectors';
 
 import celebrationController from '../features/celebration/CelebrationController';
@@ -1079,6 +1080,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     overlayController,
   } = props;
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const canCreate = useCanCreate();
 
   // Direct store access - no adapter
   const createTodo = useGremlyStore((s) => s.createTodo);
@@ -2936,6 +2938,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, []);
 
   const handleSubmit = useCallback(() => {
+    if (!canCreate) {
+      navigation.navigate('TrialEndPaywall', { source: 'expiry' });
+      return;
+    }
     if (isSubmitting || isThinking || (!note.trim() && pendingPhotoUris.length === 0)) {
       return;
     }
@@ -2958,7 +2964,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     } else {
       void onSubmit();
     }
-  }, [isSubmitting, isThinking, uiMode, note, onSubmit, pendingPhotoUris.length]);
+  }, [
+    canCreate,
+    navigation,
+    isSubmitting,
+    isThinking,
+    uiMode,
+    note,
+    onSubmit,
+    pendingPhotoUris.length,
+  ]);
 
   const legacyUI = React.useMemo(() => {
     const statsVisible = organizedToday > 0;
