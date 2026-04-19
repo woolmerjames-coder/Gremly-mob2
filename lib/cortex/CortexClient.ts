@@ -4,6 +4,7 @@
 import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
 import { getDateService, nowTimestamp } from '../date/DateService';
+import { eventBus } from '../events/EventBus';
 import type {
   EntityChatRequest,
   EntityChatResponse,
@@ -188,6 +189,17 @@ async function postJSON<T>(body: any, options?: { raw?: boolean }): Promise<Cort
     log('STATUS', res.status);
 
     if (!res.ok) {
+      if (res.status === 403) {
+        try {
+          const body = await res.clone().json();
+          if (body?.error === 'read_only') {
+            eventBus.emit('cortex:read_only', {});
+            return { ok: false, error: 'read_only', status: 403 };
+          }
+        } catch {
+          /* fall through to generic error */
+        }
+      }
       const txt = await res.text().catch(() => '');
       log('ERROR_RESPONSE', res.status, txt);
       const message = `[cortex] ${res.status} ${txt || 'Unknown error'}`;
@@ -437,6 +449,11 @@ export function callSpaceChatStreaming(
   es.addEventListener('message', (event: any) => {
     try {
       const data = JSON.parse(event.data);
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        es.close();
+        return;
+      }
       if (data.error) {
         callbacks.onError(data.error, fullText);
         es.close();
@@ -547,6 +564,11 @@ export function callGeneralChatStreaming(
   es.addEventListener('message', (event: any) => {
     try {
       const data = JSON.parse(event.data);
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        es.close();
+        return;
+      }
       if (data.error) {
         callbacks.onError(data.error, fullText);
         es.close();
@@ -1425,6 +1447,17 @@ export async function callEntityChat(request: EntityChatRequest): Promise<Entity
     const latency_ms = getDateService().now().getTime() - startTime;
 
     if (!res.ok) {
+      if (res.status === 403) {
+        try {
+          const body = await res.clone().json();
+          if (body?.error === 'read_only') {
+            eventBus.emit('cortex:read_only', {});
+            return { content: '', latency_ms };
+          }
+        } catch {
+          /* fall through */
+        }
+      }
       const errorText = await res.text().catch(() => '');
       log('ENTITY_CHAT_ERROR', res.status, errorText);
       return {
@@ -1535,6 +1568,13 @@ export function callEntityChatStreaming(
   es.addEventListener('message', (event: any) => {
     try {
       const data = JSON.parse(event.data);
+
+      // Handle read_only access denial
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        es.close();
+        return;
+      }
 
       // Handle error in stream
       if (data.error) {
@@ -1665,6 +1705,13 @@ export function callHabitBuilderStreaming(
   es.addEventListener('message', (event: any) => {
     try {
       const data = JSON.parse(event.data);
+
+      // Handle read_only access denial
+      if (data.error === 'read_only') {
+        eventBus.emit('cortex:read_only', {});
+        es.close();
+        return;
+      }
 
       // Handle error
       if (data.error) {
@@ -1894,7 +1941,19 @@ export async function callGeneralGreeting(userId: string): Promise<string | null
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (res.status === 403) {
+        try {
+          const body = await res.clone().json();
+          if (body?.error === 'read_only') {
+            eventBus.emit('cortex:read_only', {});
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+      return null;
+    }
     const data = await res.json();
     return data.greeting || null;
   } catch {

@@ -5,6 +5,7 @@
  */
 
 import Constants from 'expo-constants';
+import { eventBus } from '../events/EventBus';
 import type { Todo, Habit } from '../types';
 import type { CalendarEvent } from '../calendar/CalendarClient';
 import type { DayCapacity } from '../capacity';
@@ -123,6 +124,23 @@ export async function organizeDay(request: OrganizeDayRequest): Promise<Organize
     });
 
     if (!response.ok) {
+      if (response.status === 403) {
+        try {
+          const body = await response.clone().json();
+          if (body?.error === 'read_only') {
+            eventBus.emit('cortex:read_only', {});
+            return {
+              assignments: [],
+              overflow: [],
+              reasoning: [],
+              summary: '',
+              latency_ms: getDateService().now().getTime() - startTime,
+            };
+          }
+        } catch {
+          /* fall through */
+        }
+      }
       console.log('[organizeDay] HTTP error', { status: response.status });
       return {
         assignments: [],

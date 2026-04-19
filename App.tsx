@@ -586,9 +586,18 @@ function App() {
       });
     });
 
+    const unsubReadOnly = eventBus.on('cortex:read_only', () => {
+      if (navigationRef.current) {
+        navigationRef.current.navigate('TrialEndPaywall', { source: 'expiry' });
+      } else {
+        console.warn('[App] cortex:read_only received but navigationRef not ready');
+      }
+    });
+
     return () => {
       unsubFlow();
       unsubItem();
+      unsubReadOnly();
     };
   }, []);
 
