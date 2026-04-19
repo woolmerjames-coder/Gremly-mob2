@@ -2997,6 +2997,25 @@ function denyAccessResponse(reason) {
   );
 }
 
+/**
+ * For streaming endpoints (SSE), return a 200 OK response with a single
+ * SSE error event and close. EventSource on the client can't read HTTP
+ * status on connection failure, so we deliver the error via the stream itself.
+ */
+function denyAccessSSEResponse(reason) {
+  const encoder = new TextEncoder();
+  const body = `data: ${JSON.stringify({ error: 'read_only', reason })}\n\n`;
+  return new Response(encoder.encode(body), {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // RevenueCat webhook handler — Phase 4.7
 // ═══════════════════════════════════════════════════════════════════
@@ -4086,7 +4105,9 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
         // Access gate — Phase 4.7
         const access = await checkUserAccess(body.userId, env);
         if (!access.hasAccess) {
-          return denyAccessResponse(access.reason);
+          return wantsStreaming
+            ? denyAccessSSEResponse(access.reason)
+            : denyAccessResponse(access.reason);
         }
 
         const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -4636,7 +4657,9 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
         // Access gate — Phase 4.7
         const access = await checkUserAccess(body.userId, env);
         if (!access.hasAccess) {
-          return denyAccessResponse(access.reason);
+          return wantsStreaming
+            ? denyAccessSSEResponse(access.reason)
+            : denyAccessResponse(access.reason);
         }
 
         const entity = body.entity || {};
@@ -10845,7 +10868,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         // Access gate — Phase 4.7
         const access = await checkUserAccess(body.userId, env);
         if (!access.hasAccess) {
-          return denyAccessResponse(access.reason);
+          return denyAccessSSEResponse(access.reason);
         }
 
         console.log('[SpaceChat:Streaming] Starting SSE stream');
@@ -11559,7 +11582,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
         // Access gate — Phase 4.7
         const access = await checkUserAccess(body.userId, env);
         if (!access.hasAccess) {
-          return denyAccessResponse(access.reason);
+          return denyAccessSSEResponse(access.reason);
         }
 
         console.log('[GeneralChat:Streaming] Starting SSE stream');
