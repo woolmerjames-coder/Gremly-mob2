@@ -2907,8 +2907,261 @@ Return ONLY valid JSON matching this exact schema. No markdown, no backticks, no
 - No habits: Skip habit_observation insight.
 - All data sparse: Produce a shorter, genuine summary. Short is better than padded.`;
 
+// ═══════════════════════════════════════════════════════════════════
+// Access control helpers — Phase 4.7
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Check whether a user has access to generative/mutation endpoints.
+ *
+ * Access rules:
+ *   - is_tester=true → always allowed
+ *   - is_subscribed=true → always allowed (set by RevenueCat webhook)
+ *   - challenge_completed_at IS NULL AND within 14 days of trial_started_at → allowed (free window)
+ *   - otherwise → denied (read-only)
+ *
+ * Fails open: if the access check itself errors, returns hasAccess=true so
+ * legit users don't get blocked by transient infrastructure issues.
+ */
+async function checkUserAccess(userId, env) {
+  if (!userId) {
+    return { hasAccess: false, reason: 'missing_user_id' };
+  }
+
+  try {
+    const response = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=is_tester,is_subscribed,trial_started_at,challenge_completed_at`,
+      {
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      console.error('[Cortex:access] Fetch failed:', response.status);
+      return { hasAccess: true, reason: 'access_check_failed_fail_open' };
+    }
+
+    const rows = await response.json();
+    const prefs = rows[0];
+
+    if (!prefs) {
+      console.warn('[Cortex:access] No cortex_preferences row for userId:', userId);
+      return { hasAccess: true, reason: 'no_prefs_row_fail_open' };
+    }
+
+    if (prefs.is_tester === true) {
+      return { hasAccess: true, reason: 'tester' };
+    }
+
+    if (prefs.is_subscribed === true) {
+      return { hasAccess: true, reason: 'subscribed' };
+    }
+
+    // Free window: challenge not yet complete AND within 14 days of trial start
+    if (prefs.challenge_completed_at === null && prefs.trial_started_at) {
+      const trialStarted = new Date(prefs.trial_started_at).getTime();
+      const ceilingMs = 14 * 24 * 60 * 60 * 1000;
+      if (Date.now() < trialStarted + ceilingMs) {
+        return { hasAccess: true, reason: 'free_window' };
+      }
+    }
+
+    return { hasAccess: false, reason: 'read_only' };
+  } catch (err) {
+    console.error('[Cortex:access] Check threw:', err);
+    return { hasAccess: true, reason: 'access_check_exception_fail_open' };
+  }
+}
+
+/**
+ * Standard 403 response for read-only users. Client detects this shape
+ * and routes to the paywall screen.
+ */
+function denyAccessResponse(reason) {
+  return new Response(
+    JSON.stringify({
+      error: 'read_only',
+      message: 'Subscription required to use this feature.',
+      reason,
+    }),
+    {
+      status: 403,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    },
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RevenueCat webhook handler — Phase 4.7
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Receives RevenueCat webhook events and updates is_subscribed on cortex_preferences.
+ *
+ * RevenueCat sends Authorization: Bearer <shared-secret>. We verify against
+ * env.REVENUECAT_WEBHOOK_SECRET and reject on mismatch.
+ *
+ * Events we care about:
+ *   - INITIAL_PURCHASE, RENEWAL, NON_RENEWING_PURCHASE → set is_subscribed=true
+ *   - CANCELLATION → no change yet (user still has access until expiration)
+ *   - EXPIRATION → set is_subscribed=false
+ *   - PRODUCT_CHANGE → set is_subscribed=true (still has an active entitlement)
+ *   - BILLING_ISSUE → no change (user temporarily in grace period)
+ *   - SUBSCRIPTION_EXTENDED → no change (still subscribed)
+ *   - TRANSFER → set is_subscribed=true for new user, false for old
+ *
+ * For any event we don't explicitly handle, we just log and return 200.
+ */
+async function handleRevenueCatWebhook(request, env) {
+  // 1. Verify shared secret
+  const authHeader = request.headers.get('Authorization');
+  const expected = `Bearer ${env.REVENUECAT_WEBHOOK_SECRET}`;
+
+  if (!env.REVENUECAT_WEBHOOK_SECRET) {
+    console.error('[Cortex:rc-webhook] REVENUECAT_WEBHOOK_SECRET not configured');
+    return new Response('Webhook secret not configured', { status: 500 });
+  }
+
+  if (authHeader !== expected) {
+    console.warn('[Cortex:rc-webhook] Invalid Authorization header');
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  // 2. Parse body
+  let body;
+  try {
+    body = await request.json();
+  } catch (err) {
+    console.error('[Cortex:rc-webhook] Invalid JSON body:', err);
+    return new Response('Invalid body', { status: 400 });
+  }
+
+  const event = body.event;
+  if (!event) {
+    console.error('[Cortex:rc-webhook] Missing event payload');
+    return new Response('Missing event', { status: 400 });
+  }
+
+  const eventType = event.type;
+  const appUserId = event.app_user_id;
+
+  if (!appUserId) {
+    console.warn('[Cortex:rc-webhook] Missing app_user_id, ignoring');
+    return new Response('OK', { status: 200 });
+  }
+
+  console.log(`[Cortex:rc-webhook] ${eventType} for user ${appUserId}`);
+
+  // 3. Determine new is_subscribed state based on event type
+  let newSubscribedState = null; // null = no change
+
+  switch (eventType) {
+    case 'INITIAL_PURCHASE':
+    case 'RENEWAL':
+    case 'NON_RENEWING_PURCHASE':
+    case 'PRODUCT_CHANGE':
+    case 'UNCANCELLATION':
+      newSubscribedState = true;
+      break;
+    case 'EXPIRATION':
+      newSubscribedState = false;
+      break;
+    case 'TRANSFER':
+      // Handle transfer separately — update both old and new user IDs
+      await handleTransferEvent(event, env);
+      return new Response('OK', { status: 200 });
+    case 'CANCELLATION':
+    case 'BILLING_ISSUE':
+    case 'SUBSCRIPTION_EXTENDED':
+    case 'SUBSCRIPTION_PAUSED':
+    case 'TEST':
+      // No state change needed
+      console.log(`[Cortex:rc-webhook] ${eventType}: no state change`);
+      return new Response('OK', { status: 200 });
+    default:
+      console.warn(`[Cortex:rc-webhook] Unknown event type: ${eventType}`);
+      return new Response('OK', { status: 200 });
+  }
+
+  if (newSubscribedState === null) {
+    return new Response('OK', { status: 200 });
+  }
+
+  // 4. Update cortex_preferences
+  try {
+    const response = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${appUserId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({ is_subscribed: newSubscribedState }),
+      },
+    );
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`[Cortex:rc-webhook] Supabase update failed: ${response.status} ${errText}`);
+      return new Response('OK', { status: 200 });
+    }
+
+    console.log(`[Cortex:rc-webhook] is_subscribed=${newSubscribedState} for ${appUserId}`);
+    return new Response('OK', { status: 200 });
+  } catch (err) {
+    console.error('[Cortex:rc-webhook] Update threw:', err);
+    return new Response('OK', { status: 200 });
+  }
+}
+
+async function handleTransferEvent(event, env) {
+  const oldUserId = event.transferred_from?.[0];
+  const newUserId = event.transferred_to?.[0];
+
+  if (oldUserId) {
+    await fetch(`${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${oldUserId}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ is_subscribed: false }),
+    });
+  }
+
+  if (newUserId) {
+    await fetch(`${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${newUserId}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ is_subscribed: true }),
+    });
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
+    // --- URL-based routing (Phase 4.7) ---
+    const url = new URL(request.url);
+
+    // RevenueCat webhook endpoint
+    if (url.pathname === '/revenuecat-webhook' && request.method === 'POST') {
+      return handleRevenueCatWebhook(request, env);
+    }
+
     // --- CORS preflight ---
     if (request.method === 'OPTIONS') {
       return new Response(null, {
@@ -3747,6 +4000,12 @@ After the user confirms and locks in a habit, check the existing habits listed i
       // === GENERAL GREETING ===
       // =========================
       if (type === 'general-greeting') {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(body.userId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
         try {
           const dailyFocus = await getDailyFocusForChat(body.userId, env, userTimezone);
           const now = new Date();
@@ -3824,6 +4083,12 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
       // === HABIT BUILDER CHAT ===
       // =========================
       if (type === 'habit-builder') {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(body.userId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
         const messages = Array.isArray(body.messages) ? body.messages : [];
         const context = body.context || {};
 
@@ -4368,6 +4633,12 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
       // Scoped chat for individual entities (todos, habits, notes)
       // =========================
       if (type === 'entity-chat') {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(body.userId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
         const entity = body.entity || {};
         const messages = Array.isArray(body.messages) ? body.messages : [];
         const preset = body.preset || null;
@@ -6328,6 +6599,12 @@ Return ONLY valid JSON:
       // - Better multi-constraint reasoning for 20-50+ tasks
       // =========================
       if (type === 'organize-day') {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(body.userId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
         const tasks = Array.isArray(body.tasks) ? body.tasks : [];
         const calendarEvents = Array.isArray(body.calendarEvents) ? body.calendarEvents : [];
         const blocks = body.blocks || {};
@@ -10565,6 +10842,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       // STREAMING RESPONSE FOR SPACE CHAT
       // ============================================================================
       if (isSpaceChatStreaming && isSpaceChatLane) {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(body.userId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
         console.log('[SpaceChat:Streaming] Starting SSE stream');
 
         const lastUserMsgSpace = messages.filter((m) => m.role === 'user').pop()?.content || '';
@@ -11273,6 +11556,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       // GENERAL CHAT (ASK GREMLY) STREAMING
       // ============================================================================
       if (isGeneralChatStreaming && isGeneralChatLane) {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(body.userId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
         console.log('[GeneralChat:Streaming] Starting SSE stream');
 
         const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
@@ -12050,6 +12339,12 @@ Return ONLY valid JSON:
       // SPACE CHAT NON-STREAMING — triage-based pipeline
       // ===================================================================
       if (isSpaceChatLane) {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(body.userId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
         // --- Context loading (session + profile) ---
         let sessionContextStr = '';
         let userProfile = null;
