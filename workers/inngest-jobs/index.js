@@ -792,22 +792,54 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
         Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
       };
 
-      const [prefsRes, tokensRes] = await Promise.all([
+      const [prefsRes, tokensRes, accessRes] = await Promise.all([
         fetch(
           `${env.SUPABASE_URL}/rest/v1/notification_preferences?weekly_enabled=eq.true&select=user_id,weekly_time,weekly_day,timezone`,
           { headers },
         ),
         fetch(`${env.SUPABASE_URL}/rest/v1/push_tokens?select=user_id,token`, { headers }),
+        fetch(
+          `${env.SUPABASE_URL}/rest/v1/cortex_preferences?select=owner_id,is_tester,is_subscribed,trial_started_at,challenge_completed_at`,
+          { headers },
+        ),
       ]);
 
       if (!prefsRes.ok) throw new Error(`Failed to fetch weekly prefs: ${prefsRes.statusText}`);
       const prefs = await prefsRes.json();
       const tokens = tokensRes.ok ? await tokensRes.json() : [];
+      const accessPrefs = accessRes.ok ? await accessRes.json() : [];
+
       const tokenMap = {};
       for (const t of tokens) tokenMap[t.user_id] = t.token;
 
-      return prefs
-        .filter((p) => tokenMap[p.user_id])
+      // Build access map and filter function
+      const ceilingMs = 14 * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const accessMap = {};
+      for (const p of accessPrefs) {
+        const inFreeWindow =
+          p.challenge_completed_at === null &&
+          p.trial_started_at !== null &&
+          new Date(p.trial_started_at).getTime() + ceilingMs > now;
+        accessMap[p.owner_id] = p.is_tester === true || p.is_subscribed === true || inFreeWindow;
+      }
+
+      const total = prefs.length;
+      let droppedNoToken = 0;
+      let droppedNoAccess = 0;
+
+      const filtered = prefs
+        .filter((p) => {
+          if (!tokenMap[p.user_id]) {
+            droppedNoToken++;
+            return false;
+          }
+          if (!accessMap[p.user_id]) {
+            droppedNoAccess++;
+            return false;
+          }
+          return true;
+        })
         .map((p) => ({
           user_id: p.user_id,
           timezone: p.timezone || 'UTC',
@@ -815,6 +847,12 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
           weekly_day: p.weekly_day ?? 0, // 0 = Sunday
           push_token: tokenMap[p.user_id],
         }));
+
+      console.log(
+        `[Weekly V2 Dispatcher] fetch-weekly-users: total=${total}, dropped_no_token=${droppedNoToken}, dropped_no_access=${droppedNoAccess}, eligible=${filtered.length}`,
+      );
+
+      return filtered;
     });
 
     // Step 2: Filter to users whose local time is within the 5-minute window of their configured weekly time AND it's their configured day
