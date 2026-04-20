@@ -5326,7 +5326,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color',
+                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, demo_sweep_completed_at, created_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -5422,6 +5422,20 @@ export const useGremlyStore = create<GremlyState>()(
                 hasSeenReadonlyIntro:
                   (cp.has_seen_readonly_intro as boolean) ?? get().hasSeenReadonlyIntro,
                 gremlyColor: (cp.gremly_color as string) ?? get().gremlyColor,
+                isTester: (cp.is_tester as boolean) ?? get().isTester,
+                trialStartedAt: (cp.trial_started_at as string) ?? get().trialStartedAt,
+                challengeStartedAt: (cp.challenge_started_at as string) ?? get().challengeStartedAt,
+                challengeCompletedAt:
+                  (cp.challenge_completed_at as string) ?? get().challengeCompletedAt,
+                onboardingCompletedAt:
+                  (cp.onboarding_completed_at as string) ?? get().onboardingCompletedAt,
+                firstDropCompletedAt:
+                  (cp.first_drop_completed_at as string) ?? get().firstDropCompletedAt,
+                firstTodayVisitCompletedAt:
+                  (cp.first_today_visit_completed_at as string) ?? get().firstTodayVisitCompletedAt,
+                demoSweepCompletedAt:
+                  (cp.demo_sweep_completed_at as string) ?? get().demoSweepCompletedAt,
+                accountCreatedAt: (cp.created_at as string) ?? get().accountCreatedAt,
               });
 
               // Fetch identity from user_profiles
