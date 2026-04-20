@@ -506,12 +506,6 @@ interface GremlyState {
   /** Active Lottie color palette id */
   gremlyColor: string;
   setGremlyColor: (colorId: string) => Promise<void>;
-  /** Hour (0-23) when mascot sleep window starts. Default midnight (0). */
-  bedtimeHour: number;
-  setBedtimeHour: (hour: number) => Promise<void>;
-  /** Hour (0-23) when mascot sleep window ends. Default 6 AM. */
-  wakeHour: number;
-  setWakeHour: (hour: number) => Promise<void>;
   /** ISO date string of last app-open day, used for first-open-of-day detection */
   lastActiveDate: string | null;
   setLastActiveDate: (date: string) => void;
@@ -1047,8 +1041,6 @@ const initialState = {
   lifecycleCache: null as GremlyState['lifecycleCache'],
   isSubscribed: false,
   gremlyColor: 'forest',
-  bedtimeHour: 0,
-  wakeHour: 6,
   lastActiveDate: null as string | null,
   userName: null as string | null,
   userPronouns: null as string | null,
@@ -1930,42 +1922,6 @@ export const useGremlyStore = create<GremlyState>()(
 
           if (error) {
             console.error('[GremlyStore] setGremlyColor failed:', error);
-          }
-        },
-
-        setBedtimeHour: async (hour: number) => {
-          const userId = get().userId;
-          if (!userId) return;
-
-          set({ bedtimeHour: hour });
-
-          const { error } = await supabase
-            .from('cortex_preferences')
-            .upsert(
-              { owner_id: userId, bedtime_hour: hour, updated_at: nowTimestamp() },
-              { onConflict: 'owner_id' },
-            );
-
-          if (error) {
-            console.error('[GremlyStore] setBedtimeHour failed:', error);
-          }
-        },
-
-        setWakeHour: async (hour: number) => {
-          const userId = get().userId;
-          if (!userId) return;
-
-          set({ wakeHour: hour });
-
-          const { error } = await supabase
-            .from('cortex_preferences')
-            .upsert(
-              { owner_id: userId, wake_hour: hour, updated_at: nowTimestamp() },
-              { onConflict: 'owner_id' },
-            );
-
-          if (error) {
-            console.error('[GremlyStore] setWakeHour failed:', error);
           }
         },
 
@@ -9938,8 +9894,6 @@ export const useGremlyStore = create<GremlyState>()(
           hasSeenTrainingMeterAutoOpen: state.hasSeenTrainingMeterAutoOpen,
           hasSeenReadonlyIntro: state.hasSeenReadonlyIntro,
           gremlyColor: state.gremlyColor,
-          bedtimeHour: state.bedtimeHour,
-          wakeHour: state.wakeHour,
           lastActiveDate: state.lastActiveDate,
           userName: state.userName,
           userPronouns: state.userPronouns,

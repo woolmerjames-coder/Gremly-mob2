@@ -28,15 +28,17 @@ function randomWaveDelay(): number {
   return WAVE_MIN_MS + Math.random() * (WAVE_MAX_MS - WAVE_MIN_MS);
 }
 
-/** Is the current hour inside the [bedtime, wake) window? Handles overnight wrap. */
-function isInSleepWindow(hour: number, bedtimeHour: number, wakeHour: number): boolean {
-  if (bedtimeHour === wakeHour) return false; // no sleep window configured
-  if (bedtimeHour < wakeHour) {
-    // e.g. 2–6: simple range
-    return hour >= bedtimeHour && hour < wakeHour;
+const SLEEP_DURATION_HOURS = 6;
+
+/** Is the current hour inside the [dayBoundaryHour, dayBoundaryHour+6) sleep window? */
+function isInSleepWindow(hour: number, dayBoundaryHour: number): boolean {
+  const sleepStart = dayBoundaryHour;
+  const sleepEnd = (dayBoundaryHour + SLEEP_DURATION_HOURS) % 24;
+  if (sleepStart === sleepEnd) return false;
+  if (sleepStart < sleepEnd) {
+    return hour >= sleepStart && hour < sleepEnd;
   }
-  // overnight wrap, e.g. 23–6: hour >= 23 OR hour < 6
-  return hour >= bedtimeHour || hour < wakeHour;
+  return hour >= sleepStart || hour < sleepEnd;
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
@@ -57,8 +59,7 @@ export function useMascotLifecycle(): MascotLifecycle {
   }, [mode]);
 
   // Store selectors
-  const bedtimeHour = useGremlyStore((s) => s.bedtimeHour);
-  const wakeHour = useGremlyStore((s) => s.wakeHour);
+  const dayBoundaryHour = useGremlyStore((s) => s.dayBoundaryHour);
   const lastActiveDate = useGremlyStore((s) => s.lastActiveDate);
 
   // Timer refs
@@ -160,7 +161,7 @@ export function useMascotLifecycle(): MascotLifecycle {
   const handleAppOpen = useCallback(() => {
     const currentHour = getDateService().getHour();
     const today = getDateService().today();
-    const inSleepWindow = isInSleepWindow(currentHour, bedtimeHour, wakeHour);
+    const inSleepWindow = isInSleepWindow(currentHour, dayBoundaryHour);
     const isFirstOpenToday = lastActiveDate !== today;
 
     if (inSleepWindow || isFirstOpenToday) {
@@ -172,7 +173,7 @@ export function useMascotLifecycle(): MascotLifecycle {
     // Outside sleep window, already opened today — just wave
     playReturnSequence();
     startInactivityTimer();
-  }, [bedtimeHour, wakeHour, lastActiveDate, goSleep, playReturnSequence, startInactivityTimer]);
+  }, [dayBoundaryHour, lastActiveDate, goSleep, playReturnSequence, startInactivityTimer]);
 
   // ─── AppState listener ───────────────────────────────────────────────────
 
@@ -200,7 +201,7 @@ export function useMascotLifecycle(): MascotLifecycle {
   useEffect(() => {
     sleepWindowIntervalRef.current = setInterval(() => {
       const currentHour = getDateService().getHour();
-      const inWindow = isInSleepWindow(currentHour, bedtimeHour, wakeHour);
+      const inWindow = isInSleepWindow(currentHour, dayBoundaryHour);
       const currentMode = modeRef.current;
 
       if (inWindow && currentMode !== 'sleeping' && currentMode !== 'fallingAsleep') {
@@ -220,8 +221,7 @@ export function useMascotLifecycle(): MascotLifecycle {
       }
     };
   }, [
-    bedtimeHour,
-    wakeHour,
+    dayBoundaryHour,
     fallAsleep,
     wakeUp,
     clearInactivityTimer,

@@ -25,8 +25,7 @@ jest.mock('../../lib/date', () => ({
 // Mock useGremlyStore — use a plain function (NOT jest.fn) to avoid
 // jest.clearAllMocks() interfering with the mock implementation.
 let mockStoreState = {
-  bedtimeHour: 23,
-  wakeHour: 6,
+  dayBoundaryHour: 23,
   lastActiveDate: '2026-04-10',
 };
 jest.mock('../../lib/store/useGremlyStore', () => {
@@ -70,7 +69,7 @@ import { useMascotLifecycle } from '../../hooks/useMascotLifecycle';
 function resetMocks() {
   mockHour = 10;
   mockToday = '2026-04-11';
-  mockStoreState = { bedtimeHour: 23, wakeHour: 6, lastActiveDate: '2026-04-10' };
+  mockStoreState = { dayBoundaryHour: 23, lastActiveDate: '2026-04-10' };
   mockController.mode = 'idle';
   jest.clearAllMocks();
   setupAppStateMock(); // re-apply after clearAllMocks
@@ -89,50 +88,54 @@ describe('useMascotLifecycle', () => {
   });
 
   describe('isInSleepWindow (tested via handleAppOpen)', () => {
-    it('outside sleep window at 10 AM with 23-6 window → calls wave (return sequence)', () => {
+    it('outside sleep window at 10 AM with dayBoundaryHour=23 → calls wave (return sequence)', () => {
       mockHour = 10;
       mockStoreState.lastActiveDate = mockToday; // already opened today
       renderHook(() => useMascotLifecycle());
       expect(mockController.wave).toHaveBeenCalled();
     });
 
-    it('inside sleep window at midnight with 23-6 window → calls sleep', () => {
+    it('inside sleep window at midnight with dayBoundaryHour=23 (23–05) → calls sleep', () => {
       mockHour = 0;
       renderHook(() => useMascotLifecycle());
       expect(mockController.sleep).toHaveBeenCalled();
     });
 
-    it('inside sleep window at 23:00 with 23-6 window → calls sleep', () => {
+    it('inside sleep window at 23:00 with dayBoundaryHour=23 → calls sleep', () => {
       mockHour = 23;
       renderHook(() => useMascotLifecycle());
       expect(mockController.sleep).toHaveBeenCalled();
     });
 
-    it('edge: hour just outside at 6 AM with 23-6 window, already opened today → calls wave', () => {
-      mockHour = 6;
+    it('edge: hour just outside at 5 AM with dayBoundaryHour=23 (23–05), already opened today → calls wave', () => {
+      mockHour = 5;
       mockStoreState.lastActiveDate = mockToday;
       renderHook(() => useMascotLifecycle());
       expect(mockController.wave).toHaveBeenCalled();
     });
 
-    it('no sleep window when bedtime === wake → never calls sleep for time-based reason', () => {
-      mockHour = 2;
-      mockStoreState.bedtimeHour = 6;
-      mockStoreState.wakeHour = 6;
-      mockStoreState.lastActiveDate = mockToday;
-      renderHook(() => useMascotLifecycle());
-      // With same bedtime/wake, isInSleepWindow returns false, but
-      // if lastActiveDate !== today it would still sleep for first-open reason
-      expect(mockController.wave).toHaveBeenCalled();
-    });
-
-    it('simple (non-overnight) sleep window: 2-6 at 3 AM → sleeps', () => {
-      mockStoreState.bedtimeHour = 2;
-      mockStoreState.wakeHour = 6;
+    it('dayBoundaryHour=0 default → sleep window 0–6, at 3 AM sleeps', () => {
+      mockStoreState.dayBoundaryHour = 0;
       mockStoreState.lastActiveDate = mockToday;
       mockHour = 3;
       renderHook(() => useMascotLifecycle());
       expect(mockController.sleep).toHaveBeenCalled();
+    });
+
+    it('dayBoundaryHour=3 night owl → sleep window 3–9, at 5 AM sleeps', () => {
+      mockStoreState.dayBoundaryHour = 3;
+      mockStoreState.lastActiveDate = mockToday;
+      mockHour = 5;
+      renderHook(() => useMascotLifecycle());
+      expect(mockController.sleep).toHaveBeenCalled();
+    });
+
+    it('dayBoundaryHour=3 night owl → at 10 AM, already opened today → waves', () => {
+      mockStoreState.dayBoundaryHour = 3;
+      mockStoreState.lastActiveDate = mockToday;
+      mockHour = 10;
+      renderHook(() => useMascotLifecycle());
+      expect(mockController.wave).toHaveBeenCalled();
     });
   });
 
