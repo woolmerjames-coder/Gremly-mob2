@@ -7449,6 +7449,14 @@ export default {
 
     // Custom API endpoint: challenge completion — dispatches Life Map bootstrap + weekly summary
     if (url.pathname === '/api/challenge-completed' && request.method === 'POST') {
+      const adminKey = request.headers.get('x-admin-key');
+      if (adminKey !== env.INNGEST_ADMIN_KEY) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
       try {
         const body = await request.json().catch(() => ({}));
         const { user_id, completed_at, timezone } = body;

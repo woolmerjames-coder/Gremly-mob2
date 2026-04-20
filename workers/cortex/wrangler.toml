@@ -2,6 +2,9 @@ name = "gentle-thunder-5854"
 main = "index.js"
 compatibility_date = "2024-01-01"
 
+[vars]
+INNGEST_WORKER_URL = "https://gremly-inngest-jobs.woolmerjames.workers.dev"
+
 [observability]
 enabled = true
 

@@ -3331,6 +3331,57 @@ export default {
       });
     }
 
+    // Route: POST /api/challenge-completed
+    // Auth: JWT required (Phase 6.3)
+    // Proxies to Inngest worker's /api/challenge-completed endpoint
+    if (url.pathname === '/api/challenge-completed' && request.method === 'POST') {
+      const authenticatedUserId = await extractAuthenticatedUserId(request, env);
+      if (!authenticatedUserId) {
+        return unauthorizedResponse();
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return new Response(JSON.stringify({ error: 'invalid_json' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Security: force user_id to match authenticated user, regardless of body claim
+      const forwardBody = {
+        ...body,
+        user_id: authenticatedUserId,
+      };
+
+      try {
+        const inngestRes = await fetch(`${env.INNGEST_WORKER_URL}/api/challenge-completed`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-key': env.INNGEST_ADMIN_KEY,
+          },
+          body: JSON.stringify(forwardBody),
+        });
+
+        const text = await inngestRes.text();
+        return new Response(text, {
+          status: inngestRes.status,
+          headers: {
+            'Content-Type': inngestRes.headers.get('Content-Type') ?? 'application/json',
+          },
+        });
+      } catch (err) {
+        console.error('[challenge-completed proxy] Forward failed:', err);
+        return new Response(JSON.stringify({ error: 'forward_failed' }), {
+          status: 502,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     try {
       const raw = await request.text();
       const body = raw ? JSON.parse(raw) : {};
