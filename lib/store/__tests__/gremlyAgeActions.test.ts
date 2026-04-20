@@ -117,7 +117,6 @@ describe('Gremly Age Store Actions', () => {
       todaySweepsCount: 0,
       todayRitualDay: '2026-01-10',
       todayRitualCompletedAt: null,
-      isTrainingMode: false,
       feedingGaugeValue: 0,
     });
   });
@@ -502,8 +501,8 @@ describe('Gremly Age Store Actions', () => {
       expect(useGremlyStore.getState().gremlyAge).toBe(6);
     });
 
-    it('applies training mode multiplier', async () => {
-      useGremlyStore.setState({ isTrainingMode: true });
+    it('applies pre-graduation multiplier', async () => {
+      useGremlyStore.setState({ graduatedAt: null });
 
       mockRpcResponse('update_gauge_atomic', {
         data: [

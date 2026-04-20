@@ -62,7 +62,6 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
       feedingGaugeValue: 0,
       isFedToday: false,
       fedDaysCount: 0,
-      isTrainingMode: false,
       feedingHistory: [],
       fetchFeedingHistory: () => Promise.resolve(undefined),
       totalSweepCount: 10,

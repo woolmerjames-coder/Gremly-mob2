@@ -8,8 +8,7 @@ export const useNeedsOnboarding = () => useGremlyStore((s) => !s.onboardingCompl
 
 /** User has not yet completed the 5-drop MindDrop tutorial.
  *  Testers still do this once; they just skip paywall gating. */
-export const useNeedsMindDropTutorial = () =>
-  useGremlyStore((s) => s.isTrainingMode && !s.graduatedAt);
+export const useNeedsMindDropTutorial = () => useGremlyStore((s) => !s.graduatedAt);
 
 /** User is flagged as internal/tester. Bypasses paywall and read-only mode only. */
 export const useIsTester = () => useGremlyStore((s) => s.isTester);

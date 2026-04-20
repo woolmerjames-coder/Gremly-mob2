@@ -1471,7 +1471,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // Training mode: handle speech for guided drops
       const storeState = useGremlyStore.getState();
       if (
-        storeState.isTrainingMode &&
+        !storeState.graduatedAt &&
         storeState.trainingDropStep >= 1 &&
         storeState.trainingDropStep <= 4
       ) {
@@ -1579,7 +1579,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     const unsubscribe = navigation.addListener('focus', () => {
       // Don't fire return speech during training mode
-      if (useGremlyStore.getState().isTrainingMode) return;
+      if (!useGremlyStore.getState().graduatedAt) return;
 
       const ctx = buildSpeechContext('return');
       const speech = getReturnSpeech(ctx);
