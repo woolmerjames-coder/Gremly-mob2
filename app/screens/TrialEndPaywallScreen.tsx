@@ -137,7 +137,7 @@ export default function TrialEndPaywallScreen() {
         <Text style={styles.subtitle}>
           {isMidTrial
             ? 'Unlock Gremly forever'
-            : "Your free trial has ended. Here's what we built together."}
+            : 'Your free access has ended. Subscribe to keep feeding your Gremly.'}
         </Text>
 
         {/* Trial remaining (mid-trial only) */}
