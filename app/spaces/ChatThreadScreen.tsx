@@ -54,7 +54,6 @@ import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
 import { EntryCard } from '../../components/chat/EntryCard';
-import { ScrollToBottomButton } from '../../src/components/chat/ScrollToBottomButton';
 import { SavedItemCard } from '../../src/components/chat/SavedItemCard';
 // Removed PersistentActionBar and ChatActionBar to reduce clutter per UX polish
 
@@ -72,7 +71,6 @@ import type { OverlayKind } from './chat/openUnifiedFromChat';
 import { smartTitle } from './chat/prefillUtils';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { useActionToast, type ActionToastInput } from '../../src/hooks/useActionToast';
-import { useNearBottom } from '../../src/hooks/useNearBottom';
 
 // Space Chat enhanced context imports
 import { useSpaceChatEnhanced } from '../../hooks/useSpaceChatEnhanced';
@@ -146,7 +144,6 @@ export default function ChatThreadScreen({ route }: Props) {
 
   // Scroll ref for auto-scrolling to the latest message
   const flatListRef = useRef<any>(null);
-  const { isNearBottom, onScroll: handleScroll } = useNearBottom();
 
   const { spaceId, chatId, goalContext, returnToKeyDates } = route.params;
   const auth = useAuth();
@@ -1677,8 +1674,6 @@ export default function ChatThreadScreen({ route }: Props) {
             maxToRenderPerBatch={10}
             windowSize={10}
             initialNumToRender={15}
-            onScroll={handleScroll}
-            scrollEventThrottle={32}
             onContentSizeChange={() => {
               // Small delay prevents flash during rapid updates
               setTimeout(() => {
@@ -1706,10 +1701,6 @@ export default function ChatThreadScreen({ route }: Props) {
               </View>
             }
             ListFooterComponent={null}
-          />
-          <ScrollToBottomButton
-            visible={!isNearBottom && messages.length > 2}
-            onPress={() => flatListRef.current?.scrollToEnd({ animated: true })}
           />
 
           {/* Persistent Action Bar removed */}

@@ -39,11 +39,9 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { callEntityChatStreaming } from '../../lib/cortex/CortexClient';
 import { ChatComposer } from './ChatComposer';
 import { ChatBubble } from './ChatBubble';
-import { ScrollToBottomButton } from '../../src/components/chat/ScrollToBottomButton';
 import SaveButton from './SaveButton';
 import { lightTokens } from '../../design/tokens';
 import { useNetworkStatus } from '../../lib/network/useNetworkStatus';
-import { useNearBottom } from '../../src/hooks/useNearBottom';
 import type { SaveableType } from '../../lib/chat/saveableTypes';
 import type {
   EntityChatPreset,
@@ -297,7 +295,6 @@ export function EntityChatScreen({
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
-  const { isNearBottom, onScroll: handleScroll } = useNearBottom();
   const streamRef = useRef<{ close: () => void } | null>(null);
   const streamingMessageIdRef = useRef<string | null>(null);
   const hasUsedInitialPresetRef = useRef(false);
@@ -1283,17 +1280,11 @@ export function EntityChatScreen({
             renderItem={renderMessage}
             style={styles.messages}
             contentContainerStyle={styles.messageList}
-            onScroll={handleScroll}
-            scrollEventThrottle={32}
             onContentSizeChange={() => {
               if (messages.length > 0) {
                 flatListRef.current?.scrollToEnd({ animated: false });
               }
             }}
-          />
-          <ScrollToBottomButton
-            visible={!isNearBottom && messages.length > 2}
-            onPress={() => flatListRef.current?.scrollToEnd({ animated: true })}
           />
         </View>
 
