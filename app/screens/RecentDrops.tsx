@@ -70,6 +70,7 @@ import {
   formatDateForChip,
   getContextualMeta,
   getDisplayKindForChip,
+  getDisplayTagsForRecentDrop,
   getDisplayKindForDrop,
 } from '../../lib/minddrop/cardHelpers';
 import { env } from '../../lib/env';
@@ -960,8 +961,27 @@ const Row3Chips: React.FC<{
       );
     }
 
-    // Idea / General note: subtype now in badge, no chip needed
-    if (isIdea || isGeneralNote || isEvent) {
+    // Idea / General note: show tags to fill the otherwise-empty metadata line
+    if (isIdea || isGeneralNote) {
+      // Strip @mentions - they're already rendered by the People chip below
+      const displayTags = getDisplayTagsForRecentDrop(item).filter((t) => !t.startsWith('@'));
+      if (displayTags.length === 0) return null;
+      const visibleTags = displayTags.slice(0, 3);
+      const overflow = displayTags.length - visibleTags.length;
+      return (
+        <>
+          {visibleTags.map((tag) => (
+            <View key={tag} style={styles.recentContextPillContainer}>
+              <Text style={styles.recentContextPill}>#{tag}</Text>
+            </View>
+          ))}
+          {overflow > 0 && <Text style={styles.moodOverflow}>+{overflow}</Text>}
+        </>
+      );
+    }
+
+    // Event without target date: no chip needed (subtype shown in badge)
+    if (isEvent) {
       return null;
     }
 
