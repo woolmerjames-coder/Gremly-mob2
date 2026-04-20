@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
-import { useNavigation, useNavigationState } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsReadOnly } from '../../lib/store/lifecycleSelectors';
@@ -12,13 +12,13 @@ export function ReadOnlyBanner() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
 
-  const currentRouteName = useNavigationState((state) => {
-    if (!state) return null;
-    const route = state.routes[state.index];
-    return route?.name ?? null;
-  });
-
   if (!isReadOnly) return null;
+
+  // Check current route to hide banner on the paywall itself.
+  // Use getState() instead of useNavigationState to avoid throwing
+  // when the navigator hasn't finished mounting yet.
+  const navState = navigation.getState();
+  const currentRouteName = navState?.routes?.[navState.index]?.name ?? null;
   if (currentRouteName === 'TrialEndPaywall') return null;
 
   return (
