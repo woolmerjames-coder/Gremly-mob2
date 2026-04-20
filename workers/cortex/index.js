@@ -2908,6 +2908,54 @@ Return ONLY valid JSON matching this exact schema. No markdown, no backticks, no
 - All data sparse: Produce a shorter, genuine summary. Short is better than padded.`;
 
 // ═══════════════════════════════════════════════════════════════════
+// IP-based rate limiting — Phase 6 prep
+// Prevents abuse of ungated AI endpoints (classification, enrichment, etc.)
+// Uses CONTEXT_CACHE KV with per-minute sliding windows.
+// Fails open: if KV is unavailable, the request proceeds.
+// ═══════════════════════════════════════════════════════════════════
+
+async function checkIpRateLimit(request, env, bucket, maxPerMinute) {
+  try {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const minute = Math.floor(Date.now() / 60000);
+    const key = `rate:${bucket}:ip:${ip}:${minute}`;
+
+    const current = await env.CONTEXT_CACHE.get(key);
+    const count = current ? parseInt(current, 10) : 0;
+
+    if (count >= maxPerMinute) {
+      return { allowed: false, count, limit: maxPerMinute };
+    }
+
+    await env.CONTEXT_CACHE.put(key, String(count + 1), { expirationTtl: 120 });
+    return { allowed: true, count: count + 1, limit: maxPerMinute };
+  } catch {
+    // Fail open — don't block requests if KV is down
+    return { allowed: true, count: 0, limit: maxPerMinute };
+  }
+}
+
+function rateLimitResponse(bucket, count, limit) {
+  return new Response(
+    JSON.stringify({
+      error: 'rate_limited',
+      message: 'Too many requests. Please try again in a moment.',
+      bucket,
+      count,
+      limit,
+    }),
+    {
+      status: 429,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Retry-After': '60',
+      },
+    },
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Access control helpers — Phase 4.7
 // ═══════════════════════════════════════════════════════════════════
 
@@ -7181,6 +7229,9 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
       // v2.9: Added extracted_days, fixed frequency parsing
       // =========================
       if (type === 'space-chat-save') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const userMessage = body.userMessage || '';
         const assistantMessage = body.assistantMessage || '';
         const spaceName = body.spaceName || '';
@@ -7480,6 +7531,9 @@ ${assistantMessage.substring(0, 2000)}
       // === WEEKLY SUMMARY (v1.0) ===
       // =========================
       if (type === 'weekly-summary') {
+        const rl = await checkIpRateLimit(request, env, 'misc', 30);
+        if (!rl.allowed) return rateLimitResponse('misc', rl.count, rl.limit);
+
         const t0 = Date.now();
         const { payload, trendContext } = body;
 
@@ -7594,6 +7648,9 @@ ${assistantMessage.substring(0, 2000)}
       // Generate a comprehensive summary from ALL chat messages at save time
       // =========================
       if (type === 'chat-full-summary') {
+        const rl = await checkIpRateLimit(request, env, 'misc', 30);
+        if (!rl.allowed) return rateLimitResponse('misc', rl.count, rl.limit);
+
         const chatId = body.chatId;
         if (!chatId) return j({ error: 'missing_chatId' }, 400);
 
@@ -7674,6 +7731,9 @@ SUMMARY:`;
       // Voice-to-text via OpenAI Whisper
       // =========================
       if (type === 'transcribe') {
+        const rl = await checkIpRateLimit(request, env, 'transcribe', 20);
+        if (!rl.allowed) return rateLimitResponse('transcribe', rl.count, rl.limit);
+
         const audio = body.audio;
         const format = body.format || 'm4a';
 
@@ -7786,6 +7846,9 @@ SUMMARY:`;
       // === SWEEP HEADLINE: DCO-aware celebration one-liner ===
       // =========================
       if (type === 'sweep-headline') {
+        const rl = await checkIpRateLimit(request, env, 'misc', 30);
+        if (!rl.allowed) return rateLimitResponse('misc', rl.count, rl.limit);
+
         const {
           tone,
           lifeMoment,
@@ -7853,6 +7916,9 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
       // Extracts linguistic facts WITHOUT classifying
       // =========================
       if (type === 'classify-preparse') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const text = body.text || '';
 
         if (!text.trim()) {
@@ -7882,6 +7948,9 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
       // Runs preparse, applies heuristics, falls back to Phase 1 AI if needed
       // =========================
       if (type === 'classify-phase1-v2') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const text = body.text || '';
         const hasAttachments = body.hasAttachments || false;
         const t0 = Date.now();
@@ -8155,6 +8224,9 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
       // One mini call handles both detection and extraction
       // =========================
       if (type === 'detect-multi') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const text = body.text || '';
         const t0 = Date.now();
 
@@ -8292,6 +8364,9 @@ Segment rules:
       // === PHASE 1.5: CLARIFY AMBIGUITY ===
       // =========================
       if (type === 'clarify-ambiguity') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const text = body.text || '';
         const ambiguityType = body.ambiguityType || 'bucket';
         const ambiguityReason = body.ambiguityReason || '';
@@ -8600,6 +8675,9 @@ Labels array must have exactly ${optionCount} items.`;
       // Generates updated title + confirmation message after user clarifies intent
       // =========================
       if (type === 'reclassify-after-clarification') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const text = body.text || '';
         const selectedLabel = body.selectedLabel || '';
         const selectedBucket = body.selectedBucket || null;
@@ -8816,6 +8894,9 @@ If no date in input, all date fields are null.
       // === PHASE 1 CLASSIFICATION (v4.1 - NOW INCLUDES TITLE + MESSAGE) ===
       // =========================
       if (type === 'classify-phase1') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const text = body.text || '';
         const hasAttachments = body.hasAttachments || false;
         const heuristicHint = body.heuristicHint || null;
@@ -9404,6 +9485,9 @@ Rules:
       // Runs after Phase 1 for non-ambiguous items
       // =========================
       if (type === 'enrich-phase1-5a') {
+        const rl = await checkIpRateLimit(request, env, 'enrich', 30);
+        if (!rl.allowed) return rateLimitResponse('enrich', rl.count, rl.limit);
+
         const text = body.text || '';
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
@@ -9737,6 +9821,9 @@ Return ONLY valid JSON:
       // Title and message now come from Phase 1
       // Phase 2 only extracts: tags, time, dates, frequency, days, people, mood
       if (type === 'enrich-phase2') {
+        const rl = await checkIpRateLimit(request, env, 'enrich', 30);
+        if (!rl.allowed) return rateLimitResponse('enrich', rl.count, rl.limit);
+
         const text = body.text || '';
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
@@ -10521,6 +10608,9 @@ For LOGS (event):
 
       // --- PHASE 2B: AUTO-REMINDER DETECTION (standalone, lightweight) ---
       if (type === 'enrich-phase2b') {
+        const rl = await checkIpRateLimit(request, env, 'enrich', 30);
+        if (!rl.allowed) return rateLimitResponse('enrich', rl.count, rl.limit);
+
         const text = body.text || '';
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
@@ -10667,6 +10757,9 @@ Return ONLY valid JSON, no explanation:
       // ═══════════════════════════════════════════════════════════════════════════
 
       if (type === 'journal-analyze') {
+        const rl = await checkIpRateLimit(request, env, 'misc', 30);
+        if (!rl.allowed) return rateLimitResponse('misc', rl.count, rl.limit);
+
         const entries = body.entries || [];
         const timezone = userTimezone;
 
@@ -12608,6 +12701,9 @@ Return ONLY valid JSON:
       // ===================================================================
       // NON-SPACE-CHAT PATH (classify, entity-chat fallback, etc.)
       // ===================================================================
+      const rlFallback = await checkIpRateLimit(request, env, 'misc', 30);
+      if (!rlFallback.allowed) return rateLimitResponse('misc', rlFallback.count, rlFallback.limit);
+
       const lastUserMsgNonStream = messages.filter((m) => m.role === 'user').pop()?.content || '';
 
       const nonStreamModel = actualModel;
