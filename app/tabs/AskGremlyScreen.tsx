@@ -28,7 +28,7 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAuth } from '../../providers/AuthProvider';
 import { supabase } from '../../lib/supabase/client';
 import { nowTimestamp } from '../../lib/date/DateService';
-import MascotLottie, { type MascotLottieHandle } from '../components/MascotLottie';
+import MascotLottie from '../components/MascotLottie';
 import * as Haptics from 'expo-haptics';
 import { Clock, SquarePen, ChevronLeft, Bookmark } from 'lucide-react-native';
 import { useRoute } from '@react-navigation/native';
@@ -36,6 +36,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
 import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
+import { useMascotActions } from '../../hooks/useMascotActions';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 
 const MOSS = '#2E5540';
@@ -54,7 +55,7 @@ export default function AskGremlyScreen() {
   const navigation = useNavigation<any>();
   const canChat = useCanChat();
   const canCreate = useCanCreate();
-  const mascotRef = useRef<MascotLottieHandle>(null);
+  const { celebrate } = useMascotActions();
   const flatListRef = useRef<any>(null);
   const streamingControllerRef = useRef<{ close: () => void } | null>(null);
   const streamingMessageIdRef = useRef<string | null>(null);
@@ -435,7 +436,7 @@ export default function AskGremlyScreen() {
               style={{ position: 'absolute', top: -30, right: 105, zIndex: 11 }}
             />
             <Pressable style={styles.mascot} onPress={() => setShowHelp(true)}>
-              <MascotLottie ref={mascotRef} />
+              <MascotLottie />
             </Pressable>
             <ChatComposer
               onSend={handleSend}
@@ -586,9 +587,7 @@ export default function AskGremlyScreen() {
 
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-          if (mascotRef.current) {
-            mascotRef.current.celebrate();
-          }
+          celebrate();
         }}
       />
       <ChatHistorySheet

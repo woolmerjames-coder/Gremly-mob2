@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { render, act } from '@testing-library/react-native';
+import { render } from '@testing-library/react-native';
 
 // Track all LottieView instances by source
 jest.mock('lottie-react-native', () => {
@@ -69,48 +69,24 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 
-import MascotLottie, { type MascotLottieHandle } from '../MascotLottie';
+import MascotLottie from '../MascotLottie';
 
 describe('MascotLottie', () => {
-  let ref: React.RefObject<MascotLottieHandle | null>;
-
-  beforeEach(() => {
-    ref = React.createRef();
-  });
-
   it('renders without crashing', () => {
-    const { toJSON } = render(<MascotLottie ref={ref} />);
+    const { toJSON } = render(<MascotLottie />);
     expect(toJSON()).not.toBeNull();
   });
 
   it('renders multiple LottieView instances', () => {
-    const { toJSON } = render(<MascotLottie ref={ref} />);
+    const { toJSON } = render(<MascotLottie />);
     const json = JSON.stringify(toJSON());
     // Count testID:"lottie-view" occurrences (2 LottieViews: 1 grey + 1 colored for active mode)
     const matches = json.match(/lottie-view/g) || [];
     expect(matches.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('exposes celebrate and celebrateFed via ref', () => {
-    render(<MascotLottie ref={ref} />);
-    expect(ref.current).toBeTruthy();
-    expect(typeof ref.current?.celebrate).toBe('function');
-    expect(typeof ref.current?.celebrateFed).toBe('function');
-  });
-
-  it('celebrate is a no-op while already celebrating', () => {
-    render(<MascotLottie ref={ref} />);
-
-    act(() => {
-      ref.current?.celebrate();
-    });
-
-    // Second call should be no-op (isCelebratingRef guards it)
-    act(() => {
-      ref.current?.celebrate();
-    });
-
-    // No crash = success
-    expect(ref.current).toBeTruthy();
+  it('renders fed mode without imperative ref API', () => {
+    const { toJSON } = render(<MascotLottie mode="fed" />);
+    expect(toJSON()).not.toBeNull();
   });
 });

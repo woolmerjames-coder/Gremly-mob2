@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { BRAND } from '../../../design/brand';
+import { useMascotActions } from '../../../hooks/useMascotActions';
 import MascotLottie from '../../components/MascotLottie';
 
 interface FirstFedModalProps {
@@ -11,15 +12,15 @@ interface FirstFedModalProps {
 
 export default function FirstFedModal({ visible, onDismiss }: FirstFedModalProps) {
   const [bounceAnim] = useState(() => new Animated.Value(0));
-  const mascotRef = useRef<any>(null);
+  const { celebrateFed } = useMascotActions();
 
   useEffect(() => {
     if (visible) {
       setTimeout(() => {
-        mascotRef.current?.celebrateFed();
+        celebrateFed();
       }, 300);
     }
-  }, [visible]);
+  }, [celebrateFed, visible]);
 
   useEffect(() => {
     if (visible) {
@@ -50,7 +51,7 @@ export default function FirstFedModal({ visible, onDismiss }: FirstFedModalProps
             }}
           >
             <View style={styles.mascotContainer}>
-              <MascotLottie ref={mascotRef} />
+              <MascotLottie />
             </View>
           </Animated.View>
 

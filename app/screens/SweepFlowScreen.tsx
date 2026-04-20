@@ -92,8 +92,9 @@ import { SweepMultiSplitStep } from '../../components/sweep/SweepMultiSplitStep'
 import { SweepSectionTransition } from '../../src/components/sweep/SweepSectionTransition';
 import { EntityChatScreen } from '../../components/chat/EntityChatScreen';
 import { useOverlayController } from '../../hooks/useOverlayController';
+import { useMascotActions } from '../../hooks/useMascotActions';
 import celebrationController from '../../app/features/celebration/CelebrationController';
-import MascotLottie, { MascotLottieHandle } from '../components/MascotLottie';
+import MascotLottie from '../components/MascotLottie';
 import { calculateSweepContribution, GAUGE_WEIGHTS } from '../../lib/constants/soulDocument';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { OverlayComponent } from '../../components/overlay';
@@ -3352,7 +3353,7 @@ function SweepSummaryStep({
   const gremlyAge = useGremlyStore((s) => s.gremlyAge);
   const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
 
-  const mascotRef = useRef<MascotLottieHandle>(null);
+  const { celebrate, celebrateFed } = useMascotActions();
 
   // Capture pre-sweep gauge value on mount (before any preview)
   const preSweepGaugeRef = useRef(feedingGaugeValue);
@@ -3524,9 +3525,9 @@ function SweepSummaryStep({
 
       // Trigger the correct Lottie animation
       if (justCrossedFed) {
-        mascotRef.current?.celebrateFed();
+        celebrateFed();
       } else {
-        mascotRef.current?.celebrate();
+        celebrate();
       }
 
       if (justCrossedFed) {
@@ -3732,7 +3733,7 @@ function SweepSummaryStep({
           {/* MascotLottie */}
           <View style={styles.gaugeRevealMascotContainer}>
             <Reanimated.View style={lottieAnimatedStyle}>
-              <MascotLottie ref={mascotRef} />
+              <MascotLottie />
             </Reanimated.View>
           </View>
 
