@@ -15,6 +15,7 @@ import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import MascotLottie from '../components/MascotLottie';
 import * as WebBrowser from 'expo-web-browser';
+import { X } from 'lucide-react-native';
 import { useSubscriptionStatus } from '../../lib/subscriptions/useSubscriptionStatus';
 import {
   fetchOfferings,
@@ -110,6 +111,14 @@ export default function TrialEndPaywallScreen() {
     }
   }, [navigation]);
 
+  const handleClose = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Tabs' }] }));
+    }
+  }, [navigation]);
+
   const subscribeLabel =
     selectedPlan === 'annual' ? 'Subscribe for $69.99 per year' : 'Subscribe for $9.99 per month';
 
@@ -120,6 +129,15 @@ export default function TrialEndPaywallScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <Pressable
+        onPress={handleClose}
+        style={[styles.closeButton, { top: insets.top + 8 }]}
+        accessibilityRole="button"
+        accessibilityLabel="Close"
+        hitSlop={12}
+      >
+        <X size={24} color={BRAND.colors.charcoalInk} />
+      </Pressable>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Mascot */}
         <View style={styles.mascotContainer}>
@@ -302,12 +320,6 @@ export default function TrialEndPaywallScreen() {
         >
           <Text style={styles.restoreText}>Restore purchase</Text>
         </Pressable>
-
-        {navigation.canGoBack() && (
-          <Pressable onPress={handleNotNow} accessibilityRole="button" accessibilityLabel="Not now">
-            <Text style={styles.notNowText}>Not now</Text>
-          </Pressable>
-        )}
       </View>
     </View>
   );
@@ -317,6 +329,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FAFAF8',
+  },
+  closeButton: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scrollContent: {
     flexGrow: 1,
