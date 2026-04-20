@@ -166,7 +166,7 @@ describe('getReadinessLabel', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTrainingDaysRemaining', () => {
-  it('returns null when trainingStartedAt is null', () => {
+  it('returns null when trialStartedAt is null', () => {
     expect(getTrainingDaysRemaining(null)).toBeNull();
   });
 

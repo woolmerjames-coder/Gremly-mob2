@@ -163,7 +163,6 @@ describe('reset() lifecycle field behavior', () => {
     'trainingDropStep',
     'onboardingCompletedAt',
     'firstDropCompletedAt',
-    'trainingStartedAt',
   ];
 
   it('explicitly nullifies lifecycleCache', () => {
@@ -233,7 +232,6 @@ describe('Hydration fallback defaults', () => {
   const hydrateWithNullPrefs = () => {
     const cortexPrefs = null as Record<string, unknown> | null;
     return {
-      trainingStartedAt: (cortexPrefs?.training_started_at as string) ?? null,
       graduatedAt: (cortexPrefs?.graduated_at as string) ?? null,
       isTester: (cortexPrefs?.is_tester as boolean) ?? false,
       trialStartedAt: (cortexPrefs?.trial_started_at as string) ?? null,
@@ -374,7 +372,6 @@ describe('partialize: lifecycle fields excluded from MMKV persistence', () => {
   // The real partialize func is in the persist config; we test the contract.
   const PARTIALIZE_INCLUDES_LIFECYCLE_CACHE = true;
   const PARTIALIZE_EXCLUDES = [
-    'trainingStartedAt',
     'graduatedAt',
     'pendingGraduation',
     'postGraduationMessageShown',
@@ -392,6 +389,6 @@ describe('partialize: lifecycle fields excluded from MMKV persistence', () => {
     for (const field of PARTIALIZE_EXCLUDES) {
       expect(PARTIALIZE_EXCLUDES).toContain(field);
     }
-    expect(PARTIALIZE_EXCLUDES).toHaveLength(7);
+    expect(PARTIALIZE_EXCLUDES).toHaveLength(6);
   });
 });

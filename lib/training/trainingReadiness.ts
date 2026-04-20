@@ -76,10 +76,10 @@ export function getReadinessLabel(score: number): string {
 
 import { getDateService } from '../date/DateService';
 
-export function getTrainingDaysRemaining(trainingStartedAt: string | null): number | null {
-  if (trainingStartedAt == null) return null;
+export function getTrainingDaysRemaining(trialStartedAt: string | null): number | null {
+  if (trialStartedAt == null) return null;
 
-  const startMs = new Date(trainingStartedAt).getTime();
+  const startMs = new Date(trialStartedAt).getTime();
   const dayNumber = Math.floor((getDateService().now().getTime() - startMs) / 86_400_000) + 1;
 
   return Math.max(0, 7 - dayNumber);

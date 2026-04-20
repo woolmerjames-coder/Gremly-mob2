@@ -1,13 +1,8 @@
 /**
  * DEPRECATED LIFECYCLE COLUMNS — DO NOT ADD NEW REFERENCES
  *
- * The following columns/fields are deprecated and will be removed in Phase 5:
- * - `training_started_at` / `trainingStartedAt` → use `useTrialStartedAt()` selector
- *
- * Lingering references in this file only are intentional — the store is the
- * single place where these deprecated columns are still read from Supabase
- * (for backward compatibility) and mirrored into their replacements via the
- * dual-write trigger on cortex_preferences.
+ * The `is_training_mode` column was removed in Phase 5.1.
+ * The `training_started_at` column was removed in Phase 5.2 (renamed to `trial_started_at`).
  *
  * All consumer code (screens, components, workers) should use the selectors
  * from `lib/store/lifecycleSelectors.ts`.
@@ -476,8 +471,6 @@ interface GremlyState {
   sockCount: number;
   /** AI personality mode: encouragement, insightful, or observant */
   aiMode: AIMode;
-  /** ISO timestamp when training started */
-  trainingStartedAt: string | null;
   /** ISO timestamp when user graduated, null until graduation */
   graduatedAt: string | null;
   /** Set when graduation triggers; consumed by graduation flow component */
@@ -1044,7 +1037,6 @@ const initialState = {
   lastFedAt: null as string | null,
   sockCount: 0,
   aiMode: 'encouragement' as AIMode,
-  trainingStartedAt: null as string | null,
   graduatedAt: null as string | null,
   pendingGraduation: false,
   postGraduationMessageShown: false,
@@ -1235,7 +1227,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1438,7 +1430,6 @@ export const useGremlyStore = create<GremlyState>()(
               lastFedAt: (cortexPrefs?.last_fed_at as string) ?? null,
               sockCount: (cortexPrefs?.sock_count as number) ?? 0,
               aiMode: ((cortexPrefs?.ai_mode as string) ?? 'encouragement') as AIMode,
-              trainingStartedAt: (cortexPrefs?.training_started_at as string) ?? null,
               graduatedAt: (cortexPrefs?.graduated_at as string) ?? null,
               isTester: (cortexPrefs?.is_tester as boolean) ?? false,
               trialStartedAt: (cortexPrefs?.trial_started_at as string) ?? null,
@@ -2092,12 +2083,12 @@ export const useGremlyStore = create<GremlyState>()(
           if (!userId) return;
 
           const now = nowTimestamp();
-          set({ trainingStartedAt: now });
+          set({ trialStartedAt: now });
 
           const { error } = await supabase
             .from('cortex_preferences')
             .upsert(
-              { owner_id: userId, training_started_at: now, updated_at: now },
+              { owner_id: userId, trial_started_at: now, updated_at: now },
               { onConflict: 'owner_id' },
             );
 
@@ -2615,13 +2606,13 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         refreshTrainingReadiness: async () => {
-          const { userId, trainingStartedAt, graduatedAt } = get();
-          if (!userId || graduatedAt || !trainingStartedAt) return 0;
+          const { userId, trialStartedAt, graduatedAt } = get();
+          if (!userId || graduatedAt || !trialStartedAt) return 0;
 
           try {
             const { data, error } = await supabase.rpc('get_training_readiness', {
               p_owner_id: userId,
-              p_since: trainingStartedAt,
+              p_since: trialStartedAt,
             });
 
             if (error) {
@@ -5360,7 +5351,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, demo_sweep_completed_at, created_at',
+                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, demo_sweep_completed_at, created_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -5431,7 +5422,6 @@ export const useGremlyStore = create<GremlyState>()(
                 lastFedAt: (cp.last_fed_at as string) ?? get().lastFedAt,
                 sockCount: (cp.sock_count as number) ?? get().sockCount,
                 aiMode: ((cp.ai_mode as string) ?? get().aiMode) as any,
-                trainingStartedAt: (cp.training_started_at as string) ?? get().trainingStartedAt,
                 graduatedAt: (cp.graduated_at as string) ?? get().graduatedAt,
                 lastSweepCompletedAt:
                   (cp.last_sweep_completed_at as string) ?? get().lastSweepCompletedAt,
