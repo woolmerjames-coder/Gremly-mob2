@@ -567,6 +567,8 @@ interface GremlyState {
   refreshRitualProgress: () => Promise<void>;
   /** Fetch last 7 days of feeding status from Supabase */
   fetchFeedingHistory: () => Promise<void>;
+  /** Fetch lifetime stats for paywall display */
+  fetchLifetimeStats: () => Promise<{ daysFed: number; thoughtsCount: number }>;
 
   // Training progress actions
   startTraining: () => Promise<void>;
@@ -2546,6 +2548,50 @@ export const useGremlyStore = create<GremlyState>()(
             }
           } catch (err) {
             console.error('[GremlyStore] fetchFeedingHistory failed:', err);
+          }
+        },
+
+        fetchLifetimeStats: async (): Promise<{ daysFed: number; thoughtsCount: number }> => {
+          const { userId } = get();
+          if (!userId) return { daysFed: 0, thoughtsCount: 0 };
+
+          try {
+            const [fedDaysRes, todosRes, notesRes, habitsRes] = await Promise.all([
+              supabase
+                .from('daily_ritual_progress')
+                .select('*', { count: 'exact', head: true })
+                .eq('owner_id', userId)
+                .eq('is_fed', true),
+              supabase
+                .from('todos')
+                .select('*', { count: 'exact', head: true })
+                .eq('owner_id', userId),
+              supabase
+                .from('notes')
+                .select('*', { count: 'exact', head: true })
+                .eq('owner_id', userId)
+                .is('external_source', null),
+              supabase
+                .from('habits')
+                .select('*', { count: 'exact', head: true })
+                .eq('owner_id', userId),
+            ]);
+
+            const daysFed = fedDaysRes.count ?? 0;
+            const thoughtsCount =
+              (todosRes.count ?? 0) + (notesRes.count ?? 0) + (habitsRes.count ?? 0);
+
+            return { daysFed, thoughtsCount };
+          } catch (err) {
+            console.error('[GremlyStore] fetchLifetimeStats failed:', err);
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const Sentry = require('@sentry/react-native');
+              Sentry.captureException(err);
+            } catch {
+              /* Sentry not available */
+            }
+            return { daysFed: 0, thoughtsCount: 0 };
           }
         },
 

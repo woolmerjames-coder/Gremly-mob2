@@ -33,15 +33,24 @@ export default function TrialEndPaywallScreen() {
   const [selectedPlan, setSelectedPlan] = useState<Plan>('annual');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
-  const todayDropsCount = useGremlyStore((s) => s.todayDropsCount);
   const gremlyAge = useGremlyStore((s) => s.gremlyAge);
   const setIsSubscribed = useGremlyStore((s) => s.setIsSubscribed);
+  const fetchLifetimeStats = useGremlyStore((s) => s.fetchLifetimeStats);
   const { isTrialActive, daysUntilTrialCeiling } = useSubscriptionStatus();
   const daysRemaining = daysUntilTrialCeiling;
 
   const source = route.params?.source ?? (isTrialActive ? 'settings' : 'expiry');
   const isMidTrial = source === 'settings' && isTrialActive;
+
+  // Fetch lifetime stats for the post-trial stats row
+  const [lifetimeStats, setLifetimeStats] = useState<{
+    daysFed: number;
+    thoughtsCount: number;
+  } | null>(null);
+
+  useEffect(() => {
+    fetchLifetimeStats().then(setLifetimeStats);
+  }, [fetchLifetimeStats]);
 
   // Fetch offerings from RevenueCat
   const [monthlyPkg, setMonthlyPkg] = useState<PurchasesPackage | null>(null);
@@ -171,10 +180,10 @@ export default function TrialEndPaywallScreen() {
             <View
               style={styles.statCard}
               accessible
-              accessibilityLabel={`${fedDaysCount} ${fedDaysCount === 1 ? 'day' : 'days'} fed`}
+              accessibilityLabel={`${lifetimeStats?.daysFed ?? 0} ${(lifetimeStats?.daysFed ?? 0) === 1 ? 'day' : 'days'} fed`}
             >
               <Text style={styles.statNumber} importantForAccessibility="no">
-                {fedDaysCount}
+                {lifetimeStats?.daysFed ?? 0}
               </Text>
               <Text style={styles.statLabel} importantForAccessibility="no">
                 days fed
@@ -183,10 +192,10 @@ export default function TrialEndPaywallScreen() {
             <View
               style={styles.statCard}
               accessible
-              accessibilityLabel={`${todayDropsCount} ${todayDropsCount === 1 ? 'thought' : 'thoughts'}`}
+              accessibilityLabel={`${lifetimeStats?.thoughtsCount ?? 0} ${(lifetimeStats?.thoughtsCount ?? 0) === 1 ? 'thought' : 'thoughts'}`}
             >
               <Text style={styles.statNumber} importantForAccessibility="no">
-                {todayDropsCount}
+                {lifetimeStats?.thoughtsCount ?? 0}
               </Text>
               <Text style={styles.statLabel} importantForAccessibility="no">
                 thoughts
