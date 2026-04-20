@@ -77,7 +77,6 @@ export function ChatComposer({
         metaKey?: boolean;
       };
       if (ne.key === 'Enter' && ne.metaKey === true) {
-        // @ts-expect-error preventDefault exists on hardware keyboard events
         e.preventDefault?.();
         handleSend();
       }
