@@ -26,7 +26,7 @@ import { lightTokens } from '../../design/tokens';
 const LINE_HEIGHT = 22;
 const V_PADDING = 11;
 const MIN_HEIGHT = LINE_HEIGHT + V_PADDING * 2; // 44 (1 line)
-const MAX_HEIGHT = LINE_HEIGHT * 7 + V_PADDING * 2; // 176 (7 lines)
+const MAX_HEIGHT = LINE_HEIGHT * 5 + V_PADDING * 2; // 132 (5 lines)
 
 interface ChatComposerProps {
   onSend: (text: string) => void;
