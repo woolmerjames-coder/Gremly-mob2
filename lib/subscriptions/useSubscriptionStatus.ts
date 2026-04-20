@@ -27,8 +27,6 @@ interface SubscriptionStatus {
   hasAccess: boolean;
   /** User should be gated from creating new content */
   isReadOnly: boolean;
-  /** Legacy alias for !hasAccess — kept for RootNavigator back-compat */
-  isExpired: boolean;
   /** Still loading initial RevenueCat check */
   isLoading: boolean;
   /** Days remaining until the 14-day ceiling kicks in (0 if past) */
@@ -77,14 +75,12 @@ export function useSubscriptionStatus(): SubscriptionStatus {
 
   const hasAccess = isTester || isSubscribed || isTrialActive;
   const isReadOnly = !hasAccess;
-  const isExpired = isReadOnly; // legacy alias
 
   return {
     isSubscribed,
     isTrialActive,
     hasAccess,
     isReadOnly,
-    isExpired,
     isLoading,
     daysUntilTrialCeiling,
     refresh: checkEntitlement,

@@ -73,7 +73,6 @@ jest.mock('../../../lib/subscriptions/useSubscriptionStatus', () => ({
   useSubscriptionStatus: () => ({
     isSubscribed: false,
     isTrialActive: true,
-    isExpired: false,
     isLoading: false,
     refresh: jest.fn(),
   }),

@@ -33,7 +33,6 @@ jest.mock('../../../lib/subscriptions/useSubscriptionStatus', () => ({
   useSubscriptionStatus: () => ({
     isSubscribed: false,
     isTrialActive: false,
-    isExpired: true,
     isLoading: false,
     refresh: jest.fn(),
   }),
@@ -124,7 +123,6 @@ describe('TrialEndPaywallScreen', () => {
     require('../../../lib/subscriptions/useSubscriptionStatus').useSubscriptionStatus = () => ({
       isSubscribed: false,
       isTrialActive: true,
-      isExpired: false,
       isLoading: false,
       refresh: jest.fn(),
     });
