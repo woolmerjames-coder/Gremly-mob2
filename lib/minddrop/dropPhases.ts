@@ -53,7 +53,7 @@ const readCortexUrl = (): string => {
 // mightBeMulti heuristic
 // ──────────────────────────────────────────────────────────────────────────────
 
-function mightBeMulti(text: string): boolean {
+export function mightBeMulti(text: string): boolean {
   const lower = text.toLowerCase();
   return (
     lower.includes(',') ||
@@ -85,7 +85,7 @@ function mightBeMulti(text: string): boolean {
 const TEMPORAL_PATTERN =
   /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun|tomorrow|today|tonight|next\s+week|this\s+week|next\s+month|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|(?:the\s+)?\d{1,2}(?:st|nd|rd|th)\s+(?:of\s+)?(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))\b/i;
 
-function extractTemporal(text: string): string | null {
+export function extractTemporal(text: string): string | null {
   const match = text.match(TEMPORAL_PATTERN);
   return match ? match[0] : null;
 }
