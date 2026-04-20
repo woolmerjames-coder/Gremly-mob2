@@ -40,7 +40,8 @@ export default {
 
     // All other endpoints require authentication
     const authHeader = request.headers.get('Authorization');
-    const userId = extractUserIdFromToken(authHeader);
+    const token = authHeader?.replace(/^Bearer\s+/i, '') ?? '';
+    const userId = await extractUserIdFromToken(token, env.SUPABASE_JWT_SECRET);
 
     if (!userId) {
       return error('Unauthorized', 401);

@@ -53,6 +53,7 @@ export interface Env {
   // Supabase
   SUPABASE_URL: string;
   SUPABASE_SERVICE_KEY: string;
+  SUPABASE_JWT_SECRET: string;
 }
 
 // Microsoft Graph API response types
