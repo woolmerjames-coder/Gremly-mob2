@@ -18,7 +18,6 @@ export class ErrorBoundary extends React.Component<React.PropsWithChildren, Stat
 
   handleRestart = async () => {
     try {
-      // @ts-expect-error expo-updates is optional — only available in production builds
       const { reloadAsync } = await import('expo-updates');
       await reloadAsync();
     } catch {
