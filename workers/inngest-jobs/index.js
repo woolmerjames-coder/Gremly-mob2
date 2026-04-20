@@ -674,12 +674,28 @@ const testWeeklySummaryV2 = inngest.createFunction(
       const fedRows = await fedRes.json();
       const fedDaysThisWeek = (fedRows || []).filter((r) => r.is_fed).length;
 
-      // Gremly age + fed count from cortex_preferences
+      // Gremly age + tier from cortex_preferences
       const ageRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=gremly_age,fed_days_count,current_tier,sock_count`,
+        `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=gremly_age,current_tier,sock_count`,
         { headers },
       );
       const ageData = (await ageRes.json())?.[0] || {};
+
+      // Authoritative lifetime fed days count from daily_ritual_progress
+      const fedDaysCountRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/daily_ritual_progress?owner_id=eq.${userId}&is_fed=eq.true&select=*`,
+        {
+          method: 'HEAD',
+          headers: {
+            ...headers,
+            Prefer: 'count=exact',
+          },
+        },
+      );
+      const fedDaysTotal = parseInt(
+        fedDaysCountRes.headers.get('content-range')?.split('/')[1] ?? '0',
+        10,
+      );
 
       return {
         drops: totalDrops,
@@ -687,10 +703,10 @@ const testWeeklySummaryV2 = inngest.createFunction(
         journals,
         fed_days_this_week: fedDaysThisWeek,
         gremly_age: ageData.gremly_age || 0,
-        fed_days_total: ageData.fed_days_count || 0,
+        fed_days_total: fedDaysTotal,
         current_tier: ageData.current_tier || 'egg',
         sock_count: ageData.sock_count || 0,
-        fed_days_toward_next: (ageData.fed_days_count || 0) % 3,
+        fed_days_toward_next: fedDaysTotal % 3,
         fed_days_needed: 3,
       };
     });
@@ -1071,12 +1087,28 @@ const weeklySummaryV2Worker = inngest.createFunction(
       const fedRows = await fedRes.json();
       const fedDaysThisWeek = (fedRows || []).filter((r) => r.is_fed).length;
 
-      // Gremly age + fed count from cortex_preferences
+      // Gremly age + tier from cortex_preferences
       const ageRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=gremly_age,fed_days_count,current_tier,sock_count`,
+        `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=gremly_age,current_tier,sock_count`,
         { headers },
       );
       const ageData = (await ageRes.json())?.[0] || {};
+
+      // Authoritative lifetime fed days count from daily_ritual_progress
+      const fedDaysCountRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/daily_ritual_progress?owner_id=eq.${userId}&is_fed=eq.true&select=*`,
+        {
+          method: 'HEAD',
+          headers: {
+            ...headers,
+            Prefer: 'count=exact',
+          },
+        },
+      );
+      const fedDaysTotal = parseInt(
+        fedDaysCountRes.headers.get('content-range')?.split('/')[1] ?? '0',
+        10,
+      );
 
       return {
         drops: totalDrops,
@@ -1084,10 +1116,10 @@ const weeklySummaryV2Worker = inngest.createFunction(
         journals,
         fed_days_this_week: fedDaysThisWeek,
         gremly_age: ageData.gremly_age || 0,
-        fed_days_total: ageData.fed_days_count || 0,
+        fed_days_total: fedDaysTotal,
         current_tier: ageData.current_tier || 'egg',
         sock_count: ageData.sock_count || 0,
-        fed_days_toward_next: (ageData.fed_days_count || 0) % 3,
+        fed_days_toward_next: fedDaysTotal % 3,
         fed_days_needed: 3,
       };
     });
