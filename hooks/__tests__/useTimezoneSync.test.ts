@@ -58,7 +58,10 @@ jest.mock('../../lib/supabase/client', () => ({
     from: (...args: unknown[]) => mockFrom(...args),
     auth: {
       getSession: () => mockGetSession(),
-      onAuthStateChange: (cb: unknown) => mockOnAuthStateChange(cb),
+      onAuthStateChange: (cb: unknown) =>
+        typeof mockOnAuthStateChange === 'function'
+          ? mockOnAuthStateChange(cb)
+          : { data: { subscription: { unsubscribe: jest.fn() } } },
     },
   },
 }));

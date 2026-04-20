@@ -16,7 +16,6 @@ beforeEach(() => {
     isInitialized: false,
     onboardingCompletedAt: null,
     firstDropCompletedAt: null,
-    isTrainingMode: true,
     graduatedAt: null,
     isTester: false,
     challengeStartedAt: null,
@@ -48,23 +47,17 @@ describe('useNeedsOnboarding (!onboardingCompletedAt)', () => {
   });
 });
 
-describe('useNeedsMindDropTutorial (isTrainingMode && !graduatedAt)', () => {
-  it('returns true when in training mode and not graduated', () => {
-    useGremlyStore.setState({ isTrainingMode: true, graduatedAt: null });
+describe('useNeedsMindDropTutorial (!graduatedAt)', () => {
+  it('returns true when not graduated', () => {
+    useGremlyStore.setState({ graduatedAt: null });
     const s = getState();
-    expect(s.isTrainingMode && !s.graduatedAt).toBe(true);
+    expect(!s.graduatedAt).toBe(true);
   });
 
   it('returns false when graduated', () => {
-    useGremlyStore.setState({ isTrainingMode: true, graduatedAt: '2026-01-01T00:00:00Z' });
+    useGremlyStore.setState({ graduatedAt: '2026-01-01T00:00:00Z' });
     const s = getState();
-    expect(s.isTrainingMode && !s.graduatedAt).toBe(false);
-  });
-
-  it('returns false when not in training mode', () => {
-    useGremlyStore.setState({ isTrainingMode: false, graduatedAt: null });
-    const s = getState();
-    expect(s.isTrainingMode && !s.graduatedAt).toBe(false);
+    expect(!s.graduatedAt).toBe(false);
   });
 });
 

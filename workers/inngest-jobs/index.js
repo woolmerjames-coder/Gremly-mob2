@@ -674,12 +674,28 @@ const testWeeklySummaryV2 = inngest.createFunction(
       const fedRows = await fedRes.json();
       const fedDaysThisWeek = (fedRows || []).filter((r) => r.is_fed).length;
 
-      // Gremly age + fed count from cortex_preferences
+      // Gremly age + tier from cortex_preferences
       const ageRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=gremly_age,fed_days_count,current_tier,sock_count`,
+        `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=gremly_age,current_tier,sock_count`,
         { headers },
       );
       const ageData = (await ageRes.json())?.[0] || {};
+
+      // Authoritative lifetime fed days count from daily_ritual_progress
+      const fedDaysCountRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/daily_ritual_progress?owner_id=eq.${userId}&is_fed=eq.true&select=*`,
+        {
+          method: 'HEAD',
+          headers: {
+            ...headers,
+            Prefer: 'count=exact',
+          },
+        },
+      );
+      const fedDaysTotal = parseInt(
+        fedDaysCountRes.headers.get('content-range')?.split('/')[1] ?? '0',
+        10,
+      );
 
       return {
         drops: totalDrops,
@@ -687,10 +703,10 @@ const testWeeklySummaryV2 = inngest.createFunction(
         journals,
         fed_days_this_week: fedDaysThisWeek,
         gremly_age: ageData.gremly_age || 0,
-        fed_days_total: ageData.fed_days_count || 0,
+        fed_days_total: fedDaysTotal,
         current_tier: ageData.current_tier || 'egg',
         sock_count: ageData.sock_count || 0,
-        fed_days_toward_next: (ageData.fed_days_count || 0) % 3,
+        fed_days_toward_next: fedDaysTotal % 3,
         fed_days_needed: 3,
       };
     });
@@ -792,22 +808,54 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
         Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
       };
 
-      const [prefsRes, tokensRes] = await Promise.all([
+      const [prefsRes, tokensRes, accessRes] = await Promise.all([
         fetch(
           `${env.SUPABASE_URL}/rest/v1/notification_preferences?weekly_enabled=eq.true&select=user_id,weekly_time,weekly_day,timezone`,
           { headers },
         ),
         fetch(`${env.SUPABASE_URL}/rest/v1/push_tokens?select=user_id,token`, { headers }),
+        fetch(
+          `${env.SUPABASE_URL}/rest/v1/cortex_preferences?select=owner_id,is_tester,is_subscribed,trial_started_at,challenge_completed_at`,
+          { headers },
+        ),
       ]);
 
       if (!prefsRes.ok) throw new Error(`Failed to fetch weekly prefs: ${prefsRes.statusText}`);
       const prefs = await prefsRes.json();
       const tokens = tokensRes.ok ? await tokensRes.json() : [];
+      const accessPrefs = accessRes.ok ? await accessRes.json() : [];
+
       const tokenMap = {};
       for (const t of tokens) tokenMap[t.user_id] = t.token;
 
-      return prefs
-        .filter((p) => tokenMap[p.user_id])
+      // Build access map and filter function
+      const ceilingMs = 14 * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const accessMap = {};
+      for (const p of accessPrefs) {
+        const inFreeWindow =
+          p.challenge_completed_at === null &&
+          p.trial_started_at !== null &&
+          new Date(p.trial_started_at).getTime() + ceilingMs > now;
+        accessMap[p.owner_id] = p.is_tester === true || p.is_subscribed === true || inFreeWindow;
+      }
+
+      const total = prefs.length;
+      let droppedNoToken = 0;
+      let droppedNoAccess = 0;
+
+      const filtered = prefs
+        .filter((p) => {
+          if (!tokenMap[p.user_id]) {
+            droppedNoToken++;
+            return false;
+          }
+          if (!accessMap[p.user_id]) {
+            droppedNoAccess++;
+            return false;
+          }
+          return true;
+        })
         .map((p) => ({
           user_id: p.user_id,
           timezone: p.timezone || 'UTC',
@@ -815,6 +863,12 @@ const weeklySummaryV2Dispatcher = inngest.createFunction(
           weekly_day: p.weekly_day ?? 0, // 0 = Sunday
           push_token: tokenMap[p.user_id],
         }));
+
+      console.log(
+        `[Weekly V2 Dispatcher] fetch-weekly-users: total=${total}, dropped_no_token=${droppedNoToken}, dropped_no_access=${droppedNoAccess}, eligible=${filtered.length}`,
+      );
+
+      return filtered;
     });
 
     // Step 2: Filter to users whose local time is within the 5-minute window of their configured weekly time AND it's their configured day
@@ -1033,12 +1087,28 @@ const weeklySummaryV2Worker = inngest.createFunction(
       const fedRows = await fedRes.json();
       const fedDaysThisWeek = (fedRows || []).filter((r) => r.is_fed).length;
 
-      // Gremly age + fed count from cortex_preferences
+      // Gremly age + tier from cortex_preferences
       const ageRes = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=gremly_age,fed_days_count,current_tier,sock_count`,
+        `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=gremly_age,current_tier,sock_count`,
         { headers },
       );
       const ageData = (await ageRes.json())?.[0] || {};
+
+      // Authoritative lifetime fed days count from daily_ritual_progress
+      const fedDaysCountRes = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/daily_ritual_progress?owner_id=eq.${userId}&is_fed=eq.true&select=*`,
+        {
+          method: 'HEAD',
+          headers: {
+            ...headers,
+            Prefer: 'count=exact',
+          },
+        },
+      );
+      const fedDaysTotal = parseInt(
+        fedDaysCountRes.headers.get('content-range')?.split('/')[1] ?? '0',
+        10,
+      );
 
       return {
         drops: totalDrops,
@@ -1046,10 +1116,10 @@ const weeklySummaryV2Worker = inngest.createFunction(
         journals,
         fed_days_this_week: fedDaysThisWeek,
         gremly_age: ageData.gremly_age || 0,
-        fed_days_total: ageData.fed_days_count || 0,
+        fed_days_total: fedDaysTotal,
         current_tier: ageData.current_tier || 'egg',
         sock_count: ageData.sock_count || 0,
-        fed_days_toward_next: (ageData.fed_days_count || 0) % 3,
+        fed_days_toward_next: fedDaysTotal % 3,
         fed_days_needed: 3,
       };
     });
@@ -1800,6 +1870,107 @@ const bootstrapSingleUserLifeMap = inngest.createFunction(
       console.error(`[LifeMap:Bootstrap] Failed for user ${userId}:`, error);
       return { user_id: userId, success: false, error: String(error) };
     }
+  },
+);
+
+// ───────────────────────────────────────────────────────────────────
+// Challenge Completion Orchestrator
+//
+// Fired when a user hits their 7th fed day.
+// Sequence:
+//   1. Bootstrap the Life Map (builds from 7 days of data)
+//   2. Wait for bootstrap to complete
+//   3. Fire weekly summary (now against a populated Life Map)
+//
+// The weekly summary worker handles its own push notification.
+// ───────────────────────────────────────────────────────────────────
+
+const handleChallengeCompletion = inngest.createFunction(
+  {
+    id: 'handle-challenge-completion',
+    name: 'Handle Challenge Completion',
+    concurrency: { limit: 5 },
+    retries: 3,
+  },
+  { event: 'app/challenge.completed' },
+  async ({ event, step, env }) => {
+    const { user_id: userId, completed_at, timezone } = event.data;
+
+    if (!userId) {
+      return { skipped: true, reason: 'missing_user_id' };
+    }
+
+    // Step 1: Check if Life Map already exists.
+    const lifeMapExists = await step.run('check-life-map-exists', async () => {
+      const response = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/user_life_map?user_id=eq.${userId}&select=user_id&limit=1`,
+        {
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+        },
+      );
+      if (!response.ok) return false;
+      const rows = await response.json();
+      return rows.length > 0;
+    });
+
+    // Step 2: Bootstrap Life Map if needed.
+    if (!lifeMapExists) {
+      await step.invoke('bootstrap-life-map', {
+        function: bootstrapSingleUserLifeMap,
+        data: { user_id: userId },
+      });
+    }
+
+    // Step 3: Compute week_key (Monday of current week in user's timezone)
+    const weekKey = await step.run('compute-week-key', () => {
+      const now = new Date();
+      const userTz = timezone || 'UTC';
+      const dateInTz = new Intl.DateTimeFormat('en-CA', { timeZone: userTz }).format(now);
+      const d = new Date(dateInTz + 'T00:00:00Z');
+      const dayOfWeek = d.getUTCDay(); // 0 = Sunday, 1 = Monday, ...
+      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      d.setUTCDate(d.getUTCDate() - daysFromMonday);
+      return formatDateOnly(d);
+    });
+
+    // Step 4: Fetch user's push token for weekly summary push notification
+    const pushToken = await step.run('fetch-push-token', async () => {
+      const response = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/push_tokens?user_id=eq.${userId}&select=token&limit=1`,
+        {
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+        },
+      );
+      if (!response.ok) return null;
+      const rows = await response.json();
+      return rows[0]?.token ?? null;
+    });
+
+    // Step 5: Fire the weekly summary generation.
+    // weekly-summary-v2-worker has its own idempotency check (user_id + week_key).
+    await step.sendEvent('trigger-weekly-summary', {
+      name: 'app/weekly-summary-v2.run',
+      data: {
+        user_id: userId,
+        timezone: timezone || 'UTC',
+        push_token: pushToken,
+        week_key: weekKey,
+      },
+    });
+
+    return {
+      success: true,
+      userId,
+      completed_at,
+      bootstrapped_life_map: !lifeMapExists,
+      week_key: weekKey,
+    };
   },
 );
 
@@ -7066,6 +7237,7 @@ const inngestHandler = serve({
     dcoDispatcher,
     generateSingleUserDco,
     bootstrapSingleUserLifeMap,
+    handleChallengeCompletion,
     testUnifiedAnalyst,
     testLifeMapRebuild,
     testWeeklySummaryV2,
@@ -7273,6 +7445,57 @@ export default {
         { error: 'Deprecated – old DCO pipeline removed. Use Life Map pipeline.' },
         410,
       );
+    }
+
+    // Custom API endpoint: challenge completion — dispatches Life Map bootstrap + weekly summary
+    if (url.pathname === '/api/challenge-completed' && request.method === 'POST') {
+      const adminKey = request.headers.get('x-admin-key');
+      if (adminKey !== env.INNGEST_ADMIN_KEY) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      try {
+        const body = await request.json().catch(() => ({}));
+        const { user_id, completed_at, timezone } = body;
+
+        if (!user_id) {
+          return corsResponse({ error: 'user_id is required' }, 400);
+        }
+
+        console.log(`[API] challenge-completed: dispatching Inngest job for ${user_id}`);
+
+        const inngestRes = await fetch('https://inn.gs/e/' + env.INNGEST_EVENT_KEY, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'app/challenge.completed',
+            data: {
+              user_id,
+              completed_at: completed_at || new Date().toISOString(),
+              timezone: timezone || 'UTC',
+            },
+          }),
+        });
+
+        if (!inngestRes.ok) {
+          const errText = await inngestRes.text().catch(() => '');
+          throw new Error(
+            `Failed to send Inngest event: ${inngestRes.status} ${errText.slice(0, 200)}`,
+          );
+        }
+
+        return corsResponse({
+          success: true,
+          user_id,
+          message: 'Challenge completion orchestration dispatched.',
+        });
+      } catch (err) {
+        console.error('[API] challenge-completed error:', err);
+        return corsResponse({ error: err.message || String(err) }, 500);
+      }
     }
 
     // Custom API endpoint: bootstrap Life Map for a user (one-time, dispatched via Inngest)

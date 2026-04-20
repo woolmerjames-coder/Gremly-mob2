@@ -16,6 +16,7 @@ import { useCallback, useRef } from 'react';
 import { useGremlyStore } from '../store/useGremlyStore';
 import { getDateService } from '../date';
 import { env, getEnv } from '../env';
+import { getSessionToken } from '../cortex/getSessionToken';
 import { format } from 'date-fns';
 
 // --- Helpers to read env vars (same pattern as dropProcessor.ts) ---
@@ -25,12 +26,6 @@ const readCortexUrl = (): string => {
   const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
   const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
   return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
-};
-
-const readSupabaseAnonKey = (): string => {
-  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
-  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
-  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 };
 
 /** Phase 2 enrichment result for events */
@@ -95,11 +90,10 @@ export function useEventQuickAdd(options: EventQuickAddOptions): UseEventQuickAd
       (async () => {
         try {
           const cortexUrl = readCortexUrl();
-          const anonKey = readSupabaseAnonKey();
-
-          if (!cortexUrl || !anonKey) {
-            throw new Error('Missing cortex URL or anon key');
+          if (!cortexUrl) {
+            throw new Error('Missing cortex URL');
           }
+          const sessionToken = await getSessionToken();
 
           // Get date context for Phase 2
           const ds = getDateService();
@@ -118,7 +112,7 @@ export function useEventQuickAdd(options: EventQuickAddOptions): UseEventQuickAd
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    Authorization: `Bearer ${anonKey}`,
+                    Authorization: `Bearer ${sessionToken}`,
                   },
                   body: JSON.stringify({
                     type: 'enrich-phase1-5a',
@@ -153,7 +147,7 @@ export function useEventQuickAdd(options: EventQuickAddOptions): UseEventQuickAd
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    Authorization: `Bearer ${anonKey}`,
+                    Authorization: `Bearer ${sessionToken}`,
                   },
                   body: JSON.stringify({
                     type: 'enrich-phase2',

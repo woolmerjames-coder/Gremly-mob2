@@ -9,6 +9,11 @@ import { SpaceChatMessageInsert } from '../../lib/types';
 jest.mock('../../lib/supabase/client', () => ({
   supabase: {
     from: jest.fn(),
+    auth: {
+      onAuthStateChange: jest
+        .fn()
+        .mockReturnValue({ data: { subscription: { unsubscribe: jest.fn() } } }),
+    },
   },
 }));
 

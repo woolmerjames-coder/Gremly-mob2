@@ -72,6 +72,7 @@ import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayContro
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import ThreadCard from '../../components/spaces/v22/ThreadCard';
 import { useIsFocused, useFocusEffect } from '@react-navigation/native';
+import { useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ConfettiBurst from '../../components/ConfettiBurst';
 import {
@@ -300,6 +301,7 @@ const NOTE_SAVE_LABELS = deriveDisplayLabels('note', 'reference', CANONICAL_TYPE
 export default function SpaceHomeScreen({ route, navigation }: Props) {
   const { spaceId } = route.params;
   const { userId, user } = useAuth();
+  const canCreate = useCanCreate();
   const colorScheme = useColorScheme();
   const T = colorScheme === 'dark' ? darkTokens : lightTokens;
   const insets = useSafeAreaInsets();
@@ -917,6 +919,10 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
   // Key Dates: Create event with specific date (from calendar picker in modal)
   const handleAddEventWithDate = useCallback(
     async (title: string, date: string) => {
+      if (!canCreate) {
+        navigation.navigate('TrialEndPaywall', { source: 'expiry' });
+        return;
+      }
       console.log('[SpaceHome] Adding event with date:', title, date);
       // Close modal first for snappy UX
       setShowKeyDatesModal(false);
@@ -936,7 +942,7 @@ export default function SpaceHomeScreen({ route, navigation }: Props) {
         console.error('[SpaceHome] Failed to create event:', error);
       }
     },
-    [spaceId, store],
+    [canCreate, navigation, spaceId, store],
   );
 
   // Key Dates: Handle add event (opens quick add modal in key date mode)

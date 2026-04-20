@@ -6,7 +6,6 @@ import { useAuth } from '../providers/AuthProvider';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
 import { useNeedsOnboarding } from '../lib/store/lifecycleSelectors';
 import { useDropRecovery } from '../hooks/useDropRecovery';
-import { useSubscriptionStatus } from '../lib/subscriptions/useSubscriptionStatus';
 
 import LoginScreen from '../app/screens/LoginScreen';
 import TabNavigator from './TabNavigator';
@@ -111,7 +110,6 @@ export default function RootNavigator() {
   const { user, loading } = useAuth();
   const isInitialized = useGremlyStore((s) => s.isInitialized);
   const needsOnboarding = useNeedsOnboarding();
-  const { isExpired } = useSubscriptionStatus();
 
   // Wait for MMKV hydration so onboardingCompletedAt is available from persisted state
   const [hasHydrated, setHasHydrated] = useState(useGremlyStore.persist.hasHydrated());
@@ -140,9 +138,8 @@ export default function RootNavigator() {
   // Determine initial route based on onboarding, training, and subscription status
   const initialRouteName = useMemo(() => {
     if (needsOnboarding) return 'Onboarding';
-    if (isExpired) return 'TrialEndPaywall';
     return 'Tabs';
-  }, [needsOnboarding, isExpired]);
+  }, [needsOnboarding]);
 
   if (!isReady) {
     return <View style={styles.splashHolder} />;

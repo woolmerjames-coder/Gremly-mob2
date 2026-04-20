@@ -22,6 +22,11 @@ process.env.EXPO_PUBLIC_MIND_DROP_V3_INSTANT = 'off';
 jest.mock('../../../lib/supabase/client', () => ({
   supabase: {
     rpc: jest.fn(),
+    auth: {
+      onAuthStateChange: jest
+        .fn()
+        .mockReturnValue({ data: { subscription: { unsubscribe: jest.fn() } } }),
+    },
   },
 }));
 

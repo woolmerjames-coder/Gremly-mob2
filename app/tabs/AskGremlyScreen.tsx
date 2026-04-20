@@ -32,7 +32,9 @@ import MascotLottie, { type MascotLottieHandle } from '../components/MascotLotti
 import * as Haptics from 'expo-haptics';
 import { Clock, SquarePen, ChevronLeft, Bookmark } from 'lucide-react-native';
 import { useRoute } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
+import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 
@@ -49,6 +51,9 @@ export default function AskGremlyScreen() {
   const route = useRoute<any>();
   const prefillPrompt = route.params?.prefillPrompt || null;
   const { userId } = useAuth();
+  const navigation = useNavigation<any>();
+  const canChat = useCanChat();
+  const canCreate = useCanCreate();
   const mascotRef = useRef<MascotLottieHandle>(null);
   const flatListRef = useRef<any>(null);
   const streamingControllerRef = useRef<{ close: () => void } | null>(null);
@@ -269,6 +274,10 @@ export default function AskGremlyScreen() {
   const handleSend = useCallback(
     async (text: string) => {
       if (!text.trim()) return;
+      if (!canChat) {
+        navigation.navigate('TrialEndPaywall', { source: 'expiry' });
+        return;
+      }
       const trimmed = text.trim();
 
       if (activeChat) {
@@ -293,7 +302,7 @@ export default function AskGremlyScreen() {
         Alert.alert('Error', 'Could not create chat');
       }
     },
-    [activeChat, sending, sendToChat],
+    [canChat, navigation, activeChat, sending, sendToChat],
   );
 
   const keyExtractor = useCallback((item: SpaceChatMessage) => item.id, []);
@@ -452,6 +461,10 @@ export default function AskGremlyScreen() {
           }
         }}
         onSave={async (items, includeSummary) => {
+          if (!canCreate) {
+            navigation.navigate('TrialEndPaywall', { source: 'expiry' });
+            return;
+          }
           // Fetch full summary before closing sheet if user wants to save summary
           let fullSummary: string | null = null;
           if (includeSummary && activeChat?.id) {

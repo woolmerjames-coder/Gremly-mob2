@@ -42,6 +42,7 @@ import { useEventsForSpace, useGoalsForSpace, useSpaceById } from '../../lib/sto
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { getTodayDayString, getDateService } from '../../lib/date';
 import { env, getEnv } from '../../lib/env';
+import { getSessionToken } from '../../lib/cortex/getSessionToken';
 import type { Note } from '../../lib/types';
 
 // --- Helpers to read env vars ---
@@ -51,12 +52,6 @@ const readCortexUrl = (): string => {
   const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
   const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
   return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
-};
-
-const readSupabaseAnonKey = (): string => {
-  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
-  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
-  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 };
 
 interface GoalContext {
@@ -543,11 +538,10 @@ export function SpaceJourneyModal({
     (async () => {
       try {
         const cortexUrl = readCortexUrl();
-        const anonKey = readSupabaseAnonKey();
-
-        if (!cortexUrl || !anonKey) {
-          throw new Error('Missing cortex URL or anon key');
+        if (!cortexUrl) {
+          throw new Error('Missing cortex URL');
         }
+        const sessionToken = await getSessionToken();
 
         const ds = getDateService();
         const currentDate = ds.today();
@@ -563,7 +557,7 @@ export function SpaceJourneyModal({
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  Authorization: `Bearer ${anonKey}`,
+                  Authorization: `Bearer ${sessionToken}`,
                 },
                 body: JSON.stringify({
                   type: 'enrich-phase1-5a',
@@ -589,7 +583,7 @@ export function SpaceJourneyModal({
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  Authorization: `Bearer ${anonKey}`,
+                  Authorization: `Bearer ${sessionToken}`,
                 },
                 body: JSON.stringify({
                   type: 'enrich-phase2',

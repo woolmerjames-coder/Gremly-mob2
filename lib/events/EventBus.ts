@@ -41,6 +41,8 @@ export type EventMap = {
   // Cortex classification events (Phase 10)
   'cortex:classified': { itemId: string; classification: ClassificationResult };
   'cortex:failed': { itemId: string; error: string };
+  // Cortex read-only access denial (Phase 4.7)
+  'cortex:read_only': Record<string, never>;
   // Entity lifecycle events (Space Chat) - source identifies origin to prevent self-handling
   'entity:created': { entity: any; type: string; spaceId?: string | null; source?: string };
   'entity:updated': { entity: any; type: string; spaceId?: string | null; source?: string };

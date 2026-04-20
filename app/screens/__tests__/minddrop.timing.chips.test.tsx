@@ -109,6 +109,11 @@ jest.mock('../../../lib/supabase/client', () => ({
     from: jest.fn(() => ({
       select: jest.fn().mockResolvedValue({ data: [], error: null }),
     })),
+    auth: {
+      onAuthStateChange: jest
+        .fn()
+        .mockReturnValue({ data: { subscription: { unsubscribe: jest.fn() } } }),
+    },
   },
 }));
 

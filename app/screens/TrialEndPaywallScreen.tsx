@@ -4,7 +4,7 @@
  * 2. Post-trial (source: 'expiry') - forced after trial expiration
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Pressable, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
@@ -13,11 +13,10 @@ import type { RouteProp } from '@react-navigation/native';
 import { Text } from '../../ui';
 import { BRAND } from '../../design/brand';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { useTrialStartedAt } from '../../lib/store/lifecycleSelectors';
 import MascotLottie from '../components/MascotLottie';
 import * as WebBrowser from 'expo-web-browser';
+import { X } from 'lucide-react-native';
 import { useSubscriptionStatus } from '../../lib/subscriptions/useSubscriptionStatus';
-import { getDateService } from '../../lib/date/DateService';
 import {
   fetchOfferings,
   purchasePackage,
@@ -27,8 +26,6 @@ import type { PurchasesPackage } from 'react-native-purchases';
 
 type Plan = 'monthly' | 'annual';
 
-const TRIAL_DURATION_MS = 8 * 24 * 60 * 60 * 1000;
-
 export default function TrialEndPaywallScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
@@ -36,22 +33,24 @@ export default function TrialEndPaywallScreen() {
   const [selectedPlan, setSelectedPlan] = useState<Plan>('annual');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const fedDaysCount = useGremlyStore((s) => s.fedDaysCount);
-  const todayDropsCount = useGremlyStore((s) => s.todayDropsCount);
   const gremlyAge = useGremlyStore((s) => s.gremlyAge);
-  const trialStartedAt = useTrialStartedAt();
   const setIsSubscribed = useGremlyStore((s) => s.setIsSubscribed);
-  const { isTrialActive } = useSubscriptionStatus();
+  const fetchLifetimeStats = useGremlyStore((s) => s.fetchLifetimeStats);
+  const { isTrialActive, daysUntilTrialCeiling } = useSubscriptionStatus();
+  const daysRemaining = daysUntilTrialCeiling;
 
   const source = route.params?.source ?? (isTrialActive ? 'settings' : 'expiry');
   const isMidTrial = source === 'settings' && isTrialActive;
 
-  const daysRemaining = useMemo(() => {
-    if (!trialStartedAt) return 8;
-    const started = new Date(trialStartedAt).getTime();
-    const remaining = started + TRIAL_DURATION_MS - getDateService().now().getTime();
-    return Math.max(0, Math.ceil(remaining / (24 * 60 * 60 * 1000)));
-  }, [trialStartedAt]);
+  // Fetch lifetime stats for the post-trial stats row
+  const [lifetimeStats, setLifetimeStats] = useState<{
+    daysFed: number;
+    thoughtsCount: number;
+  } | null>(null);
+
+  useEffect(() => {
+    fetchLifetimeStats().then(setLifetimeStats);
+  }, [fetchLifetimeStats]);
 
   // Fetch offerings from RevenueCat
   const [monthlyPkg, setMonthlyPkg] = useState<PurchasesPackage | null>(null);
@@ -121,6 +120,14 @@ export default function TrialEndPaywallScreen() {
     }
   }, [navigation]);
 
+  const handleClose = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'Tabs' }] }));
+    }
+  }, [navigation]);
+
   const subscribeLabel =
     selectedPlan === 'annual' ? 'Subscribe for $69.99 per year' : 'Subscribe for $9.99 per month';
 
@@ -131,6 +138,15 @@ export default function TrialEndPaywallScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <Pressable
+        onPress={handleClose}
+        style={[styles.closeButton, { top: insets.top + 8 }]}
+        accessibilityRole="button"
+        accessibilityLabel="Close"
+        hitSlop={12}
+      >
+        <X size={24} color={BRAND.colors.charcoalInk} />
+      </Pressable>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Mascot */}
         <View style={styles.mascotContainer}>
@@ -148,14 +164,13 @@ export default function TrialEndPaywallScreen() {
         <Text style={styles.subtitle}>
           {isMidTrial
             ? 'Unlock Gremly forever'
-            : "Your free trial has ended. Here's what we built together."}
+            : 'Your free access has ended. Subscribe to keep feeding your Gremly.'}
         </Text>
 
         {/* Trial remaining (mid-trial only) */}
         {isMidTrial && (
           <Text style={styles.trialRemaining}>
-            You have {daysRemaining} {daysRemaining === 1 ? 'day' : 'days'} left in your Training
-            Challenge
+            {daysRemaining} {daysRemaining === 1 ? 'day' : 'days'} of free access remaining
           </Text>
         )}
 
@@ -165,10 +180,10 @@ export default function TrialEndPaywallScreen() {
             <View
               style={styles.statCard}
               accessible
-              accessibilityLabel={`${fedDaysCount} ${fedDaysCount === 1 ? 'day' : 'days'} fed`}
+              accessibilityLabel={`${lifetimeStats?.daysFed ?? 0} ${(lifetimeStats?.daysFed ?? 0) === 1 ? 'day' : 'days'} fed`}
             >
               <Text style={styles.statNumber} importantForAccessibility="no">
-                {fedDaysCount}
+                {lifetimeStats?.daysFed ?? 0}
               </Text>
               <Text style={styles.statLabel} importantForAccessibility="no">
                 days fed
@@ -177,10 +192,10 @@ export default function TrialEndPaywallScreen() {
             <View
               style={styles.statCard}
               accessible
-              accessibilityLabel={`${todayDropsCount} ${todayDropsCount === 1 ? 'thought' : 'thoughts'}`}
+              accessibilityLabel={`${lifetimeStats?.thoughtsCount ?? 0} ${(lifetimeStats?.thoughtsCount ?? 0) === 1 ? 'thought' : 'thoughts'}`}
             >
               <Text style={styles.statNumber} importantForAccessibility="no">
-                {todayDropsCount}
+                {lifetimeStats?.thoughtsCount ?? 0}
               </Text>
               <Text style={styles.statLabel} importantForAccessibility="no">
                 thoughts
@@ -314,12 +329,6 @@ export default function TrialEndPaywallScreen() {
         >
           <Text style={styles.restoreText}>Restore purchase</Text>
         </Pressable>
-
-        {isMidTrial && (
-          <Pressable onPress={handleNotNow} accessibilityRole="button" accessibilityLabel="Not now">
-            <Text style={styles.notNowText}>Not now</Text>
-          </Pressable>
-        )}
       </View>
     </View>
   );
@@ -329,6 +338,15 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FAFAF8',
+  },
+  closeButton: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scrollContent: {
     flexGrow: 1,

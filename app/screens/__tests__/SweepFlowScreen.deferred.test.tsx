@@ -62,7 +62,6 @@ jest.mock('../../../lib/store/useGremlyStore', () => {
       feedingGaugeValue: 0,
       isFedToday: false,
       fedDaysCount: 0,
-      isTrainingMode: false,
       feedingHistory: [],
       fetchFeedingHistory: () => Promise.resolve(undefined),
       totalSweepCount: 10,
@@ -145,7 +144,13 @@ jest.mock('../../../lib/sweep/useSweepIntroStats', () => ({
 // Mock Supabase client
 jest.mock('../../../lib/supabase/client', () => ({
   __esModule: true,
-  supabase: {},
+  supabase: {
+    auth: {
+      onAuthStateChange: jest
+        .fn()
+        .mockReturnValue({ data: { subscription: { unsubscribe: jest.fn() } } }),
+    },
+  },
 }));
 
 // Mock RepoProvider

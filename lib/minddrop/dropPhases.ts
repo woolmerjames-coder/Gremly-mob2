@@ -22,6 +22,7 @@ import { useGremlyStore } from '../store/useGremlyStore';
 import { eventBus } from '../events/EventBus';
 import { dateService, getDateService } from '../date/DateService';
 import { env, getEnv } from '../env';
+import { getSessionToken, getSessionTokenSync } from '../cortex/getSessionToken';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // withTimeout helper
@@ -48,17 +49,11 @@ const readCortexUrl = (): string => {
   return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
 };
 
-const readSupabaseAnonKey = (): string => {
-  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
-  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
-  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
-};
-
 // ──────────────────────────────────────────────────────────────────────────────
 // mightBeMulti heuristic
 // ──────────────────────────────────────────────────────────────────────────────
 
-function mightBeMulti(text: string): boolean {
+export function mightBeMulti(text: string): boolean {
   const lower = text.toLowerCase();
   return (
     lower.includes(',') ||
@@ -90,7 +85,7 @@ function mightBeMulti(text: string): boolean {
 const TEMPORAL_PATTERN =
   /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun|tomorrow|today|tonight|next\s+week|this\s+week|next\s+month|january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|(?:the\s+)?\d{1,2}(?:st|nd|rd|th)\s+(?:of\s+)?(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))\b/i;
 
-function extractTemporal(text: string): string | null {
+export function extractTemporal(text: string): string | null {
   const match = text.match(TEMPORAL_PATTERN);
   return match ? match[0] : null;
 }
@@ -110,15 +105,15 @@ async function callPhase1_5a(
   speech_message: string | null;
 } | null> {
   const cortexUrl = readCortexUrl();
-  const anonKey = readSupabaseAnonKey();
-  if (!cortexUrl || !anonKey) return null;
+  if (!cortexUrl) return null;
 
   try {
+    const sessionToken = await getSessionToken();
     const res = await fetch(cortexUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${anonKey}`,
+        Authorization: `Bearer ${sessionToken}`,
       },
       body: JSON.stringify({
         type: 'enrich-phase1-5a',
@@ -169,10 +164,10 @@ async function callPhase2(
   prefillDate: string | null,
 ): Promise<Phase2MetadataResult | null> {
   const cortexUrl = readCortexUrl();
-  const anonKey = readSupabaseAnonKey();
-  if (!cortexUrl || !anonKey) return null;
+  if (!cortexUrl) return null;
 
   try {
+    const sessionToken = await getSessionToken();
     const currentDate = dateService.today();
     const dayOfWeek = new Intl.DateTimeFormat('en-US', {
       weekday: 'long',
@@ -185,7 +180,7 @@ async function callPhase2(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${anonKey}`,
+        Authorization: `Bearer ${sessionToken}`,
       },
       body: JSON.stringify({
         type: 'enrich-phase2',
@@ -259,10 +254,10 @@ async function callPhase2b(
   subtype: string | null,
 ): Promise<Phase2bResult | null> {
   const cortexUrl = readCortexUrl();
-  const anonKey = readSupabaseAnonKey();
-  if (!cortexUrl || !anonKey) return null;
+  if (!cortexUrl) return null;
 
   try {
+    const sessionToken = await getSessionToken();
     const currentDate = dateService.today();
     const dayOfWeek = new Intl.DateTimeFormat('en-US', {
       weekday: 'long',
@@ -274,7 +269,7 @@ async function callPhase2b(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${anonKey}`,
+        Authorization: `Bearer ${sessionToken}`,
       },
       body: JSON.stringify({
         type: 'enrich-phase2b',
@@ -331,9 +326,9 @@ function fireClarificationInBackground(
   }> | null,
 ): void {
   const cortexUrl = readCortexUrl();
-  const anonKey = readSupabaseAnonKey();
-  if (!cortexUrl || !anonKey) return;
+  if (!cortexUrl) return;
 
+  const sessionToken = getSessionTokenSync();
   const detectedTemporal = extractTemporal(text);
   const currentDate = dateService.today();
 
@@ -342,7 +337,7 @@ function fireClarificationInBackground(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${anonKey}`,
+      Authorization: `Bearer ${sessionToken}`,
     },
     body: JSON.stringify({
       type: 'clarify-ambiguity',

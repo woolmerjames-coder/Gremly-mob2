@@ -29,7 +29,10 @@ import * as Haptics from 'expo-haptics';
 import { ChevronLeft } from 'lucide-react-native';
 import { BRAND } from '../../design/brand';
 import { useNetworkStatus } from '../../lib/network/useNetworkStatus';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type {
+  NativeStackScreenProps,
+  NativeStackNavigationProp,
+} from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { SupabaseSpaceChatRepo } from '../../lib/repo/supabase';
@@ -46,6 +49,7 @@ import { checkQuickResponse, getQuickResponseText } from '../../lib/chat/quickRe
 import { perfMonitor } from '../../lib/chat/performanceMonitor';
 import { getEnv } from '../../lib/env';
 import { Placeholder } from '../../components/common/Placeholder';
+import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useChatMessages } from '../../hooks/useChatMessages';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
@@ -133,7 +137,7 @@ const getItemId = (metadata: any): string | undefined => {
 
 export default function ChatThreadScreen({ route }: Props) {
   // Navigation
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   // Safe area insets for bottom padding
   const insets = useSafeAreaInsets();
@@ -153,6 +157,8 @@ export default function ChatThreadScreen({ route }: Props) {
   const createTodo = useGremlyStore((s) => s.createTodo);
   const createHabit = useGremlyStore((s) => s.createHabit);
   const createNote = useGremlyStore((s) => s.createNote);
+  const canChat = useCanChat();
+  const canCreate = useCanCreate();
 
   const { isConnected } = useNetworkStatus();
 
@@ -624,6 +630,11 @@ export default function ChatThreadScreen({ route }: Props) {
       const trimmedText = text.trim();
       if (!trimmedText || !chat) return;
 
+      if (!canChat) {
+        navigation.navigate('TrialEndPaywall', { source: 'expiry' });
+        return;
+      }
+
       // Offline guard — prevent network-dependent chat when offline
       if (!isConnected) {
         Alert.alert(
@@ -1002,6 +1013,8 @@ export default function ChatThreadScreen({ route }: Props) {
       }
     },
     [
+      canChat,
+      navigation,
       chat,
       chatId,
       currentChatId,
@@ -1178,6 +1191,10 @@ export default function ChatThreadScreen({ route }: Props) {
   // Handle instant save from ChatBubble's embedded save button (new on-tap flow)
   const handleBubbleSave = useCallback(
     async (message: SpaceChatMessage) => {
+      if (!canCreate) {
+        navigation.navigate('TrialEndPaywall', { source: 'expiry' });
+        return;
+      }
       if (__DEV__) {
         console.log('[Chat] Save this pressed:', {
           messageId: message.id,
@@ -1449,6 +1466,8 @@ export default function ChatThreadScreen({ route }: Props) {
       }
     },
     [
+      canCreate,
+      navigation,
       messages,
       spaceId,
       spaceName,

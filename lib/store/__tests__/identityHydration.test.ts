@@ -34,7 +34,16 @@ jest.mock('../../../lib/supabase/client', () => {
       upsert: jest.fn().mockResolvedValue({ error: null }),
     };
   });
-  return { supabase: { from: mockFrom } };
+  return {
+    supabase: {
+      from: mockFrom,
+      auth: {
+        onAuthStateChange: jest
+          .fn()
+          .mockReturnValue({ data: { subscription: { unsubscribe: jest.fn() } } }),
+      },
+    },
+  };
 });
 
 jest.mock('../../../lib/date/DateService', () => ({

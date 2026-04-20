@@ -135,7 +135,13 @@ jest.mock('../../../lib/sweep/useSweepIntroStats', () => ({
 // Mock Supabase client
 jest.mock('../../../lib/supabase/client', () => ({
   __esModule: true,
-  supabase: {},
+  supabase: {
+    auth: {
+      onAuthStateChange: jest
+        .fn()
+        .mockReturnValue({ data: { subscription: { unsubscribe: jest.fn() } } }),
+    },
+  },
 }));
 
 // Mock RepoProvider

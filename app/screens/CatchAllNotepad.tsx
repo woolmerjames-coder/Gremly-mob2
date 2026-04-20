@@ -62,6 +62,9 @@ import {
   useHasCompletedOnboarding,
   useHasCompletedFirstDrop,
   useTrialStartedAt,
+  useIsInChallenge,
+  useChallengeCompleted,
+  useCanCreate,
 } from '../../lib/store/lifecycleSelectors';
 
 import celebrationController from '../features/celebration/CelebrationController';
@@ -1077,6 +1080,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     overlayController,
   } = props;
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const canCreate = useCanCreate();
 
   // Direct store access - no adapter
   const createTodo = useGremlyStore((s) => s.createTodo);
@@ -1109,6 +1113,8 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
   // Training mode state
   const isTrainingMode = useNeedsMindDropTutorial();
+  const isInChallenge = useIsInChallenge();
+  const challengeCompleted = useChallengeCompleted();
   const trainingDropStep = useTrainingDropStep();
   const hasSeenGaugeExplanation = useGremlyStore((s) => s.hasSeenGaugeExplanation);
   const hasSeenFirstFedModal = useGremlyStore((s) => s.hasSeenFirstFedModal);
@@ -1465,7 +1471,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // Training mode: handle speech for guided drops
       const storeState = useGremlyStore.getState();
       if (
-        storeState.isTrainingMode &&
+        !storeState.graduatedAt &&
         storeState.trainingDropStep >= 1 &&
         storeState.trainingDropStep <= 4
       ) {
@@ -1573,7 +1579,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     const unsubscribe = navigation.addListener('focus', () => {
       // Don't fire return speech during training mode
-      if (useGremlyStore.getState().isTrainingMode) return;
+      if (!useGremlyStore.getState().graduatedAt) return;
 
       const ctx = buildSpeechContext('return');
       const speech = getReturnSpeech(ctx);
@@ -2932,6 +2938,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   }, []);
 
   const handleSubmit = useCallback(() => {
+    if (!canCreate) {
+      navigation.navigate('TrialEndPaywall', { source: 'expiry' });
+      return;
+    }
     if (isSubmitting || isThinking || (!note.trim() && pendingPhotoUris.length === 0)) {
       return;
     }
@@ -2954,7 +2964,16 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
     } else {
       void onSubmit();
     }
-  }, [isSubmitting, isThinking, uiMode, note, onSubmit, pendingPhotoUris.length]);
+  }, [
+    canCreate,
+    navigation,
+    isSubmitting,
+    isThinking,
+    uiMode,
+    note,
+    onSubmit,
+    pendingPhotoUris.length,
+  ]);
 
   const legacyUI = React.useMemo(() => {
     const statsVisible = organizedToday > 0;
@@ -3051,8 +3070,13 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
             <Pressable
               onPress={() => {
                 if (isTrainingMode) {
+                  // Pre-graduation: show tutorial variant of TrainingMeter
+                  setShowTrainingMeter(true);
+                } else if (isInChallenge) {
+                  // Graduated but still in 7-fed-days challenge: show challenge variant
                   setShowTrainingMeter(true);
                 } else {
+                  // Seasoned (challenge complete): show help card
                   setHelpInitialPage(undefined);
                   setShowHelp(true);
                 }

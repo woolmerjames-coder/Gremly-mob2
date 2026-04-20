@@ -2907,8 +2907,419 @@ Return ONLY valid JSON matching this exact schema. No markdown, no backticks, no
 - No habits: Skip habit_observation insight.
 - All data sparse: Produce a shorter, genuine summary. Short is better than padded.`;
 
+// ═══════════════════════════════════════════════════════════════════
+// IP-based rate limiting — Phase 6 prep
+// Prevents abuse of ungated AI endpoints (classification, enrichment, etc.)
+// Uses CONTEXT_CACHE KV with per-minute sliding windows.
+// Fails open: if KV is unavailable, the request proceeds.
+// ═══════════════════════════════════════════════════════════════════
+
+async function checkIpRateLimit(request, env, bucket, maxPerMinute) {
+  try {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const minute = Math.floor(Date.now() / 60000);
+    const key = `rate:${bucket}:ip:${ip}:${minute}`;
+
+    const current = await env.CONTEXT_CACHE.get(key);
+    const count = current ? parseInt(current, 10) : 0;
+
+    if (count >= maxPerMinute) {
+      return { allowed: false, count, limit: maxPerMinute };
+    }
+
+    await env.CONTEXT_CACHE.put(key, String(count + 1), { expirationTtl: 120 });
+    return { allowed: true, count: count + 1, limit: maxPerMinute };
+  } catch {
+    // Fail open — don't block requests if KV is down
+    return { allowed: true, count: 0, limit: maxPerMinute };
+  }
+}
+
+function rateLimitResponse(bucket, count, limit) {
+  return new Response(
+    JSON.stringify({
+      error: 'rate_limited',
+      message: 'Too many requests. Please try again in a moment.',
+      bucket,
+      count,
+      limit,
+    }),
+    {
+      status: 429,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Retry-After': '60',
+      },
+    },
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Access control helpers — Phase 4.7
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Check whether a user has access to generative/mutation endpoints.
+ *
+ * Access rules:
+ *   - is_tester=true → always allowed
+ *   - is_subscribed=true → always allowed (set by RevenueCat webhook)
+ *   - challenge_completed_at IS NULL AND within 14 days of trial_started_at → allowed (free window)
+ *   - otherwise → denied (read-only)
+ *
+ * Fails open: if the access check itself errors, returns hasAccess=true so
+ * legit users don't get blocked by transient infrastructure issues.
+ */
+async function checkUserAccess(userId, env) {
+  if (!userId) {
+    return { hasAccess: false, reason: 'missing_user_id' };
+  }
+
+  try {
+    const response = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${userId}&select=is_tester,is_subscribed,trial_started_at,challenge_completed_at`,
+      {
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        },
+      },
+    );
+
+    if (!response.ok) {
+      console.error('[Cortex:access] Fetch failed:', response.status);
+      return { hasAccess: true, reason: 'access_check_failed_fail_open' };
+    }
+
+    const rows = await response.json();
+    const prefs = rows[0];
+
+    if (!prefs) {
+      console.warn('[Cortex:access] No cortex_preferences row for userId:', userId);
+      return { hasAccess: true, reason: 'no_prefs_row_fail_open' };
+    }
+
+    if (prefs.is_tester === true) {
+      return { hasAccess: true, reason: 'tester' };
+    }
+
+    if (prefs.is_subscribed === true) {
+      return { hasAccess: true, reason: 'subscribed' };
+    }
+
+    // Free window: challenge not yet complete AND within 14 days of trial start
+    if (prefs.challenge_completed_at === null && prefs.trial_started_at) {
+      const trialStarted = new Date(prefs.trial_started_at).getTime();
+      const ceilingMs = 14 * 24 * 60 * 60 * 1000;
+      if (Date.now() < trialStarted + ceilingMs) {
+        return { hasAccess: true, reason: 'free_window' };
+      }
+    }
+
+    return { hasAccess: false, reason: 'read_only' };
+  } catch (err) {
+    console.error('[Cortex:access] Check threw:', err);
+    return { hasAccess: true, reason: 'access_check_exception_fail_open' };
+  }
+}
+
+/**
+ * Standard 403 response for read-only users. Client detects this shape
+ * and routes to the paywall screen.
+ */
+function denyAccessResponse(reason) {
+  return new Response(
+    JSON.stringify({
+      error: 'read_only',
+      message: 'Subscription required to use this feature.',
+      reason,
+    }),
+    {
+      status: 403,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    },
+  );
+}
+
+/**
+ * For streaming endpoints (SSE), return a 200 OK response with a single
+ * SSE error event and close. EventSource on the client can't read HTTP
+ * status on connection failure, so we deliver the error via the stream itself.
+ */
+function denyAccessSSEResponse(reason) {
+  const encoder = new TextEncoder();
+  const body = `data: ${JSON.stringify({ error: 'read_only', reason })}\n\n`;
+  return new Response(encoder.encode(body), {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RevenueCat webhook handler — Phase 4.7
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Receives RevenueCat webhook events and updates is_subscribed on cortex_preferences.
+ *
+ * RevenueCat sends Authorization: Bearer <shared-secret>. We verify against
+ * env.REVENUECAT_WEBHOOK_SECRET and reject on mismatch.
+ *
+ * Events we care about:
+ *   - INITIAL_PURCHASE, RENEWAL, NON_RENEWING_PURCHASE → set is_subscribed=true
+ *   - CANCELLATION → no change yet (user still has access until expiration)
+ *   - EXPIRATION → set is_subscribed=false
+ *   - PRODUCT_CHANGE → set is_subscribed=true (still has an active entitlement)
+ *   - BILLING_ISSUE → no change (user temporarily in grace period)
+ *   - SUBSCRIPTION_EXTENDED → no change (still subscribed)
+ *   - TRANSFER → set is_subscribed=true for new user, false for old
+ *
+ * For any event we don't explicitly handle, we just log and return 200.
+ */
+async function handleRevenueCatWebhook(request, env) {
+  // 1. Verify shared secret
+  const authHeader = request.headers.get('Authorization');
+  const expected = `Bearer ${env.REVENUECAT_WEBHOOK_SECRET}`;
+
+  if (!env.REVENUECAT_WEBHOOK_SECRET) {
+    console.error('[Cortex:rc-webhook] REVENUECAT_WEBHOOK_SECRET not configured');
+    return new Response('Webhook secret not configured', { status: 500 });
+  }
+
+  if (authHeader !== expected) {
+    console.warn('[Cortex:rc-webhook] Invalid Authorization header');
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  // 2. Parse body
+  let body;
+  try {
+    body = await request.json();
+  } catch (err) {
+    console.error('[Cortex:rc-webhook] Invalid JSON body:', err);
+    return new Response('Invalid body', { status: 400 });
+  }
+
+  const event = body.event;
+  if (!event) {
+    console.error('[Cortex:rc-webhook] Missing event payload');
+    return new Response('Missing event', { status: 400 });
+  }
+
+  const eventType = event.type;
+  const appUserId = event.app_user_id;
+
+  if (!appUserId) {
+    console.warn('[Cortex:rc-webhook] Missing app_user_id, ignoring');
+    return new Response('OK', { status: 200 });
+  }
+
+  console.log(`[Cortex:rc-webhook] ${eventType} for user ${appUserId}`);
+
+  // 3. Determine new is_subscribed state based on event type
+  let newSubscribedState = null; // null = no change
+
+  switch (eventType) {
+    case 'INITIAL_PURCHASE':
+    case 'RENEWAL':
+    case 'NON_RENEWING_PURCHASE':
+    case 'PRODUCT_CHANGE':
+    case 'UNCANCELLATION':
+      newSubscribedState = true;
+      break;
+    case 'EXPIRATION':
+      newSubscribedState = false;
+      break;
+    case 'TRANSFER':
+      // Handle transfer separately — update both old and new user IDs
+      await handleTransferEvent(event, env);
+      return new Response('OK', { status: 200 });
+    case 'CANCELLATION':
+    case 'BILLING_ISSUE':
+    case 'SUBSCRIPTION_EXTENDED':
+    case 'SUBSCRIPTION_PAUSED':
+    case 'TEST':
+      // No state change needed
+      console.log(`[Cortex:rc-webhook] ${eventType}: no state change`);
+      return new Response('OK', { status: 200 });
+    default:
+      console.warn(`[Cortex:rc-webhook] Unknown event type: ${eventType}`);
+      return new Response('OK', { status: 200 });
+  }
+
+  if (newSubscribedState === null) {
+    return new Response('OK', { status: 200 });
+  }
+
+  // 4. Update cortex_preferences
+  try {
+    const response = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${appUserId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({ is_subscribed: newSubscribedState }),
+      },
+    );
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`[Cortex:rc-webhook] Supabase update failed: ${response.status} ${errText}`);
+      return new Response('OK', { status: 200 });
+    }
+
+    console.log(`[Cortex:rc-webhook] is_subscribed=${newSubscribedState} for ${appUserId}`);
+    return new Response('OK', { status: 200 });
+  } catch (err) {
+    console.error('[Cortex:rc-webhook] Update threw:', err);
+    return new Response('OK', { status: 200 });
+  }
+}
+
+async function handleTransferEvent(event, env) {
+  const oldUserId = event.transferred_from?.[0];
+  const newUserId = event.transferred_to?.[0];
+
+  if (oldUserId) {
+    await fetch(`${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${oldUserId}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ is_subscribed: false }),
+    });
+  }
+
+  if (newUserId) {
+    await fetch(`${env.SUPABASE_URL}/rest/v1/cortex_preferences?owner_id=eq.${newUserId}`, {
+      method: 'PATCH',
+      headers: {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ is_subscribed: true }),
+    });
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// JWT verification (Phase 6.2)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Verify Supabase JWT using HS256 shared secret.
+ * Returns the verified payload { sub, email, ... } or null if invalid/expired.
+ */
+async function verifyJWT(token, secret) {
+  if (!token || !secret) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const [headerB64, payloadB64, signatureB64] = parts;
+
+    // Decode header to check algorithm
+    const header = JSON.parse(atob(headerB64.replace(/-/g, '+').replace(/_/g, '/')));
+    if (header.alg !== 'HS256') return null;
+
+    // Verify signature
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+    const signatureBytes = Uint8Array.from(
+      atob(signatureB64.replace(/-/g, '+').replace(/_/g, '/')),
+      (c) => c.charCodeAt(0),
+    );
+    const signedData = encoder.encode(`${headerB64}.${payloadB64}`);
+    const valid = await crypto.subtle.verify('HMAC', key, signatureBytes, signedData);
+    if (!valid) return null;
+
+    // Decode payload
+    const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+
+    // Check expiry
+    if (payload.exp && Date.now() / 1000 > payload.exp) return null;
+
+    return payload;
+  } catch (err) {
+    console.warn('[verifyJWT] Verification failed:', err?.message ?? err);
+    return null;
+  }
+}
+
+/**
+ * Extract authenticated user ID from incoming request's Authorization header.
+ * Returns the user UUID from the JWT's sub claim, or null if no valid auth.
+ */
+async function extractAuthenticatedUserId(request, env) {
+  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization');
+  if (!authHeader) return null;
+
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+
+  const token = match[1].trim();
+  const payload = await verifyJWT(token, env.SUPABASE_JWT_SECRET);
+  return payload?.sub ?? null;
+}
+
+function unauthorizedResponse() {
+  return new Response(
+    JSON.stringify({ error: 'unauthorized', message: 'Invalid or missing session' }),
+    {
+      status: 401,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    },
+  );
+}
+
+function unauthorizedSSEResponse() {
+  return new Response(
+    JSON.stringify({ error: 'unauthorized', message: 'Invalid or missing session' }),
+    {
+      status: 401,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    },
+  );
+}
+
 export default {
   async fetch(request, env, ctx) {
+    // --- URL-based routing (Phase 4.7) ---
+    const url = new URL(request.url);
+
+    // RevenueCat webhook endpoint
+    if (url.pathname === '/revenuecat-webhook' && request.method === 'POST') {
+      return handleRevenueCatWebhook(request, env);
+    }
+
     // --- CORS preflight ---
     if (request.method === 'OPTIONS') {
       return new Response(null, {
@@ -2918,6 +3329,57 @@ export default {
           'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         },
       });
+    }
+
+    // Route: POST /api/challenge-completed
+    // Auth: JWT required (Phase 6.3)
+    // Proxies to Inngest worker's /api/challenge-completed endpoint
+    if (url.pathname === '/api/challenge-completed' && request.method === 'POST') {
+      const authenticatedUserId = await extractAuthenticatedUserId(request, env);
+      if (!authenticatedUserId) {
+        return unauthorizedResponse();
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return new Response(JSON.stringify({ error: 'invalid_json' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Security: force user_id to match authenticated user, regardless of body claim
+      const forwardBody = {
+        ...body,
+        user_id: authenticatedUserId,
+      };
+
+      try {
+        const inngestRes = await fetch(`${env.INNGEST_WORKER_URL}/api/challenge-completed`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-key': env.INNGEST_ADMIN_KEY,
+          },
+          body: JSON.stringify(forwardBody),
+        });
+
+        const text = await inngestRes.text();
+        return new Response(text, {
+          status: inngestRes.status,
+          headers: {
+            'Content-Type': inngestRes.headers.get('Content-Type') ?? 'application/json',
+          },
+        });
+      } catch (err) {
+        console.error('[challenge-completed proxy] Forward failed:', err);
+        return new Response(JSON.stringify({ error: 'forward_failed' }), {
+          status: 502,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     try {
@@ -2936,6 +3398,37 @@ export default {
       const isHabitBuilderStreaming = wantsStreaming && type === 'habit-builder';
 
       // =========================
+      // JWT Authentication Gate (Phase 6.2)
+      // Routes that access user-specific data require a valid session JWT.
+      // Classification, enrichment, and other stateless routes stay open.
+      // =========================
+      const AUTH_REQUIRED_TYPES = new Set([
+        'general-greeting',
+        'habit-builder',
+        'entity-chat',
+        'organize-day',
+        'weekly-summary',
+      ]);
+      const AUTH_REQUIRED_LANES = new Set(['space_chat', 'general_chat']);
+
+      const needsAuth = AUTH_REQUIRED_TYPES.has(type) || (lane && AUTH_REQUIRED_LANES.has(lane));
+
+      let authenticatedUserId = null;
+      if (needsAuth) {
+        authenticatedUserId = await extractAuthenticatedUserId(request, env);
+        if (!authenticatedUserId) {
+          console.warn(
+            `[AUTH] Rejected unauthenticated request: type=${type}, lane=${lane}, ip=${request.headers.get('CF-Connecting-IP')}`,
+          );
+          // Use SSE-friendly response for streaming routes so client doesn't open a dead stream
+          if (wantsStreaming) {
+            return unauthorizedSSEResponse();
+          }
+          return unauthorizedResponse();
+        }
+      }
+
+      // =========================
       // Timezone resolution (single source of truth per request)
       // Three-tier fallback: client body → user_profiles → UTC
       // =========================
@@ -2946,10 +3439,12 @@ export default {
         }
 
         // Client didn't send timezone — read from stored profile
-        if (reqBody?.userId && reqEnv?.SUPABASE_URL) {
+        // Prefer verified JWT userId when available, fall back to body.userId for non-auth routes
+        const tzUserId = authenticatedUserId || reqBody?.userId;
+        if (tzUserId && reqEnv?.SUPABASE_URL) {
           try {
             const res = await fetch(
-              `${reqEnv.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${reqBody.userId}&select=timezone`,
+              `${reqEnv.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${tzUserId}&select=timezone`,
               {
                 headers: {
                   apikey: reqEnv.SUPABASE_SERVICE_KEY,
@@ -2970,7 +3465,7 @@ export default {
         }
 
         console.warn('[Timezone] Falling back to UTC — no client value, no profile value', {
-          userId: reqBody?.userId?.slice(0, 8) || 'unknown',
+          userId: (authenticatedUserId || reqBody?.userId)?.slice(0, 8) || 'unknown',
         });
         return 'UTC';
       }
@@ -3747,8 +4242,14 @@ After the user confirms and locks in a habit, check the existing habits listed i
       // === GENERAL GREETING ===
       // =========================
       if (type === 'general-greeting') {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
         try {
-          const dailyFocus = await getDailyFocusForChat(body.userId, env, userTimezone);
+          const dailyFocus = await getDailyFocusForChat(authenticatedUserId, env, userTimezone);
           const now = new Date();
           const timeStr = new Intl.DateTimeFormat('en-US', {
             hour: 'numeric',
@@ -3824,23 +4325,31 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
       // === HABIT BUILDER CHAT ===
       // =========================
       if (type === 'habit-builder') {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return wantsStreaming
+            ? denyAccessSSEResponse(access.reason)
+            : denyAccessResponse(access.reason);
+        }
+
         const messages = Array.isArray(body.messages) ? body.messages : [];
         const context = body.context || {};
 
         // Load user profile and session context (same as entity chat)
         let userProfileContext = '';
         let habitTodayActivity = null;
-        if (body.userId) {
+        if (authenticatedUserId) {
           try {
             const [chatContext, profile, todayAct] = await Promise.all([
               buildChatContext(
-                body.userId,
+                authenticatedUserId,
                 'habit_builder',
                 { timezone: userTimezone, currentChatId: body.chatId || null },
                 env,
               ),
-              getUserProfile(body.userId, env),
-              buildTodayActivity(body.userId, userTimezone, env),
+              getUserProfile(authenticatedUserId, env),
+              buildTodayActivity(authenticatedUserId, userTimezone, env),
             ]);
             const ageInfo = getAgeGuidance(profile?.relationshipStartedAt, profile?.signals);
 
@@ -3911,8 +4420,8 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
 
         let preParse = null;
         try {
-          const lifeMap = await getLifeMapForChat(body.userId, env);
-          const dailyFocus = await getDailyFocusForChat(body.userId, env);
+          const lifeMap = await getLifeMapForChat(authenticatedUserId, env);
+          const dailyFocus = await getDailyFocusForChat(authenticatedUserId, env);
           const compressedLifeMap = compressLifeMapForHabits(lifeMap, dailyFocus);
 
           preParse = await habitPreParse(
@@ -4368,6 +4877,14 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
       // Scoped chat for individual entities (todos, habits, notes)
       // =========================
       if (type === 'entity-chat') {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return wantsStreaming
+            ? denyAccessSSEResponse(access.reason)
+            : denyAccessResponse(access.reason);
+        }
+
         const entity = body.entity || {};
         const messages = Array.isArray(body.messages) ? body.messages : [];
         const preset = body.preset || null;
@@ -4666,11 +5183,11 @@ Almost never suggest creating a Space. Only if ALL true:
               let cachedDomains = [];
               let entityTodayActivity = null;
               const previousExchange = extractPreviousExchange(messages);
-              if (body.userId) {
+              if (authenticatedUserId) {
                 try {
                   const [chatContext, profile, domains, todayAct] = await Promise.all([
                     buildChatContext(
-                      body.userId,
+                      authenticatedUserId,
                       'entity',
                       {
                         entityTitle: entity?.title || entity?.name || null,
@@ -4680,9 +5197,9 @@ Almost never suggest creating a Space. Only if ALL true:
                       },
                       env,
                     ),
-                    getUserProfile(body.userId, env),
-                    getCachedDomainNames(body.userId, env),
-                    buildTodayActivity(body.userId, userTimezone, env),
+                    getUserProfile(authenticatedUserId, env),
+                    getCachedDomainNames(authenticatedUserId, env),
+                    buildTodayActivity(authenticatedUserId, userTimezone, env),
                   ]);
                   sessionContextStr = chatContext;
                   userProfile = profile;
@@ -4690,7 +5207,7 @@ Almost never suggest creating a Space. Only if ALL true:
                   entityTodayActivity = todayAct;
                   if (sessionContextStr || userProfile) {
                     console.log('[EntityChat] Context loaded', {
-                      userId: body.userId.slice(0, 8),
+                      userId: authenticatedUserId.slice(0, 8),
                       sessionContextLength: sessionContextStr?.length || 0,
                       hasUserProfile: !!userProfile,
                     });
@@ -5315,7 +5832,7 @@ Almost never suggest creating a Space. Only if ALL true:
                 });
 
                 // ── POST-STREAM: Update entity chat summary (non-blocking) ──
-                if (body.userId && fullContent) {
+                if (authenticatedUserId && fullContent) {
                   const entity = body.entity || {};
                   const entityId = entity.id || null;
                   const entityType = entity.type || null;
@@ -5403,11 +5920,11 @@ Almost never suggest creating a Space. Only if ALL true:
         let cachedDomains = [];
         let entityTodayActivity = null;
         const previousExchange = extractPreviousExchange(messages);
-        if (body.userId) {
+        if (authenticatedUserId) {
           try {
             const [chatContext, profile, domains, todayAct] = await Promise.all([
               buildChatContext(
-                body.userId,
+                authenticatedUserId,
                 'entity',
                 {
                   entityTitle: entity?.title || entity?.name || null,
@@ -5417,9 +5934,9 @@ Almost never suggest creating a Space. Only if ALL true:
                 },
                 env,
               ),
-              getUserProfile(body.userId, env),
-              getCachedDomainNames(body.userId, env),
-              buildTodayActivity(body.userId, userTimezone, env),
+              getUserProfile(authenticatedUserId, env),
+              getCachedDomainNames(authenticatedUserId, env),
+              buildTodayActivity(authenticatedUserId, userTimezone, env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
@@ -5630,7 +6147,7 @@ Almost never suggest creating a Space. Only if ALL true:
           });
 
           // ── POST-RESPONSE: Update entity chat summary (non-blocking) ──
-          if (body.userId && content) {
+          if (authenticatedUserId && content) {
             const entity = body.entity || {};
             const entityId = entity.id || null;
             const entityType = entity.type || null;
@@ -6328,6 +6845,12 @@ Return ONLY valid JSON:
       // - Better multi-constraint reasoning for 20-50+ tasks
       // =========================
       if (type === 'organize-day') {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
         const tasks = Array.isArray(body.tasks) ? body.tasks : [];
         const calendarEvents = Array.isArray(body.calendarEvents) ? body.calendarEvents : [];
         const blocks = body.blocks || {};
@@ -6344,7 +6867,7 @@ Return ONLY valid JSON:
           }).format(new Date());
           currentHour = parseInt(hourStr, 10);
         }
-        const userId = body.userId || null;
+        const userId = authenticatedUserId;
 
         // === Expanded context (new in v2.0) ===
         const userPatterns = body.userPatterns || null;
@@ -6881,6 +7404,9 @@ Schedule these tasks now. Respond with ONLY valid JSON.`;
       // v2.9: Added extracted_days, fixed frequency parsing
       // =========================
       if (type === 'space-chat-save') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const userMessage = body.userMessage || '';
         const assistantMessage = body.assistantMessage || '';
         const spaceName = body.spaceName || '';
@@ -7180,6 +7706,9 @@ ${assistantMessage.substring(0, 2000)}
       // === WEEKLY SUMMARY (v1.0) ===
       // =========================
       if (type === 'weekly-summary') {
+        const rl = await checkIpRateLimit(request, env, 'misc', 30);
+        if (!rl.allowed) return rateLimitResponse('misc', rl.count, rl.limit);
+
         const t0 = Date.now();
         const { payload, trendContext } = body;
 
@@ -7294,6 +7823,9 @@ ${assistantMessage.substring(0, 2000)}
       // Generate a comprehensive summary from ALL chat messages at save time
       // =========================
       if (type === 'chat-full-summary') {
+        const rl = await checkIpRateLimit(request, env, 'misc', 30);
+        if (!rl.allowed) return rateLimitResponse('misc', rl.count, rl.limit);
+
         const chatId = body.chatId;
         if (!chatId) return j({ error: 'missing_chatId' }, 400);
 
@@ -7374,6 +7906,9 @@ SUMMARY:`;
       // Voice-to-text via OpenAI Whisper
       // =========================
       if (type === 'transcribe') {
+        const rl = await checkIpRateLimit(request, env, 'transcribe', 20);
+        if (!rl.allowed) return rateLimitResponse('transcribe', rl.count, rl.limit);
+
         const audio = body.audio;
         const format = body.format || 'm4a';
 
@@ -7486,6 +8021,9 @@ SUMMARY:`;
       // === SWEEP HEADLINE: DCO-aware celebration one-liner ===
       // =========================
       if (type === 'sweep-headline') {
+        const rl = await checkIpRateLimit(request, env, 'misc', 30);
+        if (!rl.allowed) return rateLimitResponse('misc', rl.count, rl.limit);
+
         const {
           tone,
           lifeMoment,
@@ -7553,6 +8091,9 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
       // Extracts linguistic facts WITHOUT classifying
       // =========================
       if (type === 'classify-preparse') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const text = body.text || '';
 
         if (!text.trim()) {
@@ -7582,6 +8123,9 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
       // Runs preparse, applies heuristics, falls back to Phase 1 AI if needed
       // =========================
       if (type === 'classify-phase1-v2') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const text = body.text || '';
         const hasAttachments = body.hasAttachments || false;
         const t0 = Date.now();
@@ -7855,6 +8399,9 @@ Completed: ${todosCompleted || 0} todos, ${habitsCompleted || 0} habits, ${event
       // One mini call handles both detection and extraction
       // =========================
       if (type === 'detect-multi') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const text = body.text || '';
         const t0 = Date.now();
 
@@ -7992,6 +8539,9 @@ Segment rules:
       // === PHASE 1.5: CLARIFY AMBIGUITY ===
       // =========================
       if (type === 'clarify-ambiguity') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const text = body.text || '';
         const ambiguityType = body.ambiguityType || 'bucket';
         const ambiguityReason = body.ambiguityReason || '';
@@ -8300,6 +8850,9 @@ Labels array must have exactly ${optionCount} items.`;
       // Generates updated title + confirmation message after user clarifies intent
       // =========================
       if (type === 'reclassify-after-clarification') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const text = body.text || '';
         const selectedLabel = body.selectedLabel || '';
         const selectedBucket = body.selectedBucket || null;
@@ -8516,6 +9069,9 @@ If no date in input, all date fields are null.
       // === PHASE 1 CLASSIFICATION (v4.1 - NOW INCLUDES TITLE + MESSAGE) ===
       // =========================
       if (type === 'classify-phase1') {
+        const rl = await checkIpRateLimit(request, env, 'classify', 60);
+        if (!rl.allowed) return rateLimitResponse('classify', rl.count, rl.limit);
+
         const text = body.text || '';
         const hasAttachments = body.hasAttachments || false;
         const heuristicHint = body.heuristicHint || null;
@@ -9104,6 +9660,9 @@ Rules:
       // Runs after Phase 1 for non-ambiguous items
       // =========================
       if (type === 'enrich-phase1-5a') {
+        const rl = await checkIpRateLimit(request, env, 'enrich', 30);
+        if (!rl.allowed) return rateLimitResponse('enrich', rl.count, rl.limit);
+
         const text = body.text || '';
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
@@ -9437,6 +9996,9 @@ Return ONLY valid JSON:
       // Title and message now come from Phase 1
       // Phase 2 only extracts: tags, time, dates, frequency, days, people, mood
       if (type === 'enrich-phase2') {
+        const rl = await checkIpRateLimit(request, env, 'enrich', 30);
+        if (!rl.allowed) return rateLimitResponse('enrich', rl.count, rl.limit);
+
         const text = body.text || '';
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
@@ -10221,6 +10783,9 @@ For LOGS (event):
 
       // --- PHASE 2B: AUTO-REMINDER DETECTION (standalone, lightweight) ---
       if (type === 'enrich-phase2b') {
+        const rl = await checkIpRateLimit(request, env, 'enrich', 30);
+        if (!rl.allowed) return rateLimitResponse('enrich', rl.count, rl.limit);
+
         const text = body.text || '';
         const bucket = body.bucket || 'log';
         const subtype = body.subtype || null;
@@ -10367,6 +10932,9 @@ Return ONLY valid JSON, no explanation:
       // ═══════════════════════════════════════════════════════════════════════════
 
       if (type === 'journal-analyze') {
+        const rl = await checkIpRateLimit(request, env, 'misc', 30);
+        if (!rl.allowed) return rateLimitResponse('misc', rl.count, rl.limit);
+
         const entries = body.entries || [];
         const timezone = userTimezone;
 
@@ -10565,6 +11133,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       // STREAMING RESPONSE FOR SPACE CHAT
       // ============================================================================
       if (isSpaceChatStreaming && isSpaceChatLane) {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessSSEResponse(access.reason);
+        }
+
         console.log('[SpaceChat:Streaming] Starting SSE stream');
 
         const lastUserMsgSpace = messages.filter((m) => m.role === 'user').pop()?.content || '';
@@ -10662,11 +11236,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             let cachedDomains = [];
             let spaceEntities = null;
             let spaceTodayActivity = null;
-            if (body.userId) {
+            if (authenticatedUserId) {
               try {
                 const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
                   buildChatContext(
-                    body.userId,
+                    authenticatedUserId,
                     'space',
                     {
                       spaceId: body.spaceId,
@@ -10675,10 +11249,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     },
                     env,
                   ),
-                  getUserProfile(body.userId, env),
-                  getCachedDomainNames(body.userId, env),
-                  fetchSpaceEntities(body.userId, body.spaceId, env),
-                  buildTodayActivity(body.userId, userTimezone, env),
+                  getUserProfile(authenticatedUserId, env),
+                  getCachedDomainNames(authenticatedUserId, env),
+                  fetchSpaceEntities(authenticatedUserId, body.spaceId, env),
+                  buildTodayActivity(authenticatedUserId, userTimezone, env),
                 ]);
                 spaceSessionContextStr = chatContext;
                 spaceUserProfile = profile;
@@ -10687,7 +11261,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 spaceTodayActivity = todayAct;
                 if (spaceSessionContextStr || spaceUserProfile) {
                   console.log('[SpaceChat] Context loaded', {
-                    userId: body.userId.slice(0, 8),
+                    userId: authenticatedUserId.slice(0, 8),
                     sessionContextLength: spaceSessionContextStr?.length || 0,
                     hasUserProfile: !!spaceUserProfile,
                     hasSpaceEntities: !!spaceEntities,
@@ -11195,7 +11769,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               });
 
               // ── POST-STREAM: Update running summary (non-blocking) ──
-              if (body.chatId && body.userId && fullContent) {
+              if (body.chatId && authenticatedUserId && fullContent) {
                 const summaryPromise = (async () => {
                   try {
                     const prevSummaryRes = await fetch(
@@ -11273,6 +11847,12 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       // GENERAL CHAT (ASK GREMLY) STREAMING
       // ============================================================================
       if (isGeneralChatStreaming && isGeneralChatLane) {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessSSEResponse(access.reason);
+        }
+
         console.log('[GeneralChat:Streaming] Starting SSE stream');
 
         const lastUserMsg = messages.filter((m) => m.role === 'user').pop()?.content || '';
@@ -11332,18 +11912,18 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             let userProfile = null;
             let cachedDomains = [];
             let generalTodayActivity = null;
-            if (body.userId) {
+            if (authenticatedUserId) {
               try {
                 const [chatContext, profile, domains, todayAct] = await Promise.all([
                   buildChatContext(
-                    body.userId,
+                    authenticatedUserId,
                     'general',
                     { timezone: userTimezone, currentChatId: body.chatId || null },
                     env,
                   ),
-                  getUserProfile(body.userId, env),
-                  getCachedDomainNames(body.userId, env),
-                  buildTodayActivity(body.userId, userTimezone, env),
+                  getUserProfile(authenticatedUserId, env),
+                  getCachedDomainNames(authenticatedUserId, env),
+                  buildTodayActivity(authenticatedUserId, userTimezone, env),
                 ]);
                 sessionContextStr = chatContext;
                 userProfile = profile;
@@ -11351,7 +11931,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 generalTodayActivity = todayAct;
                 if (sessionContextStr || userProfile) {
                   console.log('[GeneralChat] Context loaded', {
-                    userId: body.userId.slice(0, 8),
+                    userId: authenticatedUserId.slice(0, 8),
                     contextLength: sessionContextStr?.length || 0,
                     hasProfile: !!userProfile,
                   });
@@ -11716,7 +12296,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               });
 
               // Running summary (fire-and-forget)
-              if (body.chatId && body.userId && fullContent) {
+              if (body.chatId && authenticatedUserId && fullContent) {
                 const summaryPromise = (async () => {
                   try {
                     const prevSummaryRes = await fetch(
@@ -11777,11 +12357,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         { headers: supaHeaders },
                       ),
                       fetch(
-                        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${body.userId}&completed_at=is.null&select=title&limit=50`,
+                        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${authenticatedUserId}&completed_at=is.null&select=title&limit=50`,
                         { headers: supaHeaders },
                       ),
                       fetch(
-                        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${body.userId}&archived_at=is.null&select=title,frequency&limit=30`,
+                        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${authenticatedUserId}&archived_at=is.null&select=title,frequency&limit=30`,
                         { headers: supaHeaders },
                       ),
                     ]);
@@ -11902,7 +12482,7 @@ Return ONLY valid JSON:
                         const eventExtractions = (extractResult.extractions || []).filter(
                           (e) => e.type === 'event' && e.title,
                         );
-                        if (eventExtractions.length > 0 && body.userId) {
+                        if (eventExtractions.length > 0 && authenticatedUserId) {
                           const confidenceRank = { exact: 3, approximate: 2, unknown: 1 };
                           const supaHeaders = {
                             apikey: env.SUPABASE_SERVICE_KEY,
@@ -11913,7 +12493,7 @@ Return ONLY valid JSON:
 
                           // Fetch existing active anchors for dedup
                           const existingRes = await fetch(
-                            `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?user_id=eq.${body.userId}&status=eq.active&select=id,title,date_confidence`,
+                            `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?user_id=eq.${authenticatedUserId}&status=eq.active&select=id,title,date_confidence`,
                             { headers: supaHeaders },
                           );
                           const existingAnchors = existingRes.ok ? await existingRes.json() : [];
@@ -11964,7 +12544,7 @@ Return ONLY valid JSON:
                                 method: 'POST',
                                 headers: supaHeaders,
                                 body: JSON.stringify({
-                                  user_id: body.userId,
+                                  user_id: authenticatedUserId,
                                   title: evt.title,
                                   description: evt.body || null,
                                   category: 'event',
@@ -12050,17 +12630,23 @@ Return ONLY valid JSON:
       // SPACE CHAT NON-STREAMING — triage-based pipeline
       // ===================================================================
       if (isSpaceChatLane) {
+        // Access gate — Phase 4.7
+        const access = await checkUserAccess(authenticatedUserId, env);
+        if (!access.hasAccess) {
+          return denyAccessResponse(access.reason);
+        }
+
         // --- Context loading (session + profile) ---
         let sessionContextStr = '';
         let userProfile = null;
         let cachedDomains = [];
         let spaceEntities = null;
         let spaceTodayActivity = null;
-        if (body.userId) {
+        if (authenticatedUserId) {
           try {
             const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
               buildChatContext(
-                body.userId,
+                authenticatedUserId,
                 'space',
                 {
                   spaceId: body.spaceId,
@@ -12069,10 +12655,10 @@ Return ONLY valid JSON:
                 },
                 env,
               ),
-              getUserProfile(body.userId, env),
-              getCachedDomainNames(body.userId, env),
-              fetchSpaceEntities(body.userId, body.spaceId, env),
-              buildTodayActivity(body.userId, userTimezone, env),
+              getUserProfile(authenticatedUserId, env),
+              getCachedDomainNames(authenticatedUserId, env),
+              fetchSpaceEntities(authenticatedUserId, body.spaceId, env),
+              buildTodayActivity(authenticatedUserId, userTimezone, env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
@@ -12081,7 +12667,7 @@ Return ONLY valid JSON:
             spaceTodayActivity = todayAct;
             if (sessionContextStr || userProfile) {
               console.log('[SpaceChat:NonStreaming] Context loaded', {
-                userId: body.userId.slice(0, 8),
+                userId: authenticatedUserId.slice(0, 8),
                 sessionContextLength: sessionContextStr?.length || 0,
                 hasUserProfile: !!userProfile,
                 hasSpaceEntities: !!spaceEntities,
@@ -12244,7 +12830,7 @@ Return ONLY valid JSON:
         });
 
         // ── POST-RESPONSE: Update running summary (non-blocking) ──
-        if (body.chatId && body.userId && content) {
+        if (body.chatId && authenticatedUserId && content) {
           const summaryPromise = (async () => {
             try {
               const prevSummaryRes = await fetch(
@@ -12290,6 +12876,9 @@ Return ONLY valid JSON:
       // ===================================================================
       // NON-SPACE-CHAT PATH (classify, entity-chat fallback, etc.)
       // ===================================================================
+      const rlFallback = await checkIpRateLimit(request, env, 'misc', 30);
+      if (!rlFallback.allowed) return rateLimitResponse('misc', rlFallback.count, rlFallback.limit);
+
       const lastUserMsgNonStream = messages.filter((m) => m.role === 'user').pop()?.content || '';
 
       const nonStreamModel = actualModel;

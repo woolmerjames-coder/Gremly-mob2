@@ -82,12 +82,14 @@ jest.useRealTimers();
 // Mock @sentry/react-native (ESM package that Jest can't transform)
 jest.mock('@sentry/react-native', () => ({
   init: jest.fn(),
-  wrap: jest.fn((component: unknown) => component),
-  setUser: jest.fn(),
+  wrap: (component: any) => component,
   captureException: jest.fn(),
   captureMessage: jest.fn(),
+  setUser: jest.fn(),
   addBreadcrumb: jest.fn(),
-  withScope: jest.fn(),
+  mobileReplayIntegration: jest.fn(() => ({})),
+  reactNativeTracingIntegration: jest.fn(() => ({})),
+  getGlobalScope: jest.fn(() => ({ setTag: jest.fn() })),
 }));
 
 // Mock expo-constants to avoid expo-modules-core EventEmitter issues

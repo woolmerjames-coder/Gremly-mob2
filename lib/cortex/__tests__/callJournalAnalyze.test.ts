@@ -15,6 +15,12 @@ const originalEnv = { ...process.env };
 const mockFetch = jest.fn();
 (global as any).fetch = mockFetch;
 
+// Mock getSessionToken to return a test JWT
+jest.mock('../getSessionToken', () => ({
+  getSessionToken: jest.fn().mockResolvedValue('test-session-jwt'),
+  getSessionTokenSync: jest.fn().mockReturnValue('test-session-jwt'),
+}));
+
 // We need to test the exported function, so we configure env before import
 beforeEach(() => {
   jest.clearAllMocks();
@@ -22,7 +28,6 @@ beforeEach(() => {
   // Provide a valid CORTEX_URL and disable AI disabled flag
   process.env.EXPO_PUBLIC_CORTEX_URL = 'https://cortex.test/api';
   process.env.EXPO_PUBLIC_DISABLE_AI = '';
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
 });
 
 afterEach(() => {
@@ -43,7 +48,9 @@ describe('callJournalAnalyze', () => {
   const sampleResponse = {
     analysis: {
       themes: [{ label: 'Work', description: 'Work related', mood_tendency: 'mixed', count: 2 }],
-      patterns: [{ label: 'Routine', description: 'Regular journaling', sentiment: 'positive' as const }],
+      patterns: [
+        { label: 'Routine', description: 'Regular journaling', sentiment: 'positive' as const },
+      ],
       journaling_habits: {
         frequency: 'daily',
         preferred_time: 'evening' as const,
@@ -106,16 +113,13 @@ describe('callJournalAnalyze', () => {
       });
 
       const { callJournalAnalyze } = getModule();
-      await callJournalAnalyze(
-        [{ date: '2026-02-01', body: longBody, mood: [] }],
-        'UTC',
-      );
+      await callJournalAnalyze([{ date: '2026-02-01', body: longBody, mood: [] }], 'UTC');
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.entries[0].body.length).toBe(500);
     });
 
-    it('includes authorization headers when anon key is set', async () => {
+    it('includes authorization headers when session token is available', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve(sampleResponse),
@@ -125,8 +129,7 @@ describe('callJournalAnalyze', () => {
       await callJournalAnalyze(sampleEntries, 'UTC');
 
       const headers = mockFetch.mock.calls[0][1].headers;
-      expect(headers.Authorization).toBe('Bearer test-anon-key');
-      expect(headers.apikey).toBe('test-anon-key');
+      expect(headers.Authorization).toBe('Bearer test-session-jwt');
     });
 
     it('uses AbortController for timeout signal', async () => {

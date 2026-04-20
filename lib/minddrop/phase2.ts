@@ -16,6 +16,7 @@ import { parseFrequencyString } from '../habits/frequencyUtils';
 import { extractSpacePattern, findSpaceByName } from './spacePatterns';
 import { supabase } from '../supabase/client';
 import { calculateBuffers } from '../planning';
+import { getSessionToken } from '../cortex/getSessionToken';
 
 // --- Types ---
 
@@ -69,12 +70,6 @@ const sanitizeViews = (views: Record<string, any> | undefined): Record<string, a
   return sanitized;
 };
 
-const readSupabaseAnonKey = (): string => {
-  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
-  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
-  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
-};
-
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -95,10 +90,10 @@ async function callEnrichAPI(
   subtype: LogSubtype | null,
 ): Promise<Phase2Result | null> {
   const cortexUrl = readCortexUrl();
-  const anonKey = readSupabaseAnonKey();
+  const sessionToken = await getSessionToken();
 
-  if (!cortexUrl || !anonKey) {
-    console.log('[Phase2] Missing cortex URL or anon key');
+  if (!cortexUrl) {
+    console.log('[Phase2] Missing cortex URL');
     return null;
   }
 
@@ -123,7 +118,7 @@ async function callEnrichAPI(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${anonKey}`,
+        ...(sessionToken && { Authorization: `Bearer ${sessionToken}` }),
       },
       body: JSON.stringify({
         type: 'enrich-phase2',

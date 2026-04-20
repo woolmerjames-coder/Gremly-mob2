@@ -1,9 +1,7 @@
-// Learn more: https://docs.expo.dev/guides/customizing-metro/
-const { getDefaultConfig } = require('expo/metro-config');
-const { withSentryConfig } = require('@sentry/react-native/metro');
+const { getSentryExpoConfig } = require('@sentry/react-native/metro');
 
 /** @type {import('expo/metro-config').MetroConfig} */
-const config = getDefaultConfig(__dirname);
+const config = getSentryExpoConfig(__dirname);
 
 // Configure SVG transformer
 config.transformer = {
@@ -18,8 +16,4 @@ config.resolver = {
   sourceExts: [...new Set([...config.resolver.sourceExts, 'svg'])],
 };
 
-// Use project-local cache to avoid system temp folder permission issues
-config.cacheStores = [];
-config.fileMapCacheDirectory = './.metro-cache';
-
-module.exports = withSentryConfig(config);
+module.exports = config;

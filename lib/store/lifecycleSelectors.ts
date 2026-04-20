@@ -8,8 +8,7 @@ export const useNeedsOnboarding = () => useGremlyStore((s) => !s.onboardingCompl
 
 /** User has not yet completed the 5-drop MindDrop tutorial.
  *  Testers still do this once; they just skip paywall gating. */
-export const useNeedsMindDropTutorial = () =>
-  useGremlyStore((s) => s.isTrainingMode && !s.graduatedAt);
+export const useNeedsMindDropTutorial = () => useGremlyStore((s) => !s.graduatedAt);
 
 /** User is flagged as internal/tester. Bypasses paywall and read-only mode only. */
 export const useIsTester = () => useGremlyStore((s) => s.isTester);
@@ -20,6 +19,10 @@ export const useChallengeActive = () =>
 
 /** User has completed the 7-fed-days challenge. Drives mascot-sheet pre/post. */
 export const useChallengeCompleted = () => useGremlyStore((s) => s.challengeCompletedAt !== null);
+
+/** User has graduated the tutorial but hasn't completed the 7-fed-days challenge yet. */
+export const useIsInChallenge = () =>
+  useGremlyStore((s) => s.graduatedAt !== null && s.challengeCompletedAt === null);
 
 /** Current training step (0-6). Only meaningful when useNeedsMindDropTutorial is true. */
 export const useTrainingDropStep = () => useGremlyStore((s) => s.trainingDropStep);
@@ -43,3 +46,14 @@ export const useChallengeStartedAt = () => useGremlyStore((s) => s.challengeStar
 
 /** Challenge completion timestamp. Null while in challenge. */
 export const useChallengeCompletedAt = () => useGremlyStore((s) => s.challengeCompletedAt);
+
+/** Whether user has already seen the one-time read-only intro sheet. */
+export const useHasSeenReadonlyIntro = () => useGremlyStore((s) => s.hasSeenReadonlyIntro);
+
+// Re-export access selectors from useSubscriptionStatus (defined there to avoid circular imports)
+export {
+  useHasAccess,
+  useIsReadOnly,
+  useCanCreate,
+  useCanChat,
+} from '../subscriptions/useSubscriptionStatus';

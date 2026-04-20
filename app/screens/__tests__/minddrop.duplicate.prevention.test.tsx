@@ -32,6 +32,11 @@ describe.skip('Mind Drop - Duplicate Prevention (DEPRECATED - V4 is now default)
 jest.mock('../../../lib/supabase/client', () => ({
   supabase: {
     rpc: jest.fn(),
+    auth: {
+      onAuthStateChange: jest
+        .fn()
+        .mockReturnValue({ data: { subscription: { unsubscribe: jest.fn() } } }),
+    },
   },
 }));
 

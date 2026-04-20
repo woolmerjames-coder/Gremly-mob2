@@ -22,7 +22,7 @@ import {
 import { AppScrollView } from '../../components/common/AppScrollView';
 import { Text } from '../../ui/Text';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
-import { useHasCompletedFirstDrop } from '../../lib/store/lifecycleSelectors';
+import { useHasCompletedFirstDrop, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import type { QueuedDrop } from '../../lib/minddrop/dropQueue';
 import type { UnifiedDrop } from '../../types/UnifiedDrop';
 import {
@@ -54,6 +54,7 @@ import Reanimated, {
   Easing as ReanimatedEasing,
 } from 'react-native-reanimated';
 import { supabase } from '../../lib/supabase/client';
+import { useNavigation } from '@react-navigation/native';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { addOverlaySavedListener } from '../../lib/events/overlaySaved';
 import { eventBus } from '../../lib/events/EventBus';
@@ -72,6 +73,7 @@ import {
   getDisplayKindForDrop,
 } from '../../lib/minddrop/cardHelpers';
 import { env } from '../../lib/env';
+import { getSessionToken } from '../../lib/cortex/getSessionToken';
 import { MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 import { makeStyles } from './CatchAllNotepad';
 
@@ -2300,6 +2302,8 @@ const RecentDrops: React.FC<{
 
   // Direct store access - no adapter
   const hasCompletedFirstDrop = useHasCompletedFirstDrop();
+  const canCreate = useCanCreate();
+  const recentDropsNavigation = useNavigation<any>();
   const deleteNote = useGremlyStore((s) => s.deleteNote);
   const deleteTodo = useGremlyStore((s) => s.deleteTodo);
   const deleteHabit = useGremlyStore((s) => s.deleteHabit);
@@ -3679,6 +3683,10 @@ const RecentDrops: React.FC<{
   // Multi-entity: Keep as note handler
   const handleKeepAsNote = React.useCallback(
     async (noteId: string) => {
+      if (!canCreate) {
+        recentDropsNavigation.navigate('TrialEndPaywall', { source: 'expiry' });
+        return;
+      }
       // Close modal first (modal is at RecentDrops level now)
       setActiveModalItem(null);
 
@@ -3729,14 +3737,14 @@ const RecentDrops: React.FC<{
             // Phase 1.5a: fetch smart_title and confirmation_message
             try {
               const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
-              const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+              const sessionToken = await getSessionToken();
               const ctrl = new AbortController();
               const t = setTimeout(() => ctrl.abort(), 10000);
               const p15aRes = await fetch(cortexUrl, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  Authorization: `Bearer ${anonKey}`,
+                  Authorization: `Bearer ${sessionToken}`,
                 },
                 body: JSON.stringify({
                   type: 'enrich-phase1-5a',
@@ -3849,14 +3857,14 @@ const RecentDrops: React.FC<{
             // Phase 1.5a: fetch smart_title and confirmation_message
             try {
               const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
-              const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+              const sessionToken = await getSessionToken();
               const ctrl = new AbortController();
               const t = setTimeout(() => ctrl.abort(), 10000);
               const p15aRes = await fetch(cortexUrl, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  Authorization: `Bearer ${anonKey}`,
+                  Authorization: `Bearer ${sessionToken}`,
                 },
                 body: JSON.stringify({
                   type: 'enrich-phase1-5a',
@@ -3971,14 +3979,14 @@ const RecentDrops: React.FC<{
         // Phase 1.5a: fetch smart_title and confirmation_message
         try {
           const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
-          const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+          const sessionToken = await getSessionToken();
           const ctrl = new AbortController();
           const t = setTimeout(() => ctrl.abort(), 10000);
           const p15aRes = await fetch(cortexUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${anonKey}`,
+              Authorization: `Bearer ${sessionToken}`,
             },
             body: JSON.stringify({
               type: 'enrich-phase1-5a',
@@ -4048,12 +4056,25 @@ const RecentDrops: React.FC<{
         console.error('[RecentDrops] Failed to keep as note:', err);
       }
     },
-    [items, updateNote, createTodo, createHabit, archiveNote, repo],
+    [
+      canCreate,
+      recentDropsNavigation,
+      items,
+      updateNote,
+      createTodo,
+      createHabit,
+      archiveNote,
+      repo,
+    ],
   );
 
   // Multi-entity: Split selected items handler
   const handleSplitSelected = React.useCallback(
     async (noteId: string, selectedItems: MultiDropItem[]) => {
+      if (!canCreate) {
+        recentDropsNavigation.navigate('TrialEndPaywall', { source: 'expiry' });
+        return;
+      }
       // Close modal first (modal is at RecentDrops level now)
       setActiveModalItem(null);
 
@@ -4246,7 +4267,16 @@ const RecentDrops: React.FC<{
         setItems((prev) => prev.filter((item) => !item.id.startsWith('temp-split-')));
       }
     },
-    [items, createTodo, createHabit, createNote, archiveNote, repo],
+    [
+      canCreate,
+      recentDropsNavigation,
+      items,
+      createTodo,
+      createHabit,
+      createNote,
+      archiveNote,
+      repo,
+    ],
   );
 
   // Derive hasTodayDrops from reactive items state (not todayCount which can be stale)

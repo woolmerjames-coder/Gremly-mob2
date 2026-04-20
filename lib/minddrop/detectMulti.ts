@@ -6,6 +6,7 @@
  */
 
 import { env, getEnv } from '../env';
+import { getSessionToken } from '../cortex/getSessionToken';
 
 // ============================================================================
 // Types
@@ -32,12 +33,6 @@ const readCortexUrl = (): string => {
   return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
 };
 
-const readSupabaseAnonKey = (): string => {
-  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
-  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
-  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
-};
-
 // ============================================================================
 // Main Function
 // ============================================================================
@@ -51,10 +46,10 @@ const readSupabaseAnonKey = (): string => {
  */
 export async function detectMulti(text: string): Promise<DetectMultiResult> {
   const cortexUrl = readCortexUrl();
-  const anonKey = readSupabaseAnonKey();
+  const sessionToken = await getSessionToken();
 
-  if (!cortexUrl || !anonKey) {
-    console.log('[DetectMulti] Missing cortex URL or anon key, skipping');
+  if (!cortexUrl) {
+    console.log('[DetectMulti] Missing cortex URL, skipping');
     return { is_multi: false };
   }
 
@@ -63,7 +58,7 @@ export async function detectMulti(text: string): Promise<DetectMultiResult> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${anonKey}`,
+        ...(sessionToken && { Authorization: `Bearer ${sessionToken}` }),
       },
       body: JSON.stringify({
         type: 'detect-multi',

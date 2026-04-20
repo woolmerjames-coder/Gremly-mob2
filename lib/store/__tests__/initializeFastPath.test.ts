@@ -15,7 +15,6 @@ describe('Cache-poison detection', () => {
   // Re-derive the poison-detection logic from initialize()
   const isCacheSuspicious = (
     cache: {
-      isTrainingMode: boolean;
       graduatedAt: string | null;
       firstDropCompletedAt: string | null;
       onboardingCompletedAt: string | null;
@@ -23,16 +22,14 @@ describe('Cache-poison detection', () => {
   ): boolean => {
     return (
       cache !== null &&
-      cache.isTrainingMode === true &&
       cache.graduatedAt === null &&
       cache.firstDropCompletedAt === null &&
       cache.onboardingCompletedAt !== null
     );
   };
 
-  it('detects suspicious cache: onboarded but training with no graduation or first drop', () => {
+  it('detects suspicious cache: onboarded but not graduated with no first drop', () => {
     const cache = {
-      isTrainingMode: true,
       graduatedAt: null,
       firstDropCompletedAt: null,
       onboardingCompletedAt: '2026-01-01T00:00:00Z',
@@ -42,7 +39,6 @@ describe('Cache-poison detection', () => {
 
   it('returns false for a graduated user', () => {
     const cache = {
-      isTrainingMode: true,
       graduatedAt: '2026-01-05T00:00:00Z',
       firstDropCompletedAt: '2026-01-02T00:00:00Z',
       onboardingCompletedAt: '2026-01-01T00:00:00Z',
@@ -50,19 +46,8 @@ describe('Cache-poison detection', () => {
     expect(isCacheSuspicious(cache)).toBe(false);
   });
 
-  it('returns false when isTrainingMode is false', () => {
-    const cache = {
-      isTrainingMode: false,
-      graduatedAt: null,
-      firstDropCompletedAt: null,
-      onboardingCompletedAt: '2026-01-01T00:00:00Z',
-    };
-    expect(isCacheSuspicious(cache)).toBe(false);
-  });
-
   it('returns false when firstDropCompletedAt is set', () => {
     const cache = {
-      isTrainingMode: true,
       graduatedAt: null,
       firstDropCompletedAt: '2026-01-02T00:00:00Z',
       onboardingCompletedAt: '2026-01-01T00:00:00Z',
@@ -72,7 +57,6 @@ describe('Cache-poison detection', () => {
 
   it('returns false when onboardingCompletedAt is null (brand new user)', () => {
     const cache = {
-      isTrainingMode: true,
       graduatedAt: null,
       firstDropCompletedAt: null,
       onboardingCompletedAt: null,
@@ -175,21 +159,14 @@ describe('reset() lifecycle field behavior', () => {
   ];
 
   const LIFECYCLE_FIELDS_OMITTED_FROM_RESET = [
-    'isTrainingMode',
     'graduatedAt',
     'trainingDropStep',
     'onboardingCompletedAt',
     'firstDropCompletedAt',
-    'trainingStartedAt',
   ];
 
   it('explicitly nullifies lifecycleCache', () => {
     expect(RESET_EXPLICIT_FIELDS).toContain('lifecycleCache');
-  });
-
-  it('does not reset isTrainingMode (falls back to initial state default)', () => {
-    expect(RESET_EXPLICIT_FIELDS).not.toContain('isTrainingMode');
-    expect(LIFECYCLE_FIELDS_OMITTED_FROM_RESET).toContain('isTrainingMode');
   });
 
   it('does not reset graduatedAt (falls back to initial state default)', () => {
@@ -208,7 +185,6 @@ describe('lifecycleCache shape', () => {
   const EXPECTED_FIELDS = [
     'onboardingCompletedAt',
     'firstDropCompletedAt',
-    'isTrainingMode',
     'trainingDropStep',
     'graduatedAt',
     'isTester',
@@ -222,7 +198,6 @@ describe('lifecycleCache shape', () => {
   const buildCache = (overrides: Partial<Record<string, unknown>> = {}) => ({
     onboardingCompletedAt: '2026-01-01T00:00:00Z',
     firstDropCompletedAt: '2026-01-02T00:00:00Z',
-    isTrainingMode: false,
     trainingDropStep: 5,
     graduatedAt: '2026-01-05T00:00:00Z',
     isTester: false,
@@ -257,8 +232,6 @@ describe('Hydration fallback defaults', () => {
   const hydrateWithNullPrefs = () => {
     const cortexPrefs = null as Record<string, unknown> | null;
     return {
-      isTrainingMode: (cortexPrefs?.is_training_mode as boolean) ?? true,
-      trainingStartedAt: (cortexPrefs?.training_started_at as string) ?? null,
       graduatedAt: (cortexPrefs?.graduated_at as string) ?? null,
       isTester: (cortexPrefs?.is_tester as boolean) ?? false,
       trialStartedAt: (cortexPrefs?.trial_started_at as string) ?? null,
@@ -268,10 +241,6 @@ describe('Hydration fallback defaults', () => {
       firstDropCompletedAt: (cortexPrefs?.first_drop_completed_at as string) ?? null,
     };
   };
-
-  it('defaults isTrainingMode to true when cortexPrefs is null', () => {
-    expect(hydrateWithNullPrefs().isTrainingMode).toBe(true);
-  });
 
   it('defaults graduatedAt to null when cortexPrefs is null', () => {
     expect(hydrateWithNullPrefs().graduatedAt).toBeNull();
@@ -297,7 +266,6 @@ describe('Hydration fallback defaults', () => {
 describe('Hydration with real Supabase data', () => {
   const hydrateFromPrefs = (prefs: Record<string, unknown>) => {
     return {
-      isTrainingMode: (prefs.is_training_mode as boolean) ?? true,
       graduatedAt: (prefs.graduated_at as string) ?? null,
       isTester: (prefs.is_tester as boolean) ?? false,
       trialStartedAt: (prefs.trial_started_at as string) ?? null,
@@ -310,7 +278,6 @@ describe('Hydration with real Supabase data', () => {
 
   it('correctly hydrates a graduated user', () => {
     const prefs = {
-      is_training_mode: false,
       graduated_at: '2026-01-05T00:00:00Z',
       is_tester: false,
       trial_started_at: '2026-01-01T00:00:00Z',
@@ -320,14 +287,12 @@ describe('Hydration with real Supabase data', () => {
       first_drop_completed_at: '2026-01-02T00:00:00Z',
     };
     const result = hydrateFromPrefs(prefs);
-    expect(result.isTrainingMode).toBe(false);
     expect(result.graduatedAt).toBe('2026-01-05T00:00:00Z');
     expect(result.firstDropCompletedAt).toBe('2026-01-02T00:00:00Z');
   });
 
   it('correctly hydrates a tester user', () => {
     const prefs = {
-      is_training_mode: true,
       graduated_at: null,
       is_tester: true,
       trial_started_at: null,
@@ -338,23 +303,6 @@ describe('Hydration with real Supabase data', () => {
     };
     const result = hydrateFromPrefs(prefs);
     expect(result.isTester).toBe(true);
-    expect(result.isTrainingMode).toBe(true);
-  });
-
-  it('handles false-y is_training_mode from Supabase correctly', () => {
-    const prefs = {
-      is_training_mode: false,
-      graduated_at: '2026-01-05T00:00:00Z',
-      is_tester: false,
-      trial_started_at: '2026-01-01T00:00:00Z',
-      challenge_started_at: null,
-      challenge_completed_at: null,
-      training_drop_step: 5,
-      first_drop_completed_at: '2026-01-02T00:00:00Z',
-    };
-    const result = hydrateFromPrefs(prefs);
-    // false should NOT be overridden by ?? true fallback
-    expect(result.isTrainingMode).toBe(false);
   });
 });
 
@@ -424,8 +372,6 @@ describe('partialize: lifecycle fields excluded from MMKV persistence', () => {
   // The real partialize func is in the persist config; we test the contract.
   const PARTIALIZE_INCLUDES_LIFECYCLE_CACHE = true;
   const PARTIALIZE_EXCLUDES = [
-    'isTrainingMode',
-    'trainingStartedAt',
     'graduatedAt',
     'pendingGraduation',
     'postGraduationMessageShown',
@@ -443,6 +389,6 @@ describe('partialize: lifecycle fields excluded from MMKV persistence', () => {
     for (const field of PARTIALIZE_EXCLUDES) {
       expect(PARTIALIZE_EXCLUDES).toContain(field);
     }
-    expect(PARTIALIZE_EXCLUDES).toHaveLength(8);
+    expect(PARTIALIZE_EXCLUDES).toHaveLength(6);
   });
 });

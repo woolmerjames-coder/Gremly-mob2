@@ -1,14 +1,8 @@
 /**
  * DEPRECATED LIFECYCLE COLUMNS — DO NOT ADD NEW REFERENCES
  *
- * The following columns/fields are deprecated and will be removed in Phase 5:
- * - `is_training_mode` / `isTrainingMode`   → use `useNeedsMindDropTutorial()` selector
- * - `training_started_at` / `trainingStartedAt` → use `useTrialStartedAt()` selector
- *
- * Lingering references in this file only are intentional — the store is the
- * single place where these deprecated columns are still read from Supabase
- * (for backward compatibility) and mirrored into their replacements via the
- * dual-write trigger on cortex_preferences.
+ * The `is_training_mode` column was removed in Phase 5.1.
+ * The `training_started_at` column was removed in Phase 5.2 (renamed to `trial_started_at`).
  *
  * All consumer code (screens, components, workers) should use the selectors
  * from `lib/store/lifecycleSelectors.ts`.
@@ -22,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabase/client';
 import { getRitualDay } from '../date/ritualDay';
 import { env } from '../env';
+import { getSessionToken } from '../cortex/getSessionToken';
 import type {
   Todo,
   Habit,
@@ -477,10 +472,6 @@ interface GremlyState {
   sockCount: number;
   /** AI personality mode: encouragement, insightful, or observant */
   aiMode: AIMode;
-  /** Whether user is still in training (pre-graduation) */
-  isTrainingMode: boolean;
-  /** ISO timestamp when training started */
-  trainingStartedAt: string | null;
   /** ISO timestamp when user graduated, null until graduation */
   graduatedAt: string | null;
   /** Set when graduation triggers; consumed by graduation flow component */
@@ -499,13 +490,13 @@ interface GremlyState {
   lifecycleCache: {
     onboardingCompletedAt: string | null;
     firstDropCompletedAt: string | null;
-    isTrainingMode: boolean;
     trainingDropStep: number;
     graduatedAt: string | null;
     isTester: boolean;
     trialStartedAt: string | null;
     challengeStartedAt: string | null;
     challengeCompletedAt: string | null;
+    hasSeenReadonlyIntro: boolean;
     cachedAt: string;
     cachedForUserId: string;
   } | null;
@@ -516,12 +507,6 @@ interface GremlyState {
   /** Active Lottie color palette id */
   gremlyColor: string;
   setGremlyColor: (colorId: string) => Promise<void>;
-  /** Hour (0-23) when mascot sleep window starts. Default midnight (0). */
-  bedtimeHour: number;
-  setBedtimeHour: (hour: number) => Promise<void>;
-  /** Hour (0-23) when mascot sleep window ends. Default 6 AM. */
-  wakeHour: number;
-  setWakeHour: (hour: number) => Promise<void>;
   /** ISO date string of last app-open day, used for first-open-of-day detection */
   lastActiveDate: string | null;
   setLastActiveDate: (date: string) => void;
@@ -539,6 +524,7 @@ interface GremlyState {
   hasSeenSweepUnlockModal: boolean;
   hasSeenEntityChatHighlight: boolean;
   hasSeenTrainingMeterAutoOpen: boolean;
+  hasSeenReadonlyIntro: boolean;
   /** Whether the fed celebration toast has been shown today (prevents duplicate) */
   todayFedCelebrationShownAt: string | null;
   /** Whether an age-up via feeding gauge has been celebrated today */
@@ -565,6 +551,8 @@ interface GremlyState {
   refreshRitualProgress: () => Promise<void>;
   /** Fetch last 7 days of feeding status from Supabase */
   fetchFeedingHistory: () => Promise<void>;
+  /** Fetch lifetime stats for paywall display */
+  fetchLifetimeStats: () => Promise<{ daysFed: number; thoughtsCount: number }>;
 
   // Training progress actions
   startTraining: () => Promise<void>;
@@ -576,12 +564,15 @@ interface GremlyState {
   markSweepUnlockModalSeen: () => void;
   markEntityChatHighlightSeen: () => void;
   markTrainingMeterAutoOpenSeen: () => void;
+  markReadonlyIntroSeen: () => Promise<void>;
 
   // Feeding gauge actions (Soul Document v8)
   addGaugeContribution: (
     source: string,
     value: number,
   ) => Promise<{ newValue: number; justFed: boolean }>;
+  /** Check if user just hit 7 cumulative fed days since challenge start; if so, complete the challenge. */
+  checkChallengeCompletionOnFedFlip: () => Promise<void>;
   completeSweepSession: (cardsProcessed: number, didJournal: boolean) => Promise<void>;
   completeMorningBrief: () => Promise<void>;
   commitLockInItems: (count: number) => Promise<void>;
@@ -1041,8 +1032,6 @@ const initialState = {
   lastFedAt: null as string | null,
   sockCount: 0,
   aiMode: 'encouragement' as AIMode,
-  isTrainingMode: true,
-  trainingStartedAt: null as string | null,
   graduatedAt: null as string | null,
   pendingGraduation: false,
   postGraduationMessageShown: false,
@@ -1053,8 +1042,6 @@ const initialState = {
   lifecycleCache: null as GremlyState['lifecycleCache'],
   isSubscribed: false,
   gremlyColor: 'forest',
-  bedtimeHour: 0,
-  wakeHour: 6,
   lastActiveDate: null as string | null,
   userName: null as string | null,
   userPronouns: null as string | null,
@@ -1065,6 +1052,7 @@ const initialState = {
   hasSeenSweepUnlockModal: false,
   hasSeenEntityChatHighlight: false,
   hasSeenTrainingMeterAutoOpen: false,
+  hasSeenReadonlyIntro: false,
   todayFedCelebrationShownAt: null as string | null,
   todayFeedingAgeUpShownAt: null as string | null,
   feedingHistory: [] as Array<{ date: string; isFed: boolean }>,
@@ -1147,7 +1135,6 @@ export const useGremlyStore = create<GremlyState>()(
             // Poison detection: if cache looks suspicious, force a full re-init from Supabase
             const cacheLooksSuspicious =
               cache !== null &&
-              cache.isTrainingMode === true &&
               cache.graduatedAt === null &&
               cache.firstDropCompletedAt === null &&
               cache.onboardingCompletedAt !== null;
@@ -1233,7 +1220,7 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color, bedtime_hour, wake_hour, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
+                  'created_at, last_sweep_completed_at, sweep_streak, gremly_age, gremly_age_last_incremented_at, day_boundary_hour, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, mini_sweep_last_completed_at, demo_sweep_completed_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, graduated_at, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
@@ -1279,19 +1266,49 @@ export const useGremlyStore = create<GremlyState>()(
               console.warn('[GremlyStore] milestones fetch error:', milestonesRes.error);
             if (dailyBriefRes.error)
               console.warn('[GremlyStore] daily_briefs fetch error:', dailyBriefRes.error);
-            if (cortexPrefsRes.error && cortexPrefsRes.error.code !== 'PGRST116')
-              console.warn('[GremlyStore] cortex_preferences fetch error:', cortexPrefsRes.error);
+            if (cortexPrefsRes.error && cortexPrefsRes.error.code !== 'PGRST116') {
+              console.error(
+                '[GremlyStore] initialize aborted — cortex_preferences fetch failed:',
+                cortexPrefsRes.error,
+              );
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const Sentry = require('@sentry/react-native');
+                Sentry.captureException(new Error('initialize cortex_preferences fetch failed'), {
+                  extra: { error: JSON.stringify(cortexPrefsRes.error) },
+                });
+              } catch {
+                /* Sentry not available */
+              }
+              set({ isLoading: false, isInitialized: false });
+              return;
+            }
             if (sweepEventsCountRes.error)
               console.warn('[GremlyStore] sweep events count error:', sweepEventsCountRes.error);
             if (weeklySummariesRes.error)
               console.warn('[GremlyStore] weekly_summaries fetch error:', weeklySummariesRes.error);
 
             // Fetch identity from user_profiles
-            const { data: userProfile } = await supabase
+            const { data: userProfile, error: userProfileError } = await supabase
               .from('user_profiles')
               .select('identity')
               .eq('user_id', userId)
               .maybeSingle();
+            if (userProfileError) {
+              console.error(
+                '[GremlyStore] user_profiles fetch failed (non-fatal):',
+                userProfileError,
+              );
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const Sentry = require('@sentry/react-native');
+                Sentry.captureException(new Error('user_profiles identity fetch failed'), {
+                  extra: { error: JSON.stringify(userProfileError), context: 'initialize' },
+                });
+              } catch {
+                /* Sentry not available */
+              }
+            }
             const profileIdentity = (userProfile?.identity as Record<string, unknown>) ?? {};
 
             // Extract sweep preferences (handle columns that may not exist in TypeScript types)
@@ -1406,8 +1423,6 @@ export const useGremlyStore = create<GremlyState>()(
               lastFedAt: (cortexPrefs?.last_fed_at as string) ?? null,
               sockCount: (cortexPrefs?.sock_count as number) ?? 0,
               aiMode: ((cortexPrefs?.ai_mode as string) ?? 'encouragement') as AIMode,
-              isTrainingMode: (cortexPrefs?.is_training_mode as boolean) ?? true,
-              trainingStartedAt: (cortexPrefs?.training_started_at as string) ?? null,
               graduatedAt: (cortexPrefs?.graduated_at as string) ?? null,
               isTester: (cortexPrefs?.is_tester as boolean) ?? false,
               trialStartedAt: (cortexPrefs?.trial_started_at as string) ?? null,
@@ -1423,9 +1438,8 @@ export const useGremlyStore = create<GremlyState>()(
                 (cortexPrefs?.has_seen_entity_chat_highlight as boolean) ?? false,
               hasSeenTrainingMeterAutoOpen:
                 (cortexPrefs?.has_seen_training_meter_auto_open as boolean) ?? false,
+              hasSeenReadonlyIntro: (cortexPrefs?.has_seen_readonly_intro as boolean) ?? false,
               gremlyColor: (cortexPrefs?.gremly_color as string) ?? 'forest',
-              bedtimeHour: (cortexPrefs?.bedtime_hour as number) ?? 0,
-              wakeHour: (cortexPrefs?.wake_hour as number) ?? 6,
               userName: (profileIdentity?.name as string) ?? null,
               userPronouns: (profileIdentity?.pronouns as string) ?? null,
               userTimezone: timezone,
@@ -1439,20 +1453,20 @@ export const useGremlyStore = create<GremlyState>()(
               lifecycleCache: {
                 onboardingCompletedAt: state.onboardingCompletedAt,
                 firstDropCompletedAt: state.firstDropCompletedAt,
-                isTrainingMode: state.isTrainingMode,
                 trainingDropStep: state.trainingDropStep,
                 graduatedAt: state.graduatedAt,
                 isTester: state.isTester,
                 trialStartedAt: state.trialStartedAt,
                 challengeStartedAt: state.challengeStartedAt,
                 challengeCompletedAt: state.challengeCompletedAt,
+                hasSeenReadonlyIntro: state.hasSeenReadonlyIntro,
                 cachedAt: nowTimestamp(),
                 cachedForUserId: userId,
               },
             }));
 
             // Populate training progress from cumulative data
-            if (get().isTrainingMode) {
+            if (!get().graduatedAt) {
               get()
                 .refreshTrainingReadiness()
                 .catch((err) => {
@@ -1629,6 +1643,7 @@ export const useGremlyStore = create<GremlyState>()(
             hasSeenSweepUnlockModal: false,
             hasSeenEntityChatHighlight: false,
             hasSeenTrainingMeterAutoOpen: false,
+            hasSeenReadonlyIntro: false,
             todayFedCelebrationShownAt: null,
             todayFeedingAgeUpShownAt: null,
           });
@@ -1799,7 +1814,6 @@ export const useGremlyStore = create<GremlyState>()(
         incrementDropCount: async () => {
           console.log('[GremlyStore] incrementDropCount called', {
             userId: get().userId,
-            isTrainingMode: get().isTrainingMode,
           });
 
           const { userId } = get();
@@ -1840,7 +1854,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           // Gauge contribution handles age-up via feeding system (Soul Document v8)
           // Track training progress
-          if (get().isTrainingMode) {
+          if (!get().graduatedAt) {
             get()
               .refreshTrainingReadiness()
               .catch((err) => {
@@ -1876,7 +1890,7 @@ export const useGremlyStore = create<GremlyState>()(
 
           // Gauge contribution handles age-up via feeding system (Soul Document v8)
           // Track training progress
-          if (get().isTrainingMode) {
+          if (!get().graduatedAt) {
             get()
               .refreshTrainingReadiness()
               .catch((err) => {
@@ -1912,42 +1926,6 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
-        setBedtimeHour: async (hour: number) => {
-          const userId = get().userId;
-          if (!userId) return;
-
-          set({ bedtimeHour: hour });
-
-          const { error } = await supabase
-            .from('cortex_preferences')
-            .upsert(
-              { owner_id: userId, bedtime_hour: hour, updated_at: nowTimestamp() },
-              { onConflict: 'owner_id' },
-            );
-
-          if (error) {
-            console.error('[GremlyStore] setBedtimeHour failed:', error);
-          }
-        },
-
-        setWakeHour: async (hour: number) => {
-          const userId = get().userId;
-          if (!userId) return;
-
-          set({ wakeHour: hour });
-
-          const { error } = await supabase
-            .from('cortex_preferences')
-            .upsert(
-              { owner_id: userId, wake_hour: hour, updated_at: nowTimestamp() },
-              { onConflict: 'owner_id' },
-            );
-
-          if (error) {
-            console.error('[GremlyStore] setWakeHour failed:', error);
-          }
-        },
-
         setLastActiveDate: (date: string) => {
           set({ lastActiveDate: date });
         },
@@ -1956,11 +1934,27 @@ export const useGremlyStore = create<GremlyState>()(
           set({ userName: name, userPronouns: pronouns });
           const userId = get().userId;
           if (!userId) return;
-          const { data: existing } = await supabase
+          const { data: existing, error: selectError } = await supabase
             .from('user_profiles')
             .select('identity')
             .eq('user_id', userId)
             .maybeSingle();
+          if (selectError) {
+            console.error(
+              '[GremlyStore] setUserProfile aborted — identity fetch failed:',
+              selectError,
+            );
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const Sentry = require('@sentry/react-native');
+              Sentry.captureException(new Error('setUserProfile identity fetch failed'), {
+                extra: { error: JSON.stringify(selectError) },
+              });
+            } catch {
+              /* Sentry not available */
+            }
+            return; // do NOT proceed to upsert — would wipe existing identity
+          }
           const currentIdentity = (existing?.identity as Record<string, unknown>) ?? {};
           const merged = { ...currentIdentity, name, pronouns, source: 'onboarding' };
           const { error } = await supabase
@@ -2046,12 +2040,12 @@ export const useGremlyStore = create<GremlyState>()(
           if (!userId) return;
 
           const now = nowTimestamp();
-          set({ trainingStartedAt: now });
+          set({ trialStartedAt: now });
 
           const { error } = await supabase
             .from('cortex_preferences')
             .upsert(
-              { owner_id: userId, training_started_at: now, updated_at: now },
+              { owner_id: userId, trial_started_at: now, updated_at: now },
               { onConflict: 'owner_id' },
             );
 
@@ -2147,8 +2141,8 @@ export const useGremlyStore = create<GremlyState>()(
 
           const currentRitualDay = get().ensureCurrentRitualDay();
 
-          // Training mode: 1.25x gauge multiplier
-          const multiplier = get().isTrainingMode ? 1.25 : 1.0;
+          // Pre-graduation: 1.25x gauge multiplier
+          const multiplier = !get().graduatedAt ? 1.25 : 1.0;
           const adjustedValue = value * multiplier;
 
           if (__DEV__) {
@@ -2230,6 +2224,15 @@ export const useGremlyStore = create<GremlyState>()(
               set({ pendingGaugePreviews: currentPending - 1 });
             }
 
+            // Check challenge completion on every fed flip
+            if (justFed) {
+              get()
+                .checkChallengeCompletionOnFedFlip()
+                .catch((err) =>
+                  console.warn('[GremlyStore] checkChallengeCompletionOnFedFlip error:', err),
+                );
+            }
+
             // Fed celebration: only fire if the UI hasn't already shown one
             // (CatchAllNotepad and SweepFlowScreen fire from optimistic preview)
             if (justFed && !get().todayFedCelebrationShownAt) {
@@ -2280,7 +2283,7 @@ export const useGremlyStore = create<GremlyState>()(
           if (alreadyCredited) return;
           await get().addGaugeContribution('brief', GAUGE_WEIGHTS.BRIEF);
           // Track training progress
-          if (get().isTrainingMode) {
+          if (!get().graduatedAt) {
             get()
               .refreshTrainingReadiness()
               .catch((err) => {
@@ -2301,7 +2304,7 @@ export const useGremlyStore = create<GremlyState>()(
             await get().addGaugeContribution('lock_in', value);
           }
           // Track training progress
-          if (get().isTrainingMode) {
+          if (!get().graduatedAt) {
             get()
               .refreshTrainingReadiness()
               .catch((err) => {
@@ -2346,7 +2349,7 @@ export const useGremlyStore = create<GremlyState>()(
           const { todayDropsCount, pendingGaugePreviews, feedingGaugeValue, isFedToday } = get();
           const dropNumber = todayDropsCount + pendingGaugePreviews + 1;
           const value = getDropValue(dropNumber);
-          const multiplier = get().isTrainingMode ? 1.25 : 1.0;
+          const multiplier = !get().graduatedAt ? 1.25 : 1.0;
           const adjustedValue = value * multiplier;
           const optimisticValue = feedingGaugeValue + adjustedValue;
           const justCrossedFed = !isFedToday && optimisticValue >= FED_THRESHOLD;
@@ -2487,13 +2490,57 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
+        fetchLifetimeStats: async (): Promise<{ daysFed: number; thoughtsCount: number }> => {
+          const { userId } = get();
+          if (!userId) return { daysFed: 0, thoughtsCount: 0 };
+
+          try {
+            const [fedDaysRes, todosRes, notesRes, habitsRes] = await Promise.all([
+              supabase
+                .from('daily_ritual_progress')
+                .select('*', { count: 'exact', head: true })
+                .eq('owner_id', userId)
+                .eq('is_fed', true),
+              supabase
+                .from('todos')
+                .select('*', { count: 'exact', head: true })
+                .eq('owner_id', userId),
+              supabase
+                .from('notes')
+                .select('*', { count: 'exact', head: true })
+                .eq('owner_id', userId)
+                .is('external_source', null),
+              supabase
+                .from('habits')
+                .select('*', { count: 'exact', head: true })
+                .eq('owner_id', userId),
+            ]);
+
+            const daysFed = fedDaysRes.count ?? 0;
+            const thoughtsCount =
+              (todosRes.count ?? 0) + (notesRes.count ?? 0) + (habitsRes.count ?? 0);
+
+            return { daysFed, thoughtsCount };
+          } catch (err) {
+            console.error('[GremlyStore] fetchLifetimeStats failed:', err);
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const Sentry = require('@sentry/react-native');
+              Sentry.captureException(err);
+            } catch {
+              /* Sentry not available */
+            }
+            return { daysFed: 0, thoughtsCount: 0 };
+          }
+        },
+
         // ═══════════════════════════════════════════════════════════════════
         // TRAINING PROGRESS ACTIONS
         // ═══════════════════════════════════════════════════════════════════
 
         advanceTrainingDropStep: () => {
-          const { trainingDropStep, isTrainingMode } = get();
-          if (!isTrainingMode) return;
+          const { trainingDropStep, graduatedAt } = get();
+          if (graduatedAt) return;
           if (trainingDropStep >= 6) return; // already done
 
           const nextStep = trainingDropStep === 0 ? 1 : trainingDropStep + 1;
@@ -2516,13 +2563,13 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         refreshTrainingReadiness: async () => {
-          const { userId, trainingStartedAt, isTrainingMode } = get();
-          if (!userId || !isTrainingMode || !trainingStartedAt) return 0;
+          const { userId, trialStartedAt, graduatedAt } = get();
+          if (!userId || graduatedAt || !trialStartedAt) return 0;
 
           try {
             const { data, error } = await supabase.rpc('get_training_readiness', {
               p_owner_id: userId,
-              p_since: trainingStartedAt,
+              p_since: trialStartedAt,
             });
 
             if (error) {
@@ -2652,14 +2699,59 @@ export const useGremlyStore = create<GremlyState>()(
           }
         },
 
+        markReadonlyIntroSeen: async () => {
+          const { userId } = get();
+          if (!userId) return;
+
+          set({ hasSeenReadonlyIntro: true });
+
+          const { error } = await supabase
+            .from('cortex_preferences')
+            .update({ has_seen_readonly_intro: true })
+            .eq('owner_id', userId);
+
+          if (error) {
+            console.error('[GremlyStore] Failed to persist has_seen_readonly_intro:', error);
+            try {
+              const SentryMod = await import('@sentry/react-native');
+              SentryMod.captureException(new Error('Failed to persist has_seen_readonly_intro'), {
+                extra: { error: JSON.stringify(error) },
+              });
+            } catch {
+              /* Sentry not available */
+            }
+            return;
+          }
+
+          set((state) => ({
+            lifecycleCache: state.lifecycleCache
+              ? {
+                  ...state.lifecycleCache,
+                  hasSeenReadonlyIntro: true,
+                  cachedAt: nowTimestamp(),
+                }
+              : null,
+          }));
+        },
+
         finalizeGraduation: async () => {
-          const { userId, sockCount } = get();
+          const { userId, sockCount, graduatedAt } = get();
+
+          // Idempotency: don't re-run if already graduated
+          if (graduatedAt) {
+            if (__DEV__)
+              console.log(
+                '[GremlyStore] finalizeGraduation called but already graduated, skipping',
+              );
+            return;
+          }
+
           const now = nowTimestamp();
           const newSockCount = sockCount + 1;
 
           set({
-            isTrainingMode: false,
             graduatedAt: now,
+            challengeStartedAt: now,
             pendingGraduation: false,
             postGraduationMessageShown: false,
             sockCount: newSockCount,
@@ -2669,8 +2761,8 @@ export const useGremlyStore = create<GremlyState>()(
             supabase
               .from('cortex_preferences')
               .update({
-                is_training_mode: false,
                 graduated_at: now,
+                challenge_started_at: now,
                 pending_graduation: false,
                 sock_count: newSockCount,
               })
@@ -2681,8 +2773,132 @@ export const useGremlyStore = create<GremlyState>()(
               });
           }
 
+          // Keep lifecycleCache in sync so next cold-start doesn't use stale data
+          set((state) => ({
+            lifecycleCache: state.lifecycleCache
+              ? {
+                  ...state.lifecycleCache,
+                  graduatedAt: now,
+                  challengeStartedAt: now,
+                  cachedAt: nowTimestamp(),
+                }
+              : null,
+          }));
+
           if (__DEV__) {
             console.log('[GremlyStore] Graduation finalized, sock_count:', newSockCount);
+          }
+        },
+
+        checkChallengeCompletionOnFedFlip: async () => {
+          const { userId, challengeStartedAt, challengeCompletedAt } = get();
+
+          if (!userId) return;
+          if (!challengeStartedAt) return; // User hasn't graduated tutorial
+          if (challengeCompletedAt) return; // Already complete, no-op
+
+          // Count cumulative fed days since challenge started
+          const { count, error } = await supabase
+            .from('daily_ritual_progress')
+            .select('*', { count: 'exact', head: true })
+            .eq('owner_id', userId)
+            .eq('is_fed', true)
+            .gte('ritual_day', challengeStartedAt.split('T')[0]);
+
+          if (error) {
+            console.error(
+              '[GremlyStore] Failed to check fed day count for challenge completion:',
+              error,
+            );
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const Sentry = require('@sentry/react-native');
+              Sentry.captureException(new Error('checkChallengeCompletionOnFedFlip count failed'), {
+                extra: { error: JSON.stringify(error) },
+              });
+            } catch {
+              /* Sentry not available */
+            }
+            return;
+          }
+
+          if ((count ?? 0) < 7) return; // Not yet at 7 fed days
+
+          // User just hit their 7th fed day. Complete the challenge.
+          const now = nowTimestamp();
+
+          // Optimistic local update
+          set({ challengeCompletedAt: now });
+
+          // Update lifecycleCache
+          set((state) => ({
+            lifecycleCache: state.lifecycleCache
+              ? {
+                  ...state.lifecycleCache,
+                  challengeCompletedAt: now,
+                  cachedAt: nowTimestamp(),
+                }
+              : null,
+          }));
+
+          // Persist to Supabase
+          const { error: updateError } = await supabase
+            .from('cortex_preferences')
+            .update({ challenge_completed_at: now })
+            .eq('owner_id', userId);
+
+          if (updateError) {
+            console.error('[GremlyStore] Failed to persist challenge_completed_at:', updateError);
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const Sentry = require('@sentry/react-native');
+              Sentry.captureException(new Error('Failed to persist challenge_completed_at'), {
+                extra: { error: JSON.stringify(updateError) },
+              });
+            } catch {
+              /* Sentry not available */
+            }
+            // Local state already updated — server will eventually sync via initialize
+            // Do not emit event if server persist failed
+            return;
+          }
+
+          // Fire challenge-completed event via the Cloudflare Worker
+          try {
+            const workerUrl = env.cortexUrl;
+            if (!workerUrl) {
+              console.warn(
+                '[GremlyStore] No cortexUrl configured, skipping challenge.completed event',
+              );
+              return;
+            }
+
+            const response = await fetch(`${workerUrl}/api/challenge-completed`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                user_id: userId,
+                completed_at: now,
+                timezone:
+                  get().userTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`challenge-completed POST failed: ${response.status}`);
+            }
+
+            if (__DEV__) console.log('[GremlyStore] \u2705 challenge.completed event emitted');
+          } catch (err) {
+            console.error('[GremlyStore] Failed to emit challenge.completed event:', err);
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const Sentry = require('@sentry/react-native');
+              Sentry.captureException(err);
+            } catch {
+              /* Sentry not available */
+            }
+            // Local + server state are consistent — just the orchestration didn't fire.
           }
         },
 
@@ -2996,7 +3212,7 @@ export const useGremlyStore = create<GremlyState>()(
             source: STORE_EVENT_SOURCE,
           });
           // Track training progress
-          if (get().isTrainingMode) {
+          if (!get().graduatedAt) {
             get()
               .refreshTrainingReadiness()
               .catch((err) => {
@@ -3554,7 +3770,7 @@ export const useGremlyStore = create<GremlyState>()(
             source: STORE_EVENT_SOURCE,
           });
           // Track training progress for journal entries
-          if (get().isTrainingMode && data.subtype === 'journal') {
+          if (!get().graduatedAt && data.subtype === 'journal') {
             get()
               .refreshTrainingReadiness()
               .catch((err) => {
@@ -3764,7 +3980,7 @@ export const useGremlyStore = create<GremlyState>()(
             source: STORE_EVENT_SOURCE,
           });
           // Track training progress
-          if (get().isTrainingMode) {
+          if (!get().graduatedAt) {
             get()
               .refreshTrainingReadiness()
               .catch((err) => {
@@ -5092,11 +5308,33 @@ export const useGremlyStore = create<GremlyState>()(
               supabase
                 .from('cortex_preferences')
                 .select(
-                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, is_training_mode, training_started_at, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, gremly_color, bedtime_hour, wake_hour',
+                  'gremly_age, gremly_age_last_incremented_at, fed_days_count, current_tier, unfed_streak_days, last_fed_at, sock_count, ai_mode, graduated_at, last_sweep_completed_at, sweep_streak, mini_sweep_last_completed_at, day_boundary_hour, training_drop_step, has_seen_gauge_explanation, has_seen_first_fed_modal, has_seen_sweep_unlock_modal, has_seen_entity_chat_highlight, has_seen_training_meter_auto_open, has_seen_readonly_intro, gremly_color, is_tester, trial_started_at, challenge_started_at, challenge_completed_at, onboarding_completed_at, first_drop_completed_at, first_today_visit_completed_at, demo_sweep_completed_at, created_at',
                 )
                 .eq('owner_id', userId)
                 .maybeSingle(),
             ]);
+
+            // Check cortex_preferences error — skip prefs reconciliation but continue entity updates
+            let skipCortexPrefs = false;
+            if (cortexPrefsRes.error) {
+              console.error(
+                '[GremlyStore] refreshFromServer — cortex_preferences fetch failed, skipping prefs reconciliation:',
+                cortexPrefsRes.error,
+              );
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const Sentry = require('@sentry/react-native');
+                Sentry.captureException(
+                  new Error('refreshFromServer cortex_preferences fetch failed'),
+                  {
+                    extra: { error: JSON.stringify(cortexPrefsRes.error) },
+                  },
+                );
+              } catch {
+                /* Sentry not available */
+              }
+              skipCortexPrefs = true;
+            }
 
             set({
               // Add type field since DB doesn't store it
@@ -5129,7 +5367,7 @@ export const useGremlyStore = create<GremlyState>()(
             // Reconcile cortex_preferences (gremly age, fed days, tier, etc.)
             // These aren't fetched by refreshRitualProgress, so they need
             // explicit reconciliation from the server.
-            if (cortexPrefsRes.data) {
+            if (!skipCortexPrefs && cortexPrefsRes.data) {
               const cp = cortexPrefsRes.data as Record<string, unknown>;
               set({
                 gremlyAge: (cp.gremly_age as number) ?? get().gremlyAge,
@@ -5141,8 +5379,6 @@ export const useGremlyStore = create<GremlyState>()(
                 lastFedAt: (cp.last_fed_at as string) ?? get().lastFedAt,
                 sockCount: (cp.sock_count as number) ?? get().sockCount,
                 aiMode: ((cp.ai_mode as string) ?? get().aiMode) as any,
-                isTrainingMode: (cp.is_training_mode as boolean) ?? get().isTrainingMode,
-                trainingStartedAt: (cp.training_started_at as string) ?? get().trainingStartedAt,
                 graduatedAt: (cp.graduated_at as string) ?? get().graduatedAt,
                 lastSweepCompletedAt:
                   (cp.last_sweep_completed_at as string) ?? get().lastSweepCompletedAt,
@@ -5163,17 +5399,49 @@ export const useGremlyStore = create<GremlyState>()(
                 hasSeenTrainingMeterAutoOpen:
                   (cp.has_seen_training_meter_auto_open as boolean) ??
                   get().hasSeenTrainingMeterAutoOpen,
+                hasSeenReadonlyIntro:
+                  (cp.has_seen_readonly_intro as boolean) ?? get().hasSeenReadonlyIntro,
                 gremlyColor: (cp.gremly_color as string) ?? get().gremlyColor,
-                bedtimeHour: (cp.bedtime_hour as number) ?? get().bedtimeHour,
-                wakeHour: (cp.wake_hour as number) ?? get().wakeHour,
+                isTester: (cp.is_tester as boolean) ?? get().isTester,
+                trialStartedAt: (cp.trial_started_at as string) ?? get().trialStartedAt,
+                challengeStartedAt: (cp.challenge_started_at as string) ?? get().challengeStartedAt,
+                challengeCompletedAt:
+                  (cp.challenge_completed_at as string) ?? get().challengeCompletedAt,
+                onboardingCompletedAt:
+                  (cp.onboarding_completed_at as string) ?? get().onboardingCompletedAt,
+                firstDropCompletedAt:
+                  (cp.first_drop_completed_at as string) ?? get().firstDropCompletedAt,
+                firstTodayVisitCompletedAt:
+                  (cp.first_today_visit_completed_at as string) ?? get().firstTodayVisitCompletedAt,
+                demoSweepCompletedAt:
+                  (cp.demo_sweep_completed_at as string) ?? get().demoSweepCompletedAt,
+                accountCreatedAt: (cp.created_at as string) ?? get().accountCreatedAt,
               });
 
               // Fetch identity from user_profiles
-              const { data: userProfileData } = await supabase
+              const { data: userProfileData, error: userProfileRefreshError } = await supabase
                 .from('user_profiles')
                 .select('identity')
                 .eq('user_id', userId)
                 .maybeSingle();
+              if (userProfileRefreshError) {
+                console.error(
+                  '[GremlyStore] user_profiles fetch failed (non-fatal):',
+                  userProfileRefreshError,
+                );
+                try {
+                  // eslint-disable-next-line @typescript-eslint/no-var-requires
+                  const Sentry = require('@sentry/react-native');
+                  Sentry.captureException(new Error('user_profiles identity fetch failed'), {
+                    extra: {
+                      error: JSON.stringify(userProfileRefreshError),
+                      context: 'refreshFromServer',
+                    },
+                  });
+                } catch {
+                  /* Sentry not available */
+                }
+              }
               if (userProfileData?.identity) {
                 const ident = userProfileData.identity as Record<string, unknown>;
                 set({
@@ -5187,13 +5455,13 @@ export const useGremlyStore = create<GremlyState>()(
                 lifecycleCache: {
                   onboardingCompletedAt: state.onboardingCompletedAt,
                   firstDropCompletedAt: state.firstDropCompletedAt,
-                  isTrainingMode: state.isTrainingMode,
                   trainingDropStep: state.trainingDropStep,
                   graduatedAt: state.graduatedAt,
                   isTester: state.isTester,
                   trialStartedAt: state.trialStartedAt,
                   challengeStartedAt: state.challengeStartedAt,
                   challengeCompletedAt: state.challengeCompletedAt,
+                  hasSeenReadonlyIntro: state.hasSeenReadonlyIntro,
                   cachedAt: nowTimestamp(),
                   cachedForUserId: state.userId ?? 'unknown',
                 },
@@ -5206,11 +5474,6 @@ export const useGremlyStore = create<GremlyState>()(
                   currentTier: cp.current_tier,
                 });
               }
-            } else if (cortexPrefsRes.error && cortexPrefsRes.error.code !== 'PGRST116') {
-              console.warn(
-                '[GremlyStore] cortex_preferences fetch in refreshFromServer failed:',
-                cortexPrefsRes.error,
-              );
             }
 
             // Fetch DCO after server refresh (cached hydration path skips cold init)
@@ -7550,9 +7813,13 @@ export const useGremlyStore = create<GremlyState>()(
             const cortexUrl = env.cortexUrl;
             if (cortexUrl) {
               console.log('[GremlyStore] Calling reclassify endpoint...');
+              const sessionToken = await getSessionToken();
               const reclassifyResponse = await fetch(cortexUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${sessionToken}`,
+                },
                 body: JSON.stringify({
                   type: 'reclassify-after-clarification',
                   text: originalText,
@@ -7720,9 +7987,13 @@ export const useGremlyStore = create<GremlyState>()(
                   phase2Text: phase2Text.substring(0, 60),
                 });
 
+                const sessionToken2 = await getSessionToken();
                 const phase2Response = await fetch(cortexUrl, {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${sessionToken2}`,
+                  },
                   body: JSON.stringify({
                     type: 'enrich-phase2',
                     text: phase2Text,
@@ -8146,9 +8417,13 @@ export const useGremlyStore = create<GremlyState>()(
                   phase2Text: phase2Text.substring(0, 60),
                 });
 
+                const sessionToken2 = await getSessionToken();
                 const phase2Response = await fetch(cortexUrl, {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${sessionToken2}`,
+                  },
                   body: JSON.stringify({
                     type: 'enrich-phase2',
                     text: phase2Text,
@@ -8432,9 +8707,13 @@ export const useGremlyStore = create<GremlyState>()(
           try {
             const cortexUrl = env.cortexUrl;
             if (cortexUrl) {
+              const sessionToken = await getSessionToken();
               const phase2Response = await fetch(cortexUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${sessionToken}`,
+                },
                 body: JSON.stringify({
                   type: 'enrich-phase2',
                   text: originalText,
@@ -9572,7 +9851,6 @@ export const useGremlyStore = create<GremlyState>()(
             const {
               onboardingCompletedAt,
               firstDropCompletedAt,
-              isTrainingMode,
               trainingStartedAt,
               graduatedAt,
               trainingDropStep,
@@ -9631,9 +9909,8 @@ export const useGremlyStore = create<GremlyState>()(
           hasSeenSweepUnlockModal: state.hasSeenSweepUnlockModal,
           hasSeenEntityChatHighlight: state.hasSeenEntityChatHighlight,
           hasSeenTrainingMeterAutoOpen: state.hasSeenTrainingMeterAutoOpen,
+          hasSeenReadonlyIntro: state.hasSeenReadonlyIntro,
           gremlyColor: state.gremlyColor,
-          bedtimeHour: state.bedtimeHour,
-          wakeHour: state.wakeHour,
           lastActiveDate: state.lastActiveDate,
           userName: state.userName,
           userPronouns: state.userPronouns,
@@ -9701,13 +9978,13 @@ export const useGremlyStore = create<GremlyState>()(
                 return {
                   onboardingCompletedAt: cache.onboardingCompletedAt,
                   firstDropCompletedAt: cache.firstDropCompletedAt,
-                  isTrainingMode: cache.isTrainingMode,
                   trainingDropStep: cache.trainingDropStep,
                   graduatedAt: cache.graduatedAt,
                   isTester: cache.isTester,
                   trialStartedAt: cache.trialStartedAt,
                   challengeStartedAt: cache.challengeStartedAt,
                   challengeCompletedAt: cache.challengeCompletedAt,
+                  hasSeenReadonlyIntro: cache.hasSeenReadonlyIntro,
                 };
               }
               return {};

@@ -28,6 +28,11 @@ jest.mock('../lib/supabase/client', () => ({
         })),
       })),
     })),
+    auth: {
+      onAuthStateChange: jest
+        .fn()
+        .mockReturnValue({ data: { subscription: { unsubscribe: jest.fn() } } }),
+    },
   },
 }));
 

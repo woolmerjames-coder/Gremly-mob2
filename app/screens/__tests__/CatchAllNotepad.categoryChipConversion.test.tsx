@@ -46,6 +46,11 @@ jest.mock('../../../providers/AuthProvider', () => ({
 jest.mock('../../../lib/supabase/client', () => ({
   supabase: {
     rpc: jest.fn(),
+    auth: {
+      onAuthStateChange: jest
+        .fn()
+        .mockReturnValue({ data: { subscription: { unsubscribe: jest.fn() } } }),
+    },
   },
 }));
 

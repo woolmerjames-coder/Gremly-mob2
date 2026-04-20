@@ -32,6 +32,7 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useGlobalOverlay } from '../../contexts/OverlayContext';
 import { getDateService } from '../../lib/date';
 import { env, getEnv } from '../../lib/env';
+import { getSessionToken } from '../../lib/cortex/getSessionToken';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cortex URL helper (same pattern as useEventQuickAdd.ts)
@@ -42,12 +43,6 @@ const readCortexUrl = (): string => {
   const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
   const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
   return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
-};
-
-const readSupabaseAnonKey = (): string => {
-  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
-  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
-  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -361,12 +356,11 @@ export function JournalFullScreen({
     async (noteId: string, text: string, context: GoalContext | undefined) => {
       try {
         const cortexUrl = readCortexUrl();
-        const anonKey = readSupabaseAnonKey();
-
-        if (!cortexUrl || !anonKey) {
-          console.warn('[JournalFullScreen] Missing cortex URL or anon key, skipping enrichment');
+        if (!cortexUrl) {
+          console.warn('[JournalFullScreen] Missing cortex URL, skipping enrichment');
           return;
         }
+        const sessionToken = await getSessionToken();
 
         const ds = getDateService();
         const currentDateStr = ds.today();
@@ -384,7 +378,7 @@ export function JournalFullScreen({
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  Authorization: `Bearer ${anonKey}`,
+                  Authorization: `Bearer ${sessionToken}`,
                 },
                 body: JSON.stringify({
                   type: 'enrich-phase1-5a',
@@ -407,7 +401,7 @@ export function JournalFullScreen({
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  Authorization: `Bearer ${anonKey}`,
+                  Authorization: `Bearer ${sessionToken}`,
                 },
                 body: JSON.stringify({
                   type: 'enrich-phase2',
