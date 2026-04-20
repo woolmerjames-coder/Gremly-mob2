@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "6d6c73e8-c708-427f-ade5-717aa37ee0a8"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.woolmerjames.gremlynotifications",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}
