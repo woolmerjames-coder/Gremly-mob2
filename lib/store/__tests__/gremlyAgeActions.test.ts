@@ -414,6 +414,9 @@ describe('Gremly Age Store Actions', () => {
 
   describe('addGaugeContribution', () => {
     it('calls update_gauge_atomic RPC with correct params', async () => {
+      // Set graduated so no pre-graduation multiplier applies
+      useGremlyStore.setState({ graduatedAt: '2025-12-01T00:00:00Z' });
+
       mockRpcResponse('update_gauge_atomic', {
         data: [
           {

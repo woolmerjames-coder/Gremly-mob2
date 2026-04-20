@@ -11,18 +11,25 @@ import { detectMulti } from '../detectMulti';
 jest.mock('../../env', () => ({
   env: {
     cortexUrl: 'https://test-cortex.example.com',
-    supabaseAnonKey: 'test-anon-key',
   },
   getEnv: jest.fn((key: string) => {
     if (key === 'EXPO_PUBLIC_CORTEX_URL') return 'https://test-cortex.example.com';
-    if (key === 'EXPO_PUBLIC_SUPABASE_ANON_KEY') return 'test-anon-key';
     return undefined;
   }),
 }));
 
+// Mock getSessionToken to return a test JWT
+jest.mock('../../cortex/getSessionToken', () => ({
+  getSessionToken: jest.fn(),
+  getSessionTokenSync: jest.fn(),
+}));
+
+import { getSessionToken } from '../../cortex/getSessionToken';
+
 describe('detectMulti', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (getSessionToken as jest.Mock).mockResolvedValue('test-session-jwt');
   });
 
   describe('API call', () => {
@@ -40,7 +47,7 @@ describe('detectMulti', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: 'Bearer test-anon-key',
+            Authorization: 'Bearer test-session-jwt',
           },
           body: JSON.stringify({
             type: 'detect-multi',

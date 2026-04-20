@@ -47,6 +47,23 @@ jest.mock('../lib/store/selectors', () => ({
   selectRecentHabits: jest.fn(() => []),
 }));
 
+// Mock navigation (RecentDrops now uses useNavigation)
+jest.mock('@react-navigation/native', () => ({
+  ...jest.requireActual('@react-navigation/native'),
+  useNavigation: () => ({
+    navigate: jest.fn(),
+    setOptions: jest.fn(),
+    addListener: jest.fn(() => jest.fn()),
+  }),
+}));
+
+// Mock lifecycle selectors (useCanCreate, useHasCompletedFirstDrop)
+jest.mock('../lib/store/lifecycleSelectors', () => ({
+  useCanCreate: () => true,
+  useHasCompletedFirstDrop: () => true,
+  useCanChat: () => true,
+}));
+
 import { RecentDropsTestable as RecentDrops } from '../app/screens/CatchAllNotepad';
 
 describe('RecentDrops - Deduplication by drop_id', () => {

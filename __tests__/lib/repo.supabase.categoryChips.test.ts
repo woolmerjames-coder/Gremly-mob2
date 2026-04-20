@@ -23,6 +23,11 @@ import { SupabaseRepo } from '../../lib/repo/supabase';
 jest.mock('../../lib/supabase/client', () => ({
   supabase: {
     from: jest.fn(),
+    auth: {
+      onAuthStateChange: jest
+        .fn()
+        .mockReturnValue({ data: { subscription: { unsubscribe: jest.fn() } } }),
+    },
   },
 }));
 

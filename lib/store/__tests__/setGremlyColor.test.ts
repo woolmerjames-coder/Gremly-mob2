@@ -8,6 +8,11 @@ jest.mock('../../../lib/supabase/client', () => ({
     from: () => ({
       upsert: mockUpsert,
     }),
+    auth: {
+      onAuthStateChange: jest
+        .fn()
+        .mockReturnValue({ data: { subscription: { unsubscribe: jest.fn() } } }),
+    },
   },
 }));
 

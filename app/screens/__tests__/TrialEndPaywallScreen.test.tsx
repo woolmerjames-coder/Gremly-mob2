@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 const mockDispatch = jest.fn();
 const mockGoBack = jest.fn();
@@ -26,6 +26,7 @@ jest.mock('../../../lib/store/useGremlyStore', () => ({
       trialStartedAt: null,
       isSubscribed: false,
       setIsSubscribed: jest.fn(),
+      fetchLifetimeStats: jest.fn().mockResolvedValue({ daysFed: 5, thoughtsCount: 23 }),
     }),
 }));
 
@@ -74,13 +75,17 @@ describe('TrialEndPaywallScreen', () => {
 
   it('renders the subtitle', () => {
     const { getByText } = render(<TrialEndPaywallScreen />);
-    expect(getByText("Your free trial has ended. Here's what we built together.")).toBeTruthy();
+    expect(
+      getByText('Your free access has ended. Subscribe to keep feeding your Gremly.'),
+    ).toBeTruthy();
   });
 
-  it('renders stat cards with store values', () => {
+  it('renders stat cards with store values', async () => {
     const { getByLabelText } = render(<TrialEndPaywallScreen />);
-    expect(getByLabelText('5 days fed')).toBeTruthy();
-    expect(getByLabelText('23 thoughts')).toBeTruthy();
+    await waitFor(() => {
+      expect(getByLabelText('5 days fed')).toBeTruthy();
+      expect(getByLabelText('23 thoughts')).toBeTruthy();
+    });
     expect(getByLabelText('Gremly age 7')).toBeTruthy();
   });
 
@@ -127,8 +132,8 @@ describe('TrialEndPaywallScreen', () => {
       refresh: jest.fn(),
     });
 
-    const { getByText } = render(<TrialEndPaywallScreen />);
-    fireEvent.press(getByText('Not now'));
+    const { getByLabelText: getLabel } = render(<TrialEndPaywallScreen />);
+    fireEvent.press(getLabel('Close'));
     expect(mockGoBack).toHaveBeenCalled();
 
     // Restore
