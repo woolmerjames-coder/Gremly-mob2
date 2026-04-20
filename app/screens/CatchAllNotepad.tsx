@@ -211,7 +211,7 @@ const MAX_INPUT_CHARACTERS = 2000;
 const PHOTO_TEXT_HINT = 'Add a few words so Gremly knows what this photo is about.';
 const SPACE = 8;
 const INPUT_PADDING_LEFT = 16;
-const INPUT_ICON_PADDING_RIGHT = 72;
+const INPUT_ICON_PADDING_RIGHT = 120;
 
 const clampNoteLength = (value: string): string =>
   value.length > MAX_INPUT_CHARACTERS ? value.slice(0, MAX_INPUT_CHARACTERS) : value;
