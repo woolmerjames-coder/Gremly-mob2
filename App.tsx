@@ -608,10 +608,10 @@ function App() {
   useTimezoneSync();
 
   // Mascot lifecycle: sleep/wake cycle, waving, inactivity detection
-  const { mode: mascotMode, resetInactivity } = useMascotLifecycle();
+  const { mode: mascotMode, resetInactivity, signalAnimationFinish } = useMascotLifecycle();
   const mascotModeValue = React.useMemo(
-    () => ({ mode: mascotMode, resetInactivity }),
-    [mascotMode, resetInactivity],
+    () => ({ mode: mascotMode, resetInactivity, signalAnimationFinish }),
+    [mascotMode, resetInactivity, signalAnimationFinish],
   );
 
   // Native splash is now hidden by RootNavigator when auth + hydration are ready

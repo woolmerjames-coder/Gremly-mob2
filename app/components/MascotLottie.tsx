@@ -1,7 +1,6 @@
 import React, {
   useRef,
   useCallback,
-  useState,
   useImperativeHandle,
   forwardRef,
   memo,
@@ -19,6 +18,7 @@ import Animated, {
   useReducedMotion,
 } from 'react-native-reanimated';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
+import { useMascotStore } from '../../lib/store/useMascotStore';
 import { recolorLottieJson, GREMLY_PALETTES } from '../../lib/constants/gremlyPalettes';
 import type { AnimationMode } from '../../lib/types';
 import { useMascotMode } from '../../contexts/MascotModeContext';
@@ -130,20 +130,11 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
     ref,
   ) => {
     // Context-provided mode as fallback when no explicit prop is passed
-    const { mode: contextMode } = useMascotMode();
-    // Internal state only used by the deprecated imperative handle
-    const [imperativeMode, setImperativeMode] = useState<AnimationMode>('idle');
-    const isCelebratingRef = useRef(false);
-    // Imperative mode wins during active celebrations; otherwise prop > context
-    // The ref avoids async-state race conditions during celebrate —
-    // setImperativeMode (state) always accompanies ref writes, forcing a re-render.
-    /* eslint-disable react-hooks/refs */
-    const mode: AnimationMode = isCelebratingRef.current
-      ? imperativeMode
-      : (modeProp ?? contextMode ?? 'idle');
-    /* eslint-enable react-hooks/refs */
+    const { mode: contextMode, signalAnimationFinish } = useMascotMode();
+    const mode: AnimationMode = modeProp ?? contextMode ?? 'idle';
     const fedPlayCountRef = useRef(0);
     const reduceMotion = useReducedMotion();
+    const requestMode = useMascotStore((s) => s.requestMode);
 
     // Only fed needs a ref (for 2× replay via reset+play)
     const greenFedRef = useRef<LottieView>(null);
@@ -247,37 +238,31 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
           : fillHeight.value,
     }));
 
-    /** @deprecated Use the mode prop instead. */
+    /** @deprecated Call `requestMode('drop')` on the store directly. */
     const celebrate = useCallback(() => {
-      if (isCelebratingRef.current) return;
-      isCelebratingRef.current = true;
-      setImperativeMode('drop');
-    }, []);
+      requestMode('drop');
+    }, [requestMode]);
 
-    /** @deprecated Use the mode prop instead. */
+    /** @deprecated Call `requestMode('fed')` on the store directly. */
     const celebrateFed = useCallback(() => {
-      if (isCelebratingRef.current) return;
-      isCelebratingRef.current = true;
       fedPlayCountRef.current = 0;
-      setImperativeMode('fed');
-    }, []);
+      requestMode('fed');
+    }, [requestMode]);
 
     const handleDropFinish = useCallback(() => {
-      isCelebratingRef.current = false;
-      setImperativeMode('idle');
-    }, []);
+      signalAnimationFinish('drop');
+    }, [signalAnimationFinish]);
 
     const handleFedFinish = useCallback(() => {
       fedPlayCountRef.current += 1;
       if (fedPlayCountRef.current < 2) {
-        // Replay via ref (grey layer is hidden during fed)
+        // Replay the fed animation a second time via the Lottie ref.
         greenFedRef.current?.reset();
         greenFedRef.current?.play();
       } else {
-        isCelebratingRef.current = false;
-        setImperativeMode('idle');
+        signalAnimationFinish('fed');
       }
-    }, []);
+    }, [signalAnimationFinish]);
 
     const onDropFinish = useCallback(
       (isCancelled: boolean) => {
@@ -291,6 +276,27 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
         if (!isCancelled) handleFedFinish();
       },
       [handleFedFinish],
+    );
+
+    const onWavingFinish = useCallback(
+      (isCancelled: boolean) => {
+        if (!isCancelled) signalAnimationFinish('waving');
+      },
+      [signalAnimationFinish],
+    );
+
+    const onFallingAsleepFinish = useCallback(
+      (isCancelled: boolean) => {
+        if (!isCancelled) signalAnimationFinish('fallingAsleep');
+      },
+      [signalAnimationFinish],
+    );
+
+    const onWakingUpFinish = useCallback(
+      (isCancelled: boolean) => {
+        if (!isCancelled) signalAnimationFinish('wakingUp');
+      },
+      [signalAnimationFinish],
     );
 
     useImperativeHandle(ref, () => ({ celebrate, celebrateFed }), [celebrate, celebrateFed]);
@@ -480,6 +486,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
               loop={false}
               renderMode="SOFTWARE"
               style={styles.lottieGreen}
+              onAnimationFinish={onWavingFinish}
             />
           )}
           {mode === 'fallingAsleep' && (
@@ -489,6 +496,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
               loop={false}
               renderMode="SOFTWARE"
               style={styles.lottieGreen}
+              onAnimationFinish={onFallingAsleepFinish}
             />
           )}
           {mode === 'sleeping' && (
@@ -507,6 +515,7 @@ const MascotLottieInner = forwardRef<MascotLottieHandle, Props>(
               loop={false}
               renderMode="SOFTWARE"
               style={styles.lottieGreen}
+              onAnimationFinish={onWakingUpFinish}
             />
           )}
         </Animated.View>

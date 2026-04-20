@@ -12,10 +12,17 @@ import { ActionButton } from '../../../components/ui/ActionButton';
 import { MascotModeProvider } from '../../../contexts/MascotModeContext';
 
 const mockResetInactivity = jest.fn();
+const mockSignalAnimationFinish = jest.fn();
 
 function renderWithProvider(ui: React.ReactElement) {
   return render(
-    <MascotModeProvider value={{ mode: 'idle', resetInactivity: mockResetInactivity }}>
+    <MascotModeProvider
+      value={{
+        mode: 'idle',
+        resetInactivity: mockResetInactivity,
+        signalAnimationFinish: mockSignalAnimationFinish,
+      }}
+    >
       {ui}
     </MascotModeProvider>,
   );

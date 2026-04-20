@@ -13,9 +13,12 @@ import { MascotModeProvider } from '../../contexts/MascotModeContext';
 describe('useWakeOnInput', () => {
   it('calls resetInactivity when invoked', () => {
     const mockReset = jest.fn();
+    const mockSignalFinish = jest.fn();
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <MascotModeProvider value={{ mode: 'sleeping', resetInactivity: mockReset }}>
+      <MascotModeProvider
+        value={{ mode: 'sleeping', resetInactivity: mockReset, signalAnimationFinish: mockSignalFinish }}
+      >
         {children}
       </MascotModeProvider>
     );
@@ -31,9 +34,12 @@ describe('useWakeOnInput', () => {
 
   it('returns a stable callback reference', () => {
     const mockReset = jest.fn();
+    const mockSignalFinish = jest.fn();
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <MascotModeProvider value={{ mode: 'idle', resetInactivity: mockReset }}>
+      <MascotModeProvider
+        value={{ mode: 'idle', resetInactivity: mockReset, signalAnimationFinish: mockSignalFinish }}
+      >
         {children}
       </MascotModeProvider>
     );
@@ -47,9 +53,12 @@ describe('useWakeOnInput', () => {
 
   it('can be called multiple times', () => {
     const mockReset = jest.fn();
+    const mockSignalFinish = jest.fn();
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <MascotModeProvider value={{ mode: 'idle', resetInactivity: mockReset }}>
+      <MascotModeProvider
+        value={{ mode: 'idle', resetInactivity: mockReset, signalAnimationFinish: mockSignalFinish }}
+      >
         {children}
       </MascotModeProvider>
     );

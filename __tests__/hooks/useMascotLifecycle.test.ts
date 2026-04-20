@@ -50,6 +50,17 @@ jest.mock('../../hooks/useMascotController', () => ({
   useMascotController: () => mockController,
 }));
 
+// Mock useMascotStore selectors used by useMascotLifecycle
+const mockRequestSequence = jest.fn();
+const mockSignalAnimationFinish = jest.fn();
+jest.mock('../../lib/store/useMascotStore', () => ({
+  useMascotStore: (selector: any) =>
+    selector({
+      requestSequence: mockRequestSequence,
+      signalAnimationFinish: mockSignalAnimationFinish,
+    }),
+}));
+
 // Mock AppState — must be set up before import and re-applied after clearAllMocks
 let appStateCallback: ((state: string) => void) | null = null;
 const mockRemove = jest.fn();
@@ -158,7 +169,7 @@ describe('useMascotLifecycle', () => {
   });
 
   describe('resetInactivity', () => {
-    it('waking from sleep on first interaction of day → plays morning sequence', () => {
+    it('waking from sleep on first interaction of day → uses requestSequence morning flow', () => {
       mockHour = 10;
       mockStoreState.lastActiveDate = '2026-04-10';
       mockController.mode = 'sleeping';
@@ -173,8 +184,12 @@ describe('useMascotLifecycle', () => {
         result.current.resetInactivity();
       });
 
-      // Morning sequence: wakeUp is called first
-      expect(mockController.wakeUp).toHaveBeenCalled();
+      expect(mockRequestSequence).toHaveBeenCalledTimes(1);
+      expect(mockRequestSequence).toHaveBeenCalledWith([
+        { type: 'mode', mode: 'wakingUp' },
+        { type: 'pause', ms: 1_000 },
+        { type: 'mode', mode: 'waving' },
+      ]);
     });
 
     it('waking from sleep after already opened today → just wakes up', () => {
@@ -193,7 +208,7 @@ describe('useMascotLifecycle', () => {
       expect(mockController.wakeUp).toHaveBeenCalled();
     });
 
-    it('cancels fallingAsleep → returns to idle', () => {
+    it('fallingAsleep interaction preempts with wakeUp for immediate tap feedback', () => {
       mockStoreState.lastActiveDate = mockToday;
       mockController.mode = 'fallingAsleep';
 
@@ -206,7 +221,10 @@ describe('useMascotLifecycle', () => {
         result.current.resetInactivity();
       });
 
-      expect(mockController.idle).toHaveBeenCalled();
+      // Matrix allows wakingUp to preempt fallingAsleep so we play a real wake animation
+      // instead of snapping directly to idle.
+      expect(mockController.wakeUp).toHaveBeenCalled();
+      expect(mockController.idle).not.toHaveBeenCalled();
     });
   });
 
