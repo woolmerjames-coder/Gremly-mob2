@@ -1,13 +1,13 @@
 /**
  * ChatComposer — best-in-class mobile chat input
  *
- * Behavior (matches iMessage / WhatsApp / Slack / ChatGPT mobile):
- * - Multiline by default; Enter inserts a newline (never submits on soft keyboard)
- * - Submits via tap on Send button, or Cmd+Enter on hardware keyboards (iPad)
- * - Auto-grows from 1 line up to ~6 lines, then scrolls internally
- * - Smooth height animation via LayoutAnimation
- * - Send button anchored to bottom as field grows
- * - Haptic on send, disabled state when empty
+ * Design: let RN's TextInput auto-size between min/max heights. No manual
+ * height state — simpler, more reliable on iOS than state-driven height.
+ *
+ * - Multiline by default; Enter inserts a newline
+ * - Submits via Send button or Cmd+Enter (hardware keyboards)
+ * - Grows from 1 line to 7 lines, then scrolls internally
+ * - Send button anchored at bottom; placeholder/text flows from top
  */
 
 import React, { useCallback, useRef, useState } from 'react';
@@ -16,27 +16,17 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  LayoutAnimation,
-  Platform,
-  UIManager,
   NativeSyntheticEvent,
   TextInputKeyPressEventData,
-  TextInputContentSizeChangeEventData,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Send } from 'lucide-react-native';
 import { lightTokens } from '../../design/tokens';
 
-// Enable LayoutAnimation on Android (iOS is enabled by default)
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
 const LINE_HEIGHT = 22;
-const V_PADDING = 11; // paddingTop / paddingBottom inside TextInput
-const MIN_HEIGHT = LINE_HEIGHT + V_PADDING * 2; // 44 — one line
-const MAX_LINES = 7;
-const MAX_HEIGHT = LINE_HEIGHT * MAX_LINES + V_PADDING * 2; // 154 — six lines
+const V_PADDING = 11;
+const MIN_HEIGHT = LINE_HEIGHT + V_PADDING * 2; // 44 (1 line)
+const MAX_HEIGHT = LINE_HEIGHT * 7 + V_PADDING * 2; // 176 (7 lines)
 
 interface ChatComposerProps {
   onSend: (text: string) => void;
@@ -56,7 +46,6 @@ export function ChatComposer({
   initialText,
 }: ChatComposerProps) {
   const [text, setText] = useState(initialText || '');
-  const [contentHeight, setContentHeight] = useState(MIN_HEIGHT);
   const inputRef = useRef<TextInput>(null);
 
   const canSend = text.trim().length > 0 && !disabled;
@@ -66,37 +55,12 @@ export function ChatComposer({
     const messageToSend = text.trim();
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    // Animate collapse back to one line
-    LayoutAnimation.configureNext({
-      duration: 140,
-      update: { type: 'easeInEaseOut' },
-    });
     setText('');
-    setContentHeight(MIN_HEIGHT);
     inputRef.current?.clear();
-
     onSend(messageToSend);
 
-    // Keep keyboard open
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [canSend, text, onSend]);
-
-  const handleContentSizeChange = useCallback(
-    (e: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
-      const measured = e.nativeEvent.contentSize.height + V_PADDING * 2;
-      const next = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, measured));
-      setContentHeight((prev) => {
-        if (prev === next) return prev;
-        LayoutAnimation.configureNext({
-          duration: 100,
-          update: { type: 'easeInEaseOut' },
-        });
-        return next;
-      });
-    },
-    [],
-  );
 
   const handleTextChange = useCallback(
     (next: string) => {
@@ -113,7 +77,7 @@ export function ChatComposer({
         metaKey?: boolean;
       };
       if (ne.key === 'Enter' && ne.metaKey === true) {
-        // @ts-expect-error preventDefault exists on web/hardware keyboard events
+        // @ts-expect-error preventDefault exists on hardware keyboard events
         e.preventDefault?.();
         handleSend();
       }
@@ -123,35 +87,25 @@ export function ChatComposer({
 
   return (
     <View style={styles.container} testID={testID}>
-      <View style={[styles.inputContainer, { height: contentHeight }]}>
+      <View style={styles.inputContainer}>
         <TextInput
           ref={inputRef}
           style={styles.textInput}
           value={text}
           onChangeText={handleTextChange}
-          onContentSizeChange={handleContentSizeChange}
           onKeyPress={handleKeyPress}
           placeholder={placeholder}
           placeholderTextColor="rgba(34, 34, 34, 0.4)"
           multiline
-          scrollEnabled
           textAlignVertical="top"
           editable={!disabled}
           returnKeyType="default"
-          // iOS 14+ / RN 0.73+: explicit newline behavior for multiline
           submitBehavior="newline"
           keyboardAppearance="light"
           testID={testID ? `${testID}-input` : undefined}
         />
         <TouchableOpacity
-          style={[
-            styles.sendButton,
-            canSend ? styles.sendButtonActive : styles.sendButtonDisabled,
-            // Center the button at single-line height, anchor to bottom once expanded
-            contentHeight <= MIN_HEIGHT
-              ? { alignSelf: 'center', marginBottom: 0 }
-              : { alignSelf: 'flex-end', marginBottom: 6 },
-          ]}
+          style={[styles.sendButton, canSend ? styles.sendButtonActive : styles.sendButtonDisabled]}
           onPress={handleSend}
           disabled={!canSend}
           accessibilityRole="button"
@@ -178,16 +132,12 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     flexDirection: 'row',
-    // alignItems default 'stretch' so TextInput fills container vertically.
-    // Send button uses alignSelf: 'flex-end' to anchor at bottom.
+    alignItems: 'flex-end', // button anchored at bottom as field grows
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0, 0, 0, 0.08)',
     paddingHorizontal: 16,
-    paddingVertical: 0,
-    minHeight: MIN_HEIGHT,
-    maxHeight: MAX_HEIGHT,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.03,
@@ -203,6 +153,8 @@ const styles = StyleSheet.create({
     paddingBottom: V_PADDING,
     paddingHorizontal: 0,
     textAlignVertical: 'top',
+    minHeight: MIN_HEIGHT,
+    maxHeight: MAX_HEIGHT,
   },
   sendButton: {
     width: 32,
@@ -211,6 +163,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
+    marginBottom: 6,
   },
   sendButtonActive: {
     backgroundColor: lightTokens.colors.mossGreen,
