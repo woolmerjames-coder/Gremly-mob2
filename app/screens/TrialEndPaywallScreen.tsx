@@ -303,7 +303,7 @@ export default function TrialEndPaywallScreen() {
           <Text style={styles.restoreText}>Restore purchase</Text>
         </Pressable>
 
-        {isMidTrial && (
+        {navigation.canGoBack() && (
           <Pressable onPress={handleNotNow} accessibilityRole="button" accessibilityLabel="Not now">
             <Text style={styles.notNowText}>Not now</Text>
           </Pressable>
