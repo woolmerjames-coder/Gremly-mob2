@@ -37,12 +37,14 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { callHabitBuilderStreaming } from '../../lib/cortex/CortexClient';
 import { ChatBubble } from '../../components/chat/ChatBubble';
 import { ChatComposer } from '../../components/chat/ChatComposer';
+import { ScrollToBottomButton } from '../../src/components/chat/ScrollToBottomButton';
 import { HabitSummaryCard } from './HabitSummaryCard';
 import SaveButton from '../../components/chat/SaveButton';
 import { useUnifiedOverlayController } from '../../hooks/useUnifiedOverlayController';
 import { Text } from '../../ui/Text';
 import { lightTokens } from '../../design/tokens';
 import { useNetworkStatus } from '../../lib/network/useNetworkStatus';
+import { useNearBottom } from '../../src/hooks/useNearBottom';
 import type { SpaceChatMessage, HabitBuilderResolvedFields, HabitSubtype } from '../../lib/types';
 import type { SaveableType } from '../../lib/chat/saveableTypes';
 import { dateService, getDateService, nowTimestamp } from '../../lib/date/DateService';
@@ -252,6 +254,7 @@ export function HabitBuilderScreen({
   );
 
   const flatListRef = useRef<FlatList>(null);
+  const { isNearBottom, onScroll: handleScroll } = useNearBottom();
   const streamRef = useRef<{ close: () => void } | null>(null);
   const hasStarted = useRef(false);
   const mountedRef = useRef(true);
@@ -901,6 +904,8 @@ export function HabitBuilderScreen({
             renderItem={renderMessage}
             style={styles.messages}
             contentContainerStyle={styles.messageList}
+            onScroll={handleScroll}
+            scrollEventThrottle={32}
             ListFooterComponent={
               <>
                 <StreamingBubble
@@ -916,6 +921,10 @@ export function HabitBuilderScreen({
                 flatListRef.current?.scrollToEnd({ animated: true });
               }
             }}
+          />
+          <ScrollToBottomButton
+            visible={!isNearBottom && messages.length > 2}
+            onPress={() => flatListRef.current?.scrollToEnd({ animated: true })}
           />
         </View>
 

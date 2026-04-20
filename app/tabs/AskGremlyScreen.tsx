@@ -17,6 +17,7 @@ import { ChatComposer } from '../../components/chat/ChatComposer';
 import { SaveIndicatorPill } from '../../components/chat/SaveIndicatorPill';
 import { SaveSheet } from '../../components/chat/SaveSheet';
 import { ChatHistorySheet } from '../../components/chat/ChatHistorySheet';
+import { ScrollToBottomButton } from '../../src/components/chat/ScrollToBottomButton';
 import {
   callGeneralChatStreaming,
   callGeneralGreeting,
@@ -44,6 +45,7 @@ import { useRoute } from '@react-navigation/native';
 import { useNavigation } from '@react-navigation/native';
 import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
 import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
+import { useNearBottom } from '../../src/hooks/useNearBottom';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
 import { useMascotActions } from '../../hooks/useMascotActions';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
@@ -66,6 +68,7 @@ export default function AskGremlyScreen() {
   const canCreate = useCanCreate();
   const { celebrate } = useMascotActions();
   const flatListRef = useRef<any>(null);
+  const { isNearBottom, onScroll: handleScroll } = useNearBottom();
   const streamingControllerRef = useRef<{ close: () => void } | null>(null);
   const streamingMessageIdRef = useRef<string | null>(null);
   const streamTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -408,6 +411,8 @@ export default function AskGremlyScreen() {
               maxToRenderPerBatch={10}
               windowSize={10}
               initialNumToRender={15}
+              onScroll={handleScroll}
+              scrollEventThrottle={32}
               onContentSizeChange={() => {
                 setTimeout(() => {
                   flatListRef.current?.scrollToEnd({ animated: true });
@@ -448,6 +453,10 @@ export default function AskGremlyScreen() {
               </View>
             </View>
           )}
+          <ScrollToBottomButton
+            visible={inConversation && !isNearBottom && messages.length > 2}
+            onPress={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          />
         </View>
 
         {/* Bottom section — fixed height, always at bottom */}
