@@ -3219,6 +3219,97 @@ async function handleTransferEvent(event, env) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// JWT verification (Phase 6.2)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Verify Supabase JWT using HS256 shared secret.
+ * Returns the verified payload { sub, email, ... } or null if invalid/expired.
+ */
+async function verifyJWT(token, secret) {
+  if (!token || !secret) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const [headerB64, payloadB64, signatureB64] = parts;
+
+    // Decode header to check algorithm
+    const header = JSON.parse(atob(headerB64.replace(/-/g, '+').replace(/_/g, '/')));
+    if (header.alg !== 'HS256') return null;
+
+    // Verify signature
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+    const signatureBytes = Uint8Array.from(
+      atob(signatureB64.replace(/-/g, '+').replace(/_/g, '/')),
+      (c) => c.charCodeAt(0),
+    );
+    const signedData = encoder.encode(`${headerB64}.${payloadB64}`);
+    const valid = await crypto.subtle.verify('HMAC', key, signatureBytes, signedData);
+    if (!valid) return null;
+
+    // Decode payload
+    const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+
+    // Check expiry
+    if (payload.exp && Date.now() / 1000 > payload.exp) return null;
+
+    return payload;
+  } catch (err) {
+    console.warn('[verifyJWT] Verification failed:', err?.message ?? err);
+    return null;
+  }
+}
+
+/**
+ * Extract authenticated user ID from incoming request's Authorization header.
+ * Returns the user UUID from the JWT's sub claim, or null if no valid auth.
+ */
+async function extractAuthenticatedUserId(request, env) {
+  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization');
+  if (!authHeader) return null;
+
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+
+  const token = match[1].trim();
+  const payload = await verifyJWT(token, env.SUPABASE_JWT_SECRET);
+  return payload?.sub ?? null;
+}
+
+function unauthorizedResponse() {
+  return new Response(
+    JSON.stringify({ error: 'unauthorized', message: 'Invalid or missing session' }),
+    {
+      status: 401,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    },
+  );
+}
+
+function unauthorizedSSEResponse() {
+  return new Response(
+    JSON.stringify({ error: 'unauthorized', message: 'Invalid or missing session' }),
+    {
+      status: 401,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    },
+  );
+}
+
 export default {
   async fetch(request, env, ctx) {
     // --- URL-based routing (Phase 4.7) ---
@@ -3256,6 +3347,37 @@ export default {
       const isHabitBuilderStreaming = wantsStreaming && type === 'habit-builder';
 
       // =========================
+      // JWT Authentication Gate (Phase 6.2)
+      // Routes that access user-specific data require a valid session JWT.
+      // Classification, enrichment, and other stateless routes stay open.
+      // =========================
+      const AUTH_REQUIRED_TYPES = new Set([
+        'general-greeting',
+        'habit-builder',
+        'entity-chat',
+        'organize-day',
+        'weekly-summary',
+      ]);
+      const AUTH_REQUIRED_LANES = new Set(['space_chat', 'general_chat']);
+
+      const needsAuth = AUTH_REQUIRED_TYPES.has(type) || (lane && AUTH_REQUIRED_LANES.has(lane));
+
+      let authenticatedUserId = null;
+      if (needsAuth) {
+        authenticatedUserId = await extractAuthenticatedUserId(request, env);
+        if (!authenticatedUserId) {
+          console.warn(
+            `[AUTH] Rejected unauthenticated request: type=${type}, lane=${lane}, ip=${request.headers.get('CF-Connecting-IP')}`,
+          );
+          // Use SSE-friendly response for streaming routes so client doesn't open a dead stream
+          if (wantsStreaming) {
+            return unauthorizedSSEResponse();
+          }
+          return unauthorizedResponse();
+        }
+      }
+
+      // =========================
       // Timezone resolution (single source of truth per request)
       // Three-tier fallback: client body → user_profiles → UTC
       // =========================
@@ -3266,10 +3388,12 @@ export default {
         }
 
         // Client didn't send timezone — read from stored profile
-        if (reqBody?.userId && reqEnv?.SUPABASE_URL) {
+        // Prefer verified JWT userId when available, fall back to body.userId for non-auth routes
+        const tzUserId = authenticatedUserId || reqBody?.userId;
+        if (tzUserId && reqEnv?.SUPABASE_URL) {
           try {
             const res = await fetch(
-              `${reqEnv.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${reqBody.userId}&select=timezone`,
+              `${reqEnv.SUPABASE_URL}/rest/v1/user_profiles?user_id=eq.${tzUserId}&select=timezone`,
               {
                 headers: {
                   apikey: reqEnv.SUPABASE_SERVICE_KEY,
@@ -3290,7 +3414,7 @@ export default {
         }
 
         console.warn('[Timezone] Falling back to UTC — no client value, no profile value', {
-          userId: reqBody?.userId?.slice(0, 8) || 'unknown',
+          userId: (authenticatedUserId || reqBody?.userId)?.slice(0, 8) || 'unknown',
         });
         return 'UTC';
       }
@@ -4068,13 +4192,13 @@ After the user confirms and locks in a habit, check the existing habits listed i
       // =========================
       if (type === 'general-greeting') {
         // Access gate — Phase 4.7
-        const access = await checkUserAccess(body.userId, env);
+        const access = await checkUserAccess(authenticatedUserId, env);
         if (!access.hasAccess) {
           return denyAccessResponse(access.reason);
         }
 
         try {
-          const dailyFocus = await getDailyFocusForChat(body.userId, env, userTimezone);
+          const dailyFocus = await getDailyFocusForChat(authenticatedUserId, env, userTimezone);
           const now = new Date();
           const timeStr = new Intl.DateTimeFormat('en-US', {
             hour: 'numeric',
@@ -4151,7 +4275,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
       // =========================
       if (type === 'habit-builder') {
         // Access gate — Phase 4.7
-        const access = await checkUserAccess(body.userId, env);
+        const access = await checkUserAccess(authenticatedUserId, env);
         if (!access.hasAccess) {
           return wantsStreaming
             ? denyAccessSSEResponse(access.reason)
@@ -4164,17 +4288,17 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
         // Load user profile and session context (same as entity chat)
         let userProfileContext = '';
         let habitTodayActivity = null;
-        if (body.userId) {
+        if (authenticatedUserId) {
           try {
             const [chatContext, profile, todayAct] = await Promise.all([
               buildChatContext(
-                body.userId,
+                authenticatedUserId,
                 'habit_builder',
                 { timezone: userTimezone, currentChatId: body.chatId || null },
                 env,
               ),
-              getUserProfile(body.userId, env),
-              buildTodayActivity(body.userId, userTimezone, env),
+              getUserProfile(authenticatedUserId, env),
+              buildTodayActivity(authenticatedUserId, userTimezone, env),
             ]);
             const ageInfo = getAgeGuidance(profile?.relationshipStartedAt, profile?.signals);
 
@@ -4245,8 +4369,8 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
 
         let preParse = null;
         try {
-          const lifeMap = await getLifeMapForChat(body.userId, env);
-          const dailyFocus = await getDailyFocusForChat(body.userId, env);
+          const lifeMap = await getLifeMapForChat(authenticatedUserId, env);
+          const dailyFocus = await getDailyFocusForChat(authenticatedUserId, env);
           const compressedLifeMap = compressLifeMapForHabits(lifeMap, dailyFocus);
 
           preParse = await habitPreParse(
@@ -4703,7 +4827,7 @@ Return ONLY the greeting text. No quotes, no JSON, no explanation.`;
       // =========================
       if (type === 'entity-chat') {
         // Access gate — Phase 4.7
-        const access = await checkUserAccess(body.userId, env);
+        const access = await checkUserAccess(authenticatedUserId, env);
         if (!access.hasAccess) {
           return wantsStreaming
             ? denyAccessSSEResponse(access.reason)
@@ -5008,11 +5132,11 @@ Almost never suggest creating a Space. Only if ALL true:
               let cachedDomains = [];
               let entityTodayActivity = null;
               const previousExchange = extractPreviousExchange(messages);
-              if (body.userId) {
+              if (authenticatedUserId) {
                 try {
                   const [chatContext, profile, domains, todayAct] = await Promise.all([
                     buildChatContext(
-                      body.userId,
+                      authenticatedUserId,
                       'entity',
                       {
                         entityTitle: entity?.title || entity?.name || null,
@@ -5022,9 +5146,9 @@ Almost never suggest creating a Space. Only if ALL true:
                       },
                       env,
                     ),
-                    getUserProfile(body.userId, env),
-                    getCachedDomainNames(body.userId, env),
-                    buildTodayActivity(body.userId, userTimezone, env),
+                    getUserProfile(authenticatedUserId, env),
+                    getCachedDomainNames(authenticatedUserId, env),
+                    buildTodayActivity(authenticatedUserId, userTimezone, env),
                   ]);
                   sessionContextStr = chatContext;
                   userProfile = profile;
@@ -5032,7 +5156,7 @@ Almost never suggest creating a Space. Only if ALL true:
                   entityTodayActivity = todayAct;
                   if (sessionContextStr || userProfile) {
                     console.log('[EntityChat] Context loaded', {
-                      userId: body.userId.slice(0, 8),
+                      userId: authenticatedUserId.slice(0, 8),
                       sessionContextLength: sessionContextStr?.length || 0,
                       hasUserProfile: !!userProfile,
                     });
@@ -5657,7 +5781,7 @@ Almost never suggest creating a Space. Only if ALL true:
                 });
 
                 // ── POST-STREAM: Update entity chat summary (non-blocking) ──
-                if (body.userId && fullContent) {
+                if (authenticatedUserId && fullContent) {
                   const entity = body.entity || {};
                   const entityId = entity.id || null;
                   const entityType = entity.type || null;
@@ -5745,11 +5869,11 @@ Almost never suggest creating a Space. Only if ALL true:
         let cachedDomains = [];
         let entityTodayActivity = null;
         const previousExchange = extractPreviousExchange(messages);
-        if (body.userId) {
+        if (authenticatedUserId) {
           try {
             const [chatContext, profile, domains, todayAct] = await Promise.all([
               buildChatContext(
-                body.userId,
+                authenticatedUserId,
                 'entity',
                 {
                   entityTitle: entity?.title || entity?.name || null,
@@ -5759,9 +5883,9 @@ Almost never suggest creating a Space. Only if ALL true:
                 },
                 env,
               ),
-              getUserProfile(body.userId, env),
-              getCachedDomainNames(body.userId, env),
-              buildTodayActivity(body.userId, userTimezone, env),
+              getUserProfile(authenticatedUserId, env),
+              getCachedDomainNames(authenticatedUserId, env),
+              buildTodayActivity(authenticatedUserId, userTimezone, env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
@@ -5972,7 +6096,7 @@ Almost never suggest creating a Space. Only if ALL true:
           });
 
           // ── POST-RESPONSE: Update entity chat summary (non-blocking) ──
-          if (body.userId && content) {
+          if (authenticatedUserId && content) {
             const entity = body.entity || {};
             const entityId = entity.id || null;
             const entityType = entity.type || null;
@@ -6671,7 +6795,7 @@ Return ONLY valid JSON:
       // =========================
       if (type === 'organize-day') {
         // Access gate — Phase 4.7
-        const access = await checkUserAccess(body.userId, env);
+        const access = await checkUserAccess(authenticatedUserId, env);
         if (!access.hasAccess) {
           return denyAccessResponse(access.reason);
         }
@@ -6692,7 +6816,7 @@ Return ONLY valid JSON:
           }).format(new Date());
           currentHour = parseInt(hourStr, 10);
         }
-        const userId = body.userId || null;
+        const userId = authenticatedUserId;
 
         // === Expanded context (new in v2.0) ===
         const userPatterns = body.userPatterns || null;
@@ -10959,7 +11083,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       // ============================================================================
       if (isSpaceChatStreaming && isSpaceChatLane) {
         // Access gate — Phase 4.7
-        const access = await checkUserAccess(body.userId, env);
+        const access = await checkUserAccess(authenticatedUserId, env);
         if (!access.hasAccess) {
           return denyAccessSSEResponse(access.reason);
         }
@@ -11061,11 +11185,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             let cachedDomains = [];
             let spaceEntities = null;
             let spaceTodayActivity = null;
-            if (body.userId) {
+            if (authenticatedUserId) {
               try {
                 const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
                   buildChatContext(
-                    body.userId,
+                    authenticatedUserId,
                     'space',
                     {
                       spaceId: body.spaceId,
@@ -11074,10 +11198,10 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                     },
                     env,
                   ),
-                  getUserProfile(body.userId, env),
-                  getCachedDomainNames(body.userId, env),
-                  fetchSpaceEntities(body.userId, body.spaceId, env),
-                  buildTodayActivity(body.userId, userTimezone, env),
+                  getUserProfile(authenticatedUserId, env),
+                  getCachedDomainNames(authenticatedUserId, env),
+                  fetchSpaceEntities(authenticatedUserId, body.spaceId, env),
+                  buildTodayActivity(authenticatedUserId, userTimezone, env),
                 ]);
                 spaceSessionContextStr = chatContext;
                 spaceUserProfile = profile;
@@ -11086,7 +11210,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 spaceTodayActivity = todayAct;
                 if (spaceSessionContextStr || spaceUserProfile) {
                   console.log('[SpaceChat] Context loaded', {
-                    userId: body.userId.slice(0, 8),
+                    userId: authenticatedUserId.slice(0, 8),
                     sessionContextLength: spaceSessionContextStr?.length || 0,
                     hasUserProfile: !!spaceUserProfile,
                     hasSpaceEntities: !!spaceEntities,
@@ -11594,7 +11718,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               });
 
               // ── POST-STREAM: Update running summary (non-blocking) ──
-              if (body.chatId && body.userId && fullContent) {
+              if (body.chatId && authenticatedUserId && fullContent) {
                 const summaryPromise = (async () => {
                   try {
                     const prevSummaryRes = await fetch(
@@ -11673,7 +11797,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
       // ============================================================================
       if (isGeneralChatStreaming && isGeneralChatLane) {
         // Access gate — Phase 4.7
-        const access = await checkUserAccess(body.userId, env);
+        const access = await checkUserAccess(authenticatedUserId, env);
         if (!access.hasAccess) {
           return denyAccessSSEResponse(access.reason);
         }
@@ -11737,18 +11861,18 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
             let userProfile = null;
             let cachedDomains = [];
             let generalTodayActivity = null;
-            if (body.userId) {
+            if (authenticatedUserId) {
               try {
                 const [chatContext, profile, domains, todayAct] = await Promise.all([
                   buildChatContext(
-                    body.userId,
+                    authenticatedUserId,
                     'general',
                     { timezone: userTimezone, currentChatId: body.chatId || null },
                     env,
                   ),
-                  getUserProfile(body.userId, env),
-                  getCachedDomainNames(body.userId, env),
-                  buildTodayActivity(body.userId, userTimezone, env),
+                  getUserProfile(authenticatedUserId, env),
+                  getCachedDomainNames(authenticatedUserId, env),
+                  buildTodayActivity(authenticatedUserId, userTimezone, env),
                 ]);
                 sessionContextStr = chatContext;
                 userProfile = profile;
@@ -11756,7 +11880,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                 generalTodayActivity = todayAct;
                 if (sessionContextStr || userProfile) {
                   console.log('[GeneralChat] Context loaded', {
-                    userId: body.userId.slice(0, 8),
+                    userId: authenticatedUserId.slice(0, 8),
                     contextLength: sessionContextStr?.length || 0,
                     hasProfile: !!userProfile,
                   });
@@ -12121,7 +12245,7 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
               });
 
               // Running summary (fire-and-forget)
-              if (body.chatId && body.userId && fullContent) {
+              if (body.chatId && authenticatedUserId && fullContent) {
                 const summaryPromise = (async () => {
                   try {
                     const prevSummaryRes = await fetch(
@@ -12182,11 +12306,11 @@ Return a single JSON object with keys: themes, patterns, journaling_habits, sugg
                         { headers: supaHeaders },
                       ),
                       fetch(
-                        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${body.userId}&completed_at=is.null&select=title&limit=50`,
+                        `${env.SUPABASE_URL}/rest/v1/todos?owner_id=eq.${authenticatedUserId}&completed_at=is.null&select=title&limit=50`,
                         { headers: supaHeaders },
                       ),
                       fetch(
-                        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${body.userId}&archived_at=is.null&select=title,frequency&limit=30`,
+                        `${env.SUPABASE_URL}/rest/v1/habits?owner_id=eq.${authenticatedUserId}&archived_at=is.null&select=title,frequency&limit=30`,
                         { headers: supaHeaders },
                       ),
                     ]);
@@ -12307,7 +12431,7 @@ Return ONLY valid JSON:
                         const eventExtractions = (extractResult.extractions || []).filter(
                           (e) => e.type === 'event' && e.title,
                         );
-                        if (eventExtractions.length > 0 && body.userId) {
+                        if (eventExtractions.length > 0 && authenticatedUserId) {
                           const confidenceRank = { exact: 3, approximate: 2, unknown: 1 };
                           const supaHeaders = {
                             apikey: env.SUPABASE_SERVICE_KEY,
@@ -12318,7 +12442,7 @@ Return ONLY valid JSON:
 
                           // Fetch existing active anchors for dedup
                           const existingRes = await fetch(
-                            `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?user_id=eq.${body.userId}&status=eq.active&select=id,title,date_confidence`,
+                            `${env.SUPABASE_URL}/rest/v1/user_temporal_anchors?user_id=eq.${authenticatedUserId}&status=eq.active&select=id,title,date_confidence`,
                             { headers: supaHeaders },
                           );
                           const existingAnchors = existingRes.ok ? await existingRes.json() : [];
@@ -12369,7 +12493,7 @@ Return ONLY valid JSON:
                                 method: 'POST',
                                 headers: supaHeaders,
                                 body: JSON.stringify({
-                                  user_id: body.userId,
+                                  user_id: authenticatedUserId,
                                   title: evt.title,
                                   description: evt.body || null,
                                   category: 'event',
@@ -12456,7 +12580,7 @@ Return ONLY valid JSON:
       // ===================================================================
       if (isSpaceChatLane) {
         // Access gate — Phase 4.7
-        const access = await checkUserAccess(body.userId, env);
+        const access = await checkUserAccess(authenticatedUserId, env);
         if (!access.hasAccess) {
           return denyAccessResponse(access.reason);
         }
@@ -12467,11 +12591,11 @@ Return ONLY valid JSON:
         let cachedDomains = [];
         let spaceEntities = null;
         let spaceTodayActivity = null;
-        if (body.userId) {
+        if (authenticatedUserId) {
           try {
             const [chatContext, profile, domains, entities, todayAct] = await Promise.all([
               buildChatContext(
-                body.userId,
+                authenticatedUserId,
                 'space',
                 {
                   spaceId: body.spaceId,
@@ -12480,10 +12604,10 @@ Return ONLY valid JSON:
                 },
                 env,
               ),
-              getUserProfile(body.userId, env),
-              getCachedDomainNames(body.userId, env),
-              fetchSpaceEntities(body.userId, body.spaceId, env),
-              buildTodayActivity(body.userId, userTimezone, env),
+              getUserProfile(authenticatedUserId, env),
+              getCachedDomainNames(authenticatedUserId, env),
+              fetchSpaceEntities(authenticatedUserId, body.spaceId, env),
+              buildTodayActivity(authenticatedUserId, userTimezone, env),
             ]);
             sessionContextStr = chatContext;
             userProfile = profile;
@@ -12492,7 +12616,7 @@ Return ONLY valid JSON:
             spaceTodayActivity = todayAct;
             if (sessionContextStr || userProfile) {
               console.log('[SpaceChat:NonStreaming] Context loaded', {
-                userId: body.userId.slice(0, 8),
+                userId: authenticatedUserId.slice(0, 8),
                 sessionContextLength: sessionContextStr?.length || 0,
                 hasUserProfile: !!userProfile,
                 hasSpaceEntities: !!spaceEntities,
@@ -12655,7 +12779,7 @@ Return ONLY valid JSON:
         });
 
         // ── POST-RESPONSE: Update running summary (non-blocking) ──
-        if (body.chatId && body.userId && content) {
+        if (body.chatId && authenticatedUserId && content) {
           const summaryPromise = (async () => {
             try {
               const prevSummaryRes = await fetch(
