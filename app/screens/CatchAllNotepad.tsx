@@ -211,7 +211,7 @@ const MAX_INPUT_CHARACTERS = 2000;
 const PHOTO_TEXT_HINT = 'Add a few words so Gremly knows what this photo is about.';
 const SPACE = 8;
 const INPUT_PADDING_LEFT = 16;
-const INPUT_ICON_PADDING_RIGHT = 120;
+const INPUT_ICON_PADDING_RIGHT = 84;
 
 const clampNoteLength = (value: string): string =>
   value.length > MAX_INPUT_CHARACTERS ? value.slice(0, MAX_INPUT_CHARACTERS) : value;
@@ -3752,20 +3752,20 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       bottom: 12,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 12,
+      gap: 4,
       opacity: 0.35,
     },
     inputIconButton: {
-      padding: 10,
-      minWidth: 44,
-      minHeight: 44,
+      padding: 4,
+      minWidth: 32,
+      minHeight: 32,
       justifyContent: 'center',
       alignItems: 'center',
     },
     inputIconMicButton: {},
     inputIconCameraButton: {
-      minWidth: 44,
-      minHeight: 44,
+      minWidth: 32,
+      minHeight: 32,
       justifyContent: 'center',
       alignItems: 'center',
     },
