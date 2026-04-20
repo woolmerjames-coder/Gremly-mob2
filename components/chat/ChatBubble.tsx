@@ -45,6 +45,15 @@ interface SourcesDisplayProps {
   sources: Array<{ title: string; url: string }>;
 }
 
+function GremlyMark() {
+  return (
+    <View style={styles.gremlyMark}>
+      <View style={styles.gremlyMarkGem} />
+      <Text style={styles.gremlyMarkText}>GREMLY</Text>
+    </View>
+  );
+}
+
 function SourcesDisplay({ sources }: SourcesDisplayProps) {
   const [failedFavicons, setFailedFavicons] = useState<Record<number, boolean>>({});
 
@@ -190,6 +199,7 @@ function ChatBubbleInner({
       >
         {isAssistant ? (
           <View style={{ paddingVertical: 2 }}>
+            <GremlyMark />
             {sources && sources.length > 0 && !isStreaming && (
               <View style={styles.searchedBadge}>
                 <Search size={10} color="#9CA3AF" />
@@ -216,7 +226,11 @@ function ChatBubbleInner({
               </View>
             ) : (
               <>
-                {renderFormattedContent(message.content)}
+                {renderFormattedContent(message.content, {
+                  textColor: lightTokens.chat.assistantText,
+                  fontSize: lightTokens.chat.bodyFontSize,
+                  lineHeight: lightTokens.chat.bodyLineHeight,
+                })}
                 {isStreaming && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                     <InlineStreamingCursor visible={true} />
@@ -371,31 +385,45 @@ const styles = StyleSheet.create({
     maxWidth: '85%',
     minWidth: 40,
   },
-  // User message bubble - lighter and more refined
+  gremlyMark: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  gremlyMarkGem: {
+    width: 8,
+    height: 8,
+    backgroundColor: lightTokens.chat.gremlyMarkGem,
+    transform: [{ rotate: '45deg' }],
+    borderRadius: 1.5,
+  },
+  gremlyMarkText: {
+    fontSize: lightTokens.chat.markFontSize,
+    fontFamily: lightTokens.typography.fontFamily.medium,
+    fontWeight: '600',
+    color: lightTokens.chat.gremlyMark,
+    letterSpacing: lightTokens.chat.markLetterSpacing,
+    textTransform: 'uppercase',
+  },
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: 'rgba(92, 107, 90, 0.87)', // 87% opacity
-    borderRadius: 14,
+    backgroundColor: lightTokens.chat.userBubble,
+    borderTopLeftRadius: lightTokens.chat.userBubbleRadius,
+    borderTopRightRadius: lightTokens.chat.userBubbleRadius,
+    borderBottomLeftRadius: lightTokens.chat.userBubbleRadius,
+    borderBottomRightRadius: lightTokens.chat.userBubbleTailRadius,
     paddingVertical: 10,
     paddingHorizontal: 14,
     maxWidth: '85%',
-    // Glass effect shadow
     ...lightTokens.elevation.chatUser,
-    // Subtle inner glow
-    borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
-  // Assistant message bubble - subtle editorial accent bar
   assistantBubble: {
     alignSelf: 'flex-start',
     backgroundColor: 'transparent',
-    paddingLeft: 14, // Breathing room between accent line and text
-    borderLeftWidth: 2, // Thin accent bar
-    borderLeftColor: 'rgba(212, 164, 74, 0.60)', // Golden Pear at 60% opacity - warm but calm
-    borderRadius: 0,
-    maxWidth: '100%', // Use full available width
-    marginLeft: -4, // Shift accent line left, more margin from bullets
-    marginTop: -6, // Integrated, not floating
+    paddingVertical: 4,
+    paddingHorizontal: 0,
+    maxWidth: '100%',
   },
   saveableCardContainer: {
     marginTop: 16, // More space between message and save card
@@ -403,15 +431,15 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   text: {
-    fontSize: 15,
-    lineHeight: 21, // fontSize × 1.4
+    fontSize: lightTokens.chat.bodyFontSize,
+    lineHeight: lightTokens.chat.bodyLineHeight,
     fontWeight: '400',
     letterSpacing: -0.2,
   },
   userText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    lineHeight: 21, // fontSize × 1.4
+    color: lightTokens.chat.userText,
+    fontSize: lightTokens.chat.bodyFontSize,
+    lineHeight: lightTokens.chat.bodyLineHeight,
     fontWeight: '400',
     letterSpacing: -0.2,
   },
