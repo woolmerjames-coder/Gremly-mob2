@@ -5,6 +5,7 @@ import { env, getEnv } from '../env';
 import EventSource from 'react-native-sse';
 import { getDateService, nowTimestamp } from '../date/DateService';
 import { eventBus } from '../events/EventBus';
+import { getSessionToken, getSessionTokenSync } from './getSessionToken';
 import type {
   EntityChatRequest,
   EntityChatResponse,
@@ -92,9 +93,6 @@ export interface Phase2EnrichmentResult {
   date_type_ambiguous?: boolean; // True when date could be deadline or scheduled
 }
 
-const mask = (value: string) => (value ? `${value.slice(0, 4)}…${value.slice(-4)}` : '(missing)');
-
-let warnedMissingAnon = false;
 let warnedAiDisabled = false;
 let inFlight = false; // Single-flight dedupe
 
@@ -108,13 +106,6 @@ const isAiDisabled = (): boolean => {
     '';
   const normalized = raw.toString().toLowerCase();
   return normalized === 'on' || normalized === 'true';
-};
-
-const readSupabaseAnonKey = (): string => {
-  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
-  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
-
-  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 };
 
 const readCortexUrl = (): string => {
@@ -158,19 +149,10 @@ async function postJSON<T>(body: any, options?: { raw?: boolean }): Promise<Cort
   }, timeoutMs);
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const supabaseAnonKey = readSupabaseAnonKey();
-
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
-  } else if (!warnedMissingAnon) {
-    console.warn(
-      '[CORTEX] Warning: EXPO_PUBLIC_SUPABASE_ANON_KEY is missing; proceeding without Authorization header.',
-    );
-    warnedMissingAnon = true;
+  const sessionToken = await getSessionToken();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
-
-  log('AUTH_HEADER', mask(supabaseAnonKey));
 
   try {
     log('POST', baseUrl, {
@@ -414,10 +396,9 @@ export function callSpaceChatStreaming(
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const supabaseAnonKey = readSupabaseAnonKey();
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
+  const sessionToken = getSessionTokenSync();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
 
   const allMessages: ChatMessage[] = opts.systemPrompt
@@ -530,10 +511,9 @@ export function callGeneralChatStreaming(
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const supabaseAnonKey = readSupabaseAnonKey();
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
+  const sessionToken = getSessionTokenSync();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
 
   const allMessages: ChatMessage[] = opts.systemPrompt
@@ -687,19 +667,10 @@ export async function callClassify(opts: {
   }, timeoutMs);
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const supabaseAnonKey = readSupabaseAnonKey();
-
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
-  } else if (!warnedMissingAnon) {
-    console.warn(
-      '[CORTEX] Warning: EXPO_PUBLIC_SUPABASE_ANON_KEY is missing; proceeding without Authorization header.',
-    );
-    warnedMissingAnon = true;
+  const sessionToken = await getSessionToken();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
-
-  log('AUTH_HEADER', mask(supabaseAnonKey));
 
   const requestBody = {
     type: 'classify',
@@ -883,10 +854,9 @@ export async function callEnrichPhase15a(params: {
   if (isAiDisabled()) return { ok: false };
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const supabaseAnonKey = readSupabaseAnonKey();
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
+  const sessionToken = await getSessionToken();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
 
   try {
@@ -947,11 +917,10 @@ export async function callEnrichPhase2(params: {
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const supabaseAnonKey = readSupabaseAnonKey();
+  const sessionToken = await getSessionToken();
 
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
 
   try {
@@ -1035,11 +1004,10 @@ export async function callTranscribe(
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const supabaseAnonKey = readSupabaseAnonKey();
+  const sessionToken = await getSessionToken();
 
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
 
   try {
@@ -1118,7 +1086,7 @@ export function callEnrichPhase2Streaming(
     return { close: () => {} };
   }
 
-  const supabaseAnonKey = readSupabaseAnonKey();
+  const sessionToken = getSessionTokenSync();
 
   const ds = getDateService();
   const currentDate = ds.today();
@@ -1131,9 +1099,8 @@ export function callEnrichPhase2Streaming(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(supabaseAnonKey && {
-        Authorization: `Bearer ${supabaseAnonKey}`,
-        apikey: supabaseAnonKey,
+      ...(sessionToken && {
+        Authorization: `Bearer ${sessionToken}`,
       }),
     },
     body: JSON.stringify({
@@ -1264,12 +1231,11 @@ export async function callSpaceChatSave(params: {
     return getDefaultSaveResponse();
   }
 
-  const supabaseAnonKey = readSupabaseAnonKey();
+  const sessionToken = await getSessionToken();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
 
   const timeoutMs = toMs(env.cortex.timeoutMs);
@@ -1352,11 +1318,10 @@ export async function callChatFullSummary(chatId: string): Promise<{ summary: st
   if (!baseUrl) return { summary: null };
   if (isAiDisabled()) return { summary: null };
 
-  const supabaseAnonKey = readSupabaseAnonKey();
+  const sessionToken = await getSessionToken();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
 
   const controller = new AbortController();
@@ -1414,10 +1379,9 @@ export async function callEntityChat(request: EntityChatRequest): Promise<Entity
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const supabaseAnonKey = readSupabaseAnonKey();
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
+  const sessionToken = await getSessionToken();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
 
   const timeoutMs = toMs(env.cortex.timeoutMs);
@@ -1538,10 +1502,9 @@ export function callEntityChatStreaming(
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const supabaseAnonKey = readSupabaseAnonKey();
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
+  const sessionToken = getSessionTokenSync();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
 
   let fullContent = '';
@@ -1675,10 +1638,9 @@ export function callHabitBuilderStreaming(
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const supabaseAnonKey = readSupabaseAnonKey();
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
+  const sessionToken = getSessionTokenSync();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
 
   let fullContent = '';
@@ -1860,10 +1822,9 @@ export async function callJournalAnalyze(
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const supabaseAnonKey = readSupabaseAnonKey();
-  if (supabaseAnonKey) {
-    headers.Authorization = `Bearer ${supabaseAnonKey}`;
-    headers.apikey = supabaseAnonKey;
+  const sessionToken = await getSessionToken();
+  if (sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
   }
 
   // Use a longer timeout since this processes many entries
@@ -1927,10 +1888,9 @@ export async function callGeneralGreeting(userId: string): Promise<string | null
   if (!baseUrl) return null;
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const supabaseAnonKey = readSupabaseAnonKey();
-    if (supabaseAnonKey) {
-      headers.Authorization = `Bearer ${supabaseAnonKey}`;
-      headers.apikey = supabaseAnonKey;
+    const sessionToken = await getSessionToken();
+    if (sessionToken) {
+      headers.Authorization = `Bearer ${sessionToken}`;
     }
     const res = await fetch(baseUrl, {
       method: 'POST',

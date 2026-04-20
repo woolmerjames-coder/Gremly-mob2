@@ -18,6 +18,7 @@ import type { MindDropBucket, LogSubtype, Phase1Result } from './types';
 import type { HabitSubtype } from '../types';
 import { FEATURE_FLAGS } from '../config/featureFlags';
 import { env, getEnv } from '../env';
+import { getSessionToken } from '../cortex/getSessionToken';
 
 // --- Types ---
 
@@ -38,12 +39,6 @@ const readCortexUrl = (): string => {
   const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
   const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
   return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
-};
-
-const readSupabaseAnonKey = (): string => {
-  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
-  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
-  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 };
 
 // --- Main Function ---
@@ -96,10 +91,10 @@ export async function runPhase1(
 
   // Get cortex URL and auth
   const cortexUrl = readCortexUrl();
-  const anonKey = readSupabaseAnonKey();
+  const sessionToken = await getSessionToken();
 
-  if (!cortexUrl || !anonKey) {
-    console.log('[Phase1] Missing cortex URL or anon key, using fallback');
+  if (!cortexUrl) {
+    console.log('[Phase1] Missing cortex URL, using fallback');
     return {
       bucket: 'log',
       subtype: 'general',
@@ -120,7 +115,7 @@ export async function runPhase1(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${anonKey}`,
+          ...(sessionToken && { Authorization: `Bearer ${sessionToken}` }),
         },
         body: JSON.stringify({
           type: 'classify-phase1-v2',

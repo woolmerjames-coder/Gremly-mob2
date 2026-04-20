@@ -73,6 +73,7 @@ import {
   getDisplayKindForDrop,
 } from '../../lib/minddrop/cardHelpers';
 import { env } from '../../lib/env';
+import { getSessionToken } from '../../lib/cortex/getSessionToken';
 import { MOOD_CONFIG, type Mood } from '../../lib/shared/moods';
 import { makeStyles } from './CatchAllNotepad';
 
@@ -3736,14 +3737,14 @@ const RecentDrops: React.FC<{
             // Phase 1.5a: fetch smart_title and confirmation_message
             try {
               const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
-              const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+              const sessionToken = await getSessionToken();
               const ctrl = new AbortController();
               const t = setTimeout(() => ctrl.abort(), 10000);
               const p15aRes = await fetch(cortexUrl, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  Authorization: `Bearer ${anonKey}`,
+                  Authorization: `Bearer ${sessionToken}`,
                 },
                 body: JSON.stringify({
                   type: 'enrich-phase1-5a',
@@ -3856,14 +3857,14 @@ const RecentDrops: React.FC<{
             // Phase 1.5a: fetch smart_title and confirmation_message
             try {
               const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
-              const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+              const sessionToken = await getSessionToken();
               const ctrl = new AbortController();
               const t = setTimeout(() => ctrl.abort(), 10000);
               const p15aRes = await fetch(cortexUrl, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  Authorization: `Bearer ${anonKey}`,
+                  Authorization: `Bearer ${sessionToken}`,
                 },
                 body: JSON.stringify({
                   type: 'enrich-phase1-5a',
@@ -3978,14 +3979,14 @@ const RecentDrops: React.FC<{
         // Phase 1.5a: fetch smart_title and confirmation_message
         try {
           const cortexUrl = process.env.EXPO_PUBLIC_CORTEX_URL || '';
-          const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+          const sessionToken = await getSessionToken();
           const ctrl = new AbortController();
           const t = setTimeout(() => ctrl.abort(), 10000);
           const p15aRes = await fetch(cortexUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${anonKey}`,
+              Authorization: `Bearer ${sessionToken}`,
             },
             body: JSON.stringify({
               type: 'enrich-phase1-5a',

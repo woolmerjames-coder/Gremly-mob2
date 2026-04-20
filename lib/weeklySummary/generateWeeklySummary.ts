@@ -1,5 +1,6 @@
 import { useGremlyStore } from '../store/useGremlyStore';
 import { env } from '../env';
+import { getSessionToken } from '../cortex/getSessionToken';
 import { getDateService } from '../date';
 import { nowTimestamp } from '../date/DateService';
 import { buildWeeklySummaryPayload } from './buildWeeklySummaryPayload';
@@ -47,7 +48,10 @@ export async function generateWeeklySummary(): Promise<GenerateWeeklySummaryResu
 
     const response = await fetch(cortexUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${await getSessionToken()}`,
+      },
       body: JSON.stringify({
         type: 'weekly-summary',
         payload,

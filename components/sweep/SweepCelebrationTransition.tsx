@@ -30,6 +30,7 @@ import { BRAND } from '../../design/brand';
 import { getDateService } from '../../lib/date';
 import { triggerLight, triggerSuccess } from '../../lib/haptics';
 import { env } from '../../lib/env';
+import { getSessionToken } from '../../lib/cortex/getSessionToken';
 import type { DcoTone } from '../../lib/types';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -121,9 +122,8 @@ async function fetchNanoHeadline(
 ): Promise<string | null> {
   try {
     const cortexUrl = env.cortexUrl;
-    const anonKey = env.supabaseAnonKey;
-
-    if (!cortexUrl || !anonKey) return null;
+    if (!cortexUrl) return null;
+    const sessionToken = await getSessionToken();
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000); // 3s timeout
@@ -132,7 +132,7 @@ async function fetchNanoHeadline(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${anonKey}`,
+        Authorization: `Bearer ${sessionToken}`,
       },
       body: JSON.stringify({
         type: 'sweep-headline',

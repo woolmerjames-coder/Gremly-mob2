@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabase/client';
 import { getRitualDay } from '../date/ritualDay';
 import { env } from '../env';
+import { getSessionToken } from '../cortex/getSessionToken';
 import type {
   Todo,
   Habit,
@@ -7812,9 +7813,13 @@ export const useGremlyStore = create<GremlyState>()(
             const cortexUrl = env.cortexUrl;
             if (cortexUrl) {
               console.log('[GremlyStore] Calling reclassify endpoint...');
+              const sessionToken = await getSessionToken();
               const reclassifyResponse = await fetch(cortexUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${sessionToken}`,
+                },
                 body: JSON.stringify({
                   type: 'reclassify-after-clarification',
                   text: originalText,
@@ -7982,9 +7987,13 @@ export const useGremlyStore = create<GremlyState>()(
                   phase2Text: phase2Text.substring(0, 60),
                 });
 
+                const sessionToken2 = await getSessionToken();
                 const phase2Response = await fetch(cortexUrl, {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${sessionToken2}`,
+                  },
                   body: JSON.stringify({
                     type: 'enrich-phase2',
                     text: phase2Text,
@@ -8408,9 +8417,13 @@ export const useGremlyStore = create<GremlyState>()(
                   phase2Text: phase2Text.substring(0, 60),
                 });
 
+                const sessionToken2 = await getSessionToken();
                 const phase2Response = await fetch(cortexUrl, {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${sessionToken2}`,
+                  },
                   body: JSON.stringify({
                     type: 'enrich-phase2',
                     text: phase2Text,
@@ -8694,9 +8707,13 @@ export const useGremlyStore = create<GremlyState>()(
           try {
             const cortexUrl = env.cortexUrl;
             if (cortexUrl) {
+              const sessionToken = await getSessionToken();
               const phase2Response = await fetch(cortexUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${sessionToken}`,
+                },
                 body: JSON.stringify({
                   type: 'enrich-phase2',
                   text: originalText,

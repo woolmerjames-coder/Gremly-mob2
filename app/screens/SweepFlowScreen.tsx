@@ -73,6 +73,7 @@ import {
 
 import { supabase } from '../../lib/supabase/client';
 import { env, getEnv } from '../../lib/env';
+import { getSessionToken } from '../../lib/cortex/getSessionToken';
 import { markSweepCompleted } from '../../lib/sweep/engine';
 import { computeSweepCardMeta } from '../../lib/sweep/computeSweepCardMeta';
 import type {
@@ -153,12 +154,6 @@ const readCortexUrl = (): string => {
   const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_CORTEX_URL');
   const fromEnvConfig = typeof env.cortexUrl === 'string' ? env.cortexUrl : undefined;
   return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_CORTEX_URL ?? '';
-};
-
-const readSupabaseAnonKey = (): string => {
-  const fromGetEnv = safeGetEnv?.('EXPO_PUBLIC_SUPABASE_ANON_KEY');
-  const fromEnvConfig = typeof env.supabaseAnonKey === 'string' ? env.supabaseAnonKey : undefined;
-  return fromGetEnv ?? fromEnvConfig ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -542,11 +537,11 @@ function SweepMoodStep({ onContinue }: StepProps) {
         (async () => {
           try {
             const cortexUrl = readCortexUrl();
-            const anonKey = readSupabaseAnonKey();
-            if (!cortexUrl || !anonKey) {
-              sweepLog.warn('[SweepJournal] Missing cortex URL or anon key, skipping enrichment');
+            if (!cortexUrl) {
+              sweepLog.warn('[SweepJournal] Missing cortex URL, skipping enrichment');
               return;
             }
+            const sessionToken = await getSessionToken();
 
             const ds = getDateService();
             const currentDateStr = ds.today();
@@ -564,7 +559,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
-                      Authorization: `Bearer ${anonKey}`,
+                      Authorization: `Bearer ${sessionToken}`,
                     },
                     body: JSON.stringify({
                       type: 'enrich-phase1-5a',
@@ -587,7 +582,7 @@ function SweepMoodStep({ onContinue }: StepProps) {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
-                      Authorization: `Bearer ${anonKey}`,
+                      Authorization: `Bearer ${sessionToken}`,
                     },
                     body: JSON.stringify({
                       type: 'enrich-phase2',
@@ -4301,11 +4296,11 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
 
           // Run Phase 1.5a + Phase 2 enrichment
           const cortexUrl = readCortexUrl();
-          const anonKey = readSupabaseAnonKey();
-          if (!cortexUrl || !anonKey) {
-            sweepLog.warn('[SweepFlowScreen] Missing cortex URL or anon key, skipping enrichment');
+          if (!cortexUrl) {
+            sweepLog.warn('[SweepFlowScreen] Missing cortex URL, skipping enrichment');
             return;
           }
+          const sessionToken = await getSessionToken();
 
           const ds = getDateService();
           const currentDateStr = ds.today();
@@ -4325,7 +4320,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    Authorization: `Bearer ${anonKey}`,
+                    Authorization: `Bearer ${sessionToken}`,
                   },
                   body: JSON.stringify({
                     type: 'enrich-phase1-5a',
@@ -4348,7 +4343,7 @@ export default function SweepFlowScreen({ navigation: navProp }: Props) {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
-                    Authorization: `Bearer ${anonKey}`,
+                    Authorization: `Bearer ${sessionToken}`,
                   },
                   body: JSON.stringify({
                     type: 'enrich-phase2',

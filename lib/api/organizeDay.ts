@@ -13,6 +13,7 @@ import { calculateRealisticAvailableMinutes } from '../capacity';
 import { computeTotalMinutes, validateEnergyType } from '../planning';
 import { computeTimeGaps, getBlockBoundaryIso, type TimeGap } from '../timeGaps';
 import { getDateService } from '../date/DateService';
+import { getSessionToken } from '../cortex/getSessionToken';
 
 // =============================================================================
 // TYPES
@@ -112,10 +113,12 @@ export async function organizeDay(request: OrganizeDayRequest): Promise<Organize
   });
 
   try {
+    const sessionToken = await getSessionToken();
     const response = await fetch(CORTEX_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionToken}`,
       },
       body: JSON.stringify({
         type: 'organize-day',
