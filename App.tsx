@@ -28,7 +28,7 @@ import {
   requestNotificationPermissionContextual,
   savePushToken,
 } from './src/utils/notifications';
-import { getDateService } from './lib/date/DateService';
+import { getDateService, nowTimestamp } from './lib/date/DateService';
 import { NotificationPermissionPrompt } from './components/notifications/NotificationPermissionPrompt';
 import { eventBus } from './lib/events';
 import { useGremlyStore } from './lib/store/useGremlyStore';
@@ -123,6 +123,8 @@ function App() {
   const hasSeenReadonlyIntro = useHasSeenReadonlyIntro();
   const markReadonlyIntroSeen = useGremlyStore((s) => s.markReadonlyIntroSeen);
   const isInitialized = useGremlyStore((s) => s.isInitialized);
+  const isTester = useGremlyStore((s) => s.isTester);
+  const isSubscribed = useGremlyStore((s) => s.isSubscribed);
   const [showReadonlyIntro, setShowReadonlyIntro] = useState(false);
 
   // Age-up celebration state - rendered at root level to work over navigation modals
@@ -151,6 +153,35 @@ function App() {
   }>({ visible: false, context: 'reminder' });
 
   // Show read-only intro sheet once after entering read-only state
+  useEffect(() => {
+    if (!isInitialized) return;
+    const state = useGremlyStore.getState();
+    console.log('[READONLY_DEBUG]', {
+      isReadOnly_selector: isReadOnly,
+      hasSeenReadonlyIntro,
+      isInitialized,
+      isTester_raw: state.isTester,
+      isSubscribed_raw: state.isSubscribed,
+      graduatedAt_raw: state.graduatedAt,
+      challengeCompletedAt_raw: state.challengeCompletedAt,
+      trialStartedAt_raw: state.trialStartedAt,
+      userId: state.userId,
+    });
+  }, [isInitialized, isReadOnly, hasSeenReadonlyIntro]);
+
+  useEffect(() => {
+    const state = useGremlyStore.getState();
+    console.log('[READONLY_DEBUG_LIVE]', {
+      isReadOnly_selector: isReadOnly,
+      isTester,
+      isSubscribed,
+      graduatedAt: state.graduatedAt,
+      challengeCompletedAt: state.challengeCompletedAt,
+      trialStartedAt: state.trialStartedAt,
+      timestamp: nowTimestamp(),
+    });
+  }, [isTester, isSubscribed, isReadOnly]);
+
   useEffect(() => {
     if (isInitialized && isReadOnly && !hasSeenReadonlyIntro) {
       const timer = setTimeout(() => setShowReadonlyIntro(true), 800);
