@@ -33,7 +33,7 @@ import type {
   EntityChatMessage,
   EntityChatNote,
   CalendarEvent as UserCalendarEvent,
-  DbCalendarEvent,
+  DbSyncedCalendarEvent,
   WeeklySummary,
   WeeklySummaryCleanupAction,
   DailyContextObject,
@@ -100,7 +100,7 @@ let eventBusUnsubscribe: (() => void) | null = null;
 // their set() calls, which causes duplicate events.
 let calendarFetchInFlight: Promise<void> | null = null;
 
-function mapDbRowToProviderCalendarEvent(row: DbCalendarEvent): CalendarEvent | null {
+function mapDbRowToProviderCalendarEvent(row: DbSyncedCalendarEvent): CalendarEvent | null {
   if (!row.external_id || !row.start_at || !row.end_at) return null;
   if (row.provider !== 'google' && row.provider !== 'outlook' && row.provider !== 'ics')
     return null;
@@ -118,7 +118,7 @@ function mapDbRowToProviderCalendarEvent(row: DbCalendarEvent): CalendarEvent | 
 }
 
 function buildCalendarEventsByDateFromDbRows(
-  rows: DbCalendarEvent[],
+  rows: DbSyncedCalendarEvent[],
 ): Record<string, CalendarEvent[]> {
   const eventsByDate: Record<string, CalendarEvent[]> = {};
   const seen = new Set<string>();
@@ -1281,9 +1281,9 @@ export const useGremlyStore = create<GremlyState>()(
                   )
                   .order('created_at', { ascending: false }),
               ),
-              fetchAllPaginated<DbCalendarEvent>(() =>
+              fetchAllPaginated<DbSyncedCalendarEvent>(() =>
                 supabase
-                  .from('calendar_events' as any)
+                  .from('synced_calendar_events' as any)
                   .select('*')
                   .eq('owner_id', userId)
                   .eq('archived', false)
@@ -5411,9 +5411,9 @@ export const useGremlyStore = create<GremlyState>()(
                   )
                   .order('created_at', { ascending: false }),
               ),
-              fetchAllPaginated<DbCalendarEvent>(() =>
+              fetchAllPaginated<DbSyncedCalendarEvent>(() =>
                 supabase
-                  .from('calendar_events' as any)
+                  .from('synced_calendar_events' as any)
                   .select('*')
                   .eq('owner_id', userId)
                   .eq('archived', false)
@@ -6447,7 +6447,7 @@ export const useGremlyStore = create<GremlyState>()(
 
             if (flatEvents.length === 0) return zero;
 
-            // 2. Transform to DbCalendarEvent payload shape.
+            // 2. Transform to DbSyncedCalendarEvent payload shape.
             const nowIso = nowTimestamp();
             const payloads = flatEvents.map((event) => ({
               owner_id: userId,
@@ -6471,14 +6471,14 @@ export const useGremlyStore = create<GremlyState>()(
             let upserted = 0;
             for (let i = 0; i < payloads.length; i += BATCH_SIZE) {
               const batch = payloads.slice(i, i + BATCH_SIZE);
-              const { error } = await supabase.from('calendar_events' as any).upsert(batch, {
+              const { error } = await supabase.from('synced_calendar_events' as any).upsert(batch, {
                 onConflict: 'owner_id,external_id,provider',
                 ignoreDuplicates: false,
               });
 
               if (error) {
                 console.error(
-                  '[GremlyStore] calendar_events upsert batch error:',
+                  '[GremlyStore] synced_calendar_events upsert batch error:',
                   error,
                   'batch',
                   i / BATCH_SIZE,
@@ -6493,7 +6493,7 @@ export const useGremlyStore = create<GremlyState>()(
             console.log(
               '[GremlyStore] Calendar sync upserted',
               upserted,
-              'events to calendar_events table',
+              'events to synced_calendar_events table',
             );
 
             // 4. Archive old events (end_at older than 30 days).
@@ -6502,7 +6502,7 @@ export const useGremlyStore = create<GremlyState>()(
             const archiveCutoffIso = archiveCutoff.toISOString();
 
             const { error: archiveError, count: archiveCount } = await supabase
-              .from('calendar_events' as any)
+              .from('synced_calendar_events' as any)
               .update({ archived: true, archived_at: nowIso }, { count: 'exact' })
               .eq('owner_id', userId)
               .eq('archived', false)
@@ -6510,7 +6510,7 @@ export const useGremlyStore = create<GremlyState>()(
               .lt('end_at', archiveCutoffIso);
 
             if (archiveError) {
-              console.error('[GremlyStore] calendar_events archive error:', archiveError);
+              console.error('[GremlyStore] synced_calendar_events archive error:', archiveError);
             } else if (archiveCount) {
               console.log(
                 '[GremlyStore] Archived',

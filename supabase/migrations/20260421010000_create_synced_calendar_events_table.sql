@@ -1,4 +1,4 @@
-create table if not exists calendar_events (
+create table if not exists synced_calendar_events (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references auth.users(id) on delete cascade,
 
@@ -31,28 +31,28 @@ create table if not exists calendar_events (
   unique (owner_id, external_id, provider)
 );
 
-create index if not exists idx_calendar_events_owner_active
-  on calendar_events (owner_id, start_at)
+create index if not exists idx_synced_calendar_events_owner_active
+  on synced_calendar_events (owner_id, start_at)
   where archived = false;
 
-create index if not exists idx_calendar_events_range
-  on calendar_events (owner_id, start_at, end_at)
+create index if not exists idx_synced_calendar_events_range
+  on synced_calendar_events (owner_id, start_at, end_at)
   where archived = false;
 
-alter table calendar_events enable row level security;
+alter table synced_calendar_events enable row level security;
 
-create policy "Users can view their own calendar events"
-  on calendar_events for select
+create policy "Users can view their own synced calendar events"
+  on synced_calendar_events for select
   using (auth.uid() = owner_id);
 
-create policy "Users can insert their own calendar events"
-  on calendar_events for insert
+create policy "Users can insert their own synced calendar events"
+  on synced_calendar_events for insert
   with check (auth.uid() = owner_id);
 
-create policy "Users can update their own calendar events"
-  on calendar_events for update
+create policy "Users can update their own synced calendar events"
+  on synced_calendar_events for update
   using (auth.uid() = owner_id);
 
-create policy "Users can delete their own calendar events"
-  on calendar_events for delete
+create policy "Users can delete their own synced calendar events"
+  on synced_calendar_events for delete
   using (auth.uid() = owner_id);

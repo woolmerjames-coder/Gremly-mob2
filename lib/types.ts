@@ -468,7 +468,7 @@ export interface Note {
   user_edited_fields?: string[] | null;
 }
 
-export interface DbCalendarEvent {
+export interface DbSyncedCalendarEvent {
   id: string;
   owner_id: string;
   external_id: string;
