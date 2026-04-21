@@ -468,6 +468,27 @@ export interface Note {
   user_edited_fields?: string[] | null;
 }
 
+export interface DbCalendarEvent {
+  id: string;
+  owner_id: string;
+  external_id: string;
+  provider: string;
+  calendar_id: string | null;
+  etag: string | null;
+  title: string | null;
+  description: string | null;
+  location: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  is_all_day: boolean;
+  archived: boolean;
+  archived_at: string | null;
+  last_synced_at: string;
+  raw: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /**
  * CalendarEvent - Quick-add calendar entries for Morning Brief
  * Separate from notes/todos - these are pure time blocks

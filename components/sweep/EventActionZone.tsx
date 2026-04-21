@@ -150,13 +150,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingVertical: 10,
+    paddingVertical: 5,
     paddingHorizontal: 14,
     borderRadius: 12,
     backgroundColor: 'rgba(224,196,122,0.1)',
     borderWidth: 1.5,
     borderColor: 'rgba(224,196,122,0.25)',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   eventInfo: {
     flex: 1,
@@ -165,10 +165,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#9A7B2E',
+    lineHeight: 16,
   },
   eventCountdown: {
     fontSize: 11,
     color: 'rgba(34,34,34,0.55)',
+    lineHeight: 14,
   },
   eventCountdownToday: {
     color: '#9A7B2E',

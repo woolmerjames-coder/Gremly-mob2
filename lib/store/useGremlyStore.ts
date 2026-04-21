@@ -33,6 +33,7 @@ import type {
   EntityChatMessage,
   EntityChatNote,
   CalendarEvent as UserCalendarEvent,
+  DbCalendarEvent,
   WeeklySummary,
   WeeklySummaryCleanupAction,
   DailyContextObject,
@@ -61,7 +62,6 @@ import {
   type CalendarConnectionStatus,
   type CalendarProvider,
 } from '../calendar/CalendarClient';
-import { reconcileCalendarEvents } from '../calendar/calendarSync';
 import { DEFAULT_TIME_BLOCK_PREFERENCES, getTimeBlockBoundaries } from '../capacity';
 import { getRandomFallback } from '../minddrop/confirmationFallbacks';
 import { cancelAllItemReminders } from '../notifications/itemReminderService';
@@ -99,6 +99,46 @@ let eventBusUnsubscribe: (() => void) | null = null;
 // Prevents concurrent fetchCalendarEventsForRange calls from interleaving
 // their set() calls, which causes duplicate events.
 let calendarFetchInFlight: Promise<void> | null = null;
+
+function mapDbRowToProviderCalendarEvent(row: DbCalendarEvent): CalendarEvent | null {
+  if (!row.external_id || !row.start_at || !row.end_at) return null;
+  if (row.provider !== 'google' && row.provider !== 'outlook' && row.provider !== 'ics')
+    return null;
+
+  return {
+    id: row.id,
+    provider: row.provider,
+    providerEventId: row.external_id,
+    title: row.title ?? 'Untitled event',
+    startAt: row.start_at,
+    endAt: row.end_at,
+    isAllDay: row.is_all_day ?? false,
+    location: row.location ?? null,
+  };
+}
+
+function buildCalendarEventsByDateFromDbRows(
+  rows: DbCalendarEvent[],
+): Record<string, CalendarEvent[]> {
+  const eventsByDate: Record<string, CalendarEvent[]> = {};
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    const event = mapDbRowToProviderCalendarEvent(row);
+    if (!event) continue;
+
+    const dedupKey = `${event.provider}:${event.providerEventId}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+
+    const dateKey = getDateService().extractLocalDate(event.startAt);
+    if (!dateKey) continue;
+    const existing = eventsByDate[dateKey] || [];
+    eventsByDate[dateKey] = [...existing, event];
+  }
+
+  return eventsByDate;
+}
 
 /**
  * Check if a habit is currently locked in based on commitment_until date.
@@ -1196,6 +1236,7 @@ export const useGremlyStore = create<GremlyState>()(
               todosRows,
               habitsRows,
               notesRows,
+              calendarEventRows,
               spacesRes,
               tagsRes,
               progressRes,
@@ -1239,6 +1280,14 @@ export const useGremlyStore = create<GremlyState>()(
                       `and(target_date.gte.${eventWindowStartIso},target_date.lte.${eventWindowEndIso})`,
                   )
                   .order('created_at', { ascending: false }),
+              ),
+              fetchAllPaginated<DbCalendarEvent>(() =>
+                supabase
+                  .from('calendar_events' as any)
+                  .select('*')
+                  .eq('owner_id', userId)
+                  .eq('archived', false)
+                  .order('start_at', { ascending: true }),
               ),
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
@@ -1401,6 +1450,8 @@ export const useGremlyStore = create<GremlyState>()(
               ritualProgressKeys: ritualProgress ? Object.keys(ritualProgress) : 'null',
             });
 
+            const hydratedCalendarEvents = buildCalendarEventsByDateFromDbRows(calendarEventRows);
+
             set({
               // Add type field since DB doesn't store it
               todos: todosRows.map((t) => ({
@@ -1418,6 +1469,9 @@ export const useGremlyStore = create<GremlyState>()(
                 type: 'note' as const,
                 reminders: (n as any).reminders_json ?? [],
               })),
+              calendarEvents: hydratedCalendarEvents,
+              calendarLastFetched:
+                calendarEventRows.length > 0 ? nowTimestamp() : get().calendarLastFetched,
               spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
@@ -5322,6 +5376,7 @@ export const useGremlyStore = create<GremlyState>()(
               todosRows,
               habitsRows,
               notesRows,
+              calendarEventRows,
               spacesRes,
               tagsRes,
               progressRes,
@@ -5355,6 +5410,14 @@ export const useGremlyStore = create<GremlyState>()(
                       `and(target_date.gte.${eventWindowStartIso},target_date.lte.${eventWindowEndIso})`,
                   )
                   .order('created_at', { ascending: false }),
+              ),
+              fetchAllPaginated<DbCalendarEvent>(() =>
+                supabase
+                  .from('calendar_events' as any)
+                  .select('*')
+                  .eq('owner_id', userId)
+                  .eq('archived', false)
+                  .order('start_at', { ascending: true }),
               ),
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
@@ -5398,6 +5461,8 @@ export const useGremlyStore = create<GremlyState>()(
               skipCortexPrefs = true;
             }
 
+            const hydratedCalendarEvents = buildCalendarEventsByDateFromDbRows(calendarEventRows);
+
             set({
               // Add type field since DB doesn't store it
               todos: todosRows.map((t) => ({
@@ -5415,6 +5480,9 @@ export const useGremlyStore = create<GremlyState>()(
                 type: 'note' as const,
                 reminders: (n as any).reminders_json ?? [],
               })),
+              calendarEvents: hydratedCalendarEvents,
+              calendarLastFetched:
+                calendarEventRows.length > 0 ? nowTimestamp() : get().calendarLastFetched,
               spaces: spacesRes.data ?? [],
               tags: tagsRes.data ?? [],
               habitProgress: progressRes.data ?? [],
@@ -6345,18 +6413,33 @@ export const useGremlyStore = create<GremlyState>()(
         },
 
         syncCalendarEventsToNotes: async () => {
-          const { notes, calendarEvents, userId } = get();
+          const { calendarEvents, userId } = get();
           const zero = { created: 0, updated: 0, softDeleted: 0, unchanged: 0 };
           if (!userId) return zero;
 
           try {
-            // 1. Flatten calendarEvents Record into a single array, deduplicate by providerEventId
+            /**
+             * Sync contract (PR 1):
+             *
+             * 1. UNIQUE constraint (owner_id, external_id, provider)
+             *    prevents DB-level duplicates.
+             * 2. Flatten step dedupes in-memory by `${provider}:${externalId}`
+             *    before writing.
+             * 3. Upsert (not insert) makes the sync idempotent — re-running
+             *    produces no changes if provider data is unchanged.
+             * 4. Archive-on-age-out keeps the table bounded.
+             * 5. Hydration reads archived=false only, so archived events
+             *    don't pollute the cache.
+             */
+
+            // 1. Flatten calendarEvents (cache) into a deduped list by composite key.
             const seen = new Set<string>();
             const flatEvents: CalendarEvent[] = [];
-            for (const dateEvents of Object.values(calendarEvents)) {
-              for (const event of dateEvents) {
-                if (!seen.has(event.providerEventId)) {
-                  seen.add(event.providerEventId);
+            for (const dayEvents of Object.values(calendarEvents)) {
+              for (const event of dayEvents) {
+                const dedupKey = `${event.provider}:${event.providerEventId}`;
+                if (!seen.has(dedupKey)) {
+                  seen.add(dedupKey);
                   flatEvents.push(event);
                 }
               }
@@ -6364,130 +6447,83 @@ export const useGremlyStore = create<GremlyState>()(
 
             if (flatEvents.length === 0) return zero;
 
-            // 2. Filter existing event notes that have external_source
-            const existingEventNotes = notes.filter(
-              (n) =>
-                n.type === 'note' &&
-                (n as any).subtype === 'event' &&
-                (n as any).external_source &&
-                !n.archived,
-            ) as import('../types').Note[];
+            // 2. Transform to DbCalendarEvent payload shape.
+            const nowIso = nowTimestamp();
+            const payloads = flatEvents.map((event) => ({
+              owner_id: userId,
+              external_id: event.providerEventId,
+              provider: event.provider,
+              calendar_id: (event as any).calendarId ?? null,
+              etag: (event as any).etag ?? null,
+              title: event.title ?? null,
+              description: (event as any).description ?? null,
+              location: event.location ?? null,
+              start_at: event.startAt ?? null,
+              end_at: event.endAt ?? null,
+              is_all_day: event.isAllDay ?? false,
+              last_synced_at: nowIso,
+              raw: event as unknown as Record<string, unknown>,
+              updated_at: nowIso,
+            }));
 
-            // 2b. Build dismissed external IDs set (archived by user)
-            const dismissedExternalIds = new Set<string>();
-            notes.forEach((n) => {
-              if (
-                n.type === 'note' &&
-                (n as any).subtype === 'event' &&
-                n.archived &&
-                (n as any).archived_reason === 'dismissed_by_user' &&
-                (n as any).external_source?.externalId
-              ) {
-                dismissedExternalIds.add((n as any).external_source.externalId);
+            // 3. Upsert in batches of 500.
+            const BATCH_SIZE = 500;
+            let upserted = 0;
+            for (let i = 0; i < payloads.length; i += BATCH_SIZE) {
+              const batch = payloads.slice(i, i + BATCH_SIZE);
+              const { error } = await supabase.from('calendar_events' as any).upsert(batch, {
+                onConflict: 'owner_id,external_id,provider',
+                ignoreDuplicates: false,
+              });
+
+              if (error) {
+                console.error(
+                  '[GremlyStore] calendar_events upsert batch error:',
+                  error,
+                  'batch',
+                  i / BATCH_SIZE,
+                );
+                // Continue with next batch rather than aborting sync.
+                continue;
               }
-            });
 
-            // 3. Reconcile
-            const { creates, updates, softDeletes, unchanged } = reconcileCalendarEvents(
-              flatEvents,
-              existingEventNotes,
-              userId,
-              dismissedExternalIds,
+              upserted += batch.length;
+            }
+
+            console.log(
+              '[GremlyStore] Calendar sync upserted',
+              upserted,
+              'events to calendar_events table',
             );
 
-            // 4. Creates — insert into Supabase, get real IDs, then add to store
-            if (creates.length > 0) {
-              const sanitizedCreates = creates.map((c) =>
-                sanitizeForSupabase(
-                  { ...c, owner_id: userId, date_confidence: 'synced' } as Record<string, unknown>,
-                  'note',
-                ),
+            // 4. Archive old events (end_at older than 30 days).
+            const archiveCutoff = getDateService().now();
+            archiveCutoff.setDate(archiveCutoff.getDate() - 30);
+            const archiveCutoffIso = archiveCutoff.toISOString();
+
+            const { error: archiveError, count: archiveCount } = await supabase
+              .from('calendar_events' as any)
+              .update({ archived: true, archived_at: nowIso }, { count: 'exact' })
+              .eq('owner_id', userId)
+              .eq('archived', false)
+              .not('end_at', 'is', null)
+              .lt('end_at', archiveCutoffIso);
+
+            if (archiveError) {
+              console.error('[GremlyStore] calendar_events archive error:', archiveError);
+            } else if (archiveCount) {
+              console.log(
+                '[GremlyStore] Archived',
+                archiveCount,
+                'old calendar events (end_at < 30d ago)',
               );
-              const { data: inserted, error: insertError } = await supabase
-                .from('notes')
-                .insert(sanitizedCreates)
-                .select();
-
-              if (insertError) {
-                console.error('[GremlyStore] syncCalendarEventsToNotes insert error:', insertError);
-              } else if (inserted) {
-                const newNotes = inserted.map((row: any) => ({ ...row, type: 'note' as const }));
-                set({ notes: [...get().notes, ...newNotes] });
-                console.log('[GremlyStore] Calendar sync created', newNotes.length, 'notes');
-              }
-            }
-
-            // 5. Updates — batch update in Supabase, then merge patches into store
-            if (updates.length > 0) {
-              const updatePromises = updates.map(({ id, patch }) => {
-                const sanitized = sanitizeForSupabase(
-                  { ...patch, updated_at: nowTimestamp(), date_confidence: 'synced' } as Record<
-                    string,
-                    unknown
-                  >,
-                  'note',
-                );
-                return supabase.from('notes').update(sanitized).eq('id', id);
-              });
-              const results = await Promise.allSettled(updatePromises);
-              results.forEach((r, i) => {
-                if (r.status === 'rejected' || (r.status === 'fulfilled' && r.value.error)) {
-                  console.error(
-                    '[GremlyStore] syncCalendarEventsToNotes update error for',
-                    updates[i].id,
-                    r.status === 'rejected' ? r.reason : r.value.error,
-                  );
-                }
-              });
-
-              // Optimistic merge into store
-              const currentNotes = get().notes;
-              const patchMap = new Map(updates.map(({ id, patch }) => [id, patch]));
-              set({
-                notes: currentNotes.map((n) => {
-                  const patch = patchMap.get(n.id);
-                  return patch ? { ...n, ...patch, updated_at: nowTimestamp() } : n;
-                }),
-              });
-              console.log('[GremlyStore] Calendar sync updated', updates.length, 'notes');
-            }
-
-            // 6. Soft deletes — archive in Supabase, then update store
-            if (softDeletes.length > 0) {
-              const now = nowTimestamp();
-              const { error: archiveError } = await supabase
-                .from('notes')
-                .update({ archived: true, archived_reason: 'calendar_deleted', archived_at: now })
-                .in('id', softDeletes);
-
-              if (archiveError) {
-                console.error(
-                  '[GremlyStore] syncCalendarEventsToNotes archive error:',
-                  archiveError,
-                );
-              }
-
-              const deleteSet = new Set(softDeletes);
-              set({
-                notes: get().notes.map((n) =>
-                  deleteSet.has(n.id)
-                    ? {
-                        ...n,
-                        archived: true,
-                        archived_reason: 'calendar_deleted',
-                        archived_at: now,
-                      }
-                    : n,
-                ),
-              });
-              console.log('[GremlyStore] Calendar sync soft-deleted', softDeletes.length, 'notes');
             }
 
             return {
-              created: creates.length,
-              updated: updates.length,
-              softDeleted: softDeletes.length,
-              unchanged,
+              created: 0,
+              updated: upserted,
+              softDeleted: 0,
+              unchanged: 0,
             };
           } catch (error) {
             console.error('[GremlyStore] syncCalendarEventsToNotes failed:', error);

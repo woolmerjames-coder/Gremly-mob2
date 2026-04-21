@@ -1,0 +1,125 @@
+diff --git a/lib/store/useGremlyStore.ts b/lib/store/useGremlyStore.ts
+index 367ce370..93edc46f 100644
+--- a/lib/store/useGremlyStore.ts
++++ b/lib/store/useGremlyStore.ts
+@@ -6350,6 +6350,22 @@ export const useGremlyStore = create<GremlyState>()(
+           if (!userId) return zero;
+ 
+           try {
++            // Match hydration window: only synchronize events within [-30d, +90d]
++            const eventWindowStart = getDateService().now();
++            eventWindowStart.setDate(eventWindowStart.getDate() - 30);
++            const eventWindowEnd = getDateService().now();
++            eventWindowEnd.setDate(eventWindowEnd.getDate() + 90);
++            const eventWindowStartIso = eventWindowStart.toISOString();
++            const eventWindowEndIso = eventWindowEnd.toISOString();
++            const eventWindowStartMs = eventWindowStart.getTime();
++            const eventWindowEndMs = eventWindowEnd.getTime();
++
++            const isWithinWindow = (dateValue: string | null | undefined): boolean => {
++              if (!dateValue) return false;
++              const dateMs = new Date(dateValue).getTime();
++              return Number.isFinite(dateMs) && dateMs >= eventWindowStartMs && dateMs <= eventWindowEndMs;
++            };
++
+             // 1. Flatten calendarEvents Record into a single array, deduplicate by providerEventId
+             const seen = new Set<string>();
+             const flatEvents: CalendarEvent[] = [];
+@@ -6362,15 +6378,19 @@ export const useGremlyStore = create<GremlyState>()(
+               }
+             }
+ 
+-            if (flatEvents.length === 0) return zero;
++            // 1b. Window incoming events before reconcile (Change 1)
++            const windowedEvents = flatEvents.filter((event) => isWithinWindow(event.startAt));
+ 
+-            // 2. Filter existing event notes that have external_source
++            // 2. Filter existing external event notes to in-window only (Change 2)
++            // Notes with no target_date (column not yet in DB) are treated as in-window
++            // so reconcile can match them by externalId and avoid ghost-creates.
+             const existingEventNotes = notes.filter(
+               (n) =>
+                 n.type === 'note' &&
+                 (n as any).subtype === 'event' &&
+                 (n as any).external_source &&
+-                !n.archived,
++                !n.archived &&
++                (!(n as any).target_date || isWithinWindow((n as any).target_date)),
+             ) as import('../types').Note[];
+ 
+             // 2b. Build dismissed external IDs set (archived by user)
+@@ -6387,9 +6407,9 @@ export const useGremlyStore = create<GremlyState>()(
+               }
+             });
+ 
+-            // 3. Reconcile
++            // 3. Reconcile using only in-window events/notes
+             const { creates, updates, softDeletes, unchanged } = reconcileCalendarEvents(
+-              flatEvents,
++              windowedEvents,
+               existingEventNotes,
+               userId,
+               dismissedExternalIds,
+@@ -6483,10 +6503,61 @@ export const useGremlyStore = create<GremlyState>()(
+               console.log('[GremlyStore] Calendar sync soft-deleted', softDeletes.length, 'notes');
+             }
+ 
++            // 7. Archive out-of-window synced event notes — derive candidates from
++            // in-memory state to avoid a DB filter on target_date (column may not exist
++            // on all envs; null target_date = in-window by convention, skip it).
++            let outsideWindowArchivedCount = 0;
++            const outsideWindowNow = nowTimestamp();
++            const outsideWindowNotes = get().notes.filter(
++              (n) =>
++                (n as any).subtype === 'event' &&
++                (n as any).external_source &&
++                !n.archived &&
++                !!(n as any).target_date &&
++                !isWithinWindow((n as any).target_date),
++            );
++            if (outsideWindowNotes.length > 0) {
++              const outsideWindowIds = outsideWindowNotes.map((n) => n.id);
++              const { error: outsideWindowError } = await supabase
++                .from('notes')
++                .update({
++                  archived: true,
++                  archived_reason: 'outside_window',
++                  archived_at: outsideWindowNow,
++                })
++                .in('id', outsideWindowIds);
++
++              if (outsideWindowError) {
++                console.error(
++                  '[GremlyStore] syncCalendarEventsToNotes outside-window archive error:',
++                  outsideWindowError,
++                );
++              } else {
++                outsideWindowArchivedCount = outsideWindowIds.length;
++                const outsideWindowIdSet = new Set(outsideWindowIds);
++                set({
++                  notes: get().notes.map((n) =>
++                    outsideWindowIdSet.has(n.id)
++                      ? {
++                          ...n,
++                          archived: true,
++                          archived_reason: 'outside_window',
++                          archived_at: outsideWindowNow,
++                        }
++                      : n,
++                  ),
++                });
++                console.log(
++                  '[GremlyStore] Calendar sync archived out-of-window notes',
++                  outsideWindowArchivedCount,
++                );
++              }
++            }
++
+             return {
+               created: creates.length,
+               updated: updates.length,
+-              softDeleted: softDeletes.length,
++              softDeleted: softDeletes.length + outsideWindowArchivedCount,
+               unchanged,
+             };
+           } catch (error) {

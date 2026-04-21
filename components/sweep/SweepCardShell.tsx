@@ -164,13 +164,13 @@ export function SweepCardShell({
 
   // ── Shared values ──
   const translateX = useSharedValue(0);
-  const cardOpacity = useSharedValue(1);
+  const cardOpacity = useSharedValue(0);
   const isDragging = useSharedValue(false);
   const borderOpacity = useSharedValue(0);
   const hasTriggeredHaptic = useSharedValue(false);
   const letGoScale = useSharedValue(1);
   const keepScale = useSharedValue(1);
-  const entryScale = useSharedValue(1);
+  const entryScale = useSharedValue(0.96);
 
   // Reset on candidate change — animate in
   useEffect(() => {
