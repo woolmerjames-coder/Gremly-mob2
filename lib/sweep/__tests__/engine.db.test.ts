@@ -49,9 +49,15 @@ function createMockSupabaseClient(options: {
     chain.neq = jest.fn().mockImplementation(returnChain);
     chain.is = jest.fn().mockImplementation(returnChain);
     chain.or = jest.fn().mockImplementation(returnChain);
+    // order() is now used in all fetchAllPaginated query builders.
+    chain.order = jest.fn().mockImplementation(returnChain);
     chain.maybeSingle = jest.fn().mockReturnValue(result);
 
-    // Make the chain itself thenable (for await)
+    // range() is called by fetchAllPaginated — return the result so the first
+    // page captures all data and pagination stops (data.length < pageSize).
+    chain.range = jest.fn().mockReturnValue(Promise.resolve(result));
+
+    // Make the chain itself thenable (for await on non-paginated queries)
     chain.then = (resolve: (value: unknown) => void) => resolve(result);
 
     return chain;

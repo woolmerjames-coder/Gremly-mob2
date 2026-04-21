@@ -10,35 +10,66 @@ import { useGremlyStore } from '../useGremlyStore';
 import type { Habit, DailyBrief, Todo } from '../../types';
 
 // Mock Supabase
-jest.mock('../../supabase/client', () => ({
-  supabase: {
-    from: () => ({
-      update: jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ error: null }),
+// The mock supports the full query-builder chain that fetchAllPaginated uses:
+// .from().select().eq().order().range(), as well as write operation chains.
+// NOTE: jest.mock is hoisted above module-level code. All helpers must be
+// inlined inside the factory. Also: jest.config.js sets resetMocks:true which
+// strips implementations from jest.fn() between tests, so `from` must be a
+// plain function (not jest.fn) so it always returns a fresh chain.
+jest.mock('../../supabase/client', () => {
+  const makeQueryChain = (): any => {
+    const chain: any = {};
+    // All query-builder methods return `chain` so any call order is valid.
+    const selfReturning = [
+      'select',
+      'eq',
+      'neq',
+      'is',
+      'or',
+      'not',
+      'in',
+      'gte',
+      'lte',
+      'ilike',
+      'order',
+      'limit',
+      'update',
+      'delete',
+      'insert',
+      'upsert',
+    ];
+    selfReturning.forEach((method) => {
+      chain[method] = () => chain;
+    });
+    // range() is awaited by fetchAllPaginated — return an empty page.
+    chain.range = () => Promise.resolve({ data: [], error: null });
+    // single() is used by point-read queries.
+    chain.single = () => Promise.resolve({ data: null, error: null });
+    // upsert() resolves directly (also listed above for self-returning, but override).
+    chain.upsert = () => Promise.resolve({ error: null });
+    // then() makes the chain awaitable (for write ops like .update().eq()).
+    chain.then = (resolve: any, reject?: any) =>
+      Promise.resolve({ data: [], error: null }).then(resolve, reject);
+    return chain;
+  };
+
+  return {
+    supabase: {
+      // Plain function — NOT jest.fn() — so resetMocks doesn't strip it.
+      from: (_table: string): any => makeQueryChain(),
+      channel: () => ({
+        on: () => ({ on: () => ({ subscribe: () => ({ unsubscribe: () => Promise.resolve() }) }) }),
+        subscribe: () => ({ unsubscribe: () => Promise.resolve() }),
+        unsubscribe: () => Promise.resolve({ error: null }),
       }),
-      upsert: jest.fn().mockResolvedValue({ error: null }),
-      select: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          single: jest.fn().mockResolvedValue({ data: null, error: null }),
-        }),
-      }),
-      eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: null, error: null }),
-    }),
-    channel: jest.fn(() => ({
-      on: jest.fn().mockReturnThis(),
-      subscribe: jest.fn().mockReturnThis(),
-      unsubscribe: jest.fn().mockResolvedValue({ error: null }),
-    })),
-    auth: {
-      onAuthStateChange: jest.fn().mockReturnValue({
-        data: { subscription: { unsubscribe: jest.fn() } },
-      }),
-      getUser: jest.fn().mockResolvedValue({ data: { user: null }, error: null }),
+      auth: {
+        onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+        getUser: () => Promise.resolve({ data: { user: null }, error: null }),
+      },
+      rpc: () => Promise.resolve({ data: null, error: null }),
     },
-    rpc: jest.fn().mockResolvedValue({ data: null, error: null }),
-  },
-}));
+  };
+});
 
 function makeHabit(overrides: Partial<Habit> = {}): Habit {
   return {

@@ -29,11 +29,18 @@ const TODAY_KEY = '2026-02-10';
 jest.mock('../../../lib/date', () => ({
   getDateService: () => ({
     today: () => TODAY_KEY,
+    now: () => new Date('2026-02-10T12:00:00'),
+    extractLocalDate: (isoString: string) => isoString.split('T')[0] ?? '',
     toLocalDate: (date: Date) => {
       const y = date.getFullYear();
       const m = String(date.getMonth() + 1).padStart(2, '0');
       const d = String(date.getDate()).padStart(2, '0');
       return `${y}-${m}-${d}`;
+    },
+    daysBetween: (dateKey: string, todayKey: string) => {
+      const a = new Date(dateKey).getTime();
+      const b = new Date(todayKey).getTime();
+      return Math.round(Math.abs(b - a) / 86_400_000);
     },
   }),
 }));

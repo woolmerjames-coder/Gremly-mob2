@@ -1,16 +1,9 @@
 import { create } from 'zustand';
 import type { AnimationMode } from '../types';
-import {
-  canPreempt,
-  AFTER_FINISH,
-  MAX_DURATION_MS,
-  isOneShot,
-} from '../mascot/mascotMatrix';
+import { canPreempt, AFTER_FINISH, MAX_DURATION_MS, isOneShot } from '../mascot/mascotMatrix';
 
 /** A single step in a sequence: play a mode, or pause for ms before the next step. */
-export type SequenceStep =
-  | { type: 'mode'; mode: AnimationMode }
-  | { type: 'pause'; ms: number };
+export type SequenceStep = { type: 'mode'; mode: AnimationMode } | { type: 'pause'; ms: number };
 
 interface MascotState {
   /** The currently-playing animation. */
@@ -50,7 +43,11 @@ function clearPauseTimer() {
   }
 }
 
-function scheduleSafetyTimer(mode: AnimationMode, token: number, signalFinish: (m: AnimationMode) => void) {
+function scheduleSafetyTimer(
+  mode: AnimationMode,
+  token: number,
+  signalFinish: (m: AnimationMode) => void,
+) {
   clearSafetyTimer();
   const duration = MAX_DURATION_MS[mode];
   if (!duration) return; // Looping mode, no safety timer needed
@@ -121,10 +118,11 @@ export const useMascotStore = create<MascotState>((set, get) => ({
       return;
     }
 
-    // Set the pending sequence first so requestMode's preempt check sees the
-    // post-first steps as the remaining queue.
-    set({ pendingSequence: rest });
+    // Play the first step, then restore the remaining steps.
+    // requestMode unconditionally clears pendingSequence (to cancel sequences
+    // on external preemption), so we must set it AFTER the requestMode call.
     get().requestMode(first.mode);
+    set({ pendingSequence: rest });
   },
 
   signalAnimationFinish: (mode) => {
@@ -182,10 +180,7 @@ export const useMascotStore = create<MascotState>((set, get) => ({
 }));
 
 /** Internal helper: advance to the next step in pendingSequence. */
-function advanceSequence(
-  get: () => MascotState,
-  set: (partial: Partial<MascotState>) => void,
-) {
+function advanceSequence(get: () => MascotState, set: (partial: Partial<MascotState>) => void) {
   const state = get();
   const [next, ...rest] = state.pendingSequence;
 
