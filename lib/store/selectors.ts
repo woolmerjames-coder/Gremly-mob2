@@ -862,6 +862,27 @@ export const selectSweepCandidatesUnified = createSelector(
 
       const isIdea = note.subtype === 'idea';
       const isRecentIdea = isIdea && createdDay && createdDay >= sevenDaysAgo;
+      const isEvent = note.subtype === 'event';
+      const eventTargetDate = (note as any).target_date as string | null;
+      const isEventToday = isEvent && eventTargetDate === today;
+      const isEventPassed = isEvent && !!eventTargetDate && eventTargetDate < today;
+      const isUpcomingEvent = isEvent && !!eventTargetDate && eventTargetDate >= today;
+      const daysUntilEvent =
+        isEvent && eventTargetDate
+          ? Math.ceil(
+              (new Date(eventTargetDate).getTime() - new Date(today).getTime()) /
+                (1000 * 60 * 60 * 24),
+            )
+          : null;
+
+      if (isEvent && isEventPassed) {
+        console.log('[SweepSelector] Filtered out past event:', {
+          id: note.id.slice(0, 8),
+          title: note.title?.slice(0, 20),
+          target_date: eventTargetDate,
+        });
+        continue;
+      }
 
       // Include catchall, list, reference subtypes created today
       // Note: 'general' LogSubtype maps to 'catchall' in the database
@@ -869,7 +890,7 @@ export const selectSweepCandidatesUnified = createSelector(
         note.subtype === 'catchall' || note.subtype === 'list' || note.subtype === 'reference';
       const isTodayOther = isOtherSubtype && isCreatedToday;
 
-      if (isRecentIdea || isTodayOther || wasSkipped || shouldResurface) {
+      if (isRecentIdea || isTodayOther || isUpcomingEvent || wasSkipped || shouldResurface) {
         // Extract log_photos from note (joined in useGremlyStore.initialize)
         const logPhotos = (note as any).log_photos;
         const attachments: SweepAttachment[] = Array.isArray(logPhotos)
@@ -885,9 +906,9 @@ export const selectSweepCandidatesUnified = createSelector(
           isOverdue: false,
           isDueToday: false,
           isCreatedToday,
-          isEventToday: false,
-          isEventPassed: false,
-          daysUntilEvent: null,
+          isEventToday,
+          isEventPassed,
+          daysUntilEvent,
           raw: note as any,
           attachments,
         } satisfies SweepCandidateNote);
