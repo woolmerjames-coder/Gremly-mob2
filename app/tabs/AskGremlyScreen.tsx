@@ -28,23 +28,33 @@ import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useAuth } from '../../providers/AuthProvider';
 import { supabase } from '../../lib/supabase/client';
 import { nowTimestamp } from '../../lib/date/DateService';
-import MascotLottie, { type MascotLottieHandle } from '../components/MascotLottie';
+import MascotLottie from '../components/MascotLottie';
 import * as Haptics from 'expo-haptics';
-import { Clock, SquarePen, ChevronLeft, Bookmark } from 'lucide-react-native';
+import {
+  Clock,
+  SquarePen,
+  ChevronLeft,
+  Bookmark,
+  Target,
+  Sparkles,
+  CalendarDays,
+  ChevronRight,
+} from 'lucide-react-native';
 import { useRoute } from '@react-navigation/native';
 import { useNavigation } from '@react-navigation/native';
 import type { SpaceChat, SpaceChatMessage } from '../../lib/types';
 import { useCanChat, useCanCreate } from '../../lib/store/lifecycleSelectors';
 import { useWakeOnInput } from '../../hooks/useWakeOnInput';
+import { useMascotActions } from '../../hooks/useMascotActions';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
 
 const MOSS = '#2E5540';
 const LINEN = '#F9F6F1';
 
-const CHIPS = [
-  'What should I focus on today?',
-  'Help me think through something',
-  "What's coming up this week?",
+const STARTERS = [
+  { icon: Target, label: 'What should I focus on today?' },
+  { icon: Sparkles, label: 'Help me think through something' },
+  { icon: CalendarDays, label: "What's coming up this week?" },
 ];
 
 export default function AskGremlyScreen() {
@@ -54,7 +64,7 @@ export default function AskGremlyScreen() {
   const navigation = useNavigation<any>();
   const canChat = useCanChat();
   const canCreate = useCanCreate();
-  const mascotRef = useRef<MascotLottieHandle>(null);
+  const { celebrate } = useMascotActions();
   const flatListRef = useRef<any>(null);
   const streamingControllerRef = useRef<{ close: () => void } | null>(null);
   const streamingMessageIdRef = useRef<string | null>(null);
@@ -409,15 +419,30 @@ export default function AskGremlyScreen() {
           ) : (
             <View style={styles.emptyState}>
               <Text style={styles.greeting}>{greeting}</Text>
-              <View style={styles.chipsContainer}>
-                {CHIPS.map((chip) => (
+
+              <Pressable
+                style={styles.stageMascot}
+                onPress={() => setShowHelp(true)}
+                accessibilityLabel="Chat with Gremly"
+                accessibilityRole="button"
+              >
+                <View style={styles.stageGroundShadow} pointerEvents="none" />
+                <MascotLottie width={180} />
+              </Pressable>
+
+              <View style={styles.startersContainer}>
+                {STARTERS.map(({ icon: Icon, label }) => (
                   <TouchableOpacity
-                    key={chip}
-                    style={styles.chip}
-                    onPress={() => handleSend(chip)}
-                    activeOpacity={0.7}
+                    key={label}
+                    style={styles.starterCard}
+                    onPress={() => handleSend(label)}
+                    activeOpacity={0.75}
                   >
-                    <Text style={styles.chipText}>{chip}</Text>
+                    <View style={styles.starterGlyph}>
+                      <Icon size={16} color={MOSS} strokeWidth={2} />
+                    </View>
+                    <Text style={styles.starterLabel}>{label}</Text>
+                    <ChevronRight size={16} color="rgba(46,85,64,0.4)" strokeWidth={2} />
                   </TouchableOpacity>
                 ))}
               </View>
@@ -434,9 +459,11 @@ export default function AskGremlyScreen() {
               onPress={() => setSaveSheetVisible(true)}
               style={{ position: 'absolute', top: -30, right: 105, zIndex: 11 }}
             />
-            <Pressable style={styles.mascot} onPress={() => setShowHelp(true)}>
-              <MascotLottie ref={mascotRef} />
-            </Pressable>
+            {inConversation && (
+              <Pressable style={styles.mascot} onPress={() => setShowHelp(true)}>
+                <MascotLottie />
+              </Pressable>
+            )}
             <ChatComposer
               onSend={handleSend}
               onChangeText={() => wakeOnInput()}
@@ -586,9 +613,7 @@ export default function AskGremlyScreen() {
 
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-          if (mascotRef.current) {
-            mascotRef.current.celebrate();
-          }
+          celebrate();
         }}
       />
       <ChatHistorySheet
@@ -676,34 +701,75 @@ const styles = StyleSheet.create({
   },
 
   // Empty state content
-  emptyState: { flex: 1, justifyContent: 'center' },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 30,
+    position: 'relative',
+  },
   greeting: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 15,
-    color: 'rgba(34,34,34,0.7)',
-    textAlign: 'center',
-    paddingHorizontal: 40,
-  },
-  chipsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 8,
-    paddingTop: 24,
-    paddingHorizontal: 24,
-  },
-  chip: {
-    backgroundColor: 'rgba(46,85,64,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(46,85,64,0.1)',
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-  },
-  chipText: {
     fontFamily: 'Inter-Medium',
-    fontSize: 13,
-    color: MOSS,
+    fontSize: 15,
+    lineHeight: 22,
+    color: 'rgba(26, 51, 40, 0.82)',
+    textAlign: 'center',
+    paddingHorizontal: 32,
+    marginBottom: 24,
+    maxWidth: 320,
+    letterSpacing: -0.1,
+    zIndex: 2,
+  },
+  stageMascot: {
+    marginBottom: 14,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    zIndex: 2,
+  },
+  stageGroundShadow: {
+    position: 'absolute',
+    bottom: 4,
+    width: 140,
+    height: 12,
+    borderRadius: 20,
+    backgroundColor: 'rgba(26, 51, 40, 0.12)',
+    alignSelf: 'center',
+  },
+  startersContainer: {
+    width: '100%',
+    paddingHorizontal: 24,
+    gap: 10,
+    zIndex: 2,
+  },
+  starterCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(46, 85, 64, 0.08)',
+    borderRadius: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    gap: 12,
+    shadowColor: '#1A3328',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  starterGlyph: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    backgroundColor: 'rgba(46, 85, 64, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  starterLabel: {
+    flex: 1,
+    fontFamily: 'Inter-Medium',
+    fontSize: 13.5,
+    color: '#1A3328',
   },
 
   // Messages

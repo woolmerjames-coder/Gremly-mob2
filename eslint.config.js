@@ -13,6 +13,7 @@ module.exports = [
       'android/**',
       'ios/**',
       'dist/**',
+      'dist-cortex/**', // Wrangler build output
       '*.config.js',
       'babel.config.js',
       '_archive/**',
@@ -116,10 +117,8 @@ module.exports = [
             "Use DateService instead of new Date(). Import { today, nowTimestamp, getDateService } from '@/lib/date/DateService'.",
         },
         {
-          selector:
-            "CallExpression[callee.object.name='Date'][callee.property.name='now']",
-          message:
-            'Use getDateService().now().getTime() instead of Date.now(). See DateService.',
+          selector: "CallExpression[callee.object.name='Date'][callee.property.name='now']",
+          message: 'Use getDateService().now().getTime() instead of Date.now(). See DateService.',
         },
         {
           selector: "MemberExpression[property.name='toDateString']",

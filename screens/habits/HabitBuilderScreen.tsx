@@ -149,7 +149,13 @@ function StreamingBubble({ contentRef, visible, isSearching, searchQuery }: Stre
   // Plain View only, no Animated.View, no layout animations.
   return (
     <View style={styles.streamingContainer}>
-      <View style={styles.streamingBubble}>{renderFormattedContent(displayContent)}</View>
+      <View style={styles.streamingBubble}>
+        {renderFormattedContent(displayContent, {
+          textColor: lightTokens.chat.assistantText,
+          fontSize: lightTokens.chat.bodyFontSize,
+          lineHeight: lightTokens.chat.bodyLineHeight,
+        })}
+      </View>
     </View>
   );
 }
@@ -1049,14 +1055,8 @@ const styles = StyleSheet.create({
   streamingBubble: {
     alignSelf: 'flex-start',
     backgroundColor: 'transparent',
-    paddingLeft: 14,
-    borderLeftWidth: 2,
-    borderLeftColor: 'rgba(212, 164, 74, 0.60)',
-    borderRadius: 0,
+    paddingVertical: 4,
+    paddingHorizontal: 0,
     maxWidth: '100%',
-    marginLeft: -4,
-    marginTop: -6,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
   },
 });

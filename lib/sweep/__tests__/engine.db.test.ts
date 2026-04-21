@@ -49,9 +49,15 @@ function createMockSupabaseClient(options: {
     chain.neq = jest.fn().mockImplementation(returnChain);
     chain.is = jest.fn().mockImplementation(returnChain);
     chain.or = jest.fn().mockImplementation(returnChain);
+    // order() is now used in all fetchAllPaginated query builders.
+    chain.order = jest.fn().mockImplementation(returnChain);
     chain.maybeSingle = jest.fn().mockReturnValue(result);
 
-    // Make the chain itself thenable (for await)
+    // range() is called by fetchAllPaginated — return the result so the first
+    // page captures all data and pagination stops (data.length < pageSize).
+    chain.range = jest.fn().mockReturnValue(Promise.resolve(result));
+
+    // Make the chain itself thenable (for await on non-paginated queries)
     chain.then = (resolve: (value: unknown) => void) => resolve(result);
 
     return chain;
@@ -399,27 +405,13 @@ describe('fetchSweepCandidatesForUser', () => {
 
   it('should NOT include catchall notes (still being processed)', async () => {
     // catchall notes are excluded because they haven't been classified yet
-    const mockCatchallNote = {
-      id: 'note-catchall',
-      owner_id: 'user-1',
-      created_at: '2025-12-03T16:00:00Z',
-      drop_id: 'drop-catchall',
-      skipped_in_sweep_at: null,
-      archived: false,
-      subtype: 'catchall', // Still being processed
-      title: 'Unprocessed entry',
-      log_photos: [],
-    };
-
-    // The mock returns the catchall note, but the engine should filter it out
-    // via .neq('subtype', 'catchall')
+    // via .neq('subtype', 'catchall') in the DB query.
+    // Since we mock at the result level, notes: [] simulates the filtered result.
     // Since we're mocking at the result level, this test documents expected behavior
     const { client } = createMockSupabaseClient({
       cortexPreferences: { data: null, error: null },
       todos: { data: [], error: null },
       habits: { data: [], error: null },
-      // In real usage, the .neq filter would exclude this, but mock returns it
-      // This test documents the expected SQL filter behavior
       notes: { data: [], error: null }, // Simulate filtered result
     });
 

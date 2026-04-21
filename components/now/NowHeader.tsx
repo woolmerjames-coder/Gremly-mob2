@@ -13,14 +13,15 @@
  */
 
 import React from 'react';
-import { TouchableOpacity, Image, View } from 'react-native';
+import { TouchableOpacity, View } from 'react-native';
 import { Text } from '../../ui';
 import { makeStyles } from '../../design/makeStyles';
 import { Icon } from '../../design-system/Icon';
 import { BRAND } from '../../design/brand';
-import GREMLY_CLIPBOARD from '../../assets/mascot/clipboardgremly.png';
 import { getDateService } from '../../lib/date';
 import type { Note } from '../../lib/types';
+import MascotLottie from '../../app/components/MascotLottie';
+import { useMascotMode } from '../../contexts/MascotModeContext';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -122,6 +123,7 @@ export function NowHeader({
   onMascotPress,
 }: NowHeaderProps) {
   const styles = useStyles();
+  const { resetInactivity } = useMascotMode();
   const greeting = getTimeOfDayGreeting();
 
   // Calculate Today progress (clamped to [0, 1])
@@ -177,6 +179,11 @@ export function NowHeader({
       ? `Next: ${upcomingEvent.title}${minutesUntil <= 60 ? ` in ${minutesUntil} min` : ''}`
       : null;
 
+  const handleMascotPress = () => {
+    resetInactivity();
+    onMascotPress?.();
+  };
+
   return (
     <View style={styles.container}>
       {/* Top row: Greeting/Date + Mascot */}
@@ -188,8 +195,12 @@ export function NowHeader({
           <View style={styles.headerDivider} />
         </View>
         <View style={styles.mascotColumn}>
-          <TouchableOpacity onPress={onMascotPress} activeOpacity={0.8} accessibilityLabel="Help">
-            <Image source={GREMLY_CLIPBOARD} style={styles.mascotImage} resizeMode="contain" />
+          <TouchableOpacity
+            onPress={handleMascotPress}
+            activeOpacity={0.8}
+            accessibilityLabel="Help"
+          >
+            <MascotLottie width={64} />
           </TouchableOpacity>
         </View>
       </View>
@@ -286,25 +297,9 @@ const useStyles = makeStyles((t) => ({
   },
   mascotColumn: {
     marginLeft: t.spacing[3],
-    marginTop: 8, // Nudge mascot down to align visually with card row
+    marginTop: 2, // Recentred for 64x75 mascot (was 8 for 64x64)
     justifyContent: 'flex-start',
     alignItems: 'center',
-  },
-  mascotGlow: {
-    position: 'absolute',
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(255, 255, 255, 0.6)', // Soft cream/white glow
-    // iOS shadow blur for glow effect
-    shadowColor: '#FAF8F5',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 25, // Blur radius ~25px
-  },
-  mascotImage: {
-    width: 64,
-    height: 64,
   },
   // Header divider - partial width accent under date
   headerDivider: {

@@ -16,6 +16,7 @@ import type { Database } from '../../types/supabase';
 import type { SweepCandidate, SweepEntityKind, SweepAttachment } from './types';
 import { buildSweepTodoOrClause, getEffectiveDueDay } from './todoFilters';
 import { getDateService, nowTimestamp } from '../date';
+import { fetchAllPaginated } from '../supabase/fetchAllPaginated';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Action Types
@@ -153,17 +154,23 @@ export async function fetchSweepCandidatesForUser(
     //   - Due today or overdue (due_day <= today) → ALWAYS include
     //   - New (created after cutoff)
     //   - Previously skipped (skipped_in_sweep_at is set)
-    const { data: todos, error: todoError } = await client
-      .from('todos')
-      .select('*')
-      .eq('owner_id', ownerId)
-      .eq('archived', false)
-      .neq('status', 'completed')
-      .or(todoOrClause);
+    let todos: any[] = [];
+    try {
+      todos = await fetchAllPaginated<any>(() =>
+        client
+          .from('todos')
+          .select('*')
+          .eq('owner_id', ownerId)
+          .eq('archived', false)
+          .neq('status', 'completed')
+          .or(todoOrClause)
+          .order('created_at', { ascending: false }),
+      );
+    } catch (error) {
+      console.error('[Sweep] Failed to fetch todos:', error);
+    }
 
-    if (todoError) {
-      console.error('[Sweep] Failed to fetch todos:', todoError);
-    } else if (todos) {
+    if (todos.length > 0) {
       // Debug: check if any completed todos slipped through
       const completedSlipped = todos.filter((t) => t.status === 'completed');
       if (completedSlipped.length > 0) {
@@ -291,17 +298,23 @@ export async function fetchSweepCandidatesForUser(
     const sevenDaysAgo = (ds.fromLocalDate(ds.daysAgo(7)) ?? ds.now()).toISOString();
     const ideaOrClause = `created_at.gt.${sevenDaysAgo},skipped_in_sweep_at.not.is.null,resurface_at.lte.${todayDay}`;
 
-    const { data: ideas, error: ideaError } = await client
-      .from('notes')
-      .select('*, log_photos(id, url, position)')
-      .eq('owner_id', ownerId)
-      .eq('archived', false)
-      .eq('subtype', 'idea')
-      .or(ideaOrClause);
+    let ideas: any[] = [];
+    try {
+      ideas = await fetchAllPaginated<any>(() =>
+        client
+          .from('notes')
+          .select('*, log_photos(id, url, position)')
+          .eq('owner_id', ownerId)
+          .eq('archived', false)
+          .eq('subtype', 'idea')
+          .or(ideaOrClause)
+          .order('created_at', { ascending: false }),
+      );
+    } catch (error) {
+      console.error('[Sweep] Failed to fetch ideas:', error);
+    }
 
-    if (ideaError) {
-      console.error('[Sweep] Failed to fetch ideas:', ideaError);
-    } else if (ideas) {
+    if (ideas.length > 0) {
       processNoteRows(ideas);
     }
 
@@ -310,17 +323,23 @@ export async function fetchSweepCandidatesForUser(
     // ─────────────────────────────────────────────────────────────────────
     const generalOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null,resurface_at.lte.${todayDay}`;
 
-    const { data: generalLogs, error: generalError } = await client
-      .from('notes')
-      .select('*, log_photos(id, url, position)')
-      .eq('owner_id', ownerId)
-      .eq('archived', false)
-      .eq('subtype', 'catchall')
-      .or(generalOrClause);
+    let generalLogs: any[] = [];
+    try {
+      generalLogs = await fetchAllPaginated<any>(() =>
+        client
+          .from('notes')
+          .select('*, log_photos(id, url, position)')
+          .eq('owner_id', ownerId)
+          .eq('archived', false)
+          .eq('subtype', 'catchall')
+          .or(generalOrClause)
+          .order('created_at', { ascending: false }),
+      );
+    } catch (error) {
+      console.error('[Sweep] Failed to fetch general logs:', error);
+    }
 
-    if (generalError) {
-      console.error('[Sweep] Failed to fetch general logs:', generalError);
-    } else if (generalLogs) {
+    if (generalLogs.length > 0) {
       processNoteRows(generalLogs);
     }
 
@@ -330,17 +349,23 @@ export async function fetchSweepCandidatesForUser(
     // ─────────────────────────────────────────────────────────────────────
     const listOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null,resurface_at.lte.${todayDay}`;
 
-    const { data: lists, error: listError } = await client
-      .from('notes')
-      .select('*, log_photos(id, url, position)')
-      .eq('owner_id', ownerId)
-      .eq('archived', false)
-      .eq('subtype', 'list')
-      .or(listOrClause);
+    let lists: any[] = [];
+    try {
+      lists = await fetchAllPaginated<any>(() =>
+        client
+          .from('notes')
+          .select('*, log_photos(id, url, position)')
+          .eq('owner_id', ownerId)
+          .eq('archived', false)
+          .eq('subtype', 'list')
+          .or(listOrClause)
+          .order('created_at', { ascending: false }),
+      );
+    } catch (error) {
+      console.error('[Sweep] Failed to fetch lists:', error);
+    }
 
-    if (listError) {
-      console.error('[Sweep] Failed to fetch lists:', listError);
-    } else if (lists) {
+    if (lists.length > 0) {
       processNoteRows(lists);
     }
 
@@ -349,17 +374,23 @@ export async function fetchSweepCandidatesForUser(
     // ─────────────────────────────────────────────────────────────────────
     const refOrClause = `created_at.gte.${todayDay}T00:00:00.000Z,skipped_in_sweep_at.not.is.null,resurface_at.lte.${todayDay}`;
 
-    const { data: refs, error: refError } = await client
-      .from('notes')
-      .select('*, log_photos(id, url, position)')
-      .eq('owner_id', ownerId)
-      .eq('archived', false)
-      .eq('subtype', 'reference')
-      .or(refOrClause);
+    let refs: any[] = [];
+    try {
+      refs = await fetchAllPaginated<any>(() =>
+        client
+          .from('notes')
+          .select('*, log_photos(id, url, position)')
+          .eq('owner_id', ownerId)
+          .eq('archived', false)
+          .eq('subtype', 'reference')
+          .or(refOrClause)
+          .order('created_at', { ascending: false }),
+      );
+    } catch (error) {
+      console.error('[Sweep] Failed to fetch reference notes:', error);
+    }
 
-    if (refError) {
-      console.error('[Sweep] Failed to fetch reference notes:', refError);
-    } else if (refs) {
+    if (refs.length > 0) {
       processNoteRows(refs);
     }
 
@@ -371,18 +402,24 @@ export async function fetchSweepCandidatesForUser(
     sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
     const sevenDaysFromNowStr = getDateService().toLocalDate(sevenDaysFromNow);
 
-    const { data: eventNotes, error: eventError } = await client
-      .from('notes')
-      .select('*, log_photos(id, url, position)')
-      .eq('owner_id', ownerId)
-      .eq('archived', false)
-      .not('target_date', 'is', null)
-      .gte('target_date', todayDay)
-      .lte('target_date', sevenDaysFromNowStr);
+    let eventNotes: any[] = [];
+    try {
+      eventNotes = await fetchAllPaginated<any>(() =>
+        client
+          .from('notes')
+          .select('*, log_photos(id, url, position)')
+          .eq('owner_id', ownerId)
+          .eq('archived', false)
+          .not('target_date', 'is', null)
+          .gte('target_date', todayDay)
+          .lte('target_date', sevenDaysFromNowStr)
+          .order('created_at', { ascending: false }),
+      );
+    } catch (error) {
+      console.error('[Sweep] Failed to fetch event notes:', error);
+    }
 
-    if (eventError) {
-      console.error('[Sweep] Failed to fetch event notes:', eventError);
-    } else if (eventNotes) {
+    if (eventNotes.length > 0) {
       processNoteRows(eventNotes);
     }
   } catch (error) {

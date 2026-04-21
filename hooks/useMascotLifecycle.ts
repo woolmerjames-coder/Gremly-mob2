@@ -13,6 +13,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import type { AnimationMode } from '../lib/types';
 import { useMascotController } from './useMascotController';
 import { useGremlyStore } from '../lib/store/useGremlyStore';
+import { useMascotStore } from '../lib/store/useMascotStore';
 import { getDateService } from '../lib/date';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -21,7 +22,6 @@ const INACTIVITY_TIMEOUT_MS = 90_000; // 90 seconds
 const SLEEP_WINDOW_CHECK_MS = 60_000; // check once per minute
 const WAVE_MIN_MS = 45_000; // min idle before random wave
 const WAVE_MAX_MS = 75_000; // max idle before random wave
-const WAKE_ANIMATION_MS = 5_500;
 const WAKE_TO_WAVE_PAUSE_MS = 1_000;
 
 function randomWaveDelay(): number {
@@ -47,12 +47,15 @@ export interface MascotLifecycle {
   mode: AnimationMode;
   /** Call on any user interaction to reset the inactivity timer. */
   resetInactivity: () => void;
+  /** Forwarded from the store; called by MascotLottie on animation finish. */
+  signalAnimationFinish: (mode: AnimationMode) => void;
 }
 
 export function useMascotLifecycle(): MascotLifecycle {
   const controller = useMascotController();
   // Destructure stable function refs (each is a useCallback with stable deps)
-  const { mode, wave, fallAsleep, sleep: goSleep, wakeUp, idle } = controller;
+  const { mode, wave, fallAsleep, sleep: goSleep, wakeUp } = controller;
+  const requestSequence = useMascotStore((s) => s.requestSequence);
   const modeRef = useRef<AnimationMode>(mode);
   useEffect(() => {
     modeRef.current = mode;
@@ -66,7 +69,6 @@ export function useMascotLifecycle(): MascotLifecycle {
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
   const waveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const sleepWindowIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const sequenceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // ─── Clear helpers ───────────────────────────────────────────────────────
 
@@ -81,13 +83,6 @@ export function useMascotLifecycle(): MascotLifecycle {
     if (waveTimerRef.current) {
       clearTimeout(waveTimerRef.current);
       waveTimerRef.current = null;
-    }
-  }, []);
-
-  const clearSequenceTimer = useCallback(() => {
-    if (sequenceTimerRef.current) {
-      clearTimeout(sequenceTimerRef.current);
-      sequenceTimerRef.current = null;
     }
   }, []);
 
@@ -108,16 +103,12 @@ export function useMascotLifecycle(): MascotLifecycle {
 
   /** First open of day: wakeUp → pause → wave → idle */
   const playMorningSequence = useCallback(() => {
-    wakeUp(); // 5.5s animation → auto-returns to idle
-    clearSequenceTimer();
-    sequenceTimerRef.current = setTimeout(() => {
-      idle(); // brief pause at idle
-      sequenceTimerRef.current = setTimeout(() => {
-        wave(); // 5s animation, auto-returns to idle via controller
-        sequenceTimerRef.current = null;
-      }, WAKE_TO_WAVE_PAUSE_MS);
-    }, WAKE_ANIMATION_MS);
-  }, [wakeUp, idle, wave, clearSequenceTimer]);
+    requestSequence([
+      { type: 'mode', mode: 'wakingUp' },
+      { type: 'pause', ms: WAKE_TO_WAVE_PAUSE_MS },
+      { type: 'mode', mode: 'waving' },
+    ]);
+  }, [requestSequence]);
 
   /** Subsequent opens: wave → idle */
   const playReturnSequence = useCallback(() => {
@@ -141,20 +132,21 @@ export function useMascotLifecycle(): MascotLifecycle {
     const isFirstOpenToday = lastActiveDate !== today;
 
     if (currentMode === 'sleeping') {
-      // Update active date on first intentional interaction
       useGremlyStore.setState({ lastActiveDate: today });
 
       if (isFirstOpenToday) {
         playMorningSequence(); // wake → pause → wave → idle
       } else {
-        wakeUp(); // just wake, no wave
+        wakeUp();
       }
     } else if (currentMode === 'fallingAsleep') {
-      idle(); // cancel the falling asleep
+      // The preempt matrix allows wakingUp to interrupt fallingAsleep,
+      // giving the user immediate tap feedback during the fall-asleep animation.
+      wakeUp();
     }
 
     startInactivityTimer();
-  }, [wakeUp, idle, playMorningSequence, startInactivityTimer, lastActiveDate]);
+  }, [wakeUp, playMorningSequence, startInactivityTimer, lastActiveDate]);
 
   // ─── App foreground / background ─────────────────────────────────────────
 
@@ -187,14 +179,13 @@ export function useMascotLifecycle(): MascotLifecycle {
       } else if (nextState === 'background' || nextState === 'inactive') {
         clearInactivityTimer();
         clearWaveTimer();
-        clearSequenceTimer();
       }
     });
 
     return () => {
       subscription.remove();
     };
-  }, [handleAppOpen, clearInactivityTimer, clearWaveTimer, clearSequenceTimer]);
+  }, [handleAppOpen, clearInactivityTimer, clearWaveTimer]);
 
   // ─── Sleep window boundary check ────────────────────────────────────────
 
@@ -205,9 +196,8 @@ export function useMascotLifecycle(): MascotLifecycle {
       const currentMode = modeRef.current;
 
       if (inWindow && currentMode !== 'sleeping' && currentMode !== 'fallingAsleep') {
-        clearInactivityTimer();
-        clearWaveTimer();
-        clearSequenceTimer();
+        // Store's preempt matrix guards against interrupting a one-shot
+        // mid-play; fallAsleep will queue if a celebration is active.
         fallAsleep();
       } else if (!inWindow && (currentMode === 'sleeping' || currentMode === 'fallingAsleep')) {
         wakeUp();
@@ -220,15 +210,7 @@ export function useMascotLifecycle(): MascotLifecycle {
         clearInterval(sleepWindowIntervalRef.current);
       }
     };
-  }, [
-    dayBoundaryHour,
-    fallAsleep,
-    wakeUp,
-    clearInactivityTimer,
-    clearWaveTimer,
-    clearSequenceTimer,
-    startInactivityTimer,
-  ]);
+  }, [dayBoundaryHour, fallAsleep, wakeUp, startInactivityTimer]);
 
   // ─── Restart wave timer when mode returns to idle ────────────────────────
 
@@ -249,12 +231,14 @@ export function useMascotLifecycle(): MascotLifecycle {
     return () => {
       clearInactivityTimer();
       clearWaveTimer();
-      clearSequenceTimer();
     };
-  }, [clearInactivityTimer, clearWaveTimer, clearSequenceTimer]);
+  }, [clearInactivityTimer, clearWaveTimer]);
+
+  const signalAnimationFinish = useMascotStore((s) => s.signalAnimationFinish);
 
   return {
     mode,
     resetInactivity,
+    signalAnimationFinish,
   };
 }

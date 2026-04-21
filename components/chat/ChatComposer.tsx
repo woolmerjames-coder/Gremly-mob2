@@ -1,22 +1,32 @@
 /**
- * ChatComposer - Phase 10.5 Space Chats v1 + Harmonic Glass Design
- * Multiline text input with Send icon and glass effect styling
+ * ChatComposer — best-in-class mobile chat input
+ *
+ * Design: let RN's TextInput auto-size between min/max heights. No manual
+ * height state — simpler, more reliable on iOS than state-driven height.
+ *
+ * - Multiline by default; Enter inserts a newline
+ * - Submits via Send button or Cmd+Enter (hardware keyboards)
+ * - Grows from 1 line to 7 lines, then scrolls internally
+ * - Send button anchored at bottom; placeholder/text flows from top
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Platform,
   NativeSyntheticEvent,
-  TextInputSubmitEditingEventData,
   TextInputKeyPressEventData,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Send } from 'lucide-react-native';
 import { lightTokens } from '../../design/tokens';
+
+const LINE_HEIGHT = 22;
+const V_PADDING = 11;
+const MIN_HEIGHT = LINE_HEIGHT + V_PADDING * 2; // 44 (1 line)
+const MAX_HEIGHT = LINE_HEIGHT * 5 + V_PADDING * 2; // 132 (5 lines)
 
 interface ChatComposerProps {
   onSend: (text: string) => void;
@@ -36,102 +46,70 @@ export function ChatComposer({
   initialText,
 }: ChatComposerProps) {
   const [text, setText] = useState(initialText || '');
-  const [inputHeight, setInputHeight] = useState(44);
   const inputRef = useRef<TextInput>(null);
-  const shouldPreventNextChange = useRef(false);
-
-  const handleSend = () => {
-    if (!text.trim() || disabled) return;
-
-    const messageToSend = text.trim();
-
-    // Haptic feedback on send
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    // Mark that we're sending to prevent newline
-    shouldPreventNextChange.current = true;
-
-    // Clear input and reset height IMMEDIATELY before any async operations
-    setText('');
-    setInputHeight(44);
-
-    // Also clear the native input to ensure no residual text
-    if (inputRef.current) {
-      inputRef.current.clear();
-      inputRef.current.setNativeProps({ text: '' });
-    }
-
-    // Send message (async operation happens after clearing)
-    onSend(messageToSend);
-
-    // Keep keyboard open and focused
-    setTimeout(() => {
-      inputRef.current?.focus();
-      shouldPreventNextChange.current = false;
-    }, 50);
-  };
-
-  const handleContentSizeChange = (event: { nativeEvent: { contentSize: { height: number } } }) => {
-    const { height } = event.nativeEvent.contentSize;
-    // Constrain height between 44pt and 120pt (approx up to ~3 lines)
-    // Account for padding: content height + container padding
-    const newHeight = Math.max(44, Math.min(120, height + 16));
-    setInputHeight(newHeight);
-  };
-
-  const handleTextChange = (newText: string) => {
-    // If we just sent a message, ignore text changes briefly
-    if (shouldPreventNextChange.current) {
-      return;
-    }
-    setText(newText);
-    onChangeTextProp?.(newText);
-  };
 
   const canSend = text.trim().length > 0 && !disabled;
 
+  const handleSend = useCallback(() => {
+    if (!canSend) return;
+    const messageToSend = text.trim();
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setText('');
+    inputRef.current?.clear();
+    onSend(messageToSend);
+
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [canSend, text, onSend]);
+
+  const handleTextChange = useCallback(
+    (next: string) => {
+      setText(next);
+      onChangeTextProp?.(next);
+    },
+    [onChangeTextProp],
+  );
+
+  // Cmd+Enter on hardware keyboards submits. Plain Enter = newline.
+  const handleKeyPress = useCallback(
+    (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+      const ne = e.nativeEvent as TextInputKeyPressEventData & {
+        metaKey?: boolean;
+      };
+      if (ne.key === 'Enter' && ne.metaKey === true) {
+        e.preventDefault?.();
+        handleSend();
+      }
+    },
+    [handleSend],
+  );
+
   return (
     <View style={styles.container} testID={testID}>
-      <View style={[styles.inputContainer, { height: inputHeight }]}>
+      <View style={styles.inputContainer}>
         <TextInput
           ref={inputRef}
           style={styles.textInput}
           value={text}
           onChangeText={handleTextChange}
+          onKeyPress={handleKeyPress}
           placeholder={placeholder}
           placeholderTextColor="rgba(34, 34, 34, 0.4)"
           multiline
-          numberOfLines={1}
-          onContentSizeChange={handleContentSizeChange}
-          scrollEnabled={true}
-          textAlignVertical="center"
-          blurOnSubmit={true} // Prevent adding newline on submit
-          returnKeyType="send"
-          onSubmitEditing={(_e: NativeSyntheticEvent<TextInputSubmitEditingEventData>) => {
-            if (text.trim()) {
-              handleSend();
-            }
-          }}
-          onKeyPress={({ nativeEvent }: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
-            if (nativeEvent.key === 'Enter') {
-              // @ts-expect-error - shiftKey may not exist on all platforms
-              const shift = nativeEvent.shiftKey === true;
-              if (!shift && text.trim()) {
-                handleSend();
-              }
-            }
-          }}
+          textAlignVertical="top"
           editable={!disabled}
+          returnKeyType="default"
+          submitBehavior="newline"
+          keyboardAppearance="light"
           testID={testID ? `${testID}-input` : undefined}
         />
         <TouchableOpacity
-          style={[
-            styles.sendButton,
-            canSend && styles.sendButtonActive,
-            !canSend && styles.sendButtonDisabled,
-          ]}
+          style={[styles.sendButton, canSend ? styles.sendButtonActive : styles.sendButtonDisabled]}
           onPress={handleSend}
           disabled={!canSend}
+          accessibilityRole="button"
+          accessibilityLabel="Send message"
+          accessibilityState={{ disabled: !canSend }}
           testID={testID ? `${testID}-send` : undefined}
         >
           <Send
@@ -149,21 +127,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     backgroundColor: 'transparent',
-    marginBottom: 8, // Reduced since ChatActionBar was removed
+    marginBottom: 8,
   },
   inputContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    // White background for contrast against sage green chat area
+    alignItems: 'flex-end', // button anchored at bottom as field grows
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0, 0, 0, 0.08)',
     paddingHorizontal: 16,
-    paddingVertical: 0,
-    minHeight: 44,
-    maxHeight: 120, // ~5 lines before scrolling
-    // Subtle shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.03,
@@ -173,15 +146,14 @@ const styles = StyleSheet.create({
   textInput: {
     flex: 1,
     fontSize: 16,
-    lineHeight: 22,
+    lineHeight: LINE_HEIGHT,
     color: lightTokens.colors.charcoalInk,
-    minHeight: 44,
-    maxHeight: 120, // ~5 lines before scrolling
-    textAlignVertical: 'center',
-    // Consistent padding on all platforms
-    paddingTop: 12,
-    paddingBottom: 12,
+    paddingTop: V_PADDING,
+    paddingBottom: V_PADDING,
     paddingHorizontal: 0,
+    textAlignVertical: 'top',
+    minHeight: MIN_HEIGHT,
+    maxHeight: MAX_HEIGHT,
   },
   sendButton: {
     width: 32,
@@ -190,7 +162,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
-    marginBottom: 2, // Slight visual alignment
+    marginBottom: 6,
   },
   sendButtonActive: {
     backgroundColor: lightTokens.colors.mossGreen,

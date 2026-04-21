@@ -37,9 +37,10 @@ import { getDateService } from '../../lib/date';
 import { format } from 'date-fns';
 import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { useTrialStartedAt } from '../../lib/store/lifecycleSelectors';
+import { useMascotActions } from '../../hooks/useMascotActions';
 import { triggerSuccess } from '../../lib/haptics';
 import celebrationController from '../features/celebration/CelebrationController';
-import MascotLottie, { type MascotLottieHandle } from '../components/MascotLottie';
+import MascotLottie from '../components/MascotLottie';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -85,14 +86,14 @@ const C = {
 
 function CelebrationBeat({ onAdvance }: { onAdvance: () => void }) {
   const insets = useSafeAreaInsets();
-  const mascotRef = useRef<MascotLottieHandle>(null);
+  const { celebrateFed } = useMascotActions();
 
   useEffect(() => {
     triggerSuccess();
     celebrationController.celebrate('confetti', { message: 'Training complete' });
     // Trigger mascot celebration animation
-    setTimeout(() => mascotRef.current?.celebrateFed(), 300);
-  }, []);
+    setTimeout(() => celebrateFed(), 300);
+  }, [celebrateFed]);
 
   return (
     <View
@@ -103,7 +104,7 @@ function CelebrationBeat({ onAdvance }: { onAdvance: () => void }) {
     >
       <View style={styles.celebrationContent}>
         <View style={styles.mascotLarge}>
-          <MascotLottie ref={mascotRef} style={{ width: 200, height: 200 }} />
+          <MascotLottie style={{ width: 200, height: 200 }} />
         </View>
 
         <Animated.View entering={FadeInUp.delay(400).duration(600)}>

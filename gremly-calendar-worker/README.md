@@ -81,6 +81,7 @@ Set via `wrangler secret put`:
 - `AZURE_CLIENT_SECRET` - Your Azure app client secret
 - `SUPABASE_URL` - Your Supabase project URL
 - `SUPABASE_SERVICE_KEY` - Supabase service role key (NOT anon key)
+- `SUPABASE_JWT_SECRET` - Supabase JWT secret (Project Settings → API → JWT Secret) — required for HS256 token verification
 
 ## Adding Google Calendar (Phase 4)
 
@@ -97,7 +98,8 @@ Set via `wrangler secret put`:
 
 ### "Unauthorized" errors
 - Check that the Supabase JWT is valid and not expired
-- Verify SUPABASE_SERVICE_KEY is set correctly
+- Verify `SUPABASE_JWT_SECRET` is set via `wrangler secret put SUPABASE_JWT_SECRET` (Project Settings → API → JWT Secret)
+- Verify `SUPABASE_SERVICE_KEY` is set correctly
 
 ### "Token exchange failed"
 - Verify AZURE_CLIENT_SECRET is correct

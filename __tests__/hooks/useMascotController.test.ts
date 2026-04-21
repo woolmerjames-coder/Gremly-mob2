@@ -6,10 +6,15 @@
 
 import { renderHook, act } from '@testing-library/react-native';
 import { useMascotController } from '../../hooks/useMascotController';
+import { useMascotStore } from '../../lib/store/useMascotStore';
 
 describe('useMascotController', () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    // Reset the Zustand singleton between tests to prevent state bleed.
+    act(() => {
+      useMascotStore.getState().reset();
+    });
   });
 
   afterEach(() => {
@@ -30,7 +35,7 @@ describe('useMascotController', () => {
     expect(result.current.mode).toBe('drop');
 
     act(() => {
-      jest.advanceTimersByTime(800);
+      jest.advanceTimersByTime(1500);
     });
     expect(result.current.mode).toBe('idle');
   });
@@ -44,7 +49,7 @@ describe('useMascotController', () => {
     expect(result.current.mode).toBe('fed');
 
     act(() => {
-      jest.advanceTimersByTime(800);
+      jest.advanceTimersByTime(2500);
     });
     expect(result.current.mode).toBe('idle');
   });
@@ -58,7 +63,7 @@ describe('useMascotController', () => {
     expect(result.current.mode).toBe('waving');
 
     act(() => {
-      jest.advanceTimersByTime(5000);
+      jest.advanceTimersByTime(5500);
     });
     expect(result.current.mode).toBe('idle');
   });
@@ -72,7 +77,7 @@ describe('useMascotController', () => {
     expect(result.current.mode).toBe('fallingAsleep');
 
     act(() => {
-      jest.advanceTimersByTime(5500);
+      jest.advanceTimersByTime(6000);
     });
     expect(result.current.mode).toBe('sleeping');
   });
@@ -103,7 +108,7 @@ describe('useMascotController', () => {
     expect(result.current.mode).toBe('wakingUp');
 
     act(() => {
-      jest.advanceTimersByTime(5500);
+      jest.advanceTimersByTime(6000);
     });
     expect(result.current.mode).toBe('idle');
   });
@@ -125,12 +130,21 @@ describe('useMascotController', () => {
   it('should handle rapid state changes gracefully', () => {
     const { result } = renderHook(() => useMascotController());
 
+    // celebrate() transitions to 'drop' immediately (idle is a looping mode).
+    // celebrateFed() and wave() cannot preempt the running one-shot 'drop',
+    // so they get queued — last queued wins ('waving' overwrites 'fed').
     act(() => {
       result.current.celebrate();
       result.current.celebrateFed();
       result.current.wave();
     });
 
+    expect(result.current.mode).toBe('drop');
+
+    // After 'drop' finishes (safety timer), the queued 'waving' should play.
+    act(() => {
+      jest.advanceTimersByTime(1500);
+    });
     expect(result.current.mode).toBe('waving');
   });
 

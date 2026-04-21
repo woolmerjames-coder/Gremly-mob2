@@ -754,7 +754,6 @@ export const selectSweepGeneralLogs = createSelector([selectNotes], (notes): Not
 export const selectSweepCandidatesUnified = createSelector(
   [selectTodos, selectNotes, selectSpaces],
   (todos, notes, spaces): Array<{ candidate: SweepCandidate; meta: SweepCardMeta }> => {
-    console.log('[SweepSelector] Running selectSweepCandidatesUnified');
     const today = getTodayDayString();
     const sevenDaysAgo = getDaysAgoDayString(7);
     const candidates: SweepCandidate[] = [];
@@ -763,20 +762,10 @@ export const selectSweepCandidatesUnified = createSelector(
     for (const todo of todos) {
       // Skip locked-in items - handled in Lock-In Checkpoint
       if (todo.commitment === true) {
-        console.log('[SweepSelector] Filtered out locked-in todo:', {
-          id: todo.id.slice(0, 8),
-          name: todo.name?.slice(0, 20),
-        });
         continue;
       }
 
       if (todo.archived || todo.completed_at) {
-        console.log('[SweepSelector] Filtered out todo:', {
-          id: todo.id.slice(0, 8),
-          name: todo.name?.slice(0, 20),
-          archived: todo.archived,
-          completed_at: !!todo.completed_at,
-        });
         continue;
       }
 
@@ -784,11 +773,6 @@ export const selectSweepCandidatesUnified = createSelector(
       const resurfaceAt = (todo as any).resurface_at;
       const hasFutureResurface = resurfaceAt && resurfaceAt > today;
       if (hasFutureResurface) {
-        console.log('[SweepSelector] Filtered out todo with future resurface:', {
-          id: todo.id.slice(0, 8),
-          name: todo.name?.slice(0, 20),
-          resurface_at: resurfaceAt,
-        });
         continue;
       }
 
@@ -801,14 +785,6 @@ export const selectSweepCandidatesUnified = createSelector(
 
       // Check if todo should resurface today (remind me later)
       const shouldResurface = resurfaceAt && resurfaceAt <= today;
-
-      if (shouldResurface) {
-        console.log('[SweepSelector] Including resurfacing todo:', {
-          id: todo.id.slice(0, 8),
-          name: todo.name,
-          resurface_at: resurfaceAt,
-        });
-      }
 
       if (isOverdue || isDueToday || isUndated || wasSkipped || shouldResurface) {
         candidates.push({
@@ -835,11 +811,6 @@ export const selectSweepCandidatesUnified = createSelector(
 
       // Skip notes with FUTURE resurface date (not time yet)
       if (resurfaceAt && resurfaceAt > today) {
-        console.log('[SweepSelector] Filtered out note with future resurface:', {
-          id: note.id.slice(0, 8),
-          title: note.title?.slice(0, 20),
-          resurface_at: resurfaceAt,
-        });
         continue;
       }
 
@@ -848,11 +819,6 @@ export const selectSweepCandidatesUnified = createSelector(
 
       // Skip notes that were swept, UNLESS they should resurface or were skipped
       if (sweptAt && !shouldResurface && !note.skipped_in_sweep_at) {
-        console.log('[SweepSelector] Filtered out swept note:', {
-          id: note.id.slice(0, 8),
-          title: note.title?.slice(0, 20),
-          swept_at: sweptAt,
-        });
         continue;
       }
 
@@ -862,6 +828,23 @@ export const selectSweepCandidatesUnified = createSelector(
 
       const isIdea = note.subtype === 'idea';
       const isRecentIdea = isIdea && createdDay && createdDay >= sevenDaysAgo;
+      const isEvent = note.subtype === 'event';
+      const eventTargetDate = (note as any).target_date as string | null;
+      const isEventToday = isEvent && eventTargetDate === today;
+      const isEventPassed = isEvent && !!eventTargetDate && eventTargetDate < today;
+      const isUpcomingEvent =
+        isEvent && !!eventTargetDate && eventTargetDate >= today && !(note as any).external_source;
+      const daysUntilEvent =
+        isEvent && eventTargetDate
+          ? Math.ceil(
+              (new Date(eventTargetDate).getTime() - new Date(today).getTime()) /
+                (1000 * 60 * 60 * 24),
+            )
+          : null;
+
+      if (isEvent && isEventPassed && !(note as any).external_source) {
+        continue;
+      }
 
       // Include catchall, list, reference subtypes created today
       // Note: 'general' LogSubtype maps to 'catchall' in the database
@@ -869,7 +852,7 @@ export const selectSweepCandidatesUnified = createSelector(
         note.subtype === 'catchall' || note.subtype === 'list' || note.subtype === 'reference';
       const isTodayOther = isOtherSubtype && isCreatedToday;
 
-      if (isRecentIdea || isTodayOther || wasSkipped || shouldResurface) {
+      if (isRecentIdea || isTodayOther || isUpcomingEvent || wasSkipped || shouldResurface) {
         // Extract log_photos from note (joined in useGremlyStore.initialize)
         const logPhotos = (note as any).log_photos;
         const attachments: SweepAttachment[] = Array.isArray(logPhotos)
@@ -885,9 +868,9 @@ export const selectSweepCandidatesUnified = createSelector(
           isOverdue: false,
           isDueToday: false,
           isCreatedToday,
-          isEventToday: false,
-          isEventPassed: false,
-          daysUntilEvent: null,
+          isEventToday,
+          isEventPassed,
+          daysUntilEvent,
           raw: note as any,
           attachments,
         } satisfies SweepCandidateNote);

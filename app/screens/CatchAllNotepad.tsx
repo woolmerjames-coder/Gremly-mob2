@@ -131,7 +131,7 @@ import {
 
 import MINDDROP_HEADER from '../../assets/minddroplogo1.22.png';
 import MascotIcon from '../../components/MascotIcon';
-import MascotLottie, { type MascotLottieHandle } from '../components/MascotLottie';
+import MascotLottie from '../components/MascotLottie';
 import RitualProgressIndicator from '../../components/ritual/RitualProgressIndicator';
 import RitualProgressPopover from '../../components/ritual/RitualProgressPopover';
 import GremlyHelpCard from '../../components/help/GremlyHelpCard';
@@ -152,6 +152,7 @@ import { extractMeaningfulTags } from '../../lib/tags/extractTags';
 import { buildHabitFields } from '../../lib/cortex/textNormalization';
 import { hashString } from '../../lib/telemetry/catchallLogger';
 import { useMindDropSubmit } from '../../hooks/useMindDropSubmit';
+import { useMascotActions } from '../../hooks/useMascotActions';
 import { useVoiceCapture, VoiceCaptureState } from '../../hooks/useVoiceCapture';
 import { VoicePulse } from '../../components/VoicePulse';
 import WeekStrip from '../../components/calendar/WeekStrip';
@@ -210,7 +211,7 @@ const MAX_INPUT_CHARACTERS = 2000;
 const PHOTO_TEXT_HINT = 'Add a few words so Gremly knows what this photo is about.';
 const SPACE = 8;
 const INPUT_PADDING_LEFT = 16;
-const INPUT_ICON_PADDING_RIGHT = 72;
+const INPUT_ICON_PADDING_RIGHT = 84;
 
 const clampNoteLength = (value: string): string =>
   value.length > MAX_INPUT_CHARACTERS ? value.slice(0, MAX_INPUT_CHARACTERS) : value;
@@ -1719,7 +1720,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
   // Phase 1B: Submission mutex to prevent rapid duplicate submits
   const submissionMutex = useRef<Map<string, boolean>>(new Map());
 
-  const mascotRef = useRef<MascotLottieHandle>(null);
+  const { celebrate, celebrateFed } = useMascotActions();
 
   // Metrics tracking for Mind Drop refinements
   const metricsRef = useRef({
@@ -2755,7 +2756,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
 
     // First-drop override: show post-drop sweep prompt instead of normal speech
     if (!hasCompletedFirstDrop) {
-      mascotRef.current?.celebrate();
+      celebrate();
       markFirstDropComplete();
       if (isTrainingMode) advanceTrainingDropStep(); // synchronous, step goes 0 -> 1
 
@@ -2776,7 +2777,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
       // During Day 1 training: skip generic speech, show training prompt instead
       if (isTrainingMode && trainingDropStep >= 1 && trainingDropStep <= 4) {
         advanceTrainingDropStep(); // synchronous, updates store immediately
-        mascotRef.current?.celebrate();
+        celebrate();
 
         console.log('[Training] Drop in training block', {
           closureStep: trainingDropStep,
@@ -2804,10 +2805,10 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
           advanceTrainingDropStep();
           setGremlySpeech(null); // clear "Last one" speech
 
-          mascotRef.current?.celebrateFed();
+          celebrateFed();
           setTimeout(() => setShowFirstFedModal(true), 3500);
         } else {
-          mascotRef.current?.celebrateFed();
+          celebrateFed();
 
           // Show celebration speech instead of FedToast when user is on MindDrop
           const fedDaysCount = useGremlyStore.getState().fedDaysCount;
@@ -2817,7 +2818,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
         // Mark fed celebration as shown so store path doesn't double-fire
         useGremlyStore.setState({ todayFedCelebrationShownAt: nowTimestamp() });
       } else {
-        mascotRef.current?.celebrate();
+        celebrate();
         // Post-drop speech is now handled by the drop:reaction_ready event listener
       }
     }
@@ -3084,7 +3085,7 @@ export default function CatchAllNotepad(props: CatchAllNotepadProps = {}): React
               accessibilityLabel="Help"
               style={styles.inputGremly}
             >
-              <MascotLottie ref={mascotRef} />
+              <MascotLottie />
             </Pressable>
             <MindDropInput
               value={note}
@@ -3751,20 +3752,20 @@ export function makeStyles(c: ReturnType<typeof useTheme>['c'], mode: string) {
       bottom: 12,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 12,
+      gap: 4,
       opacity: 0.35,
     },
     inputIconButton: {
-      padding: 10,
-      minWidth: 44,
-      minHeight: 44,
+      padding: 4,
+      minWidth: 32,
+      minHeight: 32,
       justifyContent: 'center',
       alignItems: 'center',
     },
     inputIconMicButton: {},
     inputIconCameraButton: {
-      minWidth: 44,
-      minHeight: 44,
+      minWidth: 32,
+      minHeight: 32,
       justifyContent: 'center',
       alignItems: 'center',
     },

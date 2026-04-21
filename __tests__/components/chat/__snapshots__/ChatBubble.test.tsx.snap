@@ -30,13 +30,9 @@ exports[`ChatBubble renders assistant message correctly 1`] = `
         {
           "alignSelf": "flex-start",
           "backgroundColor": "transparent",
-          "borderLeftColor": "rgba(212, 164, 74, 0.60)",
-          "borderLeftWidth": 2,
-          "borderRadius": 0,
-          "marginLeft": -4,
-          "marginTop": -6,
           "maxWidth": "100%",
-          "paddingLeft": 14,
+          "paddingHorizontal": 0,
+          "paddingVertical": 4,
         },
       ]
     }
@@ -48,6 +44,55 @@ exports[`ChatBubble renders assistant message correctly 1`] = `
         }
       }
     >
+      <View
+        style={
+          {
+            "alignItems": "center",
+            "flexDirection": "row",
+            "gap": 6,
+            "marginBottom": 6,
+          }
+        }
+      >
+        <View
+          style={
+            {
+              "backgroundColor": "#9CA6E0",
+              "borderRadius": 1.5,
+              "height": 8,
+              "transform": [
+                {
+                  "rotate": "45deg",
+                },
+              ],
+              "width": 8,
+            }
+          }
+        />
+        <Text
+          style={
+            [
+              {
+                "color": "#0E1116",
+                "fontFamily": "Inter-Regular",
+                "fontSize": 16,
+                "fontWeight": "400",
+                "lineHeight": 22.4,
+              },
+              {
+                "color": "rgba(46, 85, 64, 0.55)",
+                "fontFamily": "Inter-Medium",
+                "fontSize": 10.5,
+                "fontWeight": "600",
+                "letterSpacing": 0.6,
+                "textTransform": "uppercase",
+              },
+            ]
+          }
+        >
+          GREMLY
+        </Text>
+      </View>
       <View
         style={
           {
@@ -66,10 +111,10 @@ exports[`ChatBubble renders assistant message correctly 1`] = `
                 "lineHeight": 22.4,
               },
               {
-                "color": "#2D2D2D",
-                "fontSize": 15,
+                "color": "#1F1F1F",
+                "fontSize": 16,
                 "letterSpacing": -0.2,
-                "lineHeight": 21,
+                "lineHeight": 25,
               },
             ]
           }
@@ -85,7 +130,7 @@ exports[`ChatBubble renders assistant message correctly 1`] = `
                   "lineHeight": 22.4,
                 },
                 {
-                  "color": "#2D2D2D",
+                  "color": "#1F1F1F",
                   "letterSpacing": -0.2,
                 },
               ]
@@ -140,10 +185,10 @@ exports[`ChatBubble renders system message correctly 1`] = `
           },
           [
             {
-              "fontSize": 15,
+              "fontSize": 16,
               "fontWeight": "400",
               "letterSpacing": -0.2,
-              "lineHeight": 21,
+              "lineHeight": 25,
             },
             false,
           ],
@@ -184,10 +229,11 @@ exports[`ChatBubble renders user message correctly 1`] = `
         },
         {
           "alignSelf": "flex-end",
-          "backgroundColor": "rgba(92, 107, 90, 0.87)",
-          "borderColor": "rgba(255, 255, 255, 0.05)",
-          "borderRadius": 14,
-          "borderWidth": 0.5,
+          "backgroundColor": "#2E5540",
+          "borderBottomLeftRadius": 16,
+          "borderBottomRightRadius": 4,
+          "borderTopLeftRadius": 16,
+          "borderTopRightRadius": 16,
           "elevation": 1,
           "maxWidth": "85%",
           "paddingHorizontal": 14,
@@ -216,17 +262,17 @@ exports[`ChatBubble renders user message correctly 1`] = `
           },
           [
             {
-              "fontSize": 15,
+              "fontSize": 16,
               "fontWeight": "400",
               "letterSpacing": -0.2,
-              "lineHeight": 21,
+              "lineHeight": 25,
             },
             {
               "color": "#FFFFFF",
-              "fontSize": 15,
+              "fontSize": 16,
               "fontWeight": "400",
               "letterSpacing": -0.2,
-              "lineHeight": 21,
+              "lineHeight": 25,
             },
           ],
         ]
@@ -268,13 +314,9 @@ exports[`ChatBubble streaming state renders streaming cursor when isStreaming is
         {
           "alignSelf": "flex-start",
           "backgroundColor": "transparent",
-          "borderLeftColor": "rgba(212, 164, 74, 0.60)",
-          "borderLeftWidth": 2,
-          "borderRadius": 0,
-          "marginLeft": -4,
-          "marginTop": -6,
           "maxWidth": "100%",
-          "paddingLeft": 14,
+          "paddingHorizontal": 0,
+          "paddingVertical": 4,
         },
       ]
     }
@@ -286,6 +328,55 @@ exports[`ChatBubble streaming state renders streaming cursor when isStreaming is
         }
       }
     >
+      <View
+        style={
+          {
+            "alignItems": "center",
+            "flexDirection": "row",
+            "gap": 6,
+            "marginBottom": 6,
+          }
+        }
+      >
+        <View
+          style={
+            {
+              "backgroundColor": "#9CA6E0",
+              "borderRadius": 1.5,
+              "height": 8,
+              "transform": [
+                {
+                  "rotate": "45deg",
+                },
+              ],
+              "width": 8,
+            }
+          }
+        />
+        <Text
+          style={
+            [
+              {
+                "color": "#0E1116",
+                "fontFamily": "Inter-Regular",
+                "fontSize": 16,
+                "fontWeight": "400",
+                "lineHeight": 22.4,
+              },
+              {
+                "color": "rgba(46, 85, 64, 0.55)",
+                "fontFamily": "Inter-Medium",
+                "fontSize": 10.5,
+                "fontWeight": "600",
+                "letterSpacing": 0.6,
+                "textTransform": "uppercase",
+              },
+            ]
+          }
+        >
+          GREMLY
+        </Text>
+      </View>
       <View
         style={
           {
@@ -304,10 +395,10 @@ exports[`ChatBubble streaming state renders streaming cursor when isStreaming is
                 "lineHeight": 22.4,
               },
               {
-                "color": "#2D2D2D",
-                "fontSize": 15,
+                "color": "#1F1F1F",
+                "fontSize": 16,
                 "letterSpacing": -0.2,
-                "lineHeight": 21,
+                "lineHeight": 25,
               },
             ]
           }
@@ -323,7 +414,7 @@ exports[`ChatBubble streaming state renders streaming cursor when isStreaming is
                   "lineHeight": 22.4,
                 },
                 {
-                  "color": "#2D2D2D",
+                  "color": "#1F1F1F",
                   "letterSpacing": -0.2,
                 },
               ]
