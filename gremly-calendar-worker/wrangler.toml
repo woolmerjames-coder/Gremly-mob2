@@ -10,3 +10,4 @@ AZURE_REDIRECT_URI = "gremly://auth/callback"
 # - AZURE_CLIENT_SECRET
 # - SUPABASE_URL
 # - SUPABASE_SERVICE_KEY
+# - SUPABASE_JWT_SECRET  (Project Settings → API → JWT Secret — required for JWT signature verification)
