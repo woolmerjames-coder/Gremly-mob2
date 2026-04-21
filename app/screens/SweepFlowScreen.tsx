@@ -5814,8 +5814,8 @@ const styles = StyleSheet.create({
   bottomSection: {
     alignItems: 'center',
     paddingBottom: 12,
-    paddingTop: 16,
-    marginTop: 8,
+    paddingTop: 8,
+    marginTop: 4,
   },
   headerProgressContainer: {
     flex: 1,
