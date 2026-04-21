@@ -21,6 +21,7 @@ import type {
   ListByTypeOptions,
 } from './IRepo';
 import { supabase } from '../supabase/client';
+import { fetchAllPaginated } from '../supabase/fetchAllPaginated';
 import { eventBus } from '../events';
 import { computeDueDay, computeDueTime, getDateService } from '../date';
 import { dateService, nowTimestamp } from '../date/DateService';
@@ -1337,19 +1338,23 @@ export class SupabaseRepo implements IRepo {
     // Query each table and combine results
     for (const type of ['habit', 'todo', 'note'] as const) {
       const table = tableFor(type);
-      const { data, error } = await supabase.from(table).select('*').eq('owner_id', userId);
-
-      if (error) {
-        throw new Error(`Error querying ${table}: ${error.message}`);
-      }
-
-      if (data) {
-        for (const row of data) {
-          const record = { ...row, type };
-          if (type === 'habit') results.push(habitZ.parse(mapHabitFromDb(record)) as Habit);
-          else if (type === 'todo') results.push(todoZ.parse(mapTodoFromDb(record)) as Todo);
-          else results.push(noteZ.parse(mapNoteFromDb(record)) as Note);
+      const rows = await fetchAllPaginated<any>(() => {
+        let q = supabase
+          .from(table)
+          .select('*')
+          .eq('owner_id', userId)
+          .order('created_at', { ascending: false });
+        if (type === 'note') {
+          q = q.or('subtype.neq.event,external_source.is.null');
         }
+        return q;
+      });
+
+      for (const row of rows) {
+        const record = { ...row, type };
+        if (type === 'habit') results.push(habitZ.parse(mapHabitFromDb(record)) as Habit);
+        else if (type === 'todo') results.push(todoZ.parse(mapTodoFromDb(record)) as Todo);
+        else results.push(noteZ.parse(mapNoteFromDb(record)) as Note);
       }
     }
 

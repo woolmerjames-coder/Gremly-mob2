@@ -14,6 +14,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { createMMKV } from 'react-native-mmkv';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabase/client';
+import { fetchAllPaginated } from '../supabase/fetchAllPaginated';
 import { getRitualDay } from '../date/ritualDay';
 import { env } from '../env';
 import { getSessionToken } from '../cortex/getSessionToken';
@@ -1183,11 +1184,18 @@ export const useGremlyStore = create<GremlyState>()(
           set({ isLoading: true, userId });
 
           try {
+            const eventWindowStart = getDateService().now();
+            eventWindowStart.setDate(eventWindowStart.getDate() - 30);
+            const eventWindowEnd = getDateService().now();
+            eventWindowEnd.setDate(eventWindowEnd.getDate() + 90);
+            const eventWindowStartIso = eventWindowStart.toISOString();
+            const eventWindowEndIso = eventWindowEnd.toISOString();
+
             // Fetch ALL user data in parallel
             const [
-              todosRes,
-              habitsRes,
-              notesRes,
+              todosRows,
+              habitsRows,
+              notesRows,
               spacesRes,
               tagsRes,
               progressRes,
@@ -1199,12 +1207,39 @@ export const useGremlyStore = create<GremlyState>()(
               notificationPrefsRes,
               weeklySummariesRes,
             ] = await Promise.all([
-              supabase.from('todos').select('*').eq('owner_id', userId),
-              supabase.from('habits').select('*').eq('owner_id', userId),
-              supabase
-                .from('notes')
-                .select('*, log_photos(id, url, position)')
-                .eq('owner_id', userId),
+              fetchAllPaginated<Todo>(() =>
+                supabase
+                  .from('todos')
+                  .select('*')
+                  .eq('owner_id', userId)
+                  .order('created_at', { ascending: false }),
+              ),
+              fetchAllPaginated<Habit>(() =>
+                supabase
+                  .from('habits')
+                  .select('*')
+                  .eq('owner_id', userId)
+                  .order('created_at', { ascending: false }),
+              ),
+              // Calendar events are windowed to [-30d, +90d] by target_date to
+              // prevent hydration bloat from long-tail synced events. Calendar
+              // UIs (useEventNotesForDate, space event selectors,
+              // syncCalendarEventsToNotes) still read from state.notes, so the
+              // active window must stay hydrated. Long-term: migrate these
+              // consumers to CalendarService-backed selectors and drop
+              // subtype='event' from the notes store entirely.
+              fetchAllPaginated<Note>(() =>
+                supabase
+                  .from('notes')
+                  .select('*, log_photos(id, url, position)')
+                  .eq('owner_id', userId)
+                  .or(
+                    `subtype.neq.event,` +
+                      `external_source.is.null,` +
+                      `and(target_date.gte.${eventWindowStartIso},target_date.lte.${eventWindowEndIso})`,
+                  )
+                  .order('created_at', { ascending: false }),
+              ),
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
               supabase.from('habit_progress').select('*').eq('owner_id', userId),
@@ -1245,9 +1280,6 @@ export const useGremlyStore = create<GremlyState>()(
             ]);
 
             // Check for errors (chats/milestones are optional - don't fail if tables don't exist)
-            if (todosRes.error) throw todosRes.error;
-            if (habitsRes.error) throw habitsRes.error;
-            if (notesRes.error) throw notesRes.error;
             if (spacesRes.error) throw spacesRes.error;
             if (tagsRes.error) throw tagsRes.error;
             if (progressRes.error) throw progressRes.error;
@@ -1330,9 +1362,9 @@ export const useGremlyStore = create<GremlyState>()(
 
             // Existing users who have activity should skip onboarding
             const hasExistingActivity =
-              (todosRes.data?.length ?? 0) > 0 ||
-              (habitsRes.data?.length ?? 0) > 0 ||
-              (notesRes.data?.length ?? 0) > 0;
+              (todosRows.length ?? 0) > 0 ||
+              (habitsRows.length ?? 0) > 0 ||
+              (notesRows.length ?? 0) > 0;
 
             const onboardingCompleted = (cortexPrefs?.onboarding_completed_at as string) ?? null;
 
@@ -1371,17 +1403,17 @@ export const useGremlyStore = create<GremlyState>()(
 
             set({
               // Add type field since DB doesn't store it
-              todos: (todosRes.data ?? []).map((t) => ({
+              todos: todosRows.map((t) => ({
                 ...t,
                 type: 'todo' as const,
                 reminders: (t as any).reminders_json ?? [],
               })),
-              habits: (habitsRes.data ?? []).map((h) => ({
+              habits: habitsRows.map((h) => ({
                 ...h,
                 type: 'habit' as const,
                 reminders: (h as any).reminders_json ?? [],
               })),
-              notes: (notesRes.data ?? []).map((n) => ({
+              notes: notesRows.map((n) => ({
                 ...n,
                 type: 'note' as const,
                 reminders: (n as any).reminders_json ?? [],
@@ -1540,9 +1572,9 @@ export const useGremlyStore = create<GremlyState>()(
             }
 
             console.log('[GremlyStore] ✅ Initialized with', {
-              todos: todosRes.data?.length ?? 0,
-              habits: habitsRes.data?.length ?? 0,
-              notes: notesRes.data?.length ?? 0,
+              todos: todosRows.length,
+              habits: habitsRows.length,
+              notes: notesRows.length,
               spaces: spacesRes.data?.length ?? 0,
               habitProgress: progressRes.data?.length ?? 0,
               spaceChats: chatsRes.data?.length ?? 0,
@@ -5279,10 +5311,17 @@ export const useGremlyStore = create<GremlyState>()(
           // Loading indicators should only show during cold init (no cached data).
 
           try {
+            const eventWindowStart = getDateService().now();
+            eventWindowStart.setDate(eventWindowStart.getDate() - 30);
+            const eventWindowEnd = getDateService().now();
+            eventWindowEnd.setDate(eventWindowEnd.getDate() + 90);
+            const eventWindowStartIso = eventWindowStart.toISOString();
+            const eventWindowEndIso = eventWindowEnd.toISOString();
+
             const [
-              todosRes,
-              habitsRes,
-              notesRes,
+              todosRows,
+              habitsRows,
+              notesRows,
               spacesRes,
               tagsRes,
               progressRes,
@@ -5291,9 +5330,32 @@ export const useGremlyStore = create<GremlyState>()(
               weeklySummariesRes,
               cortexPrefsRes,
             ] = await Promise.all([
-              supabase.from('todos').select('*').eq('owner_id', userId),
-              supabase.from('habits').select('*').eq('owner_id', userId),
-              supabase.from('notes').select('*').eq('owner_id', userId),
+              fetchAllPaginated<Todo>(() =>
+                supabase
+                  .from('todos')
+                  .select('*')
+                  .eq('owner_id', userId)
+                  .order('created_at', { ascending: false }),
+              ),
+              fetchAllPaginated<Habit>(() =>
+                supabase
+                  .from('habits')
+                  .select('*')
+                  .eq('owner_id', userId)
+                  .order('created_at', { ascending: false }),
+              ),
+              fetchAllPaginated<Note>(() =>
+                supabase
+                  .from('notes')
+                  .select('*')
+                  .eq('owner_id', userId)
+                  .or(
+                    `subtype.neq.event,` +
+                      `external_source.is.null,` +
+                      `and(target_date.gte.${eventWindowStartIso},target_date.lte.${eventWindowEndIso})`,
+                  )
+                  .order('created_at', { ascending: false }),
+              ),
               supabase.from('spaces').select('*').eq('owner_id', userId),
               supabase.from('tags').select('*').eq('owner_id', userId),
               supabase.from('habit_progress').select('*').eq('owner_id', userId),
@@ -5338,17 +5400,17 @@ export const useGremlyStore = create<GremlyState>()(
 
             set({
               // Add type field since DB doesn't store it
-              todos: (todosRes.data ?? []).map((t) => ({
+              todos: todosRows.map((t) => ({
                 ...t,
                 type: 'todo' as const,
                 reminders: (t as any).reminders_json ?? [],
               })),
-              habits: (habitsRes.data ?? []).map((h) => ({
+              habits: habitsRows.map((h) => ({
                 ...h,
                 type: 'habit' as const,
                 reminders: (h as any).reminders_json ?? [],
               })),
-              notes: (notesRes.data ?? []).map((n) => ({
+              notes: notesRows.map((n) => ({
                 ...n,
                 type: 'note' as const,
                 reminders: (n as any).reminders_json ?? [],
