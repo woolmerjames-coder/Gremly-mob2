@@ -866,7 +866,8 @@ export const selectSweepCandidatesUnified = createSelector(
       const eventTargetDate = (note as any).target_date as string | null;
       const isEventToday = isEvent && eventTargetDate === today;
       const isEventPassed = isEvent && !!eventTargetDate && eventTargetDate < today;
-      const isUpcomingEvent = isEvent && !!eventTargetDate && eventTargetDate >= today;
+      const isUpcomingEvent =
+        isEvent && !!eventTargetDate && eventTargetDate >= today && !(note as any).external_source;
       const daysUntilEvent =
         isEvent && eventTargetDate
           ? Math.ceil(
@@ -875,8 +876,8 @@ export const selectSweepCandidatesUnified = createSelector(
             )
           : null;
 
-      if (isEvent && isEventPassed) {
-        console.log('[SweepSelector] Filtered out past event:', {
+      if (isEvent && isEventPassed && !(note as any).external_source) {
+        console.log('[SweepSelector] Filtered out past user event:', {
           id: note.id.slice(0, 8),
           title: note.title?.slice(0, 20),
           target_date: eventTargetDate,
