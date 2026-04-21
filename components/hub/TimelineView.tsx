@@ -106,18 +106,17 @@ function formatDayLabel(dateKey: string, todayKey: string, yesterdayKey: string)
  * Get the YYYY-MM-DD date key from an ISO timestamp
  */
 function getDateKey(isoString: string): string {
-  if (!isoString) return '1970-01-01';
-  return isoString.split('T')[0];
+  return getDateService().extractLocalDate(isoString) ?? '';
 }
 
 /**
  * Get yesterday's date key
  */
-function getYesterdayKey(todayKey: string): string {
-  const [y, m, d] = todayKey.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  date.setDate(date.getDate() - 1);
-  return getDateService().toLocalDate(date);
+function getYesterdayKey(): string {
+  const ds = getDateService();
+  const yesterday = ds.now();
+  yesterday.setDate(yesterday.getDate() - 1);
+  return ds.extractLocalDate(yesterday.toISOString()) ?? '';
 }
 
 /**
@@ -201,7 +200,7 @@ export default function TimelineView({ onItemPress, onSpacePress }: TimelineView
 
   const dateService = getDateService();
   const todayKey = dateService.today();
-  const yesterdayKey = getYesterdayKey(todayKey);
+  const yesterdayKey = getYesterdayKey();
 
   // Space lookup
   const spaceMap = useMemo(() => {
