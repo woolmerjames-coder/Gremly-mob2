@@ -405,27 +405,13 @@ describe('fetchSweepCandidatesForUser', () => {
 
   it('should NOT include catchall notes (still being processed)', async () => {
     // catchall notes are excluded because they haven't been classified yet
-    const mockCatchallNote = {
-      id: 'note-catchall',
-      owner_id: 'user-1',
-      created_at: '2025-12-03T16:00:00Z',
-      drop_id: 'drop-catchall',
-      skipped_in_sweep_at: null,
-      archived: false,
-      subtype: 'catchall', // Still being processed
-      title: 'Unprocessed entry',
-      log_photos: [],
-    };
-
-    // The mock returns the catchall note, but the engine should filter it out
-    // via .neq('subtype', 'catchall')
+    // via .neq('subtype', 'catchall') in the DB query.
+    // Since we mock at the result level, notes: [] simulates the filtered result.
     // Since we're mocking at the result level, this test documents expected behavior
     const { client } = createMockSupabaseClient({
       cortexPreferences: { data: null, error: null },
       todos: { data: [], error: null },
       habits: { data: [], error: null },
-      // In real usage, the .neq filter would exclude this, but mock returns it
-      // This test documents the expected SQL filter behavior
       notes: { data: [], error: null }, // Simulate filtered result
     });
 
