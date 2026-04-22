@@ -37,6 +37,7 @@ const CLASSIFIER_FILE_PATTERNS = [
   'workers/inngest-jobs/signalCollector.{ts,js,mjs}',
   'workers/inngest-jobs/lifeContextSignalCollector.{ts,js,mjs}',
   'workers/inngest-jobs/worldsClassifier.{ts,js,mjs}',
+  'workers/inngest-jobs/worldsHarness.{ts,js,mjs}',
   'workers/inngest-jobs/src/signalCollector.{ts,js}',
   'workers/inngest-jobs/src/lifeContextSignalCollector.{ts,js}',
   'workers/inngest-jobs/src/worldsClassifier.{ts,js}',
@@ -64,6 +65,7 @@ const CLASSIFIER_PATH_FRAGMENTS = [
   'signalCollector',
   'lifeContextSignalCollector',
   'worldsClassifier',
+  'worldsHarness',
 ];
 
 // ---------------------------------------------------------------------------

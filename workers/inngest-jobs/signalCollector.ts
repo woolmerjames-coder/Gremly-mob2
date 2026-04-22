@@ -1,10 +1,17 @@
 /**
- * Worlds & Chapters v2 — signal collector (Phase 1, step 2)
+ * Worlds & Chapters v2 — signal collector (Phase 1, step 2 · Phase 1b revision)
  *
  * Sole source of truth for what raw signal the Worlds classifier sees.
  * Exports two modes sharing a single typed SignalBundle discriminated
  * union so mode-conditional fields (DCO history, weekly summaries) are
  * a compile-time guarantee rather than a runtime discipline.
+ *
+ * Phase 1b changes:
+ *   - New `calendarSummary` section. Aggregates synced calendar events into
+ *     a compact digest (total count, meetings-per-week, top titles by frequency)
+ *     so the classifier can see that work is calendar-dense without paying the
+ *     token cost of thousands of individual event rows. Informs the
+ *     life_contexts decision (spec §6, §14 decision 1).
  *
  * Hard boundary: this file does not import from any Life Map pipeline
  * function (bootstrapLifeMap, rebuildLifeMap, runUnifiedAnalyst,
@@ -12,7 +19,7 @@
  * Enforced by scripts/check-worlds-boundary.mjs.
  *
  * References:
- *   worlds_and_chapters_spec_v2-3.md §7
+ *   worlds_and_chapters_spec_v2-3.md §7, §14 decision 1
  *   audit_v2-1.md §5
  *   handover_v3_to_next_session.md §6 (non-negotiables) and §8 (task spec)
  */
@@ -151,6 +158,25 @@ export interface WeeklySummaryEntry {
   key_themes: unknown;
 }
 
+/**
+ * Phase 1b: aggregate digest of synced calendar events.
+ *
+ * Individual events (notes with subtype='event' and external_source IS NOT NULL)
+ * remain FILTERED OUT of the `notes` section per non-negotiable §6. This summary
+ * is a separate, compact representation that tells the classifier the shape of
+ * the user's calendar load without shipping thousands of rows.
+ *
+ * Used primarily for the life_contexts decision: if calendar density is high
+ * but reflection signal is low, the World is probably a life_context.
+ */
+export interface CalendarSummary {
+  total_events: number;
+  span_days: number;
+  meetings_per_week: number;
+  top_titles: Array<{ title: string; count: number }>;
+  by_source: Array<{ source: string; count: number }>;
+}
+
 // ─── SignalBundle (discriminated union) ──────────────────────────────────────
 
 interface SignalBundleBase {
@@ -166,6 +192,7 @@ interface SignalBundleBase {
   profileOverrides: ProfileOverrideEntry[];
   ritualProgress: RitualProgressEntry[];
   photoNotes: PhotoNoteEntry[];
+  calendarSummary: CalendarSummary;
 }
 
 export interface LiveSignalBundle extends SignalBundleBase {
@@ -402,6 +429,111 @@ async function fetchPhotoNotes(
   }));
 }
 
+// ─── Phase 1b: Calendar summary ──────────────────────────────────────────────
+
+/**
+ * Aggregate the synced calendar events (notes WHERE subtype='event' AND
+ * external_source IS NOT NULL) into a compact digest.
+ *
+ * Design choices:
+ *   - Count events in the window (or lifetime for live mode).
+ *   - Normalise titles by trimming, lowercasing, and collapsing whitespace to
+ *     build the frequency map. Preserve the most common casing for display.
+ *   - Cap top_titles at 15; the classifier doesn't need a long tail.
+ *   - Skip if there are zero events — the summary is still emitted but with
+ *     zeros, so the classifier can distinguish "no calendar sync" from
+ *     "calendar sync but quiet week".
+ */
+async function fetchCalendarSummary(
+  userId: string,
+  env: Env,
+  windowStart: string | null,
+  windowEnd: string | null,
+): Promise<CalendarSummary> {
+  // Pull only the columns we need for aggregation. `title` is the event name;
+  // `external_source` tells us which calendar it came from (google, outlook, etc.).
+  // Events can live on either `created_at` or `target_date`; we aggregate on
+  // target_date when present (actual meeting date) falling back to created_at.
+  const q =
+    `notes?owner_id=eq.${userId}` +
+    `&subtype=eq.event` +
+    `&external_source=not.is.null` +
+    `&select=title,external_source,target_date,created_at` +
+    windowClause('created_at', windowStart, windowEnd) +
+    `&order=created_at.asc&limit=10000`;
+  type RawEvent = {
+    title: string | null;
+    external_source: { provider?: string | null } | null;
+    target_date: string | null;
+    created_at: string;
+  };
+  const raw = await supabaseGet<RawEvent>(env, q);
+
+  const total = raw.length;
+  if (total === 0) {
+    return {
+      total_events: 0,
+      span_days: 0,
+      meetings_per_week: 0,
+      top_titles: [],
+      by_source: [],
+    };
+  }
+
+  // Work out span in days. In backfill mode use the window, in live mode use
+  // the observed event-date range so "meetings per week" is meaningful.
+  let spanDays: number;
+  if (windowStart && windowEnd) {
+    const ms = new Date(windowEnd).getTime() - new Date(windowStart).getTime();
+    spanDays = Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000)));
+  } else {
+    const dates = raw.map((r) => r.target_date ?? r.created_at).sort();
+    const ms =
+      new Date(dates[dates.length - 1]).getTime() - new Date(dates[0]).getTime();
+    spanDays = Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000)));
+  }
+  const meetingsPerWeek = (total / spanDays) * 7;
+
+  // Frequency map of normalised titles, preserving a representative original.
+  const titleCounts = new Map<string, { count: number; sample: string }>();
+  for (const e of raw) {
+    const raw_title = (e.title ?? '').trim();
+    if (!raw_title) continue;
+    const norm = raw_title.toLowerCase().replace(/\s+/g, ' ');
+    const existing = titleCounts.get(norm);
+    if (existing) existing.count++;
+    else titleCounts.set(norm, { count: 1, sample: raw_title });
+  }
+  const topTitles = Array.from(titleCounts.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 15)
+    .map(({ sample, count }) => ({ title: sample, count }));
+
+  // Frequency map of calendar providers. external_source is jsonb with shape
+  // { provider, externalId, calendarId, lastSyncedAt, etag }; we aggregate on
+  // provider (google, outlook, etc.).
+  const sourceCounts = new Map<string, number>();
+  for (const e of raw) {
+    const provider =
+      e.external_source && typeof e.external_source === 'object'
+        ? (e.external_source.provider ?? '').toString().trim()
+        : '';
+    const src = provider || 'unknown';
+    sourceCounts.set(src, (sourceCounts.get(src) ?? 0) + 1);
+  }
+  const bySource = Array.from(sourceCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([source, count]) => ({ source, count }));
+
+  return {
+    total_events: total,
+    span_days: spanDays,
+    meetings_per_week: Math.round(meetingsPerWeek * 10) / 10,
+    top_titles: topTitles,
+    by_source: bySource,
+  };
+}
+
 // ─── Live-only fetchers (backfill excludes these per spec decisions 7 and 8) ─
 
 async function fetchDcoHistory(userId: string, env: Env): Promise<DcoEntry[]> {
@@ -439,6 +571,7 @@ async function fetchSharedSignalSections(
     profileOverrides,
     ritualProgress,
     photoNotes,
+    calendarSummary,
   ] = await Promise.all([
     fetchJournals(userId, env, windowStart, windowEnd),
     fetchNonJournalNotes(userId, env, windowStart, windowEnd),
@@ -450,6 +583,7 @@ async function fetchSharedSignalSections(
     fetchProfileOverrides(userId, env, windowStart, windowEnd),
     fetchRitualProgress(userId, env, windowStart, windowEnd),
     fetchPhotoNotes(userId, env, windowStart, windowEnd),
+    fetchCalendarSummary(userId, env, windowStart, windowEnd),
   ]);
   return {
     journals,
@@ -462,6 +596,7 @@ async function fetchSharedSignalSections(
     profileOverrides,
     ritualProgress,
     photoNotes,
+    calendarSummary,
   };
 }
 

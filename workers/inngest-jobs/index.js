@@ -13,6 +13,18 @@ import {
   collectSignalForLiveClassifier,
   collectSignalForBackfillClassifier,
 } from './signalCollector';
+import {
+  classifyWorldsWeekly,
+} from './worldsClassifier';
+import {
+  findEarliestDropDate,
+  computeWindows,
+  sectionCountsOf,
+  worldBookToActiveWorlds,
+  chapterBookToActiveChapters,
+  mergeRunIntoState,
+  buildSummary,
+} from './worldsHarness';
 
 // Cloudflare Workers middleware to inject env bindings
 const bindings = new InngestMiddleware({
@@ -7334,6 +7346,160 @@ const validateSignalCollector = inngest.createFunction(
   },
 );
 
+// ─── Worlds classifier test (Phase 1 step 3) ────────────────────────────────
+// Trigger: 'app/worlds.classify'. data.user_id optional (defaults to James).
+// data.mode: 'live' (default) or 'backfill'. data.window_days: int, default 28.
+const classifyWorldsTest = inngest.createFunction(
+  {
+    id: 'worlds-classify-test',
+    name: 'Worlds: Classify (test)',
+  },
+  [{ event: 'app/worlds.classify' }],
+  async ({ event, step, env }) => {
+    const JAMES = '05a3c53d-b242-4b5f-a0db-83004c8e3892';
+    const userId = event.data?.user_id || JAMES;
+    const mode = event.data?.mode === 'backfill' ? 'backfill' : 'live';
+    const windowDays = event.data?.window_days ?? 28;
+
+    const bundle = await step.run('collect-bundle', async () => {
+      if (mode === 'backfill') {
+        const end = new Date();
+        const start = new Date(end.getTime() - windowDays * 24 * 60 * 60 * 1000);
+        return collectSignalForBackfillClassifier(
+          userId, env, start.toISOString(), end.toISOString(),
+        );
+      }
+      return collectSignalForLiveClassifier(userId, env);
+    });
+
+    const output = await step.run('classify', async () => {
+      return classifyWorldsWeekly(bundle, [], [], env);
+    });
+
+    const summary = await step.run('summarize', async () => ({
+      meta: output.run_metadata,
+      counts: {
+        new_world_candidates: output.new_world_candidates.length,
+        new_chapter_candidates: output.new_chapter_candidates.length,
+        velocity_updates: output.velocity_updates.length,
+        evolution_proposals: output.evolution_proposals.length,
+      },
+      world_names: output.new_world_candidates.map((c) => c.proposed_name),
+      chapter_titles: output.new_chapter_candidates.map((c) => c.proposed_title),
+    }));
+
+    return { summary, output };
+  },
+);
+
+// ─── Worlds rolling harness (Phase 1b) ──────────────────────────────────────
+// Trigger: 'app/worlds.harness'. All data.* fields optional.
+//   data.userId      — defaults to James
+//   data.windowDays  — default 28
+//   data.strideDays  — default 14
+//   data.startDate   — ISO; auto-detected from earliest drop if omitted
+//   data.endDate     — ISO; defaults to now
+const runWorldsHarness = inngest.createFunction(
+  { id: 'worlds-harness', name: 'Worlds & Chapters rolling harness (Phase 1b)' },
+  [{ event: 'app/worlds.harness' }],
+  async ({ event, step, env }) => {
+    const data = event.data ?? {};
+    const userId = data.userId ?? '05a3c53d-b242-4b5f-a0db-83004c8e3892';
+    const windowDays = data.windowDays ?? 28;
+    const strideDays = data.strideDays ?? 14;
+
+    // ── Step 1: resolve the date range ─────────────────────────
+    const startDate = await step.run('resolve-start-date', async () => {
+      if (data.startDate) return data.startDate;
+      return findEarliestDropDate(userId, env);
+    });
+    const endDate = data.endDate ?? new Date().toISOString();
+
+    // ── Step 2: compute the window boundaries ───────────────────
+    const windows = computeWindows(startDate, endDate, windowDays, strideDays);
+
+    // ── Step 3: roll through each window ───────────────────────
+    let worldBook = [];
+    let chapterBook = [];
+    let lifeContextBook = [];
+    let events = [];
+    const runs = [];
+
+    for (const w of windows) {
+      const activeWorlds = worldBookToActiveWorlds(worldBook);
+      const activeChapters = chapterBookToActiveChapters(chapterBook);
+
+      const run = await step.run(`window-${w.index}`, async () => {
+        const bundle = await collectSignalForBackfillClassifier(
+          userId,
+          env,
+          w.start,
+          w.end,
+        );
+        const output = await classifyWorldsWeekly(
+          bundle,
+          activeWorlds,
+          activeChapters,
+          env,
+        );
+        const topTitle = bundle.calendarSummary.top_titles[0]?.title ?? null;
+        return {
+          window_index: w.index,
+          window_start: w.start,
+          window_end: w.end,
+          bundle_counts: sectionCountsOf(bundle),
+          calendar_summary: {
+            total_events: bundle.calendarSummary.total_events,
+            meetings_per_week: bundle.calendarSummary.meetings_per_week,
+            top_title_sample: topTitle,
+          },
+          active_worlds_in: activeWorlds.length,
+          active_chapters_in: activeChapters.length,
+          output,
+        };
+      });
+
+      runs.push(run);
+
+      const merged = mergeRunIntoState(
+        worldBook,
+        chapterBook,
+        lifeContextBook,
+        events,
+        run,
+      );
+      worldBook = merged.worldBook;
+      chapterBook = merged.chapterBook;
+      lifeContextBook = merged.lifeContextBook;
+      events = merged.events;
+    }
+
+    // ── Step 4: build summary and return ───────────────────────
+    const summary = buildSummary(
+      runs,
+      worldBook,
+      chapterBook,
+      lifeContextBook,
+      events,
+    );
+
+    return {
+      user_id: userId,
+      start_date: startDate,
+      end_date: endDate,
+      window_days: windowDays,
+      stride_days: strideDays,
+      total_windows: windows.length,
+      runs,
+      world_book: worldBook,
+      chapter_book: chapterBook,
+      life_context_book: lifeContextBook,
+      events,
+      summary,
+    };
+  },
+);
+
 // Inngest serve handler
 const inngestHandler = serve({
   client: inngest,
@@ -7352,6 +7518,8 @@ const inngestHandler = serve({
     backfillIdentity,
     archiveStaleEvents,
     validateSignalCollector,
+    classifyWorldsTest,
+    runWorldsHarness,
   ],
   servePath: '/',
 });
