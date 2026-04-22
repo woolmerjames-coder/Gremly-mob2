@@ -34,15 +34,19 @@ const ROOT = path.resolve(__dirname, '..');
  * Expanded manually with fs.readdirSync — no glob library needed.
  */
 const CLASSIFIER_FILE_PATTERNS = [
-  '07_INNGEST_JOBS/signalCollector.{ts,js,mjs}',
-  '07_INNGEST_JOBS/lifeContextSignalCollector.{ts,js,mjs}',
-  '07_INNGEST_JOBS/worldsClassifier*.{ts,js,mjs}',
+  'workers/inngest-jobs/signalCollector.{ts,js,mjs}',
+  'workers/inngest-jobs/lifeContextSignalCollector.{ts,js,mjs}',
+  'workers/inngest-jobs/worldsClassifier.{ts,js,mjs}',
+  'workers/inngest-jobs/src/signalCollector.{ts,js}',
+  'workers/inngest-jobs/src/lifeContextSignalCollector.{ts,js}',
+  'workers/inngest-jobs/src/worldsClassifier.{ts,js}',
 ];
 
 /** Life Map compiled host bundles that must not import classifier modules. */
 const LIFEMAP_HOST_FILES = [
-  '07_INNGEST_JOBS__index.js',
-  '07_INNGEST_JOBS__index.ts',
+  'workers/inngest-jobs/index.js',
+  'workers/inngest-jobs/index.ts',
+  'workers/inngest-jobs/src/index.ts',
 ];
 
 /** Life Map function names that classifier modules must never import. */
