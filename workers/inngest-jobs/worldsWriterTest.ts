@@ -37,14 +37,14 @@ export function createWorldsWriterTest(inngest: Inngest<{ id: 'gremly' }>) {
       );
 
       // ── Step 2: load active worlds + chapters ───────────────────
-      const { activeWorlds, activeChapters } = await step.run(
+      const { activeWorlds, activeChapters, activeLifeContexts } = await step.run(
         'load-active-state',
         async () => loadActiveState(userId, env),
       );
 
       // ── Step 3: classify ────────────────────────────────────────
       const classifierOutput = await step.run('classify', async () =>
-        classifyWorldsWeekly(bundle, activeWorlds, activeChapters, {
+        classifyWorldsWeekly(bundle, activeWorlds, activeChapters, activeLifeContexts, {
           ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
         }),
       );

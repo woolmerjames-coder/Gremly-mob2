@@ -26,12 +26,7 @@
 
 import { Inngest } from 'inngest';
 import { createClient } from '@supabase/supabase-js';
-import {
-  classifyWorldsWeekly,
-} from './worldsClassifier';
-import { writeClassifierOutput } from './worldsWriter';
-import { collectSignalForBackfillClassifier } from './signalCollector';
-import { loadActiveState } from './worldsActiveState';
+import { processWorldsWindow } from './processWorldsWindow';
 import {
   findEarliestDropDate,
   computeWindows,
@@ -101,55 +96,17 @@ export function createWorldsBootstrap(inngest: Inngest<{ id: 'gremly' }>) {
         const windowSummary: WindowSummary = await step.run(
           `window-${w.index}`,
           async () => {
-            // 2a. Collect backfill signal bundle for this window range
-            const bundle = await collectSignalForBackfillClassifier(
-              userId,
+            const { classifierCounts, writeResult } = await processWorldsWindow({
+              ownerId: userId,
+              windowStart: w.start,
+              windowEnd: w.end,
               env,
-              w.start,
-              w.end,
-            );
-
-            // 2b. Load active state fresh so this window sees prior writes
-            const { activeWorlds, activeChapters } = await loadActiveState(
-              userId,
-              env,
-            );
-
-            // 2c. Classify
-            const classifierOutput = await classifyWorldsWeekly(
-              bundle,
-              activeWorlds,
-              activeChapters,
-              { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY },
-            );
-
-            // 2d. Write to Supabase
-            const writeResult = await writeClassifierOutput(
-              classifierOutput,
-              userId,
-              {
-                SUPABASE_URL: env.SUPABASE_URL,
-                SUPABASE_SERVICE_KEY: env.SUPABASE_SERVICE_KEY,
-              },
-            );
-
-            // 2e. Collect per-window summary
+            });
             return {
               window_index: w.index,
               window_start: w.start,
               window_end: w.end,
-              classifier_counts: {
-                new_worlds: classifierOutput.new_world_candidates.length,
-                new_chapters: classifierOutput.new_chapter_candidates.length,
-                new_life_contexts: classifierOutput.new_life_context_candidates.length,
-                chapter_updates: classifierOutput.chapter_updates.length,
-                velocity_updates: classifierOutput.velocity_updates.length,
-                reclassifications: classifierOutput.reclassification_proposals.length,
-                evolutions: classifierOutput.evolution_proposals.length,
-                reactivations: classifierOutput.reactivation_proposals.length,
-                input_tokens: classifierOutput.run_metadata.input_tokens,
-                output_tokens: classifierOutput.run_metadata.output_tokens,
-              },
+              classifier_counts: classifierCounts,
               write_result: writeResult,
             };
           },

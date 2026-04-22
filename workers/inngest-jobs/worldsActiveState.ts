@@ -3,7 +3,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import type { ActiveWorldInput, ActiveChapterInput } from './worldsClassifier';
+import type { ActiveWorldInput, ActiveChapterInput, ActiveLifeContextInput } from './worldsClassifier';
 
 export interface ActiveStateEnv {
   SUPABASE_URL: string;
@@ -21,7 +21,7 @@ export interface ActiveStateEnv {
 export async function loadActiveState(
   ownerId: string,
   env: ActiveStateEnv,
-): Promise<{ activeWorlds: ActiveWorldInput[]; activeChapters: ActiveChapterInput[] }> {
+): Promise<{ activeWorlds: ActiveWorldInput[]; activeChapters: ActiveChapterInput[]; activeLifeContexts: ActiveLifeContextInput[] }> {
   const db = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false },
   });
@@ -41,6 +41,13 @@ export async function loadActiveState(
     .eq('owner_id', ownerId)
     .in('phase', ['suggested', 'upcoming', 'active', 'closed']);
   if (cErr) throw cErr;
+
+  const { data: lcs, error: lcErr } = await db
+    .from('life_contexts')
+    .select('id, name, kind, description, start_date, end_date, active')
+    .eq('owner_id', ownerId)
+    .eq('active', true);
+  if (lcErr) throw lcErr;
 
   const worldNameById = new Map(
     (worlds ?? []).map((w: any) => [w.id as string, w.name as string]),
@@ -65,6 +72,15 @@ export async function loadActiveState(
       primary_world_name: worldNameById.get(c.primary_world_id as string) ?? '',
       description: c.description as string,
       target_description: c.target_description as string | null,
+    })),
+    activeLifeContexts: (lcs ?? []).map((lc: any) => ({
+      id: lc.id as string,
+      name: lc.name as string,
+      kind: lc.kind,
+      description: lc.description as string | null,
+      start_date: lc.start_date as string | null,
+      end_date: lc.end_date as string | null,
+      active: lc.active as boolean,
     })),
   };
 }

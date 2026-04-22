@@ -28,6 +28,8 @@ import {
 } from './worldsHarness';
 import { createWorldsWriterTest } from './worldsWriterTest';
 import { createWorldsBootstrap } from './worldsBootstrap';
+import { createWorldsWeeklyRun } from './worldsWeeklyRun';
+import { createWorldsWeeklyScheduler } from './worldsWeeklyScheduler';
 
 // Cloudflare Workers middleware to inject env bindings
 const bindings = new InngestMiddleware({
@@ -7646,6 +7648,8 @@ const inngestHandler = serve({
     runWorldsHarness,
     createWorldsWriterTest(inngest),
     createWorldsBootstrap(inngest),
+    createWorldsWeeklyRun(inngest),
+    createWorldsWeeklyScheduler(inngest),
   ],
   servePath: '/',
 });

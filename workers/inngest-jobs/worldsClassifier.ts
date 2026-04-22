@@ -107,6 +107,16 @@ export interface ActiveChapterInput {
   target_description: string | null;
 }
 
+export interface ActiveLifeContextInput {
+  id: string;
+  name: string;
+  kind: LifeContextKind;
+  description: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  active: boolean;
+}
+
 // ─── Output shapes ───────────────────────────────────────────────────────────
 
 export interface NewWorldCandidate {
@@ -248,6 +258,8 @@ What a World is. A World is an active, long-lived domain of the user's life wher
 What a life_context is (distinct from a World). A life_context is a constraint container: something the user has to do, not something they are growing into. Work (employer, role), school, caregiving, legal obligations. Life_contexts are typically calendar-dense (many meetings, many events) but reflection-light (few journal entries, few todos the user chose to make). They consume time without being a growth surface. Decide World vs life_context this way: if the user writes about it, plans inside it, or builds habits around it, it's a World; if they mostly just show up to it because they have to, and the evidence is dominated by calendar events or repetitive obligations rather than reflection, it's a life_context. Employment is the canonical example. When calendar summary shows high meeting density for a domain AND reflection/journal signal on that domain is low, prefer life_context over World. Life_contexts render outside the Worlds tab.
 
 Choosing a kind for a life_context. The kind field must be one of: employer, role, obligation, calendar_source, custom. Use employer when the target is a named organisation the user works for or is employed by. Use role when the target is a specific professional function the user occupies within an employer that is worth tracking separately from the employer itself. Use obligation when the target is a recurring non-employment demand on the user's time or energy. Use calendar_source when the target exists primarily as a source of calendar events and has no other signal shape. Use custom only when none of the above apply. This same enum governs reclassification_proposal.target_kind.
+
+Dedup rule for life_contexts. Before proposing a new_life_context_candidate, check active_life_contexts_in carefully. If any existing life_context represents the same underlying entity as the one you are about to propose, do NOT emit a new candidate — even if the names differ. Match semantically, not by string equality. An existing "Sage at Dentsu" (kind=employer) and a newly observed "Sage (Employer)" are the same entity and must not be duplicated. An existing "Tuesday standup" (kind=obligation) and a newly observed "Weekly Tuesday standup meeting" are the same entity. Use your judgment about what constitutes the same real-world employer, role, obligation, or calendar source. When uncertain, err on the side of NOT proposing a new one — silent skip is better than a duplicate.
 
 What a Chapter is. A Chapter is a bounded arc with a recognizable beginning and end. It can span multiple Worlds. A Chapter has temporal coherence (drops cluster within a window) and narrative coherence (drops tell a story with a start and an end). If no plausible start or end is identifiable, it is not a Chapter. Some Chapters are achievement-shaped; their target_description states what finishing looks like.
 
@@ -549,10 +561,11 @@ export async function classifyWorldsWeekly(
   bundle: SignalBundle,
   activeWorlds: ActiveWorldInput[],
   activeChapters: ActiveChapterInput[],
+  activeLifeContexts: ActiveLifeContextInput[],
   env: ClassifierEnv,
 ): Promise<ClassifierOutput> {
   const effectiveToday = computeEffectiveToday(bundle);
-  const userPrompt = buildUserPrompt(bundle, activeWorlds, activeChapters, effectiveToday);
+  const userPrompt = buildUserPrompt(bundle, activeWorlds, activeChapters, activeLifeContexts, effectiveToday);
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -706,6 +719,7 @@ function buildUserPrompt(
   bundle: SignalBundle,
   activeWorlds: ActiveWorldInput[],
   activeChapters: ActiveChapterInput[],
+  activeLifeContexts: ActiveLifeContextInput[],
   effectiveToday: string,
 ): string {
   const parts: string[] = [
@@ -722,6 +736,10 @@ function buildUserPrompt(
   parts.push('');
   parts.push('active_chapters:');
   parts.push(JSON.stringify(activeChapters, null, 2));
+  parts.push('');
+  parts.push('<active_life_contexts_in>');
+  parts.push(JSON.stringify({ life_contexts: activeLifeContexts }, null, 2));
+  parts.push('</active_life_contexts_in>');
   parts.push('');
   parts.push('signal_bundle:');
 
