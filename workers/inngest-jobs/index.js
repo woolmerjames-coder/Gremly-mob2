@@ -9,6 +9,10 @@
 import { Inngest, InngestMiddleware } from 'inngest';
 import { serve } from 'inngest/cloudflare';
 import { jsonrepair } from 'jsonrepair';
+import {
+  collectSignalForLiveClassifier,
+  collectSignalForBackfillClassifier,
+} from './signalCollector';
 
 // Cloudflare Workers middleware to inject env bindings
 const bindings = new InngestMiddleware({
@@ -7228,6 +7232,108 @@ const archiveStaleEvents = inngest.createFunction(
 // Worker entry point
 // ============================================================================
 
+// ─── Worlds signal collector validation (Phase 1 step 2) ────────────────────
+// Trigger: send event 'app/worlds.validate-collector' from the Inngest dashboard.
+// Optional payload: { "user_id": "<uuid>" }. Defaults to James.
+const validateSignalCollector = inngest.createFunction(
+  {
+    id: 'worlds-validate-signal-collector',
+    name: 'Worlds: Validate Signal Collector',
+  },
+  [{ event: 'app/worlds.validate-collector' }],
+  async ({ event, step, env }) => {
+    const JAMES = '05a3c53d-b242-4b5f-a0db-83004c8e3892';
+    const userId = event.data?.user_id || JAMES;
+
+    const liveCounts = await step.run('collect-live', async () => {
+      const b = await collectSignalForLiveClassifier(userId, env);
+      return {
+        mode: b.mode,
+        journals: b.journals.length,
+        notes: b.notes.length,
+        todos: b.todos.length,
+        habits: b.habits.length,
+        habitProgress: b.habitProgress.length,
+        chatSummaries: b.chatSummaries.length,
+        temporalAnchors: b.temporalAnchors.length,
+        profileOverrides: b.profileOverrides.length,
+        ritualProgress: b.ritualProgress.length,
+        photoNotes: b.photoNotes.length,
+        dcoHistory: b.dcoHistory.length,
+        weeklySummaries: b.weeklySummaries.length,
+      };
+    });
+
+    const backfillCounts = await step.run('collect-backfill-7d', async () => {
+      const now = new Date();
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const b = await collectSignalForBackfillClassifier(
+        userId,
+        env,
+        weekAgo.toISOString(),
+        now.toISOString(),
+      );
+      return {
+        mode: b.mode,
+        windowStart: b.windowStart,
+        windowEnd: b.windowEnd,
+        journals: b.journals.length,
+        notes: b.notes.length,
+        todos: b.todos.length,
+        habits: b.habits.length,
+        habitProgress: b.habitProgress.length,
+        chatSummaries: b.chatSummaries.length,
+        temporalAnchors: b.temporalAnchors.length,
+        profileOverrides: b.profileOverrides.length,
+        ritualProgress: b.ritualProgress.length,
+        photoNotes: b.photoNotes.length,
+        hasDcoHistory: 'dcoHistory' in b,
+        hasWeeklySummaries: 'weeklySummaries' in b,
+      };
+    });
+
+    const invariants = await step.run('check-invariants', async () => {
+      const isJames = userId === JAMES;
+      const checks = [];
+      if (isJames) {
+        checks.push({
+          name: 'notes <= 356 (calendar junk filtered)',
+          pass: liveCounts.notes <= 356,
+          actual: liveCounts.notes,
+        });
+        checks.push({
+          name: 'journals == 119',
+          pass: liveCounts.journals === 119,
+          actual: liveCounts.journals,
+        });
+        checks.push({
+          name: 'chatSummaries == 86',
+          pass: liveCounts.chatSummaries === 86,
+          actual: liveCounts.chatSummaries,
+        });
+        checks.push({
+          name: 'todos <= 714',
+          pass: liveCounts.todos <= 714,
+          actual: liveCounts.todos,
+        });
+      }
+      checks.push({
+        name: 'backfill excludes DCO and weekly summaries',
+        pass: !backfillCounts.hasDcoHistory && !backfillCounts.hasWeeklySummaries,
+      });
+      checks.push({
+        name: 'backfill journals <= live journals',
+        pass: backfillCounts.journals <= liveCounts.journals,
+        actual: `${backfillCounts.journals} vs ${liveCounts.journals}`,
+      });
+      const failed = checks.filter((c) => !c.pass);
+      return { allPassed: failed.length === 0, failed, checks };
+    });
+
+    return { userId, liveCounts, backfillCounts, invariants };
+  },
+);
+
 // Inngest serve handler
 const inngestHandler = serve({
   client: inngest,
@@ -7245,6 +7351,7 @@ const inngestHandler = serve({
     weeklySummaryV2Worker,
     backfillIdentity,
     archiveStaleEvents,
+    validateSignalCollector,
   ],
   servePath: '/',
 });

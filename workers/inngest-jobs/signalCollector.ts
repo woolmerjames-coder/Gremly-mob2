@@ -134,7 +134,6 @@ export interface RitualProgressEntry {
 
 export interface PhotoNoteEntry {
   note_id: string;
-  caption: string | null;
   created_at: string;
   parent_note_body: string | null;
 }
@@ -382,25 +381,22 @@ async function fetchPhotoNotes(
   windowStart: string | null,
   windowEnd: string | null,
 ): Promise<PhotoNoteEntry[]> {
-  // log_photos is joined to notes by note_id. The parent note body is the
-  // text signal per spec decision 6; the image URL is discarded.
-  // Ownership scoped via the parent note's owner_id through a PostgREST
-  // embedded !inner join filter.
+  // log_photos has its own owner_id, so ownership filtering happens on the
+  // row directly (no need for embedded-resource filter). The parent note's
+  // body is the text signal per spec decision 6; image URL is discarded.
   const q =
-    `log_photos?select=note_id,caption,created_at,note:notes!inner(body,owner_id)` +
-    `&note.owner_id=eq.${userId}` +
+    `log_photos?owner_id=eq.${userId}` +
+    `&select=note_id,created_at,note:notes!inner(body)` +
     windowClause('created_at', windowStart, windowEnd) +
     `&order=created_at.asc&limit=500`;
   type RawPhoto = {
     note_id: string;
-    caption: string | null;
     created_at: string;
-    note: { body: string | null; owner_id: string } | null;
+    note: { body: string | null } | null;
   };
   const raw = await supabaseGet<RawPhoto>(env, q);
   return raw.map((r) => ({
     note_id: r.note_id,
-    caption: r.caption,
     created_at: r.created_at,
     parent_note_body: r.note?.body ?? null,
   }));
