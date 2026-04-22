@@ -835,6 +835,136 @@ export function buildSummary(
   };
 }
 
+export function buildHarnessSummary(finalization: HarnessResult): {
+  user_id: string;
+  window_days: number;
+  stride_days: number;
+  total_windows: number;
+  cost_usd: number;
+  worlds: Array<{ id: string; name: string; phase: string; emerged_in_window: number }>;
+  chapters: Array<{
+    id: string;
+    title: string;
+    primary_world_name: string;
+    phase: string;
+    start_date: string | null;
+    end_date: string | null;
+    proposed_in_window: number;
+    closed_in_window: number | null;
+  }>;
+  life_contexts: Array<{
+    id: string;
+    name: string;
+    kind: string;
+    proposed_in_window: number;
+    end_date: string | null;
+  }>;
+  candidates_per_window: Array<{
+    window_index: number;
+    window_end: string;
+    new_worlds: string[];
+    new_chapters: Array<{
+      title: string;
+      primary_world: string;
+      start: string | null;
+      end: string | null;
+    }>;
+    new_life_contexts: Array<{ name: string; kind: string }>;
+    chapter_updates: Array<{ chapter_id: string; close: boolean }>;
+    reclassifications: Array<{ world_id: string; target_name: string; target_kind: string }>;
+    velocity_deltas: Array<{
+      world_id: string;
+      velocity: number;
+      delta: string;
+      dormant: boolean;
+    }>;
+  }>;
+  totals: {
+    worlds_emerged: number;
+    chapters_proposed: number;
+    chapters_closed: number;
+    chapter_updates: number;
+    life_contexts_proposed: number;
+    reclassifications: number;
+    dormancy_recommendations: number;
+  };
+} {
+  return {
+    user_id: finalization.user_id,
+    window_days: finalization.window_days,
+    stride_days: finalization.stride_days,
+    total_windows: finalization.total_windows,
+    cost_usd: finalization.summary.estimated_cost_usd,
+
+    worlds: finalization.world_book.map((w) => ({
+      id: w.id,
+      name: w.current_name,
+      phase: w.phase,
+      emerged_in_window: w.emerged_in_window,
+    })),
+
+    chapters: finalization.chapter_book.map((c) => ({
+      id: c.id,
+      title: c.title,
+      primary_world_name: c.primary_world_name,
+      phase: c.phase,
+      start_date: c.start_date,
+      end_date: c.end_date,
+      proposed_in_window: c.proposed_in_window,
+      closed_in_window: c.closed_in_window,
+    })),
+
+    life_contexts: finalization.life_context_book.map((l) => ({
+      id: l.id,
+      name: l.name,
+      kind: l.kind,
+      proposed_in_window: l.proposed_in_window,
+      end_date: l.end_date,
+    })),
+
+    candidates_per_window: finalization.runs.map((r) => ({
+      window_index: r.window_index,
+      window_end: r.window_end,
+      new_worlds: (r.output.new_world_candidates || []).map((c) => c.proposed_name),
+      new_chapters: (r.output.new_chapter_candidates || []).map((c) => ({
+        title: c.proposed_title,
+        primary_world: c.primary_world_name,
+        start: c.start_date,
+        end: c.end_date,
+      })),
+      new_life_contexts: (r.output.new_life_context_candidates || []).map((c) => ({
+        name: c.proposed_name,
+        kind: c.kind,
+      })),
+      chapter_updates: (r.output.chapter_updates || []).map((u) => ({
+        chapter_id: u.chapter_id,
+        close: u.close_chapter,
+      })),
+      reclassifications: (r.output.reclassification_proposals || []).map((p) => ({
+        world_id: p.world_id,
+        target_name: p.target_name,
+        target_kind: p.target_kind,
+      })),
+      velocity_deltas: (r.output.velocity_updates || []).map((v) => ({
+        world_id: v.world_id,
+        velocity: v.signal_velocity,
+        delta: v.signal_velocity_delta,
+        dormant: v.recommend_dormant,
+      })),
+    })),
+
+    totals: {
+      worlds_emerged: finalization.summary.total_worlds_emerged,
+      chapters_proposed: finalization.summary.total_chapters_proposed,
+      chapters_closed: finalization.summary.total_chapters_closed,
+      chapter_updates: finalization.summary.total_chapter_updates,
+      life_contexts_proposed: finalization.summary.total_life_contexts_proposed,
+      reclassifications: finalization.summary.total_reclassifications,
+      dormancy_recommendations: finalization.summary.total_dormancy_recommendations,
+    },
+  };
+}
+
 // Re-export so the Inngest wrapper can invoke inside its step.run callbacks
 // without importing from signalCollector directly (keeps imports local).
 export {

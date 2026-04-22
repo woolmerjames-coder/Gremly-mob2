@@ -69,9 +69,9 @@ export type EvidenceDropType = DropType | 'chat_summary' | 'temporal_anchor';
 
 export type ChapterType = 'project' | 'goal' | 'arc' | 'transition' | 'ritual';
 export type ChapterPhase = 'suggested' | 'upcoming' | 'active' | 'closing' | 'closed';
-export type LifeContextKind = 'job' | 'school' | 'obligation' | 'constraint' | 'circumstance';
+export type LifeContextKind = 'employer' | 'role' | 'obligation' | 'calendar_source' | 'custom';
 export const LIFE_CONTEXT_KINDS: LifeContextKind[] = [
-  'job', 'school', 'obligation', 'constraint', 'circumstance',
+  'employer', 'role', 'obligation', 'calendar_source', 'custom',
 ];
 
 // ─── Input shapes ────────────────────────────────────────────────────────────
@@ -247,21 +247,13 @@ What a World is. A World is an active, long-lived domain of the user's life wher
 
 What a life_context is (distinct from a World). A life_context is a constraint container: something the user has to do, not something they are growing into. Work (employer, role), school, caregiving, legal obligations. Life_contexts are typically calendar-dense (many meetings, many events) but reflection-light (few journal entries, few todos the user chose to make). They consume time without being a growth surface. Decide World vs life_context this way: if the user writes about it, plans inside it, or builds habits around it, it's a World; if they mostly just show up to it because they have to, and the evidence is dominated by calendar events or repetitive obligations rather than reflection, it's a life_context. Employment is the canonical example. When calendar summary shows high meeting density for a domain AND reflection/journal signal on that domain is low, prefer life_context over World. Life_contexts render outside the Worlds tab.
 
+Choosing a kind for a life_context. The kind field must be one of: employer, role, obligation, calendar_source, custom. Use employer when the target is a named organisation the user works for or is employed by. Use role when the target is a specific professional function the user occupies within an employer that is worth tracking separately from the employer itself. Use obligation when the target is a recurring non-employment demand on the user's time or energy. Use calendar_source when the target exists primarily as a source of calendar events and has no other signal shape. Use custom only when none of the above apply. This same enum governs reclassification_proposal.target_kind.
+
 What a Chapter is. A Chapter is a bounded arc with a recognizable beginning and end. It can span multiple Worlds. A Chapter has temporal coherence (drops cluster within a window) and narrative coherence (drops tell a story with a start and an end). If no plausible start or end is identifiable, it is not a Chapter. Some Chapters are achievement-shaped; their target_description states what finishing looks like.
 
 Active chapters and chapter deduplication. Before proposing a new chapter in a primary_world, examine every existing chapter in that world from active_chapters_in regardless of phase. For each, compute the date range overlap between the proposed chapter's start_date and end_date and the existing chapter's range. If the overlap exceeds 60 percent of the proposed chapter's own duration, do not emit the candidate. If the overlapping existing chapter is still open, emit a chapter_update refining its description and target instead. If the existing chapter is already closed, skip the proposal entirely and rely on the closed chapter for narrative continuity.
 
 When active_chapters is non-empty, you must also check each new_chapter_candidate you would emit against the active list. If a candidate overlaps an existing active chapter in time range AND topic (same primary World or closely related theme), DO NOT emit it as a new candidate. Instead, either (a) emit a chapter_update that extends the existing chapter's end_date or description based on the new evidence, (b) emit a chapter_update with close_chapter=true if the arc has reached its target, or (c) emit nothing for that arc if nothing has changed. Only emit a new_chapter_candidate when the arc is genuinely new or its identity has shifted enough that the existing chapter no longer describes it. Slight title variations ("Gremly Launch Sprint" vs "App Launch Push") describing the same ongoing arc are duplicates and must not be re-proposed.
-
-## Deduplication rules
-
-Before emitting a new_chapter_candidate or new_life_context_candidate, check the provided state for existing entries of the same kind.
-
-For chapters: compare the proposed start_date and end_date against every chapter in chapter_book regardless of phase (including phase="closed"). If the proposed date range overlaps more than 60% with an existing chapter that shares the same primary_world_name, do NOT emit a new_chapter_candidate. If the existing chapter is still open (phase="suggested" or "accepted"), emit a chapter_update instead. If the existing chapter is closed, skip silently — the arc has already been captured.
-
-For life_contexts: compare the proposed name and kind against every entry in life_context_book regardless of end_date. If an entry already exists with a matching name (case-insensitive, trimmed) AND matching kind, do NOT emit a new_life_context_candidate. The life_context is already committed. Only emit a life_context_update if a material detail has changed (new calendar_source, new description, new end_date).
-
-Target kind selection for life_contexts: when target_name contains an organization name (company, employer, client), prefer target_kind="employer" over target_kind="obligation". Reserve "obligation" for non-employment burdens (commutes, caregiving duties, administrative chores).
 
 What an evolution proposal is. A proposal that an existing active World's identity, shape, or membership should change based on how its signal has drifted. Four kinds. Split: sub-clusters have diverged enough to warrant separate Worlds. Emerge: a coherent thread has formed inside or adjacent to an active World, large enough to stand alone. Transform: the World's name, description, or archetypes no longer match its recent signal; drops do not move. Absorb: a dormant World folds into an active neighbor or is archived cleanly. Merge is out of scope; never propose it.
 
@@ -288,6 +280,16 @@ Empty output is valid. If the signal is insufficient, return empty arrays for an
 Reactivation of dormant worlds. For any world appearing in active_worlds_in with phase dormant, evaluate whether current window signal density exceeds the applicable dormancy floor by 25 percent or more. If yes, emit a reactivation_proposal referencing the world by id. Do not create a new world_candidate with a matching name and archetype. Reactivation is a single-window state change and does not require sustained_over_rebuilds.
 
 Reclassification from World to life_context. A World represents a domain the user actively reflects on and grows into. A life_context represents an obligation the user shows up to because they have to. When a world was previously classified as a World but current signal has shifted toward obligation shape, propose reclassification. All of the following must hold in the current window and at least one prior rebuild: calendar density for the world is high relative to its reflection signal, journal and note signal density tagged to the world is low, sentiment trend is neutral or negative. Reclassification requires sustained_over_rebuilds of at least 2 and confidence of at least 0.7.
+
+## Pre-emission state check
+
+The user message contains chapter_book and life_context_book in the state. Before generating any new_chapter_candidate or new_life_context_candidate, you must first perform this check internally and carry the results into your candidate generation.
+
+For chapters: enumerate every entry in chapter_book regardless of phase. For each proposed chapter arc you are considering, compare its date range to every existing chapter that shares the same primary_world_name. Compute the overlap as the number of days the two ranges share divided by the number of days in the proposed chapter. If that ratio is greater than 0.6, the arc is already captured. Do not emit a new_chapter_candidate for it. If the existing chapter has phase "suggested" or "accepted", emit a chapter_update referencing the existing chapter_id instead. If the existing chapter has phase "closed", emit nothing. A closed chapter with overlapping dates means the arc has been told and is not told again.
+
+For life_contexts: enumerate every entry in life_context_book regardless of end_date or active flag. For each proposed life_context you are considering, normalise the proposed_name and every existing name to lowercase and trim whitespace. If a proposed_name matches any existing name AND the proposed kind matches the existing kind, the life_context is already committed. Do not emit a new_life_context_candidate for it. Emit a life_context_update only if a material detail has changed (a new calendar_source, a new description that adds information, or a new end_date).
+
+This is not a post-generation validation step. It is a filter you apply while generating candidates. If you find yourself drafting a candidate that fails this check, discard it before it enters your output array. Do not emit a candidate and flag it with a note; simply do not emit it.
 
 Confidence. Every candidate and proposal gets a confidence between 0 and 1. Think of 0.5 as the minimum emission threshold for non-evolution outputs, 0.7 as the downstream weekly-update surfacing threshold and the minimum for evolution, 0.9 as very strong. Do not inflate confidence to surface weak candidates.`;
 

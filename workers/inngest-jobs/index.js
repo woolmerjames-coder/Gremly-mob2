@@ -24,7 +24,10 @@ import {
   chapterBookToActiveChapters,
   mergeRunIntoState,
   buildSummary,
+  buildHarnessSummary,
 } from './worldsHarness';
+import { createWorldsWriterTest } from './worldsWriterTest';
+import { createWorldsBootstrap } from './worldsBootstrap';
 
 // Cloudflare Workers middleware to inject env bindings
 const bindings = new InngestMiddleware({
@@ -7474,7 +7477,7 @@ const runWorldsHarness = inngest.createFunction(
       events = merged.events;
     }
 
-    // ── Step 4: build summary and return ───────────────────────
+    // ── Step 4: build summary ───────────────────────────────────
     const summary = buildSummary(
       runs,
       worldBook,
@@ -7483,7 +7486,7 @@ const runWorldsHarness = inngest.createFunction(
       events,
     );
 
-    return {
+    const finalization = {
       user_id: userId,
       start_date: startDate,
       end_date: endDate,
@@ -7497,6 +7500,127 @@ const runWorldsHarness = inngest.createFunction(
       events,
       summary,
     };
+
+    // ── Step 5: persist finalization + compact summary ──────────
+    await step.run('persist-results', async () => {
+      const runId = `${userId}-${Date.now()}`;
+      const sbHeaders = {
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      };
+
+      // Write finalization JSON to Supabase Storage
+      const finalizationRes = await fetch(
+        `${env.SUPABASE_URL}/storage/v1/object/worlds-harness/${runId}.finalization.json`,
+        {
+          method: 'POST',
+          headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify(finalization),
+        },
+      );
+
+      // Build compact summary derived from finalization only — no recomputation
+      const compactSummary = buildHarnessSummary(finalization);
+
+      // Write compact summary JSON to Supabase Storage
+      const summaryRes = await fetch(
+        `${env.SUPABASE_URL}/storage/v1/object/worlds-harness/${runId}.summary.json`,
+        {
+          method: 'POST',
+          headers: { ...sbHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify(compactSummary),
+        },
+      );
+
+      // Insert row into worlds_harness_runs (run_id text PK, user_id uuid,
+      // finalization_json jsonb, summary_json jsonb)
+      const dbRes = await fetch(`${env.SUPABASE_URL}/rest/v1/worlds_harness_runs`, {
+        method: 'POST',
+        headers: {
+          ...sbHeaders,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          run_id: runId,
+          user_id: userId,
+          finalization_json: finalization,
+          summary_json: compactSummary,
+        }),
+      });
+
+      return {
+        run_id: runId,
+        finalization_stored: finalizationRes.ok,
+        summary_stored: summaryRes.ok,
+        db_inserted: dbRes.ok,
+      };
+    });
+
+    // ── Step 6: compact summary (Inngest step output only) ──────
+    await step.run('build-compact-summary', async () => {
+      return {
+        user_id: finalization.user_id,
+        window_days: finalization.window_days,
+        stride_days: finalization.stride_days,
+        total_windows: finalization.total_windows,
+        cost_usd: finalization.summary.estimated_cost_usd,
+
+        worlds: finalization.world_book.map((w) => ({
+          id: w.id,
+          name: w.current_name,
+          phase: w.phase,
+          emerged_in_window: w.emerged_in_window,
+        })),
+
+        chapters: finalization.chapter_book.map((c) => ({
+          id: c.id,
+          title: c.title,
+          primary_world_name: c.primary_world_name,
+          phase: c.phase,
+          start_date: c.start_date,
+          end_date: c.end_date,
+          proposed_in_window: c.proposed_in_window,
+          closed_in_window: c.closed_in_window,
+        })),
+
+        life_contexts: finalization.life_context_book.map((l) => ({
+          id: l.id,
+          name: l.name,
+          kind: l.kind,
+          proposed_in_window: l.proposed_in_window,
+          end_date: l.end_date,
+        })),
+
+        candidates_per_window: finalization.runs.map((r) => ({
+          window_index: r.window_index,
+          window_end: r.window_end,
+          new_chapters: (r.output.new_chapter_candidates || []).map((c) => ({
+            title: c.proposed_title,
+            primary_world: c.primary_world_name,
+            start: c.start_date,
+            end: c.end_date,
+          })),
+          new_life_contexts: (r.output.new_life_context_candidates || []).map((c) => ({
+            name: c.proposed_name,
+            kind: c.kind,
+          })),
+          chapter_updates: (r.output.chapter_updates || []).map((u) => ({
+            chapter_id: u.chapter_id,
+            close: u.close_chapter,
+          })),
+          reclassifications: (r.output.reclassification_proposals || []).map((p) => ({
+            world_id: p.world_id,
+            target_name: p.target_name,
+            target_kind: p.target_kind,
+          })),
+        })),
+
+        totals: finalization.summary,
+      };
+    });
+
+    return finalization;
   },
 );
 
@@ -7520,6 +7644,8 @@ const inngestHandler = serve({
     validateSignalCollector,
     classifyWorldsTest,
     runWorldsHarness,
+    createWorldsWriterTest(inngest),
+    createWorldsBootstrap(inngest),
   ],
   servePath: '/',
 });
