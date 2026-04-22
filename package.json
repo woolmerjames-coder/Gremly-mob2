@@ -15,6 +15,7 @@
     "lint": "eslint \"**/*.{js,jsx,ts,tsx}\"",
     "lint:fix": "eslint \"**/*.{js,jsx,ts,tsx}\" --fix",
     "typecheck": "tsc --noEmit",
+    "validate:signal-collector": "tsx scripts/validate-signal-collector.ts",
     "test": "jest",
     "test:ci": "jest --ci",
     "test:watch": "jest --watch",
