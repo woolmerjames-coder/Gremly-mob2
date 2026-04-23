@@ -284,22 +284,71 @@ export interface WorldPerson {
   dropCount: number;
 }
 
-let peopleWarningLogged = false;
+// ============================================================================
+// People derivation from @tags
+//
+// People are not currently stored in entity_people / people tables for testers.
+// They live as @tag entries in notes.tags. This selector parses, normalizes,
+// and ranks them. A future phase may backfill entity_people and swap the source.
+// ============================================================================
 
-export function selectWorldPeople(state: GremlyState, _worldId: string): WorldPerson[] {
-  // Primary path requires entity_people + people in state. If either is absent, return empty.
-  // Fallback parsing of notes.tags / body is deferred to 4a.4.
-  const anyState = state as unknown as { entityPeople?: unknown[]; people?: unknown[] };
-  if (!Array.isArray(anyState.entityPeople) || !Array.isArray(anyState.people)) {
-    if (!peopleWarningLogged) {
-      console.warn(
-        '[worldsSelectors] selectWorldPeople: entity_people / people not hydrated yet; returning empty. Fallback lands in 4a.4.',
-      );
-      peopleWarningLogged = true;
+function extractPeopleFromNotes(notes: Note[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const n of notes) {
+    const tags = Array.isArray(n.tags) ? n.tags : [];
+    for (const raw of tags) {
+      if (typeof raw !== 'string') continue;
+      if (!raw.startsWith('@')) continue;
+      const name = raw.slice(1).trim();
+      if (name.length === 0) continue;
+      const canonical = titleCase(name);
+      counts.set(canonical, (counts.get(canonical) ?? 0) + 1);
     }
-    return [];
   }
-  return [];
+  return counts;
+}
+
+function titleCase(raw: string): string {
+  return raw
+    .split(/\s+/)
+    .map((w) => (w.length > 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(' ');
+}
+
+function initialsOf(name: string): string {
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+export function selectWorldPeople(state: GremlyState, worldId: string): WorldPerson[] {
+  const refs = selectWorldIdToDropRefs(state).get(worldId) ?? [];
+  const noteIds = new Set(refs.filter((r) => r.drop_type === 'note').map((r) => r.drop_id));
+  const worldNotes = state.notes.filter((n) => noteIds.has(n.id));
+  const counts = extractPeopleFromNotes(worldNotes);
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([name, dropCount]) => ({
+      id: name.toLowerCase(),
+      name,
+      initials: initialsOf(name),
+      dropCount,
+    }));
+}
+
+export function selectAllPeopleForUser(state: GremlyState, limit: number = 6): WorldPerson[] {
+  const counts = extractPeopleFromNotes(state.notes);
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([name, dropCount]) => ({
+      id: name.toLowerCase(),
+      name,
+      initials: initialsOf(name),
+      dropCount,
+    }));
 }
 
 // ============================================================================
@@ -457,6 +506,7 @@ export const useWeeklySummaryCardState = () =>
   useGremlyStore((s) => selectWeeklySummaryCardState(s));
 
 export const usePendingProposalCount = () => useGremlyStore(selectPendingProposalCount);
+export const useAllPeople = () => useGremlyStore((s) => selectAllPeopleForUser(s));
 
 // ============================================================================
 // Composite drop hooks

@@ -1,22 +1,42 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { useState, useCallback } from 'react';
 import { lightTokens } from '../../design/tokens';
 import { Text } from '../../ui';
+import { useGremlyStore } from '../../lib/store/useGremlyStore';
 import { WorldsHeader } from '../../components/worlds/WorldsHeader';
+import { ProposalBanner } from '../../components/worlds/ProposalBanner';
 import { WeeklySummaryCard } from '../../components/worlds/WeeklySummaryCard';
 import { PastSummariesLink } from '../../components/worlds/PastSummariesLink';
 import { WorldsGrid } from '../../components/worlds/WorldsGrid';
 import { ContextsChipRow } from '../../components/worlds/ContextsChipRow';
 import { OpenChaptersSection } from '../../components/worlds/OpenChaptersSection';
 import { RecentClosedChaptersSection } from '../../components/worlds/RecentClosedChaptersSection';
+import { PeopleRow } from '../../components/worlds/PeopleRow';
 
 export default function WorldsScreen() {
-  function handleSummaryPress() {
-    Alert.alert('Weekly Summary', 'Summary detail coming in a later batch.');
+  const refreshWorldsGraph = useGremlyStore((s) => s.refreshWorldsGraph);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshWorldsGraph();
+    setRefreshing(false);
+  }, [refreshWorldsGraph]);
+
+  function handlePressProposals() {
+    console.log('[WorldsScreen] press proposals');
+    // proposals sheet lands in 4b
   }
 
-  function handlePastPress() {
-    Alert.alert('Past Summaries', 'Past summaries screen coming in a later batch.');
+  function handlePressWeeklySummary() {
+    console.log('[WorldsScreen] press weekly summary');
+    // summary detail lands in a later batch
+  }
+
+  function handlePressPastSummaries() {
+    console.log('[WorldsScreen] press past summaries');
+    // past summaries screen lands in a later batch
   }
 
   function handlePressWorld(worldId: string) {
@@ -39,12 +59,28 @@ export default function WorldsScreen() {
     // navigation lands in 4a.3
   }
 
+  function handlePressPerson(personId: string) {
+    console.log('[WorldsScreen] press person', personId);
+    // navigation lands in 4a.3
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top']} testID="worlds-screen">
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={lightTokens.colors.ambergold}
+          />
+        }
+      >
         <WorldsHeader />
-        <WeeklySummaryCard onPressNew={handleSummaryPress} />
-        <PastSummariesLink onPress={handlePastPress} />
+        <ProposalBanner onPress={handlePressProposals} />
+        <WeeklySummaryCard onPressNew={handlePressWeeklySummary} />
+        <PastSummariesLink onPress={handlePressPastSummaries} />
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionLabel}>WORLDS</Text>
         </View>
@@ -52,6 +88,7 @@ export default function WorldsScreen() {
         <ContextsChipRow onPressContext={handlePressContext} />
         <OpenChaptersSection onPressChapter={handlePressChapter} />
         <RecentClosedChaptersSection onPressChapter={handlePressChapter} />
+        <PeopleRow onPressPerson={handlePressPerson} />
       </ScrollView>
     </SafeAreaView>
   );
